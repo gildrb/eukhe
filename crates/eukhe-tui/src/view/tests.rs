@@ -808,7 +808,8 @@ fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
     assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
 }
 
-/// The dense turn: the thinking renders dim with its paragraphs on
+/// The dense turn: the thinking renders in the thinking style
+/// (`thinkingText`, italic) with its paragraphs on
 /// consecutive rows, the text block follows without a blank, the tool
 /// card follows the text without a blank, and the settled reply (no
 /// tool calls) after the tool rows keeps its thinking flush under the
@@ -818,7 +819,10 @@ fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
 #[test]
 fn a_turn_renders_dense_thinking_and_flush_blocks() {
     let theme = Theme::builtin("eukhe", ColorMode::Color256);
-    let dim = theme.fg_style(ThemeColor::Dim);
+    // The thinking style: the theme's `thinkingText` colour, italic.
+    let thinking = theme
+        .fg_style(ThemeColor::ThinkingText)
+        .add_modifier(Modifier::ITALIC);
     let code = crate::markdown::MarkdownStyle::from_theme(&theme).code;
     let mut view = view_with(vec![
         user_row(),
@@ -902,17 +906,18 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
         ],
         "{plain:?}"
     );
-    // The thinking rows are dim (inline code included; the zone marker
-    // on the reply's first row carries no color); the reply keeps its
-    // markdown rendering (the inline code in the code color).
+    // The thinking rows are in the thinking style (inline code included;
+    // the zone marker on the reply's first row carries no color); the
+    // reply keeps its markdown rendering (the inline code in the code
+    // color, the body upright in the text color).
     for index in [prompt + 2, prompt + 3, prompt + 4, reply_thinking] {
         assert!(
             rows[index]
                 .iter()
                 .filter(|span| !span.content.trim().is_empty())
                 .filter(|span| !span.content.starts_with('\u{1b}'))
-                .all(|span| span.style == dim),
-            "dim thinking row {index}: {:?}",
+                .all(|span| span.style == thinking),
+            "thinking-styled row {index}: {:?}",
             rows[index]
         );
     }
@@ -923,7 +928,15 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
         .find(|span| span.content == "client-rendered")
         .expect("the inline code span");
     assert_eq!(inline_code.style, code);
-    assert_ne!(code, dim);
+    assert_ne!(code, thinking);
+    let reply_body = rows
+        .last()
+        .expect("the reply row")
+        .iter()
+        .find(|span| span.content.contains("The page is"))
+        .expect("the reply body span");
+    assert_ne!(reply_body.style, thinking);
+    assert!(!reply_body.style.add_modifier.contains(Modifier::ITALIC));
 }
 
 /// TS `AgentMessageComponent` is a compact neighbor

@@ -327,6 +327,12 @@ fn openai_completions_compat_properties() -> Properties {
             )),
         ),
         (
+            "clampOutputToModelMax",
+            optional_boolean(desc(
+                "Whether the host takes an output cap up to the model's maxTokens. When false the cap is at most 64000. Default: true for a local backend (a local server's provider id, or a base URL on this machine or a private network), else false.",
+            )),
+        ),
+        (
             "requiresToolResultName",
             optional_boolean(desc(
                 "Whether tool results require the name field. Default: auto-detected from URL.",

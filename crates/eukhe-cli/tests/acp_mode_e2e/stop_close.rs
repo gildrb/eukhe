@@ -310,9 +310,10 @@ fn acp_truncated_final_response_maps_to_max_tokens_stop_reason() {
 }
 
 #[test]
-fn acp_one_truncated_reply_then_an_answer_ends_the_turn() {
-    // A reply cut at the output limit is not the answer: the run goes on,
-    // and the turn ends with the model's next, whole answer.
+fn acp_a_truncated_reply_with_room_is_the_turns_answer() {
+    // A reply cut at the output limit with text, while the window has room,
+    // is kept as the answer: the turn ends on it with `max_tokens`, and no
+    // second request goes.
     let script = json!({
         "engine": "faux",
         "responses": [
@@ -336,12 +337,15 @@ fn acp_one_truncated_reply_then_an_answer_ends_the_turn() {
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
     assert_eq!(
         prompt_response["result"],
-        json!({ "stopReason": "end_turn" })
+        json!({ "stopReason": "max_tokens" })
     );
-    assert!(
+    let streamed = |text: &str| {
         updates
             .iter()
-            .any(|update| update.to_string().contains("the whole answer")),
-        "the final answer streams: {updates:?}"
+            .any(|update| update.to_string().contains(text))
+    };
+    assert!(
+        streamed("half an answer") && !streamed("the whole answer"),
+        "the truncated reply is the answer: {updates:?}"
     );
 }

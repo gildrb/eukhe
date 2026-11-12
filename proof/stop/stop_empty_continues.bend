@@ -8,5 +8,5 @@ import ../../bend/ffi_stop.bend as FS
 import ../../bend/wire.bend as Wr
 import ../../laws/stop.bend as Stop
 
-def Stop.stop_empty_continues(b, p):
+def Stop.stop_empty_continues(b, p, sp, cu):
   {==}

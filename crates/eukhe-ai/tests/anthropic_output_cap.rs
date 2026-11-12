@@ -96,11 +96,13 @@ async fn a_budget_mode_request_sends_the_catalog_max_and_leaves_the_answer_4000_
 #[tokio::test]
 async fn a_model_the_claude_api_stops_at_the_window_is_not_shrunk() {
     let context = user(&"word ".repeat(2_000));
+    // The request's prompt size as Eukhe sizes it (the padded local count),
+    // then 64 tokens of headway.
     let prompt = output_cap_prompt_tokens(
         &model_tokenizer(&claude("claude-opus-4-1", 0, 32_000)),
         context.messages(),
     );
-    let window = prompt + 4096 + 10_000;
+    let window = prompt + 64 + 10_000;
     let shrunk = payload(
         &claude("claude-opus-4-1", window, 32_000),
         &context,

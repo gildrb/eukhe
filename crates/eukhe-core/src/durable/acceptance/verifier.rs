@@ -89,6 +89,7 @@ pub(crate) fn generation_hooks(verifier: &Verifier) -> HookRegistration {
                 }
                 .boxed()
             })),
+            on_truncated: None,
             after_tools: Some(Arc::new(move |_, _, api, cx| {
                 let verifier = effects.clone();
                 let api = api.clone();

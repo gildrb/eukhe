@@ -116,6 +116,7 @@ fn prime_inference_compat(cache_control_format: Option<CacheControlFormat>) -> R
         supports_usage_in_streaming: true,
         supports_finish_reason: true,
         max_tokens_field: MaxTokensField::MaxTokens,
+        clamp_output_to_model_max: false,
         requires_tool_result_name: false,
         requires_assistant_after_tool_result: false,
         requires_thinking_as_text: false,

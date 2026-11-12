@@ -217,42 +217,42 @@ def rex.stuck_before(d: Wr.Dec<Nat>) -> {FRn.get_stuck.c2.f0(d) == RunSpec.re.r_
     case Wr.Bad{}:
       {==}
 
-def rex.stuck5(+w: Nat, +c: Nat, +p: Nat, +o: Nat, +cu: Bool, d: Wr.Dec<Bool>) -> {FRn.get_stuck.c4.f5(w, c, p, o, cu, d) == RunSpec.re.r_stuck.lower(w, c, p, o, cu, d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck5(+w: Nat, +c: Nat, +p: Nat, +o: Nat, +cu: Bool, d: Wr.Dec<Bool>) -> {FRn.get_stuck.c0.f5(w, c, p, o, cu, d) == RunSpec.re.r_stuck.lower(w, c, p, o, cu, d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{lower, r}:
       {==}
     case Wr.Bad{}:
       {==}
 
-def rex.stuck4(+w: Nat, +c: Nat, +p: Nat, +o: Nat, d: Wr.Dec<Bool>) -> {FRn.get_stuck.c4.f4(w, c, p, o, d) == RunSpec.re.r_stuck.cuttable(w, c, p, o, d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck4(+w: Nat, +c: Nat, +p: Nat, +o: Nat, d: Wr.Dec<Bool>) -> {FRn.get_stuck.c0.f4(w, c, p, o, d) == RunSpec.re.r_stuck.cuttable(w, c, p, o, d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{cu, r}:
       rex.stuck5(w, c, p, o, cu, Wr.get_bool(r))
     case Wr.Bad{}:
       {==}
 
-def rex.stuck3(+w: Nat, +c: Nat, +p: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c4.f3(w, c, p, d) == RunSpec.re.r_stuck.out(w, c, p, d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck3(+w: Nat, +c: Nat, +p: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c0.f3(w, c, p, d) == RunSpec.re.r_stuck.out(w, c, p, d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{o, r}:
       rex.stuck4(w, c, p, o, Wr.get_bool(r))
     case Wr.Bad{}:
       {==}
 
-def rex.stuck2(+w: Nat, +c: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c4.f2(w, c, d) == RunSpec.re.r_stuck.prompt(w, c, d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck2(+w: Nat, +c: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c0.f2(w, c, d) == RunSpec.re.r_stuck.prompt(w, c, d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{p, r}:
       rex.stuck3(w, c, p, Wr.get_nat(r))
     case Wr.Bad{}:
       {==}
 
-def rex.stuck1(+w: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c4.f1(w, d) == RunSpec.re.r_stuck.catalog(w, d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck1(+w: Nat, d: Wr.Dec<Nat>) -> {FRn.get_stuck.c0.f1(w, d) == RunSpec.re.r_stuck.catalog(w, d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{c, r}:
       rex.stuck2(w, c, Wr.get_nat(r))
     case Wr.Bad{}:
       {==}
 
-def rex.stuck0(d: Wr.Dec<Nat>) -> {FRn.get_stuck.c4.f0(d) == RunSpec.re.r_stuck.window(d) : Wr.Dec<RnDecision.Stuck>}:
+def rex.stuck0(d: Wr.Dec<Nat>) -> {FRn.get_stuck.c0.f0(d) == RunSpec.re.r_stuck.window(d) : Wr.Dec<RnDecision.Stuck>}:
   match d:
     case Wr.Got{w, r}:
       rex.stuck1(w, Wr.get_nat(r))
@@ -264,16 +264,14 @@ def rex.stuck_tag(d: Wr.Dec<Nat>) -> {FRn.get_stuck.tag(d) == RunSpec.re.r_stuck
     case Wr.Got{t, +r}:
       match t:
         case 0n:
-          {==}
+          rex.stuck0(Wr.get_nat(r))
         case 1n:
           {==}
         case 2n:
           rex.stuck_before(Wr.get_nat(r))
         case 3n:
           {==}
-        case 4n:
-          rex.stuck0(Wr.get_nat(r))
-        case 5n+u:
+        case 4n+u:
           {==}
     case Wr.Bad{}:
       {==}
@@ -529,15 +527,13 @@ def rex.w_rcfg(c: RnRecovery.RCfg, -rest: String) -> {FRn.put_rcfg(c, rest) == R
 
 def rex.w_stuck(s: RnDecision.Stuck, -rest: String) -> {FRn.put_stuck(s, rest) == RunSpec.re.w_stuck(s, rest) : String}:
   match s:
-    case RnDecision.Truncated{}:
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
       {==}
     case RnDecision.Leaked{}:
       {==}
     case RnDecision.Repeats{before}:
       {==}
     case RnDecision.Emptied{}:
-      {==}
-    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
       {==}
 
 def rex.w_rk(k: RnRecovery.Rk, -rest: String) -> {FRn.put_rk(k, rest) == RunSpec.re.w_rk(k, rest) : String}:

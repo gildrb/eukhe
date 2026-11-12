@@ -194,9 +194,9 @@ async fn moonshot_kimi_sends_reasoning_effort_and_k2_6_keeps_thinking() {
     }
 }
 
-/// A Kimi model always sends an output cap, also where
-/// the catalog max is the whole window and the cap would otherwise be left
-/// to the provider.
+/// A Kimi model always sends an output cap: a request without a caller's
+/// cap carries the catalog max on every host whose rulebook rule does not
+/// leave the default cap out.
 #[tokio::test]
 async fn kimi_always_sends_an_output_cap() {
     for provider in ["moonshotai", "moonshotai-cn"] {

@@ -9,6 +9,7 @@ use eukhe_types::pi_ai::{
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::Entry;
 
+use crate::api::openai_completions::compat::id_has_prefix;
 use crate::models::clamp_thinking_level;
 use crate::quirks::{LevelBudgets, Quirks, Rulebook};
 use crate::types::{SimpleStreamOptions, StreamOptions};
@@ -18,12 +19,15 @@ use crate::utils::context_tokens::{model_tokenizer, output_cap_prompt_tokens};
 /// leaves out (the request's wire frame) when the output cap is shrunk to
 /// fit it, on top of the padding of the locally counted messages
 /// ([`output_cap_prompt_tokens`]).
-const CONTEXT_SAFETY_TOKENS: u64 = 4096;
+const CONTEXT_SAFETY_TOKENS: u64 = 64;
 /// The smallest output cap a window shrink leaves.
-const MIN_MAX_TOKENS: u64 = 1;
+const MIN_MAX_TOKENS: u64 = 1024;
 /// Tokens a request's thinking budget always leaves the answer under its
 /// response ceiling (omp `OUTPUT_FALLBACK_BUFFER`).
 pub const OUTPUT_FALLBACK_BUFFER: u64 = 4000;
+/// The most output tokens an `OpenAI`-family request asks for on a host
+/// that does not take the model's whole max.
+pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 64_000;
 
 /// eukhe addition: whether a `streamSimple` request of `model` with
 /// `reasoning` sends a forced [`ToolChoice`](crate::types::ToolChoice)
@@ -68,6 +72,51 @@ fn write_window(writer: &mut Writer, model: &Model, context: &TranscriptContext)
         .bool(Quirks::of(model).stops_output_at_window().unwrap_or(false));
 }
 
+/// Whether the host of an `OpenAI`-family request takes an output cap up
+/// to the model's max: the quirks rulebook's `clamp_output_to_model_max`
+/// (or the host's id prefixes), else whether the host is a local backend
+/// (a local server's provider id, or a base URL on this machine or a
+/// private network).
+#[must_use]
+pub(crate) fn clamps_output_to_model_max(model: &Model) -> bool {
+    let quirks = Quirks::of(model);
+    id_has_prefix(model, quirks.clamp_output_to_model_max_prefixes())
+        || quirks.clamp_output_to_model_max().unwrap_or_else(|| {
+            let host = url::Url::parse(&model.base_url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_lowercase))
+                .unwrap_or_default();
+            let host = host.strip_suffix('.').unwrap_or(&host);
+            let private_172 = host
+                .strip_prefix("172.")
+                .and_then(|rest| rest.split_once('.'))
+                .and_then(|(second, _)| second.parse::<u8>().ok())
+                .is_some_and(|second| (16..=31).contains(&second));
+            ["llama.cpp", "lm-studio", "vllm", "ollama"].contains(&model.provider.as_str())
+                || ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].contains(&host)
+                || host.starts_with("10.")
+                || host.starts_with("192.168.")
+                || private_172
+                || host
+                    .rsplit_once('.')
+                    .is_some_and(|(_, last)| last == "local")
+        })
+}
+
+/// The output cap an `OpenAI`-family request sends for the request's cap
+/// `cap`: never above the model's max, and never above
+/// [`OPENAI_MAX_OUTPUT_TOKENS`] unless the host takes the model's whole max
+/// (`clamp_to_model_max`).
+#[must_use]
+pub(crate) fn openai_output_cap(model: &Model, cap: u64, clamp_to_model_max: bool) -> u64 {
+    let cap = cap.min(model.max_tokens);
+    if clamp_to_model_max {
+        cap
+    } else {
+        cap.min(OPENAI_MAX_OUTPUT_TOKENS)
+    }
+}
+
 /// Merge model, thinking-level, and request sampling params (later wins per
 /// key); `None` when none of the three is present.
 #[must_use]
@@ -105,11 +154,13 @@ pub fn resolve_sampling_params(
 /// The output cap is one compiled decision (model `Fx.cap`,
 /// `laws/facts.bend` `facts_cap_*`): the caller's cap, else the catalog's
 /// max, shrunk only when the prompt and the cap would pass the context
-/// window (never for a model the provider stops at the window); `None`
-/// (the field omitted: the provider's own max applies) only without a
-/// caller's cap, for a wire API that does not require the field (all but
-/// Anthropic Messages, Claude on Bedrock and Kimi on chat completions),
-/// when the catalog's max is not below the window (the max is unknown).
+/// window (never for a model the provider stops at the window); `None` (the
+/// field omitted) only without a caller's cap on a host whose rulebook
+/// rule leaves the default cap out (`default_output_cap` false:
+/// `OpenRouter`, whose upstreams each apply their own max), and never for a
+/// wire API that requires the field (Anthropic Messages, Claude on
+/// Bedrock). An `OpenAI`-family wire API then holds the cap under its
+/// host's ceiling ([`openai_output_cap`]).
 ///
 /// Every other field is copied from `options.stream`; this includes the
 /// eukhe addition `service_tier`.
@@ -127,25 +178,26 @@ pub fn build_base_options(
         .and_then(|options| options.reasoning)
         .map_or(ModelThinkingLevel::Off, ModelThinkingLevel::from);
     base.sampling_params = resolve_sampling_params(model, reasoning, base.sampling_params.as_ref());
-    let required = match KnownApi::parse(&model.api) {
-        Some(KnownApi::AnthropicMessages) => true,
-        Some(KnownApi::BedrockConverseStream) => {
-            crate::api::bedrock_converse_stream::convert::is_anthropic_claude_model(model)
-        }
-        Some(KnownApi::OpenAICompletions) => {
-            crate::api::openai_completions::compat::always_sends_max_tokens(model)
-        }
-        Some(
-            KnownApi::MistralConversations
-            | KnownApi::OpenAIResponses
-            | KnownApi::AzureOpenAIResponses
-            | KnownApi::OpenAICodexResponses
-            | KnownApi::GoogleGenerativeAI
-            | KnownApi::GoogleVertex
-            | KnownApi::PiMessages,
-        )
-        | None => false,
-    };
+    let quirks = Quirks::of(model);
+    let needs = quirks.default_output_cap().unwrap_or(true)
+        || id_has_prefix(model, quirks.default_output_cap_prefixes())
+        || match KnownApi::parse(&model.api) {
+            Some(KnownApi::AnthropicMessages) => true,
+            Some(KnownApi::BedrockConverseStream) => {
+                crate::api::bedrock_converse_stream::convert::is_anthropic_claude_model(model)
+            }
+            Some(
+                KnownApi::OpenAICompletions
+                | KnownApi::MistralConversations
+                | KnownApi::OpenAIResponses
+                | KnownApi::AzureOpenAIResponses
+                | KnownApi::OpenAICodexResponses
+                | KnownApi::GoogleGenerativeAI
+                | KnownApi::GoogleVertex
+                | KnownApi::PiMessages,
+            )
+            | None => false,
+        };
     let cap = budgets_call(
         5,
         |writer| {
@@ -153,7 +205,7 @@ pub fn build_base_options(
                 None => writer.none(),
                 Some(cap) => writer.some().nat(saturated(cap)),
             };
-            writer.nat(saturated(model.max_tokens)).bool(required);
+            writer.nat(saturated(model.max_tokens)).bool(needs);
             write_window(writer, model, context);
         },
         |reader| {

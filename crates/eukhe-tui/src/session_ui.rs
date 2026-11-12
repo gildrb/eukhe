@@ -302,6 +302,11 @@ pub(crate) struct SessionUi {
     last_prompt_turn_end: u64,
     /// The chat index of the assistant message still streaming.
     streaming_index: Option<usize>,
+    /// The chat index of the attach snapshot's in-flight reply the last
+    /// rebuild adopted as `streaming_index`: at the next `message_start` it
+    /// settles where it is (the reply may have finished before the attach
+    /// cursor) instead of giving the starting message its place.
+    adopted_index: Option<usize>,
     /// The loader's token accounting (TS `AgentActivityTracker`), reported
     /// monotonically within a run.
     working_tokens: LoaderTokenTracker,

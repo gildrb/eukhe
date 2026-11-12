@@ -663,7 +663,6 @@ import ./proof/screen/pace_lag_at_cap.bend as PPaceLagAtCap
 import ./proof/screen/tx_committed_inert.bend as PTxCommittedInert
 import ./proof/screen/all_comm_example.bend as PAllCommExample
 import ./proof/screen/all_comm_rejects.bend as PAllCommRejects
-import ./proof/screen/rec_length_retries_with_a_note.bend as PRecLengthRetriesWithANote
 import ./proof/screen/rec_leak_retries_with_a_note.bend as PRecLeakRetriesWithANote
 import ./proof/screen/rec_length_row_exact.bend as PRecLengthRowExact
 import ./proof/screen/rec_leak_row_exact.bend as PRecLeakRowExact
@@ -802,7 +801,6 @@ import ./proof/run/run_deferred_reply_is_the_job_model.bend as PRunDeferredReply
 import ./proof/run/run_first_deferred_reply_is_the_job_model.bend as PRunFirstDeferredReplyIsTheJobModel
 import ./proof/run/run_reply_saturates_the_wait.bend as PRunReplySaturatesTheWait
 import ./proof/run/run_reply_saturates_the_attempt.bend as PRunReplySaturatesTheAttempt
-import ./proof/run/rec_length_gives_up.bend as PRecLengthGivesUp
 import ./proof/run/rec_leak_rebuilt_is_calls.bend as PRecLeakRebuiltIsCalls
 import ./proof/run/rec_leak_gives_up.bend as PRecLeakGivesUp
 import ./proof/run/rec_calls_run.bend as PRecCallsRun
@@ -1710,7 +1708,8 @@ import ./proof/facts/facts_cap_keeps_the_want.bend as PFactsCapKeepsTheWant
 import ./proof/facts/facts_cap_shrinks_on_conflict.bend as PFactsCapShrinksOnConflict
 import ./proof/facts/facts_cap_never_below_floor.bend as PFactsCapNeverBelowFloor
 import ./proof/facts/facts_cap_stops_never_shrinks.bend as PFactsCapStopsNeverShrinks
-import ./proof/facts/facts_cap_omits_unknown.bend as PFactsCapOmitsUnknown
+import ./proof/facts/facts_cap_omits_only_the_default.bend as PFactsCapOmitsOnlyTheDefault
+import ./proof/facts/facts_cap_omission_ignores_window_and_max.bend as PFactsCapOmissionIgnoresWindowAndMax
 import ./proof/facts/facts_cap_needs_never_omits.bend as PFactsCapNeedsNeverOmits
 import ./proof/facts/facts_cap_example.bend as PFactsCapExample
 import ./proof/model_facts/base.bend as LAModelFacts
@@ -3490,7 +3489,6 @@ import ./proof/wait_any/wait_any_entry_read_answers.bend as PWaitAnyEntryReadAns
 import ./proof/stop/base.bend as LAStop
 import ./proof/stop/base/stand.bend as LAStopStand
 import ./proof/stop/stop_bound_exact.bend as PStopBoundExact
-import ./proof/stop/stop_cut_continues.bend as PStopCutContinues
 import ./proof/stop/stop_empty_continues.bend as PStopEmptyContinues
 import ./proof/stop/stop_empty_gives_up.bend as PStopEmptyGivesUp
 import ./proof/stop/stop_empty_redoes.bend as PStopEmptyRedoes
@@ -3513,8 +3511,6 @@ import ./proof/stop/stop_entry_unknown.bend as PStopEntryUnknown
 import ./proof/stop/stop_goes_never_answers.bend as PStopGoesNeverAnswers
 import ./proof/stop/stop_lower_spends_a_note.bend as PStopLowerSpendsANote
 import ./proof/stop/stop_markup_continues.bend as PStopMarkupContinues
-import ./proof/stop/stop_note_exact.bend as PStopNoteExact
-import ./proof/stop/stop_note_example.bend as PStopNoteExample
 import ./proof/stop/stop_pending_never_continues.bend as PStopPendingNeverContinues
 import ./proof/stop/stop_pending_pauses.bend as PStopPendingPauses
 import ./proof/stop/stop_reply_stands.bend as PStopReplyStands
@@ -3534,10 +3530,20 @@ import ./proof/stop/stop_think_notes.bend as PStopThinkNotes
 import ./proof/stop/stop_verdict_exact.bend as PStopVerdictExact
 import ./proof/stop/stop_walk_example.bend as PStopWalkExample
 import ./proof/stop/stop_walk_refines.bend as PStopWalkRefines
+import ./proof/stop/stop_whole_text_answers.bend as PStopWholeTextAnswers
 import ./proof/stop/base/entry.bend as LAStopEntry
 import ./proof/stop/stop_entry_exact.bend as PStopEntryExact
 import ./proof/stop/stop_entry_reads.bend as PStopEntryReads
 import ./proof/stop/stop_entry_malformed_example.bend as PStopEntryMalformedExample
+import ./proof/stop/base/cut.bend as LAStopCut
+import ./proof/stop/stop_cut_empty_never_stands.bend as PStopCutEmptyNeverStands
+import ./proof/stop/stop_cut_text_stands_with_room.bend as PStopCutTextStandsWithRoom
+import ./proof/stop/stop_cut_spent_never_kept.bend as PStopCutSpentNeverKept
+import ./proof/stop/stop_cut_unknown_window_never_kept.bend as PStopCutUnknownWindowNeverKept
+import ./proof/stop/stop_cut_kept_answers_once.bend as PStopCutKeptAnswersOnce
+import ./proof/stop/stop_cut_dropped_ends_the_run.bend as PStopCutDroppedEndsTheRun
+import ./proof/stop/stop_cut_full_compacts.bend as PStopCutFullCompacts
+import ./proof/stop/stop_cut_example.bend as PStopCutExample
 import ./proof/headless_settle/base.bend as LAHeadlessSettle
 import ./proof/headless_settle/headless_settle_busy_never_done.bend as PHeadlessSettleBusyNeverDone
 import ./proof/headless_settle/headless_settle_children_never_done.bend as PHeadlessSettleChildrenNeverDone

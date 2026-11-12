@@ -11,7 +11,8 @@ use super::OpenAICompletionsOptions;
 use crate::api::cache_breakpoints::placed_marks;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::simple_options::{
-    clamp_thinking_budget_to_answer_room, resolve_sampling_params, thinking_budget_for_level,
+    clamp_thinking_budget_to_answer_room, openai_output_cap, resolve_sampling_params,
+    thinking_budget_for_level,
 };
 use crate::models::{get_supported_thinking_levels, thinking_level_map};
 use crate::types::{
@@ -139,6 +140,7 @@ pub(crate) fn build_params(
     }
 
     if let Some(max_tokens) = stream_options.max_tokens.filter(|tokens| *tokens != 0) {
+        let max_tokens = openai_output_cap(model, max_tokens, compat.clamp_output_to_model_max);
         match compat.max_tokens_field {
             // Deprecated by OpenAI, but some OpenAI-compatible providers only accept max_tokens.
             MaxTokensField::MaxTokens => insert(&mut params, "max_tokens", json!(max_tokens)),

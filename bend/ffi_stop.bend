@@ -2,35 +2,80 @@
 # candidate stop (bend/stop.bend; Rust: eukhe-durable
 # harness/generation/stop.rs). Grammar: crates/eukhe-bend/WIRE.md.
 #
-#   request  0, cut, text, broken, pending (Bools)
+#   request  0, cut, text, broken, pending (Bools), then the facts of the
+#            window at a cut reply: window, catalog, prompt, out (Nats),
+#            cuttable (Bool)
 #              -> the pick (Nat): 0 stands | 1 LengthStop | 2 EmptyStop |
-#                 3 MarkupStop | 4 PendingWork
-#            1, attempt (Nat), the length note: tokens, row, cap (Nats)
-#              -> the note's text (String)
-#            2, max, done (Nats)
+#                 3 MarkupStop | 4 PendingWork | 5 dropped (the stop
+#                 stands without the reply: it leaves the model's context)
+#            1, max, done (Nats)
 #              -> the round note (Maybe<String>: 0, | 1, then the text)
 #
-# A tag past 2, malformed input, or input left after the request answers
+# A tag past 1, malformed input, or input left after the request answers
 # `E stop: malformed request`, never a default.
 # Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W
 import ./stop.bend as S
+import ./run/recovery.bend as MRecovery
 
-# A request of the entry
+# A request of the entry. AskWalk: the facts Rust gathers at a candidate
+# stop: cut, text, broken, pending, and what the ladder of a length stop
+# reads about the window (bend/run/decision.bend `Thought`): the model's
+# context window (0: unknown) and catalog max output, the reply's prompt
+# and output tokens, whether a compaction can run
 type Ask is Data:
-  AskWalk{f: S.Facts}
-  AskNote{attempt: Nat, n: S.Note}
+  AskWalk{cut: Bool, text: Bool, broken: Bool, pending: Bool, window: Nat, catalog: Nat, prompt: Nat, out: Nat, cuttable: Bool}
   AskRounds{max: Nat, done: Nat}
+
+# the facts of the stop the walk reads: `spent` is the ladder's test that
+# the window ran out (MRecovery.bound), `cuttable` as Rust found it
+def facts(cut: Bool, text: Bool, broken: Bool, pending: Bool, +window: Nat, +catalog: Nat, +prompt: Nat, +out: Nat, cuttable: Bool) -> S.Facts:
+  S.Facts{cut, text, broken, pending, MRecovery.bound(window, catalog, prompt, out), cuttable}
 
 # Reading a request
 # -----------------
 
+def get_walk.cuttable(c: Bool, t: Bool, b: Bool, p: Bool, w: Nat, ca: Nat, pr: Nat, o: Nat, d: W.Dec<Bool>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{cu, r}:
+      W.Got{AskWalk{c, t, b, p, w, ca, pr, o, cu}, r}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_walk.out(c: Bool, t: Bool, b: Bool, p: Bool, w: Nat, ca: Nat, pr: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{o, r}:
+      get_walk.cuttable(c, t, b, p, w, ca, pr, o, W.get_bool(r))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_walk.prompt(c: Bool, t: Bool, b: Bool, p: Bool, w: Nat, ca: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{pr, r}:
+      get_walk.out(c, t, b, p, w, ca, pr, W.get_nat(r))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_walk.catalog(c: Bool, t: Bool, b: Bool, p: Bool, w: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{ca, r}:
+      get_walk.prompt(c, t, b, p, w, ca, W.get_nat(r))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_walk.window(c: Bool, t: Bool, b: Bool, p: Bool, d: W.Dec<Nat>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{w, r}:
+      get_walk.catalog(c, t, b, p, w, W.get_nat(r))
+    case W.Bad{}:
+      W.Bad{}
+
 def get_walk.pending(c: Bool, t: Bool, b: Bool, d: W.Dec<Bool>) -> W.Dec<Ask>:
   match d:
     case W.Got{p, r}:
-      W.Got{AskWalk{S.Facts{c, t, b, p}}, r}
+      get_walk.window(c, t, b, p, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -55,34 +100,6 @@ def get_walk(d: W.Dec<Bool>) -> W.Dec<Ask>:
     case W.Bad{}:
       W.Bad{}
 
-def get_cut.cap(a: Nat, t: Nat, w: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{k, r}:
-      W.Got{AskNote{a, S.Cut{t, w, k}}, r}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_cut.row(a: Nat, t: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{w, r}:
-      get_cut.cap(a, t, w, W.get_nat(r))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_cut(a: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{t, r}:
-      get_cut.row(a, t, W.get_nat(r))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_note(d: W.Dec<Nat>) -> W.Dec<Ask>:
-  match d:
-    case W.Got{a, r}:
-      get_cut(a, W.get_nat(r))
-    case W.Bad{}:
-      W.Bad{}
-
 def get_rounds.done(m: Nat, d: W.Dec<Nat>) -> W.Dec<Ask>:
   match d:
     case W.Got{n, r}:
@@ -104,10 +121,8 @@ def get_ask.tag(d: W.Dec<Nat>) -> W.Dec<Ask>:
         case 0n:
           get_walk(W.get_bool(r))
         case 1n:
-          get_note(W.get_nat(r))
-        case 2n:
           get_rounds(W.get_nat(r))
-        case 3n+k:
+        case 2n+k:
           W.Bad{}
     case W.Bad{}:
       W.Bad{}
@@ -133,6 +148,8 @@ def put_pick(p: S.Pick, rest: String) -> String:
           W.put_nat(3n, rest)
         case S.PendingWork{}:
           W.put_nat(4n, rest)
+    case S.Drops{}:
+      W.put_nat(5n, rest)
 
 def put_text(m: Maybe<&2, String>, rest: String) -> String:
   match m:
@@ -144,10 +161,8 @@ def put_text(m: Maybe<&2, String>, rest: String) -> String:
 # the reply of a request: the model's answer, encoded
 def answer(a: Ask) -> String:
   match a:
-    case AskWalk{f}:
-      put_pick(S.walk(f), "")
-    case AskNote{at, n}:
-      W.put_str(S.note(at, n), "")
+    case AskWalk{c, t, b, p, +w, +ca, +pr, +o, cu}:
+      put_pick(S.walk(facts(c, t, b, p, w, ca, pr, o, cu)), "")
     case AskRounds{m, d}:
       put_text(S.rounds(m, d), "")
 

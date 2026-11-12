@@ -67,15 +67,13 @@ def sp.rcfg(c: RnRecovery.RCfg, +r: String) -> {FRn.put_rcfg(c, r) == Run.run_sp
 
 def sp.stuck(x: RnDecision.Stuck, +r: String) -> {FRn.put_stuck(x, r) == Run.run_spell_stuck(x, r) : String}:
   match x:
-    case RnDecision.Truncated{}:
+    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
       {==}
     case RnDecision.Leaked{}:
       {==}
     case RnDecision.Repeats{before}:
       {==}
     case RnDecision.Emptied{}:
-      {==}
-    case RnDecision.Thought{window, catalog, prompt, out, cuttable, lower}:
       {==}
 
 def sp.rk(x: RnRecovery.Rk, +r: String) -> {FRn.put_rk(x, r) == Run.run_spell_rk(x, r) : String}:

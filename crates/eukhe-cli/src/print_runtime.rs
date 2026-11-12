@@ -532,8 +532,8 @@ async fn run_prompts(
     if !facts.command_failed {
         (facts.run, run_detail) = watch.last_run(opened, cx).await?;
         // Text mode prints the primary (a settled answer to stdout) and the
-        // trailing compaction outcomes to stderr; a failed primary's text
-        // goes to stderr in both modes.
+        // trailing compaction outcomes and warnings to stderr; a failed
+        // primary's text goes to stderr in both modes.
         let result = select_terminal_result(&conversation, cx).await?;
         if let Some(primary) = &result.primary {
             facts.primary = primary.kind();
@@ -556,6 +556,11 @@ async fn run_prompts(
             }
             if outcome.outcome == "failed" {
                 facts.compaction_failed = true;
+            }
+        }
+        if !json_mode {
+            for warning in result.warnings {
+                eprintln!("{warning}");
             }
         }
         // The TS print-mode autonomous contract applies to both output

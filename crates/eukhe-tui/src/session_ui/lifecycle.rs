@@ -117,6 +117,7 @@ impl SessionUi {
             turn_ends_seen: 0,
             last_prompt_turn_end: 0,
             streaming_index: None,
+            adopted_index: None,
             working_tokens: LoaderTokenTracker::default(),
             turn_error_shown: false,
             run_open: false,
@@ -664,6 +665,7 @@ impl SessionUi {
             .as_ref()
             .and_then(crate::status_line::Verification::of);
         self.streaming_index = None;
+        self.adopted_index = None;
         // The turn-end watermark restarts only when the mounted session
         // CHANGES: the ends the new stream will see belong to the newly
         // mounted session, and an end owed by the detached session's stream
@@ -849,6 +851,7 @@ impl SessionUi {
                 .pending_open_message
                 .take()
                 .filter(|index| view.resume_streaming_entry(*index));
+            self.adopted_index = self.streaming_index;
         }
         // The latest prompt's end rows that only this view holds follow
         // the stored transcript: a same-session rebuild never wipes how

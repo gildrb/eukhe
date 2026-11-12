@@ -1,8 +1,8 @@
-# eukhe: lemmas shared by the proofs of the reply at a stop (R8): an
+# eukhe: lemmas shared by the proofs of the reply at a stop (R8, R10): an
 # answered run stays answered, counts no answer and sends no request
-# (sts.stays, sts.none, sts.kept); every help of a Director that goes
-# makes a reply that retries (sts.go); such a reply never answers the run
-# (sts.never).
+# (sts.stays, sts.none, sts.kept), nor does the answer itself (sts.plain);
+# every help of a Director that goes makes a reply that retries (sts.go);
+# such a reply never answers the run (sts.never).
 
 import Base
 import ../../../bend/run/decision.bend as RnDecision
@@ -43,15 +43,15 @@ def sts.kept(more: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +r: Nat, +c: Nat, +a
         case RnRequest.Reqs{ctx, k, note, log}:
           sts.kept(rest, cfg, r, c, a, n, p, RnRequest.Reqs{ctx, k, note, log})
 
+# an answer at a reply sends, cuts and notes no request, nor does any
+# input after it
+def sts.plain(more: List<&2, RnState.Ev>, +cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +n: Nat, +p: Nat, -fin: RnState.Fin, -got: RnState.Got, t: RnRequest.Reqs) -> {RnRequest.reqs.go(RnState.Go{RnState.Plain{}, fin, got} <> more, cfg, RnState.St{RnState.Call{}, r, c, a, n, p}, t) == t : RnRequest.Reqs}:
+  match t:
+    case RnRequest.Reqs{ctx, k, note, log}:
+      sts.kept(more, cfg, r, c, a, n, p, RnRequest.Reqs{ctx, k, note, log})
+
 # The help of a Director that goes
 # --------------------------------
-
-def sts.long(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec, -pass: RnState.Reply) -> {Stop.retried(Stop.help_reply(RnDecision.Help.of(RnRecovery.rec.long(u, n, same, last, r)), False{}, pass)) == True{} : Bool}:
-  match u:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
 
 def sts.leak(u: Bool, -n: Nat, -same: Nat, -last: Nat, -r: RnRecovery.Rec, -pass: RnState.Reply) -> {Stop.retried(Stop.help_reply(RnDecision.Help.of(RnRecovery.rec.leak(u, n, same, last, r)), False{}, pass)) == True{} : Bool}:
   match u:
@@ -84,14 +84,10 @@ def sts.think(s: Bool, u: Bool, l: Bool, -n: Nat, -same: Nat, -last: Nat, -r: Rn
 
 # every Director that goes makes a reply that retries, whatever the
 # recovery state and the ladder's facts
-def sts.go(d: S.Dir, text: Bool, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, cu: Bool, lo: Bool, -pass: RnState.Reply) -> {Stop.retried(Stop.go_reply(d, text, rc, k, row, w, ca, pr, o, cu, lo, pass)) == True{} : Bool}:
+def sts.go(d: S.Dir, +rc: RnRecovery.RCfg, +k: RnRecovery.Rk, +row: Nat, +w: Nat, +ca: Nat, +pr: Nat, +o: Nat, cu: Bool, lo: Bool, -pass: RnState.Reply) -> {Stop.retried(Stop.go_reply(d, rc, k, row, w, ca, pr, o, cu, lo, pass)) == True{} : Bool}:
   match d:
     case S.LengthStop{}:
-      match text:
-        case True{}:
-          sts.long(RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), RnRecovery.Rk.longs(k, row), 0n, 0n, RnRecovery.Rec{k, row, 0n, 0n}, pass)
-        case False{}:
-          sts.think(Bool.and(cu, RnRecovery.bound(w, ca, pr, o)), RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Bool.and(lo, Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc))), RnRecovery.Rk.longs(k, row), 0n, 0n, RnRecovery.Rec{k, row, 0n, 0n}, pass)
+      sts.think(RnRecovery.full(w, ca, pr, o, cu), RnRecovery.below(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)), Bool.and(lo, Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc))), RnRecovery.Rk.longs(k, row), 0n, 0n, RnRecovery.Rec{k, row, 0n, 0n}, pass)
     case S.EmptyStop{}:
       sts.empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), S.empty_cap()), RnRecovery.Rk.empties(k, row), 0n, 0n, RnRecovery.Rec{k, row, 0n, 0n}, pass)
     case S.MarkupStop{}:

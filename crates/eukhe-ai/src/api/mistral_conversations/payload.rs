@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::api::constrained_sampling::{
     get_json_schema_tool_parameters, StrictPlan, StrictSupport, StrictToolParameters,
 };
+use crate::api::simple_options::{clamps_output_to_model_max, openai_output_cap};
 use crate::quirks::Quirks;
 use crate::utils::diagnostics::{thrown, Thrown};
 
@@ -60,7 +61,14 @@ pub(super) fn build_chat_payload(
         payload.insert("temperature".into(), js_number_value(temperature));
     }
     if let Some(max_tokens) = options.stream.max_tokens {
-        payload.insert("maxTokens".into(), JsonValue::from(max_tokens));
+        payload.insert(
+            "maxTokens".into(),
+            JsonValue::from(openai_output_cap(
+                model,
+                max_tokens,
+                clamps_output_to_model_max(model),
+            )),
+        );
     }
     if let Some(tool_choice) = options
         .tool_choice

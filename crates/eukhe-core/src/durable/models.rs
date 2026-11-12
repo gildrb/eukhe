@@ -791,7 +791,7 @@ mod tests {
         );
         let plain = models.get_model("battery", "mock-plain").unwrap();
         assert_eq!(plain.input, [Modality::Text, Modality::Image]);
-        assert_eq!((plain.context_window, plain.max_tokens), (128_000, 128_000));
+        assert_eq!((plain.context_window, plain.max_tokens), (128_000, 16_384));
 
         let overridden = models.get_model("anthropic", &anthropic.id).unwrap();
         assert_eq!(overridden.name, "Renamed");
@@ -942,13 +942,13 @@ mod tests {
         assert_eq!(base.max_tokens, Some(131_072));
     }
 
-    /// Regression (v0.10.59: "no answer ... only 58076 characters of
-    /// thinking"): a models.json model without `maxTokens` got a made-up
-    /// cap of 16384, sent as `max_tokens`, and a reasoning model spent all
-    /// of it on thinking with the window far away. Its max is unknown now:
-    /// the request omits the field and the provider's own max applies.
+    /// Regression (user report: with the local `qwen3.8-27b` Eukhe sent no
+    /// output cap, so the server cut every reply at its own default of
+    /// 4096; v0.10.59 had sent a made-up 16384): a models.json model
+    /// without `maxTokens` takes the max of the catalog model its id names
+    /// and the request carries it.
     #[test]
-    fn a_models_json_model_without_max_tokens_omits_the_request_cap() {
+    fn a_models_json_model_without_max_tokens_sends_the_max_of_the_catalog_model_of_its_id() {
         let dir = tempfile::tempdir().unwrap();
         let models = battery_models(
             dir.path(),
@@ -961,9 +961,19 @@ mod tests {
             } } }"#,
         );
         let model = models.get_model("local", "qwen3.8-27b").unwrap();
+        let catalog_max = crate::models::reference::limits("qwen3.8-27b")
+            .unwrap()
+            .max_tokens;
         let context = eukhe_types::pi_ai::TranscriptContext::from_normalized_messages(Vec::new());
         let base = eukhe_ai::api::simple_options::build_base_options(&model, &context, None, None);
-        assert_eq!((model.max_tokens, base.max_tokens), (262_144, None));
+        assert!(
+            catalog_max < 262_144,
+            "the window has room for {catalog_max}"
+        );
+        assert_eq!(
+            (model.max_tokens, base.max_tokens),
+            (catalog_max, Some(catalog_max))
+        );
     }
 
     /// Regression (audit M1): a models.json with one bad provider entry

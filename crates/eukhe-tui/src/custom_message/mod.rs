@@ -210,7 +210,9 @@ pub fn custom_message_entries(
                 }]
             }
         }
-        CustomType::ModelPromptError | CustomType::KernelUnavailable => vec![ChatEntry::Status {
+        CustomType::ModelPromptError
+        | CustomType::KernelUnavailable
+        | CustomType::OutputLimitNotice => vec![ChatEntry::Status {
             text,
             kind: crate::chat::StatusKind::Warning,
         }],
@@ -846,6 +848,26 @@ mod tests {
         );
     }
 
+    /// The row after an answer that hit the output limit and was kept as
+    /// it is: a warning status line with the row's text.
+    #[test]
+    fn output_limit_row_is_a_warning_status_line() {
+        let text =
+            "Response hit the elpis/qwen3.8-27b output limit (4096 tokens) and was truncated.";
+        let entries = decoded(&json!({
+            "role": "custom",
+            "customType": "eukhe.output_limit",
+            "content": text,
+            "display": true,
+        }));
+        assert_eq!(
+            entries,
+            vec![ChatEntry::Status {
+                text: text.to_owned(),
+                kind: crate::chat::StatusKind::Warning,
+            }]
+        );
+    }
     #[test]
     fn shell_completion_decodes_details() {
         let entries = decoded(&json!({

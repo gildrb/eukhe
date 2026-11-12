@@ -71,6 +71,7 @@ pub(crate) fn generation_hooks(host: &LoopHost) -> HookRegistration {
                 }
                 .boxed()
             })),
+            on_truncated: None,
             after_tools: None,
             pending_work: None,
         },
