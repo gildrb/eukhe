@@ -33,9 +33,10 @@ use crate::durable::rlm::now_millis;
 const CLASSIFY_OUTPUT_CAP: u64 = 1024;
 
 /// The stream of one chat request of `gate`'s agent: `inner`'s own stream
-/// when the session has no budget (one `stat`), else the gated request's.
-/// Must be called inside a tokio runtime (the provider contract runs every
-/// request on one).
+/// when the session has no budget (one `stat`) and no limit of the agent's
+/// run makes its turn the final answer, else the gated request's. Must be
+/// called inside a tokio runtime (the provider contract runs every request
+/// on one).
 fn gated<O: GatedOptions>(
     gate: &Arc<BudgetGate>,
     inner: &Row<O>,
@@ -43,7 +44,7 @@ fn gated<O: GatedOptions>(
     context: &TranscriptContext,
     options: O,
 ) -> AssistantMessageEventStream {
-    if !gate.ledger.exists() {
+    if !gate.ledger.exists() && gate.wrap().is_none() {
         return inner(model, context, options);
     }
     let outer = AssistantMessageEventStream::new();
@@ -212,8 +213,9 @@ fn gate_cancel_deferred(gate: Arc<BudgetGate>, inner: CancelDeferredFn) -> Cance
 }
 
 /// What a request that is no chat request reserves and how long it may
-/// run: one request, its worst case `bound`; `None` without a budget.
-/// `Err` is the refusal text.
+/// run: a side request (spec/README.md B6) of the agent, its worst case
+/// `bound` and no model request (a side request is no turn of the agent);
+/// `None` without a budget. `Err` is the refusal text.
 async fn reserve_other(
     gate: &Arc<BudgetGate>,
     label: String,
@@ -221,12 +223,12 @@ async fn reserve_other(
 ) -> Result<Option<(super::Held, Option<Duration>)>, String> {
     let reserved = gate
         .reserve(
-            Use::Work,
+            Use::Side,
             label,
             gate.keep(),
             vec![BudgetAmounts {
                 time_ms: DEFAULT_DEADLINE_MS,
-                requests: 1,
+                requests: 0,
                 ..bound
             }],
             REQUEST_MIN_MS,

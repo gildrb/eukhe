@@ -101,6 +101,7 @@ impl Fixture {
                 settings: Some(settings),
                 reports: watch::Sender::new(None),
                 keep: Mutex::default(),
+                wrap: Mutex::default(),
                 told: Mutex::default(),
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
@@ -298,8 +299,8 @@ fn started_then_failed(text: &str, reported: Usage) -> Vec<AssistantMessageEvent
 // model's largest output is 16384 tokens, so the caps offered are 16384,
 // 8192, 4096, 2048, 1024.
 
-/// B1: a request whose worst case does not fit is not sent, and nothing is
-/// spent.
+/// B1, B6: a side request whose worst case does not fit is not sent,
+/// nothing is spent, and it changes nothing else: the agent still works.
 #[tokio::test]
 async fn a_request_that_does_not_fit_is_not_sent_and_spends_nothing() {
     let fixture = Fixture::new();
@@ -322,12 +323,97 @@ async fn a_request_that_does_not_fit_is_not_sent_and_spends_nothing() {
                     tokens: 1_000,
                     ..BudgetAmounts::default()
                 },
-                phase: BudgetPhase::WrapUp,
-                short: Some(BudgetDimension::Tokens),
                 ..report(tokens(1_000))
             })
         )
     );
+    assert_eq!(fixture.gate.phase(), Some(BudgetPhase::Working));
+}
+
+/// B6: a side request (a title, a classifier, a compaction: no tools) is
+/// no turn of the agent. It holds and spends no model request, so the
+/// agent's work and its final answer keep theirs: under a budget of two
+/// requests, a title before the first turn leaves that turn its work
+/// request, and the next turn is the final answer.
+#[tokio::test]
+async fn a_side_request_is_no_turn_of_the_agent() {
+    let fixture = Fixture::new();
+    let limits = BudgetLimits {
+        tokens: Some(100_000),
+        requests: Some(2),
+        ..BudgetLimits::default()
+    };
+    fixture.gate.set(limits).unwrap();
+    let title = fixture.request(chat("name this session")).await;
+    let after_title = fixture.gate.report().map(|report| report.spent.requests);
+    let work = fixture.request(agent("build it")).await;
+    let last = fixture.request(agent("build more")).await;
+    assert_eq!(
+        (
+            [title.error_message, work.error_message, last.error_message],
+            after_title,
+            fixture
+                .received()
+                .into_iter()
+                .map(|received| received.tool_choice)
+                .collect::<Vec<_>>(),
+            fixture.gate.report().map(|report| report.spent.requests),
+            fixture.gate.phase(),
+            fixture.gate.audit().unwrap().exact()
+        ),
+        (
+            [None, None, None],
+            Some(0),
+            vec![None, None, Some(ToolChoice::None)],
+            Some(2),
+            Some(BudgetPhase::WrapUp),
+            true
+        )
+    );
+}
+
+/// A limit of the agent's run (the goal's token budget reached in it)
+/// makes its next turn the final answer: no tools, the limit's
+/// notice last, the final answer's cap; without a budget nothing is
+/// reserved, with one it is the final answer's reservation and the phase
+/// stays. Side requests and turns after the limit is cleared are as usual.
+#[tokio::test]
+async fn an_agent_turn_after_a_run_limit_is_its_final_answer() {
+    let fixture = Fixture::new();
+    let notice = "[limit] The goal's token budget is reached (5 of 1 tokens). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let wrapped = Received {
+        max_tokens: Some(2_048),
+        tool_choice: Some(ToolChoice::None),
+        last: Some(notice.to_owned()),
+    };
+    fixture.gate.wrap_next(Some(
+        "The goal's token budget is reached (5 of 1 tokens)".to_owned(),
+    ));
+    fixture.request(agent("go")).await;
+    fixture.request(chat("name this session")).await;
+    assert_eq!(
+        (fixture.received(), fixture.gate.report()),
+        (
+            vec![
+                wrapped.clone(),
+                Received {
+                    max_tokens: None,
+                    tool_choice: None,
+                    last: Some("name this session".to_owned()),
+                }
+            ],
+            None
+        )
+    );
+    fixture.gate.set(tokens(100_000)).unwrap();
+    let reply = fixture.request(agent("go")).await;
+    assert_eq!(reply.error_message, None);
+    assert_eq!(fixture.received()[2], wrapped);
+    assert_eq!(fixture.gate.phase(), Some(BudgetPhase::Working));
+    fixture.gate.wrap_next(None);
+    fixture.request(agent("go")).await;
+    assert_eq!(fixture.received()[3].tool_choice, None);
+    assert!(fixture.gate.audit().unwrap().exact());
 }
 
 /// B2: a request that fits only with a reduced cap is sent with that cap.
@@ -443,7 +529,7 @@ async fn a_response_settles_at_its_usage_and_frees_the_rest() {
 
 /// Failure charging: a request whose provider never started answering
 /// (no `Start`: an error status, a refused connection) is charged nothing
-/// but its one request.
+/// but its one request; a side request, which holds none, nothing at all.
 #[tokio::test]
 async fn a_request_that_never_started_is_charged_only_its_request() {
     let fixture = Fixture::build(
@@ -472,6 +558,7 @@ async fn a_request_that_never_started_is_charged_only_its_request() {
     };
     fixture.gate.set(limits).unwrap();
     fixture.send(chat("summarize")).await;
+    fixture.send(agent("summarize")).await;
     assert_eq!(
         fixture.gate.report(),
         Some(BudgetReport {

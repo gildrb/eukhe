@@ -639,7 +639,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--goal-token-budget <NUMBER>",
-                "Limit the session's budget to this many tokens for --goal",
+                "Set a positive token budget for --goal",
             ),
             (
                 "--accept-cmd <COMMAND>",
@@ -760,15 +760,15 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--autonomous-max-turns <NUMBER>",
-                "Limit the session's budget to this many model requests (no limit unless given)",
+                "Set positive assistant-turn limit (default: 12)",
             ),
             (
                 "--autonomous-max-tokens <NUMBER>",
-                "Limit the session's budget to this many tokens (no limit unless given)",
+                "Set positive token limit (default: 80000)",
             ),
             (
                 "--autonomous-timeout-ms <NUMBER>",
-                "Give the session's budget a deadline this many ms away (none unless given)",
+                "Set positive wall-clock limit in ms (default: 1800000)",
             ),
         ],
     },

@@ -2,12 +2,16 @@
 //! evaluation.
 //!
 //! The runtime state (`AutonomousRuntimeState`) holds one autonomous run:
-//! its continuations, gates and continuation prompt. What the run may
-//! spend is the session's budget (`crate::durable::budget`): enabling the
-//! run puts its `maxTokens`, `timeoutMs` and `maxTurns` on the budget as
-//! limits ([`autonomous_budget_limits`]), and the run stops when the
-//! budget admits no more work ([`SessionBudget`]). `maxContinuations` is
-//! the run's own count of continuations.
+//! its continuations, gates, continuation prompt and its own limits, as
+//! v0.10.67 had them. The run counts its turns (each settled response of
+//! the agent, once per generation; never a side request such as the
+//! title) and their tokens (input, output and cache writes) and keeps its
+//! start. `maxTurns`, `maxTokens` and `timeoutMs` (12, 80,000 and 30
+//! minutes unless given) are soft: they are checked only between
+//! continuations, so the turn that crosses one completes and the run then
+//! stops. The session's budget (`crate::durable::budget`), set only
+//! explicitly, is another, hard limit: the run also stops once it admits
+//! no more work ([`SessionBudget`]).
 
 mod gates;
 
@@ -17,23 +21,20 @@ pub use gates::{
 
 use std::collections::HashMap;
 
-use eukhe_types::budget::{
-    BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, BUDGET_AMOUNT_MAX,
-};
+use eukhe_types::budget::{BudgetDimension, BudgetPhase, BudgetReport};
+use eukhe_types::pi_ai::Usage;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT: &str = "No human input is available in autonomous mode. Continue working until the host evaluator, verifier, or configured autonomous limits stop the run. If you were asking the user a question, make a reasonable assumption and verify it. If you believe you are blocked, prove it with host-observable evidence, preserve that evidence, and keep looking for safe progress while budget remains. Do not end the session yourself; the verifier/evaluator decides completion when configured gates pass.";
 
 pub const DEFAULT_MAX_CONTINUATIONS: u64 = 3;
-// No turn, token or time default: v0.10.67 checked its 12 turns, 80k
-// tokens (input + output + cache write) and 30 minutes only between
-// continuations, so a run went past them and still finished; the session
-// budget is hard per request and also counts cache reads. Any default
-// would cut such runs, so the budget is limited only by what is given.
+pub const DEFAULT_MAX_TURNS: u64 = 12;
+pub const DEFAULT_MAX_TOKENS: u64 = 80_000;
+pub const DEFAULT_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 pub const DEFAULT_GATE_MAX_RETRIES: u64 = 3;
 pub const DEFAULT_GATE_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 /// One keep-alive continuation per 25 minutes of continuous subagent
-/// activity.
+/// activity, strictly below the default wall-clock limit.
 pub const DEFAULT_SUBAGENT_KEEP_ALIVE_MS: u64 = 25 * 60 * 1000;
 /// Largest keep-alive window accepted (a Node-era clamp; still a sane cap).
 pub const MAX_SUBAGENT_KEEP_ALIVE_MS: u64 = 2_147_483_647;
@@ -45,8 +46,8 @@ pub const UNLIMITED_AUTONOMOUS_LIMIT: u64 = 9_007_199_254_740_991;
 pub const AUTONOMOUS_STATUS_CUSTOM_TYPE: &str = "autonomous_status";
 
 /// User-facing configuration (`/autonomous` options). `max_turns`,
-/// `max_tokens` and `timeout_ms` are limits enabling the run puts on the
-/// session's budget ([`autonomous_budget_limits`]).
+/// `max_tokens` and `timeout_ms` are the run's own soft limits
+/// ([`AutonomousLimits`]).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentAutonomousConfig {
@@ -78,13 +79,15 @@ pub struct AgentAutonomousGateFailure {
     pub output: String,
 }
 
-/// The run's own limit after normalization. A run persisted before its
-/// turn, token and time limits moved to the session's budget carries them
-/// too: they are ignored.
+/// The run's own limits after normalization (soft: checked between
+/// continuations). [`UNLIMITED_AUTONOMOUS_LIMIT`] is no limit.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutonomousLimits {
     pub max_continuations: u64,
+    pub max_turns: u64,
+    pub max_tokens: u64,
+    pub timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +95,10 @@ pub struct AutonomousLimits {
 pub struct AgentAutonomousStatus {
     pub enabled: bool,
     pub continuations_used: u64,
+    /// The agent's settled responses in this run.
+    pub turns_used: u64,
+    /// Their input, output and cache-write tokens.
+    pub tokens_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
     pub limits: AutonomousLimits,
@@ -101,21 +108,26 @@ pub struct AgentAutonomousStatus {
     pub last_gate_failure: Option<AgentAutonomousGateFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_keep_alive_ms: Option<u64>,
-    /// The session's budget when the status was read: the run's requests,
-    /// tokens and time are its spend and limits. `None`: no budget.
+    /// The session's budget when the status was read. `None`: no budget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetReport>,
 }
 
 impl AgentAutonomousStatus {
-    /// Why the run stopped or stops at its next final answer: its
-    /// continuations, else the session's budget.
+    /// Why the run stopped or stops at its next final answer at `now`: its
+    /// own limits, else the session's budget.
     #[must_use]
-    pub fn limit_reason(&self) -> Option<AutonomousLimitReason> {
+    pub fn limit_reason(&self, now: u64) -> Option<AutonomousLimitReason> {
         limit_reason(
-            self.continuations_used,
+            Used {
+                continuations: self.continuations_used,
+                turns: self.turns_used,
+                tokens: self.tokens_used,
+                started_at: self.started_at,
+            },
             self.limits,
             SessionBudget::of(self.budget.as_ref()),
+            now,
         )
     }
 }
@@ -133,6 +145,10 @@ pub struct NormalizedGateConfig {
 pub struct AutonomousRuntimeState {
     pub enabled: bool,
     pub continuations_used: u64,
+    /// The agent's settled responses since the run was enabled.
+    pub turns_used: u64,
+    /// Their input, output and cache-write tokens.
+    pub tokens_used: u64,
     pub started_at: Option<u64>,
     pub limits: AutonomousLimits,
     pub continuation_prompt: String,
@@ -141,6 +157,15 @@ pub struct AutonomousRuntimeState {
     pub last_gate_failure: Option<AgentAutonomousGateFailure>,
     pub last_gate_failure_snapshot: Option<GitWorktreeSnapshot>,
     pub subagent_keep_alive_ms: u64,
+}
+
+/// What a run used of its own limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Used {
+    continuations: u64,
+    turns: u64,
+    tokens: u64,
+    started_at: Option<u64>,
 }
 
 /// What the session's budget admits for this agent, as its ledger report
@@ -169,30 +194,17 @@ impl SessionBudget {
     }
 }
 
-/// Why an autonomous run reached its limit: its continuations, or the
-/// session's budget, named by the dimension that ran short (tokens:
-/// `maxTokens`, time: `timeoutMs`, requests: `maxTurns`).
+/// Why an autonomous run reached its limit: its own continuations, turns,
+/// tokens or time, or the session's budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutonomousLimitReason {
     MaxContinuations,
     MaxTurns,
     MaxTokens,
     TimeoutMs,
-    /// The budget ran short in money or tool calls (`None`: not recorded).
+    /// The session's budget admits no more work: the dimension that ran
+    /// short (`None`: not recorded).
     Budget(Option<BudgetDimension>),
-}
-
-impl AutonomousLimitReason {
-    /// The reason of a budget whose `short` dimension ran out.
-    #[must_use]
-    pub fn of_short(short: Option<BudgetDimension>) -> Self {
-        match short {
-            Some(BudgetDimension::Tokens) => Self::MaxTokens,
-            Some(BudgetDimension::Time) => Self::TimeoutMs,
-            Some(BudgetDimension::Requests) => Self::MaxTurns,
-            Some(BudgetDimension::Cost | BudgetDimension::ToolCalls) | None => Self::Budget(short),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,17 +252,21 @@ pub fn create_autonomous_runtime_state(
 ) -> AutonomousRuntimeState {
     let defaults = AgentAutonomousConfig::default();
     let defaults = default_limits.unwrap_or(&defaults);
-    let default_continuations =
-        normalize_limit(defaults.max_continuations, DEFAULT_MAX_CONTINUATIONS);
     let enabled = config.is_some_and(|config| config.enabled == Some(true));
+    let default_limits = AutonomousLimits {
+        max_continuations: normalize_limit(defaults.max_continuations, DEFAULT_MAX_CONTINUATIONS),
+        max_turns: normalize_limit(defaults.max_turns, DEFAULT_MAX_TURNS),
+        max_tokens: normalize_limit(defaults.max_tokens, DEFAULT_MAX_TOKENS),
+        timeout_ms: normalize_limit(defaults.timeout_ms, DEFAULT_TIMEOUT_MS),
+    };
     let Some(config) = config else {
         return AutonomousRuntimeState {
             enabled: false,
             continuations_used: 0,
+            turns_used: 0,
+            tokens_used: 0,
             started_at: None,
-            limits: AutonomousLimits {
-                max_continuations: default_continuations,
-            },
+            limits: default_limits,
             continuation_prompt: DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT.to_string(),
             gates: NormalizedGateConfig {
                 commands: Vec::new(),
@@ -266,9 +282,17 @@ pub fn create_autonomous_runtime_state(
     AutonomousRuntimeState {
         enabled,
         continuations_used: 0,
+        turns_used: 0,
+        tokens_used: 0,
         started_at: enabled.then(now_millis),
         limits: AutonomousLimits {
-            max_continuations: normalize_limit(config.max_continuations, default_continuations),
+            max_continuations: normalize_limit(
+                config.max_continuations,
+                default_limits.max_continuations,
+            ),
+            max_turns: normalize_limit(config.max_turns, default_limits.max_turns),
+            max_tokens: normalize_limit(config.max_tokens, default_limits.max_tokens),
+            timeout_ms: normalize_limit(config.timeout_ms, default_limits.timeout_ms),
         },
         continuation_prompt: config
             .continuation_prompt
@@ -299,25 +323,8 @@ pub fn create_autonomous_runtime_state(
     }
 }
 
-/// The limits enabling the run with `config` puts on the session's budget
-/// (`BudgetGate::limit`): `maxTokens` limits tokens, `timeoutMs` time (a
-/// deadline that far from now), `maxTurns` model requests. Only a limit
-/// given limits: none (or 0), [`UNLIMITED_AUTONOMOUS_LIMIT`] or anything
-/// past what a budget holds limits nothing. A dimension the budget limits
-/// already keeps its limit.
-#[must_use]
-pub fn autonomous_budget_limits(config: &AgentAutonomousConfig) -> BudgetLimits {
-    let limit = |value: Option<u64>| value.filter(|limit| (1..=BUDGET_AMOUNT_MAX).contains(limit));
-    BudgetLimits {
-        tokens: limit(config.max_tokens),
-        time_ms: limit(config.timeout_ms),
-        requests: limit(config.max_turns),
-        ..BudgetLimits::default()
-    }
-}
-
-/// Enable/disable the run; enabling resets the continuations and failure
-/// state (what the session spent stays on its budget).
+/// Enable/disable the run; enabling resets the counters and failure
+/// state.
 pub fn set_autonomous_enabled(state: &mut AutonomousRuntimeState, enabled: bool) {
     state.enabled = enabled;
     state.gate_attempts.clear();
@@ -325,6 +332,8 @@ pub fn set_autonomous_enabled(state: &mut AutonomousRuntimeState, enabled: bool)
     state.last_gate_failure_snapshot = None;
     if enabled {
         state.continuations_used = 0;
+        state.turns_used = 0;
+        state.tokens_used = 0;
         state.started_at = Some(now_millis());
     } else {
         state.started_at = None;
@@ -332,10 +341,12 @@ pub fn set_autonomous_enabled(state: &mut AutonomousRuntimeState, enabled: bool)
 }
 
 /// Apply only the fields present in `config`; the rest keep their values.
-/// The budget limits are the session budget's ([`autonomous_budget_limits`]).
 pub fn set_autonomous_limits(state: &mut AutonomousRuntimeState, config: &AgentAutonomousConfig) {
     state.limits.max_continuations =
         normalize_limit(config.max_continuations, state.limits.max_continuations);
+    state.limits.max_turns = normalize_limit(config.max_turns, state.limits.max_turns);
+    state.limits.max_tokens = normalize_limit(config.max_tokens, state.limits.max_tokens);
+    state.limits.timeout_ms = normalize_limit(config.timeout_ms, state.limits.timeout_ms);
     if let Some(prompt) = config.continuation_prompt.as_deref().map(str::trim) {
         if !prompt.is_empty() {
             state.continuation_prompt = prompt.to_string();
@@ -363,6 +374,8 @@ pub fn autonomous_status(
     AgentAutonomousStatus {
         enabled: state.enabled,
         continuations_used: state.continuations_used,
+        turns_used: state.turns_used,
+        tokens_used: state.tokens_used,
         started_at: state.started_at,
         limits: state.limits,
         gates: state.gates.clone(),
@@ -380,26 +393,60 @@ pub fn add_autonomous_continuation(state: &mut AutonomousRuntimeState) {
     state.continuations_used += 1;
 }
 
-/// Limit check: the run's continuations, then the session's budget.
+/// The tokens a response spends of a run's `maxTokens`: input, output and
+/// cache writes (cache reads are not counted).
+#[must_use]
+pub fn autonomous_token_delta(usage: &Usage) -> u64 {
+    usage
+        .input
+        .saturating_add(usage.output)
+        .saturating_add(usage.cache_write)
+}
+
+/// Limit check at `now`: the run's continuations, turns, tokens and time,
+/// then the session's budget.
 #[must_use]
 pub fn autonomous_limit_reason(
     state: &AutonomousRuntimeState,
     budget: SessionBudget,
+    now: u64,
 ) -> Option<AutonomousLimitReason> {
-    limit_reason(state.continuations_used, state.limits, budget)
+    limit_reason(
+        Used {
+            continuations: state.continuations_used,
+            turns: state.turns_used,
+            tokens: state.tokens_used,
+            started_at: state.started_at,
+        },
+        state.limits,
+        budget,
+        now,
+    )
 }
 
 fn limit_reason(
-    continuations_used: u64,
+    used: Used,
     limits: AutonomousLimits,
     budget: SessionBudget,
+    now: u64,
 ) -> Option<AutonomousLimitReason> {
-    if continuations_used >= limits.max_continuations {
+    if used.continuations >= limits.max_continuations {
         return Some(AutonomousLimitReason::MaxContinuations);
+    }
+    if used.turns >= limits.max_turns {
+        return Some(AutonomousLimitReason::MaxTurns);
+    }
+    if used.tokens >= limits.max_tokens {
+        return Some(AutonomousLimitReason::MaxTokens);
+    }
+    if let Some(started_at) = used.started_at {
+        if now.saturating_sub(started_at) >= limits.timeout_ms {
+            return Some(AutonomousLimitReason::TimeoutMs);
+        }
     }
     match budget {
         SessionBudget::Working => None,
-        SessionBudget::Short(short) => Some(AutonomousLimitReason::of_short(short)),
+        SessionBudget::Short(short) => Some(AutonomousLimitReason::Budget(short)),
     }
 }
 
@@ -443,39 +490,32 @@ pub fn latest_autonomous_gate_attempt(status: &AgentAutonomousStatus) -> u64 {
     from_failure.max(from_attempts)
 }
 
-/// Human description of an autonomous limit (`<limit> reached (used/cap)`):
-/// the budget's from the session budget the status carries.
+/// Human description of an autonomous limit (`<limit> reached (used/cap)`)
+/// at `now`: the run's own counts, or the session's budget.
 #[must_use]
 pub fn describe_autonomous_limit(
     status: &AgentAutonomousStatus,
     reason: AutonomousLimitReason,
+    now: u64,
 ) -> String {
-    let budget = status.budget.as_ref();
-    let spent = |dimension: BudgetDimension| {
-        (
-            budget.map_or(0, |report| report.spent.get(dimension)),
-            budget
-                .and_then(|report| report.limits.get(dimension))
-                .unwrap_or(0),
-        )
-    };
     match reason {
         AutonomousLimitReason::MaxContinuations => format!(
             "maxContinuations reached ({}/{})",
             status.continuations_used, status.limits.max_continuations
         ),
-        AutonomousLimitReason::MaxTurns => {
-            let (used, limit) = spent(BudgetDimension::Requests);
-            format!("maxTurns reached ({used}/{limit})")
-        }
-        AutonomousLimitReason::MaxTokens => {
-            let (used, limit) = spent(BudgetDimension::Tokens);
-            format!("maxTokens reached ({used}/{limit})")
-        }
+        AutonomousLimitReason::MaxTurns => format!(
+            "maxTurns reached ({}/{})",
+            status.turns_used, status.limits.max_turns
+        ),
+        AutonomousLimitReason::MaxTokens => format!(
+            "maxTokens reached ({}/{})",
+            status.tokens_used, status.limits.max_tokens
+        ),
         AutonomousLimitReason::TimeoutMs => {
-            let limit = budget.and_then(|report| report.limits.time_ms).unwrap_or(0);
-            let left = budget.map_or(0, |report| report.free.time_ms);
-            format!("timeoutMs reached ({}/{limit})", limit.saturating_sub(left))
+            let elapsed = status
+                .started_at
+                .map_or(0, |started_at| now.saturating_sub(started_at));
+            format!("timeoutMs reached ({elapsed}/{})", status.limits.timeout_ms)
         }
         AutonomousLimitReason::Budget(short) => format!(
             "the session's {} budget is used up",
@@ -494,7 +534,7 @@ pub fn now_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use eukhe_types::budget::BudgetAmounts;
+    use eukhe_types::budget::{BudgetAmounts, BudgetLimits};
 
     use super::*;
 
@@ -502,6 +542,16 @@ mod tests {
         AgentAutonomousConfig {
             enabled: Some(enabled),
             ..Default::default()
+        }
+    }
+
+    fn usage(input: u64, output: u64, cache_write: u64) -> Usage {
+        Usage {
+            input,
+            output,
+            cache_read: 1_000_000,
+            cache_write,
+            ..Usage::default()
         }
     }
 
@@ -569,38 +619,65 @@ mod tests {
         assert_eq!(state.continuation_prompt, "keep going");
     }
 
-    /// The turn, token and time limits go to the session's budget only when
-    /// given: none, 0 or an unlimited one limits nothing (no defaults: the
-    /// v0.10.67 defaults were checked only between continuations).
+    /// The turn, token and time limits are v0.10.67's: 12 turns, 80,000
+    /// tokens and 30 minutes unless given; 0 keeps the current one and
+    /// [`UNLIMITED_AUTONOMOUS_LIMIT`] is no limit.
     #[test]
-    fn the_budget_limits_of_a_run() {
+    fn the_limits_of_a_run() {
+        let limits = |config: &AgentAutonomousConfig| {
+            let state = create_autonomous_runtime_state(Some(config), None);
+            (
+                state.limits.max_turns,
+                state.limits.max_tokens,
+                state.limits.timeout_ms,
+            )
+        };
         assert_eq!(
             [
-                autonomous_budget_limits(&config(true)),
-                autonomous_budget_limits(&AgentAutonomousConfig {
+                limits(&config(true)),
+                limits(&AgentAutonomousConfig {
                     max_turns: Some(5),
                     max_tokens: Some(0),
                     timeout_ms: Some(UNLIMITED_AUTONOMOUS_LIMIT),
                     ..config(true)
                 }),
-                autonomous_budget_limits(&AgentAutonomousConfig {
+                limits(&AgentAutonomousConfig {
                     max_tokens: Some(40_000),
                     timeout_ms: Some(60_000),
                     ..config(true)
                 }),
             ],
             [
-                BudgetLimits::default(),
-                BudgetLimits {
-                    requests: Some(5),
-                    ..BudgetLimits::default()
-                },
-                BudgetLimits {
-                    tokens: Some(40_000),
-                    time_ms: Some(60_000),
-                    ..BudgetLimits::default()
-                },
+                (12, 80_000, 1_800_000),
+                (5, 80_000, UNLIMITED_AUTONOMOUS_LIMIT),
+                (12, 40_000, 60_000),
             ]
+        );
+        let mut state = create_autonomous_runtime_state(Some(&config(true)), None);
+        set_autonomous_limits(
+            &mut state,
+            &AgentAutonomousConfig {
+                max_turns: Some(2),
+                ..AgentAutonomousConfig::default()
+            },
+        );
+        set_autonomous_limits(
+            &mut state,
+            &AgentAutonomousConfig {
+                max_tokens: Some(9),
+                ..AgentAutonomousConfig::default()
+            },
+        );
+        assert_eq!((state.limits.max_turns, state.limits.max_tokens), (2, 9));
+    }
+
+    /// A response spends its input, output and cache-write tokens of a
+    /// run's `maxTokens`, never its cache reads.
+    #[test]
+    fn a_response_spends_its_tokens_but_no_cache_reads() {
+        assert_eq!(
+            [usage(100, 40, 10), usage(5, 5, 0)].map(|usage| autonomous_token_delta(&usage)),
+            [150, 10]
         );
     }
 
@@ -617,36 +694,59 @@ mod tests {
         assert!(state.started_at.is_some());
     }
 
-    /// The run's continuations come first; then the budget's phase names
-    /// the limit by the dimension that ran short.
+    /// The run's own limits come first (continuations, turns, tokens,
+    /// time); then a session budget that admits no more work, named by the
+    /// dimension that ran short.
     #[test]
     fn limit_reasons() {
-        let mut state = create_autonomous_runtime_state(Some(&config(true)), None);
+        let mut state = create_autonomous_runtime_state(
+            Some(&AgentAutonomousConfig {
+                max_turns: Some(3),
+                max_tokens: Some(100),
+                timeout_ms: Some(1_000),
+                ..config(true)
+            }),
+            None,
+        );
+        let start = state.started_at.unwrap_or(0);
         assert_eq!(
-            autonomous_limit_reason(&state, SessionBudget::Working),
+            autonomous_limit_reason(&state, SessionBudget::Working, start),
             None
         );
-        let short =
-            |dimension| autonomous_limit_reason(&state, SessionBudget::Short(Some(dimension)));
+        let short = |state: &AutonomousRuntimeState, dimension| {
+            autonomous_limit_reason(state, SessionBudget::Short(dimension), start)
+        };
         assert_eq!(
             [
-                short(BudgetDimension::Requests),
-                short(BudgetDimension::Tokens),
-                short(BudgetDimension::Time),
-                short(BudgetDimension::Cost),
-                autonomous_limit_reason(&state, SessionBudget::Short(None)),
+                short(&state, Some(BudgetDimension::Requests)),
+                short(&state, Some(BudgetDimension::Tokens)),
+                short(&state, None),
             ],
             [
-                Some(AutonomousLimitReason::MaxTurns),
-                Some(AutonomousLimitReason::MaxTokens),
-                Some(AutonomousLimitReason::TimeoutMs),
-                Some(AutonomousLimitReason::Budget(Some(BudgetDimension::Cost))),
+                Some(AutonomousLimitReason::Budget(Some(
+                    BudgetDimension::Requests
+                ))),
+                Some(AutonomousLimitReason::Budget(Some(BudgetDimension::Tokens))),
                 Some(AutonomousLimitReason::Budget(None)),
             ]
         );
+        assert_eq!(
+            autonomous_limit_reason(&state, SessionBudget::Working, start + 1_000),
+            Some(AutonomousLimitReason::TimeoutMs)
+        );
+        state.tokens_used = 100;
+        assert_eq!(
+            short(&state, Some(BudgetDimension::Cost)),
+            Some(AutonomousLimitReason::MaxTokens)
+        );
+        state.turns_used = 3;
+        assert_eq!(
+            short(&state, Some(BudgetDimension::Cost)),
+            Some(AutonomousLimitReason::MaxTurns)
+        );
         state.continuations_used = state.limits.max_continuations;
         assert_eq!(
-            autonomous_limit_reason(&state, SessionBudget::Short(Some(BudgetDimension::Tokens))),
+            short(&state, Some(BudgetDimension::Tokens)),
             Some(AutonomousLimitReason::MaxContinuations)
         );
     }
@@ -669,25 +769,38 @@ mod tests {
         assert!(text.contains("Continue working. Fix the failure, then produce terminal evidence."));
     }
 
-    /// The status's budget names what was spent of each limit.
+    /// A limit names what the run used of it; the budget's names the
+    /// dimension.
     #[test]
     fn limit_descriptions() {
-        let state = create_autonomous_runtime_state(Some(&config(true)), None);
-        let limits = BudgetLimits {
-            tokens: Some(80_000),
-            time_ms: Some(60_000),
-            requests: Some(3),
-            ..BudgetLimits::default()
-        };
-        let spent = BudgetAmounts {
-            tokens: 81_000,
-            requests: 3,
-            ..BudgetAmounts::default()
-        };
-        let mut report = short_budget(limits, spent, BudgetDimension::Requests);
-        report.free.time_ms = 5_000;
+        let mut state = create_autonomous_runtime_state(
+            Some(&AgentAutonomousConfig {
+                max_turns: Some(3),
+                max_tokens: Some(80_000),
+                timeout_ms: Some(60_000),
+                ..config(true)
+            }),
+            None,
+        );
+        state.turns_used = 3;
+        state.tokens_used = 81_000;
+        let start = state.started_at.unwrap_or(0);
+        let report = short_budget(
+            BudgetLimits {
+                tool_calls: Some(4),
+                ..BudgetLimits::default()
+            },
+            BudgetAmounts {
+                tool_calls: 4,
+                ..BudgetAmounts::default()
+            },
+            BudgetDimension::ToolCalls,
+        );
         let status = autonomous_status(&state, Some(report));
-        assert_eq!(status.limit_reason(), Some(AutonomousLimitReason::MaxTurns));
+        assert_eq!(
+            status.limit_reason(start),
+            Some(AutonomousLimitReason::MaxTurns)
+        );
         assert_eq!(
             [
                 AutonomousLimitReason::MaxContinuations,
@@ -696,7 +809,7 @@ mod tests {
                 AutonomousLimitReason::TimeoutMs,
                 AutonomousLimitReason::Budget(Some(BudgetDimension::ToolCalls)),
             ]
-            .map(|reason| describe_autonomous_limit(&status, reason)),
+            .map(|reason| describe_autonomous_limit(&status, reason, start + 55_000)),
             [
                 "maxContinuations reached (0/3)",
                 "maxTurns reached (3/3)",
@@ -706,6 +819,7 @@ mod tests {
             ]
             .map(str::to_owned)
         );
-        assert_eq!(autonomous_status(&state, None).limit_reason(), None);
+        let fresh = create_autonomous_runtime_state(Some(&config(true)), None);
+        assert_eq!(autonomous_status(&fresh, None).limit_reason(start), None);
     }
 }

@@ -8,15 +8,25 @@
 //!   failed run ends without a final answer, so the next generation of the
 //!   conversation settles it.
 //! - `before_request`: also forces the tool of the topmost forced-call
-//!   Director the model did not call yet (`stream.forceTool`).
-//! - `after_response`: counts the response to a forced request: a call of
-//!   the tool makes the forced call; the miss that fails the generation
-//!   removes the layer and records the failure in a display row.
+//!   Director the model did not call yet (`stream.forceTool`), and makes
+//!   the request the agent's final answer (the session's budget gate sends
+//!   it with the wrap-up notice and no tools: `BudgetGate::wrap_next`)
+//!   once the goal reached its token budget in this run.
+//! - `after_response`: every settled response spends the goal's and the
+//!   autonomous run's limits once per generation (the goal: input and
+//!   output tokens; the run: one turn and its input, output and
+//!   cache-write tokens); the response that reaches the goal's token
+//!   budget turns it `budget_limited` and the rest of the run wraps up.
+//!   The run's own limits are soft: `on_yield` checks them between
+//!   continuations, so the turn that crosses one completes.
+//! - `after_response`: also counts the response to a forced request: a
+//!   call of the tool makes the forced call; the miss that fails the
+//!   generation removes the layer and records the failure in a display row.
 //! - `on_yield`: at a final answer the Director stack decides
 //!   (`crate::durable::directors`): an active goal mints one continuation,
 //!   or turns `budget_limited` and yields when the session's budget admits
 //!   no more work; otherwise an enabled autonomous run consults its gates
-//!   and limits (its continuations and the session's budget); reminders
+//!   and limits (its own and the session's budget); reminders
 //!   lead the continuation, or stay on the stack when no continuation
 //!   comes; a forced call not made yet continues the run forced. Queued
 //!   user input and unsettled RLM children hold the continuation (the
@@ -26,11 +36,12 @@
 //!   limit and that the stop Directors kept as it is (`eukhe.output_limit`:
 //!   the Harness's warning, shown after the answer, never model context).
 //!
-//! The goal and the autonomous run count no tokens, turns or time: the
-//! session's budget does (`crate::durable::budget`). Every decision is
-//! recorded in `eukhe.goal.loop` keyed by the generation task, in the same
-//! commit as its goal, autonomous and stack changes, so a rerun after a
-//! crash repeats the decision.
+//! The goal and the autonomous run count their own tokens, turns and time
+//! (as v0.10.67 did); a budget the user set (`crate::durable::budget`) is
+//! another, hard limit. Every decision is recorded in `eukhe.goal.loop`
+//! keyed by the generation task, in the same commit as its goal,
+//! autonomous and stack changes, so a rerun after a crash repeats the
+//! decision.
 
 use std::sync::{Arc, PoisonError};
 
@@ -54,14 +65,14 @@ use futures::FutureExt;
 
 use super::autonomous::{decide, AutonomousDocState, AutonomousYield};
 use super::docs::{
-    open_doc, read_doc, write_doc, GoalProgress, YieldOutcome, YieldRecord, AUTONOMOUS_DOC,
-    GOAL_DOC, LOOP_DOC,
+    open_doc, read_doc, write_doc, GoalProgress, GoalWrap, YieldOutcome, YieldRecord,
+    AUTONOMOUS_DOC, GOAL_DOC, LOOP_DOC,
 };
 use super::host::GoalsHost;
 use super::ops::{budget_report, goal_context, user_input_queued};
 use super::state::{
-    budget_limited, compared, ended, mint, owns_continuation_wakeup, paused, run_end, stall_check,
-    stamp, Last, RunEnd, Stall,
+    accounted, budget_limited, compared, ended, mint, owns_continuation_wakeup, paused, run_end,
+    spends_limits, stall_check, stamp, Last, RunEnd, Stall, UsageOutcome,
 };
 use crate::autonomous::{now_millis, AutonomousRuntimeState, SessionBudget};
 use crate::durable::children::{has_unsettled_children, WorkLedger};
@@ -95,6 +106,7 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                 let cx = cx.clone();
                 async move {
                     host.settle_failed_run(&api, &cx).await?;
+                    host.wrap_request(&api, &cx).await?;
                     let forced = read_doc(&api, &DIRECTORS_DOC, api.conversation_id(), &cx)
                         .await?
                         .and_then(|state: DirectorState| state.forced_tool());
@@ -110,7 +122,11 @@ pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
                 let message = message.clone();
                 let api = api.clone();
                 let cx = cx.clone();
-                async move { host.mark_forced_response(&message, &api, &cx).await }.boxed()
+                async move {
+                    host.account_response(&message, &api, &cx).await?;
+                    host.mark_forced_response(&message, &api, &cx).await
+                }
+                .boxed()
             })),
             on_yield: Some(Arc::new(move |message, api, cx| {
                 let host = yielded.clone();
@@ -203,6 +219,107 @@ impl GoalsHost {
             .await
     }
 
+    /// The first input of the conversation's live run (`None` without one).
+    async fn run_input(&self, api: &HookApi, cx: &Context) -> SessionResult<Option<SubmissionId>> {
+        Ok(read_doc(api, &LIVE_DOC, api.conversation_id(), cx)
+            .await?
+            .and_then(|live| live.run)
+            .and_then(|run| run.inputs.first().copied()))
+    }
+
+    /// Tell the session's budget gate whether this request is the agent's
+    /// final answer: the goal reached its token budget in this run. Set
+    /// before every request, so it never outlives the run.
+    async fn wrap_request(&self, api: &HookApi, cx: &Context) -> SessionResult<()> {
+        let conversation_id = api.conversation_id();
+        let goal = read_doc(api, &GOAL_DOC, conversation_id, cx)
+            .await?
+            .unwrap_or_default();
+        let wrap = if goal.status == GoalStatus::BudgetLimited {
+            let wrapped = read_doc(api, &LOOP_DOC, conversation_id, cx)
+                .await?
+                .and_then(|state| state.goal_wrap);
+            let input = self.run_input(api, cx).await?;
+            wrapped
+                .filter(|wrap| wrap.input == input && wrap.goal_id == goal.goal_id)
+                .map(|_| {
+                    format!(
+                        "The goal's token budget is reached ({} of {} tokens)",
+                        goal.tokens_used,
+                        goal.token_budget.unwrap_or(0)
+                    )
+                })
+        } else {
+            None
+        };
+        self.budget.wrap_next(wrap);
+        Ok(())
+    }
+
+    /// Account one settled response against the goal and the autonomous
+    /// run, once per generation: the goal's input and output tokens (the
+    /// response that reaches its token budget turns it `budget_limited`
+    /// and wraps up the rest of this run); the run's turn and tokens.
+    async fn account_response(
+        &self,
+        message: &AssistantMessage,
+        api: &HookApi,
+        cx: &Context,
+    ) -> SessionResult<()> {
+        if !spends_limits(message.stop_reason) {
+            return Ok(());
+        }
+        let conversation_id = api.conversation_id();
+        let goal_active = read_doc(api, &GOAL_DOC, conversation_id, cx)
+            .await?
+            .is_some_and(|goal| goal.status == GoalStatus::Active);
+        let autonomous_enabled = read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx)
+            .await?
+            .is_some_and(|state| state.enabled);
+        if !goal_active && !autonomous_enabled {
+            return Ok(());
+        }
+        let input = self.run_input(api, cx).await?;
+        let task_id = api.task_id();
+        let usage = message.usage;
+        self.conversation(conversation_id, cx)
+            .await?
+            .commit(
+                move |tx| async move {
+                    let (loop_draft, mut loop_state) =
+                        open_doc(&tx, &LOOP_DOC, conversation_id).await?;
+                    if loop_state.accounted == Some(task_id) {
+                        return Ok(());
+                    }
+                    let now = now_millis();
+                    if goal_active {
+                        let (draft, goal) = open_doc(&tx, &GOAL_DOC, conversation_id).await?;
+                        match accounted(&goal, &usage) {
+                            UsageOutcome::Accounted(next) => write_doc(&draft, &stamp(next, now))?,
+                            UsageOutcome::BudgetReached(next) => {
+                                loop_state.goal_wrap = Some(GoalWrap {
+                                    input,
+                                    goal_id: next.goal_id.clone(),
+                                });
+                                write_doc(&draft, &stamp(next, now))?;
+                            }
+                            UsageOutcome::Ignored => {}
+                        }
+                    }
+                    if autonomous_enabled {
+                        let (draft, mut state) =
+                            open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?;
+                        state.account(&usage);
+                        write_doc(&draft, &state)?;
+                    }
+                    loop_state.accounted = Some(task_id);
+                    write_doc(&loop_draft, &loop_state)
+                },
+                cx,
+            )
+            .await
+    }
+
     /// The Director stack's step at a final answer; `Some` continues the
     /// run with that user text and origin.
     #[tracing::instrument(skip_all)]
@@ -269,11 +386,8 @@ impl GoalsHost {
                 None => break ledger.count(),
             }
         };
-        // What the session's budget admits now, and the tokens the goal's
-        // continuation shows.
-        let report = budget_report(&self.budget).await?;
-        let budget = SessionBudget::of(report.as_ref());
-        let tokens = GoalTokens::of(report.as_ref());
+        // What the session's budget admits now.
+        let budget = SessionBudget::of(budget_report(&self.budget).await?.as_ref());
         let mut decided = None;
         loop {
             let limits = (self.limits)();
@@ -304,7 +418,7 @@ impl GoalsHost {
                     work,
                     limits.stall_steps,
                 );
-                let session = SessionTerms { budget, tokens };
+                let session = SessionTerms { budget };
                 if let Judged::NeedAutonomous = judge(
                     &state.stack,
                     &goal,
@@ -338,7 +452,7 @@ impl GoalsHost {
                     decided: decided.clone(),
                     limits,
                     work,
-                    session: SessionTerms { budget, tokens },
+                    session: SessionTerms { budget },
                 },
                 cx,
             )
@@ -457,12 +571,10 @@ struct Seen {
     autonomous: Option<AutonomousDocState>,
 }
 
-/// The session's budget as a step sees it: what it admits, and the tokens
-/// a goal continuation shows.
+/// The session's budget as a step sees it: what it admits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SessionTerms {
     budget: SessionBudget,
-    tokens: GoalTokens,
 }
 
 /// The verdicts of one step, top layer first, and what they write.
@@ -593,8 +705,8 @@ fn begin(
 /// The verdict of each layer of `stack` (bottom first), top first, down to
 /// the first one that decides (not Defer, not Leave), from the session
 /// state:
-/// - Goal: an active goal mints a continuation (Again) with the session
-///   budget's tokens, or yields when the session's budget admits no more
+/// - Goal: an active goal mints a continuation (Again) showing its own
+///   tokens, or yields when the session's budget admits no more
 ///   work (the goal turns `budget_limited`) or its progress check stops it
 ///   (the goal pauses); a paused, budget-limited, complete or failed goal
 ///   yields; a cleared goal leaves.
@@ -650,8 +762,11 @@ fn judge(
                     }
                     (SessionBudget::Working, Stall::Go { stalls }, Some(state)) => {
                         let written = stamp(state, now);
-                        let (text, row) =
-                            goal_context(&written, session.tokens, GoalContextKind::Continuation)?;
+                        let (text, row) = goal_context(
+                            &written,
+                            GoalTokens::of(&written),
+                            GoalContextKind::Continuation,
+                        )?;
                         // The model reads why the next continuations count.
                         let text = if stalls == 0 {
                             text
@@ -962,7 +1077,6 @@ mod tests {
     fn working() -> SessionTerms {
         SessionTerms {
             budget: SessionBudget::Working,
-            tokens: GoalTokens::default(),
         }
     }
 
@@ -1010,7 +1124,6 @@ mod tests {
             check(),
             SessionTerms {
                 budget: SessionBudget::Short(Some(eukhe_types::budget::BudgetDimension::Tokens)),
-                tokens: GoalTokens::default(),
             },
             7,
         )

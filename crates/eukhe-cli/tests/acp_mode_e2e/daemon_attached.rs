@@ -498,13 +498,13 @@ fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
 }
 
 #[test]
-fn acp_goal_command_publishes_goal_meta_and_the_budget_stops_it() {
-    // `/goal --budget 5` puts five tokens on the session's budget: the goal
-    // starts (its meta frame is active), its first request does not fit
-    // (not even as the final answer), so the turn ends at the token limit
-    // (`max_tokens`) and the goal turns budget_limited, its meta showing
-    // the budget's tokens.
-    let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS"] });
+fn acp_goal_command_publishes_goal_meta_and_its_budget_limits_it() {
+    // `/goal --budget 5` gives the goal its own soft token budget: the goal
+    // starts (its meta frame is active), its first answer is sent whatever
+    // its size, and the usage accounting of that answer crosses the budget,
+    // so the goal turns budget_limited (its meta showing the tokens it
+    // counted) and mints no continuation: the prompt ends with end_turn.
+    let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS", "unused"] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
@@ -529,45 +529,49 @@ fn acp_goal_command_publishes_goal_meta_and_the_budget_stops_it() {
         .collect();
     assert!(!goals.is_empty(), "updates: {updates:?}");
     assert_eq!(
-        (&goals[0]["status"], &goals[0]["objective"]),
+        (
+            &goals[0]["status"],
+            &goals[0]["objective"],
+            &goals[0]["tokenBudget"],
+            &goals[0]["tokensUsed"]
+        ),
         (
             &json!("active"),
-            &json!("reply with exactly: GOAL-PROGRESS")
+            &json!("reply with exactly: GOAL-PROGRESS"),
+            &json!(5),
+            &json!(0)
         )
     );
-    // The run-end observer limits the goal; its frame may follow the
-    // response.
+    // The usage update follows the settled answer; its frame may follow
+    // the response.
     let limited = match goals.iter().find(|goal| goal["status"] == "budget_limited") {
         Some(goal) => goal.clone(),
         None => goal_of(&client.wait_frame(TIMEOUT, |frame| {
             update_meta(frame)["goal"]["status"] == "budget_limited"
         })),
     };
-    assert_eq!(
-        limited,
-        json!({
-            "status": "budget_limited",
-            "objective": "reply with exactly: GOAL-PROGRESS",
-            "tokenBudget": 5,
-            "tokensUsed": 0,
-        })
+    assert!(
+        limited["tokensUsed"].as_u64().unwrap_or(0) > 5,
+        "the goal counted its answer: {limited}"
     );
     let streamed: String = updates
         .iter()
         .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
         .collect();
-    assert!(!streamed.contains("GOAL-PROGRESS"), "updates: {updates:?}");
+    assert!(streamed.contains("GOAL-PROGRESS"), "updates: {updates:?}");
+    assert!(!streamed.contains("unused"), "updates: {updates:?}");
     assert_eq!(
         prompt_response["result"],
-        json!({ "stopReason": "max_tokens" })
+        json!({ "stopReason": "end_turn" })
     );
 }
 
 #[test]
 fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
-    // `--autonomous-max-tokens 1` limits the session's budget to one
-    // token: the first request does not fit, the turn fails at the token
-    // limit, and the stop reason is `max_tokens`.
+    // `--autonomous-max-tokens 1` is the run's own soft limit: the first
+    // turn runs and spends more than one token, the run stops at its token
+    // limit between continuations, the completion envelope carries the
+    // autonomous accounting, and the stop reason is `max_tokens`.
     let script = json!({ "engine": "faux", "responses": ["an answer"] });
     let mut client = AcpChild::spawn(
         &[
@@ -593,7 +597,20 @@ fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
         "session/prompt",
         &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "do the thing" }] }),
     );
-    let (prompt_response, _) = client.wait_response(prompt, TIMEOUT);
+    let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
+
+    let completion = updates
+        .iter()
+        .find(|update| {
+            let meta = &update["params"]["update"]["_meta"]["com.eukhe"];
+            meta["phase"] == "event" && meta.get("autonomous").is_some_and(|v| !v.is_null())
+        })
+        .expect("an autonomous completion meta");
+    let autonomous = &completion["params"]["update"]["_meta"]["com.eukhe"]["autonomous"];
+    assert_eq!(autonomous["enabled"], true);
+    assert_eq!(autonomous["turnsUsed"], 1);
+    let quiescence = &completion["params"]["update"]["_meta"]["com.eukhe"]["quiescence"];
+    assert_eq!(quiescence["outstandingSubagents"], 0);
 
     assert_eq!(
         prompt_response["result"],

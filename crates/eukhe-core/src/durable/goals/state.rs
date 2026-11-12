@@ -11,7 +11,7 @@ use eukhe_ai::utils::retry::is_budget_refusal;
 use eukhe_bend::wire::{Reader, Writer, NAT_MAX};
 use eukhe_bend::Entry;
 use eukhe_types::budget::BudgetDimension;
-use eukhe_types::pi_ai::{AssistantMessage, StopReason};
+use eukhe_types::pi_ai::{AssistantMessage, StopReason, Usage};
 
 use crate::autonomous::SessionBudget;
 use crate::goals::{normalize_goal_state, validate_goal_objective, GoalState, GoalStatus};
@@ -58,18 +58,24 @@ pub fn owns_continuation_wakeup(state: &GoalState) -> bool {
     state.status == GoalStatus::Active && state.objective.is_some()
 }
 
-/// A fresh active goal (old `GoalDriver::start`). Its token budget is a
-/// limit on the session's budget, put there by the caller.
+/// A fresh active goal (old `GoalDriver::start`) with its own token
+/// budget (validated by the caller).
 ///
 /// # Errors
 ///
 /// The objective fails validation.
-pub(crate) fn new_goal(objective: &str, now: u64) -> anyhow::Result<GoalState> {
+pub(crate) fn new_goal(
+    objective: &str,
+    token_budget: Option<u64>,
+    now: u64,
+) -> anyhow::Result<GoalState> {
     let objective = validate_goal_objective(objective)?;
     Ok(GoalState {
         status: GoalStatus::Active,
         goal_id: Some(uuid::Uuid::new_v4().to_string()),
         objective: Some(objective),
+        token_budget,
+        tokens_used: 0,
         time_used_seconds: 0,
         continuations_used: 0,
         created_at: Some(now),
@@ -90,8 +96,9 @@ pub(crate) fn paused(state: &GoalState, reason: &str) -> Option<GoalState> {
     })
 }
 
-/// The resumed goal (active, or `budget_limited` while the session's
-/// `budget` admits no work); `None` when there is nothing to resume.
+/// The resumed goal: active; `budget_limited` when its own token budget
+/// is already reached or while the session's `budget` admits no work;
+/// `None` when there is nothing to resume.
 #[must_use]
 pub(crate) fn resumed(state: &GoalState, budget: SessionBudget) -> Option<GoalState> {
     if state.objective.is_none()
@@ -99,10 +106,19 @@ pub(crate) fn resumed(state: &GoalState, budget: SessionBudget) -> Option<GoalSt
     {
         return None;
     }
+    let spent = state
+        .token_budget
+        .is_some_and(|tokens| state.tokens_used >= tokens);
     Some(match budget {
-        SessionBudget::Working => GoalState {
+        SessionBudget::Working if !spent => GoalState {
             status: GoalStatus::Active,
             last_reason: None,
+            last_error: None,
+            ..state.clone()
+        },
+        SessionBudget::Working => GoalState {
+            status: GoalStatus::BudgetLimited,
+            last_reason: Some("Goal token budget already reached".to_owned()),
             last_error: None,
             ..state.clone()
         },
@@ -113,6 +129,55 @@ pub(crate) fn resumed(state: &GoalState, budget: SessionBudget) -> Option<GoalSt
             ..state.clone()
         },
     })
+}
+
+/// What accounting one settled response did to the goal.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum UsageOutcome {
+    /// The usage was added.
+    Accounted(GoalState),
+    /// The goal reached its token budget and moved to `budget_limited`.
+    BudgetReached(GoalState),
+    /// The goal was not active.
+    Ignored,
+}
+
+/// Account one settled response's usage against an active goal (old
+/// `record_assistant_usage`): its input plus output tokens. The response
+/// that reaches the token budget limits the goal (soft: it was sent).
+#[must_use]
+pub(crate) fn accounted(state: &GoalState, usage: &Usage) -> UsageOutcome {
+    if state.status != GoalStatus::Active {
+        return UsageOutcome::Ignored;
+    }
+    let next = GoalState {
+        tokens_used: state
+            .tokens_used
+            .saturating_add(usage.input)
+            .saturating_add(usage.output),
+        ..state.clone()
+    };
+    match next.token_budget {
+        Some(budget) if next.tokens_used >= budget => UsageOutcome::BudgetReached(GoalState {
+            status: GoalStatus::BudgetLimited,
+            last_reason: Some(format!("Reached {budget} token goal budget")),
+            last_error: None,
+            ..next
+        }),
+        Some(_) | None => UsageOutcome::Accounted(next),
+    }
+}
+
+/// Whether a settled response spends the goal's and the autonomous run's
+/// limits: every settled response but a failed or aborted one.
+#[must_use]
+pub(crate) fn spends_limits(stop_reason: StopReason) -> bool {
+    match stop_reason {
+        StopReason::Stop | StopReason::Length | StopReason::ToolUse => true,
+        StopReason::Error | StopReason::Aborted | StopReason::Pending | StopReason::Deferred => {
+            false
+        }
+    }
 }
 
 /// The goal of a session whose budget admits no more work (its phase left

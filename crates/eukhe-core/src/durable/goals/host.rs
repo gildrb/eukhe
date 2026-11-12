@@ -12,8 +12,7 @@ use eukhe_durable::types::ConversationId;
 use futures::FutureExt;
 use serde_json::Value;
 
-use super::docs::{read_doc, GOAL_DOC};
-use super::ops::{budget_report, conversation_of, goal_state, limit_goal_tokens, update_goal};
+use super::ops::{conversation_of, goal_state, update_goal};
 use super::state::{completed, new_goal};
 use crate::autonomous::GateCommandRunner;
 use crate::durable::acceptance::{claim, Claimed};
@@ -21,11 +20,10 @@ use crate::durable::budget::BudgetGate;
 use crate::durable::children::WorkLedger;
 use crate::durable::directors::{push_director, DirectorLimits, Layer};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
-use crate::goals::{
-    goal_host_response, validate_goal_budget, validate_goal_objective, GoalStatus, GoalTokens,
-};
+use crate::goals::{goal_host_response, validate_goal_budget, GoalStatus, GoalTokens};
 
-/// The services of the goal extension: the session's Harness and budget,
+/// The services of the goal extension: the session's Harness and budget
+/// gate (the wrap-up of a run whose limit was reached goes through it),
 /// the runner of autonomous quality gates, the Director stack's limits
 /// (read at each step: the settings can change), and the work of each
 /// conversation the goal's progress check counts (a cache of what the
@@ -77,7 +75,7 @@ impl GoalsHost {
             GoalRequest::Get => {
                 let harness = self.harness.require()?;
                 let goal = goal_state(&harness, conversation.id(), &cx).await?;
-                serde_json::to_value(goal_host_response(&goal, self.tokens().await?, false))?
+                serde_json::to_value(goal_host_response(&goal, GoalTokens::of(&goal), false))?
             }
             GoalRequest::Create => {
                 let record = call.data.as_object().cloned().unwrap_or_default();
@@ -90,17 +88,7 @@ impl GoalsHost {
                         anyhow::anyhow!("goal.create token_budget must be an integer when provided")
                     })?),
                 };
-                // Refused and invalid goals put nothing on the budget.
-                let current = read_doc(&self.harness.require()?, &GOAL_DOC, conversation.id(), &cx)
-                    .await?
-                    .unwrap_or_default();
-                if let Some(refusal) = create_refusal(current.status) {
-                    return Err(refusal.into());
-                }
-                validate_goal_objective(objective)?;
-                if let Some(tokens) = validate_goal_budget(token_budget)? {
-                    limit_goal_tokens(&self.budget, tokens).await?;
-                }
+                let token_budget = validate_goal_budget(token_budget)?;
                 let objective = objective.to_owned();
                 let (goal, _) = update_goal(
                     &conversation,
@@ -108,14 +96,14 @@ impl GoalsHost {
                         if let Some(refusal) = create_refusal(current.status) {
                             return Err(refusal);
                         }
-                        let goal = new_goal(&objective, now)
+                        let goal = new_goal(&objective, token_budget, now)
                             .map_err(|error| SessionError::error(format!("{error:#}")))?;
                         Ok(Some((goal, None)))
                     },
                     &cx,
                 )
                 .await?;
-                serde_json::to_value(goal_host_response(&goal, self.tokens().await?, false))?
+                serde_json::to_value(goal_host_response(&goal, GoalTokens::of(&goal), false))?
             }
             GoalRequest::Complete => {
                 let harness = self.harness.require()?;
@@ -142,12 +130,16 @@ impl GoalsHost {
                             &cx,
                         )
                         .await?;
-                        serde_json::to_value(goal_host_response(&goal, self.tokens().await?, true))?
+                        serde_json::to_value(goal_host_response(
+                            &goal,
+                            GoalTokens::of(&goal),
+                            true,
+                        ))?
                     }
                     Claimed::Pending { checks } => {
                         let mut response = serde_json::to_value(goal_host_response(
                             &current,
-                            self.tokens().await?,
+                            GoalTokens::of(&current),
                             false,
                         ))?;
                         if let Some(fields) = response.as_object_mut() {
@@ -176,11 +168,6 @@ impl GoalsHost {
             )?,
         };
         Ok(response)
-    }
-
-    /// The session budget's tokens, as the goal shows them.
-    async fn tokens(&self) -> anyhow::Result<GoalTokens> {
-        Ok(GoalTokens::of(budget_report(&self.budget).await?.as_ref()))
     }
 }
 

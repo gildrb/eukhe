@@ -564,7 +564,7 @@ async fn run_prompts(
             }
         }
         // The TS print-mode autonomous contract applies to both output
-        // modes; the run's limits are the session budget's.
+        // modes; the run's limits are its own and the session budget's.
         let autonomous = autonomous_state(harness, conversation.id(), cx).await?;
         let report = budget_report(&session.budget()).await?;
         if let Some(stderr) = autonomous_exit_stderr(&autonomous.status(report)) {
@@ -635,9 +635,9 @@ async fn drive_prompts(
     let config = &options.config;
     let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
     // The CLI autonomous flags enable the run on the main conversation (no
-    // status row, as TS `createAgentSession({ autonomous })`) and put its
-    // limits on the session's budget; a run without flags keeps the
-    // session's state (`/autonomous` rewrites it live).
+    // status row, as TS `createAgentSession({ autonomous })`) with its own
+    // limits; a run without flags keeps the session's state
+    // (`/autonomous` rewrites it live).
     if let Some(autonomous) = &config.autonomous {
         configure_autonomous(
             harness,
@@ -653,14 +653,12 @@ async fn drive_prompts(
     if let Some(acceptance) = &config.acceptance {
         seed_acceptance(harness, conversation.id(), acceptance, &opened.cwd, cx).await?;
     }
-    // The CLI `--goal` seed: a fresh conversation starts the goal (its
-    // token budget goes on the session's budget) and queues its
-    // continuation; a resumed or already-seeded one keeps its persisted
-    // goal.
+    // The CLI `--goal` seed: a fresh conversation starts the goal (with
+    // its own token budget) and queues its continuation; a resumed or
+    // already-seeded one keeps its persisted goal.
     if let Some(goal) = &config.initial_goal {
         seed_initial_goal(
             harness,
-            &session.budget(),
             conversation.id(),
             &goal.objective,
             goal.token_budget.map(u64::from),

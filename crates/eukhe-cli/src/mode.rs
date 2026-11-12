@@ -72,7 +72,7 @@ impl AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitialGoal {
     pub objective: String,
-    /// `--goal-token-budget`: a token limit on the session's budget.
+    /// `--goal-token-budget`: the goal's own token budget.
     pub token_budget: Option<u32>,
 }
 

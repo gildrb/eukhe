@@ -5,9 +5,10 @@
 //! State lives in conversation documents (`eukhe.goal`, `eukhe.autonomous`,
 //! and the hooks' bookkeeping `eukhe.goal.loop`); the `pi.generation` hooks
 //! drive continuation; the kernel's `goal.*` host requests and the `/goal`
-//! / `/autonomous` operations mutate the documents through commits. What a
-//! goal or an autonomous run may spend is the session's budget
-//! (`crate::durable::budget`): their limits go on it, and they stop when it
+//! / `/autonomous` operations mutate the documents through commits. A
+//! goal and an autonomous run count what they spend against their own
+//! limits (the goal's token budget; the run's turns, tokens and time),
+//! and stop too when the session's budget (`crate::durable::budget`)
 //! admits no more work. [`watch_goal_updates`] feeds the `goal_update`
 //! event.
 
@@ -37,7 +38,7 @@ pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
 pub use ops::{
     budget_report, clear_goal, complete_goal, continue_goal_after_compaction, goal_state,
     import_legacy_goal, pause_goal, resume_goal, seed_initial_goal, start_goal,
-    withdraw_queued_goal_contexts, StartedGoal,
+    withdraw_queued_goal_contexts,
 };
 pub(crate) use ops::{conversation_of, end_claimed_goal, user_input_queued, ClaimEnd};
 pub use state::{

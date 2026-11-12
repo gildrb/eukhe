@@ -8,7 +8,7 @@ use std::pin::Pin;
 use sha2::{Digest, Sha256};
 
 use super::{
-    autonomous_limit_reason, AgentAutonomousGateFailure, AutonomousDecision,
+    autonomous_limit_reason, now_millis, AgentAutonomousGateFailure, AutonomousDecision,
     AutonomousDecisionReason, AutonomousGateResult, AutonomousRuntimeState, GitWorktreeSnapshot,
     SessionBudget,
 };
@@ -83,8 +83,8 @@ pub struct ChildProcessResult {
 }
 
 /// Decide whether an assistant turn should be followed by a continuation:
-/// gates first (a pass stops the run), then the limits: the run's
-/// continuations and the session's `budget`.
+/// gates first (a pass stops the run), then the limits: the run's own
+/// (continuations, turns, tokens, time) and the session's `budget`.
 pub async fn should_autonomously_continue(
     state: &mut AutonomousRuntimeState,
     stop_reason: Option<eukhe_types::ai::StopReason>,
@@ -102,7 +102,7 @@ pub async fn should_autonomously_continue(
         };
     }
     let gate_result = refresh_autonomous_quality_gates(state, gates).await;
-    let limit_reason = autonomous_limit_reason(state, budget);
+    let limit_reason = autonomous_limit_reason(state, budget, now_millis());
     match gate_result {
         Some(AutonomousGateResult::Passed) => AutonomousDecision {
             should_continue: false,

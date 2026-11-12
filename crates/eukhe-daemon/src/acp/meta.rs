@@ -177,8 +177,7 @@ pub struct EukheSubagentMeta {
 }
 
 /// Autonomous-mode accounting surfaced with a turn's completion: the run's
-/// continuations, and its turns and tokens as the session's budget counted
-/// them (requests and tokens spent; 0 without a budget).
+/// own continuations, turns and tokens.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EukheAutonomousMeta {
@@ -194,10 +193,9 @@ pub struct EukheAutonomousMeta {
     pub limit_reason: Option<String>,
 }
 
-/// The `_meta.autonomous` accounting for a completion update: the run's
-/// usage from the session budget plus the latest gate attempt and failure
-/// (TS `autonomousMeta` in acp-mode.ts). The daemon-attached settlement's
-/// accounting.
+/// The `_meta.autonomous` accounting for a completion update: per-run usage
+/// plus the latest gate attempt and failure (TS `autonomousMeta` in
+/// acp-mode.ts). The daemon-attached settlement's accounting.
 pub fn autonomous_meta(
     status: &eukhe_core::autonomous::AgentAutonomousStatus,
 ) -> EukheAutonomousMeta {
@@ -213,14 +211,8 @@ pub fn autonomous_meta(
     EukheAutonomousMeta {
         enabled: status.enabled,
         continuations_used: status.continuations_used,
-        turns_used: status
-            .budget
-            .as_ref()
-            .map_or(0, |report| report.spent.requests),
-        tokens_used: status
-            .budget
-            .as_ref()
-            .map_or(0, |report| report.spent.tokens),
+        turns_used: status.turns_used,
+        tokens_used: status.tokens_used,
         gate_attempt: (gate_attempt > 0).then_some(gate_attempt),
         gate_failure: status
             .last_gate_failure
@@ -232,9 +224,10 @@ pub fn autonomous_meta(
 
 /// Map a finished turn onto an ACP stop reason. Precedence: an explicit
 /// cancel, then the TS `acpStopReason` mapping for an enabled autonomous
-/// run (its limit: the session's budget ran short in tokens maps to
-/// `max_tokens`; its continuations, or the budget short in anything else,
-/// to `max_turn_requests`), then the turn's final assistant stop reason
+/// run (its limit: `maxTokens`, or the session's budget short in tokens,
+/// maps to `max_tokens`; its continuations, turns or time, or the budget
+/// short in anything else, to `max_turn_requests`), then the turn's final
+/// assistant stop reason
 /// (#3363): a per-call output-token truncation (`StopReason::Length`) is
 /// an honest `max_tokens`, so `end_turn` stays reserved for a finished
 /// answer; a final request that failed while the session's budget admits
@@ -250,9 +243,10 @@ pub fn acp_stop_reason_for_status(
     if cancelled {
         return super::types::AcpStopReason::Cancelled;
     }
+    let now = eukhe_core::autonomous::now_millis();
     match status
         .filter(|status| status.enabled)
-        .and_then(eukhe_core::autonomous::AgentAutonomousStatus::limit_reason)
+        .and_then(|status| status.limit_reason(now))
     {
         Some(reason) => limit_stop_reason(reason),
         None => match assistant_stop_reason {
@@ -278,19 +272,24 @@ pub fn budget_stop_reason(
     match SessionBudget::of(budget) {
         SessionBudget::Working => None,
         SessionBudget::Short(short) => {
-            Some(limit_stop_reason(AutonomousLimitReason::of_short(short)))
+            Some(limit_stop_reason(AutonomousLimitReason::Budget(short)))
         }
     }
 }
 
-/// The ACP stop reason of a run limit: the budget short in tokens is
-/// `max_tokens`; every other limit `max_turn_requests`.
+/// The ACP stop reason of a run limit: tokens (the run's `maxTokens`, or
+/// the session's budget short in tokens) are `max_tokens`; every other
+/// limit `max_turn_requests`.
 fn limit_stop_reason(
     reason: eukhe_core::autonomous::AutonomousLimitReason,
 ) -> super::types::AcpStopReason {
     use eukhe_core::autonomous::AutonomousLimitReason;
+    use eukhe_types::budget::BudgetDimension;
     match reason {
-        AutonomousLimitReason::MaxTokens => super::types::AcpStopReason::MaxTokens,
+        AutonomousLimitReason::MaxTokens
+        | AutonomousLimitReason::Budget(Some(BudgetDimension::Tokens)) => {
+            super::types::AcpStopReason::MaxTokens
+        }
         AutonomousLimitReason::MaxContinuations
         | AutonomousLimitReason::MaxTurns
         | AutonomousLimitReason::TimeoutMs
@@ -339,32 +338,45 @@ mod tests {
         };
         use eukhe_types::ai::StopReason;
         use eukhe_types::budget::{BudgetDimension, BudgetPhase, BudgetReport};
-        // An enabled run whose session budget ran short in `short`.
-        let status = |enabled: bool, short: Option<BudgetDimension>| AgentAutonomousStatus {
-            enabled,
-            continuations_used: 0,
-            started_at: None,
-            limits: AutonomousLimits {
-                max_continuations: 3,
-            },
-            gates: NormalizedGateConfig {
-                commands: Vec::new(),
-                max_retries: 0,
-                timeout_ms: 0,
-            },
-            gate_attempts: std::collections::HashMap::new(),
-            last_gate_failure: None,
-            subagent_keep_alive_ms: None,
-            budget: Some(BudgetReport {
-                phase: if short.is_some() {
-                    BudgetPhase::WrapUp
-                } else {
-                    BudgetPhase::Working
+        // An enabled run (at its one turn when `turns_spent`) whose session
+        // budget ran short in `short`.
+        let status_of = |enabled: bool,
+                         turns_spent: bool,
+                         short: Option<BudgetDimension>|
+         -> AgentAutonomousStatus {
+            AgentAutonomousStatus {
+                enabled,
+                continuations_used: 0,
+                turns_used: u64::from(turns_spent),
+                tokens_used: 0,
+                started_at: None,
+                limits: AutonomousLimits {
+                    max_continuations: 3,
+                    max_turns: 1,
+                    max_tokens: 80_000,
+                    timeout_ms: 1_800_000,
                 },
-                short,
-                ..BudgetReport::default()
-            }),
+                gates: NormalizedGateConfig {
+                    commands: Vec::new(),
+                    max_retries: 0,
+                    timeout_ms: 0,
+                },
+                gate_attempts: std::collections::HashMap::new(),
+                last_gate_failure: None,
+                subagent_keep_alive_ms: None,
+                budget: Some(BudgetReport {
+                    phase: if short.is_some() {
+                        BudgetPhase::WrapUp
+                    } else {
+                        BudgetPhase::Working
+                    },
+                    short,
+                    ..BudgetReport::default()
+                }),
+            }
         };
+        let status =
+            |enabled: bool, short: Option<BudgetDimension>| status_of(enabled, false, short);
         // An explicit cancel wins over the turn's own truncated stop reason.
         assert_eq!(
             acp_stop_reason_for_status(
@@ -383,10 +395,16 @@ mod tests {
             ),
             AcpStopReason::MaxTokens
         );
-        // The budget's request limit stays the run's stop reason even when
-        // the final message also truncated; its token limit is `max_tokens`.
+        // The run's `maxTurns` and the budget's request limit stay the
+        // run's stop reason even when the final message also truncated;
+        // the budget's token limit is `max_tokens`.
         assert_eq!(
             [
+                acp_stop_reason_for_status(
+                    /*cancelled*/ false,
+                    Some(&status_of(true, true, None)),
+                    Some(StopReason::Length)
+                ),
                 acp_stop_reason_for_status(
                     /*cancelled*/ false,
                     Some(&status(true, Some(BudgetDimension::Requests))),
@@ -398,7 +416,11 @@ mod tests {
                     Some(StopReason::Stop)
                 ),
             ],
-            [AcpStopReason::MaxTurnRequests, AcpStopReason::MaxTokens]
+            [
+                AcpStopReason::MaxTurnRequests,
+                AcpStopReason::MaxTurnRequests,
+                AcpStopReason::MaxTokens
+            ]
         );
     }
 

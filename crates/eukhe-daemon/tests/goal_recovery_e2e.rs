@@ -510,7 +510,7 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
     let state = harness.client.request("st1");
     assert_eq!(state["success"], true, "get_state failed: {state}");
     let worker_pid = state["data"]["workerPid"].as_u64().expect("worker pid");
-    let pre_kill_updated = goal["updatedAt"].as_u64().unwrap();
+    let pre_kill_tokens = goal["tokensUsed"].as_u64().unwrap();
     let pre_kill_events = harness.client.events.len();
 
     // Kill the worker mid-goal.
@@ -606,26 +606,26 @@ fn killed_mid_goal_worker_rehydrates_the_goal_with_counts() {
         "a post-recovery announcement reset the count: {recovery_announcements:?}"
     );
 
-    // The rebuilt session keeps using the goal: a resumed turn continues
-    // from the rehydrated base -- the durable rows keep the objective and
-    // count intact (the rehydrated mint's count continuation is pinned by
-    // the `recovery_rebuild_rehydrates_the_goal_from_the_session_file`
-    // unit). The resumed turn runs in-run: its answer is the one that
-    // mints, so the mint's announcement marks the turn landed.
+    // The rebuilt session keeps using the goal: a resumed turn's usage
+    // accounting continues from the rehydrated base — the durable rows
+    // keep growing with the objective and count intact (the rehydrated
+    // mint's count continuation is pinned by the
+    // `recovery_rebuild_rehydrates_the_goal_from_the_session_file` unit).
+    // The resumed turn runs in-run: its accounted answer is the one that
+    // mints, so the mint's announcement marks the accounting landed.
     let since = harness.client.events.len();
     harness.prompt_racing_the_loop("rr", "/goal resume");
     harness.await_announced_count(since, pre_kill_count);
     harness.prompt_racing_the_loop("rrp", "/goal pause");
     harness.client.drain_events(Duration::from_secs(1));
-    // The recovery mirrored the post-recovery turn durably: the stored
-    // goal was written after the pre-kill document (the durable store
-    // commits one goal document per change instead of appending
-    // `thread_goal_state` rows, so the newer write is the document's, not a
-    // count).
+    // The recovery mirrored the post-recovery accounting durably: the
+    // stored goal's usage grew past the pre-kill document (the durable
+    // store commits one goal document per change instead of appending
+    // `thread_goal_state` rows, so growth is the document's, not a count).
     let goal = harness.latest_goal_row();
     assert!(
-        goal["updatedAt"].as_u64().unwrap() > pre_kill_updated,
-        "the recovery wrote no new durable goal state: {goal}"
+        goal["tokensUsed"].as_u64().unwrap() > pre_kill_tokens,
+        "the recovery wrote no new durable goal accounting: {goal}"
     );
     assert!(
         goal["continuationsUsed"].as_u64().unwrap() >= pre_kill_count,

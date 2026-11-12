@@ -1,16 +1,15 @@
 //! Thread-goal wire state. The `goal_update` session event and the attach
 //! snapshot's `state.goal` field carry this object to every attached
 //! surface (TUI, ACP, CLI), so the shared vocabulary lives in eukhe-types;
-//! the goal engine (validation, continuation prompts) lives in eukhe-core.
-//! Field shape is the TS `GoalState` (camelCase, optional keys omitted).
+//! the goal engine (validation, accounting, continuation prompts) lives in
+//! eukhe-core. Field shape is the TS `GoalState` (camelCase, optional keys
+//! omitted).
 //!
-//! A goal counts no tokens: its token budget is a limit on the session's
-//! budget (`crate::budget`), and the tokens a goal shows are that budget's
-//! ([`GoalTokens`]).
+//! A goal counts its own tokens (the input and output of its responses)
+//! against its token budget; the session's budget (`crate::budget`) is
+//! another, hard limit.
 
 use serde::{Deserialize, Serialize};
-
-use crate::budget::BudgetReport;
 
 /// The lifecycle status of a thread goal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +73,12 @@ pub struct GoalState {
     pub goal_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub objective: Option<String>,
+    /// The goal's token budget: soft, checked after each response; the
+    /// response that reaches it limits the goal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<u64>,
+    /// The input and output tokens of the goal's responses while active.
+    pub tokens_used: u64,
     pub time_used_seconds: u64,
     pub continuations_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +104,8 @@ pub fn empty_goal_state() -> GoalState {
         status: GoalStatus::Idle,
         goal_id: None,
         objective: None,
+        token_budget: None,
+        tokens_used: 0,
         time_used_seconds: 0,
         continuations_used: 0,
         created_at: None,
@@ -117,26 +124,23 @@ impl GoalState {
     }
 }
 
-/// The tokens a goal shows: what the session's budget spent in tokens and
-/// its token limit (the goal's token budget is that limit). Without a
-/// budget, or one that does not limit tokens, nothing is counted: 0 of no
-/// budget.
+/// The tokens a goal shows: what its responses spent and its token budget.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GoalTokens {
-    /// The tokens the budget spent.
+    /// The tokens the goal's responses spent.
     pub used: u64,
-    /// The budget's token limit.
+    /// The goal's token budget.
     pub budget: Option<u64>,
 }
 
 impl GoalTokens {
-    /// The tokens of the session's budget `report` (`None`: no budget).
+    /// The tokens of `goal`.
     #[must_use]
-    pub fn of(report: Option<&BudgetReport>) -> Self {
-        report.map_or_else(Self::default, |report| Self {
-            used: report.spent.tokens,
-            budget: report.limits.tokens,
-        })
+    pub fn of(goal: &GoalState) -> Self {
+        Self {
+            used: goal.tokens_used,
+            budget: goal.token_budget,
+        }
     }
 }
 
@@ -145,10 +149,8 @@ mod tests {
     use super::*;
 
     /// A goal persisted before the no-progress strike was removed carries
-    /// `noProgressStreak` and `noProgressTurnMs`, and one persisted before
-    /// its token budget moved to the session's budget carries
-    /// `tokenBudget` and `tokensUsed`: it still loads, and the old keys are
-    /// ignored.
+    /// `noProgressStreak` and `noProgressTurnMs`: it still loads, and the
+    /// old keys are ignored.
     #[test]
     fn a_goal_with_removed_keys_still_loads() {
         let old = r#"{"active":true,"status":"budget_limited","goalId":"g1","objective":"ship it","tokenBudget":50,"tokensUsed":40,"timeUsedSeconds":12,"continuationsUsed":2,"createdAt":1000,"noProgressStreak":1,"noProgressTurnMs":2000,"updatedAt":3000}"#;
@@ -159,12 +161,21 @@ mod tests {
                 status: GoalStatus::BudgetLimited,
                 goal_id: Some("g1".to_owned()),
                 objective: Some("ship it".to_owned()),
+                token_budget: Some(50),
+                tokens_used: 40,
                 time_used_seconds: 12,
                 continuations_used: 2,
                 created_at: Some(1000),
                 updated_at: Some(3000),
                 last_reason: None,
                 last_error: None,
+            }
+        );
+        assert_eq!(
+            GoalTokens::of(&goal),
+            GoalTokens {
+                used: 40,
+                budget: Some(50)
             }
         );
     }

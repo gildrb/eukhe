@@ -93,9 +93,7 @@ pub static AUTONOMOUS_DOC: ConversationDoc<AutonomousDocState> = match Conversat
 };
 
 /// `eukhe.goal.loop`: what the hooks already decided, keyed by the asking
-/// generation task, so a rerun after a crash repeats the decision. A record
-/// written while the goal counted its own tokens carries `accounted` (the
-/// last generation it charged): it is ignored.
+/// generation task, so a rerun after a crash repeats the decision.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GoalLoopState {
@@ -105,6 +103,25 @@ pub(crate) struct GoalLoopState {
     /// The goal's progress check at its last continuation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<GoalProgress>,
+    /// The last generation whose response the goal and the autonomous run
+    /// counted: a rerun counts it once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accounted: Option<TaskId>,
+    /// The run in which the goal reached its token budget: the rest of
+    /// that run is its final answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_wrap: Option<GoalWrap>,
+}
+
+/// The run (its first input) and the goal whose token budget was reached
+/// in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GoalWrap {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<SubmissionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
 }
 
 /// The goal's progress check at its last continuation: whose it is (the
@@ -214,12 +231,18 @@ mod tests {
     }
 
     /// A version 2 record of the removed no-progress backoff loads: the
-    /// migration drops it, so the rerun decides again; the removed
-    /// `accounted` record is ignored.
+    /// migration drops it, so the rerun decides again; its `accounted`
+    /// generation stays.
     #[test]
     fn a_wait_record_of_the_removed_backoff_is_dropped() {
         let old = r#"{"accounted":7,"yield":{"taskId":7,"outcome":{"type":"wait","until":20000}}}"#;
-        assert_eq!(migrated(old, 2), GoalLoopState::default());
+        assert_eq!(
+            migrated(old, 2),
+            GoalLoopState {
+                accounted: Some(TaskId::from_number(7)),
+                ..GoalLoopState::default()
+            }
+        );
     }
 
     /// A version 2 continuation carries its origin: the migration keeps it.
@@ -236,6 +259,8 @@ mod tests {
                 },
             }),
             progress: None,
+            accounted: None,
+            goal_wrap: None,
         };
         let text = serde_json::to_string(&state).expect("encode");
         assert_eq!(migrated(&text, 2), state);

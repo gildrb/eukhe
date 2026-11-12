@@ -321,6 +321,8 @@ mod tests {
             status: GoalStatus::Active,
             goal_id: Some("g1".to_string()),
             objective: Some("ship the feature".to_string()),
+            token_budget: Some(1000),
+            tokens_used: 400,
             time_used_seconds: 120,
             continuations_used: 3,
             created_at: Some(1),
@@ -330,7 +332,7 @@ mod tests {
         }
     }
 
-    /// The session budget's tokens of the goal: 400 of 1000.
+    /// The goal's tokens: 400 of 1000.
     fn tokens() -> GoalTokens {
         GoalTokens {
             used: 400,

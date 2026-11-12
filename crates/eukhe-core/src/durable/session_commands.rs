@@ -31,7 +31,7 @@ use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
 use super::goals::{
     autonomous_state, budget_report, clear_goal, goal_state, pause_goal, resume_goal,
-    set_autonomous, start_goal, AutonomousChange, StartedGoal,
+    set_autonomous, start_goal, AutonomousChange,
 };
 use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
@@ -608,8 +608,8 @@ fn goal_status_text(state: &GoalState) -> String {
 }
 
 /// `/goal`: status, clear, pause, resume, and start (start and resume submit
-/// their continuation context themselves; a goal's token budget goes on the
-/// session's budget).
+/// their continuation context themselves; a goal's token budget is its
+/// own).
 async fn execute_goal(
     session: &EukheSession,
     conversation: &Conversation,
@@ -653,14 +653,8 @@ async fn execute_goal(
             objective,
             token_budget,
         } => {
-            let StartedGoal { goal, kept_tokens } =
-                start_goal(harness, &budget, id, &objective, token_budget, cx).await?;
-            let mut text = goal_status_text(&goal);
-            if let Some(kept) = kept_tokens {
-                text.push_str("\nThe session's budget already limits tokens to ");
-                text.push_str(&kept.to_string());
-                text.push_str(": it keeps that limit (/budget add raises it).");
-            }
+            let goal = start_goal(harness, id, &objective, token_budget, cx).await?;
+            let text = goal_status_text(&goal);
             (goal, text)
         }
     };

@@ -1,10 +1,8 @@
 //! Thread-goal view state: the `goal_update` surface (TS interactive-mode
 //! `handleGoalUpdate`/`shouldAnnounceGoalUpdate`/`formatGoalStatus`) plus
 //! the tray goal label (`getTrayGoalLabel`/`formatGoalElapsed`). Pure
-//! state and formatting; the session view owns the transcript rows. A
-//! goal's tokens are the session budget's (the last `budget_update`).
+//! state and formatting; the session view owns the transcript rows.
 
-use eukhe_types::budget::BudgetReport;
 use eukhe_types::goal::{empty_goal_state, GoalState, GoalStatus, GoalTokens};
 
 /// The announcement dedupe snapshot (TS `goalAnnouncementSnapshot`).
@@ -59,13 +57,9 @@ pub fn should_announce(
 }
 
 /// TS `formatGoalStatus` + `formatGoalDetailSuffix`: the status-row text for
-/// one goal state under the session's `budget` at the given terminal width.
+/// one goal state at the given terminal width.
 #[must_use]
-pub fn format_goal_status(
-    goal: &GoalState,
-    budget: Option<&BudgetReport>,
-    columns: usize,
-) -> String {
+pub fn format_goal_status(goal: &GoalState, columns: usize) -> String {
     match goal.status {
         GoalStatus::Idle => "No active goal".to_string(),
         GoalStatus::Active => match &goal.objective {
@@ -83,9 +77,8 @@ pub fn format_goal_status(
             None => "Goal paused (/goal resume)".to_string(),
         },
         GoalStatus::BudgetLimited => {
-            // TS `formatGoalUsage`: the compiled core's usage line, of the
-            // session budget's tokens.
-            let usage_text = eukhe_bend::rules::goal_text::usage(goal, GoalTokens::of(budget))
+            // TS `formatGoalUsage`: the compiled core's usage line.
+            let usage_text = eukhe_bend::rules::goal_text::usage(goal, GoalTokens::of(goal))
                 .map(|usage| format!(" ({usage})"))
                 .unwrap_or_default();
             let prefix = format!("Goal budget limited{usage_text}");
@@ -182,8 +175,6 @@ pub fn format_goal_elapsed(seconds: u64) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GoalPanel {
     pub goal: GoalState,
-    /// The session's budget at open: the goal's tokens.
-    pub budget: Option<BudgetReport>,
     /// The panel's row budget (`picker_viewport_rows` at open): the
     /// objective clips to it instead of growing the dock past the frame
     /// (a front-crop would hide the title and the prompt's start -- the
@@ -274,15 +265,14 @@ pub fn render_goal_panel(
         ]);
     }
     lines.push(Vec::new());
-    let tokens = GoalTokens::of(panel.budget.as_ref());
     let facts: Vec<(&str, String)> = vec![
         ("status", goal_status_word(goal.status).to_string()),
         ("elapsed", format_goal_elapsed(goal.time_used_seconds)),
         (
             "tokens",
-            match tokens.budget {
-                Some(budget) => format!("{} / {budget} tokens", tokens.used),
-                None => format!("{} tokens", tokens.used),
+            match (goal.tokens_used, goal.token_budget) {
+                (used, Some(budget)) => format!("{used} / {budget} tokens"),
+                (used, None) => format!("{used} tokens"),
             },
         ),
     ];
@@ -381,9 +371,9 @@ mod tests {
         assert!(!view.apply_update(empty_goal_state()));
         // Status change announces.
         assert!(view.apply_update(goal(GoalStatus::Active)));
-        // Same state (the age ticking) stays silent.
+        // Same state (usage churn) stays silent.
         let mut churn = goal(GoalStatus::Active);
-        churn.time_used_seconds = 500;
+        churn.tokens_used = 500;
         assert!(!view.apply_update(churn));
         // Reason change on a paused goal re-announces.
         let mut paused = goal(GoalStatus::Paused);
@@ -414,47 +404,38 @@ mod tests {
         let mut complete = goal(GoalStatus::Complete);
         complete.last_reason = Some("Goal achieved".to_string());
         assert_eq!(
-            format_goal_status(&complete, None, 120),
+            format_goal_status(&complete, 120),
             "Goal complete: Goal achieved"
         );
         let paused = goal(GoalStatus::Paused);
         assert_eq!(
-            format_goal_status(&paused, None, 120),
+            format_goal_status(&paused, 120),
             "Goal paused (/goal resume)"
         );
         let mut paused_reason = goal(GoalStatus::Paused);
         paused_reason.last_reason = Some("Paused by user".to_string());
         assert_eq!(
-            format_goal_status(&paused_reason, None, 120),
+            format_goal_status(&paused_reason, 120),
             "Goal paused: Paused by user"
         );
         assert_eq!(
-            format_goal_status(&goal(GoalStatus::Active), None, 120),
+            format_goal_status(&goal(GoalStatus::Active), 120),
             "Goal: ship it today"
         );
         assert_eq!(
-            format_goal_status(&empty_goal_state(), None, 120),
+            format_goal_status(&empty_goal_state(), 120),
             "No active goal"
         );
-        // Budget-limited rows carry the session budget's token usage.
-        let limited = goal(GoalStatus::BudgetLimited);
-        let budget = BudgetReport {
-            limits: eukhe_types::budget::BudgetLimits {
-                tokens: Some(100),
-                ..Default::default()
-            },
-            spent: eukhe_types::budget::BudgetAmounts {
-                tokens: 120,
-                ..Default::default()
-            },
-            ..BudgetReport::default()
-        };
+        // Budget-limited rows carry the usage.
+        let mut limited = goal(GoalStatus::BudgetLimited);
+        limited.token_budget = Some(100);
+        limited.tokens_used = 120;
         assert_eq!(
-            format_goal_status(&limited, Some(&budget), 120),
+            format_goal_status(&limited, 120),
             "Goal budget limited (120 / 100 tokens)"
         );
         // Narrow terminals drop the detail suffix.
-        assert_eq!(format_goal_status(&complete, None, 10), "Goal complete");
+        assert_eq!(format_goal_status(&complete, 10), "Goal complete");
     }
 
     #[test]
@@ -496,21 +477,11 @@ mod tests {
         let mut state = goal(GoalStatus::Active);
         state.objective = Some("ship the rust port\nwith all batteries green".to_string());
         state.time_used_seconds = 125;
-        let budget = BudgetReport {
-            limits: eukhe_types::budget::BudgetLimits {
-                tokens: Some(40_000),
-                ..Default::default()
-            },
-            spent: eukhe_types::budget::BudgetAmounts {
-                tokens: 18_000,
-                ..Default::default()
-            },
-            ..BudgetReport::default()
-        };
+        state.tokens_used = 18_000;
+        state.token_budget = Some(40_000);
         let frame = render_goal_panel(
             &GoalPanel {
                 goal: state,
-                budget: Some(budget),
                 viewport_rows: 40,
             },
             &theme,
@@ -552,7 +523,6 @@ mod tests {
         let frame = render_goal_panel(
             &GoalPanel {
                 goal: bare,
-                budget: None,
                 viewport_rows: 40,
             },
             &theme,
@@ -583,7 +553,6 @@ mod tests {
         let frame = render_goal_panel(
             &GoalPanel {
                 goal: tall,
-                budget: None,
                 viewport_rows: 16,
             },
             &theme,
@@ -621,7 +590,6 @@ mod tests {
             let frame = render_goal_panel(
                 &GoalPanel {
                     goal: narrow.clone(),
-                    budget: None,
                     viewport_rows: 40,
                 },
                 &theme,

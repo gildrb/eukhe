@@ -214,15 +214,7 @@ async fn seed_startup_state(
         seed_acceptance(opened.harness(), main, &seed, &opened.deps().cwd, &cx).await?;
     }
     if let Some((objective, token_budget)) = initial_goal {
-        seed_initial_goal(
-            opened.harness(),
-            &budget,
-            main,
-            &objective,
-            token_budget,
-            &cx,
-        )
-        .await?;
+        seed_initial_goal(opened.harness(), main, &objective, token_budget, &cx).await?;
     }
     if let Some(config) = autonomous_config {
         if !autonomous_state(opened.harness(), main, &cx).await?.enabled {

@@ -16,9 +16,16 @@
 //! cap, and stopped at its granted time when the budget has a deadline.
 //! Work leaves the worst case of the agent's final answer free. An agent
 //! turn that work no longer fits is sent as the final answer instead: the
-//! same context, the wrap-up notice as its last message, no tools. A
-//! request that fits in no way is not sent: its stream ends with an error
-//! that carries the typed budget refusal, which no retry policy re-issues.
+//! same context, the wrap-up notice as its last message, no tools. So is
+//! an agent turn after the goal reached its token budget in this run
+//! ([`BudgetGate::wrap_next`]), with or without a budget. A request that
+//! is not an agent turn (a title,
+//! a classifier, a compaction, a memory or side question) is a side
+//! request: it leaves the reserve of the agent's last turn, holds and is
+//! charged no model request (it is no turn of the agent), and when it
+//! does not fit it is not sent and changes nothing else. A request that
+//! fits in no way is not sent: its stream ends with an error that carries
+//! the typed budget refusal, which no retry policy re-issues.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -323,6 +330,16 @@ struct Granted {
     context: TranscriptContext,
 }
 
+/// An agent turn on its way to be sent as its final answer: its input
+/// tokens, its `provider/model` label, and the budget's report that
+/// refused it as work (`None`: a limit of its run made it the final
+/// answer).
+struct Finale {
+    input: u64,
+    target: String,
+    report: Option<BudgetReport>,
+}
+
 impl<O: GatedOptions> Request<O> {
     /// End the request without sending it (or after the budget stopped
     /// it): `text` is its error, with the typed budget refusal.
@@ -369,24 +386,35 @@ impl<O: GatedOptions> Request<O> {
         self.sink.end(None);
     }
 
-    /// Reserve, send what was granted, forward its events and settle.
-    pub(super) async fn run(self, context: TranscriptContext, mut options: O) {
-        let model = &self.model;
-        let max_output = if model.max_tokens == 0 {
+    /// The model's output limit: its catalog's, else its window.
+    fn max_output(&self) -> u64 {
+        if self.model.max_tokens == 0 {
             // The catalog names no output limit: the window bounds it.
-            model.context_window.max(MIN_CAP)
+            self.model.context_window.max(MIN_CAP)
         } else {
-            model.max_tokens
-        };
-        let facts = CostFacts {
+            self.model.max_tokens
+        }
+    }
+
+    /// What bounds the spend of this request with `options`.
+    fn cost_facts(&self, options: &O) -> CostFacts<'_> {
+        let model = &self.model;
+        CostFacts {
             cost: &model.cost,
             price_multiplier: options
                 .service_tier()
                 .and_then(|tier| service_tier_multiplier(model.into(), tier))
                 .unwrap_or(1.0),
             output_extra: options.output_extra(model),
-            max_output,
-        };
+            max_output: self.max_output(),
+        }
+    }
+
+    /// Reserve, send what was granted, forward its events and settle.
+    pub(super) async fn run(self, context: TranscriptContext, mut options: O) {
+        let model = &self.model;
+        let max_output = self.max_output();
+        let facts = self.cost_facts(&options);
         let want_cap = options
             .stream()
             .max_tokens
@@ -405,22 +433,46 @@ impl<O: GatedOptions> Request<O> {
         let input = prompt_tokens(&tokenizer, context.messages());
         let (own_keep, caps, work) = offers(&facts, input, want_cap, deadline_ms);
         // An agent turn leaves its own final answer free; any other request
-        // of the agent leaves the reserve of the agent's last turn.
+        // of the agent is a side request: it leaves the reserve of the
+        // agent's last turn and is no turn (it holds no model request).
         let agent_turn = declares_tools(&context);
-        let keep = if agent_turn {
-            self.gate.set_keep(own_keep);
-            own_keep
-        } else {
-            self.gate.keep()
-        };
         let target = format!("{}/{}", model.provider, model.id);
+        if agent_turn {
+            // A limit of the agent's run was reached: this turn is its
+            // final answer.
+            if let Some(reason) = self.gate.wrap() {
+                let finale = Finale {
+                    input,
+                    target,
+                    report: None,
+                };
+                return self
+                    .final_answer(context, options, &tokenizer, finale, |cap| {
+                        notices::run_wrap_up_text(&reason, cap)
+                    })
+                    .await;
+            }
+        }
+        let (use_, keep, offered) = if agent_turn {
+            self.gate.set_keep(own_keep);
+            (Use::Work, own_keep, work)
+        } else {
+            let side = work
+                .into_iter()
+                .map(|amount| BudgetAmounts {
+                    requests: 0,
+                    ..amount
+                })
+                .collect();
+            (Use::Side, self.gate.keep(), side)
+        };
         let reserved = self
             .gate
             .reserve(
-                Use::Work,
+                use_,
                 format!("model:{target}"),
                 keep,
-                work,
+                offered,
                 REQUEST_MIN_MS,
             )
             .await;
@@ -455,76 +507,110 @@ impl<O: GatedOptions> Request<O> {
                     return self.refuse(notices::request_refused(short));
                 }
                 // An agent turn: its final answer, from what the reserve kept.
-                let mut final_caps: Vec<u64> = Vec::with_capacity(4);
-                for cap in [FINAL_CAP, FINAL_CAP / 2, FINAL_CAP / 4, FINAL_MIN_CAP] {
-                    let cap = cap.min(max_output);
-                    if !final_caps.contains(&cap) {
-                        final_caps.push(cap);
-                    }
-                }
-                // The notice with the largest cap is the longest one.
-                let longest = Message::User(UserMessage {
-                    content: UserContent::Text(notices::wrap_up_text(
-                        short,
-                        &report,
-                        final_caps[0],
-                    )),
-                    timestamp: now_millis(),
-                });
-                let input = input
-                    .saturating_add(message_tokens(&tokenizer, &longest))
-                    .saturating_add(FRAMING_TOKENS);
-                let answers = final_caps
-                    .iter()
-                    .map(|cap| facts.amount(input, *cap, FINAL_TIME_MS))
-                    .collect();
-                let answered = self
-                    .gate
-                    .reserve(
-                        Use::Final,
-                        format!("final:{target}"),
-                        BudgetAmounts::default(),
-                        answers,
-                        REQUEST_MIN_MS,
-                    )
+                let finale = Finale {
+                    input,
+                    target,
+                    report: Some(report.clone()),
+                };
+                return self
+                    .final_answer(context, options, &tokenizer, finale, |cap| {
+                        notices::wrap_up_text(short, &report, cap)
+                    })
                     .await;
-                match answered {
-                    Ok(None) => return self.pass(&context, options).await,
-                    Err(error) => {
-                        return self
-                            .refuse(notices::ledger_failed("the request was not sent", &error))
-                    }
-                    Ok(Some(Reserved::Refused { refusal, report })) => {
-                        return self.refuse(notices::request_refused(notices::short_label(
-                            refusal, &report,
-                        )))
-                    }
-                    Ok(Some(Reserved::Granted {
-                        reservation,
-                        report: granted,
-                    })) => {
-                        let cap = final_caps[reservation.index];
-                        let notice = notices::wrap_up_text(short, &report, cap);
-                        self.gate
-                            .tell(NoticeKind::WrapUp, &granted, || notice.clone());
-                        let mut messages = context.into_messages();
-                        messages.push(Message::User(UserMessage {
-                            content: UserContent::Text(notice),
-                            timestamp: now_millis(),
-                        }));
-                        options.disable_tools();
-                        options.stream_mut().max_tokens = Some(cap);
-                        Granted {
-                            id: reservation.id,
-                            amount: reservation.amount,
-                            report: granted,
-                            context: TranscriptContext::from_normalized_messages(messages),
-                        }
-                    }
-                }
             }
         };
         self.send(granted, &tokenizer, options).await;
+    }
+
+    /// Send the agent's turn as its final answer: the same context with
+    /// `notice` (of the answer's output cap) as its last message, no tools,
+    /// at most [`FINAL_CAP`] output tokens, reserved as the final answer
+    /// (from what the reserve kept) when the session has a budget. A
+    /// budget's refusal (`finale.report`) is told to the user as the
+    /// wrap-up notice.
+    async fn final_answer(
+        self,
+        context: TranscriptContext,
+        mut options: O,
+        tokenizer: &Tokenizer,
+        finale: Finale,
+        notice: impl Fn(u64) -> String,
+    ) {
+        let Finale {
+            input,
+            target,
+            report,
+        } = finale;
+        let max_output = self.max_output();
+        let mut final_caps: Vec<u64> = Vec::with_capacity(4);
+        for cap in [FINAL_CAP, FINAL_CAP / 2, FINAL_CAP / 4, FINAL_MIN_CAP] {
+            let cap = cap.min(max_output);
+            if !final_caps.contains(&cap) {
+                final_caps.push(cap);
+            }
+        }
+        // The notice with the largest cap is the longest one.
+        let longest = Message::User(UserMessage {
+            content: UserContent::Text(notice(final_caps[0])),
+            timestamp: now_millis(),
+        });
+        let input = input
+            .saturating_add(message_tokens(tokenizer, &longest))
+            .saturating_add(FRAMING_TOKENS);
+        let facts = self.cost_facts(&options);
+        let answers = final_caps
+            .iter()
+            .map(|cap| facts.amount(input, *cap, FINAL_TIME_MS))
+            .collect();
+        let answered = self
+            .gate
+            .reserve(
+                Use::Final,
+                format!("final:{target}"),
+                BudgetAmounts::default(),
+                answers,
+                REQUEST_MIN_MS,
+            )
+            .await;
+        let wrap_up = |cap: u64, options: &mut O| {
+            let mut messages = context.clone().into_messages();
+            messages.push(Message::User(UserMessage {
+                content: UserContent::Text(notice(cap)),
+                timestamp: now_millis(),
+            }));
+            options.disable_tools();
+            options.stream_mut().max_tokens = Some(cap);
+            TranscriptContext::from_normalized_messages(messages)
+        };
+        match answered {
+            // No budget: the run's limit alone makes this the final answer.
+            Ok(None) => {
+                let context = wrap_up(final_caps[0], &mut options);
+                self.pass(&context, options).await;
+            }
+            Err(error) => self.refuse(notices::ledger_failed("the request was not sent", &error)),
+            Ok(Some(Reserved::Refused { refusal, report })) => self.refuse(
+                notices::request_refused(notices::short_label(refusal, &report)),
+            ),
+            Ok(Some(Reserved::Granted {
+                reservation,
+                report: granted,
+            })) => {
+                let cap = final_caps[reservation.index];
+                if report.is_some() {
+                    let text = notice(cap);
+                    self.gate.tell(NoticeKind::WrapUp, &granted, || text);
+                }
+                let context = wrap_up(cap, &mut options);
+                let granted = Granted {
+                    id: reservation.id,
+                    amount: reservation.amount,
+                    report: granted,
+                    context,
+                };
+                self.send(granted, tokenizer, options).await;
+            }
+        }
     }
 
     /// Send a granted request, forward its events, and settle it once:

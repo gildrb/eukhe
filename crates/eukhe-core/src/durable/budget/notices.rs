@@ -203,6 +203,15 @@ pub(super) fn wrap_up_text(short: &str, report: &BudgetReport, cap: u64) -> Stri
     )
 }
 
+/// The notice that ends the final-answer request of an agent whose run
+/// reached a limit of its own (`reason` names it), of at most `cap`
+/// output tokens.
+pub(super) fn run_wrap_up_text(reason: &str, cap: u64) -> String {
+    format!(
+        "[limit] {reason}. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens."
+    )
+}
+
 /// The word for what ran short when a reservation was refused: the
 /// dimension the refusal names, else the one that ended the work phase.
 pub(super) fn short_label(refusal: Refusal, report: &BudgetReport) -> &'static str {

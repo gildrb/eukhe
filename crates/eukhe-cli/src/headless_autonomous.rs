@@ -1,13 +1,13 @@
 //! The autonomous run of headless print/json/rpc runs -- the verifier and
 //! eval composition surface. CLI autonomous flags enable the run on the
-//! session's main conversation (TS `runtimeAutonomousConfigFromArgs`) and
-//! put its turn, token and time limits on the session's budget; the
-//! durable `eukhe.goals` extension runs the gate commands and drives
+//! session's main conversation (TS `runtimeAutonomousConfigFromArgs`) with
+//! its own turn, token and time limits; the durable `eukhe.goals`
+//! extension counts them, runs the gate commands and drives
 //! continuations. A stop surfaces only through the process exit code and
 //! its stderr line (the TS print-mode contract, `print-mode.ts`).
 
 use eukhe_core::autonomous::{
-    describe_autonomous_limit, latest_autonomous_gate_attempt, AgentAutonomousConfig,
+    describe_autonomous_limit, latest_autonomous_gate_attempt, now_millis, AgentAutonomousConfig,
     AgentAutonomousStatus,
 };
 
@@ -37,10 +37,11 @@ pub fn autonomous_runtime_config(config: &AutonomousConfig) -> AgentAutonomousCo
 /// The TS print-mode exit contract: stderr text when the run must exit
 /// non-zero -- a configured gate still failing (after its retry window, or
 /// with an autonomous limit reached), or an autonomous run without gates
-/// that stopped before terminal evidence. The limits are the run's
-/// continuations and the session's budget the status carries.
+/// that stopped before terminal evidence. The limits are the run's own
+/// and the session's budget the status carries.
 pub fn autonomous_exit_stderr(status: &AgentAutonomousStatus) -> Option<String> {
-    let limit = status.limit_reason();
+    let now = now_millis();
+    let limit = status.limit_reason(now);
     if let Some(failure) = status
         .last_gate_failure
         .as_ref()
@@ -50,7 +51,7 @@ pub fn autonomous_exit_stderr(status: &AgentAutonomousStatus) -> Option<String> 
             .map(|reason| {
                 format!(
                     "; autonomous limit reached: {}",
-                    describe_autonomous_limit(status, reason)
+                    describe_autonomous_limit(status, reason, now)
                 )
             })
             .unwrap_or_default();
@@ -66,7 +67,7 @@ pub fn autonomous_exit_stderr(status: &AgentAutonomousStatus) -> Option<String> 
         if let Some(reason) = limit {
             return Some(format!(
                 "Autonomous run stopped before terminal evidence; {}",
-                describe_autonomous_limit(status, reason)
+                describe_autonomous_limit(status, reason, now)
             ));
         }
     }
@@ -111,10 +112,26 @@ mod tests {
         );
     }
 
-    /// The session's budget ran short in requests: the run stopped at
-    /// `maxTurns`, counted by the budget.
+    /// `--autonomous-max-turns` is the run's own count of its responses.
     #[test]
-    fn a_gateless_run_whose_budget_ran_short_names_the_limit() {
+    fn a_gateless_run_at_max_turns_names_the_limit() {
+        let mut state = create_autonomous_runtime_state(
+            Some(&autonomous_runtime_config(&AutonomousConfig {
+                max_turns: Some(2),
+                ..AutonomousConfig::default()
+            })),
+            None,
+        );
+        state.turns_used = 2;
+        assert_eq!(
+            autonomous_exit_stderr(&autonomous_status(&state, None)).as_deref(),
+            Some("Autonomous run stopped before terminal evidence; maxTurns reached (2/2)")
+        );
+    }
+
+    /// A session budget set by the user that ran short stops the run too.
+    #[test]
+    fn a_gateless_run_whose_budget_ran_short_names_the_budget() {
         let state = create_autonomous_runtime_state(
             Some(&autonomous_runtime_config(&AutonomousConfig::default())),
             None,
@@ -134,7 +151,7 @@ mod tests {
         };
         assert_eq!(
             autonomous_exit_stderr(&autonomous_status(&state, Some(budget))).as_deref(),
-            Some("Autonomous run stopped before terminal evidence; maxTurns reached (2/2)")
+            Some("Autonomous run stopped before terminal evidence; the session's requests budget is used up")
         );
     }
 

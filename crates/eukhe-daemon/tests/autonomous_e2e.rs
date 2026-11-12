@@ -366,17 +366,10 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
     // continuation's user entry lands in the settled answer's own commit
     // (`generation/round.rs` `answer`), so its pair follows the answer's
     // `message_end` and precedes that turn's `turn_end`; the continuation
-    // turn's `turn_start` follows with no run boundary between. The
-    // budget-status row (the autonomous limits' budget, a passive
-    // model-visible row written at the turn boundary) is not part of that
-    // ordering.
-    let events: Vec<&Value> = harness
+    // turn's `turn_start` follows with no run boundary between.
+    let continuation_index = harness
         .client
         .events
-        .iter()
-        .filter(|event| event["message"]["customType"] != "eukhe.budget.status")
-        .collect();
-    let continuation_index = events
         .iter()
         .position(|event| {
             event.get("type").and_then(Value::as_str) == Some("message_end")
@@ -384,7 +377,7 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
                 && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
         })
         .expect("the continuation's wire pair");
-    let around: Vec<&str> = events[continuation_index - 2..=continuation_index + 2]
+    let around: Vec<&str> = harness.client.events[continuation_index - 2..=continuation_index + 2]
         .iter()
         .filter_map(|event| event.get("type").and_then(Value::as_str))
         .collect();
@@ -401,7 +394,7 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
         harness.client.events
     );
     assert_eq!(
-        text_of(&events[continuation_index - 2]["message"]),
+        text_of(&harness.client.events[continuation_index - 2]["message"]),
         "first attempt",
         "the continuation follows the settled answer"
     );
