@@ -102,7 +102,7 @@ async fn run_in(
     let failure = match ended {
         PromptsEnd::Completed => None,
         PromptsEnd::CommandFailed(error) => Some(error.to_string()),
-        PromptsEnd::GaveUp(work) => panic!("nothing runs in the background: {work:?}"),
+        PromptsEnd::GaveUp { work, .. } => panic!("nothing runs in the background: {work:?}"),
     };
     let result = select_terminal_result(&conversation, cx)
         .await
@@ -256,6 +256,86 @@ async fn a_dropped_truncated_reply_is_no_result_and_has_no_warning() {
         ),
         (None, None, Vec::<String>::new(), 1)
     );
+}
+
+/// The wait for background work ends at the deadline of the session's time
+/// budget: no woken turn can work past it, so the run ends there. Before,
+/// a job that outlived the budget held the run until the job settled or
+/// the wait limit (an hour by default) elapsed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_wait_for_background_work_ends_at_the_time_budgets_deadline() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    // The `bash` call detaches its script after 500 ms.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({ "toolBlockingBudgetMs": 500 }).to_string(),
+    )
+    .expect("settings");
+    let script = serde_json::json!({ "responses": [
+        { "content": [{ "type": "toolCall", "name": "bash", "id": "call-1",
+            "arguments": { "script": "sleep 120" } }],
+          "stopReason": "toolUse" },
+        { "content": [{ "type": "text", "text": "The build runs in the background." }],
+          "stopReason": "stop" },
+    ] });
+    let (session, _provider) = faux_session(dir.path(), &script, SessionStorage::Memory).await;
+    let opened = HeadlessSession {
+        session: Arc::new(session),
+        lease: None,
+        session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
+        cwd: dir.path().to_path_buf(),
+        parent_session: None,
+        wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+    };
+    let conversation = opened.session.main();
+    let cx = &*BACKGROUND_CONTEXT;
+    let watch = RunWatch::start(&opened, &conversation, cx)
+        .await
+        .expect("the run watch starts");
+    // The turn ends with the job running: a zero wait limit returns at once.
+    let mut options = run_options(dir.path(), &["Run the build."]);
+    options.config.wait_limit = std::time::Duration::ZERO;
+    let ended = drive_prompts(&opened, &conversation, &watch, &options, cx)
+        .await
+        .expect("the prompt loop runs");
+    assert!(matches!(
+        ended,
+        PromptsEnd::GaveUp {
+            limit: Limit::Wait,
+            ..
+        }
+    ));
+    opened
+        .session
+        .budget()
+        .set(eukhe_types::budget::BudgetLimits {
+            time_ms: Some(1_000),
+            ..eukhe_types::budget::BudgetLimits::default()
+        })
+        .expect("set the budget");
+    let settled = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        wait_quiescent(&opened, &watch, std::time::Duration::from_secs(3_600), cx),
+    )
+    .await;
+    assert!(
+        matches!(
+            settled,
+            Ok(Ok(Settled::GaveUp {
+                limit: Limit::BudgetDeadline,
+                ..
+            }))
+        ),
+        "{settled:?}"
+    );
+    watch.finish().await;
+    drop(conversation);
+    let Ok(session) = Arc::try_unwrap(opened.session) else {
+        panic!("the test holds the only session handle");
+    };
+    session.close(cx).await.expect("close");
 }
 
 #[tokio::test]

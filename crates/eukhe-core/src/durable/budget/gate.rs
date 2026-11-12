@@ -16,8 +16,9 @@
 //! cap, and stopped at its granted time when the budget has a deadline.
 //! Work leaves the worst case of the agent's final answer free. An agent
 //! turn that work no longer fits is sent as the final answer instead: the
-//! same context, the wrap-up notice as its last message, no tools. A
-//! request that is not an agent turn (a title,
+//! same context, the wrap-up notice as its last message, no tools; so is
+//! an agent turn stopped at its granted time before it streamed content.
+//! A request that is not an agent turn (a title,
 //! a classifier, a compaction, a memory or side question) is a side
 //! request: it leaves the reserve of the agent's last turn, holds and is
 //! charged no model request (it is no turn of the agent), and when it
@@ -39,7 +40,7 @@ use eukhe_budget::{
 };
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_tokens::Tokenizer;
-use eukhe_types::budget::{BudgetAmounts, BudgetReport};
+use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DeferredHandle,
     DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost, Partial, ServiceTier,
@@ -229,7 +230,7 @@ fn declares_tools(context: &TranscriptContext) -> bool {
 /// maps the gate's reads and its two changes (the output cap and the abort
 /// signal through `stream_mut`, no tools through `disable_tools`) onto the
 /// fields its type carries them in.
-pub(super) trait GatedOptions: Send + 'static {
+pub(super) trait GatedOptions: Clone + Send + 'static {
     /// The options every chat request shares.
     fn stream(&self) -> &StreamOptions;
     /// [`Self::stream`], to set the output cap and the abort signal.
@@ -337,6 +338,38 @@ struct Granted {
 struct Finale {
     input: u64,
     target: String,
+}
+
+/// What a sent request is, for what its stop at its granted time does.
+enum Turn {
+    /// A side request: it ends with the budget's error.
+    Side,
+    /// An agent's work turn: stopped before it streamed content, it is
+    /// sent again as its final answer.
+    Work(Finale),
+    /// An agent's final answer: it ends with the budget's error.
+    Final(Opened),
+}
+
+/// Whether the consumer already holds the start of the agent's message (a
+/// stopped work turn's): its final answer then streams into that message
+/// without a start of its own.
+#[derive(Debug, Clone, Copy)]
+enum Opened {
+    No,
+    Yes,
+}
+
+/// A work turn stopped at its granted time before it streamed content, on
+/// its way to be sent again as the agent's final answer: its context and
+/// options, whether the consumer holds its message's start, and the
+/// budget as it was left.
+struct Stopped<O> {
+    context: TranscriptContext,
+    options: O,
+    finale: Finale,
+    opened: Opened,
+    report: BudgetReport,
 }
 
 impl<O: GatedOptions> Request<O> {
@@ -492,13 +525,31 @@ impl<O: GatedOptions> Request<O> {
                 // An agent turn: its final answer, from what the reserve kept.
                 let finale = Finale { input, target };
                 return self
-                    .final_answer(context, options, &tokenizer, finale, |cap| {
+                    .final_answer(context, options, &tokenizer, finale, Opened::No, |cap| {
                         notices::wrap_up_text(short, &report, cap)
                     })
                     .await;
             }
         };
-        self.send(granted, &tokenizer, options).await;
+        let turn = if agent_turn {
+            Turn::Work(Finale { input, target })
+        } else {
+            Turn::Side
+        };
+        if let Some(stopped) = self.send(granted, &tokenizer, options, turn).await {
+            let Stopped {
+                context,
+                options,
+                finale,
+                opened,
+                report,
+            } = stopped;
+            let short = BudgetDimension::Time.label();
+            self.final_answer(context, options, &tokenizer, finale, opened, |cap| {
+                notices::wrap_up_text(short, &report, cap)
+            })
+            .await;
+        }
     }
 
     /// Send the agent's turn as its final answer: the same context with
@@ -512,6 +563,7 @@ impl<O: GatedOptions> Request<O> {
         mut options: O,
         tokenizer: &Tokenizer,
         finale: Finale,
+        opened: Opened,
         notice: impl Fn(u64) -> String,
     ) {
         let Finale { input, target } = finale;
@@ -574,7 +626,10 @@ impl<O: GatedOptions> Request<O> {
                     report: granted,
                     context,
                 };
-                self.send(granted, tokenizer, options).await;
+                // A final answer is no work turn: it is never stopped into
+                // another.
+                self.send(granted, tokenizer, options, Turn::Final(opened))
+                    .await;
             }
         }
     }
@@ -583,8 +638,15 @@ impl<O: GatedOptions> Request<O> {
     /// a response at its usage, a deferred one when its fetch ends, a
     /// request its provider never started at one request, one that failed
     /// after it started at what the provider reported (whole when it
-    /// reported nothing).
-    async fn send(self, granted: Granted, tokenizer: &Tokenizer, mut options: O) {
+    /// reported nothing). A work turn stopped at its granted time before
+    /// it streamed content ends nothing: it comes back as [`Stopped`].
+    async fn send(
+        &self,
+        granted: Granted,
+        tokenizer: &Tokenizer,
+        mut options: O,
+        turn: Turn,
+    ) -> Option<Stopped<O>> {
         let Granted {
             id,
             amount,
@@ -596,6 +658,12 @@ impl<O: GatedOptions> Request<O> {
         let stop_after = report
             .deadline_ms
             .map(|_| Duration::from_millis(amount.time_ms));
+        // The options a stopped work turn's final answer is sent with:
+        // without this request's stop signal.
+        let unstopped = match turn {
+            Turn::Work(_) => Some(options.clone()),
+            Turn::Side | Turn::Final(_) => None,
+        };
         let stopper = AbortController::new();
         if stop_after.is_some() {
             let request = &mut options.stream_mut().request;
@@ -617,6 +685,8 @@ impl<O: GatedOptions> Request<O> {
         // The live message of the response, from the provider's `Start`:
         // without one the provider never began to answer.
         let mut started: Option<Partial> = None;
+        // Whether a content block reached the consumer.
+        let mut content = false;
         let end = loop {
             let event = tokio::select! {
                 biased;
@@ -637,10 +707,15 @@ impl<O: GatedOptions> Request<O> {
                 AssistantMessageEvent::Error { .. } => break End::Failed(Some(event)),
                 AssistantMessageEvent::Start { partial } => {
                     started = Some(partial.clone());
-                    self.sink.push(AssistantMessageEvent::Start { partial });
+                    match turn {
+                        Turn::Final(Opened::Yes) => {}
+                        Turn::Side | Turn::Work(_) | Turn::Final(Opened::No) => {
+                            self.sink.push(AssistantMessageEvent::Start { partial });
+                        }
+                    }
                 }
-                AssistantMessageEvent::PromptProgress { .. }
-                | AssistantMessageEvent::TextStart { .. }
+                AssistantMessageEvent::PromptProgress { .. } => self.sink.push(event),
+                AssistantMessageEvent::TextStart { .. }
                 | AssistantMessageEvent::TextDelta { .. }
                 | AssistantMessageEvent::TextEnd { .. }
                 | AssistantMessageEvent::ThinkingStart { .. }
@@ -648,7 +723,10 @@ impl<O: GatedOptions> Request<O> {
                 | AssistantMessageEvent::ThinkingEnd { .. }
                 | AssistantMessageEvent::ToolCallStart { .. }
                 | AssistantMessageEvent::ToolCallDelta { .. }
-                | AssistantMessageEvent::ToolCallEnd { .. } => self.sink.push(event),
+                | AssistantMessageEvent::ToolCallEnd { .. } => {
+                    content = true;
+                    self.sink.push(event);
+                }
             }
         };
 
@@ -663,7 +741,7 @@ impl<O: GatedOptions> Request<O> {
                     self.sink
                         .push(AssistantMessageEvent::Done { reason, message });
                     self.sink.end(None);
-                    return;
+                    return None;
                 }
                 (
                     DoneReason::Stop
@@ -697,7 +775,26 @@ impl<O: GatedOptions> Request<O> {
                 };
                 if timed_out {
                     held.settle(spend).await;
-                    return self.refuse(notices::REQUEST_STOPPED.to_owned());
+                    return match (turn, unstopped) {
+                        // Nothing of its answer streamed: the turn is sent
+                        // again as the final answer, from what the reserve
+                        // kept.
+                        (Turn::Work(finale), Some(options)) if !content => Some(Stopped {
+                            context,
+                            options,
+                            finale,
+                            opened: if started.is_some() {
+                                Opened::Yes
+                            } else {
+                                Opened::No
+                            },
+                            report: self.gate.reports.borrow().clone().unwrap_or(report),
+                        }),
+                        (Turn::Work(_) | Turn::Side | Turn::Final(_), _) => {
+                            self.refuse(notices::REQUEST_STOPPED.to_owned());
+                            None
+                        }
+                    };
                 }
                 (spend, last)
             }
@@ -707,5 +804,6 @@ impl<O: GatedOptions> Request<O> {
             self.sink.push(last);
         }
         self.sink.end(None);
+        None
     }
 }

@@ -36,7 +36,9 @@ use crate::headless_session::{
     Selection,
 };
 use crate::headless_terminal::{select_terminal_result, RunFailure};
-use crate::headless_wait::{still_running, wait_quiescent, HeadlessWaitError, RunWatch, Settled};
+use crate::headless_wait::{
+    still_running, wait_quiescent, HeadlessWaitError, Limit, RunWatch, Settled,
+};
 use crate::mode::{AppMode, MissingSubsystem, RunOptions};
 
 /// Why a headless mode (print/json, ACP, RPC) failed before it could
@@ -446,9 +448,8 @@ enum PromptsEnd {
     Completed,
     /// A session command failed (its raw error); later prompts did not run.
     CommandFailed(SessionCommandError),
-    /// The wait limit elapsed while this still ran; later prompts did not
-    /// run.
-    GaveUp(PendingWork),
+    /// A limit elapsed while this still ran; later prompts did not run.
+    GaveUp { work: PendingWork, limit: Limit },
 }
 
 /// Run the prompts, stream json events when requested, and decide the exit
@@ -518,12 +519,18 @@ async fn run_prompts(
             eprintln!("{error}");
             facts.command_failed = true;
         }
-        PromptsEnd::GaveUp(work) => {
-            eprintln!(
-                "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
-                options.config.wait_limit.as_millis(),
-                still_running(&work)
-            );
+        PromptsEnd::GaveUp { work, limit } => {
+            match limit {
+                Limit::Wait => eprintln!(
+                    "eukhe: stopped waiting after {} ms (--wait-limit-ms); still running: {}",
+                    options.config.wait_limit.as_millis(),
+                    still_running(&work)
+                ),
+                Limit::BudgetDeadline => eprintln!(
+                    "eukhe: stopped waiting at the time budget's deadline; still running: {}",
+                    still_running(&work)
+                ),
+            }
             facts.gave_up = true;
         }
     }
@@ -665,8 +672,8 @@ async fn drive_prompts(
             cx,
         )
         .await?;
-        if let Settled::GaveUp(work) = quiescent().await? {
-            return Ok(PromptsEnd::GaveUp(work));
+        if let Settled::GaveUp { work, limit } = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp { work, limit });
         }
     }
     let resources = &session.deps().resources;
@@ -700,8 +707,8 @@ async fn drive_prompts(
         // Continuations (goal, autonomous), queued input, compaction, and
         // the turns settled jobs and subagents wake run before the next
         // prompt.
-        if let Settled::GaveUp(work) = quiescent().await? {
-            return Ok(PromptsEnd::GaveUp(work));
+        if let Settled::GaveUp { work, limit } = quiescent().await? {
+            return Ok(PromptsEnd::GaveUp { work, limit });
         }
     }
     Ok(PromptsEnd::Completed)

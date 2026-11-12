@@ -1,11 +1,12 @@
 //! Print mode's end of a prompt: the turn ending is not the run ending. A
 //! session that still owns running jobs, subagents or workflow runs (or a
 //! settle notice being admitted) wakes into another turn when they settle,
-//! so print mode waits until the session is quiescent or the stated limit
-//! (`--wait-limit-ms`) elapses; the compiled Bend core decides
-//! (`headless_settle`, laws `laws/headless.bend`). The run watch also keeps
-//! the inputs of the last run that ended, whose settlement is the exit code
-//! fact of `headless_exit`.
+//! so print mode waits until the session is quiescent or a limit elapses:
+//! the stated one (`--wait-limit-ms`), or the deadline of the session's
+//! time budget, past which no woken turn can work; the compiled Bend core
+//! decides (`headless_settle`, laws `laws/headless.bend`). The run watch
+//! also keeps the inputs of the last run that ended, whose settlement is
+//! the exit code fact of `headless_exit`.
 
 use std::pin::pin;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -33,6 +34,9 @@ pub(crate) enum HeadlessWaitError {
     /// The compiled core refused the facts (an inconsistent build).
     #[error("{0}")]
     Core(#[from] eukhe_bend::Error),
+    /// The session's budget could not be read.
+    #[error("the session's budget could not be read: {0}")]
+    BudgetReport(#[source] tokio::task::JoinError),
 }
 
 /// How the wait for quiescence ended.
@@ -40,8 +44,17 @@ pub(crate) enum HeadlessWaitError {
 pub(crate) enum Settled {
     /// Nothing runs that could wake the session.
     Quiescent,
-    /// The limit elapsed while this still ran.
-    GaveUp(PendingWork),
+    /// `limit` elapsed while `work` still ran.
+    GaveUp { work: PendingWork, limit: Limit },
+}
+
+/// The limit that ended a wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Limit {
+    /// The stated wait limit (`--wait-limit-ms`).
+    Wait,
+    /// The deadline of the session's time budget.
+    BudgetDeadline,
 }
 
 /// What the run watch saw.
@@ -153,7 +166,8 @@ impl RunWatch {
 
 /// Wait until the session is quiescent: the main conversation idle with
 /// no queued input, no running job, kernel command, subagent or workflow
-/// run, and no settle notice being admitted; or until `limit` elapses.
+/// run, and no settle notice being admitted; or until `limit` or the
+/// deadline of the session's time budget elapses, whichever comes first.
 /// Every woken turn runs inside the wait.
 ///
 /// The facts are read in the order that never misses a wake: the pending
@@ -163,15 +177,31 @@ impl RunWatch {
 ///
 /// # Errors
 ///
-/// An idle wait failure (a closed session, a cancelled `cx`), or the
-/// compiled core's refusal.
+/// An idle wait failure (a closed session, a cancelled `cx`), a budget
+/// read that did not finish, or the compiled core's refusal.
 pub(crate) async fn wait_quiescent(
     opened: &HeadlessSession,
     watch: &RunWatch,
     limit: Duration,
     cx: &Context,
 ) -> Result<Settled, HeadlessWaitError> {
-    let deadline = tokio::time::Instant::now() + limit;
+    let gate = opened.session.budget();
+    let budget = tokio::task::spawn_blocking(move || gate.report())
+        .await
+        .map_err(HeadlessWaitError::BudgetReport)?;
+    let waited = tokio::time::Instant::now() + limit;
+    let budget_deadline = budget.and_then(|report| report.deadline_ms).map(|until| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+            });
+        tokio::time::Instant::now() + Duration::from_millis(until.saturating_sub(now))
+    });
+    let (deadline, ends) = match budget_deadline {
+        Some(until) if until < waited => (until, Limit::BudgetDeadline),
+        Some(_) | None => (waited, Limit::Wait),
+    };
     let conversation = opened.session.main();
     let deps = opened.session.deps();
     let harness = opened.session.harness();
@@ -213,7 +243,7 @@ pub(crate) async fn wait_quiescent(
         })?;
         match decision {
             Settle::Done => return Ok(Settled::Quiescent),
-            Settle::GiveUp => return Ok(Settled::GaveUp(work)),
+            Settle::GiveUp => return Ok(Settled::GaveUp { work, limit: ends }),
             Settle::Wait if busy => {}
             Settle::Wait => {
                 // A kernel command that ends with no notice (read before it

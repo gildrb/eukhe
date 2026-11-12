@@ -680,6 +680,107 @@ async fn a_request_is_stopped_at_its_granted_time() {
     );
 }
 
+/// Time: an agent's work turn leaves its final answer's time free (180 s
+/// budget, 120 s kept), so it is stopped at 60 s; stopped before it
+/// streamed content, it goes on as the final answer on the same stream,
+/// with no tools and the wrap-up notice. Before, it ended with the budget's
+/// error and the run had no answer.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aborted_at = Arc::new(Mutex::new(None));
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let row: StreamSimpleFn = {
+        let aborted_at = Arc::clone(&aborted_at);
+        let received = Arc::clone(&received);
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            received.lock().unwrap().push(Received {
+                max_tokens: options.stream.max_tokens,
+                tool_choice: options.tool_choice.clone(),
+                last: context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                }),
+            });
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                // The work turn: the provider never answers until stopped.
+                let aborted_at = Arc::clone(&aborted_at);
+                let started = tokio::time::Instant::now();
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                tokio::spawn(async move {
+                    let partial = Partial::new(message("", Usage::default()));
+                    sink.push(AssistantMessageEvent::Start { partial });
+                    signal.cancelled().await;
+                    *aborted_at.lock().unwrap() = Some(started.elapsed());
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..message("", Usage::default())
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                let answer = message("wrapped up", Usage::default());
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let reply = fixture.send(agent("build it")).await;
+    // The ledger's clock stands still: the notice shows the whole budget.
+    let notice = "[budget] The time budget of this task is used up (3m 0s). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let received = received.lock().unwrap().clone();
+    assert_eq!(
+        (
+            reply.error_message,
+            reply.content,
+            *aborted_at.lock().unwrap(),
+            received.len(),
+            received.last().cloned(),
+        ),
+        (
+            None,
+            message("wrapped up", Usage::default()).content,
+            Some(std::time::Duration::from_millis(60_000)),
+            2,
+            Some(Received {
+                max_tokens: Some(2_048),
+                tool_choice: Some(ToolChoice::None),
+                last: Some(notice.to_owned()),
+            }),
+        )
+    );
+}
+
 /// A refused request carries the typed budget refusal: no retry policy
 /// treats it as transient and no overflow recovery compacts and resends
 /// it, whatever its text.
