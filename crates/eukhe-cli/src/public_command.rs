@@ -14,10 +14,6 @@ use crate::global_flags::{extract_help_command_path, rotate_global_flags_before_
 use crate::mcp_command::run_mcp_management_command;
 use crate::package_command::handle_package_command;
 
-/// Why `update` installs nothing: eukhe updates through the package manager
-/// that installed it.
-const EXTERNAL_UPDATES: &str = "eukhe updates through its package manager: update the eukhe flake input (Nix), or install a release from https://github.com/gildrb/eukhe/releases";
-
 /// The outcome of routing the argv through the public command layer.
 #[derive(Debug, Clone)]
 pub struct PublicCommandResult {
@@ -603,7 +599,7 @@ fn run_package(args: &[String]) -> PublicCommandResult {
             .is_some_and(|source| source == "self" || source == APP_NAME)
     {
         return fail(
-            format!("Run \"{APP_NAME} update\" to see how to update {APP_NAME}."),
+            format!("Run \"{APP_NAME} update\" to update {APP_NAME}."),
             None,
         );
     }
@@ -619,19 +615,18 @@ fn run_package(args: &[String]) -> PublicCommandResult {
     }
 }
 
-/// `eukhe update`: eukhe never replaces itself, so the command names the
-/// package-manager route and fails; `--check` (alias `--version`) reports
-/// the running version beside the same route.
+/// `eukhe update`: installs the newest release; `--check` (alias
+/// `--version`) prints the running and the newest version.
 fn run_update(args: &[String]) -> PublicCommandResult {
     let Some(options) = parse_boolean_options(args, &["--check", "--version"], "update") else {
         return handled_failed();
     };
-    if options.is_empty() {
-        return fail(EXTERNAL_UPDATES, None);
-    }
-    println!("Version:  {}", crate::config::version());
-    println!("{EXTERNAL_UPDATES}");
-    handled()
+    let mode = if options.is_empty() {
+        crate::update_command::Mode::Install
+    } else {
+        crate::update_command::Mode::Check
+    };
+    handled_with_exit(crate::update_command::run(mode))
 }
 
 fn run_attach(rest: &[String]) -> PublicCommandResult {

@@ -37,6 +37,14 @@ thiserror = { workspace = true }
 # The subscription logins' paste validation (the authorization URL's state,
 # the code query the flow receives).
 url = "2"
+# `eukhe update`: the release download (the client and TLS stack the
+# workspace already builds), its sha256 check, and unpacking its tarball.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.10"
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+# The SRI hash (`sha256-<base64>`) of the nix/release.json pin.
+base64 = "0.22"
 tracing = { workspace = true }
 # `eukhe gateway` and `eukhe dashboard` are long-running foreground modes:
 # their log lines (tracing events) go to stderr.
@@ -50,13 +58,11 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = "3"
-base64 = "0.22"
 # The e2e edits name each file version by its tag (`file_hash`).
 eukhe-docs = { path = "../eukhe-docs" }
 # The Prime Inference login tests encrypt the challenge result with the
 # flow's own public key (same versions the workspace resolves for the engine).
 rsa = { version = "0.9", features = ["sha2", "pem"] }
-sha2 = "0.10"
 # Safe libc types/constants only (the pty harness's termios snapshot, signal
 # numbers); the syscalls go through nix/rustix.
 libc = "0.2"

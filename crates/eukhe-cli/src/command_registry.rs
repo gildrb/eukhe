@@ -262,13 +262,15 @@ kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the on
     CommandSpec::new(
         &["update"],
         "update [--check]",
-        "Show how to update eukhe (through its package manager)",
+        "Update eukhe to the newest release",
     )
-    .options(&["--check  Print the running version beside the update route"])
+    .options(&["--check  Print the running and the newest release version"])
     .description(
-        "eukhe updates through its package manager: update the eukhe flake input (Nix), or \
-         install a release from https://github.com/gildrb/eukhe/releases. `update` prints that \
-         route and exits 1; `--check` prints the running version and exits 0."),
+        "Updates an install of the release installer (https://eukhe.com/install) to the newest \
+         eukhe-v* release of gildrb/eukhe: the tarball is checked against the release's \
+         SHA256SUMS and run once before the launcher switches to it; the previous version stays \
+         on disk for a running daemon. An install of Nix, mise, an app bundle or a cargo build \
+         is left as it is: the command prints the command that updates it and exits 1."),
     CommandSpec::new(&["model"], "model list [search]", "Inspect available models"),
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models"),
     CommandSpec::new(
