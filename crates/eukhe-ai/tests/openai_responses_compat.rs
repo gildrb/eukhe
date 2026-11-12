@@ -570,6 +570,57 @@ async fn holds_max_output_tokens_under_the_host_ceiling() {
     assert_eq!(sent, [json!(64_000), json!(hosted.max_tokens)]);
 }
 
+/// The bundled catalog's Responses models whose max passes the ceiling
+/// (models.dev: `openai/gpt-5.6` 128000, `xai/grok-build-0.1` 256000) ask
+/// their hosts for 64000 output tokens when the caller sets no cap.
+#[tokio::test]
+async fn bundled_catalog_models_take_the_host_ceiling() {
+    let catalog: JsonValue = serde_json::from_str(include_str!(
+        "../../eukhe-models/tests/fixtures/catalog.v1.json"
+    ))
+    .expect("catalog fixture");
+    let mut sent = Vec::new();
+    for (provider, id) in [("openai", "gpt-5.6"), ("xai", "grok-build-0.1")] {
+        let entry = catalog["models"]
+            .as_array()
+            .expect("catalog models")
+            .iter()
+            .find(|entry| entry["provider"] == provider && entry["id"] == id)
+            .unwrap_or_else(|| panic!("the catalog has {provider}/{id}"))
+            .clone();
+        let model: Model = serde_json::from_value(entry).expect("catalog model");
+        assert!(
+            model.max_tokens > 64_000,
+            "{provider}/{id}: {}",
+            model.max_tokens
+        );
+        let (fetch, captured) = mock_fetch(vec![done_response()]);
+        let mut options = SimpleStreamOptions::default();
+        options.stream.request.api_key = Some("sk-test-key".to_owned());
+        options.stream.request.fetch = Some(fetch);
+        let _ = stream_simple_openai_responses(&model, &sys_hi_context(), options)
+            .result()
+            .await;
+        let request = captured
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .cloned()
+            .expect("captured request");
+        sent.push((
+            format!("{provider}/{id}"),
+            request.body["max_output_tokens"].clone(),
+        ));
+    }
+    assert_eq!(
+        sent,
+        [
+            ("openai/gpt-5.6".to_owned(), json!(64_000)),
+            ("xai/grok-build-0.1".to_owned(), json!(64_000)),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn omits_max_output_tokens_when_supports_max_output_tokens_is_false() {
     let base_model = gpt_5_4();
