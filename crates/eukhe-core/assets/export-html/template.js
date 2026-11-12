@@ -57,6 +57,7 @@
 
         for (const entry of entries) {
           const node = nodeMap.get(entry.id);
+          if (node === undefined) continue;
           if (entry.parentId === null || entry.parentId === undefined || entry.parentId === entry.id) {
             roots.push(node);
           } else {
@@ -124,7 +125,7 @@
           treeNodeMap = new Map();
           const tree = buildTree();
           function mapNodes(node) {
-            treeNodeMap.set(node.entry.id, node);
+            treeNodeMap?.set(node.entry.id, node);
             node.children.forEach(mapNodes);
           }
           tree.forEach(mapNodes);
@@ -171,7 +172,9 @@
         }
 
         while (stack.length > 0) {
-          const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop();
+          const frame = stack.pop();
+          if (frame === undefined) break;
+          const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = frame;
 
           result.push({ node, indent, showConnector, isLast, gutters, isVirtualRootChild, multipleRoots });
 
@@ -311,6 +314,13 @@
             parts.push('service tier', entry.serviceTier || 'default');
             if (entry.serviceTier === 'priority') parts.push('fast on');
             break;
+          case 'custom':
+          case 'child_usage_attributed':
+          case 'label':
+          case 'session_info':
+          case 'session_state':
+          case 'git_state':
+            break;
         }
 
         return parts.join(' ').toLowerCase();
@@ -358,6 +368,7 @@
             case 'all':
               passesFilter = true;
               break;
+            case 'default':
             default: // 'default'
               passesFilter = !isSettingsEntry;
               break;
@@ -444,7 +455,9 @@
         }
 
         while (stack.length > 0) {
-          const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop();
+          const frame = stack.pop();
+          if (frame === undefined) break;
+          const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = frame;
 
           const flatNode = filteredNodeMap.get(nodeId);
           if (!flatNode) continue;
@@ -617,6 +630,12 @@
             return labelHtml + `<span class="tree-muted">[thinking: ${escapeHtml(entry.thinkingLevel)}]</span>`;
           case 'service_tier_change':
             return labelHtml + `<span class="tree-muted">[service tier: ${escapeHtml(entry.serviceTier || 'default')}]</span>`;
+          case 'custom':
+          case 'child_usage_attributed':
+          case 'label':
+          case 'session_info':
+          case 'session_state':
+          case 'git_state':
           default:
             return labelHtml + `<span class="tree-muted">[${escapeHtml(entry.type)}]</span>`;
         }

@@ -42,12 +42,15 @@ pub const EXPORT_APP_NAME: &str = "eukhe";
 
 const TEMPLATE_HTML: &str = include_str!("../../assets/export-html/template.html");
 const TEMPLATE_CSS: &str = include_str!("../../assets/export-html/template.css");
+/// Generated from `template.ts` by `make embedded-js` (never hand-edited);
+/// `session-data.d.ts` types the [`SessionExportData`] it reads.
 const TEMPLATE_JS: &str = include_str!("../../assets/export-html/template.js");
+/// Vendored third-party scripts, as shipped.
 const MARKED_JS: &str = include_str!("../../assets/export-html/vendor/marked.min.js");
 const HIGHLIGHT_JS: &str = include_str!("../../assets/export-html/vendor/highlight.min.js");
 
 /// The session data embedded into an exported file. Field names are the
-/// template's wire contract (`template.js` decodes the base64 blob and
+/// template's wire contract (`template.ts` decodes the base64 blob and
 /// destructures these keys): `header`, `entries`, `leafId`, `systemPrompt`,
 /// `tools`, `renderedTools`. Absent optional sections serialize to `null`,
 /// which the template treats as "not present".
