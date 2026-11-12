@@ -337,6 +337,7 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
 
 fn options(socket: PathBuf, settings: Arc<StubSettings>) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

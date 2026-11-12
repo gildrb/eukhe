@@ -312,6 +312,7 @@ fn stream_turn(writer: &mut UnixStream) {
 
 fn options(socket: PathBuf, screen_mode: ScreenMode) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket,
         cwd: PathBuf::from("/tmp"),

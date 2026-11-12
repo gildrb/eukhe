@@ -18,6 +18,7 @@
 //! sees no other active sessions (the in-process session hosts no family)
 //! — the daemon-attached transport serves those for real.
 
+mod budget_commands;
 pub mod commands;
 pub mod error;
 mod event_pump;
@@ -49,10 +50,11 @@ pub struct RpcOptions {
     /// replacement (`new_session` / `switch_session` / `fork`).
     pub engine_factory: RpcEngineFactory,
     /// The CLI autonomous flags: enabled on the startup session's main
-    /// conversation unless it already runs autonomously.
+    /// conversation unless it already runs autonomously; their turn, token
+    /// and time limits go on the session's budget.
     pub autonomous_config: Option<AgentAutonomousConfig>,
-    /// The CLI `--goal` seed (objective, token budget) for the startup
-    /// session's main conversation.
+    /// The CLI `--goal` seed (objective, token budget: a token limit on
+    /// the session's budget) for the startup session's main conversation.
     pub initial_goal: Option<(String, Option<u64>)>,
 }
 
@@ -195,13 +197,22 @@ async fn seed_startup_state(
 ) -> SessionResult<()> {
     let opened = session.session().await;
     let main = opened.main().id();
+    let budget = opened.budget();
     let cx = rpc_context();
     if let Some((objective, token_budget)) = initial_goal {
-        seed_initial_goal(opened.harness(), main, &objective, token_budget, &cx).await?;
+        seed_initial_goal(
+            opened.harness(),
+            &budget,
+            main,
+            &objective,
+            token_budget,
+            &cx,
+        )
+        .await?;
     }
     if let Some(config) = autonomous_config {
         if !autonomous_state(opened.harness(), main, &cx).await?.enabled {
-            configure_autonomous(opened.harness(), main, config, &cx).await?;
+            configure_autonomous(opened.harness(), &budget, main, config, &cx).await?;
         }
     }
     Ok(())

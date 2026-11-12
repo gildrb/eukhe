@@ -22,7 +22,7 @@ use eukhe_types::pi_ai::{
 };
 
 pub use capabilities::ModelsCapabilityOptions;
-pub use collection::{create_models, CreateModelsOptions, Models};
+pub use collection::{create_models, CreateModelsOptions, Models, ProviderLayer};
 pub(crate) use create_provider::build_provider;
 pub use create_provider::{
     create_provider, CreateProviderError, CreateProviderOptions, FetchModelsFn, ProviderApi,

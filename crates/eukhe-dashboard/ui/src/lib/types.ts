@@ -198,6 +198,7 @@ export type SessionEvent =
   | { type: "session_action_update"; actions: Queue }
   | { type: "goal_update"; goal: unknown }
   | { type: "loop_update"; loop: LoopStatus }
+  | { type: "budget_update"; budget: unknown }
   | { type: "chat_turn_wait"; waiting: boolean }
   | { type: "memory_update"; update: unknown }
   | { type: "bash_start"; command: string }

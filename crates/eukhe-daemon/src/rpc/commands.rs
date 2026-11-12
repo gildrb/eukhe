@@ -23,6 +23,7 @@ use eukhe_types::cvar::Command;
 use eukhe_types::daemon::{CompactionReason, SessionEvent};
 use serde_json::{json, Value};
 
+use super::budget_commands;
 use super::error::RpcCommandError;
 use super::model_commands;
 use super::prompt_commands;
@@ -94,6 +95,10 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
         "refine" => refine(state, &payload).await,
         "set_auto_compaction" => set_auto_compaction(state, &payload).await,
         "set_auto_retry" => set_auto_retry(state, &payload).await,
+        "get_budget" => budget_commands::get_budget(state).await,
+        "set_budget" => budget_commands::set_budget(state, &payload).await,
+        "add_budget" => budget_commands::add_budget(state, &payload).await,
+        "audit_budget" => budget_commands::audit_budget(state).await,
         // TS `abortRetry` always answers success (it aborts only an
         // in-flight retry; the durable retry backoff ends with the abort
         // of its run).

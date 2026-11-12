@@ -269,6 +269,7 @@ async fn panel_expand_drill_in_and_back_re_expands_the_tree() {
     // carries the subagent session's `depth N` label (TS
     // `getTrayLocationLabel`).
     let child_options = eukhe_tui::interactive::InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: supervisor.0.socket.clone(),
         cwd: PathBuf::from("/tmp"),

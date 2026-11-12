@@ -188,6 +188,7 @@ async def spawn(
     model: str | None = None,
     thinking: str | None = None,
     workspace: str | None = None,
+    budget: dict[str, Any] | None = None,
 ) -> RLMSpawnHandle:
     """Spawn a recursive Eukhe child and return once its task is admitted.
 
@@ -204,6 +205,12 @@ async def spawn(
     ``workspace``: 'shared' (default) works in the parent's directory; 'isolated'
     works in a copy-on-write copy of the parent's workspace whose changes come back
     when the child ends; conflicts are reported.
+    ``budget``: a budget of the child's own, a dict with any of ``cost_usd``,
+    ``tokens``, ``time_s``, ``tool_calls``, ``requests``; it leaves this task's
+    budget at once and what the child does not spend returns when it ends. Without
+    one the child draws from this task's budget, which the whole tree shares; the
+    reserve this agent keeps for its final answer stays out of its reach. A spawn
+    whose budget does not fit is refused.
     """
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
@@ -216,6 +223,8 @@ async def spawn(
         kwargs["thinking"] = thinking
     if workspace is not None:
         kwargs["workspace"] = workspace
+    if budget is not None:
+        kwargs["budget"] = budget
     # Wire type stays "rlm.run" so kernels and hosts of different versions stay compatible.
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
@@ -225,11 +234,12 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     """Spawn several recursive Eukhe children together, all or none.
 
     Each task is a dict ``{"prompt": str, "name": str, "why": str, "model"?: str,
-    "thinking"?: str, "workspace"?: str}`` with the same rules as :func:`spawn`. The batch admits
+    "thinking"?: str, "workspace"?: str, "budget"?: dict}`` with the same rules as :func:`spawn`. The batch admits
     atomically: when a task has no allowed ``why``, or the batch would exceed
     the family's running-subagent cap (``subagentMaxConcurrency``), nothing is
     spawned and the call fails (for the cap with ``subagent concurrency limit
-    N is already full``).
+    N is already full``). The budgets the tasks name are carved together: when
+    they do not fit, nothing is spawned.
     """
     if not isinstance(tasks, list) or not tasks:
         raise TypeError("tasks must be a non-empty list of dicts")
@@ -237,7 +247,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
     for task in tasks:
         if not isinstance(task, dict):
             raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", "name", "why", "model", "thinking", "workspace"})
+        unknown = sorted(set(task) - {"prompt", "name", "why", "model", "thinking", "workspace", "budget"})
         if unknown:
             raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
         prompt = task.get("prompt")
@@ -247,7 +257,7 @@ async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
             raise TypeError("each task needs a name")
         kwargs = {
             key: task[key]
-            for key in ("name", "why", "model", "thinking", "workspace")
+            for key in ("name", "why", "model", "thinking", "workspace", "budget")
             if task.get(key) is not None
         }
         entries.append({"prompt": prompt, "kwargs": kwargs})
@@ -677,8 +687,11 @@ class _RLMNamespace:
         model: str | None = None,
         thinking: str | None = None,
         workspace: str | None = None,
+        budget: dict[str, Any] | None = None,
     ) -> RLMSpawnHandle:
-        return await spawn(prompt, name=name, why=why, model=model, thinking=thinking, workspace=workspace)
+        return await spawn(
+            prompt, name=name, why=why, model=model, thinking=thinking, workspace=workspace, budget=budget
+        )
 
     async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
         return await spawn_batch(tasks)

@@ -33,8 +33,14 @@ fn stop(reason: StopReason) -> Stop {
 ///    input filling the context window.
 ///
 /// Pass `context_window` to detect cases 2 and 3 (`None`/`Some(0)` skips them).
+/// A request a budget refused is never an overflow
+/// ([`super::retry::is_budget_refusal`], read before the text rules): a
+/// compaction would not let it through.
 #[must_use]
 pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<u64>) -> bool {
+    if super::retry::is_budget_refusal(message) {
+        return false;
+    }
     let error_message = match message.stop_reason {
         StopReason::Error => message.error_message.as_deref().unwrap_or_default(),
         StopReason::Pending

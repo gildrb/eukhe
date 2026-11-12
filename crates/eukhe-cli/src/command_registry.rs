@@ -45,6 +45,17 @@ impl CommandSpec {
     }
 }
 
+/// The options of `budget set` and `budget add`.
+const BUDGET_AMOUNT_OPTIONS: [&str; 7] = [
+    "--account <account>   daemon (the default) or a session id",
+    "--cost <USD>          Dollars (1.50 or $1.50)",
+    "--tokens <N>          Tokens (200000, 200k, 1.5m)",
+    "--time <DURATION>     A duration (90s, 10m, 2h)",
+    "--tool-calls <N>      Tool calls",
+    "--requests <N>        Model requests",
+    "--json                Print JSON",
+];
+
 /// All public command specs, in registry order.
 pub const COMMAND_SPECS: &[CommandSpec] = &[
     CommandSpec::new(&["help"], "help [command]", "Show command help"),
@@ -290,6 +301,64 @@ kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the on
 has `list_models`; a provider without one fails without sending a request.",
     )
     .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["budget"],
+        "budget <show|set|add|audit> [--account <account>]",
+        "Read or change a budget account",
+    )
+    .description(
+        "An account is the budget a task tree spends from: a session's (its id), or the daemon's \
+(`daemon`, the default), which every provider request that belongs to no task spends from (the \
+shared chat's compactor, `eukhe chat`, `eukhe provider`, the tiny-model commands). A session \
+that runs in the daemon is changed through it; otherwise the command writes the ledger file.",
+    ),
+    CommandSpec::new(
+        &["budget", "show"],
+        "budget show [--account <account>] [--json]",
+        "Show an account's budget",
+    )
+    .description(
+        "Prints what is used of each limit, the time left until the deadline, the deadline, and \
+what the account is told to do (wrap up, exhausted).",
+    )
+    .options(&[
+        "--account <account>  daemon (the default) or a session id",
+        "--json               Print JSON",
+    ]),
+    CommandSpec::new(
+        &["budget", "set"],
+        "budget set [--account <account>] [--cost <USD>] [--tokens <N>] [--time <DURATION>] [--tool-calls <N>] [--requests <N>]",
+        "Give an account without a budget its budget",
+    )
+    .description(
+        "A dimension without its option has no limit. --time sets a deadline that long from now. \
+An account that has a budget keeps it: add to it instead.",
+    )
+    .options(&BUDGET_AMOUNT_OPTIONS),
+    CommandSpec::new(
+        &["budget", "add"],
+        "budget add [--account <account>] [--cost <USD>] [--tokens <N>] [--time <DURATION>] [--tool-calls <N>] [--requests <N>]",
+        "Add to an account's budget",
+    )
+    .description(
+        "Raises each named limit (--time moves the deadline later), repays an overrun first, \
+and lets every agent of the account work again. An account without a budget gets the amounts \
+as its budget.",
+    )
+    .options(&BUDGET_AMOUNT_OPTIONS),
+    CommandSpec::new(
+        &["budget", "audit"],
+        "budget audit [--account <account>] [--json]",
+        "Replay an account's ledger",
+    )
+    .description(
+        "Replays every record of the ledger through the compiled core and adds up the settled \
+spends against the total it reports: `ledger exact` or where it stops adding up.",
+    )
+    .options(&[
+        "--account <account>  daemon (the default) or a session id",
+        "--json               Print JSON",
+    ]),
     CommandSpec::new(
         &["session"],
         "session export <file> [output]",
@@ -570,8 +639,27 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--goal-token-budget <NUMBER>",
-                "Set a positive token budget for --goal",
+                "Limit the session's budget to this many tokens for --goal",
             ),
+        ],
+    },
+    OptionGroup {
+        heading: "Budget options",
+        options: &[
+            (
+                "--budget-cost <USD>",
+                "Limit what the session and its subagents spend, in dollars (1.50 or $1.50)",
+            ),
+            (
+                "--budget-tokens <N>",
+                "Limit their tokens (200000, 200k, 1.5m)",
+            ),
+            (
+                "--budget-time <DURATION>",
+                "Give them a deadline this long from now (90s, 10m, 2h)",
+            ),
+            ("--budget-tool-calls <N>", "Limit their tool calls"),
+            ("--budget-requests <N>", "Limit their model requests"),
         ],
     },
     OptionGroup {
@@ -648,15 +736,15 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--autonomous-max-turns <NUMBER>",
-                "Set positive assistant-turn limit (default: 12)",
+                "Limit the session's budget to this many model requests (no limit unless given)",
             ),
             (
                 "--autonomous-max-tokens <NUMBER>",
-                "Set positive token limit (default: 80000)",
+                "Limit the session's budget to this many tokens (no limit unless given)",
             ),
             (
                 "--autonomous-timeout-ms <NUMBER>",
-                "Set positive wall-clock limit in ms (default: 1800000)",
+                "Give the session's budget a deadline this many ms away (none unless given)",
             ),
         ],
     },

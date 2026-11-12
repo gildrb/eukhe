@@ -6,7 +6,8 @@
 //! running). Also covers the lease owner id stamp (the rejection the seam
 //! cannot remove must still name the LIVE worker, never an id inherited
 //! from an ancestor environment) and the dead-worker rebind on the create
-//! path (the #2575 supersede, driven by an open of the superseded file).
+//! path (the #2575 supersede, driven by an open of the superseded file),
+//! and the create's budget on an open of a live session.
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -201,6 +202,17 @@ fn create_session(client: &mut Client, request_id: &str, config: &Value) -> (Str
         .expect("session id in create response")
         .to_string();
     (id, created)
+}
+
+/// The `get_budget` response data of the session `id`.
+fn budget_of(client: &mut Client, id: &str, request_id: &str) -> Value {
+    client.send_command(
+        request_id,
+        &json!({ "type": "get_budget", "activeSessionId": id }),
+    );
+    let budget = client.read_response(request_id);
+    assert_eq!(budget["success"], true, "get_budget failed: {budget}");
+    budget["data"].clone()
 }
 
 /// Kevin's reproducer, green: opening a saved session whose worker is
@@ -547,5 +559,68 @@ fn concurrent_creates_for_one_file_share_a_single_launch() {
         for_file.len(),
         1,
         "one launch must serve the concurrent opens: {sessions:?}"
+    );
+}
+
+/// An open that names a budget gives it to a live session that has none,
+/// once: a later open that names another budget succeeds too, and the
+/// session keeps the budget it has.
+#[test]
+fn create_over_a_live_worker_gives_it_the_creates_budget_once() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).expect("agent dir");
+    let _daemon = spawn_daemon(&socket, &agent_dir, None);
+
+    let script_path = write_script(dir.path(), &["unused"]);
+    let config = |budget: Value| {
+        json!({
+            "cwd": dir.path().to_string_lossy(),
+            "sessionDir": agent_dir.join("sessions").to_string_lossy(),
+            "script": script_path.to_string_lossy(),
+            "budget": budget,
+        })
+    };
+    let mut client = Client::connect(&socket);
+    let (live_id, created) = create_session(&mut client, "c1", &config(Value::Null));
+    let session_id = created["data"]["sessionId"]
+        .as_str()
+        .expect("session id in create response")
+        .to_string();
+    let session_file = session_file_of(&mut client, &live_id, "s1");
+
+    let mut budgets = vec![budget_of(&mut client, &live_id, "g0")];
+    for (create_id, read_id, tool_calls) in [("c2", "g1", 12), ("c3", "g2", 99)] {
+        client.send_command(
+            create_id,
+            &json!({
+                "type": "create",
+                "sessionPath": session_file,
+                "config": config(json!({ "toolCalls": tool_calls })),
+            }),
+        );
+        let reopened = client.read_response(create_id);
+        assert_eq!(reopened["success"], true, "the open failed: {reopened}");
+        budgets.push(budget_of(&mut client, &live_id, read_id));
+    }
+
+    let zero = json!({ "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 });
+    let budget = json!({
+        "budget": {
+            "sessionId": session_id,
+            "agentSessionId": session_id,
+            "limits": { "toolCalls": 12 },
+            "free": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 12, "requests": 0 },
+            "held": zero,
+            "spent": zero,
+            "lent": zero,
+            "over": zero,
+            "phase": "working",
+        },
+    });
+    assert_eq!(
+        budgets,
+        vec![json!({ "budget": null }), budget.clone(), budget]
     );
 }

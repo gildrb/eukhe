@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::ai::{ServiceTier, UserContentBlock};
+use crate::budget::BudgetReport;
 use crate::effects::UnknownEffect;
 use crate::goal::GoalState;
 use crate::loop_mode::LoopStatus;
@@ -156,6 +157,12 @@ pub enum SessionEvent {
     LoopUpdate {
         r#loop: LoopStatus,
     },
+    /// The session's budget changed: set, added to, a reservation made or
+    /// settled, an allotment lent to or returned by a child. `None`: the
+    /// session has no budget.
+    BudgetUpdate {
+        budget: Option<BudgetReport>,
+    },
     /// The chat memory summarized lines or merged its view.
     MemoryUpdate {
         update: MemoryUpdate,
@@ -226,6 +233,7 @@ impl SessionEvent {
             | Self::GoalUpdate { .. }
             | Self::UnknownEffectsUpdate { .. }
             | Self::LoopUpdate { .. }
+            | Self::BudgetUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }
             | Self::BashOutput { .. }

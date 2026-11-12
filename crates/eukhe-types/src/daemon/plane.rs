@@ -56,6 +56,10 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_messages"
         | "get_rlm_children"
         | "get_session_stats"
+        | "get_budget"
+        | "set_budget"
+        | "add_budget"
+        | "audit_budget"
         | "get_context_tree"
         | "get_commands"
         | "get_resource_snapshot"
@@ -138,6 +142,10 @@ mod tests {
             "get_last_assistant_text",
             "start_side_question",
             "answer_shell_approval",
+            "get_budget",
+            "set_budget",
+            "add_budget",
+            "audit_budget",
         ] {
             assert!(is_session_plane_daemon_command(session), "{session}");
         }

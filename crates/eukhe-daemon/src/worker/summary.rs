@@ -235,6 +235,7 @@ impl Worker {
                 .as_ref()
                 .and_then(|view| view.loop_status.clone())
                 .unwrap_or_default(),
+            budget: core.budget.clone(),
             scoped_models: core.scoped_models.clone(),
             active_tool_names: Vec::new(),
             context_usage,

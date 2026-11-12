@@ -238,6 +238,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "prompt" => handled_with_exit(crate::prompt_command::run_prompt_command(&rest)),
         "factory" => handled_with_exit(crate::factory_command::run_factory_command(&rest)),
         "provider" => handled_with_exit(crate::provider_command::run_provider_command(&rest)),
+        "budget" => handled_with_exit(crate::budget_command::run_budget_command(&rest)),
         "chat" => handled_with_exit(crate::chat_command::run_chat_command(&rest)),
         "gateway" => handled_with_exit(crate::gateway_command::run_gateway_command(&rest)),
         "dashboard" => handled_with_exit(crate::dashboard_command::run_dashboard_command(&rest)),

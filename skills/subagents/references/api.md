@@ -8,14 +8,15 @@ Each session builds a tree of agents, starting at depth 0. An agent below the de
 
 ## Spawn
 
-- `rlm.spawn(prompt: str, *, name: str, why: str, model: str | None = None, thinking: str | None = None, workspace: str | None = None) -> RLMSpawnHandle`: spawns one child; returns at once.
+- `rlm.spawn(prompt: str, *, name: str, why: str, model: str | None = None, thinking: str | None = None, workspace: str | None = None, budget: dict | None = None) -> RLMSpawnHandle`: spawns one child; returns at once.
   - `why`: required; one of `"parallel"` (independent tasks run at once), `"isolate"` (the work would bloat this context; only a compact result comes back), `"tools"` (the task needs a tool set or instructions that conflict with this agent's), `"user"` (the user asked for a subagent). A missing or other value is refused with the rule and the four values.
   - `name`: short, descriptive, unique among the child's siblings.
   - `model`, `thinking`: inherited from the parent when not given.
   - `workspace`: `"shared"` (default) works in the parent's directory; `"isolated"` gives the child a copy-on-write copy of the parent's workspace whose changes come back when it ends (conflicts are reported).
+  - `budget`: a budget of the child's own, a dict with any of `cost_usd`, `tokens`, `time_s`, `tool_calls`, `requests`: it leaves this task's budget at the spawn, and what the child did not spend returns when the child ends. Without `budget` the child draws from this task's budget, shared by the whole tree; it can never take the reserve this agent keeps for its final answer. With a budget on this task, a named budget must cover every dimension the task's budget limits (`time_s` left out: what is left before the deadline). A spawn whose budgets do not fit is refused with `Budget: the children's allotments do not fit what is left (<dimension>)` and spawns nothing. `await budget.status()` returns what this task's budget has left (`None` without a budget).
   - The result never arrives as a return value; it arrives as an agent message. To block until it does, pass the handle to `await jobs.wait(handle)` (or call `await jobs.wait()` for the first of all running work); never poll.
   - Refused when the caller is at the depth limit or the family's running-subagent cap (`subagentMaxConcurrency`) is full.
-- `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`.
+- `rlm.spawn_batch(tasks: list[dict]) -> list[RLMSpawnHandle]`: each dict `{prompt, name, why, model?, thinking?, workspace?, budget?}` as in `rlm.spawn`. All or none admit: a batch that would exceed the cap fails with `subagent concurrency limit N is already full`, one whose allotments do not fit the budget with the budget refusal.
 - `rlm.find_models(query: str = "", limit: int = 8) -> list[RLMModel]`: models backed by active credentials; pass `selector` as `model`.
 
 ## Query (a sub-model call over data)

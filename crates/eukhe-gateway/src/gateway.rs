@@ -1181,6 +1181,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::LoopUpdate { .. }
+            | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }
             | SessionEvent::BashOutput { .. }

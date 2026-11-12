@@ -4,9 +4,12 @@
 //!
 //! State lives in conversation documents (`eukhe.goal`, `eukhe.autonomous`,
 //! and the hooks' bookkeeping `eukhe.goal.loop`); the `pi.generation` hooks
-//! drive accounting and continuation; the kernel's `goal.*` host requests
-//! and the `/goal` / `/autonomous` operations mutate the documents through
-//! commits. [`watch_goal_updates`] feeds the `goal_update` event.
+//! drive continuation; the kernel's `goal.*` host requests and the `/goal`
+//! / `/autonomous` operations mutate the documents through commits. What a
+//! goal or an autonomous run may spend is the session's budget
+//! (`crate::durable::budget`): their limits go on it, and they stop when it
+//! admits no more work. [`watch_goal_updates`] feeds the `goal_update`
+//! event.
 
 mod autonomous;
 mod docs;
@@ -32,8 +35,9 @@ pub use autonomous::{
 pub(crate) use docs::{open_doc, read_doc, write_doc};
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
 pub use ops::{
-    clear_goal, complete_goal, continue_goal_after_compaction, goal_state, import_legacy_goal,
-    pause_goal, resume_goal, seed_initial_goal, start_goal, withdraw_queued_goal_contexts,
+    budget_report, clear_goal, complete_goal, continue_goal_after_compaction, goal_state,
+    import_legacy_goal, pause_goal, resume_goal, seed_initial_goal, start_goal,
+    withdraw_queued_goal_contexts, StartedGoal,
 };
 pub(crate) use ops::{conversation_of, user_input_queued};
 pub use state::{
@@ -42,6 +46,7 @@ pub use state::{
 pub use watch::{watch_goal_updates, GoalUpdates};
 
 use self::host::{register_host_requests, GoalsHost};
+use super::budget::BudgetGate;
 use super::directors::{pending_work_hook, DirectorLimits};
 use super::HostDeps;
 use crate::autonomous::{GateCommandRunner, ShellGateRunner};
@@ -64,6 +69,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let settings = Arc::clone(&deps.settings);
     goals_extension(
         deps.harness.clone(),
+        Arc::clone(&deps.budget),
         Arc::new(ShellGateRunner::new(deps.cwd.clone())),
         Arc::new(move || DirectorLimits::of(settings.manager().settings())),
         &deps.host_requests,
@@ -71,11 +77,12 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     )
 }
 
-/// [`extension`] over explicit services (the gate runner and the limits
-/// are the seams the tests script); `beside` registers after the goal's
-/// hooks.
+/// [`extension`] over explicit services (the budget, the gate runner and
+/// the limits are the seams the tests script); `beside` registers after the
+/// goal's hooks.
 pub(crate) fn goals_extension(
     harness: HarnessCell,
+    budget: Arc<BudgetGate>,
     gates: Arc<dyn GateCommandRunner>,
     limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
     host_requests: &HostRequestRegistry,
@@ -83,6 +90,7 @@ pub(crate) fn goals_extension(
 ) -> Arc<Extension> {
     let host = GoalsHost {
         harness,
+        budget,
         gates,
         limits,
         work: Arc::default(),

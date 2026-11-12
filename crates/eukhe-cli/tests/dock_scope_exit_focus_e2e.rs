@@ -116,6 +116,7 @@ fn session_options(
     restore_dock_focus: bool,
 ) -> InteractiveOptions {
     InteractiveOptions {
+        budget: None,
         models: None,
         socket_path: socket.to_path_buf(),
         cwd: PathBuf::from("/tmp"),

@@ -6,7 +6,9 @@
 //! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
 //! (`tool_contract::build`), and the roster is fixed once every extension
-//! is installed: a tool that comes later goes behind `dyn`. Main (a root
+//! is installed: a tool that comes later goes behind `dyn`. Every tool's
+//! `execute` runs behind the session's budget gate
+//! (`budget::BudgetGate::wrap_tool`). Main (a root
 //! in the `main-worker` shape, [`SessionShape::Main`]) offers only the
 //! compiled core's main roster (`eukhe_bend::rules::runners::main_roster`):
 //! read-only tools and the worker tools; every other session offers no
@@ -65,6 +67,8 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
             .map(|tool| {
                 Arc::new(ToolRegistration {
                     parameters: tool_contract::build(&tool.parameters),
+                    // Every tool call passes the session's budget.
+                    execute: deps.budget.wrap_tool(&tool.name, Arc::clone(&tool.execute)),
                     ..(**tool).clone()
                 })
             })

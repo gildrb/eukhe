@@ -319,6 +319,7 @@ impl SessionUi {
     fn open_goal_panel(&mut self, view: &mut AgentView) {
         view.goal_panel = Some(GoalPanel {
             goal: self.goal_view.goal.clone(),
+            budget: self.budget.clone(),
             // The panel renders inside this row budget: a multi-screen
             // objective clips (with a marker) instead of growing the dock
             // past the frame, which would front-crop the title away.

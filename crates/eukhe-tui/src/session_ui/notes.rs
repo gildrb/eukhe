@@ -46,7 +46,7 @@ impl SessionUi {
     /// while it is still the transcript's last entry.
     fn announce_goal_status(&mut self, view: &mut AgentView) {
         let columns = terminal_columns();
-        let text = format_goal_status(&self.goal_view.goal, columns);
+        let text = format_goal_status(&self.goal_view.goal, self.budget.as_ref(), columns);
         let updated_in_place = match self.goal_view.last_status_index {
             Some(index) if index + 1 == view.chat_len() => {
                 view.update_status_row(index, &text, StatusKind::Info)
@@ -79,6 +79,7 @@ impl SessionUi {
     /// Re-apply the refreshed context usage to the chrome state.
     pub(crate) fn rebuild_tray(&mut self, view: &mut AgentView) {
         view.chrome.context = self.context;
+        view.chrome.budget.clone_from(&self.budget);
         view.chrome.memory = self.memory;
         view.chrome.session_name.clone_from(&self.session_name);
         self.dirty = true;

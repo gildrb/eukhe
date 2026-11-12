@@ -201,3 +201,4 @@ import ./laws/doc_publish.bend as DocPublish
 import ./laws/loop/model.bend as Loop
 import ./laws/loop/history.bend as LoopHistory
 import ./laws/loop/entry.bend as LoopEntry
+import ./laws/budget.bend as Budget

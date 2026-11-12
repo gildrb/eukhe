@@ -23,6 +23,23 @@ use super::stream_failure::RepeatedLines;
 /// waits for the provider's usage reset, so the failure is never retried.
 pub const QUOTA_PARK_DIAGNOSTIC: &str = "provider_quota_park";
 
+/// The diagnostic type of a request a budget refused or stopped
+/// (eukhe-core's budget gate): the budget, not the provider, ended it, so
+/// no retry, failover or overflow recovery sends it again. Every
+/// classification reads this marker before any rule over the text.
+pub const BUDGET_REFUSAL_DIAGNOSTIC: &str = "budget_refusal";
+
+/// Whether a budget refused or stopped `message`
+/// ([`BUDGET_REFUSAL_DIAGNOSTIC`]).
+#[must_use]
+pub fn is_budget_refusal(message: &AssistantMessage) -> bool {
+    message
+        .diagnostics
+        .iter()
+        .flatten()
+        .any(|diagnostic| diagnostic.kind == BUDGET_REFUSAL_DIAGNOSTIC)
+}
+
 /// The wait parameters of a retry: the step doubles from `base_delay_ms`
 /// each retry, and `max_agent_delay_ms` caps both the step and the
 /// server's requested wait (default [`DEFAULT_MAX_AGENT_RETRY_DELAY_MS`];
@@ -179,10 +196,15 @@ const fn cause(kind: StreamFailureKind) -> Cause {
 }
 
 /// What the classifier reads of a failed message.
+// Independent facts the classifier reads one by one, not a state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FailureFacts {
     /// The quota park ended the failure ([`QUOTA_PARK_DIAGNOSTIC`]).
     pub parked: bool,
+    /// A budget refused or stopped the request
+    /// ([`BUDGET_REFUSAL_DIAGNOSTIC`]): never retried.
+    pub budget: bool,
     /// Its text or provider error type names a quota, billing, or
     /// admission limit, or the HTTP layer's refused server wait.
     pub limit: bool,
@@ -206,6 +228,7 @@ impl FailureFacts {
             .iter()
             .flatten()
             .any(|diagnostic| diagnostic.kind == QUOTA_PARK_DIAGNOSTIC);
+        let budget = is_budget_refusal(message);
         let failure = newest_stream_failure(message);
         let text = message.error_message.as_deref().unwrap_or_default();
         let error_type = failure
@@ -220,6 +243,7 @@ impl FailureFacts {
             .and_then(StreamFailureKind::parse);
         Some(Self {
             parked,
+            budget,
             limit,
             status,
             kind,
@@ -227,13 +251,17 @@ impl FailureFacts {
         })
     }
 
-    /// Whether a retry may cure the failure, decided by the compiled Bend
-    /// core (`bend/retry.bend` `retryable`, `laws/retry.bend`):
-    /// never a parked failure or a limit; else by its recorded status
-    /// (408, 409, 429, 500 and above); else by its typed kind; else by its
-    /// text.
+    /// Whether a retry may cure the failure: never a budget refusal (read
+    /// here, before the table: it is no provider failure); else decided by
+    /// the compiled Bend core (`bend/retry.bend` `retryable`,
+    /// `laws/retry.bend`): never a parked failure or a limit; else by its
+    /// recorded status (408, 409, 429, 500 and above); else by its typed
+    /// kind; else by its text.
     #[must_use]
     pub fn retryable(self) -> bool {
+        if self.budget {
+            return false;
+        }
         let facts = Facts {
             parked: self.parked,
             limit: self.limit,

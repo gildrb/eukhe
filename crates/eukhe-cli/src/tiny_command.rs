@@ -242,6 +242,11 @@ async fn default_model(
         );
     }
     let models = loaded.models;
+    // No task: its requests pass the daemon's budget account.
+    eukhe_core::durable::budget::wrap_models_with_budget(
+        &models,
+        &eukhe_core::durable::budget::BudgetGate::daemon(&context.agent_dir),
+    );
     let resolved = eukhe_core::durable::resolve_session_model(
         &models,
         &context.settings,

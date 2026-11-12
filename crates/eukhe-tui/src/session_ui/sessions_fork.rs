@@ -345,6 +345,7 @@ impl SessionUi {
             script_path: self.script_path.clone(),
             model_selection: self.model_selection.clone(),
             models: self.models.clone(),
+            budget: self.launch_budget,
             model_catalog: self.model_catalog.clone(),
             model_configured_providers: self.model_configured_providers.clone(),
             model_recent_models: self.model_recent_models.clone(),

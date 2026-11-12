@@ -1,43 +1,48 @@
 //! Autonomous mode on the Harness: the run state lives in the
 //! `eukhe.autonomous` conversation document (the old daemon kept it in
-//! process memory), settled responses are accounted in `after_response`, and
-//! each final answer asks [`decide`] whether the run continues (the old
-//! `ShellAutonomousDriver::after_turn`, with today's limits and gates from
-//! `crate::autonomous`).
+//! process memory), and each final answer asks [`decide`] whether the run
+//! continues (the old `ShellAutonomousDriver::after_turn`, with the gates
+//! from `crate::autonomous`). What the run spends is the session's budget:
+//! enabling it puts its turn, token and time limits on the budget
+//! ([`autonomous_budget_limits`]), and the run stops when the budget admits
+//! no more work.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use super::ops::conversation_of;
+use super::ops::{budget_report, conversation_of};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader};
+use eukhe_types::budget::{BudgetDimension, BudgetLimits, BudgetReport};
 use eukhe_types::input_origin::AutonomousNudge;
-use eukhe_types::pi_ai::{StopReason, Usage, UserContent};
+use eukhe_types::pi_ai::{StopReason, UserContent};
 use serde::{Deserialize, Serialize};
 
 use super::docs::{open_doc, read_doc, write_doc, AUTONOMOUS_DOC};
 use crate::autonomous::{
-    add_autonomous_continuation, autonomous_continuation_text, autonomous_limit_reason,
-    autonomous_status, build_autonomous_gate_failure_continuation, create_autonomous_runtime_state,
-    now_millis, set_autonomous_enabled, set_autonomous_limits, should_autonomously_continue,
-    AgentAutonomousConfig, AgentAutonomousGateFailure, AgentAutonomousStatus,
-    AutonomousDecisionReason, AutonomousLimitReason, AutonomousLimits, AutonomousRuntimeState,
-    AutonomousStopReason, GateCommandRunner, GitWorktreeSnapshot, NormalizedGateConfig,
-    AUTONOMOUS_STATUS_CUSTOM_TYPE,
+    add_autonomous_continuation, autonomous_budget_limits, autonomous_continuation_text,
+    autonomous_limit_reason, autonomous_status, build_autonomous_gate_failure_continuation,
+    create_autonomous_runtime_state, now_millis, set_autonomous_enabled, set_autonomous_limits,
+    should_autonomously_continue, AgentAutonomousConfig, AgentAutonomousGateFailure,
+    AgentAutonomousStatus, AutonomousDecisionReason, AutonomousLimitReason, AutonomousLimits,
+    AutonomousRuntimeState, GateCommandRunner, GitWorktreeSnapshot, NormalizedGateConfig,
+    SessionBudget, AUTONOMOUS_STATUS_CUSTOM_TYPE,
 };
+use crate::durable::budget::BudgetGate;
 use crate::durable::entries::custom_entry_draft;
 use crate::slash_command_args::format_autonomous_status;
 
 /// The persisted autonomous run (the runtime state plus the last stop
-/// decision).
+/// decision). A run persisted before its turn, token and time limits moved
+/// to the session's budget carries `turnsUsed` and `tokensUsed` too: they
+/// are ignored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutonomousDocState {
     pub enabled: bool,
     pub continuations_used: u64,
-    pub turns_used: u64,
-    pub tokens_used: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
     pub limits: AutonomousLimits,
@@ -65,7 +70,9 @@ pub struct WorktreeSnapshot {
     pub untracked_hash: String,
 }
 
-/// Why an autonomous run stopped (old `AutonomousStopReason`).
+/// Why an autonomous run stopped. `MaxTurns`, `MaxTokens` and `TimeoutMs`
+/// are the session's budget running short in requests, tokens and time;
+/// `Budget` in money or tool calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AutonomousStop {
@@ -75,30 +82,17 @@ pub enum AutonomousStop {
     MaxTurns,
     MaxTokens,
     TimeoutMs,
+    Budget,
 }
 
 impl AutonomousStop {
-    /// The old driver's stop reason.
-    #[must_use]
-    pub fn reason(self) -> AutonomousStopReason {
-        match self {
-            Self::GatePassed => AutonomousStopReason::GatePassed,
-            Self::GateRetryExhausted => AutonomousStopReason::GateRetryExhausted,
-            Self::MaxContinuations => {
-                AutonomousStopReason::Limit(AutonomousLimitReason::MaxContinuations)
-            }
-            Self::MaxTurns => AutonomousStopReason::Limit(AutonomousLimitReason::MaxTurns),
-            Self::MaxTokens => AutonomousStopReason::Limit(AutonomousLimitReason::MaxTokens),
-            Self::TimeoutMs => AutonomousStopReason::Limit(AutonomousLimitReason::TimeoutMs),
-        }
-    }
-
     fn of_limit(reason: AutonomousLimitReason) -> Self {
         match reason {
             AutonomousLimitReason::MaxContinuations => Self::MaxContinuations,
             AutonomousLimitReason::MaxTurns => Self::MaxTurns,
             AutonomousLimitReason::MaxTokens => Self::MaxTokens,
             AutonomousLimitReason::TimeoutMs => Self::TimeoutMs,
+            AutonomousLimitReason::Budget(_) => Self::Budget,
         }
     }
 }
@@ -116,8 +110,6 @@ impl AutonomousDocState {
         Self {
             enabled: state.enabled,
             continuations_used: state.continuations_used,
-            turns_used: state.turns_used,
-            tokens_used: state.tokens_used,
             started_at: state.started_at,
             limits: state.limits,
             continuation_prompt: state.continuation_prompt.clone(),
@@ -146,8 +138,6 @@ impl AutonomousDocState {
         AutonomousRuntimeState {
             enabled: self.enabled,
             continuations_used: self.continuations_used,
-            turns_used: self.turns_used,
-            tokens_used: self.tokens_used,
             started_at: self.started_at,
             limits: self.limits,
             continuation_prompt: self.continuation_prompt.clone(),
@@ -169,26 +159,11 @@ impl AutonomousDocState {
         }
     }
 
-    /// The `/autonomous` status snapshot.
+    /// The `/autonomous` status snapshot under the session's `budget`
+    /// (`None`: no budget).
     #[must_use]
-    pub fn status(&self) -> AgentAutonomousStatus {
-        autonomous_status(&self.to_runtime())
-    }
-
-    /// Account one settled response (old `account_message` +
-    /// `add_autonomous_usage`): one turn, and input + output + cache-write
-    /// tokens (`crate::autonomous::autonomous_token_delta`).
-    pub(crate) fn account(&mut self, usage: &Usage) {
-        if !self.enabled {
-            return;
-        }
-        self.turns_used = self.turns_used.saturating_add(1);
-        self.tokens_used = self.tokens_used.saturating_add(
-            usage
-                .input
-                .saturating_add(usage.output)
-                .saturating_add(usage.cache_write),
-        );
+    pub fn status(&self, budget: Option<BudgetReport>) -> AgentAutonomousStatus {
+        autonomous_status(&self.to_runtime(), budget)
     }
 }
 
@@ -215,12 +190,14 @@ pub(crate) enum AutonomousYield {
     Stop(AutonomousStop),
 }
 
-/// The after-turn decision over the runtime state: gates
-/// first (a pass stops the run), then the limits, else a continuation.
+/// The after-turn decision over the runtime state: gates first (a pass
+/// stops the run), then the limits (the run's continuations and the
+/// session's `budget`), else a continuation.
 pub(crate) async fn decide(
     state: &mut AutonomousRuntimeState,
     stop_reason: StopReason,
     gates: &dyn GateCommandRunner,
+    budget: SessionBudget,
 ) -> AutonomousYield {
     let Some(stop_reason) = legacy_stop_reason(stop_reason) else {
         return AutonomousYield::Inactive;
@@ -233,7 +210,7 @@ pub(crate) async fn decide(
     {
         return AutonomousYield::Inactive;
     }
-    let decision = should_autonomously_continue(state, Some(stop_reason), gates).await;
+    let decision = should_autonomously_continue(state, Some(stop_reason), gates, budget).await;
     match decision.reason {
         AutonomousDecisionReason::MissingTerminalEvidence => {
             add_autonomous_continuation(state);
@@ -261,7 +238,7 @@ pub(crate) async fn decide(
         }
         AutonomousDecisionReason::NotNeeded => AutonomousYield::Stop(AutonomousStop::GatePassed),
         AutonomousDecisionReason::LimitReached => AutonomousYield::Stop(
-            autonomous_limit_reason(state, now_millis())
+            autonomous_limit_reason(state, budget)
                 .map_or(AutonomousStop::GateRetryExhausted, AutonomousStop::of_limit),
         ),
     }
@@ -297,35 +274,50 @@ pub async fn autonomous_state(
 }
 
 /// Apply an `/autonomous` change and append its `autonomous_status` row (old
-/// `execute_autonomous`), in one commit. Returns the new status.
+/// `execute_autonomous`), in one commit. Enabling puts the run's limits on
+/// the session's `budget`. Returns the new status.
 ///
 /// # Errors
 ///
-/// Read or commit failures, or no such conversation.
+/// The budget is not limited, read or commit failures, or no such
+/// conversation.
 pub async fn set_autonomous(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     change: AutonomousChange,
     cx: &Context,
 ) -> SessionResult<AgentAutonomousStatus> {
-    apply_autonomous(harness, conversation_id, change, /*announce*/ true, cx).await
+    apply_autonomous(
+        harness,
+        budget,
+        conversation_id,
+        change,
+        /*announce*/ true,
+        cx,
+    )
+    .await
 }
 
 /// Enable the autonomous run from a session's startup configuration (the
 /// CLI `--autonomous*` flags; TS `createAgentSession({ autonomous })`): the
-/// state only, no `autonomous_status` row. Returns the new status.
+/// state and the session budget's limits only, no `autonomous_status` row.
+/// Returns the new status.
 ///
 /// # Errors
 ///
-/// Read or commit failures, or no such conversation.
+/// The budget is not limited, read or commit failures, or no such
+/// conversation.
 pub async fn configure_autonomous(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     config: AgentAutonomousConfig,
     cx: &Context,
 ) -> SessionResult<AgentAutonomousStatus> {
     apply_autonomous(
         harness,
+        budget,
         conversation_id,
         AutonomousChange::On(config),
         /*announce*/ false,
@@ -334,15 +326,72 @@ pub async fn configure_autonomous(
     .await
 }
 
+/// Put `limits` on the session's `budget` (`BudgetGate::limit`); nothing
+/// when they limit nothing. Returns the budget's report.
+async fn limit_budget(
+    budget: &Arc<BudgetGate>,
+    limits: BudgetLimits,
+) -> SessionResult<Option<BudgetReport>> {
+    if limits.is_unlimited() {
+        return budget_report(budget).await;
+    }
+    let gate = Arc::clone(budget);
+    tokio::task::spawn_blocking(move || gate.limit(limits))
+        .await
+        .map_err(SessionError::other)?
+        .map(Some)
+        .map_err(|error| {
+            SessionError::error(format!(
+                "The autonomous limits were not put on the session's budget: {error}"
+            ))
+        })
+}
+
+/// The note of each limit `asked` named that the session's budget kept
+/// (`report` limited that dimension already, to another amount).
+fn kept_limits(asked: &AgentAutonomousConfig, report: Option<&BudgetReport>) -> Vec<String> {
+    let Some(report) = report else {
+        return Vec::new();
+    };
+    let named = autonomous_budget_limits(asked);
+    [
+        (asked.max_turns, "maxTurns", BudgetDimension::Requests),
+        (asked.max_tokens, "maxTokens", BudgetDimension::Tokens),
+        (asked.timeout_ms, "timeoutMs", BudgetDimension::Time),
+    ]
+    .into_iter()
+    .filter(|(given, _, _)| given.is_some())
+    .filter_map(|(_, name, dimension)| {
+        let kept = report.limits.get(dimension)?;
+        let wanted = named.get(dimension);
+        (wanted != Some(kept)).then(|| {
+            format!(
+                "The session's budget already limits {} to {kept}: {name} keeps it (/budget add raises it).",
+                dimension.label()
+            )
+        })
+    })
+    .collect()
+}
+
 /// Apply `change` in one commit; `announce` appends its `autonomous_status`
 /// row.
 async fn apply_autonomous(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     change: AutonomousChange,
     announce: bool,
     cx: &Context,
 ) -> SessionResult<AgentAutonomousStatus> {
+    let (report, notes) = match &change {
+        AutonomousChange::On(config) => {
+            let report = limit_budget(budget, autonomous_budget_limits(config)).await?;
+            let notes = kept_limits(config, report.as_ref());
+            (report, notes)
+        }
+        AutonomousChange::Off => (budget_report(budget).await?, Vec::new()),
+    };
     conversation_of(harness, conversation_id, cx)
         .await?
         .commit(
@@ -362,13 +411,17 @@ async fn apply_autonomous(
                 };
                 let next = AutonomousDocState::from_runtime(&state, last_stop);
                 write_doc(&draft, &next)?;
-                let status = next.status();
+                let status = next.status(report);
                 if announce {
                     let details = serde_json::to_value(&status)
                         .map_err(|error| SessionError::error(error.to_string()))?;
+                    let text = std::iter::once(format_autonomous_status(&status))
+                        .chain(notes)
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     let entry = custom_entry_draft(
                         AUTONOMOUS_STATUS_CUSTOM_TYPE,
-                        UserContent::Text(format_autonomous_status(&status)),
+                        UserContent::Text(text),
                         /*display*/ true,
                         Some(details),
                         now_millis(),

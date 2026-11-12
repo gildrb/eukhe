@@ -38,6 +38,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde_json::{json, Value};
 
+mod budget;
 mod report_delivery;
 mod silent;
 mod watch;
@@ -54,6 +55,7 @@ use super::{
     RlmSpawnCapacity, RlmSubagentHost, RunPause,
 };
 use crate::child_workspace::Handback;
+use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{
     HarnessCell, HostCall, HostRequestRegistry, SessionClosing, SessionShape,
 };
@@ -479,6 +481,8 @@ struct Setup {
     now: Option<Clock>,
     /// The session settings (every default unless a test sets them).
     settings: Arc<EukheSettings>,
+    /// The session's budget gate (no budget unless a test sets one).
+    budget: Arc<BudgetGate>,
 }
 
 fn setup() -> Setup {
@@ -491,6 +495,13 @@ fn setup() -> Setup {
         reports: Arc::new(Mutex::new(Vec::new())),
         now: None,
         settings: default_settings(),
+        // An agent directory that does not exist: no ledger, no budget.
+        budget: BudgetGate::open(
+            std::path::Path::new("/nonexistent/eukhe-children-tests"),
+            PARENT_SESSION_ID,
+            None,
+            default_settings(),
+        ),
     }
 }
 
@@ -608,6 +619,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         closing: closing.clone(),
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(cell.clone())),
+        budget: Arc::clone(&setup.budget),
     });
     let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
     let held = Arc::new(HeldSpawn::default());
@@ -1322,6 +1334,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         closing: SessionClosing::default(),
         shape: SessionShape::Single,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
+        budget: Arc::clone(&setup.budget),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1366,6 +1379,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         closing: SessionClosing::default(),
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
+        budget: Arc::clone(&setup.budget),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();

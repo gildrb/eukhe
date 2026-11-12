@@ -1099,6 +1099,10 @@ impl SessionUi {
             TurnUpdate::LoopUpdate(status) => {
                 self.apply_loop_update(status, view);
             }
+            TurnUpdate::BudgetUpdate(budget) => {
+                self.budget = budget.map(|report| *report);
+                view.chrome.budget.clone_from(&self.budget);
+            }
             TurnUpdate::PromptProgress(progress) => {
                 self.speed_clock.prompt_progress(progress);
             }

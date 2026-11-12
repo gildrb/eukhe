@@ -113,6 +113,7 @@ pub struct DaemonEventMeta {
 }
 
 pub mod agent_roster;
+mod budget;
 mod chat_view;
 mod command;
 mod cvar;
@@ -127,6 +128,7 @@ mod state_tree;
 pub mod timing;
 mod worker;
 
+pub use budget::{BudgetAudit, BudgetAuditReply, BudgetReply};
 pub use chat_view::{ChatViewReply, ChatViewSnapshot, CHAT_VIEW_CAPABILITY};
 pub use command::{
     AdmissionPriority, AgentPeerScope, CycleDirection, DaemonClientKind, DaemonCommand,

@@ -373,6 +373,10 @@ pub struct AgentConnectionState {
     /// The session's `/loop` (off without one).
     #[serde(default)]
     pub r#loop: crate::loop_mode::LoopStatus,
+    /// The session's budget (the `budget_update` payload); `null` for a
+    /// session without one.
+    #[serde(default)]
+    pub budget: Option<crate::budget::BudgetReport>,
     #[serde(default)]
     pub scoped_models: Vec<Value>,
     #[serde(default)]

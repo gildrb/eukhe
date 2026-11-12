@@ -132,6 +132,34 @@ class RlmSubagentRegistryTest(unittest.TestCase):
         self.assertEqual(result.name, "api-reviewer")
         self.assertEqual(result.model, "deepseek/deepseek-v4-flash")
 
+    def test_forwards_the_childs_budget_to_host(self) -> None:
+        host_request = AsyncMock(
+            side_effect=[
+                {"rlm_child_id": "sub-1", "name": "reader", "session_dir": "/tmp/parent/sub-1", "model": "m/a"},
+                {"handles": [{"rlm_child_id": "sub-2", "name": "writer", "session_dir": "/tmp/parent/sub-2", "model": "m/a"}]},
+            ]
+        )
+        budget = {"cost_usd": 0.5, "tool_calls": 20, "requests": 30}
+
+        with patch.object(rlm_module, "host_request", host_request):
+            asyncio.run(rlm_module.rlm.spawn("read the spec", name="reader", why="parallel", budget=budget))
+            asyncio.run(
+                rlm_module.rlm.spawn_batch(
+                    [{"prompt": "write the patch", "name": "writer", "why": "parallel", "budget": budget}]
+                )
+            )
+
+        self.assertEqual(
+            [call.args for call in host_request.await_args_list],
+            [
+                ("rlm.run", {"prompt": "read the spec", "kwargs": {"name": "reader", "why": "parallel", "budget": budget}}),
+                (
+                    "rlm.run_batch",
+                    {"tasks": [{"prompt": "write the patch", "kwargs": {"name": "writer", "why": "parallel", "budget": budget}}]},
+                ),
+            ],
+        )
+
     def test_requires_an_explicit_child_name(self) -> None:
         host_request = AsyncMock()
         with patch.object(rlm_module, "host_request", host_request):

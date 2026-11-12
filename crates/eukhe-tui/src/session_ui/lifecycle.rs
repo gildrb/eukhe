@@ -77,6 +77,7 @@ impl SessionUi {
             script_path: options.script_path.clone(),
             model_selection: options.model_selection.clone(),
             models: options.models.clone(),
+            launch_budget: options.budget,
             model_catalog: options.model_catalog.clone(),
             model_configured_providers: options.model_configured_providers.clone(),
             model_recent_models: options.model_recent_models.clone(),
@@ -110,6 +111,7 @@ impl SessionUi {
             pending_queue: None,
             queue_selection: crate::queued::QueueSelection::default(),
             context: None,
+            budget: None,
             list_rows: Vec::new(),
             turn_active: false,
             turn_ends_seen: 0,
@@ -220,6 +222,26 @@ impl SessionUi {
             .attach_session(&active_session_id, DockFold::FirstFrame)
             .await
             .with_context(|| format!("attaching session {active_session_id}"))?;
+        // `--budget-*` on an attach: no create carries the limits, so a
+        // session without a budget gets them here (its `budget_update`
+        // moves the status line); one that has a budget keeps its own,
+        // as a reopened session does.
+        if let (SessionSelection::Attach(_), Some(limits), None) =
+            (&options.session, options.budget, &session.budget)
+        {
+            session
+                .bounded_request(
+                    Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
+                    DaemonCommand::SetBudget {
+                        id: None,
+                        active_session_id: session.active_session_id.clone(),
+                        limits,
+                        rest: Map::default(),
+                    },
+                )
+                .await
+                .context("setting the session's budget")?;
+        }
         // The scope-back reopen's restore lands AFTER the attach: the
         // attach's rebind reset clears the focus, so the reopen's own
         // restore must survive it.
@@ -615,6 +637,7 @@ impl SessionUi {
         // or compaction settles): the rebuild re-syncs it into the chrome
         // exactly like the other reconstructed session fields.
         self.context = reconstructed.context_usage;
+        self.budget = reconstructed.budget;
         self.last_assistant_text = reconstructed
             .chat
             .iter()
@@ -864,6 +887,7 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
+        view.chrome.budget.clone_from(&self.budget);
         view.chrome.memory = self.memory;
         self.update_subagent_summary(view);
         // The rebuilt transcript invalidates the announcement row tracking;

@@ -138,6 +138,12 @@ pub fn run_provider_command(args: &[String]) -> i32 {
         );
     }
     let models = loaded.models;
+    // No task: any request it sends passes the daemon's budget account.
+    let agent_dir = crate::config::get_agent_dir();
+    eukhe_core::durable::budget::wrap_models_with_budget(
+        &models,
+        &eukhe_core::durable::budget::BudgetGate::daemon(&agent_dir),
+    );
     match command {
         ProviderCommand::Caps { selection, output } => run_caps(&models, &selection, output),
         ProviderCommand::Models { provider, output } => run_models(&models, &provider, output),

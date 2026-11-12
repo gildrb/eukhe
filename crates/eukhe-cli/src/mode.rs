@@ -71,6 +71,7 @@ impl AppMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitialGoal {
     pub objective: String,
+    /// `--goal-token-budget`: a token limit on the session's budget.
     pub token_budget: Option<u32>,
 }
 
@@ -105,6 +106,9 @@ pub struct RuntimeConfig {
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
+    /// The `--budget-*` limits: the budget of the session this run starts
+    /// (`None`: no flag was given, the session gets no budget).
+    pub budget: Option<eukhe_types::budget::BudgetLimits>,
     /// How long print/json mode waits for the session to go quiescent
     /// (background jobs and subagents settled) after a turn ends.
     pub wait_limit: std::time::Duration,
@@ -325,6 +329,7 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
+        budget: (!parsed.budget.is_unlimited()).then_some(parsed.budget),
         wait_limit: std::time::Duration::from_millis(
             parsed.wait_limit_ms.unwrap_or(DEFAULT_WAIT_LIMIT_MS),
         ),
@@ -361,6 +366,39 @@ mod tests {
                 "--system-prompt-file ./missing.md: cannot read {}: {io_error}",
                 path.display()
             )
+        );
+    }
+
+    /// The `--budget-*` flags are the run's budget; without one the run
+    /// sets none.
+    #[test]
+    fn budget_flags_become_the_budget_of_the_run() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let budget = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+            runtime_config_from_args(
+                &crate::args::parse_args(&args),
+                cwd.path().to_path_buf(),
+                cwd.path().join("agent"),
+                None,
+                AppMode::Print,
+            )
+            .expect("runtime config")
+            .budget
+        };
+        assert_eq!(
+            [
+                budget(&["--budget-tokens", "200k", "--budget-time", "10m"]),
+                budget(&["-p", "hello"]),
+            ],
+            [
+                Some(eukhe_types::budget::BudgetLimits {
+                    tokens: Some(200_000),
+                    time_ms: Some(600_000),
+                    ..Default::default()
+                }),
+                None,
+            ]
         );
     }
 }

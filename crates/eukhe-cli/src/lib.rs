@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 // Internal ported modules are crate-private: the only public API is the
 // runtime boundary below.
 pub(crate) mod args;
+pub(crate) mod budget_command;
 pub(crate) mod chat_command;
 pub(crate) mod client_settings;
 pub(crate) mod command_registry;

@@ -54,6 +54,10 @@ pub struct ChromeState {
     /// whole-file spend plus every subagent descendant's -- the same
     /// number the agents view bills the row).
     pub cost_usd: Option<f64>,
+    /// The session's budget, when it has one (the attach snapshot's
+    /// `state.budget`, then every `budget_update`): the status line's
+    /// `budget:` segment beside the spend.
+    pub budget: Option<eukhe_types::budget::BudgetReport>,
     /// Context usage: tokens and window (the status line's right side).
     pub context: Option<ContextUsage>,
     /// Where the cwd sits in git, from the background probe; `None`

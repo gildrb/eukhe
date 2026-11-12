@@ -1,14 +1,15 @@
 //! The goal's run-end failure: an active goal whose conversation's run ends
 //! on a terminal provider failure finishes as `error` right away (the old
 //! engine's `finish_for_terminal_message` on the errored turn; TS fails the
-//! goal on it too), so the goal watch announces the terminal state at once
-//! instead of at the next generation's `before_request` settle.
+//! goal on it too), or as `budget_limited` when the session's budget
+//! refused the request, so the goal watch announces the terminal state at
+//! once instead of at the next generation's `before_request` settle.
 //!
 //! A post-commit observer watches for the commit that ends a run on a
 //! failed model call: it appends the failed assistant entry and settles the
 //! run's inputs `unanswered` with `model_error` (a retried attempt keeps the
 //! run, an abort settles otherwise). The goal write is one commit through
-//! [`failed`]/[`stamp`], a no-op unless the goal is still active — so a
+//! [`ended`]/[`stamp`], a no-op unless the goal is still active — so a
 //! replay, or the hooks' own lazy settle, never writes twice.
 
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use eukhe_types::pi_ai::Message;
 use futures::FutureExt;
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
-use super::state::{failed, stamp, terminal_provider_failure};
+use super::state::{ended, run_end, stamp, RunEnd};
 use crate::autonomous::now_millis;
 use crate::durable::{HostDeps, OpenedSession, ServiceStop};
 use crate::goals::GoalStatus;
@@ -33,7 +34,7 @@ const MODEL_ERROR: &str = "model_error";
 /// One run that ended on a terminal provider failure.
 struct FailedRun {
     conversation_id: ConversationId,
-    error: String,
+    end: RunEnd,
 }
 
 /// Start the observer when the session opens.
@@ -110,9 +111,9 @@ fn failed_run(publication: &CommitPublication) -> Option<FailedRun> {
         let Some(Message::Assistant(message)) = entry.model.as_deref()?.first() else {
             return None;
         };
-        terminal_provider_failure(message).map(|error| FailedRun {
+        run_end(message).map(|end| FailedRun {
             conversation_id: entry.conversation_id,
-            error,
+            end,
         })
     })
 }
@@ -124,7 +125,7 @@ async fn fail_goal(harness: &Harness, run: FailedRun) {
     let handled = async {
         let FailedRun {
             conversation_id,
-            error,
+            end,
         } = run;
         let active = read_doc(harness, &GOAL_DOC, conversation_id, &cx)
             .await?
@@ -139,7 +140,7 @@ async fn fail_goal(harness: &Harness, run: FailedRun) {
             .commit(
                 move |tx| async move {
                     let (draft, goal) = open_doc(&tx, &GOAL_DOC, conversation_id).await?;
-                    if let Some(next) = failed(&goal, Some(&error)) {
+                    if let Some(next) = ended(&goal, &end) {
                         write_doc(&draft, &stamp(next, now_millis()))?;
                     }
                     Ok(())

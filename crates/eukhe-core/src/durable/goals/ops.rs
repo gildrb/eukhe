@@ -6,6 +6,11 @@
 //! a request id (a rerun never queues it twice), and its `goal_context` row
 //! is a display/audit [`CUSTOM_ENTRY`] without model (the user entry the
 //! submission or the `on_yield` continuation appends carries the text).
+//!
+//! A goal's token budget is a limit on the session's budget
+//! ([`BudgetGate::limit`]); the tokens a context shows are that budget's.
+
+use std::sync::Arc;
 
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::{ASSISTANT_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
@@ -15,16 +20,19 @@ use eukhe_durable::harness::{
 };
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, DocumentReader, EntryDraft, TypedEntryDraft};
+use eukhe_types::budget::{BudgetLimits, BudgetReport};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 
 use super::docs::{open_doc, read_doc, write_doc, GOAL_DOC};
 use super::state::{completed, mint, new_goal, paused, resumed, served, stamp};
-use crate::autonomous::now_millis;
+use crate::autonomous::{now_millis, SessionBudget};
+use crate::durable::budget::BudgetGate;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::goals::{
     create_goal_context_message, is_persisted_goal_state, normalize_goal_state,
-    stale_active_goal_failure, GoalContextKind, GoalState, GoalStatus, GOAL_STATE_CUSTOM_TYPE,
+    stale_active_goal_failure, validate_goal_budget, validate_goal_objective, GoalContextKind,
+    GoalState, GoalStatus, GoalTokens, GOAL_STATE_CUSTOM_TYPE,
 };
 
 /// The served goal of `conversation_id` (the empty state when none): its
@@ -44,16 +52,61 @@ pub async fn goal_state(
     Ok(served(&stored, now_millis()))
 }
 
-/// The text of a goal context of `kind` and its display/audit row.
+/// The session budget's report (`None`: no budget), read on a blocking
+/// thread.
+///
+/// # Errors
+///
+/// The read did not finish (the runtime is shutting down).
+pub async fn budget_report(budget: &Arc<BudgetGate>) -> SessionResult<Option<BudgetReport>> {
+    let gate = Arc::clone(budget);
+    tokio::task::spawn_blocking(move || gate.report())
+        .await
+        .map_err(SessionError::other)
+}
+
+/// Put a goal's token budget `tokens` on the session's budget
+/// ([`BudgetGate::limit`]): a budget without a token limit gets this one (a
+/// session without a budget gets a budget of it); one that limits tokens
+/// keeps its limit (`/budget add` raises it). Returns the limit the budget
+/// kept when it is not `tokens`.
+///
+/// # Errors
+///
+/// The ledger's failures.
+pub(crate) async fn limit_goal_tokens(
+    budget: &Arc<BudgetGate>,
+    tokens: u64,
+) -> SessionResult<Option<u64>> {
+    let gate = Arc::clone(budget);
+    let report = tokio::task::spawn_blocking(move || {
+        gate.limit(BudgetLimits {
+            tokens: Some(tokens),
+            ..BudgetLimits::default()
+        })
+    })
+    .await
+    .map_err(SessionError::other)?
+    .map_err(|error| {
+        SessionError::error(format!(
+            "The goal's token budget was not put on the session's budget: {error}"
+        ))
+    })?;
+    Ok(report.limits.tokens.filter(|limit| *limit != tokens))
+}
+
+/// The text of a goal context of `kind` with the session budget's `tokens`
+/// and its display/audit row.
 ///
 /// # Errors
 ///
 /// The goal has no objective, or the details do not encode.
 pub(crate) fn goal_context(
     state: &GoalState,
+    tokens: GoalTokens,
     kind: GoalContextKind,
 ) -> SessionResult<(String, EntryDraft)> {
-    let message = create_goal_context_message(state, kind)
+    let message = create_goal_context_message(state, tokens, kind)
         .map_err(|error| SessionError::error(format!("{error:#}")))?;
     let text = message.content.text();
     let draft = CUSTOM_ENTRY.draft(&TypedEntryDraft {
@@ -90,10 +143,14 @@ pub(crate) async fn conversation_of(
         })
 }
 
+/// A goal context a change appends: its kind, and the session budget's
+/// tokens its text shows.
+pub(crate) type ContextOf = (GoalContextKind, GoalTokens);
+
 /// Apply `change` to the goal in one commit: `change` maps the current goal
-/// to the next one (`None` writes nothing) and an optional context kind
-/// whose row is appended. Returns the written (or unchanged) goal and the
-/// context text.
+/// to the next one (`None` writes nothing) and an optional context whose
+/// row is appended. Returns the written (or unchanged) goal and the context
+/// text.
 ///
 /// # Errors
 ///
@@ -104,7 +161,7 @@ pub(crate) async fn update_goal<F>(
     cx: &Context,
 ) -> SessionResult<(GoalState, Option<String>)>
 where
-    F: FnOnce(&GoalState, u64) -> SessionResult<Option<(GoalState, Option<GoalContextKind>)>>
+    F: FnOnce(&GoalState, u64) -> SessionResult<Option<(GoalState, Option<ContextOf>)>>
         + Send
         + 'static,
 {
@@ -120,8 +177,8 @@ where
                 let written = stamp(next, now);
                 write_doc(&draft, &written)?;
                 let mut text = None;
-                if let Some(kind) = context {
-                    let (context_text, row) = goal_context(&written, kind)?;
+                if let Some((kind, tokens)) = context {
+                    let (context_text, row) = goal_context(&written, tokens, kind)?;
                     tx.append_entry(conversation_id, row).await?;
                     text = Some(context_text);
                 }
@@ -211,28 +268,49 @@ pub async fn withdraw_queued_goal_contexts(
     Ok(())
 }
 
-/// `/goal <objective>`: start a goal (replacing any previous one) and submit
-/// its first continuation context as a follow-up.
+/// A goal `/goal` started.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartedGoal {
+    pub goal: GoalState,
+    /// The token limit the session's budget kept: it limited tokens before
+    /// the goal named another budget (`/budget add` raises it).
+    pub kept_tokens: Option<u64>,
+}
+
+/// `/goal [--budget <tokens>] <objective>`: start a goal (replacing any
+/// previous one) and submit its first continuation context as a
+/// follow-up. A token budget goes on the session's `budget`
+/// ([`limit_goal_tokens`]).
 ///
 /// # Errors
 ///
-/// The objective or budget fails validation, or read/commit failures.
+/// The objective or budget fails validation, the budget is not limited, or
+/// read/commit failures.
 pub async fn start_goal(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     objective: &str,
     token_budget: Option<u64>,
     cx: &Context,
-) -> SessionResult<GoalState> {
+) -> SessionResult<StartedGoal> {
+    let invalid = |error: anyhow::Error| SessionError::error(format!("{error:#}"));
+    validate_goal_objective(objective).map_err(invalid)?;
+    let token_budget = validate_goal_budget(token_budget).map_err(invalid)?;
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
+    let kept_tokens = match token_budget {
+        Some(tokens) => limit_goal_tokens(budget, tokens).await?,
+        None => None,
+    };
+    let tokens = GoalTokens::of(budget_report(budget).await?.as_ref());
     let objective = objective.to_owned();
     let (goal, text) = update_goal(
         &conversation,
         move |_, now| {
-            let goal = new_goal(&objective, token_budget, now)
+            let goal = new_goal(&objective, now)
                 .map_err(|error| SessionError::error(format!("{error:#}")))?;
-            Ok(Some((goal, Some(GoalContextKind::Continuation))))
+            Ok(Some((goal, Some((GoalContextKind::Continuation, tokens)))))
         },
         cx,
     )
@@ -248,7 +326,7 @@ pub async fn start_goal(
         )
         .await?;
     }
-    Ok(goal)
+    Ok(StartedGoal { goal, kept_tokens })
 }
 
 /// `/goal pause`: pause an active goal (no-op otherwise).
@@ -273,23 +351,28 @@ pub async fn pause_goal(
 }
 
 /// `/goal resume`: resume a paused or budget-limited goal; an active result
-/// submits its continuation context as a follow-up.
+/// submits its continuation context as a follow-up. A goal stays budget
+/// limited while the session's `budget` admits no work.
 ///
 /// # Errors
 ///
 /// Read, commit, or submission failures.
 pub async fn resume_goal(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     cx: &Context,
 ) -> SessionResult<GoalState> {
     let conversation = conversation_of(harness, conversation_id, cx).await?;
+    let report = budget_report(budget).await?;
+    let standing = SessionBudget::of(report.as_ref());
+    let tokens = GoalTokens::of(report.as_ref());
     let (goal, text) = update_goal(
         &conversation,
-        |current, _| {
-            Ok(resumed(current).map(|goal| {
-                let context =
-                    (goal.status == GoalStatus::Active).then_some(GoalContextKind::Continuation);
+        move |current, _| {
+            Ok(resumed(current, standing).map(|goal| {
+                let context = (goal.status == GoalStatus::Active)
+                    .then_some((GoalContextKind::Continuation, tokens));
                 (goal, context)
             }))
         },
@@ -325,6 +408,7 @@ pub async fn resume_goal(
 /// Read, commit, or submission failures.
 pub async fn continue_goal_after_compaction(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     cx: &Context,
 ) -> SessionResult<Option<GoalState>> {
@@ -333,9 +417,12 @@ pub async fn continue_goal_after_compaction(
     }
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     withdraw_queued_goal_contexts(harness, conversation_id, cx).await?;
+    let tokens = GoalTokens::of(budget_report(budget).await?.as_ref());
     let (goal, text) = update_goal(
         &conversation,
-        |current, _| Ok(mint(current).map(|next| (next, Some(GoalContextKind::Continuation)))),
+        move |current, _| {
+            Ok(mint(current).map(|next| (next, Some((GoalContextKind::Continuation, tokens)))))
+        },
         cx,
     )
     .await?;
@@ -405,14 +492,15 @@ pub async fn complete_goal(
 }
 
 /// The CLI `--goal` seed: start the goal only on a conversation that has no
-/// transcript yet and no goal (old `seed_initial_goal`). Returns whether the
-/// seed landed.
+/// transcript yet and no goal (old `seed_initial_goal`); its token budget
+/// goes on the session's `budget`. Returns whether the seed landed.
 ///
 /// # Errors
 ///
 /// The objective or budget fails validation, or read/commit failures.
 pub async fn seed_initial_goal(
     harness: &Harness,
+    budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     objective: &str,
     token_budget: Option<u64>,
@@ -444,7 +532,15 @@ pub async fn seed_initial_goal(
             None => break,
         }
     }
-    start_goal(harness, conversation_id, objective, token_budget, cx).await?;
+    start_goal(
+        harness,
+        budget,
+        conversation_id,
+        objective,
+        token_budget,
+        cx,
+    )
+    .await?;
     Ok(true)
 }
 

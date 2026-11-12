@@ -7,6 +7,7 @@ mod agents;
 mod apply;
 mod auth;
 mod bash;
+mod budget;
 mod chat_view;
 mod commands;
 mod copy_export;
@@ -175,6 +176,9 @@ pub(crate) struct SessionUi {
     /// create into the session's scoped list, so a `/new` session keeps
     /// the scope.
     models: Option<Vec<String>>,
+    /// The `--budget-*` limits carried into every fresh root session's
+    /// `create` config: a `/new` session starts under the same budget.
+    launch_budget: Option<eukhe_types::budget::BudgetLimits>,
     /// The model catalog for the `/model` picker: a startup snapshot from
     /// the composition root (the bundled fallback), replaced by the
     /// daemon's `get_model_catalog` response once it lands.
@@ -285,6 +289,9 @@ pub(crate) struct SessionUi {
     queue_selection: crate::queued::QueueSelection,
     /// Context usage refreshed from `get_session_stats`.
     context: Option<crate::chrome::ContextUsage>,
+    /// The session's budget: the attach snapshot's `state.budget`, then
+    /// every `budget_update` and `/budget` reply; `None` without one.
+    budget: Option<eukhe_types::budget::BudgetReport>,
     /// Rows of the most recent `/list` (for `/switch <n>`).
     list_rows: Vec<Value>,
     pub(crate) turn_active: bool,

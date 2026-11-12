@@ -12,6 +12,7 @@ import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_aws_text.bend as ffi_aws_text
 import ./ffi_bound.bend as ffi_bound
+import ./ffi_budget.bend as ffi_budget
 import ./ffi_cache_marks.bend as ffi_cache_marks
 import ./ffi_call_lift.bend as ffi_call_lift
 import ./ffi_catalog_union.bend as ffi_catalog_union
@@ -363,6 +364,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_once.ffi(input)
     case 456:
       ffi_loop.ffi(input)
+    case 457:
+      ffi_budget.ffi(input)
     case _:
       W.err("unknown entry")
 

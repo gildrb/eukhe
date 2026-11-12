@@ -16,6 +16,7 @@ use eukhe_core::durable::EukheSession;
 use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::session::SessionResult;
+use eukhe_types::budget::BudgetReport;
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::loop_mode::LoopStatus;
 use serde_json::Value;
@@ -181,6 +182,9 @@ pub struct RpcSession {
     /// The last published `loop_update` status (change-gated like the
     /// goal).
     last_loop: Arc<Mutex<LoopStatus>>,
+    /// The last published `budget_update` budget (change-gated emits
+    /// across pumps and replacements; `None` until the session has one).
+    last_budget: Arc<Mutex<Option<BudgetReport>>>,
     /// One replacement at a time (TS `acquireReplacementLease`): a fork
     /// racing a `switch_session` must not interleave.
     replacement: tokio::sync::Mutex<()>,
@@ -209,8 +213,16 @@ impl RpcSession {
         let initial_loop =
             loop_status(handle.session.harness(), handle.session.main().id(), &cx).await?;
         let last_loop = Arc::new(Mutex::new(initial_loop));
-        let pump =
-            EventPump::attach(&handle.session, &outputs, &last_goal, &last_loop, &cx).await?;
+        let last_budget = Arc::new(Mutex::new(None));
+        let pump = EventPump::attach(
+            &handle.session,
+            &outputs,
+            &last_goal,
+            &last_loop,
+            &last_budget,
+            &cx,
+        )
+        .await?;
         Ok(Self {
             handle: tokio::sync::RwLock::new(handle),
             outputs,
@@ -218,6 +230,7 @@ impl RpcSession {
             pump: tokio::sync::Mutex::new(Some(pump)),
             last_goal,
             last_loop,
+            last_budget,
             replacement: tokio::sync::Mutex::new(()),
             signal_shutdown: CancellationToken::new(),
         })
@@ -252,6 +265,7 @@ impl RpcSession {
             &self.outputs,
             &self.last_goal,
             &self.last_loop,
+            &self.last_budget,
             &rpc_context(),
         )
         .await?;
@@ -356,6 +370,7 @@ impl RpcSession {
             &self.outputs,
             &self.last_goal,
             &self.last_loop,
+            &self.last_budget,
             &cx,
         )
         .await
