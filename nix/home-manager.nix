@@ -1,6 +1,6 @@
 # Home Manager module: `programs.eukhe`.
 self:
-{
+args@{
   config,
   lib,
   pkgs,
@@ -19,6 +19,20 @@ let
     ];
     text = builtins.readFile ./merge-settings.sh;
   };
+  # The always-on daemon's PATH: the agent's tools run with it (a session
+  # does not get the terminal's PATH).
+  daemonPath = lib.concatStringsSep ":" [
+    "${config.home.profileDirectory}/bin"
+    "/run/wrappers/bin"
+    "/etc/profiles/per-user/${config.home.username}/bin"
+    "/nix/var/nix/profiles/default/bin"
+    "/run/current-system/sw/bin"
+    "/usr/local/bin"
+    "/usr/bin"
+    "/bin"
+    "/usr/sbin"
+    "/sbin"
+  ];
 in
 {
   options.programs.eukhe = {
@@ -64,9 +78,10 @@ in
     };
 
     daemon.enable = lib.mkEnableOption ''
-      an always-on eukhe daemon (a systemd user service): sessions survive
-      closed terminals, and the chat memory's compactor keeps working while
-      no session is open
+      an always-on eukhe daemon (a systemd user service on Linux, a launchd
+      agent on macOS): sessions survive closed terminals, and the chat
+      memory's compactor keeps working while no session is open. Its
+      sessions run their tools with the profile's PATH, not a terminal's
     '';
 
     gateway = {
@@ -145,10 +160,30 @@ in
           Unit.Description = "eukhe daemon: sessions and the chat memory";
           Service = {
             ExecStart = "${lib.getExe cfg.package} --mode daemon";
+            Environment = [ "PATH=${daemonPath}" ];
             Restart = "on-failure";
           };
           Install.WantedBy = [ "default.target" ];
         };
+
+    # The daemon's socket lives under TMPDIR, which launchd does not promise
+    # an agent: the agent takes the per-user directory a terminal's TMPDIR
+    # names, so `eukhe` in a terminal finds it.
+    launchd.agents.eukhe-daemon = lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "/bin/sh"
+          "-c"
+          ''TMPDIR="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)" exec "$0" --mode daemon''
+          (lib.getExe cfg.package)
+        ];
+        EnvironmentVariables.PATH = daemonPath;
+        KeepAlive.SuccessfulExit = false;
+        RunAtLoad = true;
+        ProcessType = "Background";
+      };
+    };
 
     # The service waits for the link: `eukhe gateway` in a terminal links the
     # phone and restarts it. KillMode=process keeps a daemon that the gateway
