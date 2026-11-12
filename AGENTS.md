@@ -36,6 +36,16 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - No single-use helper methods.
 - Instrument async work at the definition (`#[tracing::instrument(...)]`), not `.instrument(...)` at call sites.
 
+## Writing
+
+Dense, telegraphic; only what the reader needs to act on. Cut flattery, history, restated rules. One fact once; lists over prose; example over explanation. README: every line answers "does the reader need this?"; order tagline, Install (one command first), Use (first commands, then --help), one section per differentiator (≤3 bullets), Components (one line each), Limitations, Credits, License; cut settings, flags, internals, paths users never touch, what --help shows; dev setup in AGENTS.md; tables only to compare. No · separators.
+
+- Say what Eukhe does for the reader; never explain a dependency's concepts (Eukhe doesn't explain what Bend laws or theorems are).
+- No negatives: never tell the reader what they don't need to do; list only steps that exist.
+- No comparisons to other products outside Credits.
+- None of the patterns in https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing.
+- Show user-facing text (README, eukhe.com) to the user before pushing.
+
 ## Change hygiene
 
 - One logical change per commit or PR.
