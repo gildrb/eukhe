@@ -34,8 +34,8 @@
 //! unknown `help <path>` is a usage error; `shutdown` confirmation refusals
 //! exit `2` (JSON: one error document on stderr) and a declined
 //! confirmation exits `130`; the connect-failure error carries a recovery
-//! command; `--help` opens with eukhe's tagline (the harness for the AGI
-//! era) and one sentence on what eukhe does. The corpus below predates the
+//! command; `--help` opens with eukhe's tagline (an agent harness) and one
+//! sentence on what eukhe does. The corpus below predates the
 //! change, so a differential run against a TS binary that still follows the
 //! old contract fails on those families by design; the new contract is
 //! pinned by the Rust-side tests in `cli_contract_e2e.rs` and the unit

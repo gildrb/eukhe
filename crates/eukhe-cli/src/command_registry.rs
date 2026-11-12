@@ -857,9 +857,9 @@ pub fn format_top_level_help() -> String {
         })
         .collect();
     format!(
-        "{APP_NAME} - the harness for the AGI era\n\
+        "{APP_NAME} - an agent harness\n\
          \n\
-         You say how the agent should do the work (AGENTS.md, --goal, --autonomous-gate), and {APP_NAME} gets it done that way.\n\
+         It runs a model toward a goal, within limits, until checks pass.\n\
          \n\
          Usage:\n\
          \x20 {APP_NAME} [options] [@files...] [message...]\n\

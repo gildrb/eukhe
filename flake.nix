@@ -1,5 +1,5 @@
 {
-  description = "The harness for the AGI era: an agent core proven with Bend, plugged into any product through its SDK";
+  description = "An agent harness. Runs a model toward a goal, within limits, until checks pass";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

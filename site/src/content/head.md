@@ -1,5 +1,5 @@
 EUKHE
-THE HARNESS FOR THE AGI ERA
+AN AGENT HARNESS
 2026 (ΧΧΔΔΠΙ)
 
 ~*~ εὐχή: a wish, a prayer ~*~

@@ -1,8 +1,13 @@
 # Eukhe
 
-The harness for the AGI era.
+Eukhe (εὐχή, Greek for wish) is an agent harness: it runs a model toward a goal, within limits, until checks pass.
 
-Eukhe (εὐχή, Greek for wish): you give it the goal and the limits (money, time, tokens). It reaches the goal within them and reports truthfully what it did. [Why](PHILOSOPHY.md).
+- Goal: the work to be done.
+- Limits: money, time, tokens. Never exceeded.
+- Checks: commands that decide when the work is done, such as `cargo test` or `bend PROOF.bend --verdict`.
+- Report: what was done, and which checks passed.
+
+[Why](PHILOSOPHY.md).
 
 ## Install
 
