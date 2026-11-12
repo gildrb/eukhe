@@ -12,16 +12,19 @@
 #     lent to children given their own budget (`net`). Only funding
 #     changes it; a spend past the funding is the overrun, counted apart.
 # S3: an ask fits when, in every spent dimension, its amount, the
-#     reserves of the agents above (`base`) and, for work, the asking
-#     agent's own final-answer reserve (`keep`) are within what is free,
-#     and when, started now, its duration and those reserves' durations
-#     end by the deadline.
+#     reserves of the agents above (`base`) and, for work and a side
+#     request, the asking agent's own final-answer reserve (`keep`) are
+#     within what is free, and when, started now, its duration and those
+#     reserves' durations end by the deadline.
 # S4: of the offers, in order, the first that fits is taken; none taken
 #     means none fits.
-# S5: a Working agent is admitted work and a final answer; a WrapUp agent
-#     only a final answer; an Exhausted agent nothing. Work that finds no
-#     offer fitting moves the agent to WrapUp; a final answer that finds
-#     none moves it to Exhausted.
+# S5: a Working agent is admitted work, side requests and a final
+#     answer; a WrapUp agent a final answer and side requests; an
+#     Exhausted agent nothing. Work that finds no offer fitting moves the
+#     agent to WrapUp; a final answer that finds none moves it to
+#     Exhausted; a side request (a request of the agent that is not its
+#     own turn: a title, a classifier, a compaction, a memory or side
+#     question) that finds none leaves its phase as it was.
 # S6: a child is idle when it has no open reservation and has lent
 #     nothing: only then can it be closed. `lent` counts amounts, so a
 #     child whose only live child was carved with nothing has lent
@@ -149,14 +152,16 @@ def net(+d: B.Dim, a: B.Acct) -> Nat:
 def nothing() -> B.Ask:
   B.Ask{B.Amt{0n, 0n, 0n, 0n}, 0n}
 
-# what an ask leaves for the asking agent's own final answer: work its
-# reserve, a final answer nothing (S3)
+# what an ask leaves for the asking agent's own final answer: work and a
+# side request its reserve, a final answer nothing (S3)
 def keep_of(u: B.Use, keep: B.Ask) -> B.Ask:
   match u:
     case B.Work{}:
       keep
     case B.Final{}:
       nothing()
+    case B.Side{}:
+      keep
 
 # the ask c fits what is free in spent dimension d, with the reserves
 # (S3)
@@ -243,30 +248,39 @@ def plus(+a: B.Ask, +b: B.Ask) -> B.Ask:
 # Phases
 # ------
 
-# what a phase admits (S5): Working work and a final answer, WrapUp a
-# final answer only, Exhausted nothing
+# what a phase admits (S5): Working work, a final answer and side
+# requests, WrapUp a final answer and side requests, Exhausted nothing
 def allows(p: B.Phase, u: B.Use) -> Bool:
   match p u:
     case B.Working{} B.Work{}:
       True{}
     case B.Working{} B.Final{}:
       True{}
+    case B.Working{} B.Side{}:
+      True{}
     case B.WrapUp{} B.Work{}:
       False{}
     case B.WrapUp{} B.Final{}:
+      True{}
+    case B.WrapUp{} B.Side{}:
       True{}
     case B.Exhausted{} B.Work{}:
       False{}
     case B.Exhausted{} B.Final{}:
       False{}
+    case B.Exhausted{} B.Side{}:
+      False{}
 
-# the phase after no offer fit (S5)
-def after(u: B.Use) -> B.Phase:
+# the phase after no offer fit, of an agent in phase p (S5): work WrapUp,
+# a final answer Exhausted, a side request p
+def after(u: B.Use, p: B.Phase) -> B.Phase:
   match u:
     case B.Work{}:
       B.WrapUp{}
     case B.Final{}:
       B.Exhausted{}
+    case B.Side{}:
+      p
 
 def working(p: B.Phase) -> Bool:
   match p:

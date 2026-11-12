@@ -207,6 +207,8 @@ def be.use_nat(u: B.Use, rest: String) -> {Wr.Got{Budget.sp_use_tag(u), rest} ==
       {==}
     case B.Final{}:
       {==}
+    case B.Side{}:
+      {==}
 
 # the tag of a use is read as that use
 def be.use_of(u: B.Use, rest: String) -> {FBg.get_reserve.phase(u, FBg.get_phase(rest)) == FBg.get_reserve.use(Budget.sp_use_tag(u), rest) : Wr.Dec<FBg.Req>}:
@@ -214,6 +216,8 @@ def be.use_of(u: B.Use, rest: String) -> {FBg.get_reserve.phase(u, FBg.get_phase
     case B.Work{}:
       {==}
     case B.Final{}:
+      {==}
+    case B.Side{}:
       {==}
 
 # a spelled request that fits reads back, the rest untouched

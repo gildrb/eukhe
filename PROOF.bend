@@ -3813,8 +3813,10 @@ import ./proof/budget/budget_refuse_stopped.bend as PBudgetRefuseStopped
 import ./proof/budget/budget_refuse_held.bend as PBudgetRefuseHeld
 import ./proof/budget/budget_tight_exact.bend as PBudgetTightExact
 import ./proof/budget/budget_final_reserve_kept.bend as PBudgetFinalReserveKept
+import ./proof/budget/budget_side_final_reserve_kept.bend as PBudgetSideFinalReserveKept
 import ./proof/budget/budget_base_kept.bend as PBudgetBaseKept
 import ./proof/budget/budget_refuse_when_none_fits.bend as PBudgetRefuseWhenNoneFits
+import ./proof/budget/budget_side_refused_keeps_phase.bend as PBudgetSideRefusedKeepsPhase
 import ./proof/budget/budget_settle_unknown_inert.bend as PBudgetSettleUnknownInert
 import ./proof/budget/budget_settle_once.bend as PBudgetSettleOnce
 import ./proof/budget/budget_settle_conserves.bend as PBudgetSettleConserves
@@ -3839,6 +3841,7 @@ import ./proof/budget/budget_fund_resumes.bend as PBudgetFundResumes
 import ./proof/budget/budget_entry_answers.bend as PBudgetEntryAnswers
 import ./proof/budget/budget_entry_left_over.bend as PBudgetEntryLeftOver
 import ./proof/budget/budget_entry_malformed_exact.bend as PBudgetEntryMalformedExact
+import ./proof/budget/budget_entry_unknown_tag.bend as PBudgetEntryUnknownTag
 import ./proof/budget/budget_entry_example.bend as PBudgetEntryExample
 import ./proof/verify/base/label.bend as LVerifyLabel
 import ./proof/verify/base/act.bend as LVerifyAct

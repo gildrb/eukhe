@@ -51,6 +51,12 @@ pub enum Use {
     /// The final answer: it may use everything past the reserves of the
     /// agents above.
     Final,
+    /// A side request of the agent, not its own turn (a title, a
+    /// classifier, a compaction, a memory or side question): it must leave
+    /// the agent's final-answer reserve free like work, is admitted while
+    /// the agent can still answer (`Working`, `WrapUp`), and a refusal changes
+    /// nothing of the agent: its phase stays.
+    Side,
 }
 
 /// Why nothing was taken.
@@ -371,6 +377,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                     match use_ {
                         UseRecord::Work => core::Use::Work,
                         UseRecord::Final => core::Use::Final,
+                        UseRecord::Side => core::Use::Side,
                     },
                     core_phase(member.phase),
                     *id,
@@ -410,7 +417,12 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                             core::Phase::WrapUp => BudgetPhase::WrapUp,
                             core::Phase::Exhausted => BudgetPhase::Exhausted,
                         };
-                        if let core::Why::Short(dim) = why {
+                        // A side request that does not fit leaves the
+                        // agent as it was: its phase (the core keeps it)
+                        // and what put it there.
+                        if let (core::Why::Short(dim), UseRecord::Work | UseRecord::Final) =
+                            (why, use_)
+                        {
                             after.short = Some(dimension(dim));
                         }
                         Outcome::Refused {
@@ -1074,12 +1086,13 @@ impl Ledger {
 
     /// Reserves for `agent` the first of `offers` (the wanted amount, then
     /// smaller ones) that fits and ends before the deadline, leaving the
-    /// final-answer reserves of the agents above it; work also leaves
-    /// `keep` (the agent's own, recorded as its reserve). With a time
-    /// limit, each offer's `time_ms` is first clipped to what is left for
-    /// the agent, never below `min_ms` (an offer asking less keeps its
-    /// own). The answer is on disk when this returns: spend only after a
-    /// grant.
+    /// final-answer reserves of the agents above it; work and a side
+    /// request also leave `keep` (the agent's own, recorded as its
+    /// reserve). With a time limit, each offer's `time_ms` is first
+    /// clipped to what is left for the agent, never below `min_ms` (an
+    /// offer asking less keeps its own). A side request that does not fit
+    /// changes nothing of the agent. The answer is on disk when this
+    /// returns: spend only after a grant.
     ///
     /// # Errors
     ///
@@ -1103,7 +1116,7 @@ impl Ledger {
         let offers = match state.limits.time_ms {
             Some(_) => {
                 let own = match use_ {
-                    Use::Work => keep.time_ms,
+                    Use::Work | Use::Side => keep.time_ms,
                     Use::Final => 0,
                 };
                 let left = state
@@ -1133,6 +1146,7 @@ impl Ledger {
                 use_: match use_ {
                     Use::Work => UseRecord::Work,
                     Use::Final => UseRecord::Final,
+                    Use::Side => UseRecord::Side,
                 },
                 label: label.to_owned(),
                 now_ms: now,

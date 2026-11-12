@@ -619,6 +619,175 @@ fn each_agent_has_its_own_phase() {
     );
 }
 
+/// A side request of `amount` by `agent` (a title, a classifier, a
+/// compaction): it leaves the agent's final-answer reserve `keep`.
+fn side(ledger: &Ledger, agent: &str, keep: BudgetAmounts, amount: BudgetAmounts) -> Reserved {
+    ledger
+        .reserve(
+            agent,
+            Use::Side,
+            "model:test/title",
+            keep,
+            &[amount],
+            REQUEST_MIN_MS,
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_side_request_that_does_not_fit_changes_nothing_and_the_work_goes_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = at(dir.path(), "root");
+    ledger.open_root(cost_only(300)).unwrap();
+    let keep = cost(200);
+    // 150 and the reserve of 200 are past 300: not sent, and the agent
+    // still works
+    assert_eq!(
+        refused(side(&ledger, "root", keep, cost(150))),
+        (
+            Refusal::Short(BudgetDimension::Cost),
+            fresh("root", "root", cost_only(300), cost(300))
+        )
+    );
+    let id = granted(
+        ledger
+            .reserve(
+                "root",
+                Use::Work,
+                "tool:bash",
+                keep,
+                &[cost(100)],
+                TOOL_MIN_MS,
+            )
+            .unwrap(),
+    )
+    .id;
+    ledger.settle(id, cost(100)).unwrap();
+    assert_eq!(
+        ledger.report("root").unwrap(),
+        Some(BudgetReport {
+            spent: cost(100),
+            ..fresh("root", "root", cost_only(300), cost(200))
+        })
+    );
+    assert_exact(&ledger, 4, cost(100));
+}
+
+#[test]
+fn side_requests_go_on_while_the_agent_wraps_up_leave_its_final_answer_and_stop_when_exhausted() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = at(dir.path(), "root");
+    ledger.open_root(cost_only(300)).unwrap();
+    let keep = cost(200);
+    // work that does not fit wraps the agent up
+    assert_eq!(
+        refused(
+            ledger
+                .reserve(
+                    "root",
+                    Use::Work,
+                    "tool:bash",
+                    keep,
+                    &[cost(150)],
+                    TOOL_MIN_MS
+                )
+                .unwrap()
+        )
+        .0,
+        Refusal::Short(BudgetDimension::Cost)
+    );
+    let wrapping = BudgetReport {
+        phase: BudgetPhase::WrapUp,
+        short: Some(BudgetDimension::Cost),
+        ..fresh("root", "root", cost_only(300), cost(300))
+    };
+    // a side request that fits with the reserve is granted in WrapUp, and
+    // the phase stays
+    let Reserved::Granted {
+        reservation,
+        report,
+    } = side(&ledger, "root", keep, cost(50))
+    else {
+        panic!("a side request that fits was refused in WrapUp");
+    };
+    assert_eq!(
+        report,
+        BudgetReport {
+            free: cost(250),
+            held: cost(50),
+            ..wrapping.clone()
+        }
+    );
+    ledger.settle(reservation.id, cost(50)).unwrap();
+    // one that does not fit is not sent and changes nothing: still WrapUp,
+    // for the work's reason
+    assert_eq!(
+        refused(side(&ledger, "root", keep, cost(100))),
+        (
+            Refusal::Short(BudgetDimension::Cost),
+            BudgetReport {
+                free: cost(250),
+                spent: cost(50),
+                ..wrapping
+            }
+        )
+    );
+    // the side request left the reserve: the final answer is granted
+    let id = granted(final_answer(&ledger, "root", cost(200))).id;
+    ledger.settle(id, cost(200)).unwrap();
+    // a final answer that fits nowhere exhausts the agent, and an
+    // exhausted agent is refused side requests too
+    assert_eq!(
+        refused(final_answer(&ledger, "root", cost(100))).0,
+        Refusal::Short(BudgetDimension::Cost)
+    );
+    assert_eq!(
+        refused(side(&ledger, "root", BudgetAmounts::default(), cost(1))),
+        (
+            Refusal::Stopped,
+            BudgetReport {
+                spent: cost(250),
+                phase: BudgetPhase::Exhausted,
+                short: Some(BudgetDimension::Cost),
+                ..fresh("root", "root", cost_only(300), cost(50))
+            }
+        )
+    );
+    // the file records the side requests and replays exactly
+    assert!(std::fs::read_to_string(ledger.path())
+        .unwrap()
+        .contains("\"use\":\"side\""));
+    assert_exact(&ledger, 9, cost(250));
+}
+
+#[test]
+fn a_side_request_is_clipped_to_leave_the_final_answers_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = at(dir.path(), "root");
+    ledger
+        .open_root(BudgetLimits {
+            cost_micros: Some(1_000),
+            time_ms: Some(100_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    // 100 s left, 20 s of them the final answer's: it may run 80 s
+    assert_eq!(
+        granted(side(
+            &ledger,
+            "root",
+            timed(cost(10), 20_000),
+            timed(cost(100), 600_000)
+        )),
+        Reservation {
+            id: 0,
+            index: 0,
+            amount: timed(cost(100), 80_000),
+            tight: true,
+        }
+    );
+}
+
 static DEADLINE_CLOCK: AtomicU64 = AtomicU64::new(T0);
 
 fn deadline_clock() -> u64 {

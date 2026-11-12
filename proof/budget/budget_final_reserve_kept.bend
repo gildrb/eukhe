@@ -13,4 +13,4 @@ import ../../spec/budget/ledger.bend as S
 import ./base/reserve.bend as BR
 
 def Budget.budget_final_reserve_kept(p, id, now, base, keep, want, less, a, i, c, a2, t, f, p2, id2, now2, k2, g, within, ok, fresh, soon):
-  BR.br.final_kept(id, now, base, keep, want, less, a, i, c, a2, t, f, p2, id2, now2, k2, BR.br.res_is(B.Work{}, p, id, now, base, keep, want, less, a, B.Granted{i, c, a2, t}, g), within, ok, fresh, soon)
+  BR.br.final_kept(B.Work{}, p, id, now, base, keep, want, less, a, i, c, a2, t, f, p2, id2, now2, k2, {==}, BR.br.res_is(B.Work{}, p, id, now, base, keep, want, less, a, B.Granted{i, c, a2, t}, g), within, ok, fresh, soon)

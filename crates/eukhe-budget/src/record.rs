@@ -140,6 +140,8 @@ pub struct ChildCarve {
 pub enum UseRecord {
     Work,
     Final,
+    /// A side request of the agent, not its own turn (`"side"`).
+    Side,
 }
 
 /// Why nothing was taken.

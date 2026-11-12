@@ -31,10 +31,14 @@ import ./base.bend as LawsBase
 # R3: a refusal holds nothing and leaves the account as it was. A phase
 #     that does not admit the request refuses it in that phase; an id
 #     already held is refused; when no offer fits, work moves the agent
-#     to WrapUp and a final answer to Exhausted (B6).
-# R4: after granted work, its agent's final answer within its reserve is
-#     granted (B6); the grant says when another request of its size would
-#     not fit (B7).
+#     to WrapUp, a final answer to Exhausted, and a side request (a
+#     request of the agent that is not its own turn: a title, a
+#     classifier, a compaction, a memory or side question) leaves the
+#     phase as it was; a refused side request never changes the phase
+#     (B6).
+# R4: after granted work or a granted side request, its agent's final
+#     answer within its reserve is granted (B6); the grant says when
+#     another request of its size would not fit (B7).
 # R5: a settlement charges exactly the actual spend, once: the hold is
 #     gone, the other holds stay, what was not spent is free again, the
 #     budget of the account is conserved, and a spend within the hold
@@ -106,13 +110,15 @@ def sp_w_acct(a: B.Acct, rest: String) -> String:
     case B.Acct{f, s, l, o, h, u}:
       sp_w_amt(f, sp_w_amt(s, sp_w_amt(l, sp_w_amt(o, Wr.put_list(~B.Hold, ~sp_w_hold, h, Wr.put_nat(u, rest))))))
 
-# R9: the tag of a use: 0 work, 1 a final answer
+# R9: the tag of a use: 0 work, 1 a final answer, 2 a side request
 def sp_use_tag(u: B.Use) -> Nat:
   match u:
     case B.Work{}:
       0n
     case B.Final{}:
       1n
+    case B.Side{}:
+      2n
 
 # R9: the tag of a dimension: 0 money, 1 tokens, 2 time, 3 tool calls,
 # 4 model requests
@@ -245,12 +251,13 @@ def sp_fit_req(q: FBg.Req) -> Bool:
 
 # LAW budget_grant_within (R1): a grant takes exactly the granted amount
 # out of what was free, in every spent dimension, and that amount, with
-# the reserves above and, for work, the agent's own reserve, was within
-# what was free
+# the reserves above and, for work and a side request, the agent's own
+# reserve, was within what was free
 # EXCLUDES: a request sent that the remainder cannot pay, free not
 #   reduced or reduced by the wanted amount instead of the granted one,
-#   work that eats its final-answer reserve, a request that eats the
-#   reserve of an agent above, a check in one dimension only
+#   work or a side request that eats its agent's final-answer reserve, a
+#   request that eats the reserve of an agent above, a check in one
+#   dimension only
 law budget_grant_within:
   for +use: B.Use
   for +p: B.Phase
@@ -271,11 +278,11 @@ law budget_grant_within:
   {S.fits_in(use, base, keep, c, S.free(a), d) == True{} : Bool}
 
 # LAW budget_grant_on_time (R10): a grant, started now, ends by the
-# deadline with the durations of the reserves above and, for work, of the
-# agent's own reserve; the deadline stays
-# EXCLUDES: a request let run past the deadline, work that leaves no time
-#   for its final answer or for the final answer of an agent above, a
-#   deadline moved by a reservation
+# deadline with the durations of the reserves above and, for work and a
+# side request, of the agent's own reserve; the deadline stays
+# EXCLUDES: a request let run past the deadline, work or a side request
+#   that leaves no time for its agent's final answer or for the final
+#   answer of an agent above, a deadline moved by a reservation
 law budget_grant_on_time:
   for +use: B.Use
   for +p: B.Phase
@@ -363,10 +370,11 @@ law budget_grant_when_fits:
 
 # LAW budget_refuse_short (R3): a refusal for a short dimension means no
 # offer fits and the last offer fails in that dimension; nothing is held,
-# and the agent moves to WrapUp (work) or Exhausted (a final answer)
+# and the agent moves to WrapUp (work) or Exhausted (a final answer) or
+# stays in its phase (a side request)
 # EXCLUDES: a refusal while an offer fits, a dimension named that has
 #   room, work refused without the wrap-up, an agent still Working after
-#   its work was refused
+#   its work was refused, a refused side request that wraps the agent up
 law budget_refuse_short:
   for +use: B.Use
   for +p: B.Phase
@@ -382,7 +390,7 @@ law budget_refuse_short:
   for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Refused{B.Short{d}, p2} : B.Grant}
   {S.none_fit(use, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool} &
   {S.short_in(use, base, keep, S.last(less, want), S.free(a), now, S.until(a), d) == True{} : Bool} &
-  {p2 == S.after(use) : B.Phase}
+  {p2 == S.after(use, p) : B.Phase}
 
 # LAW budget_refuse_stopped (R3): a request the phase does not admit is
 # refused as stopped, the phase unchanged: work after the wrap-up,
@@ -423,10 +431,12 @@ law budget_refuse_held:
 
 # LAW budget_refuse_when_none_fits (R3): a request the phase admits,
 # under an id that is not held, with no offer that fits, is refused as
-# short and moves the agent to WrapUp (work) or Exhausted (a final answer)
+# short and moves the agent to WrapUp (work) or Exhausted (a final
+# answer) or leaves it in its phase (a side request)
 # EXCLUDES: a request no offer fits answered as held or stopped (so the
 #   same request sent again is granted past the budget), an agent left
-#   Working after its work found no room
+#   Working after its work found no room, an agent wrapped up by a side
+#   request that found no room
 law budget_refuse_when_none_fits:
   for +use: B.Use
   for +p: B.Phase
@@ -440,7 +450,28 @@ law budget_refuse_when_none_fits:
   for ok: {S.allows(p, use) == True{} : Bool}
   for fresh: {S.has(id, S.holds(a)) == False{} : Bool}
   for none: {S.none_fit(use, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool}
-  {S.short_to(B.reserve(use, p, id, now, base, keep, want, less, a)) == Some{S.after(use)} : Maybe<&2, B.Phase>}
+  {S.short_to(B.reserve(use, p, id, now, base, keep, want, less, a)) == Some{S.after(use, p)} : Maybe<&2, B.Phase>}
+
+# LAW budget_side_refused_keeps_phase (R3): a side request that is
+# refused, for whatever reason (no offer fits, its id is held, its phase
+# does not admit it), leaves its agent in the phase it was in
+# EXCLUDES: a refused title, classifier, compaction or memory request that
+#   wraps the agent up (taking its work away) or exhausts it (taking its
+#   final answer away), a refused side request that moves an exhausted
+#   or wrapping-up agent back to Working
+law budget_side_refused_keeps_phase:
+  for +p: B.Phase
+  for +id: Nat
+  for +now: Nat
+  for +base: B.Ask
+  for +keep: B.Ask
+  for +want: B.Ask
+  for +less: List<&2, B.Ask>
+  for +a: B.Acct
+  for +w: B.Why
+  for +p2: B.Phase
+  for g: {B.reserve(B.Side{}, p, id, now, base, keep, want, less, a) == B.Refused{w, p2} : B.Grant}
+  {p2 == p : B.Phase}
 
 # LAW budget_tight_exact (R4): a grant is tight exactly when the granted
 # ask, started when it ends, would not fit in what it left free
@@ -494,13 +525,46 @@ law budget_final_reserve_kept:
   for soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}
   {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, f, Nil{}, a2)) == True{} : Bool}
 
+# LAW budget_side_final_reserve_kept (R4): after a granted side request
+# (a title, a classifier, a compaction, a memory or side question), a
+# final answer of the same agent within its reserve, under an id not
+# held, asked before the side request's time is up, is granted
+# EXCLUDES: a side request that leaves less than the reserve (fitted as a
+#   final answer, with base only), a side request that runs into the
+#   final answer's time, a final answer held to the reserve of a side
+#   request
+law budget_side_final_reserve_kept:
+  for +p: B.Phase
+  for +id: Nat
+  for +now: Nat
+  for +base: B.Ask
+  for +keep: B.Ask
+  for +want: B.Ask
+  for +less: List<&2, B.Ask>
+  for +a: B.Acct
+  for +i: Nat
+  for +c: B.Ask
+  for +a2: B.Acct
+  for +t: Bool
+  for +f: B.Ask
+  for +p2: B.Phase
+  for +id2: Nat
+  for +now2: Nat
+  for +k2: B.Ask
+  for g: {B.reserve(B.Side{}, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for within: {S.le(f, keep) == True{} : Bool}
+  for ok: {S.allows(p2, B.Final{}) == True{} : Bool}
+  for fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}
+  for soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}
+  {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, f, Nil{}, a2)) == True{} : Bool}
+
 # LAW budget_base_kept (R11): after any grant, the final answer of an
 # agent above, within the reserves above and on time, is granted: no
-# request of an agent below (work or a final answer) takes the reserve of
-# an agent above
+# request of an agent below (work, a side request or a final answer)
+# takes the reserve of an agent above
 # EXCLUDES: a child drawing from the shared account into its parent's
-#   final-answer reserve, a child's final answer that eats it, a check of
-#   the asking agent's own reserve only
+#   final-answer reserve, a child's final answer or side request that
+#   eats it, a check of the asking agent's own reserve only
 law budget_base_kept:
   for +use: B.Use
   for +p: B.Phase
@@ -890,6 +954,26 @@ law budget_entry_malformed_exact:
   for +s: String
   for bad: {LawsBase.wire_opens_err(FBg.ffi(s)) == True{} : Bool}
   {FBg.ffi(s) == Wr.err("budget: malformed request") : String}
+
+# LAW budget_entry_unknown_tag (R9): a tag past the known ones answers the
+# error form, whatever follows it: a request tag past 4 (fund), a use tag
+# past 2 (a side request), a phase tag past 2 (Exhausted) in a reserve
+# (after any use) or in a carve; every such tag within the wire
+# EXCLUDES: an unknown tag read as a known one (a corrupt or newer
+#   caller's reservation answered as a side request, as work or a final
+#   answer, an unknown phase read as Exhausted, an unknown request read as
+#   a fund)
+law budget_entry_unknown_tag:
+  for +u: B.Use
+  for +m: Nat
+  for +n: Nat
+  for +rest: String
+  for fm: {LawsBase.wire_fits(5n+m) == True{} : Bool}
+  for +fn: {LawsBase.wire_fits(3n+n) == True{} : Bool}
+  {FBg.ffi(Wr.put_nat(5n+m, rest)) == Wr.err("budget: malformed request") : String} &
+  {FBg.ffi(Wr.put_nat(0n, Wr.put_nat(3n+n, rest))) == Wr.err("budget: malformed request") : String} &
+  {FBg.ffi(Wr.put_nat(0n, Wr.put_nat(sp_use_tag(u), Wr.put_nat(3n+n, rest)))) == Wr.err("budget: malformed request") : String} &
+  {FBg.ffi(Wr.put_nat(2n, Wr.put_nat(3n+n, rest))) == Wr.err("budget: malformed request") : String}
 
 # LAW budget_entry_example (R1-R11): anchor: the wire strings Rust sends
 # and the replies it reads. At 100 ms, work of (5,5,1,1) for 50 ms with

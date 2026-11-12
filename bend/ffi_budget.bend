@@ -10,10 +10,10 @@
 #               (List), the deadline (Nat, ms)
 #   a phase     a tag (Nat): 0 Working, 1 WrapUp, 2 Exhausted
 #   request  a question, its tag then its fields:
-#            0 reserve: the use, a tag (0 work, 1 final answer), the
-#              asking agent's phase, the id (Nat), now (Nat, ms), base,
-#              keep, the wanted ask, the smaller offers (List of asks),
-#              the account
+#            0 reserve: the use, a tag (0 work, 1 final answer, 2 side
+#              request), the asking agent's phase, the id (Nat), now
+#              (Nat, ms), base, keep, the wanted ask, the smaller offers
+#              (List of asks), the account
 #            1 settle: the id (Nat), the actual amount, the account
 #            2 carve: the parent agent's phase, now (Nat, ms), the wanted
 #              ask, base, the parent's account
@@ -259,7 +259,11 @@ def get_reserve.use(n: Nat, s: String) -> W.Dec<Req>:
         case 0n:
           get_reserve.phase(B.Final{}, get_phase(s))
         case 1n+b:
-          W.Bad{}
+          match b:
+            case 0n:
+              get_reserve.phase(B.Side{}, get_phase(s))
+            case 1n+c:
+              W.Bad{}
 
 def get_reserve(r: W.Dec<Nat>) -> W.Dec<Req>:
   match r:

@@ -322,6 +322,14 @@ def br.need_at(u: B.Use, c: B.Ask, base: B.Ask, keep: B.Ask, +d: B.Dim) -> {S.at
           match base:
             case B.Ask{bx, bm}:
               br.at2z(d, cx, bx)
+    case B.Side{}:
+      match c:
+        case B.Ask{cx, cm}:
+          match base:
+            case B.Ask{bx, bm}:
+              match keep:
+                case B.Ask{kx, km}:
+                  br.at3(d, cx, bx, kx)
 
 # the code's need is the spec's, in duration
 def br.need_ms(u: B.Use, c: B.Ask, base: B.Ask, keep: B.Ask) -> {S.ms(B.need(u, base, keep, c)) == Nat.add(S.ms(c), Nat.add(S.ms(base), S.ms(S.keep_of(u, keep)))) : Nat}:
@@ -340,6 +348,14 @@ def br.need_ms(u: B.Use, c: B.Ask, base: B.Ask, keep: B.Ask) -> {S.ms(B.need(u, 
           match base:
             case B.Ask{bx, +bm}:
               Equal.cong(Nat, Nat, w => Nat.add(cm, w), bm, Nat.add(bm, 0n), br.add_zero_r(bm))
+    case B.Side{}:
+      match c:
+        case B.Ask{cx, cm}:
+          match base:
+            case B.Ask{bx, bm}:
+              match keep:
+                case B.Ask{kx, km}:
+                  br.add_assoc(cm, bm, km)
 
 # the first dimension of five that is short
 def br.lk(b1: Bool, b2: Bool, b3: Bool, b4: Bool, b5: Bool) -> Maybe<&2, B.Dim>:
@@ -612,23 +628,31 @@ def br.allows_eq(p: B.Phase, u: B.Use) -> {B.allows(p, u) == S.allows(p, u) : Bo
       {==}
     case B.Working{} B.Final{}:
       {==}
+    case B.Working{} B.Side{}:
+      {==}
     case B.WrapUp{} B.Work{}:
       {==}
     case B.WrapUp{} B.Final{}:
+      {==}
+    case B.WrapUp{} B.Side{}:
       {==}
     case B.Exhausted{} B.Work{}:
       {==}
     case B.Exhausted{} B.Final{}:
       {==}
+    case B.Exhausted{} B.Side{}:
+      {==}
 
 def br.allows_is(+p: B.Phase, +u: B.Use, -b: Bool, e: {S.allows(p, u) == b : Bool}) -> {b == B.allows(p, u) : Bool}:
   Equal.sym(Bool, B.allows(p, u), b, Equal.trans(Bool, B.allows(p, u), S.allows(p, u), b, br.allows_eq(p, u), e))
 
-def br.after_eq(u: B.Use) -> {B.after(u) == S.after(u) : B.Phase}:
+def br.after_eq(u: B.Use, -p: B.Phase) -> {B.after(u, p) == S.after(u, p) : B.Phase}:
   match u:
     case B.Work{}:
       {==}
     case B.Final{}:
+      {==}
+    case B.Side{}:
       {==}
 
 def br.is_or(a: Bool, -x: Bool, -y: Bool, e: {x == y : Bool}) -> {B.held.is(a, x) == Bool.or(a, y) : Bool}:
@@ -654,48 +678,49 @@ def br.held_is(+id: Nat, +hs: List<&2, B.Hold>, -b: Bool, e: {S.has(id, hs) == b
 # The answer to a reservation
 # ---------------------------
 
-# what a refusal for w in phase p2 says of the request
-def br.ResNo(w: B.Why, +p2: B.Phase, +u: B.Use, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +now: Nat, +un: Nat) -> Type:
+# what a refusal for w in phase p2 says of the request of an agent in
+# phase p
+def br.ResNo(w: B.Why, +p2: B.Phase, +u: B.Use, +p: B.Phase, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +now: Nat, +un: Nat) -> Type:
   match w:
     case B.Short{+d}:
-      {S.none_fit(u, base, keep, want <> less, f, now, un) == True{} : Bool} & {S.short_in(u, base, keep, S.last(less, want), f, now, un, d) == True{} : Bool} & {p2 == S.after(u) : B.Phase}
+      {S.none_fit(u, base, keep, want <> less, f, now, un) == True{} : Bool} & {S.short_in(u, base, keep, S.last(less, want), f, now, un, d) == True{} : Bool} & {p2 == S.after(u, p) : B.Phase}
     case B.Held{}:
       Unit
     case B.Stopped{}:
       Unit
 
-# what the answer g says of the request for want and then less, under id
-# at now, on the account of free f, spent s, lent l, overrun o, holds h,
-# deadline un
-def br.Res(g: B.Grant, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> Type:
+# what the answer g says of the request for want and then less, by an
+# agent in phase p, under id at now, on the account of free f, spent s,
+# lent l, overrun o, holds h, deadline un
+def br.Res(g: B.Grant, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> Type:
   match g:
     case B.Granted{+i, +c, +a2, +t}:
       {S.nth(i, want <> less) == Some{c} : Maybe<&2, B.Ask>} & {S.none_fit(u, base, keep, S.before(i, want <> less), f, now, un) == True{} : Bool} & {S.fits(u, base, keep, c, f, now, un) == True{} : Bool} & {B.Acct{B.sub4(f, S.amt(c)), s, l, o, B.Hold{id, S.amt(c)} <> h, un} == a2 : B.Acct} & {t == Bool.not(S.fits(u, base, keep, c, B.sub4(f, S.amt(c)), Nat.add(now, S.ms(c)), un)) : Bool}
     case B.Refused{w, +p2}:
-      br.ResNo(w, p2, u, base, keep, want, less, f, now, un)
+      br.ResNo(w, p2, u, p, base, keep, want, less, f, now, un)
 
-def br.res_fit(x: B.Ask, +j: Nat, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(B.Fit{j, x}, u, base, keep, f, now, un, want, less)) -> br.Res(B.reserve.pick(B.Fit{j, x}, u, id, now, base, keep, f, s, l, o, h, un), u, id, now, base, keep, want, less, f, s, l, o, h, un):
+def br.res_fit(x: B.Ask, +j: Nat, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(B.Fit{j, x}, u, base, keep, f, now, un, want, less)) -> br.Res(B.reserve.pick(B.Fit{j, x}, u, p, id, now, base, keep, f, s, l, o, h, un), u, p, id, now, base, keep, want, less, f, s, l, o, h, un):
   match x:
     case B.Ask{+xa, +xm}:
       (pn, (pb, pf)) = po
       (pn, (pb, (pf, ({==}, br.tight_fits(u, base, keep, B.Ask{xa, xm}, B.sub4(f, xa), Nat.add(now, xm), un)))))
 
-def br.res_pick(p: B.Pick, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(p, u, base, keep, f, now, un, want, less)) -> br.Res(B.reserve.pick(p, u, id, now, base, keep, f, s, l, o, h, un), u, id, now, base, keep, want, less, f, s, l, o, h, un):
-  match p:
+def br.res_pick(pk: B.Pick, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(pk, u, base, keep, f, now, un, want, less)) -> br.Res(B.reserve.pick(pk, u, p, id, now, base, keep, f, s, l, o, h, un), u, p, id, now, base, keep, want, less, f, s, l, o, h, un):
+  match pk:
     case B.Fit{+j, +x}:
-      br.res_fit(x, j, u, id, now, base, keep, want, less, f, s, l, o, h, un, po)
+      br.res_fit(x, j, u, p, id, now, base, keep, want, less, f, s, l, o, h, un, po)
     case B.NoFit{+d}:
       (pa, pl) = po
-      (pa, (pl, br.after_eq(u)))
+      (pa, (pl, br.after_eq(u, p)))
 
-def br.res_held(hd: Bool, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> br.Res(B.reserve.held(hd, u, p, id, now, base, keep, want, less, f, s, l, o, h, un), u, id, now, base, keep, want, less, f, s, l, o, h, un):
+def br.res_held(hd: Bool, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> br.Res(B.reserve.held(hd, u, p, id, now, base, keep, want, less, f, s, l, o, h, un), u, p, id, now, base, keep, want, less, f, s, l, o, h, un):
   match hd:
     case True{}:
       Unit{}
     case False{}:
-      br.res_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want))
+      br.res_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, p, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want))
 
-def br.res_open(okb: Bool, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> br.Res(B.reserve.open(okb, u, p, id, now, base, keep, want, less, f, s, l, o, h, un), u, id, now, base, keep, want, less, f, s, l, o, h, un):
+def br.res_open(okb: Bool, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> br.Res(B.reserve.open(okb, u, p, id, now, base, keep, want, less, f, s, l, o, h, un), u, p, id, now, base, keep, want, less, f, s, l, o, h, un):
   match okb:
     case True{}:
       br.res_held(B.held(id, h), u, p, id, now, base, keep, want, less, f, s, l, o, h, un)
@@ -703,32 +728,32 @@ def br.res_open(okb: Bool, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B
       Unit{}
 
 # what the answer g says of the request on the account a
-def br.ResA(g: B.Grant, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct) -> Type:
-  br.Res(g, u, id, now, base, keep, want, less, S.free(a), S.spent(a), S.lent(a), S.over(a), S.holds(a), S.until(a))
+def br.ResA(g: B.Grant, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct) -> Type:
+  br.Res(g, u, p, id, now, base, keep, want, less, S.free(a), S.spent(a), S.lent(a), S.over(a), S.holds(a), S.until(a))
 
 # every answer of a reservation says it
-def br.res(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, a: B.Acct) -> br.ResA(B.reserve(u, p, id, now, base, keep, want, less, a), u, id, now, base, keep, want, less, a):
+def br.res(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, a: B.Acct) -> br.ResA(B.reserve(u, p, id, now, base, keep, want, less, a), u, p, id, now, base, keep, want, less, a):
   match a:
     case B.Acct{+f, +s, +l, +o, +h, +un}:
       br.res_open(B.allows(p, u), u, p, id, now, base, keep, want, less, f, s, l, o, h, un)
 
 # a reservation answered g: g says it
-def br.res_is(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, -g: B.Grant, e: {B.reserve(u, p, id, now, base, keep, want, less, a) == g : B.Grant}) -> br.ResA(g, u, id, now, base, keep, want, less, a):
-  %e : br.ResA(_, u, id, now, base, keep, want, less, a)
+def br.res_is(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, -g: B.Grant, e: {B.reserve(u, p, id, now, base, keep, want, less, a) == g : B.Grant}) -> br.ResA(g, u, p, id, now, base, keep, want, less, a):
+  %e : br.ResA(_, u, p, id, now, base, keep, want, less, a)
   br.res(u, p, id, now, base, keep, want, less, a)
 
 # The laws
 # --------
 
 # budget_grant_within
-def br.within(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +d: B.Dim, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a)) -> {Nat.add(S.at(d, S.free(a2)), S.at(d, S.amt(c))) == S.at(d, S.free(a)) : Nat} & {S.fits_in(u, base, keep, c, S.free(a), d) == True{} : Bool}:
+def br.within(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +d: B.Dim, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a)) -> {Nat.add(S.at(d, S.free(a2)), S.at(d, S.amt(c))) == S.at(d, S.free(a)) : Nat} & {S.fits_in(u, base, keep, c, S.free(a), d) == True{} : Bool}:
   (rn, (rb, (rf, (ra, rt)))) = r
   +ef = rf
   %ra : {Nat.add(S.at(d, S.free(_)), S.at(d, S.amt(c))) == S.at(d, S.free(a)) : Nat} & {S.fits_in(u, base, keep, c, S.free(a), d) == True{} : Bool}
   (br.left(d, S.free(a), S.amt(c), Nat.add(S.at(d, S.amt(base)), S.at(d, S.amt(S.keep_of(u, keep)))), br.fits_at(d, u, base, keep, c, S.free(a), now, S.until(a), ef)), br.fits_at(d, u, base, keep, c, S.free(a), now, S.until(a), ef))
 
 # budget_grant_on_time
-def br.in_time(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a)) -> {S.on_time(u, base, keep, c, now, S.until(a)) == True{} : Bool} & {S.until(a2) == S.until(a) : Nat}:
+def br.in_time(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a)) -> {S.on_time(u, base, keep, c, now, S.until(a)) == True{} : Bool} & {S.until(a2) == S.until(a) : Nat}:
   (rn, (rb, (rf, (ra, rt)))) = r
   %ra : {S.on_time(u, base, keep, c, now, S.until(a)) == True{} : Bool} & {S.until(_) == S.until(a) : Nat}
   (br.on_time_of(u, base, keep, c, S.free(a), now, S.until(a), rf), {==})
@@ -770,48 +795,87 @@ def br.nf_nth(+j: Nat, +xs: List<&2, B.Ask>, +u: B.Use, +base: B.Ask, +keep: B.A
   %e : {br.mfits(_, u, base, keep, f, now, un) == False{} : Bool}
   br.nf_m(j, xs, u, base, keep, f, now, un, nf)
 
-def br.none_pick(p: B.Pick, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(p, u, base, keep, f, now, un, want, less), none: {S.none_fit(u, base, keep, want <> less, f, now, un) == True{} : Bool}) -> {S.short_to(B.reserve.pick(p, u, id, now, base, keep, f, s, l, o, h, un)) == Some{S.after(u)} : Maybe<&2, B.Phase>}:
-  match p:
+def br.none_pick(pk: B.Pick, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(pk, u, base, keep, f, now, un, want, less), none: {S.none_fit(u, base, keep, want <> less, f, now, un) == True{} : Bool}) -> {S.short_to(B.reserve.pick(pk, u, p, id, now, base, keep, f, s, l, o, h, un)) == Some{S.after(u, p)} : Maybe<&2, B.Phase>}:
+  match pk:
     case B.Fit{+j, +x}:
       (pn, (pb, pf)) = po
-      br.absurd({S.short_to(B.reserve.pick(B.Fit{j, x}, u, id, now, base, keep, f, s, l, o, h, un)) == Some{S.after(u)} : Maybe<&2, B.Phase>}, Equal.trans(Bool, False{}, S.fits(u, base, keep, x, f, now, un), True{}, Equal.sym(Bool, S.fits(u, base, keep, x, f, now, un), False{}, br.nf_nth(j, want <> less, u, base, keep, f, now, un, x, pn, none)), pf))
+      br.absurd({S.short_to(B.reserve.pick(B.Fit{j, x}, u, p, id, now, base, keep, f, s, l, o, h, un)) == Some{S.after(u, p)} : Maybe<&2, B.Phase>}, Equal.trans(Bool, False{}, S.fits(u, base, keep, x, f, now, un), True{}, Equal.sym(Bool, S.fits(u, base, keep, x, f, now, un), False{}, br.nf_nth(j, want <> less, u, base, keep, f, now, un, x, pn, none)), pf))
     case B.NoFit{d}:
-      Equal.cong(B.Phase, Maybe<&2, B.Phase>, z => Some{z}, B.after(u), S.after(u), br.after_eq(u))
+      Equal.cong(B.Phase, Maybe<&2, B.Phase>, z => Some{z}, B.after(u, p), S.after(u, p), br.after_eq(u, p))
 
-def br.none_short(a: B.Acct, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, ok: {S.allows(p, u) == True{} : Bool}, fresh: {S.has(id, S.holds(a)) == False{} : Bool}, none: {S.none_fit(u, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool}) -> {S.short_to(B.reserve(u, p, id, now, base, keep, want, less, a)) == Some{S.after(u)} : Maybe<&2, B.Phase>}:
+def br.none_short(a: B.Acct, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, ok: {S.allows(p, u) == True{} : Bool}, fresh: {S.has(id, S.holds(a)) == False{} : Bool}, none: {S.none_fit(u, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool}) -> {S.short_to(B.reserve(u, p, id, now, base, keep, want, less, a)) == Some{S.after(u, p)} : Maybe<&2, B.Phase>}:
   match a:
     case B.Acct{+f, +s, +l, +o, +h, +un}:
-      %br.allows_is(p, u, True{}, ok) : {S.short_to(B.reserve.open(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == Some{S.after(u)} : Maybe<&2, B.Phase>}
-      %br.held_is(id, h, False{}, fresh) : {S.short_to(B.reserve.held(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == Some{S.after(u)} : Maybe<&2, B.Phase>}
-      br.none_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want), none)
+      %br.allows_is(p, u, True{}, ok) : {S.short_to(B.reserve.open(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == Some{S.after(u, p)} : Maybe<&2, B.Phase>}
+      %br.held_is(id, h, False{}, fresh) : {S.short_to(B.reserve.held(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == Some{S.after(u, p)} : Maybe<&2, B.Phase>}
+      br.none_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, p, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want), none)
+
+# budget_side_refused_keeps_phase
+
+# a refusal answers the phase p; a grant says nothing of it
+def br.KeepsPhase(g: B.Grant, -p: B.Phase) -> Type:
+  match g:
+    case B.Granted{i, c, a2, t}:
+      Unit
+    case B.Refused{w, p2}:
+      {p2 == p : B.Phase}
+
+def br.side_pick(pk: B.Pick, -p: B.Phase, -id: Nat, -now: Nat, -base: B.Ask, -keep: B.Ask, -f: B.Amt, -s: B.Amt, -l: B.Amt, -o: B.Amt, -h: List<&2, B.Hold>, -un: Nat) -> br.KeepsPhase(B.reserve.pick(pk, B.Side{}, p, id, now, base, keep, f, s, l, o, h, un), p):
+  match pk:
+    case B.Fit{j, x}:
+      match x:
+        case B.Ask{xa, xm}:
+          Unit{}
+    case B.NoFit{d}:
+      {==}
+
+def br.side_held(hd: Bool, -p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, -s: B.Amt, -l: B.Amt, -o: B.Amt, -h: List<&2, B.Hold>, +un: Nat) -> br.KeepsPhase(B.reserve.held(hd, B.Side{}, p, id, now, base, keep, want, less, f, s, l, o, h, un), p):
+  match hd:
+    case True{}:
+      {==}
+    case False{}:
+      br.side_pick(B.pick(less, B.Side{}, base, keep, f, now, un, want, 0n), p, id, now, base, keep, f, s, l, o, h, un)
+
+def br.side_open(okb: Bool, -p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, -s: B.Amt, -l: B.Amt, -o: B.Amt, +h: List<&2, B.Hold>, +un: Nat) -> br.KeepsPhase(B.reserve.open(okb, B.Side{}, p, id, now, base, keep, want, less, f, s, l, o, h, un), p):
+  match okb:
+    case True{}:
+      br.side_held(B.held(id, h), p, id, now, base, keep, want, less, f, s, l, o, h, un)
+    case False{}:
+      {==}
+
+# every refusal of a side request answers the asking agent's phase
+def br.side_keeps(+p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, a: B.Acct) -> br.KeepsPhase(B.reserve(B.Side{}, p, id, now, base, keep, want, less, a), p):
+  match a:
+    case B.Acct{+f, s, l, o, +h, +un}:
+      br.side_open(B.allows(p, B.Side{}), p, id, now, base, keep, want, less, f, s, l, o, h, un)
 
 # budget_grant_holds
-def br.holds(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a)) -> {S.holds(a2) == B.Hold{id, S.amt(c)} <> S.holds(a) : List<&2, B.Hold>} & {S.spent(a2) == S.spent(a) : B.Amt} & {S.lent(a2) == S.lent(a) : B.Amt} & {S.over(a2) == S.over(a) : B.Amt}:
+def br.holds(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a)) -> {S.holds(a2) == B.Hold{id, S.amt(c)} <> S.holds(a) : List<&2, B.Hold>} & {S.spent(a2) == S.spent(a) : B.Amt} & {S.lent(a2) == S.lent(a) : B.Amt} & {S.over(a2) == S.over(a) : B.Amt}:
   (rn, (rb, (rf, (ra, rt)))) = r
   %ra : {S.holds(_) == B.Hold{id, S.amt(c)} <> S.holds(a) : List<&2, B.Hold>} & {S.spent(_) == S.spent(a) : B.Amt} & {S.lent(_) == S.lent(a) : B.Amt} & {S.over(_) == S.over(a) : B.Amt}
   ({==}, ({==}, ({==}, {==})))
 
 # budget_grant_first
-def br.first(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a)) -> {S.nth(i, want <> less) == Some{c} : Maybe<&2, B.Ask>} & {S.none_fit(u, base, keep, S.before(i, want <> less), S.free(a), now, S.until(a)) == True{} : Bool}:
+def br.first(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a)) -> {S.nth(i, want <> less) == Some{c} : Maybe<&2, B.Ask>} & {S.none_fit(u, base, keep, S.before(i, want <> less), S.free(a), now, S.until(a)) == True{} : Bool}:
   (rn, (rb, (rf, (ra, rt)))) = r
   (rn, rb)
 
 # budget_tight_exact
-def br.tight(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a)) -> {t == Bool.not(S.fits(u, base, keep, c, S.free(a2), Nat.add(now, S.ms(c)), S.until(a2))) : Bool}:
+def br.tight(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a)) -> {t == Bool.not(S.fits(u, base, keep, c, S.free(a2), Nat.add(now, S.ms(c)), S.until(a2))) : Bool}:
   (rn, (rb, (rf, (ra, rt)))) = r
   %ra : {t == Bool.not(S.fits(u, base, keep, c, S.free(_), Nat.add(now, S.ms(c)), S.until(_))) : Bool}
   rt
 
 # a fit offer is granted
-def br.fit_granted(x: B.Ask, -j: Nat, -u: B.Use, -id: Nat, -now: Nat, -base: B.Ask, -keep: B.Ask, -f: B.Amt, -s: B.Amt, -l: B.Amt, -o: B.Amt, -h: List<&2, B.Hold>, -un: Nat) -> {S.granted(B.reserve.pick(B.Fit{j, x}, u, id, now, base, keep, f, s, l, o, h, un)) == True{} : Bool}:
+def br.fit_granted(x: B.Ask, -j: Nat, -u: B.Use, -p: B.Phase, -id: Nat, -now: Nat, -base: B.Ask, -keep: B.Ask, -f: B.Amt, -s: B.Amt, -l: B.Amt, -o: B.Amt, -h: List<&2, B.Hold>, -un: Nat) -> {S.granted(B.reserve.pick(B.Fit{j, x}, u, p, id, now, base, keep, f, s, l, o, h, un)) == True{} : Bool}:
   match x:
     case B.Ask{xa, xm}:
       {==}
 
-def br.granted_pick(p: B.Pick, +u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(p, u, base, keep, f, now, un, want, less), some: {S.none_fit(u, base, keep, want <> less, f, now, un) == False{} : Bool}) -> {S.granted(B.reserve.pick(p, u, id, now, base, keep, f, s, l, o, h, un)) == True{} : Bool}:
-  match p:
+def br.granted_pick(pk: B.Pick, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +f: B.Amt, +s: B.Amt, +l: B.Amt, +o: B.Amt, +h: List<&2, B.Hold>, +un: Nat, po: br.PickOk(pk, u, base, keep, f, now, un, want, less), some: {S.none_fit(u, base, keep, want <> less, f, now, un) == False{} : Bool}) -> {S.granted(B.reserve.pick(pk, u, p, id, now, base, keep, f, s, l, o, h, un)) == True{} : Bool}:
+  match pk:
     case B.Fit{j, x}:
-      br.fit_granted(x, j, u, id, now, base, keep, f, s, l, o, h, un)
+      br.fit_granted(x, j, u, p, id, now, base, keep, f, s, l, o, h, un)
     case B.NoFit{d}:
       (pa, pl) = po
       Equal.trans(Bool, False{}, S.none_fit(u, base, keep, want <> less, f, now, un), True{}, Equal.sym(Bool, S.none_fit(u, base, keep, want <> less, f, now, un), False{}, some), pa)
@@ -822,7 +886,7 @@ def br.when_fits(a: B.Acct, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: 
     case B.Acct{+f, +s, +l, +o, +h, +un}:
       %br.allows_is(p, u, True{}, ok) : {S.granted(B.reserve.open(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == True{} : Bool}
       %br.held_is(id, h, False{}, fresh) : {S.granted(B.reserve.held(_, u, p, id, now, base, keep, want, less, f, s, l, o, h, un)) == True{} : Bool}
-      br.granted_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want), some)
+      br.granted_pick(B.pick(less, u, base, keep, f, now, un, want, 0n), u, p, id, now, base, keep, want, less, f, s, l, o, h, un, br.pick_ok(less, u, base, keep, f, now, un, want), some)
 
 # budget_refuse_stopped
 def br.stopped(a: B.Acct, +u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, no: {S.allows(p, u) == False{} : Bool}) -> {B.reserve(u, p, id, now, base, keep, want, less, a) == B.Refused{B.Stopped{}, p} : B.Grant}:
@@ -844,13 +908,15 @@ def br.final_some(-a1: B.Acct, -a2: B.Acct, -base: B.Ask, -k2: B.Ask, -x: B.Ask,
   %e : {S.none_fit(B.Final{}, base, k2, x <> Nil{}, S.free(_), now2, S.until(_)) == False{} : Bool}
   br.nf_single(S.fits(B.Final{}, base, k2, x, S.free(a1), now2, S.until(a1)), h)
 
-# budget_final_reserve_kept
-def br.final_kept(+id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +x: B.Ask, +p2: B.Phase, +id2: Nat, +now2: Nat, +k2: B.Ask, r: br.ResA(B.Granted{i, c, a2, t}, B.Work{}, id, now, base, keep, want, less, a), within: {S.le(x, keep) == True{} : Bool}, ok: {S.allows(p2, B.Final{}) == True{} : Bool}, fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}, soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}) -> {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, x, Nil{}, a2)) == True{} : Bool}:
+# budget_final_reserve_kept, budget_side_final_reserve_kept: after a
+# granted request of use u that fits as work does (kw: work and a side
+# request), a final answer within its reserve is granted
+def br.final_kept(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +x: B.Ask, +p2: B.Phase, +id2: Nat, +now2: Nat, +k2: B.Ask, kw: {S.fits(u, base, keep, c, S.free(a), now, S.until(a)) == S.fits(B.Work{}, base, keep, c, S.free(a), now, S.until(a)) : Bool}, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a), within: {S.le(x, keep) == True{} : Bool}, ok: {S.allows(p2, B.Final{}) == True{} : Bool}, fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}, soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}) -> {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, x, Nil{}, a2)) == True{} : Bool}:
   (rn, (rb, (rf, (ra, rt)))) = r
-  br.when_fits(a2, B.Final{}, p2, id2, now2, base, k2, x, Nil{}, ok, fresh, br.final_some(B.Acct{B.sub4(S.free(a), S.amt(c)), S.spent(a), S.lent(a), S.over(a), B.Hold{id, S.amt(c)} <> S.holds(a), S.until(a)}, a2, base, k2, x, now2, ra, br.final_fits(base, k2, x, keep, c, S.free(a), now, now2, S.until(a), within, rf, soon)))
+  br.when_fits(a2, B.Final{}, p2, id2, now2, base, k2, x, Nil{}, ok, fresh, br.final_some(B.Acct{B.sub4(S.free(a), S.amt(c)), S.spent(a), S.lent(a), S.over(a), B.Hold{id, S.amt(c)} <> S.holds(a), S.until(a)}, a2, base, k2, x, now2, ra, br.final_fits(base, k2, x, keep, c, S.free(a), now, now2, S.until(a), within, Equal.trans(Bool, S.fits(B.Work{}, base, keep, c, S.free(a), now, S.until(a)), S.fits(u, base, keep, c, S.free(a), now, S.until(a)), True{}, Equal.sym(Bool, S.fits(u, base, keep, c, S.free(a), now, S.until(a)), S.fits(B.Work{}, base, keep, c, S.free(a), now, S.until(a)), kw), rf), soon)))
 
 # budget_base_kept
-def br.base_kept(+u: B.Use, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +x: B.Ask, +p2: B.Phase, +id2: Nat, +now2: Nat, +k2: B.Ask, r: br.ResA(B.Granted{i, c, a2, t}, u, id, now, base, keep, want, less, a), within: {S.le(x, base) == True{} : Bool}, ok: {S.allows(p2, B.Final{}) == True{} : Bool}, fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}, ontime: {Nat.is_le(Nat.add(now2, S.ms(x)), S.until(a)) == True{} : Bool}) -> {S.granted(B.reserve(B.Final{}, p2, id2, now2, S.nothing(), k2, x, Nil{}, a2)) == True{} : Bool}:
+def br.base_kept(+u: B.Use, +p: B.Phase, +id: Nat, +now: Nat, +base: B.Ask, +keep: B.Ask, +want: B.Ask, +less: List<&2, B.Ask>, +a: B.Acct, +i: Nat, +c: B.Ask, +a2: B.Acct, +t: Bool, +x: B.Ask, +p2: B.Phase, +id2: Nat, +now2: Nat, +k2: B.Ask, r: br.ResA(B.Granted{i, c, a2, t}, u, p, id, now, base, keep, want, less, a), within: {S.le(x, base) == True{} : Bool}, ok: {S.allows(p2, B.Final{}) == True{} : Bool}, fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}, ontime: {Nat.is_le(Nat.add(now2, S.ms(x)), S.until(a)) == True{} : Bool}) -> {S.granted(B.reserve(B.Final{}, p2, id2, now2, S.nothing(), k2, x, Nil{}, a2)) == True{} : Bool}:
   (rn, (rb, (rf, (ra, rt)))) = r
   br.when_fits(a2, B.Final{}, p2, id2, now2, S.nothing(), k2, x, Nil{}, ok, fresh, br.final_some(B.Acct{B.sub4(S.free(a), S.amt(c)), S.spent(a), S.lent(a), S.over(a), B.Hold{id, S.amt(c)} <> S.holds(a), S.until(a)}, a2, S.nothing(), k2, x, now2, ra, br.base_fits(u, base, keep, k2, x, c, S.free(a), now, now2, S.until(a), within, rf, ontime)))
 

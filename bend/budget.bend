@@ -21,10 +21,13 @@
 #   output cap, a shorter timeout); the first that fits is granted. Every
 #   reservation leaves `base` free and ends `base` before the deadline
 #   (the final-answer reserves of the agents above the asking one); work
-#   must also leave `keep` (the worst case of its own final answer). No
-#   offer fits: nothing is held, work moves the agent to WrapUp (only a
-#   final answer is admitted from then on) and a final answer moves it to
-#   Exhausted (nothing is admitted).
+#   and a side request (a request of the agent that is not its own turn:
+#   a title, a classifier, a compaction, a memory or side question) must
+#   also leave `keep` (the worst case of its own final answer). No offer
+#   fits: nothing is held, work moves the agent to WrapUp (only a final
+#   answer and side requests are admitted from then on), a final answer
+#   moves it to Exhausted (nothing is admitted) and a side request leaves
+#   the phase as it was.
 # settle: the actual spend replaces the hold; what was not spent is free
 #   again. An id that is not held changes nothing.
 # carve: a child given its own budget: the allotment leaves the parent's
@@ -69,10 +72,13 @@ type Acct is Data:
   Acct{free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, until: Nat}
 
 # What a reservation is for: work (must leave the final-answer reserve),
-# or the final answer itself
+# the final answer itself, or a side request: a request of the agent that
+# is not its own turn (a title, a classifier, a compaction, a memory or
+# side question), which leaves the final-answer reserve like work
 type Use is Data:
   Work{}
   Final{}
+  Side{}
 
 # Why nothing was taken: a dimension is short, the id is already held,
 # the agent's phase does not admit it
@@ -128,14 +134,16 @@ def plus(a: Ask, b: Ask) -> Ask:
     case Ask{ax, am} Ask{bx, bm}:
       Ask{add4(ax, bx), Nat.add(am, bm)}
 
-# what an ask of c must find: the reserves above (base) and, for work,
-# its own final-answer reserve (keep)
+# what an ask of c must find: the reserves above (base) and, for work and
+# a side request, its own final-answer reserve (keep)
 def need(use: Use, base: Ask, keep: Ask, c: Ask) -> Ask:
   match use:
     case Work{}:
       plus(plus(c, base), keep)
     case Final{}:
       plus(c, base)
+    case Side{}:
+      plus(plus(c, base), keep)
 
 def lack.at(ok: Bool, d: Dim, rest: Maybe<&2, Dim>) -> Maybe<&2, Dim>:
   match ok:
@@ -239,8 +247,8 @@ def others(+id: Nat, hs: List<&2, Hold>) -> List<&2, Hold>:
 # Reserve
 # -------
 
-# the phase admits the use: Working admits both, WrapUp the final answer
-# only, Exhausted nothing
+# the phase admits the use: Working admits all, WrapUp the final answer
+# and side requests, Exhausted nothing
 def allows(p: Phase, k: Use) -> Bool:
   match p:
     case Working{}:
@@ -251,16 +259,21 @@ def allows(p: Phase, k: Use) -> Bool:
           False{}
         case Final{}:
           True{}
+        case Side{}:
+          True{}
     case Exhausted{}:
       False{}
 
-# the phase after no offer fit: work wraps up, a final answer exhausts
-def after(k: Use) -> Phase:
+# the phase after no offer fit, of an agent in phase p: work wraps up, a
+# final answer exhausts, a side request leaves p
+def after(k: Use, p: Phase) -> Phase:
   match k:
     case Work{}:
       WrapUp{}
     case Final{}:
       Exhausted{}
+    case Side{}:
+      p
 
 def tight.of(l: Maybe<&2, Dim>) -> Bool:
   match l:
@@ -269,7 +282,7 @@ def tight.of(l: Maybe<&2, Dim>) -> Bool:
     case Some{d}:
       True{}
 
-def reserve.pick(p: Pick, +use: Use, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
+def reserve.pick(p: Pick, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
   match p:
     case Fit{i, +c}:
       match c:
@@ -277,14 +290,14 @@ def reserve.pick(p: Pick, +use: Use, +id: Nat, +now: Nat, +base: Ask, +keep: Ask
           +left = sub4(free, x)
           Granted{i, Ask{x, m}, Acct{left, spent, lent, over, Hold{id, x} <> holds, until}, tight.of(lack(need(use, base, keep, Ask{x, m}), left, Nat.add(now, m), until))}
     case NoFit{d}:
-      Refused{Short{d}, after(use)}
+      Refused{Short{d}, after(use, phase)}
 
 def reserve.held(h: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, holds: List<&2, Hold>, +until: Nat) -> Grant:
   match h:
     case True{}:
       Refused{Held{}, phase}
     case False{}:
-      reserve.pick(pick(less, use, base, keep, free, now, until, want, 0n), use, id, now, base, keep, free, spent, lent, over, holds, until)
+      reserve.pick(pick(less, use, base, keep, free, now, until, want, 0n), use, phase, id, now, base, keep, free, spent, lent, over, holds, until)
 
 def reserve.open(ok: Bool, +use: Use, phase: Phase, +id: Nat, +now: Nat, +base: Ask, +keep: Ask, +want: Ask, less: List<&2, Ask>, +free: Amt, spent: Amt, lent: Amt, over: Amt, +holds: List<&2, Hold>, +until: Nat) -> Grant:
   match ok:

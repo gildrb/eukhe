@@ -61,10 +61,10 @@ pub struct Hold {
 /// What an agent is admitted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Phase {
-    /// Work and a final answer.
+    /// Work, side requests and a final answer.
     #[default]
     Working,
-    /// Only a final answer.
+    /// A final answer and side requests.
     WrapUp,
     /// Nothing.
     Exhausted,
@@ -89,6 +89,12 @@ pub enum Use {
     Work,
     /// The final answer: it may use everything past the reserves above.
     Final,
+    /// A side request of the agent, not its own turn (a title, a
+    /// classifier, a compaction, a memory or side question): it must leave
+    /// the agent's own final-answer reserve like work, is admitted while the
+    /// agent can still answer (`Working`, `WrapUp`), and a refusal leaves the
+    /// agent's phase as it was.
+    Side,
 }
 
 /// Why nothing was taken.
@@ -253,7 +259,8 @@ fn ask<T>(
 /// Reserves under `id`, for an agent in `phase` at `now` (Unix ms), the
 /// first of `want` and then `less` that fits what is free in `acct` and
 /// ends before its deadline, leaving `base` (the final-answer reserves of
-/// the agents above) and, for work, `keep` (the agent's own).
+/// the agents above) and, for work and a side request, `keep` (the agent's
+/// own).
 ///
 /// # Errors
 ///
@@ -277,6 +284,7 @@ pub fn reserve(
             w.tag(0).tag(match use_ {
                 Use::Work => 0,
                 Use::Final => 1,
+                Use::Side => 2,
             });
             put_phase(w, phase);
             w.nat(id).nat(now);
@@ -528,6 +536,87 @@ mod tests {
             .unwrap(),
             Grant::Refused {
                 why: Why::Short(Dim::Reqs),
+                phase: Phase::Exhausted
+            }
+        );
+    }
+
+    #[test]
+    fn a_side_request_leaves_the_final_answer_reserve_and_never_moves_the_phase() {
+        let acct = funded(amt(10, 10, 10, 10), 100);
+        let none = Ask::default();
+        let keep = ask_of(amt(2, 2, 2, 0), 0);
+        // it must leave keep like work: 9 + 2 is past 10, so it is short and
+        // the agent stays Working
+        assert_eq!(
+            reserve(
+                Use::Side,
+                Phase::Working,
+                1,
+                0,
+                none,
+                keep,
+                ask_of(amt(9, 1, 1, 1), 0),
+                &[],
+                &acct
+            )
+            .unwrap(),
+            Grant::Refused {
+                why: Why::Short(Dim::Cost),
+                phase: Phase::Working
+            }
+        );
+        // a WrapUp agent is admitted a side request that fits, and one that
+        // does not leaves it in WrapUp
+        assert!(matches!(
+            reserve(
+                Use::Side,
+                Phase::WrapUp,
+                2,
+                0,
+                none,
+                keep,
+                ask_of(amt(8, 1, 1, 1), 0),
+                &[],
+                &acct
+            )
+            .unwrap(),
+            Grant::Granted { index: 0, .. }
+        ));
+        assert_eq!(
+            reserve(
+                Use::Side,
+                Phase::WrapUp,
+                3,
+                0,
+                none,
+                keep,
+                ask_of(amt(9, 1, 1, 1), 0),
+                &[],
+                &acct
+            )
+            .unwrap(),
+            Grant::Refused {
+                why: Why::Short(Dim::Cost),
+                phase: Phase::WrapUp
+            }
+        );
+        // an exhausted agent is stopped
+        assert_eq!(
+            reserve(
+                Use::Side,
+                Phase::Exhausted,
+                4,
+                0,
+                none,
+                none,
+                ask_of(amt(1, 1, 1, 1), 0),
+                &[],
+                &acct
+            )
+            .unwrap(),
+            Grant::Refused {
+                why: Why::Stopped,
                 phase: Phase::Exhausted
             }
         );
