@@ -160,7 +160,7 @@ def Find.up(ls: List<&2, String>, fls: List<&2, String>, +f: T.Find, +l: Nat) ->
 # where a search goes from p, and whether it wrapped around the buffer's
 # end ('wrapscan'); None when nothing matches
 type Found is Data:
-  Lost{}
+  NoHit{}
   Found{pos: T.Pos, wrapped: Bool}
 
 def Found.of(m: Maybe<&2, T.Pos>, +wrapped: Bool, rest: Unit -> Found) -> Found:
@@ -183,7 +183,7 @@ def Find.next(+ls: List<&2, String>, +fls: List<&2, String>, +f: T.Find, p: T.Po
   match p:
     case T.Pos{+line, +col}:
       +here = Cols.first_after(Find.hits(f, B.Lines.at(ls, line), B.Lines.at(fls, line)), col)
-      Found.col(here, line, u => Found.of(Find.down(B.Lines.drop(ls, 1n+line), B.Lines.drop(fls, 1n+line), f, 1n+line), False{}, u => Found.of(Find.down(B.Lines.take(ls, 1n+line), B.Lines.take(fls, 1n+line), f, 0n), True{}, u => Lost{})))
+      Found.col(here, line, u => Found.of(Find.down(B.Lines.drop(ls, 1n+line), B.Lines.drop(fls, 1n+line), f, 1n+line), False{}, u => Found.of(Find.down(B.Lines.take(ls, 1n+line), B.Lines.take(fls, 1n+line), f, 0n), True{}, u => NoHit{})))
 
 # a search back from p: the line's matches before the cursor, the lines
 # above, then from the bottom up to the cursor's line
@@ -192,7 +192,7 @@ def Find.prev(+ls: List<&2, String>, +fls: List<&2, String>, +f: T.Find, p: T.Po
     case T.Pos{+line, +col}:
       +here = Cols.last_before(Find.hits(f, B.Lines.at(ls, line), B.Lines.at(fls, line)), col, None{})
       +n = B.Lines.len(ls)
-      Found.col(here, line, u => Found.of(Find.up(List.reverse(&2, String, B.Lines.take(ls, line)), List.reverse(&2, String, B.Lines.take(fls, line)), f, Nat.sub(line, 1n)), False{}, u => Found.of(Find.up(List.reverse(&2, String, B.Lines.drop(ls, line)), List.reverse(&2, String, B.Lines.drop(fls, line)), f, Nat.sub(n, 1n)), True{}, u => Lost{})))
+      Found.col(here, line, u => Found.of(Find.up(List.reverse(&2, String, B.Lines.take(ls, line)), List.reverse(&2, String, B.Lines.take(fls, line)), f, Nat.sub(line, 1n)), False{}, u => Found.of(Find.up(List.reverse(&2, String, B.Lines.drop(ls, line)), List.reverse(&2, String, B.Lines.drop(fls, line)), f, Nat.sub(n, 1n)), True{}, u => NoHit{})))
 
 # The word under the cursor (* and #)
 # ----------------------------------

@@ -62,7 +62,7 @@ def Search.say(f: T.Find, +back: Bool) -> String:
 
 def Search.land(+s: T.St, +f: T.Find, +back: Bool, found: F.Found) -> T.St:
   match found:
-    case F.Lost{}:
+    case F.NoHit{}:
       Msg.say(s, "E486: Pattern not found: " ++ Search.text(f))
     case F.Found{+p, +wrapped}:
       +s2 = C.Win.go(C.Win.jump(s), p, False{})

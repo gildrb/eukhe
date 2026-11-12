@@ -246,12 +246,29 @@ def Bag.go(+q: Bag.Q, fuel: Nat, +n: Nat, rs: List<&2, List<&2, String>>) -> {Ba
               +rs2 = {r1 <> r2 <> rest : List<&2, List<&2, String>>}
               Equal.trans(Bool, Bag.All(q, List.sort.go(~String, ~B.Oil.le, f, n, List.sort.pass(~String, ~B.Oil.le, n, rs2))), Bag.AllL(q, List.sort.pass(~String, ~B.Oil.le, n, rs2)), Bag.AllL(q, rs2), Bag.go(q, f, n, List.sort.pass(~String, ~B.Oil.le, n, rs2)), Bag.pass(q, n, rs2))
 
-def Bag.runs(+q: Bag.Q, xs: List<&2, String>) -> {Bag.AllL(q, List.sort.runs(String, xs)) == Bag.All(q, xs) : Bool}:
+def Bag.pair(+q: Bag.Q, +x: String, +y: String, b: Bool) -> {Bag.All(q, List.sort.pair(String, x, y, b)) == Bool.and(Bag.ok(q, x), Bool.and(Bag.ok(q, y), True{})) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Equal.trans(Bool, Bool.and(Bag.ok(q, y), Bool.and(Bag.ok(q, x), True{})), Bool.and(Bool.and(Bag.ok(q, x), Bag.ok(q, y)), True{}), Bool.and(Bag.ok(q, x), Bool.and(Bag.ok(q, y), True{})), Bag.rot(Bag.ok(q, y), Bag.ok(q, x), True{}), Bag.assoc(Bag.ok(q, x), Bag.ok(q, y), True{}))
+
+def Bag.pairs(+q: Bag.Q, xs: List<&2, String>) -> {Bag.AllL(q, List.sort.pairs(~String, ~B.Oil.le, xs)) == Bag.All(q, xs) : Bool}:
   match xs:
     case Nil{}:
       {==}
-    case Con{+h, +t}:
-      Bag.and2(Bool.and(Bag.ok(q, h), True{}), Bag.ok(q, h), Bag.AllL(q, List.sort.runs(String, t)), Bag.All(q, t), Bag.and_t(Bag.ok(q, h)), Bag.runs(q, t))
+    case Con{+x, t}:
+      match t:
+        case Nil{}:
+          Bag.and_t(Bool.and(Bag.ok(q, x), True{}))
+        case Con{+y, +rest}:
+          +a = Bag.ok(q, x)
+          +b = Bag.ok(q, y)
+          +p = Bag.All(q, List.sort.pair(String, x, y, B.Oil.le(x, y)))
+          +ps = Bag.AllL(q, List.sort.pairs(~String, ~B.Oil.le, rest))
+          +r = Bag.All(q, rest)
+          +bt = Bool.and(b, True{})
+          Equal.trans(Bool, Bool.and(p, ps), Bool.and(Bool.and(a, bt), r), Bool.and(a, Bool.and(b, r)), Bag.and2(p, Bool.and(a, bt), ps, r, Bag.pair(q, x, y, B.Oil.le(x, y)), Bag.pairs(q, rest)), Equal.trans(Bool, Bool.and(Bool.and(a, bt), r), Bool.and(a, Bool.and(bt, r)), Bool.and(a, Bool.and(b, r)), Bag.assoc(a, bt, r), Bag.and2(a, a, Bool.and(bt, r), Bool.and(b, r), {==}, Bag.and2(bt, b, r, r, Bag.and_t(b), {==}))))
 
 def Bag.sort(+q: Bag.Q, xs: List<&2, String>) -> {Bag.All(q, List.sort(~String, ~B.Oil.le, xs)) == Bag.All(q, xs) : Bool}:
   match xs:
@@ -260,7 +277,7 @@ def Bag.sort(+q: Bag.Q, xs: List<&2, String>) -> {Bag.All(q, List.sort(~String, 
     case Con{+h, +t}:
       +ys = {h <> t : List<&2, String>}
       +n = List.length(&2, String, ys)
-      Equal.trans(Bool, Bag.All(q, List.sort.go(~String, ~B.Oil.le, n, n, List.sort.runs(String, ys))), Bag.AllL(q, List.sort.runs(String, ys)), Bag.All(q, ys), Bag.go(q, n, n, List.sort.runs(String, ys)), Bag.runs(q, ys))
+      Equal.trans(Bool, Bag.All(q, List.sort.go(~String, ~B.Oil.le, n, n, List.sort.pairs(~String, ~B.Oil.le, ys))), Bag.AllL(q, List.sort.pairs(~String, ~B.Oil.le, ys)), Bag.All(q, ys), Bag.go(q, n, n, List.sort.pairs(~String, ~B.Oil.le, ys)), Bag.pairs(q, ys))
 
 # Oil.add, Oil.uniq and Oil.collect
 # ---------------------------------
