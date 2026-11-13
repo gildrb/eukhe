@@ -147,32 +147,116 @@ def table_calls.of(+k: Run, a: Auth) -> Val:
 def profile(+k: Run, a: Auth) -> Lims:
   Lims{Unset{}, Unset{}, At{table_ms(k)}, table_calls.of(k, a), At{table_reqs(k)}}
 
-def scale.n(s: Scale, n: Nat) -> Nat:
+# The time of a shipped preset, in ms: quick a quarter of the limits
+# profile's, deep four times it
+def preset_ms(s: Scale, k: Run) -> Nat:
   match s:
     case Quick{}:
-      Nat.div(n, 4n)
+      match k:
+        case Interactive{}:
+          3600000n
+        case Headless{}:
+          3600000n
+        case Sdk{}:
+          3600000n
+        case Scheduled{}:
+          900000n
+        case Loop{}:
+          7200000n
+        case Autoresearch{}:
+          10800000n
     case Deep{}:
-      Nat.mul(n, 4n)
+      match k:
+        case Interactive{}:
+          57600000n
+        case Headless{}:
+          57600000n
+        case Sdk{}:
+          57600000n
+        case Scheduled{}:
+          14400000n
+        case Loop{}:
+          115200000n
+        case Autoresearch{}:
+          172800000n
 
-def scale.val(+s: Scale, v: Val) -> Val:
-  match v:
-    case Unset{}:
+# The tool calls of a shipped preset
+def preset_calls(s: Scale, k: Run) -> Nat:
+  match s:
+    case Quick{}:
+      match k:
+        case Interactive{}:
+          1000n
+        case Headless{}:
+          1000n
+        case Sdk{}:
+          1000n
+        case Scheduled{}:
+          1000n
+        case Loop{}:
+          2000n
+        case Autoresearch{}:
+          3000n
+    case Deep{}:
+      match k:
+        case Interactive{}:
+          16000n
+        case Headless{}:
+          16000n
+        case Sdk{}:
+          16000n
+        case Scheduled{}:
+          16000n
+        case Loop{}:
+          32000n
+        case Autoresearch{}:
+          48000n
+
+# The model requests of a shipped preset
+def preset_reqs(s: Scale, k: Run) -> Nat:
+  match s:
+    case Quick{}:
+      match k:
+        case Interactive{}:
+          800n
+        case Headless{}:
+          800n
+        case Sdk{}:
+          800n
+        case Scheduled{}:
+          800n
+        case Loop{}:
+          1600n
+        case Autoresearch{}:
+          2400n
+    case Deep{}:
+      match k:
+        case Interactive{}:
+          12800n
+        case Headless{}:
+          12800n
+        case Sdk{}:
+          12800n
+        case Scheduled{}:
+          12800n
+        case Loop{}:
+          25600n
+        case Autoresearch{}:
+          38400n
+
+def preset_calls.of(+s: Scale, +k: Run, a: Auth) -> Val:
+  match a:
+    case Plan{}:
+      At{preset_calls(s, k)}
+    case ApiKey{}:
+      At{preset_calls(s, k)}
+    case Local{}:
       Unset{}
-    case At{n}:
-      At{scale.n(s, n)}
-    case Unlimited{}:
-      Unlimited{}
-
-# the limits l scaled by s
-def scale.lims(+s: Scale, l: Lims) -> Lims:
-  match l:
-    case Lims{c, t, m, n, r}:
-      Lims{scale.val(s, c), scale.val(s, t), scale.val(s, m), scale.val(s, n), scale.val(s, r)}
 
 # A shipped preset: quick a quarter of the limits profile, deep four
-# times it
-def preset(s: Scale, k: Run, a: Auth) -> Lims:
-  scale.lims(s, profile(k, a))
+# times it, in the dimensions the limits profile sets
+def preset(+s: Scale, +k: Run, a: Auth) -> Lims:
+  Lims{Unset{}, Unset{}, At{preset_ms(s, k)}, preset_calls.of(s, k, a), At{preset_reqs(s, k)}}
 
 # Fill
 # ----
@@ -365,54 +449,63 @@ def has(+s: String, ls: List<&2, String>) -> Bool:
     case Nil{}:
       False{}
     case Con{h, t}:
-      has.or(same(h, s), has(s, t))
+      has.or(same(s, h), has(s, t))
 
-def drop.keep(hit: Bool, h: String, rest: List<&2, String>) -> List<&2, String>:
-  match hit:
+def notice.add(b: Bool, i: Nat, rest: List<&2, Nat>) -> List<&2, Nat>:
+  match b:
     case True{}:
-      rest
+      i <> rest
     case False{}:
-      h <> rest
+      rest
 
-# ls without s
-def drop(+s: String, ls: List<&2, String>) -> List<&2, String>:
-  match ls:
+# the places of the windows of ws (the first at place i) at or past line
+# whose label is not in told
+def notice.now(ws: List<&2, Win>, +line: Nat, +i: Nat, +told: List<&2, String>) -> List<&2, Nat>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case Con{Win{+label, u}, t}:
+      notice.add(Bool.and(Nat.is_le(line, u), Bool.not(has(label, told))), i, notice.now(t, line, 1n+i, told))
+
+def notice.label(b: Bool, label: String, rest: List<&2, String>) -> List<&2, String>:
+  match b:
+    case True{}:
+      label <> rest
+    case False{}:
+      rest
+
+# the labels of the windows of ws at or past line
+def notice.over(ws: List<&2, Win>, +line: Nat) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case Con{Win{label, u}, t}:
+      notice.label(Nat.is_le(line, u), label, notice.over(t, line))
+
+def notice.labels(ws: List<&2, Win>) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case Con{Win{label, u}, t}:
+      label <> notice.labels(t)
+
+# the labels of told that no window of ws has
+def notice.keep(told: List<&2, String>, +ls: List<&2, String>) -> List<&2, String>:
+  match told:
     case Nil{}:
       Nil{}
     case Con{+h, t}:
-      drop.keep(same(h, s), h, drop(s, t))
+      notice.label(Bool.not(has(h, ls)), h, notice.keep(t, ls))
 
-def notice.new(seen: Bool, i: Nat, +label: String, now: List<&2, Nat>, told: List<&2, String>) -> Told:
-  match seen:
-    case True{}:
-      Told{now, told}
-    case False{}:
-      Told{List.append(&2, Nat, now, [i]), label <> told}
-
-def notice.win(over: Bool, i: Nat, +label: String, now: List<&2, Nat>, +told: List<&2, String>) -> Told:
-  match over:
-    case True{}:
-      notice.new(has(label, told), i, label, now, told)
-    case False{}:
-      Told{now, drop(label, told)}
-
-def notice.step(acc: Told, over: Bool, i: Nat, label: String) -> Told:
-  match acc:
-    case Told{now, told}:
-      notice.win(over, i, label, now, told)
-
-# the windows ws (the first at place i) told of after acc
-def notice.go(ws: List<&2, Win>, +line: Nat, +i: Nat, acc: Told) -> Told:
-  match ws:
-    case Nil{}:
-      acc
-    case Con{Win{label, u}, t}:
-      notice.go(t, line, 1n+i, notice.step(acc, Nat.is_le(line, u), i, label))
+def notice.at(+ws: List<&2, Win>, +line: Nat, +told: List<&2, String>) -> Told:
+  Told{notice.now(ws, line, 0n, told), List.append(&2, String, notice.over(ws, line), notice.keep(told, notice.labels(ws)))}
 
 # The windows to tell of: each reading at or past 1000 - reserve permille
-# whose label was not told of; a reading below it forgets its label
+# whose label is not in told; the labels told of after: those at or past
+# the line, and those of told no reading has (a reading below the line
+# arms its window again)
 def plan_notice(ws: List<&2, Win>, reserve: Nat, told: List<&2, String>) -> Told:
-  notice.go(ws, Nat.sub(1000n, reserve), 0n, Told{Nil{}, told})
+  notice.at(ws, Nat.sub(1000n, reserve), told)
 
 # Floor
 # -----

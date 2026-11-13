@@ -217,5 +217,6 @@ import ./laws/loop/history.bend as LoopHistory
 import ./laws/loop/entry.bend as LoopEntry
 import ./laws/budget.bend as Budget
 import ./laws/budget_share.bend as BudgetShare
+import ./laws/limits.bend as Limits
 import ./laws/verify.bend as Verify
 import ./laws/server_peer.bend as ServerPeer
