@@ -16,6 +16,7 @@ use super::cvar::{
     document_sets, registry, table, value_text, AgentLayer, CvarError, CvarScope, CvarWriteError,
     Cvars, Decl, LayerKind, Sets, Target,
 };
+use super::getters::BudgetLimitsMode;
 use super::load::load_document;
 use super::merge::{deep_merge, migrate};
 use super::persist::{
@@ -841,6 +842,16 @@ impl SettingsManager {
         self.set_global_cvar(&table::GATEWAY_SIGNAL_MODEL, &Value::from(selector))
     }
 
+    /// `budget.limits` setter: `on` or `off` for every run that starts
+    /// after it.
+    ///
+    /// # Errors
+    ///
+    /// The global config.cfg cannot be read or written.
+    pub fn set_budget_limits(&mut self, limits: BudgetLimitsMode) -> Result<Persisted> {
+        self.set_global_cvar(&table::BUDGET_LIMITS, &Value::from(limits.word()))
+    }
+
     /// `onboardingShown` setter (a document key: [`Self::set_document`]).
     ///
     /// # Errors
@@ -1229,6 +1240,33 @@ mod tests {
                 lag: Some(u64::MAX),
             })),
             (usize::MAX, usize::MAX)
+        );
+    }
+
+    /// `budget.limits` is off until the principal turns it on, and a later
+    /// run reads it back; the plan reserve defaults to 20 percent.
+    #[test]
+    fn budget_limits_are_off_until_turned_on_and_read_back() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (cwd, agent_dir) = (dir.path().join("cwd"), dir.path().join("agent"));
+        std::fs::create_dir_all(&cwd).expect("cwd");
+        let mut manager = SettingsManager::create(&cwd, &agent_dir);
+        let before = (
+            manager.get_budget_limits(),
+            manager.get_budget_plan_reserve(),
+            manager.get_budget_profile(),
+        );
+        let persisted = manager
+            .set_budget_limits(BudgetLimitsMode::On)
+            .expect("saved");
+        let after = SettingsManager::create(&cwd, &agent_dir).get_budget_limits();
+        assert_eq!(
+            (before, persisted, after),
+            (
+                (BudgetLimitsMode::Off, 20, Value::Null),
+                Persisted::Applies,
+                BudgetLimitsMode::On
+            )
         );
     }
 

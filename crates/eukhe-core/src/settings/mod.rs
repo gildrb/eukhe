@@ -17,8 +17,8 @@ pub(crate) mod types;
 mod one_store_tests;
 
 pub use getters::{
-    resolve_session_dir, SessionDir, SessionDirSource, SignalGateway, LEGACY_SESSION_DIR_ENV,
-    SESSION_DIR_ENV,
+    resolve_session_dir, BudgetLimitsMode, SessionDir, SessionDirSource, SignalGateway,
+    LEGACY_SESSION_DIR_ENV, SESSION_DIR_ENV,
 };
 pub use manager::{IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager};
 pub use persist::{Persisted, Shadow};

@@ -21,7 +21,8 @@
 //! that behavior. `subagentMaxConcurrency` is daemon-wide in effect but
 //! read with the spawning session's cwd (`rlm_children/durable_host.rs`),
 //! and `sessionDir` is read with the cwd at startup (`eukhe-cli` `lib.rs`),
-//! so both stay Local.
+//! so both stay Local. The `budget.*` settings are Global: the principal's
+//! own limits of every run, which a project file never sets.
 //!
 //! Persist is off for the settings an untrusted project may not set
 //! (`settings::trust`: programs, commands, code sources, execution gates,
@@ -961,6 +962,47 @@ pub const TERMINAL_STREAM_PACE_LAG: Decl = Decl {
     init: Init::Nat(3),
 };
 
+pub(crate) const BUDGET_LIMITS_MODES: &[&str] = &["off", "on"];
+
+/// Global: the principal's own switch; a project file never turns the
+/// limits of the principal's runs off or loosens them.
+pub const BUDGET_LIMITS: Decl = Decl {
+    id: "budget.limits",
+    ty: CvarType::Choice(BUDGET_LIMITS_MODES),
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: true,
+    init: Init::Text("off"),
+};
+
+/// Percent of each plan window a run leaves to the principal (limits on).
+pub const BUDGET_PLAN_RESERVE: Decl = Decl {
+    id: "budget.planReserve",
+    ty: CvarType::Nat,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: true,
+    init: Init::Nat(20),
+};
+
+pub const BUDGET_PROFILE: Decl = Decl {
+    id: "budget.profile",
+    ty: CvarType::Json,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Null,
+};
+
+pub const BUDGET_PRESETS: Decl = Decl {
+    id: "budget.presets",
+    ty: CvarType::Json,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Null,
+};
+
 pub const IMAGES_AUTO_RESIZE: Decl = Decl {
     id: "images.autoResize",
     ty: CvarType::Bool,
@@ -1393,6 +1435,10 @@ pub const DECLS: &[Decl] = &[
     RLM_QUERY_BUDGET_BYTES,
     TOOL_BLOCKING_BUDGET_MS,
     MAX_TOOL_ROUNDS,
+    BUDGET_LIMITS,
+    BUDGET_PLAN_RESERVE,
+    BUDGET_PROFILE,
+    BUDGET_PRESETS,
     IDLE_EVICTION_MINUTES,
     SESSION_ARCHIVE_MAX_AGE_DAYS,
     SESSION_ARCHIVE_MAX_SESSIONS,

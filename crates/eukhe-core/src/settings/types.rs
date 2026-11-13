@@ -334,6 +334,25 @@ pub struct StreamPaceSettings {
     pub lag: Option<u64>,
 }
 
+/// `budget`: the limits each run gets when the principal sets none.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetSettings {
+    /// `off` (default: runs go until finished) or `on` (unset dimensions
+    /// fill from the profile, else the limits profile).
+    pub limits: Option<String>,
+    /// With limits on, the percent of each plan window a run leaves to the
+    /// principal (default 20).
+    pub plan_reserve: Option<u64>,
+    /// `{"<kind>": {"cost": .., "tokens": .., "time": .., "toolCalls": ..,
+    /// "requests": .., "untilFinished": true}}`: the principal's own
+    /// limits per kind of run; a value is a number or `"unlimited"`.
+    pub profile: Option<serde_json::Value>,
+    /// `{"<name>": {..}}`: the presets of `/b <name>`, the shape of one
+    /// kind of `profile`; `quick` and `deep` are shipped.
+    pub presets: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageSettings {
@@ -509,6 +528,8 @@ pub struct Settings {
     /// Tool rounds one turn may make before it ends as failed (default
     /// 250; `0` or unset takes the default).
     pub max_tool_rounds: Option<u32>,
+    /// The limits of each run (`budget.*`).
+    pub budget: Option<BudgetSettings>,
     /// `number | "off" | "none"`; raw JSON because the TS getter validates at
     /// access time.
     pub idle_eviction_minutes: Option<serde_json::Value>,
