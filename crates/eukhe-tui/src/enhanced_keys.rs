@@ -18,7 +18,7 @@
 //! answers (or its patched 250ms budget lapses) while the fallback timer
 //! fires on the TS schedule. The check never waits on the tty with
 //! crossterm's event-reader lock held: it looks for its reply every 1ms
-//! (the vendored crossterm patch), so the app reader interleaves and
+//! (the crossterm fork's patch), so the app reader interleaves and
 //! early typing delivers at its own cadence while the probe listens.
 //! Crossterm parks user keys in its internal event queue, so early
 //! typing is preserved; the app reader never sees protocol bytes as key
@@ -37,7 +37,7 @@
 //! capability gain. The first-mount window is the one accepted cost: on
 //! silent terminals the probe looks for its reply for the whole window,
 //! but holds the process-global event-reader lock only for each look
-//! (the vendored crossterm patch), so input typed during it delivers at
+//! (the crossterm fork's patch), so input typed during it delivers at
 //! the reader's cadence instead of waiting for the settle.
 //!
 //! THE VERDICT TIME (characterized 2026-09-29; the timed contract is
@@ -64,7 +64,7 @@
 //! We reset modifyOtherKeys mode 2 at each surface start to keep legacy
 //! printable-key behavior. Some terminals (Ghostty without Kitty flags)
 //! still emit modifyOtherKeys (`CSI 27;<mods>;<key>~`) for modified
-//! control keys such as Shift+Enter; the vendored crossterm parser and
+//! control keys such as Shift+Enter; the patched crossterm parser and
 //! the sequence guard both accept those reports.
 //!
 //! Every mode-flag transition is serialized (a module-wide lock pairs each
@@ -558,7 +558,7 @@ fn spawn_kitty_probe() {
         .spawn(|| {
             let (answer_tx, answer_rx) = mpsc::channel();
             // crossterm's support check sends the query and blocks on the
-            // answer for at most 250ms (the vendored crossterm patch). It
+            // answer for at most 250ms (the crossterm fork's patch). It
             // reads the tty through the shared internal reader, so the
             // skipped user keys stay queued for the app reader.
             let reader = std::thread::Builder::new()
@@ -585,7 +585,7 @@ fn spawn_kitty_probe() {
                     //
                     // The check is bracket-free by construction: the
                     // probe takes `supports_keyboard_enhancement_checked_raw`
-                    // (the vendored facade's raw-read path), so NOTHING in
+                    // (the patched facade's raw-read path), so NOTHING in
                     // this thread can re-arm raw mode, whatever races the
                     // guard's read. The mode lock serializes the guard
                     // with the suspend's mode releases (the same

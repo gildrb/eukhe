@@ -359,7 +359,7 @@ fn model_parse(buf: &[u8], more: bool) -> ModelParse {
                         13 => {
                             ModelParse::Event(Event::Key(KeyEvent::new(KeyCode::Enter, modifiers)))
                         }
-                        // The vendored `BARE_CSI_U` provenance: a
+                        // The patched crossterm's `BARE_CSI_U` provenance: a
                         // digits-only body is the bare printable form.
                         c => ModelParse::Event(Event::Key(KeyEvent::new_with_kind_and_state(
                             KeyCode::Char(char::from_u32(c).expect("corpus")),

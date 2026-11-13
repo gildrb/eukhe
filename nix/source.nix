@@ -25,8 +25,12 @@ rustPlatform.buildRustPackage {
   inherit src;
   env = lib.optionalAttrs (commit != null) { EUKHE_BUILD_COMMIT = commit; };
 
-  # No git dependencies; vendor/crossterm is a path patch inside the source.
-  cargoLock.lockFile = src + "/Cargo.lock";
+  # The one git dependency, crossterm's fork (root Cargo.toml
+  # [patch.crates-io]), is pinned by commit in Cargo.lock and by hash here.
+  cargoLock = {
+    lockFile = src + "/Cargo.lock";
+    outputHashes."crossterm-0.28.1" = "sha256-eExH/+FlZYaJEVZhHtHLWU5XLJaZEm9LLEpy+8c/WuM=";
+  };
   cargoBuildFlags = [
     "-p"
     "eukhe-cli"

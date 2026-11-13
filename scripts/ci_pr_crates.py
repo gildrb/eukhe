@@ -73,8 +73,8 @@ def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
     selection.
 
     Only known `crates/<pkg>/**` narrows. Everything else (the workflow,
-    CI tooling, vendor/, the runtime sidecar, workspace-level Cargo files,
-    install scripts, docs) affects more than any crate subset, and a rename
+    CI tooling, the runtime sidecar, workspace-level Cargo files, install
+    scripts, docs) affects more than any crate subset, and a rename
     counts both sides. An undecidable list (empty rows, an empty path or an
     unknown crate) fails safe to the full selection.
     """

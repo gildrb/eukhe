@@ -16,7 +16,7 @@
 //! forward pastes without bracketed markers) is coalesced into one paste
 //! instead of submitting line by line. A zero-timeout poll after each
 //! read marks the chunk boundary: crossterm drains everything the tty
-//! holds on each readiness edge (the vendored patch) and serves those
+//! holds on each readiness edge (the crossterm fork's patch) and serves those
 //! events without blocking, so a burst is exactly the terminal write(s)
 //! queued at that edge.
 //!
@@ -57,7 +57,7 @@ static PREVIOUS_READER: Mutex<Option<Reader>> = Mutex::new(None);
 /// The bounded-poll cadence for the windows where the reader must share
 /// crossterm's process-global event-reader lock with another bounded
 /// poller: the kitty probe looks for its reply every 1ms through its
-/// 250ms answer window (the vendored crossterm patch), so the reader
+/// 250ms answer window (the crossterm fork's patch), so the reader
 /// keeps a bounded poll while that window is open -- an indefinite park
 /// would hold the lock and starve the probe's looks. Also the fallback
 /// cadence when no wake handle exists (a source that failed to open the
@@ -291,7 +291,7 @@ fn forward(events: Vec<Event>, on_input: &mut dyn FnMut(ReaderInput) -> bool) ->
 ///   `pendingKittyPrintableCodepoint`, stdin-buffer.ts:307): a
 ///   duplicate-reporting kitty terminal sends BOTH the bare CSI-u form
 ///   and the raw character for one keypress (Italian-style layouts, TS
-///   #3780). The vendored crossterm stamps the bare `CSI <cp> u` form
+///   #3780). The patched crossterm stamps the bare `CSI <cp> u` form
 ///   with `KeyEventState::BARE_CSI_U` (both encodings otherwise parse to
 ///   the same `Char` press), so -- like TS, which sets the pending only
 ///   from an actual CSI-u form -- only a raw press right after a bare
@@ -329,7 +329,7 @@ fn filter_enhanced_key_events(events: Vec<Event>) -> Vec<Event> {
     out
 }
 
-/// Strip the vendored crossterm's `BARE_CSI_U` provenance stamp from a key
+/// Strip the patched crossterm's `BARE_CSI_U` provenance stamp from a key
 /// event, reporting whether it was present.
 fn take_bare_csi_u(event: &mut Event) -> bool {
     let Event::Key(key) = event else {
@@ -715,7 +715,7 @@ mod tests {
         assert_eq!(ids, vec!["a", "b"]);
     }
 
-    /// A plain press in the bare kitty `CSI <cp> u` form, as the vendored
+    /// A plain press in the bare kitty `CSI <cp> u` form, as the patched
     /// crossterm parses it (stamped with its `BARE_CSI_U` provenance).
     fn bare_csi_u(c: char) -> Event {
         Event::Key(KeyEvent::new_with_kind_and_state(

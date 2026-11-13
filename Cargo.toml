@@ -25,11 +25,12 @@ members = [
     "crates/eukhe-cli",
 ]
 
-# Crossterm 0.28.1's kitty support check holds the process-wide event reader
-# for 2s on terminals that do not answer. Keep its parser/queued input intact,
-# but cap the query poll to 250ms (late real-terminal replies still get a chance).
+# crossterm 0.28.1 with the changes listed in the fork's PATCHES.md (a 250ms
+# kitty support check that never starves the app reader, a tty drained on
+# every edge, the parked reader's waker, the bare CSI-u provenance), pinned
+# by commit: branch eukhe-0.28.1, tag eukhe-0.28.1-1.
 [patch.crates-io]
-crossterm = { path = "vendor/crossterm" }
+crossterm = { git = "https://github.com/gildrb/crossterm", rev = "817fdaaf98cc87e023841759e8b47891e3335312" }
 
 [workspace.package]
 version = "0.10.0"
