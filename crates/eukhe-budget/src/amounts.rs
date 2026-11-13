@@ -90,6 +90,21 @@ pub fn mask(amounts: BudgetAmounts, limits: &BudgetLimits) -> BudgetAmounts {
     )
 }
 
+/// The part of `amounts` no limit of `limits` counts, within a budget's
+/// range, no time.
+pub(crate) fn unlimited(amounts: BudgetAmounts, limits: &BudgetLimits) -> BudgetAmounts {
+    let kept =
+        BudgetDimension::ALL
+            .into_iter()
+            .fold(BudgetAmounts::default(), |kept, dimension| {
+                match limits.get(dimension) {
+                    Some(_) => kept,
+                    None => kept.with(dimension, amounts.get(dimension)),
+                }
+            });
+    from_amt(to_amt(kept))
+}
+
 /// The limits that limit exactly the non-zero dimensions of `amounts`.
 #[must_use]
 pub fn limits_of(amounts: BudgetAmounts) -> BudgetLimits {

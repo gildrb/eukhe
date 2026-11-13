@@ -239,6 +239,9 @@ fn report(phase: BudgetPhase, short: Option<BudgetDimension>) -> BudgetReport {
         short,
         deadline_ms: Some(1_800_000_000_000),
         parent_session_id: None,
+        kind: None,
+        sources: eukhe_types::budget::BudgetSources::default(),
+        program_runs: 0,
     }
 }
 
