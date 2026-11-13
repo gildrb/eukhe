@@ -93,10 +93,15 @@ fn make_bare_repo(dir: &Path) -> (PathBuf, PathBuf) {
     (bare, work)
 }
 
+/// git for the fixture repos, without the user's git config: a global
+/// `tag.gpgsign` would make `git tag v1` ask for a message, a global
+/// `commit.gpgsign` would sign the fixture commits.
 fn run_git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
         .args(args)
         .current_dir(cwd)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .status()
         .expect("git is required for package tests");
     assert!(status.success(), "git {args:?} failed");
