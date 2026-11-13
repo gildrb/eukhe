@@ -1,8 +1,8 @@
 # eukhe: lemmas the proofs of area headless_exit share: a failure below
 # the command and the wait fails the exit; a failed compaction fails the
-# transcript; the cause is the first failure of the list of E1, with the
-# failures the delivered final answer excuses dropped (hx.cause_eq, a
-# proof step, not a spec); the entry's
+# transcript; the cause is E1's first failure, with the failures the
+# delivered final answer excuses dropped (hx.cause_eq, against
+# Sp.exit_cause); the entry's
 # decoder is the laws' reader (spec/durable/headless_wire.bend), stage by
 # stage; a spelled request reads back whole
 
@@ -103,58 +103,8 @@ def hx.comp_fails(p: Hx.Primary, -a: Bool, ba: Bool) -> {Hx.code(Hx.by_primary(p
 # The cause
 # ---------
 
-# the first failure of the list, else end
-def hx.first(xs: List<&2, Maybe<&2, Hx.Cause>>, end: Hx.Cause) -> Hx.Cause:
-  match xs:
-    case Nil{}:
-      end
-    case Con{m, rest}:
-      match m:
-        case None{}:
-          hx.first(rest, end)
-        case Some{c}:
-          c
-
-# a failure as it counts: one the delivered final answer excuses
-# (Sp.excused) holds only without that answer
-def hx.ex(m: Maybe<&2, Hx.Cause>, ba: Bool) -> Maybe<&2, Hx.Cause>:
-  match m:
-    case None{}:
-      None{}
-    case Some{+x}:
-      match ba:
-        case False{}:
-          Some{x}
-        case True{}:
-          Sp.when(Bool.not(Sp.excused(x)), x)
-
-# the cause with no failure: budget-limited when the final answer was
-# delivered, else answered
-def hx.finish(ba: Bool) -> Hx.Cause:
-  match ba:
-    case True{}:
-      Hx.CBudgetLimited{}
-    case False{}:
-      Hx.CAnswered{}
-
-# the failures in the order of E1
-def hx.failures(f: Hx.Facts) -> List<&2, Maybe<&2, Hx.Cause>>:
-  match f:
-    case Hx.Facts{cf, w, run, p, c, a, +ba}:
-      [Sp.when(cf, Hx.CCommandFailed{}), hx.ex(Sp.wait_cause(w), ba), hx.ex(Sp.run_cause(run), ba), hx.ex(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})]
-
-# the budget answer of the facts
-def hx.ba(f: Hx.Facts) -> Bool:
-  match f:
-    case Hx.Facts{cf, w, run, p, c, a, ba}:
-      ba
-
-# the first failure of the facts, in the order of E1
-def hx.cause_spec(+f: Hx.Facts) -> Hx.Cause:
-  hx.first(hx.failures(f), hx.finish(hx.ba(f)))
-
 # below the transcript, the model's cause is the first of the two flags
-def hx.flags_eq(c: Bool, a: Bool, ba: Bool) -> {Hx.by_flags(c, a, ba) == hx.first([Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], hx.finish(ba)) : Hx.Cause}:
+def hx.flags_eq(c: Bool, a: Bool, ba: Bool) -> {Hx.by_flags(c, a, ba) == Sp.first([Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match c:
     case True{}:
       {==}
@@ -171,7 +121,7 @@ def hx.flags_eq(c: Bool, a: Bool, ba: Bool) -> {Hx.by_flags(c, a, ba) == hx.firs
 
 # below the run, the model's cause is the first of the last three
 # failures
-def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c, a, ba) == hx.first([hx.ex(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], hx.finish(ba)) : Hx.Cause}:
+def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c, a, ba) == Sp.first([Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match p:
     case Hx.PNothing{}:
       hx.flags_eq(c, a, ba)
@@ -212,7 +162,7 @@ def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c
 
 # below the wait, the model's cause is the first of the last four
 # failures
-def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_run(run, p, c, a, ba) == hx.first([hx.ex(Sp.run_cause(run), ba), hx.ex(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], hx.finish(ba)) : Hx.Cause}:
+def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_run(run, p, c, a, ba) == Sp.first([Sp.counts(Sp.run_cause(run), ba), Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match run:
     case Hx.NoRun{}:
       hx.tail(p, c, a, ba)
@@ -275,8 +225,8 @@ def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx
             case False{}:
               {==}
 
-# the model's cause is the first failure of the facts
-def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == hx.cause_spec(f) : Hx.Cause}:
+# the model's cause is E1's (Sp.exit_cause)
+def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == Sp.exit_cause(f) : Hx.Cause}:
   match f:
     case Hx.Facts{cf, w, +run, +p, +c, +a, +ba}:
       match cf:

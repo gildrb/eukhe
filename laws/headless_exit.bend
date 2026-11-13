@@ -315,6 +315,21 @@ law headless_exit_autonomous_failed_fails:
 # Laws: precedence (R4)
 # ---------------------
 
+# LAW headless_exit_cause_is_first_failure (R1, R4): for every facts the
+# cause is E1's (Sp.exit_cause): the first failure in E1's order (a
+# failed command, the wait, the last run, the terminal entry, a failed
+# compaction, a failed autonomous turn), where the wait at the time
+# budget's deadline and a run or a terminal entry the budget refused
+# fail only without the delivered final answer from the reserve; with
+# none, budget-limited when that answer was delivered, else answered
+# EXCLUDES: a provider error, an aborted, unfinished or failed slash
+#   entry after the final answer reported as budget-unanswered; a later
+#   failure reported over an earlier one; a failure reported as answered
+#   or budget-limited
+law headless_exit_cause_is_first_failure:
+  for +f: Hx.Facts
+  {cause_of(Hx.decide(f)) == Sp.exit_cause(f) : Hx.Cause}
+
 # LAW headless_exit_command_failed_first (R4): a failed command is the
 # cause, whatever else holds
 # EXCLUDES: a later cause reported for a failed command

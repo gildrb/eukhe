@@ -4076,6 +4076,7 @@ import ./proof/headless_settle/headless_settle_workflow_runs_never_done.bend as 
 import ./proof/headless_exit/base.bend as LAHeadlessExit
 import ./proof/headless_exit/headless_exit_aborted_fails.bend as PHeadlessExitAbortedFails
 import ./proof/headless_exit/headless_exit_autonomous_failed_fails.bend as PHeadlessExitAutonomousFailedFails
+import ./proof/headless_exit/headless_exit_cause_is_first_failure.bend as PHeadlessExitCauseIsFirstFailure
 import ./proof/headless_exit/headless_exit_code_at_most_one.bend as PHeadlessExitCodeAtMostOne
 import ./proof/headless_exit/headless_exit_command_failed_fails.bend as PHeadlessExitCommandFailedFails
 import ./proof/headless_exit/headless_exit_command_failed_first.bend as PHeadlessExitCommandFailedFirst

@@ -173,3 +173,58 @@ def excused(c: Hx.Cause) -> Bool:
       False{}
     case Hx.CBudgetUnanswered{}:
       True{}
+
+# E1: the first failure of cs that holds, in their order; end when none
+# holds
+def first(cs: List<&2, Maybe<&2, Hx.Cause>>, end: Hx.Cause) -> Hx.Cause:
+  match cs:
+    case Nil{}:
+      end
+    case Con{m, rest}:
+      match m:
+        case None{}:
+          first(rest, end)
+        case Some{c}:
+          c
+
+# E1: a failure as it counts: one the delivered final answer from the
+# budget's reserve excuses (excused) holds only without that answer (ba)
+def counts(m: Maybe<&2, Hx.Cause>, ba: Bool) -> Maybe<&2, Hx.Cause>:
+  match m:
+    case None{}:
+      None{}
+    case Some{+x}:
+      match ba:
+        case False{}:
+          Some{x}
+        case True{}:
+          when(Bool.not(excused(x)), x)
+
+# E1: the cause when no failure holds: budget-limited when the final
+# answer from the reserve was delivered (ba), else answered
+def unfailed(ba: Bool) -> Hx.Cause:
+  match ba:
+    case True{}:
+      Hx.CBudgetLimited{}
+    case False{}:
+      Hx.CAnswered{}
+
+# E1: the failures of the facts in E1's order: a failed command, the
+# wait, the last run, the terminal transcript entry (those three as the
+# delivered final answer counts them), a failed compaction, a failed
+# autonomous turn
+def failures(f: Hx.Facts) -> List<&2, Maybe<&2, Hx.Cause>>:
+  match f:
+    case Hx.Facts{cf, w, run, p, c, a, +ba}:
+      [when(cf, Hx.CCommandFailed{}), counts(wait_cause(w), ba), counts(run_cause(run), ba), counts(primary_cause(p), ba), when(c, Hx.CCompactionFailed{}), when(a, Hx.CAutonomousFailed{})]
+
+# whether the final answer from the budget's reserve was delivered
+def delivered(f: Hx.Facts) -> Bool:
+  match f:
+    case Hx.Facts{cf, w, run, p, c, a, ba}:
+      ba
+
+# E1: the cause of the exit of the facts f: the first failure in E1's
+# order, else answered or budget-limited
+def exit_cause(+f: Hx.Facts) -> Hx.Cause:
+  first(failures(f), unfailed(delivered(f)))
