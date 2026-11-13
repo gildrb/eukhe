@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "classify": {
+    "code": [
+      "bend/*"
+    ],
+    "spec": []
+  },
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",

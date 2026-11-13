@@ -250,10 +250,12 @@ proofs() {
 # pin changed: a law changed without the user's re-lock fails here.
 # BEND_SKILL: the skill directory (default: the commit BEND_SKILL_REV of
 # scripts/toolchain.env, scripts/pinned_skill.sh). LOCK_FLAGS: what the lock
-# freezes depends on them, so the check and `make lock` pass the same ones
-# (`--code 'bend/*'`: the defs under bend/ are the code, every def a law
-# reaches outside it is a spec helper and frozen; `--freeze`: every doc and
-# every .bend file under spec/, byte for byte).
+# freezes depends on them; `make lock` passes them and the lock keeps them, so
+# a bare `gate.py . --lock-only` checks the same way, and the check here passes
+# them too (other ones are an ERROR) (`--code 'bend/*'`: the defs under bend/
+# are the code, every def a law reaches outside it is a spec helper and
+# frozen; `--freeze`: every doc and every .bend file under spec/, byte for
+# byte).
 LOCK_FLAGS=(--code 'bend/*' --freeze 'spec/**/*.md' --freeze 'spec/**/*.bend')
 bend_skill() {
   if [[ -n "${BEND_SKILL:-}" ]]; then
