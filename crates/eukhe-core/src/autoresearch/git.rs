@@ -9,12 +9,24 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use anyhow::{bail, Context as _};
+use unicode_normalization::char::is_combining_mark;
+use unicode_normalization::UnicodeNormalization;
 
 /// The prefix of every autoresearch branch.
 pub(crate) const BRANCH_PREFIX: &str = "autoresearch/";
 
-/// The longest goal slug of a branch name.
-const SLUG_MAX: usize = 48;
+/// The longest goal slug of a branch name (before its `-<YYYYMMDD>`).
+const SLUG_MAX: usize = 32;
+
+/// The most goal words a branch name keeps.
+const SLUG_WORDS: usize = 4;
+
+/// Words a branch name leaves out of the goal.
+const FILLER_WORDS: &[&str] = &[
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is", "it",
+    "its", "my", "of", "on", "or", "our", "please", "so", "that", "the", "this", "to", "with",
+    "your",
+];
 
 /// The dirty paths an error lists before it counts the rest.
 const DIRTY_PREVIEW: usize = 5;
@@ -101,7 +113,9 @@ commits of kept runs, or resets of the others."
 
 /// Put the workspace on an `autoresearch/*` branch (omp
 /// `ensureAutoresearchBranch`): keep the one checked out, else create
-/// `autoresearch/<slug(goal)>-<YYYYMMDD>[-N]` from a clean tree.
+/// `autoresearch/<slug(goal)>-<YYYYMMDD>[-N]` from a clean tree (`-2`,
+/// `-3`, ... after a name taken). A resumed session's branch, checked out,
+/// is kept as it is: a running experiment's branch is never renamed.
 ///
 /// # Errors
 ///
@@ -152,22 +166,44 @@ already, create the branch yourself (`git switch -c autoresearch/<name>`): autor
     Ok(Branch::Created(name))
 }
 
-/// The goal as a branch-name slug: lower-case ASCII letters and digits,
-/// every other run of characters one `-`, at most [`SLUG_MAX`] long.
+/// The goal as a short branch-name slug: its first [`SLUG_WORDS`] words
+/// (filler words such as "the" or "of" left out), lower-case ASCII
+/// letters and digits joined by `-`, cut at a word boundary to at most
+/// [`SLUG_MAX`] characters (a first word longer than that is cut). Accents
+/// fold to their letters (`função` -> `funcao`); any other character
+/// separates words. Empty when the goal has no ASCII letter or digit.
 pub(crate) fn slug(goal: &str) -> String {
+    let folded: String = goal
+        .nfkd()
+        .filter(|character| !is_combining_mark(*character))
+        .collect();
+    let words: Vec<String> = folded
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let content: Vec<&str> = words
+        .iter()
+        .map(String::as_str)
+        .filter(|word| !FILLER_WORDS.contains(word))
+        .collect();
+    let chosen: Vec<&str> = if content.is_empty() {
+        words.iter().map(String::as_str).collect()
+    } else {
+        content
+    };
     let mut out = String::new();
-    for character in goal.chars() {
-        if character.is_ascii_alphanumeric() {
-            out.push(character.to_ascii_lowercase());
-        } else if !out.is_empty() && !out.ends_with('-') {
+    for word in chosen.into_iter().take(SLUG_WORDS) {
+        if out.is_empty() {
+            out.push_str(&word[..word.len().min(SLUG_MAX)]);
+        } else if out.len() + 1 + word.len() <= SLUG_MAX {
             out.push('-');
-        }
-        if out.len() >= SLUG_MAX {
+            out.push_str(word);
+        } else {
             break;
         }
     }
-    out.truncate(SLUG_MAX);
-    out.trim_end_matches('-').to_owned()
+    out
 }
 
 impl Repo {
@@ -322,17 +358,62 @@ fn text(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{deviations, parse_status, slug};
+    use super::{deviations, parse_status, slug, BRANCH_PREFIX};
 
     #[test]
-    fn slug_keeps_words_and_bounds_length() {
+    fn slug_keeps_a_few_words_of_the_goal() {
+        assert_eq!(slug("Speed up the JSON parser!"), "speed-up-json-parser");
+        // A long prompt keeps its first four words, never the whole text.
+        let prompt = "Make the test suite of this repository run at least twice as fast \
+without breaking anything; measure with `cargo test --release` and keep every test green.";
+        assert_eq!(slug(prompt), "make-test-suite-repository");
+        // Cut at a word boundary within 32 characters.
         assert_eq!(
-            slug("Speed up the JSON parser!"),
-            "speed-up-the-json-parser"
+            slug("internationalization localization performance regression"),
+            "internationalization"
         );
+        assert_eq!(
+            slug("reduce allocation pressure everywhere"),
+            "reduce-allocation-pressure"
+        );
+        // A first word longer than the bound is cut.
+        assert_eq!(slug(&"a".repeat(60)), "a".repeat(32));
+        // Punctuation, paths and digits.
+        assert_eq!(
+            slug("p99 latency of `src/http.rs` -> <5ms!!"),
+            "p99-latency-src-http"
+        );
+        // Accents fold; other scripts separate words.
+        assert_eq!(
+            slug("Otimizar a função de busca"),
+            "otimizar-funcao-de-busca"
+        );
+        assert_eq!(slug("ускорить парсер JSON 速く"), "json");
+        // Empty-ish goals give nothing (the caller names the branch `session`).
         assert_eq!(slug("  --  "), "");
-        assert_eq!(slug(&"a".repeat(60)).len(), 48);
-        assert_eq!(slug(&format!("{}-b", "a".repeat(47))), "a".repeat(47));
+        assert_eq!(slug("速くする"), "");
+        // Only filler words: they are kept rather than nothing.
+        assert_eq!(slug("to be or"), "to-be-or");
+    }
+
+    /// Every slug makes a branch name git accepts.
+    #[test]
+    fn slugs_make_valid_branch_names() {
+        for goal in [
+            "Speed up the JSON parser!",
+            "..lock .lock/@{x}~^:?*[\\",
+            "função ação",
+            &"x".repeat(200),
+            "a--b__c",
+        ] {
+            let name = format!("{BRANCH_PREFIX}{}-20261113", slug(goal));
+            let status = std::process::Command::new("git")
+                .args(["check-ref-format", "--branch", &name])
+                .output()
+                .expect("git runs")
+                .status;
+            assert!(status.success(), "{name}");
+        }
     }
 
     #[test]

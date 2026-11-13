@@ -100,7 +100,7 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
     let begun = lab.begin("Speed up the parser").await.unwrap();
     let date = crate::platform::local_time(std::time::SystemTime::now()).unwrap();
     let branch = format!(
-        "autoresearch/speed-up-the-parser-{:04}{:02}{:02}",
+        "autoresearch/speed-up-parser-{:04}{:02}{:02}",
         date.year, date.month, date.day
     );
     assert_eq!(begun.branch, Branch::Created(branch.clone()));
@@ -201,6 +201,33 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
     );
     let (_, mut replayed) = Store::open(dir).unwrap();
     assert_eq!(replayed.snapshot().unwrap(), live);
+}
+
+/// The branch of a long prompt is a few of its words; a taken name gets
+/// `-2`; a resumed session keeps the branch it is on, whatever the goal.
+#[tokio::test]
+async fn the_branch_name_is_short_unique_and_stable() {
+    let home = tempfile::tempdir().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().canonicalize().unwrap();
+    repository(&repo);
+    let date = crate::platform::local_time(std::time::SystemTime::now()).unwrap();
+    let stamp = format!("{:04}{:02}{:02}", date.year, date.month, date.day);
+    let taken = format!("autoresearch/make-parser-faster-profile-{stamp}");
+    git(&repo, &["branch", &taken]);
+    let lab = lab(home.path(), &repo);
+
+    let prompt = "Make the parser faster: profile src/parser.rs, cut allocations in the \
+tokenizer, and keep every existing test passing while you iterate on the benchmark.";
+    let begun = lab.begin(prompt).await.unwrap();
+    let second = format!("{taken}-2");
+    assert_eq!(begun.branch, Branch::Created(second.clone()));
+    assert_eq!(git(&repo, &["branch", "--show-current"]), second);
+
+    // A resume on the branch, with another goal: the name stays.
+    let resumed = lab.begin("a different goal altogether").await.unwrap();
+    assert_eq!(resumed.branch, Branch::Kept(second.clone()));
+    assert_eq!(git(&repo, &["branch", "--show-current"]), second);
 }
 
 /// The `autoresearch.init` host request of a real session, from a clean
