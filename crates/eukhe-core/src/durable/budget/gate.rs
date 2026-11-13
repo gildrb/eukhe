@@ -41,7 +41,7 @@ use eukhe_ai::utils::context_tokens::{context_tokens, message_tokens, model_toke
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::retry::BUDGET_REFUSAL_DIAGNOSTIC;
 use eukhe_budget::{
-    actual_spend, worst_case_cost_micros, RequestBound, Reserved, Use, REQUEST_MIN_MS,
+    actual_spend, worst_case_cost_micros, RequestBound, Reserved, Use, FINAL_MIN_MS, REQUEST_MIN_MS,
 };
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_tokens::Tokenizer;
@@ -348,13 +348,16 @@ pub(super) struct Request<O> {
 }
 
 /// A granted request about to go out: its reservation and what it is for,
-/// the report that granted it, and the context it is sent with.
+/// the report that granted it, the context it is sent with, and when it
+/// was asked for: its granted time runs from then (the ledger granted it
+/// no earlier), not from when it was sent.
 struct Granted {
     id: u64,
     amount: BudgetAmounts,
     use_: Use,
     report: BudgetReport,
     context: TranscriptContext,
+    asked: tokio::time::Instant,
 }
 
 /// An agent turn that work no longer fits, on its way to be sent as its
@@ -829,6 +832,7 @@ impl<O: GatedOptions> Request<O> {
         // What an agent turn asks again when it is stopped at a granted
         // time the deadline cut.
         let asked = agent_turn.then(|| offered.clone());
+        let asked_at = tokio::time::Instant::now();
         let reserved = self
             .gate
             .reserve(
@@ -868,6 +872,7 @@ impl<O: GatedOptions> Request<O> {
                     use_,
                     report,
                     context,
+                    asked: asked_at,
                 };
                 (granted, again)
             }
@@ -1005,6 +1010,10 @@ impl<O: GatedOptions> Request<O> {
             .iter()
             .map(|cap| facts.amount(input, *cap, facts.final_ms))
             .collect();
+        // Cut to the time left, never below `FINAL_MIN_MS`: after a work
+        // turn stopped at its granted time, its settlement and this ask took
+        // a moment of the time its reserve kept.
+        let asked_at = tokio::time::Instant::now();
         let answered = self
             .gate
             .reserve(
@@ -1012,7 +1021,7 @@ impl<O: GatedOptions> Request<O> {
                 format!("final:{target}"),
                 BudgetAmounts::default(),
                 answers,
-                REQUEST_MIN_MS,
+                FINAL_MIN_MS,
             )
             .await;
         match answered {
@@ -1043,6 +1052,7 @@ impl<O: GatedOptions> Request<O> {
                     use_: Use::Final,
                     report: granted,
                     context,
+                    asked: asked_at,
                 };
                 // A final answer is no work turn: it is never stopped into
                 // another.
@@ -1072,12 +1082,14 @@ impl<O: GatedOptions> Request<O> {
             use_,
             report,
             context,
+            asked,
         } = granted;
         let model = &self.model;
-        // A budget with a deadline stops the request at its granted time.
-        let stop_after = report
+        // A budget with a deadline stops the request at its granted time,
+        // counted from when it was asked for.
+        let stop_at = report
             .deadline_ms
-            .map(|_| Duration::from_millis(amount.time_ms));
+            .map(|_| asked + Duration::from_millis(amount.time_ms));
         // The options a stopped work turn's final answer is sent with:
         // without this request's stop signal.
         let unstopped = match turn {
@@ -1085,7 +1097,7 @@ impl<O: GatedOptions> Request<O> {
             Turn::Side | Turn::Final(_) => None,
         };
         let stopper = AbortController::new();
-        if stop_after.is_some() {
+        if stop_at.is_some() {
             let request = &mut options.stream_mut().request;
             request.signal = Some(match request.signal.take() {
                 Some(caller) => AbortSignal::any(&[caller, stopper.signal()]),
@@ -1096,8 +1108,8 @@ impl<O: GatedOptions> Request<O> {
         let sent = tokio::time::Instant::now();
         let mut events = (self.inner)(model, &context, options).events();
         let stop = async {
-            match stop_after {
-                Some(after) => tokio::time::sleep(after).await,
+            match stop_at {
+                Some(at) => tokio::time::sleep_until(at).await,
                 None => std::future::pending().await,
             }
         };

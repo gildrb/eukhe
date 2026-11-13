@@ -17,7 +17,7 @@ use crate::durable::children::reconcile;
 /// A session whose budget gate keeps its ledgers under `agent_dir`.
 fn setup_in(agent_dir: &std::path::Path) -> Setup {
     Setup {
-        budget: BudgetGate::open(agent_dir, PARENT_SESSION_ID, None, default_settings()),
+        budget: BudgetGate::open(agent_dir, PARENT_SESSION_ID, None),
         ..setup()
     }
 }
@@ -99,12 +99,7 @@ async fn children_without_a_budget_draw_from_the_parents_account() {
         .into_values()
         .collect();
     let first = &rows[0].session_id;
-    let child = BudgetGate::open(
-        agent_dir.path(),
-        first,
-        Some(PARENT_SESSION_ID),
-        default_settings(),
-    );
+    let child = BudgetGate::open(agent_dir.path(), first, Some(PARENT_SESSION_ID));
     assert_eq!(
         (
             rows.iter()
@@ -434,12 +429,7 @@ async fn a_parent_with_no_budget_spawns_without_a_ledger() {
 #[test]
 fn a_joined_child_is_a_member_below_its_parent() {
     let agent_dir = tempfile::tempdir().unwrap();
-    let parent = BudgetGate::open(
-        agent_dir.path(),
-        PARENT_SESSION_ID,
-        None,
-        default_settings(),
-    );
+    let parent = BudgetGate::open(agent_dir.path(), PARENT_SESSION_ID, None);
     parent.set(cost_limit(1_000_000)).unwrap();
     parent.admit_child("child").unwrap();
     assert_eq!(

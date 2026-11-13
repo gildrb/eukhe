@@ -273,9 +273,8 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
             let agent_dir = config.agent_dir.clone();
             let session_id = config.session_id.clone();
             let parent = parent.as_ref().map(|parent| parent.session_id.clone());
-            let settings = Arc::clone(&settings);
             tokio::task::spawn_blocking(move || {
-                BudgetGate::open(&agent_dir, &session_id, parent.as_deref(), settings)
+                BudgetGate::open(&agent_dir, &session_id, parent.as_deref())
             })
             .await
             .map_err(|error| {

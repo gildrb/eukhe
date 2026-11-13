@@ -286,17 +286,19 @@ fn the_ledgers_total_is_the_sum_of_the_providers_usage() {
     }
 }
 
-/// A short `--budget-time`: a deadline closer than a work request and the
-/// final answer's reserve together. The first request is refused as work
-/// (time), the agent is told to wrap up, and its final answer is granted
-/// and given: the run ends with that answer.
+/// A short `--budget-time` (40 s): a deadline closer than a work request
+/// and the final answer's reserve together (20 s kept, B14, and a request's
+/// 30 s floor). The first request is refused as work (time), the agent is
+/// told to wrap up, and its final answer is granted and given: the run ends
+/// with that answer. (At 2 minutes, as this test had it before B14, the
+/// reserve keeps 30 s and work fits.)
 #[test]
 fn a_short_deadline_wraps_the_run_up_with_its_final_answer() {
     let home = tempfile::TempDir::new().unwrap();
     let script = json!({ "responses": ["the final answer"] });
     let (stdout, stderr, code) = run(
         home.path(),
-        &["--budget-time", "2m", "--mode", "json", "-p", "work on it"],
+        &["--budget-time", "40s", "--mode", "json", "-p", "work on it"],
         &script,
     );
     assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
@@ -306,8 +308,8 @@ fn a_short_deadline_wraps_the_run_up_with_its_final_answer() {
     let open = &records[0];
     assert_eq!(
         open["op"]["deadlineMs"].as_u64(),
-        open["atMs"].as_u64().map(|at| at + 120_000),
-        "the deadline is 2 minutes after the budget was set: {open:#}"
+        open["atMs"].as_u64().map(|at| at + 40_000),
+        "the deadline is 40 seconds after the budget was set: {open:#}"
     );
     let reserves: Vec<(Value, Value)> = records
         .iter()

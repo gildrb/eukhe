@@ -1,8 +1,9 @@
-//! The tool-call side of a task's budget (spec/README.md B1, B4): a tool
-//! call reserves one call and its blocking time before it runs, and
-//! settles the one call after. A call that does not fit does not run: the
-//! model reads a tool error that tells it to give its final answer. A
-//! budget with a deadline stops a call at its granted time.
+//! The tool-call side of a task's budget (spec/README.md B1, B4, B10): a
+//! tool call reserves one call and its time before it runs, and settles
+//! the one call after. A call that does not fit does not run: the model
+//! reads a tool error that tells it to give its final answer. A budget
+//! with a deadline stops a call at its granted time, where the deadline
+//! (with the final-answer reserves) cuts it.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -18,14 +19,18 @@ use futures::FutureExt as _;
 use super::notices::{self, NoticeKind};
 use super::{BudgetGate, Held};
 
-/// How long a tool call may block when the settings name no blocking
-/// budget.
-const DEFAULT_TOOL_TIME_MS: u64 = 600_000;
-/// How long past its granted time a call that was granted its whole
-/// blocking budget may still end by itself: at that budget the tool
-/// detaches its work and returns, and the gate must not cancel the call
-/// while it does.
-const DETACH_GRACE_MS: u64 = 5_000;
+/// What one tool call asks: the call, and longer than any call blocks. A
+/// call blocks its blocking budget and detaches, but an explicit wait
+/// (`jobs.wait`, `rlm.collect`) blocks up to 30 minutes: so a call asks a
+/// day, which a budget with a deadline cuts to the time left before it
+/// (the ledger clips it). Only the deadline stops a call.
+pub(super) const TOOL_OFFER: BudgetAmounts = BudgetAmounts {
+    cost_micros: 0,
+    tokens: 0,
+    time_ms: 24 * 60 * 60 * 1000,
+    tool_calls: 1,
+    requests: 0,
+};
 
 /// How a tool call came through the gate.
 #[derive(Debug, PartialEq, Eq)]
@@ -38,27 +43,8 @@ pub(super) enum ToolOutcome<T> {
 }
 
 impl BudgetGate {
-    /// What one tool call asks: the call and its blocking time (the
-    /// settings' blocking budget; the ledger clips it to what is left
-    /// before the deadline).
-    pub(super) fn tool_offer(&self) -> BudgetAmounts {
-        let blocking = self.settings.as_ref().map_or(0, |settings| {
-            let budget = settings.manager().get_tool_blocking_budget();
-            u64::try_from(budget.as_millis()).unwrap_or(u64::MAX)
-        });
-        BudgetAmounts {
-            tool_calls: 1,
-            time_ms: if blocking == 0 {
-                DEFAULT_TOOL_TIME_MS
-            } else {
-                blocking
-            },
-            ..BudgetAmounts::default()
-        }
-    }
-
-    /// One tool call `label` behind the gate: reserve its
-    /// [`Self::tool_offer`], leaving the agent's final-answer reserve free;
+    /// One tool call `label` behind the gate: reserve [`TOOL_OFFER`],
+    /// leaving the agent's final-answer reserve free;
     /// `run` the call under `cx` when granted; settle the one call. A
     /// budget with a deadline also cancels the call's context once its
     /// granted time passed. A session without a budget just runs the call.
@@ -72,8 +58,7 @@ impl BudgetGate {
         F: FnOnce(Context) -> Fut,
         Fut: Future<Output = T>,
     {
-        let offer = self.tool_offer();
-        let blocking = offer.time_ms;
+        let offer = TOOL_OFFER;
         let one_call = BudgetAmounts {
             time_ms: 0,
             ..offer
@@ -109,13 +94,7 @@ impl BudgetGate {
         let outcome = if report.deadline_ms.is_none() {
             ToolOutcome::Ran(run(cx).await)
         } else {
-            let granted = reservation.amount.time_ms;
-            let grace = if granted >= blocking {
-                DETACH_GRACE_MS
-            } else {
-                0
-            };
-            let stop_after = Duration::from_millis(granted.saturating_add(grace));
+            let stop_after = Duration::from_millis(reservation.amount.time_ms);
             let (stoppable, stop) = with_cancel(&cx);
             let call = run(stoppable);
             tokio::pin!(call);

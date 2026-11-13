@@ -40,7 +40,6 @@ use super::gate::{offers, CostFacts, FRAMING_TOKENS};
 use super::notices::{self, Notice, NoticeKind};
 use super::tools::ToolOutcome;
 use super::{wrap_models_with_budget, BudgetGate, FIRST_TURN};
-use crate::durable::settings::EukheSettings;
 
 /// The ledger clock of the clocked fixtures: a fixed epoch ms, so a
 /// deadline's granted time is exact.
@@ -128,19 +127,15 @@ impl Fixture {
     fn with_provider(answer: Answer, clock: Clock, options: RegisterFauxProviderOptions) -> Self {
         let dir = TempDir::new().unwrap();
         let agent_dir = dir.path().join("agent");
-        let cwd = dir.path().join("work");
         std::fs::create_dir_all(&agent_dir).unwrap();
-        std::fs::create_dir_all(&cwd).unwrap();
-        let settings = Arc::new(EukheSettings::new(cwd, &agent_dir));
         let ledger = Ledger::of(&agent_dir.join("budgets"), "session");
         let gate = match clock {
-            Clock::Real => BudgetGate::open(&agent_dir, "session", None, settings),
+            Clock::Real => BudgetGate::open(&agent_dir, "session", None),
             Clock::Fixed | Clock::Moving => Arc::new(BudgetGate {
                 ledger: ledger.with_clock(match clock {
                     Clock::Fixed | Clock::Real => fixed_clock,
                     Clock::Moving => moving_clock,
                 }),
-                settings: Some(settings),
                 reports: watch::Sender::new(None),
                 keep: Mutex::default(),
                 told: Mutex::default(),
@@ -904,11 +899,15 @@ async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
 }
 
 /// The answer, the budget's report after it and the final answer's
-/// notice when an agent's work turn of a 3-minute budget is stopped at its
-/// granted time (135 s: 45 s kept), on a ledger clock the stop moves:
-/// `streamed`, after it streamed text; else before any content.
+/// notice when an agent's work turn of a `budget_ms` time budget is
+/// stopped at its granted time (3 minutes: 135 s, 45 s kept; 1 minute:
+/// 40 s, 20 s kept), on a ledger clock the stop moves, and `late_ms` more
+/// (what settling the stop takes on a real disk): `streamed`, after it
+/// streamed text; else before any content.
 async fn stopped_at_the_deadline(
     streamed: bool,
+    late_ms: u64,
+    budget_ms: u64,
 ) -> (
     Vec<AssistantContentBlock>,
     Option<BudgetReport>,
@@ -945,7 +944,7 @@ async fn stopped_at_the_deadline(
                     signal.cancelled().await;
                     // The ledger's clock moves with the stop.
                     let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap();
-                    MOVING_MS.fetch_add(elapsed, Ordering::SeqCst);
+                    MOVING_MS.fetch_add(elapsed + late_ms, Ordering::SeqCst);
                     sink.push(AssistantMessageEvent::Error {
                         reason: ErrorReason::Aborted,
                         error: AssistantMessage {
@@ -983,7 +982,7 @@ async fn stopped_at_the_deadline(
     fixture
         .gate
         .set(BudgetLimits {
-            time_ms: Some(180_000),
+            time_ms: Some(budget_ms),
             ..BudgetLimits::default()
         })
         .unwrap();
@@ -1016,8 +1015,8 @@ async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
     let notice = "[budget] The time budget of this task is used up for work: 45s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
     assert_eq!(
         (
-            stopped_at_the_deadline(false).await,
-            stopped_at_the_deadline(true).await,
+            stopped_at_the_deadline(false, 0, 180_000).await,
+            stopped_at_the_deadline(true, 0, 180_000).await,
         ),
         (
             (
@@ -1031,6 +1030,30 @@ async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
                 Some(notice.to_owned()),
             ),
         )
+    );
+}
+
+/// B6, B10, B14: a work turn stopped at its granted time gives its final
+/// answer when the ledger's clock has moved on a little past the stop
+/// (settling it takes a moment of the reserve's time): the final answer
+/// runs for what is left of the reserve. Before, a reserve of at most a
+/// request's floor (30 s; here 20 s of a 1-minute budget) was asked
+/// whole, which no longer fit: it was refused for time, the agent was
+/// exhausted and the run had no final answer (the bench's
+/// `budget_time_model`, a model request stopped at 160 s of 180 s with 20 s
+/// kept, its final answer refused with 19.95 s left).
+#[tokio::test(start_paused = true)]
+async fn a_final_answer_after_a_late_stop_runs_for_what_is_left_of_the_reserve() {
+    let (content, report, _) = stopped_at_the_deadline(false, 50, 60_000).await;
+    assert_eq!(
+        (
+            content,
+            report.map(|report| (report.phase, report.short, report.free.time_ms)),
+        ),
+        (
+            vec![faux_text("wrapped up")],
+            Some((BudgetPhase::WrapUp, Some(BudgetDimension::Time), 19_950)),
+        ),
     );
 }
 
@@ -1320,15 +1343,7 @@ async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
         .settle(reservation.id, BudgetAmounts::default())
         .unwrap();
     let agent_dir = fixture.agent_dir();
-    let child = BudgetGate::open(
-        &agent_dir,
-        "child",
-        Some("session"),
-        Arc::new(EukheSettings::new(
-            fixture.dir.path().join("work"),
-            &agent_dir,
-        )),
-    );
+    let child = BudgetGate::open(&agent_dir, "child", Some("session"));
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(fixture.faux.provider.clone());
     wrap_models_with_budget(&models, &child);
@@ -1889,9 +1904,8 @@ async fn a_budget_without_time_for_a_request_funds_no_turn() {
 }
 
 /// Time: a budget with a deadline cancels a tool call at its granted time
-/// (the time left before the deadline, here under the 30 s blocking
-/// budget): the call's context is cancelled exactly then, and the model
-/// reads the budget's tool error.
+/// (the time left before the deadline): the call's context is cancelled
+/// exactly then, and the model reads the budget's tool error.
 #[tokio::test(start_paused = true)]
 async fn a_tool_call_is_stopped_at_its_granted_time() {
     let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
@@ -1926,6 +1940,37 @@ async fn a_tool_call_is_stopped_at_its_granted_time() {
             Some(std::time::Duration::from_secs(20))
         )
     );
+}
+
+/// B10, B8: only the deadline stops a tool call. A call that blocks past
+/// the tool blocking budget by its own contract (an explicit wait such as
+/// `jobs.wait` blocks up to 30 minutes) runs to its end while the time
+/// budget leaves it room. Before, a call asked only the blocking budget's
+/// time (30 s) and was stopped 5 s past it with "Budget exhausted (time)"
+/// though 114 s of 180 s were left (the bench's `budget_time_tool`): the
+/// model took the budget for spent and gave up its wait.
+#[tokio::test(start_paused = true)]
+async fn a_tool_call_past_the_blocking_budget_runs_while_the_deadline_leaves_it_time() {
+    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let outcome = fixture
+        .gate
+        .gated_call(
+            "tool:python".to_owned(),
+            BACKGROUND_CONTEXT.clone(),
+            |_cx| async {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                "waited"
+            },
+        )
+        .await;
+    assert_eq!(outcome, ToolOutcome::Ran("waited"));
 }
 
 /// B4, B1: a tool call within the tool-call limit runs and settles one

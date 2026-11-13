@@ -504,7 +504,6 @@ fn setup() -> Setup {
             std::path::Path::new("/nonexistent/eukhe-children-tests"),
             PARENT_SESSION_ID,
             None,
-            default_settings(),
         ),
     }
 }

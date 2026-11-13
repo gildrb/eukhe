@@ -43,7 +43,6 @@ use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport
 use tokio::sync::watch;
 
 use super::deps::{HostCall, HostCallHandler, HostDeps};
-use super::settings::EukheSettings;
 
 pub use notices::BUDGET_NOTICE_CUSTOM_TYPE;
 pub use rows::wrap_models_with_budget;
@@ -73,9 +72,6 @@ const FIRST_TURN: BudgetAmounts = BudgetAmounts {
 /// its deferred responses until they are fetched.
 pub struct BudgetGate {
     ledger: Ledger,
-    /// The session's settings (the tool blocking budget). `None` for a
-    /// side gate, which wraps no tool.
-    settings: Option<Arc<EukheSettings>>,
     reports: watch::Sender<Option<BudgetReport>>,
     keep: Mutex<BudgetAmounts>,
     told: Mutex<notices::Told>,
@@ -131,9 +127,8 @@ impl BudgetGate {
         agent_dir: &Path,
         session_id: &str,
         parent_session_id: Option<&str>,
-        settings: Arc<EukheSettings>,
     ) -> Arc<BudgetGate> {
-        let gate = Self::over(agent_dir, session_id, Some(settings));
+        let gate = Self::over(agent_dir, session_id);
         if let Some(parent) = parent_session_id {
             let entered = match gate.ledger.ensure_child(parent) {
                 Ok(Some(_)) => Ok(()),
@@ -178,7 +173,7 @@ impl BudgetGate {
     /// [`wrap_models_with_budget`]. No IO.
     #[must_use]
     pub fn side(agent_dir: &Path, session_id: &str) -> Arc<BudgetGate> {
-        Self::over(agent_dir, session_id, None)
+        Self::over(agent_dir, session_id)
     }
 
     /// The gate of the provider requests that belong to no task: the
@@ -189,14 +184,9 @@ impl BudgetGate {
         Self::side(agent_dir, DAEMON_ACCOUNT)
     }
 
-    fn over(
-        agent_dir: &Path,
-        session_id: &str,
-        settings: Option<Arc<EukheSettings>>,
-    ) -> Arc<BudgetGate> {
+    fn over(agent_dir: &Path, session_id: &str) -> Arc<BudgetGate> {
         Arc::new(BudgetGate {
             ledger: Ledger::of(&agent_dir.join("budgets"), session_id),
-            settings,
             reports: watch::Sender::new(None),
             keep: Mutex::new(BudgetAmounts::default()),
             told: Mutex::new(notices::Told::default()),
@@ -261,7 +251,7 @@ impl BudgetGate {
         };
         let funded = admits(request, REQUEST_MIN_MS).and_then(|funded| {
             if funded {
-                admits(self.tool_offer(), TOOL_MIN_MS)
+                admits(tools::TOOL_OFFER, TOOL_MIN_MS)
             } else {
                 Ok(false)
             }
@@ -375,7 +365,7 @@ impl BudgetGate {
     /// larger of the agent's largest step as actually spent and the
     /// smallest hold its next work can be granted, a model request (the
     /// smallest offer of its last work request; one model request before
-    /// the first) or a tool call ([`Self::tool_offer`]); in time, the
+    /// the first) or a tool call ([`tools::TOOL_OFFER`]); in time, the
     /// shortest such a request or call is clipped to, or what it asks when
     /// that is less. So a grant not low funds one more step of the work
     /// the agent asks, and it is told its budget runs low before its work
@@ -383,7 +373,7 @@ impl BudgetGate {
     fn work_step(&self) -> BudgetAmounts {
         let actual = self.step();
         let request = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
-        let tool = self.tool_offer();
+        let tool = tools::TOOL_OFFER;
         BudgetAmounts {
             cost_micros: actual
                 .cost_micros

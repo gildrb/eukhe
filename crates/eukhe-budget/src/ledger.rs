@@ -43,6 +43,13 @@ pub const REQUEST_MIN_MS: u64 = 30_000;
 /// The shortest time a tool call's offers are clipped to.
 pub const TOOL_MIN_MS: u64 = 10_000;
 
+/// The shortest time a final answer's offers are clipped to, below the
+/// least time a final answer's reserve keeps: after a work turn stopped at
+/// its granted time, the final answer runs for what is left of the
+/// reserve's time once the stop is settled and the answer asked; one with
+/// less time left is refused.
+pub const FINAL_MIN_MS: u64 = 10_000;
+
 /// What a reservation is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Use {
