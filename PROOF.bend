@@ -4368,6 +4368,7 @@ import ./proof/budget/budget_settle_keeps_others.bend as PBudgetSettleKeepsOther
 import ./proof/budget/budget_settle_within.bend as PBudgetSettleWithin
 import ./proof/budget/budget_settle_overrun_from_free.bend as PBudgetSettleOverrunFromFree
 import ./proof/budget/budget_settle_keeps_other_ids.bend as PBudgetSettleKeepsOtherIds
+import ./proof/budget/budget_settle_keeps_hold_list.bend as PBudgetSettleKeepsHoldList
 import ./proof/budget/budget_recover_charges_in_full.bend as PBudgetRecoverChargesInFull
 import ./proof/budget/budget_carve_moves.bend as PBudgetCarveMoves
 import ./proof/budget/budget_carve_iff.bend as PBudgetCarveIff

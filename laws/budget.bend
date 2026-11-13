@@ -818,6 +818,27 @@ law budget_settle_keeps_other_ids:
   for other: {Nat.is_eq(j, id) == False{} : Bool}
   {S.has(j, S.holds(B.settle(id, act, a))) == S.has(j, S.holds(a)) : Bool}
 
+# LAW budget_settle_keeps_hold_list (R5, R6): settling the one open
+# reservation under an id (the holds are xs, then that hold, then ys, and
+# neither xs nor ys holds the id) leaves exactly the holds xs then ys:
+# every other reservation stays as it was, each untouched, in its order;
+# a hold left open by a crash is settled the same way
+# EXCLUDES: a settlement that rewrites another open reservation (splits
+#   it into records under the same id, merges, reorders or changes one)
+#   while keeping each id's totals, so a later settlement of that id at
+#   what its record holds after a crash loses spend
+law budget_settle_keeps_hold_list:
+  for +id: Nat
+  for +act: B.Amt
+  for +a: B.Acct
+  for +xs: List<&2, B.Hold>
+  for +x: B.Amt
+  for +ys: List<&2, B.Hold>
+  for split: {S.holds(a) == List.append(&2, B.Hold, xs, B.Hold{id, x} <> ys) : List<&2, B.Hold>}
+  for before: {S.has(id, xs) == False{} : Bool}
+  for after: {S.has(id, ys) == False{} : Bool}
+  {S.holds(B.settle(id, act, a)) == List.append(&2, B.Hold, xs, ys) : List<&2, B.Hold>}
+
 # LAW budget_recover_charges_in_full (R6): a hold left open by a crash,
 # settled at what it holds, adds that to spent and nothing to free or to
 # the overrun
