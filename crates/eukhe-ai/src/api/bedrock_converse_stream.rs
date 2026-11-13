@@ -42,6 +42,7 @@ use serde::Deserialize;
 
 pub use client_config::{AwsCredentials, BedrockClientConfig, BedrockRequestHandler};
 pub use convert::{map_thinking_level_to_effort, supports_prompt_caching};
+pub(crate) use credentials::js_date_parse;
 
 use self::client::{BedrockFailure, SendRequest, StreamValue};
 use self::events::{handle_metadata, StreamBlocks};

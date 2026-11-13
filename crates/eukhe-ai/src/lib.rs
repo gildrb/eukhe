@@ -15,6 +15,7 @@ pub mod models_store;
 pub mod privacy;
 pub mod providers;
 pub mod quirks;
+pub mod quota;
 pub mod session_resources;
 pub mod typebox;
 pub mod types;

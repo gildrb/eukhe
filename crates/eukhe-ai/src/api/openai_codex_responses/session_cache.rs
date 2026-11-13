@@ -634,6 +634,12 @@ async fn run_websocket_request(
             events,
             request.model,
             options.stream.on_provider_stream_event.clone(),
+            options
+                .stream
+                .request
+                .api_key
+                .as_deref()
+                .map(crate::quota::CredentialId::of),
             Arc::clone(&effects),
         ),
         move || {

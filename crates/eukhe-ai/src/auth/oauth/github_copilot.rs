@@ -53,7 +53,7 @@ struct RetryPolicy {
     max_elapsed_ms: u64,
 }
 
-fn normalize_domain(input: &str) -> Option<String> {
+pub(crate) fn normalize_domain(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -336,7 +336,7 @@ async fn fetch_with_rate_limit_retry(
     }
 }
 
-fn copilot_request(request: FetchRequest) -> FetchRequest {
+pub(crate) fn copilot_request(request: FetchRequest) -> FetchRequest {
     COPILOT_HEADERS
         .iter()
         .fold(request, |request, (name, value)| {
