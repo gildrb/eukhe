@@ -32,14 +32,17 @@ mod tests;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use eukhe_budget::{CarveOutcome, Ledger, LedgerError, Member, ReclaimOutcome, Reserved, Use};
+use eukhe_budget::{
+    CarveOutcome, Ledger, LedgerError, Member, ReclaimOutcome, Reserved, Use, REQUEST_MIN_MS,
+    TOOL_MIN_MS,
+};
 use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport};
 use tokio::sync::watch;
 
 use super::deps::{HostCall, HostCallHandler, HostDeps};
-use super::settings::EukheSettings;
 
 pub use notices::BUDGET_NOTICE_CUSTOM_TYPE;
 pub use rows::wrap_models_with_budget;
@@ -53,15 +56,22 @@ pub type BudgetError = LedgerError;
 /// session without a budget.
 pub const DAEMON_ACCOUNT: &str = "daemon";
 
+/// What an agent's turn asks first before a work request of its own told
+/// the gate more: one model request, for as long as a request may run.
+const FIRST_TURN: BudgetAmounts = BudgetAmounts {
+    cost_micros: 0,
+    tokens: 0,
+    time_ms: gate::DEFAULT_DEADLINE_MS,
+    tool_calls: 0,
+    requests: 1,
+};
+
 /// The budget one agent (a session) spends from: its ledger, the report
 /// every surface watches, the final-answer reserve its last agent turn
 /// computed, which notices the agent was given, and the reservations of
 /// its deferred responses until they are fetched.
 pub struct BudgetGate {
     ledger: Ledger,
-    /// The session's settings (the tool blocking budget). `None` for a
-    /// side gate, which wraps no tool.
-    settings: Option<Arc<EukheSettings>>,
     reports: watch::Sender<Option<BudgetReport>>,
     keep: Mutex<BudgetAmounts>,
     told: Mutex<notices::Told>,
@@ -69,6 +79,34 @@ pub struct BudgetGate {
     /// The open reservation of each deferred response (by
     /// `<provider>/<handle id>`): it settles when its fetch ends.
     deferred: Mutex<HashMap<String, Held>>,
+    /// The agent's steps as actually spent: what a grant's `low` (the Low
+    /// notice) is judged against, and its longest model request, which
+    /// its final answer's time reserve follows.
+    steps: Mutex<Steps>,
+    /// The smallest offer of the agent's last work request (one model
+    /// request before its first): the least its next turn asks first, as
+    /// its context only grows.
+    turn: Mutex<BudgetAmounts>,
+    /// Whether the agent's last delivered reply is its final answer from
+    /// the reserve: set when a final answer ends with its text, cleared
+    /// when a work turn ends.
+    final_answered: AtomicBool,
+}
+
+/// What the agent's steps actually spent, as this process saw them.
+#[derive(Debug, Default)]
+struct Steps {
+    /// Per spent dimension, the largest actual spend of one of the agent's
+    /// work requests or tool calls; `time_ms`: the longest time from the
+    /// start of one of its work requests to the start of the next.
+    largest: BudgetAmounts,
+    /// When its last work request started (Unix ms).
+    started_ms: Option<u64>,
+    /// The longest wall time of one of its own model requests (work or
+    /// its final answer) that ended with its response, from when it was
+    /// sent, on the clock that stops a request at its granted time;
+    /// `None` before the first (B14).
+    longest_request_ms: Option<u64>,
 }
 
 impl BudgetGate {
@@ -89,9 +127,8 @@ impl BudgetGate {
         agent_dir: &Path,
         session_id: &str,
         parent_session_id: Option<&str>,
-        settings: Arc<EukheSettings>,
     ) -> Arc<BudgetGate> {
-        let gate = Self::over(agent_dir, session_id, Some(settings));
+        let gate = Self::over(agent_dir, session_id);
         if let Some(parent) = parent_session_id {
             let entered = match gate.ledger.ensure_child(parent) {
                 Ok(Some(_)) => Ok(()),
@@ -136,7 +173,7 @@ impl BudgetGate {
     /// [`wrap_models_with_budget`]. No IO.
     #[must_use]
     pub fn side(agent_dir: &Path, session_id: &str) -> Arc<BudgetGate> {
-        Self::over(agent_dir, session_id, None)
+        Self::over(agent_dir, session_id)
     }
 
     /// The gate of the provider requests that belong to no task: the
@@ -147,19 +184,17 @@ impl BudgetGate {
         Self::side(agent_dir, DAEMON_ACCOUNT)
     }
 
-    fn over(
-        agent_dir: &Path,
-        session_id: &str,
-        settings: Option<Arc<EukheSettings>>,
-    ) -> Arc<BudgetGate> {
+    fn over(agent_dir: &Path, session_id: &str) -> Arc<BudgetGate> {
         Arc::new(BudgetGate {
             ledger: Ledger::of(&agent_dir.join("budgets"), session_id),
-            settings,
             reports: watch::Sender::new(None),
             keep: Mutex::new(BudgetAmounts::default()),
             told: Mutex::new(notices::Told::default()),
             notices: OnceLock::new(),
             deferred: Mutex::new(HashMap::new()),
+            steps: Mutex::default(),
+            turn: Mutex::new(FIRST_TURN),
+            final_answered: AtomicBool::new(false),
         })
     }
 
@@ -177,7 +212,7 @@ impl BudgetGate {
 
     /// The budget's state as this agent sees it, read from the ledger;
     /// `None`: the session has no budget. A ledger that cannot be read is
-    /// logged and reads as `None` (the gates refuse; [`Self::work_allowed`]
+    /// logged and reads as `None` (the gates refuse; [`Self::funds_turn`]
     /// is `false`).
     #[must_use]
     pub fn report(&self) -> Option<BudgetReport> {
@@ -197,17 +232,33 @@ impl BudgetGate {
         self.report().map(|report| report.phase)
     }
 
-    /// Whether the session may start work: it has no budget, or its budget
-    /// admits work for this agent. A ledger that cannot be read admits
-    /// none.
+    /// Whether the budget funds one more turn of this agent: it has no
+    /// budget, or the compiled core would grant the agent, as work, both
+    /// the smallest offer of its last work request and one tool call
+    /// ([`Ledger::admits`]). An agent wrapping up or exhausted, or one
+    /// whose account has no tool call, model request, money, tokens or
+    /// time left for a step past its final-answer reserve, is funded no
+    /// turn. A ledger that cannot be read funds none.
+    ///
+    /// Blocking file IO.
     #[must_use]
-    pub fn work_allowed(&self) -> bool {
-        match self.read() {
-            Ok(None) => true,
-            Ok(Some(report)) => match report.phase {
-                BudgetPhase::Working => true,
-                BudgetPhase::WrapUp | BudgetPhase::Exhausted => false,
-            },
+    pub fn funds_turn(&self) -> bool {
+        let keep = self.keep();
+        let request = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        let admits = |offer: BudgetAmounts, min_ms: u64| {
+            self.ledger
+                .admits(self.agent(), Use::Work, keep, &[offer], min_ms)
+        };
+        let funded = admits(request, REQUEST_MIN_MS).and_then(|funded| {
+            if funded {
+                admits(tools::TOOL_OFFER, TOOL_MIN_MS)
+            } else {
+                Ok(false)
+            }
+        });
+        match funded {
+            Ok(funded) => funded,
+            Err(LedgerError::NoBudget(_)) => true,
             Err(error) => {
                 tracing::warn!(session_id = self.agent(), %error, "the budget ledger was not read");
                 false
@@ -290,6 +341,96 @@ impl BudgetGate {
     #[must_use]
     pub fn keep(&self) -> BudgetAmounts {
         *self.keep.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether the agent's last delivered reply is its final answer from
+    /// the reserve: a final answer ended with its text (stop or length)
+    /// and no work turn ended after it, as this process saw them.
+    #[must_use]
+    pub fn final_answer_delivered(&self) -> bool {
+        self.final_answered.load(Ordering::Relaxed)
+    }
+
+    /// The agent's largest step as actually spent (zero before its
+    /// first): what a side request's `low` is judged against, and the
+    /// actual part of [`Self::work_step`].
+    fn step(&self) -> BudgetAmounts {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .largest
+    }
+
+    /// What a work grant's `low` is judged against (B7): per dimension the
+    /// larger of the agent's largest step as actually spent and the
+    /// smallest hold its next work can be granted, a model request (the
+    /// smallest offer of its last work request; one model request before
+    /// the first) or a tool call ([`tools::TOOL_OFFER`]); in time, the
+    /// shortest such a request or call is clipped to, or what it asks when
+    /// that is less. So a grant not low funds one more step of the work
+    /// the agent asks, and it is told its budget runs low before its work
+    /// is refused.
+    fn work_step(&self) -> BudgetAmounts {
+        let actual = self.step();
+        let request = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        let tool = tools::TOOL_OFFER;
+        BudgetAmounts {
+            cost_micros: actual
+                .cost_micros
+                .max(request.cost_micros)
+                .max(tool.cost_micros),
+            tokens: actual.tokens.max(request.tokens).max(tool.tokens),
+            time_ms: actual
+                .time_ms
+                .max(request.time_ms.min(REQUEST_MIN_MS))
+                .max(tool.time_ms.min(TOOL_MIN_MS)),
+            tool_calls: actual
+                .tool_calls
+                .max(request.tool_calls)
+                .max(tool.tool_calls),
+            requests: actual.requests.max(request.requests).max(tool.requests),
+        }
+    }
+
+    /// A work request of the agent starts at `now_ms`: the time since the
+    /// last one started is the length of a step.
+    fn step_started(&self, now_ms: u64) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(started) = steps.started_ms.replace(now_ms) {
+            steps.largest.time_ms = steps.largest.time_ms.max(now_ms.saturating_sub(started));
+        }
+    }
+
+    /// One of the agent's own model requests ended with its response
+    /// `ms` after it was sent.
+    fn request_ended(&self, ms: u64) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        let longest = steps
+            .longest_request_ms
+            .map_or(ms, |longest| longest.max(ms));
+        steps.longest_request_ms = Some(longest);
+    }
+
+    /// The longest of the agent's own model requests that ended with
+    /// their response; `None` before the first (B14).
+    fn longest_request_ms(&self) -> Option<u64> {
+        self.steps
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .longest_request_ms
+    }
+
+    /// A work request or tool call of the agent spent `spend`.
+    fn step_spent(&self, spend: BudgetAmounts) {
+        let mut steps = self.steps.lock().unwrap_or_else(PoisonError::into_inner);
+        let largest = steps.largest;
+        steps.largest = BudgetAmounts {
+            cost_micros: largest.cost_micros.max(spend.cost_micros),
+            tokens: largest.tokens.max(spend.tokens),
+            time_ms: largest.time_ms,
+            tool_calls: largest.tool_calls.max(spend.tool_calls),
+            requests: largest.requests.max(spend.requests),
+        };
     }
 
     /// The agents of the account and the agent above each one.
@@ -439,10 +580,14 @@ impl BudgetGate {
         offers: Vec<BudgetAmounts>,
         min_ms: u64,
     ) -> Result<Option<Reserved>, BudgetError> {
+        let step = match use_ {
+            Use::Work => self.work_step(),
+            Use::Side | Use::Final => self.step(),
+        };
         let gate = Arc::clone(self);
         let reserved = tokio::task::spawn_blocking(move || {
             gate.ledger
-                .reserve(gate.agent(), use_, &label, keep, &offers, min_ms)
+                .reserve(gate.agent(), use_, &label, keep, step, &offers, min_ms)
         })
         .await
         .map_err(|error| self.task_failed(error))?;
@@ -504,12 +649,15 @@ struct Held {
     /// What the reservation holds, time aside (time is a deadline, not a
     /// spend).
     full: BudgetAmounts,
+    /// What it is for: a settled work request or tool call is a step of
+    /// the agent.
+    use_: Use,
     settled: bool,
 }
 
 impl Held {
-    /// The reservation `id` of `gate`, holding `amount`.
-    fn start(gate: &Arc<BudgetGate>, id: u64, amount: BudgetAmounts) -> Held {
+    /// The reservation `id` of `gate` for `use_`, holding `amount`.
+    fn start(gate: &Arc<BudgetGate>, id: u64, amount: BudgetAmounts, use_: Use) -> Held {
         Held {
             gate: Arc::clone(gate),
             id,
@@ -517,19 +665,25 @@ impl Held {
                 time_ms: 0,
                 ..amount
             },
+            use_,
             settled: false,
         }
     }
 
     /// Settles at `spend` on a blocking thread. A reservation that held no
     /// model request (a side request's, a tool call's) is charged none: a
-    /// side request is no turn of the agent.
+    /// side request is no turn of the agent. The spend of work is a step
+    /// of the agent; one dropped unsettled is not (its spend is unknown).
     async fn settle(mut self, mut spend: BudgetAmounts) {
         // The blocking task runs to its end even when this future is
         // dropped while it waits.
         self.settled = true;
         if self.full.requests == 0 {
             spend.requests = 0;
+        }
+        match self.use_ {
+            Use::Work => self.gate.step_spent(spend),
+            Use::Final | Use::Side => {}
         }
         let gate = Arc::clone(&self.gate);
         let id = self.id;

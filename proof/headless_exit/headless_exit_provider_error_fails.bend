@@ -7,5 +7,5 @@ import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
 
-def HeadlessExit.headless_exit_provider_error_fails(cf, gu, r, c, a):
-  LAHeadlessExit.hx.facts_fail(cf, gu, r, Hx.PProviderError{}, c, a, LAHeadlessExit.hx.run_fails(r, Hx.PProviderError{}, c, a, {==}))
+def HeadlessExit.headless_exit_provider_error_fails(cf, w, r, c, a, ba):
+  LAHeadlessExit.hx.facts_fail(cf, w, r, Hx.PProviderError{}, c, a, ba, LAHeadlessExit.hx.run_fails(r, Hx.PProviderError{}, c, a, ba, {==}))

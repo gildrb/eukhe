@@ -10,15 +10,16 @@
 #     workflow runs and wakes (a Nat each), then unknown and limit hit
 #     (a Bool each); it fits when each count fits the wire.
 # W2: a settle reply is 0 finished, 1 waiting or 2 give up.
-# W3: an exit request is command failed and gave up (a Bool each), the
-#     run (0 no run | 1 answered | 2 unanswered, then its reason: 0 model
-#     error .. 9 other, in the order of bend/headless_exit.bend Reason),
-#     the primary entry (0 nothing .. 6 slash failed, in the order of
-#     Primary), then compaction failed and autonomous failed (a Bool
-#     each).
+# W3: an exit request is command failed (a Bool), the wait (0 quiet | 1
+#     gave up | 2 budget deadline, in the order of bend/headless_exit.bend
+#     Wait), the run (0 no run | 1 answered | 2 unanswered, then its
+#     reason: 0 model error .. 10 budget refused, in the order of Reason),
+#     the primary entry (0 nothing .. 7 budget refused, in the order of
+#     Primary), then compaction failed, autonomous failed and budget
+#     answered (a Bool each).
 # W4: an exit reply is the code (Nat), then the cause (0 answered ..
-#     9 autonomous failed, in the order of Cause; 3 run failed is followed
-#     by its reason).
+#     11 budget unanswered, in the order of Cause; 3 run failed is
+#     followed by its reason).
 # W5: anything else is no request.
 
 import Base
@@ -157,6 +158,17 @@ def w_reason(r: Hx.Reason, rest: String) -> String:
       Wr.put_nat(8n, rest)
     case Hx.Other{}:
       Wr.put_nat(9n, rest)
+    case Hx.BudgetRefused{}:
+      Wr.put_nat(10n, rest)
+
+def w_wait(w: Hx.Wait, rest: String) -> String:
+  match w:
+    case Hx.Quiet{}:
+      Wr.put_nat(0n, rest)
+    case Hx.GaveUp{}:
+      Wr.put_nat(1n, rest)
+    case Hx.BudgetDeadline{}:
+      Wr.put_nat(2n, rest)
 
 def w_run(run: Hx.Run, rest: String) -> String:
   match run:
@@ -183,12 +195,14 @@ def w_primary(p: Hx.Primary, rest: String) -> String:
       Wr.put_nat(5n, rest)
     case Hx.PSlashFailed{}:
       Wr.put_nat(6n, rest)
+    case Hx.PBudgetRefused{}:
+      Wr.put_nat(7n, rest)
 
 # an exit request, then rest
 def w_exit_req(f: Hx.Facts, rest: String) -> String:
   match f:
-    case Hx.Facts{cf, gu, run, p, c, a}:
-      Wr.put_bool(cf, Wr.put_bool(gu, w_run(run, w_primary(p, Wr.put_bool(c, Wr.put_bool(a, rest))))))
+    case Hx.Facts{cf, w, run, p, c, a, ba}:
+      Wr.put_bool(cf, w_wait(w, w_run(run, w_primary(p, Wr.put_bool(c, Wr.put_bool(a, Wr.put_bool(ba, rest)))))))
 
 def w_cause(c: Hx.Cause, rest: String) -> String:
   match c:
@@ -212,6 +226,10 @@ def w_cause(c: Hx.Cause, rest: String) -> String:
       Wr.put_nat(8n, rest)
     case Hx.CAutonomousFailed{}:
       Wr.put_nat(9n, rest)
+    case Hx.CBudgetLimited{}:
+      Wr.put_nat(10n, rest)
+    case Hx.CBudgetUnanswered{}:
+      Wr.put_nat(11n, rest)
 
 def w_verdict(v: Hx.Verdict, rest: String) -> String:
   match v:
@@ -220,6 +238,21 @@ def w_verdict(v: Hx.Verdict, rest: String) -> String:
 
 # The exit reader (W5)
 # --------------------
+
+def r_wait(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Wait>:
+  match d:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          Wr.Got{Hx.Quiet{}, s}
+        case 1n:
+          Wr.Got{Hx.GaveUp{}, s}
+        case 2n:
+          Wr.Got{Hx.BudgetDeadline{}, s}
+        case 3n+u:
+          Wr.Bad{}
+    case Wr.Bad{}:
+      Wr.Bad{}
 
 def r_reason(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Reason>:
   match d:
@@ -245,7 +278,9 @@ def r_reason(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Reason>:
           Wr.Got{Hx.Withdrawn{}, s}
         case 9n:
           Wr.Got{Hx.Other{}, s}
-        case 10n+u:
+        case 10n:
+          Wr.Got{Hx.BudgetRefused{}, s}
+        case 11n+u:
           Wr.Bad{}
     case Wr.Bad{}:
       Wr.Bad{}
@@ -290,50 +325,59 @@ def r_primary(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Primary>:
           Wr.Got{Hx.PSlashOk{}, s}
         case 6n:
           Wr.Got{Hx.PSlashFailed{}, s}
-        case 7n+u:
+        case 7n:
+          Wr.Got{Hx.PBudgetRefused{}, s}
+        case 8n+u:
           Wr.Bad{}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.auto(cf: Bool, gu: Bool, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
+def r_exit.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
+  match d:
+    case Wr.Got{ba, s}:
+      Wr.Got{Hx.Facts{cf, w, run, p, c, a, ba}, s}
+    case Wr.Bad{}:
+      Wr.Bad{}
+
+def r_exit.auto(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{a, s}:
-      Wr.Got{Hx.Facts{cf, gu, run, p, c, a}, s}
+      r_exit.budget(cf, w, run, p, c, a, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.comp(cf: Bool, gu: Bool, run: Hx.Run, p: Hx.Primary, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
+def r_exit.comp(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{c, s}:
-      r_exit.auto(cf, gu, run, p, c, Wr.get_bool(s))
+      r_exit.auto(cf, w, run, p, c, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.primary(cf: Bool, gu: Bool, run: Hx.Run, d: Wr.Dec<Hx.Primary>) -> Wr.Dec<Hx.Facts>:
+def r_exit.primary(cf: Bool, w: Hx.Wait, run: Hx.Run, d: Wr.Dec<Hx.Primary>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{p, s}:
-      r_exit.comp(cf, gu, run, p, Wr.get_bool(s))
+      r_exit.comp(cf, w, run, p, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.run(cf: Bool, gu: Bool, d: Wr.Dec<Hx.Run>) -> Wr.Dec<Hx.Facts>:
+def r_exit.run(cf: Bool, w: Hx.Wait, d: Wr.Dec<Hx.Run>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{run, s}:
-      r_exit.primary(cf, gu, run, r_primary(Wr.get_nat(s)))
+      r_exit.primary(cf, w, run, r_primary(Wr.get_nat(s)))
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.gave_up(cf: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
+def r_exit.wait(cf: Bool, d: Wr.Dec<Hx.Wait>) -> Wr.Dec<Hx.Facts>:
   match d:
-    case Wr.Got{gu, s}:
-      r_exit.run(cf, gu, r_run(Wr.get_nat(s)))
+    case Wr.Got{w, s}:
+      r_exit.run(cf, w, r_run(Wr.get_nat(s)))
     case Wr.Bad{}:
       Wr.Bad{}
 
 def r_exit.command(d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{cf, s}:
-      r_exit.gave_up(cf, Wr.get_bool(s))
+      r_exit.wait(cf, r_wait(Wr.get_nat(s)))
     case Wr.Bad{}:
       Wr.Bad{}
 

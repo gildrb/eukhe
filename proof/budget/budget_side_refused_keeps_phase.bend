@@ -11,6 +11,6 @@ import ../../bend/budget.bend as B
 import ../../spec/budget/ledger.bend as S
 import ./base/reserve.bend as BR
 
-def Budget.budget_side_refused_keeps_phase(p, id, now, base, keep, want, less, a, w, p2, g):
+def Budget.budget_side_refused_keeps_phase(p, id, now, base, keep, step, want, less, a, w, p2, g):
   %g : BR.br.KeepsPhase(_, p)
-  BR.br.side_keeps(p, id, now, base, keep, want, less, a)
+  BR.br.side_keeps(p, id, now, base, keep, step, want, less, a)

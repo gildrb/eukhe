@@ -34,6 +34,8 @@ def hx.put_reason(r: Hx.Reason, -rest: String) -> {FHx.put_reason(r, rest) == Sp
       {==}
     case Hx.Other{}:
       {==}
+    case Hx.BudgetRefused{}:
+      {==}
 
 def hx.put_cause(c: Hx.Cause, +rest: String) -> {FHx.put_cause(c, rest) == SpW.w_cause(c, rest) : String}:
   match c:
@@ -57,6 +59,10 @@ def hx.put_cause(c: Hx.Cause, +rest: String) -> {FHx.put_cause(c, rest) == SpW.w
     case Hx.CCompactionFailed{}:
       {==}
     case Hx.CAutonomousFailed{}:
+      {==}
+    case Hx.CBudgetLimited{}:
+      {==}
+    case Hx.CBudgetUnanswered{}:
       {==}
 
 # the entry spells an exit as the spec does

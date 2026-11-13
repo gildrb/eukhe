@@ -28,6 +28,10 @@ def hx.small(x: Hx.Cause) -> {Nat.is_le(Hx.code(x), 1n) == True{} : Bool}:
       {==}
     case Hx.CAutonomousFailed{}:
       {==}
+    case Hx.CBudgetLimited{}:
+      {==}
+    case Hx.CBudgetUnanswered{}:
+      {==}
 
 def HeadlessExit.headless_exit_code_at_most_one(f):
   hx.small(Hx.cause(f))

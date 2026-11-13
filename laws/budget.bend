@@ -37,8 +37,13 @@ import ./base.bend as LawsBase
 #     phase as it was; a refused side request never changes the phase
 #     (B6).
 # R4: after granted work or a granted side request, its agent's final
-#     answer within its reserve is granted (B6); the grant says when
-#     another request of its size would not fit (B7).
+#     answer within its reserve is granted (B6); the grant says the
+#     budget runs low exactly when two steps (`step`: per dimension the
+#     larger of the agent's largest recent step as actually spent and the
+#     smallest hold its work can be granted, in amount and in time; this
+#     one and one more), started now, with the reserves, would not fit
+#     what was free before the grant by the deadline, whichever offer was
+#     granted, so a grant not low funds one more step of that size (B7).
 # R5: a settlement charges exactly the actual spend, once: the hold is
 #     gone, the other holds stay, what was not spent is free again, the
 #     budget of the account is conserved, and a spend within the hold
@@ -138,8 +143,8 @@ def sp_dim_tag(d: B.Dim) -> Nat:
 # R9: the spelling of a request: its tag, then its fields
 def sp_w_req(q: FBg.Req, rest: String) -> String:
   match q:
-    case FBg.QReserve{u, p, id, now, base, keep, want, less, a}:
-      Wr.put_nat(0n, Wr.put_nat(sp_use_tag(u), Wr.put_nat(sp_phase_tag(p), Wr.put_nat(id, Wr.put_nat(now, sp_w_ask(base, sp_w_ask(keep, sp_w_ask(want, Wr.put_list(~B.Ask, ~sp_w_ask, less, sp_w_acct(a, rest))))))))))
+    case FBg.QReserve{u, p, id, now, base, keep, step, want, less, a}:
+      Wr.put_nat(0n, Wr.put_nat(sp_use_tag(u), Wr.put_nat(sp_phase_tag(p), Wr.put_nat(id, Wr.put_nat(now, sp_w_ask(base, sp_w_ask(keep, sp_w_ask(step, sp_w_ask(want, Wr.put_list(~B.Ask, ~sp_w_ask, less, sp_w_acct(a, rest)))))))))))
     case FBg.QSettle{id, act, a}:
       Wr.put_nat(1n, Wr.put_nat(id, sp_w_amt(act, sp_w_acct(a, rest))))
     case FBg.QCarve{p, now, want, base, a}:
@@ -163,8 +168,8 @@ def sp_w_why(w: B.Why, rest: String) -> String:
 # R9: the spelling of the answer to a reservation
 def sp_w_grant(g: B.Grant) -> String:
   match g:
-    case B.Granted{i, c, a, t}:
-      Wr.put_nat(0n, Wr.put_nat(i, sp_w_ask(c, sp_w_acct(a, Wr.put_bool(t, "")))))
+    case B.Granted{i, c, a, lo}:
+      Wr.put_nat(0n, Wr.put_nat(i, sp_w_ask(c, sp_w_acct(a, Wr.put_bool(lo, "")))))
     case B.Refused{w, p}:
       Wr.put_nat(1n, sp_w_why(w, Wr.put_nat(sp_phase_tag(p), "")))
 
@@ -187,8 +192,8 @@ def sp_w_close(c: B.Close) -> String:
 # R9: the spelling of the model's answer to a request
 def sp_w_reply(q: FBg.Req) -> String:
   match q:
-    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +want, less, a}:
-      sp_w_grant(B.reserve(u, p, id, now, base, keep, want, less, a))
+    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +step, +want, less, a}:
+      sp_w_grant(B.reserve(u, p, id, now, base, keep, step, want, less, a))
     case FBg.QSettle{+id, +act, a}:
       sp_w_acct(B.settle(id, act, a), "")
     case FBg.QCarve{p, +now, +want, base, a}:
@@ -235,8 +240,8 @@ def sp_fit_acct(a: B.Acct) -> Bool:
 # R9: every number and count of a request fits the wire
 def sp_fit_req(q: FBg.Req) -> Bool:
   match q:
-    case FBg.QReserve{u, p, id, now, base, keep, want, +less, a}:
-      Bool.and(LawsBase.wire_fits(id), Bool.and(LawsBase.wire_fits(now), Bool.and(sp_fit_ask(base), Bool.and(sp_fit_ask(keep), Bool.and(sp_fit_ask(want), Bool.and(LawsBase.wire_fits(List.length(&2, B.Ask, less)), Bool.and(sp_fit_asks(less), sp_fit_acct(a))))))))
+    case FBg.QReserve{u, p, id, now, base, keep, step, want, +less, a}:
+      Bool.and(LawsBase.wire_fits(id), Bool.and(LawsBase.wire_fits(now), Bool.and(sp_fit_ask(base), Bool.and(sp_fit_ask(keep), Bool.and(sp_fit_ask(step), Bool.and(sp_fit_ask(want), Bool.and(LawsBase.wire_fits(List.length(&2, B.Ask, less)), Bool.and(sp_fit_asks(less), sp_fit_acct(a)))))))))
     case FBg.QSettle{id, act, a}:
       Bool.and(LawsBase.wire_fits(id), Bool.and(sp_fit_amt(act), sp_fit_acct(a)))
     case FBg.QCarve{p, now, want, base, a}:
@@ -265,6 +270,7 @@ law budget_grant_within:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -273,7 +279,7 @@ law budget_grant_within:
   for +a2: B.Acct
   for +t: Bool
   for +d: B.Dim
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   {Nat.add(S.at(d, S.free(a2)), S.at(d, S.amt(c))) == S.at(d, S.free(a)) : Nat} &
   {S.fits_in(use, base, keep, c, S.free(a), d) == True{} : Bool}
 
@@ -290,6 +296,7 @@ law budget_grant_on_time:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -297,7 +304,7 @@ law budget_grant_on_time:
   for +c: B.Ask
   for +a2: B.Acct
   for +t: Bool
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   {S.on_time(use, base, keep, c, now, S.until(a)) == True{} : Bool} &
   {S.until(a2) == S.until(a) : Nat}
 
@@ -314,6 +321,7 @@ law budget_grant_holds:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -321,7 +329,7 @@ law budget_grant_holds:
   for +c: B.Ask
   for +a2: B.Acct
   for +t: Bool
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   {S.holds(a2) == B.Hold{id, S.amt(c)} <> S.holds(a) : List<&2, B.Hold>} &
   {S.spent(a2) == S.spent(a) : B.Amt} &
   {S.lent(a2) == S.lent(a) : B.Amt} &
@@ -338,6 +346,7 @@ law budget_grant_first:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -345,7 +354,7 @@ law budget_grant_first:
   for +c: B.Ask
   for +a2: B.Acct
   for +t: Bool
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   {S.nth(i, want <> less) == Some{c} : Maybe<&2, B.Ask>} &
   {S.none_fit(use, base, keep, S.before(i, want <> less), S.free(a), now, S.until(a)) == True{} : Bool}
 
@@ -360,13 +369,14 @@ law budget_grant_when_fits:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for ok: {S.allows(p, use) == True{} : Bool}
   for fresh: {S.has(id, S.holds(a)) == False{} : Bool}
   for some: {S.none_fit(use, base, keep, want <> less, S.free(a), now, S.until(a)) == False{} : Bool}
-  {S.granted(B.reserve(use, p, id, now, base, keep, want, less, a)) == True{} : Bool}
+  {S.granted(B.reserve(use, p, id, now, base, keep, step, want, less, a)) == True{} : Bool}
 
 # LAW budget_refuse_short (R3): a refusal for a short dimension means no
 # offer fits and the last offer fails in that dimension; nothing is held,
@@ -382,12 +392,13 @@ law budget_refuse_short:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for +d: B.Dim
   for +p2: B.Phase
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Refused{B.Short{d}, p2} : B.Grant}
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Refused{B.Short{d}, p2} : B.Grant}
   {S.none_fit(use, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool} &
   {S.short_in(use, base, keep, S.last(less, want), S.free(a), now, S.until(a), d) == True{} : Bool} &
   {p2 == S.after(use, p) : B.Phase}
@@ -405,11 +416,12 @@ law budget_refuse_stopped:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for no: {S.allows(p, use) == False{} : Bool}
-  {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Refused{B.Stopped{}, p} : B.Grant}
+  {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Refused{B.Stopped{}, p} : B.Grant}
 
 # LAW budget_refuse_held (R3): a request the phase admits under an id
 # that is already held is refused as held, the phase unchanged
@@ -422,12 +434,13 @@ law budget_refuse_held:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for ok: {S.allows(p, use) == True{} : Bool}
   for dup: {S.has(id, S.holds(a)) == True{} : Bool}
-  {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Refused{B.Held{}, p} : B.Grant}
+  {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Refused{B.Held{}, p} : B.Grant}
 
 # LAW budget_refuse_when_none_fits (R3): a request the phase admits,
 # under an id that is not held, with no offer that fits, is refused as
@@ -444,13 +457,14 @@ law budget_refuse_when_none_fits:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for ok: {S.allows(p, use) == True{} : Bool}
   for fresh: {S.has(id, S.holds(a)) == False{} : Bool}
   for none: {S.none_fit(use, base, keep, want <> less, S.free(a), now, S.until(a)) == True{} : Bool}
-  {S.short_to(B.reserve(use, p, id, now, base, keep, want, less, a)) == Some{S.after(use, p)} : Maybe<&2, B.Phase>}
+  {S.short_to(B.reserve(use, p, id, now, base, keep, step, want, less, a)) == Some{S.after(use, p)} : Maybe<&2, B.Phase>}
 
 # LAW budget_side_refused_keeps_phase (R3): a side request that is
 # refused, for whatever reason (no offer fits, its id is held, its phase
@@ -465,34 +479,130 @@ law budget_side_refused_keeps_phase:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for +w: B.Why
   for +p2: B.Phase
-  for g: {B.reserve(B.Side{}, p, id, now, base, keep, want, less, a) == B.Refused{w, p2} : B.Grant}
+  for g: {B.reserve(B.Side{}, p, id, now, base, keep, step, want, less, a) == B.Refused{w, p2} : B.Grant}
   {p2 == p : B.Phase}
 
-# LAW budget_tight_exact (R4): a grant is tight exactly when the granted
-# ask, started when it ends, would not fit in what it left free
-# EXCLUDES: the agent never told its budget or its time runs low, told on
-#   every grant, told only once nothing fits
-law budget_tight_exact:
+# LAW budget_low_by_steps (R4): a grant is low exactly when two steps
+# (`step`: per dimension the larger of the agent's largest recent step as
+# actually spent and the smallest hold its work can be granted; this one
+# and one more), started now, with the reserves above and, for work and a
+# side request, the agent's own reserve, would not fit what was free
+# before the grant by the deadline
+# EXCLUDES: a low budget judged against the hold, which fills what is
+#   free, so every grant is low; a zero step told its budget runs low;
+#   low never told; told only once nothing fits
+law budget_low_by_steps:
   for +use: B.Use
   for +p: B.Phase
   for +id: Nat
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
   for +i: Nat
   for +c: B.Ask
   for +a2: B.Acct
-  for +t: Bool
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
-  {t == Bool.not(S.fits(use, base, keep, c, S.free(a2), Nat.add(now, S.ms(c)), S.until(a2))) : Bool}
+  for +lo: Bool
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, lo} : B.Grant}
+  {lo == Bool.not(S.fits(use, base, keep, S.plus(step, step), S.free(a), now, S.until(a))) : Bool}
+
+# LAW budget_low_by_spend (R4): whether a grant is low does not depend on
+# the offers: two reservations alike but for the wanted ask and the
+# smaller offers, both granted, are both low or both not
+# EXCLUDES: a low budget judged against the offer granted (a large hold
+#   told low, the same request with a smaller cap not), every grant of a
+#   full-size offer low
+law budget_low_by_spend:
+  for +use: B.Use
+  for +p: B.Phase
+  for +id: Nat
+  for +now: Nat
+  for +base: B.Ask
+  for +keep: B.Ask
+  for +step: B.Ask
+  for +want: B.Ask
+  for +less: List<&2, B.Ask>
+  for +want2: B.Ask
+  for +less2: List<&2, B.Ask>
+  for +a: B.Acct
+  for +i: Nat
+  for +c: B.Ask
+  for +a2: B.Acct
+  for +lo: Bool
+  for +i2: Nat
+  for +c2: B.Ask
+  for +a3: B.Acct
+  for +lo2: Bool
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, lo} : B.Grant}
+  for g2: {B.reserve(use, p, id, now, base, keep, step, want2, less2, a) == B.Granted{i2, c2, a3, lo2} : B.Grant}
+  {lo == lo2 : Bool}
+
+# LAW budget_low_steps_example (R4): anchor: at 100 ms, work of
+# (16,16,1,1) for 50 ms with reserves above and its own of (2,2,0,0) and
+# (2,2,0,1) for 10 ms each, on 20 free in every dimension until 1000: its
+# hold fills what is free, yet with a step (per dimension the larger of
+# the agent's largest recent step as actually spent and the smallest hold
+# its work can be granted) of (1,1,0,0) for 10 ms it is not low, nor with
+# a zero step; with a step of (9,1,1,1) for 10 ms (two of them and the
+# reserves past 20) it is low
+# EXCLUDES: a low budget judged against the hold, a zero step told low
+law budget_low_steps_example:
+  {[FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,1,1,0,0,10,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,0,0,0,0,0,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,9,1,1,1,10,16,16,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,")] == ["0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,F", "0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,F", "0,0,16,16,1,1,50,4,4,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,16,16,1,1,1000,T"] : List<&2, String>}
+
+# LAW budget_not_low_funds_next (R4): a work grant that is not low funds
+# one more step of its size: after it, its actual spend `act` within
+# `step` in every spent dimension settled, the same agent's next work
+# under an id not held, in a phase that admits work, with the same
+# reserves (`base`, `keep`), asked by `now` plus the step's time and
+# whose last offer is within `step` (in amount and in time), is granted.
+# Premises, each needed: the first is work (a final answer leaves no
+# reserve of its own); the spend within `step` (a larger spend can take
+# the room); the phase admits work (WrapUp refuses it); the id not held
+# (a held id is refused); the same reserves (larger ones can take the
+# room); asked by now plus the step's time (later, the deadline can
+# pass); the last offer within `step` (a larger offer need not fit). Not
+# needed: the next request's own `step`, that it comes after `now`, the
+# offer granted the first time.
+# EXCLUDES: a Low notice never told before the wrap-up (a grant not low
+#   followed by a refused step of its size); low judged by one step, by
+#   the amounts only (not the time) or without the reserves; a settlement
+#   that keeps part of the hold or charges more than the spend
+law budget_not_low_funds_next:
+  for +p: B.Phase
+  for +id: Nat
+  for +now: Nat
+  for +base: B.Ask
+  for +keep: B.Ask
+  for +step: B.Ask
+  for +want: B.Ask
+  for +less: List<&2, B.Ask>
+  for +a: B.Acct
+  for +i: Nat
+  for +c: B.Ask
+  for +a2: B.Acct
+  for +act: B.Amt
+  for +p2: B.Phase
+  for +id2: Nat
+  for +now2: Nat
+  for +step2: B.Ask
+  for +want2: B.Ask
+  for +less2: List<&2, B.Ask>
+  for g: {B.reserve(B.Work{}, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, False{}} : B.Grant}
+  for spent: {S.le(B.Ask{act, 0n}, step) == True{} : Bool}
+  for ok: {S.allows(p2, B.Work{}) == True{} : Bool}
+  for fresh: {S.has(id2, S.holds(B.settle(id, act, a2))) == False{} : Bool}
+  for soon: {Nat.is_le(now2, Nat.add(now, S.ms(step))) == True{} : Bool}
+  for small: {S.le(S.last(less2, want2), step) == True{} : Bool}
+  {S.granted(B.reserve(B.Work{}, p2, id2, now2, base, keep, step2, want2, less2, B.settle(id, act, a2))) == True{} : Bool}
 
 # LAW budget_final_reserve_kept (R4): after granted work, a final answer
 # of the same agent within that work's reserve, under an id not held,
@@ -506,6 +616,7 @@ law budget_final_reserve_kept:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -518,12 +629,13 @@ law budget_final_reserve_kept:
   for +id2: Nat
   for +now2: Nat
   for +k2: B.Ask
-  for g: {B.reserve(B.Work{}, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for +s2: B.Ask
+  for g: {B.reserve(B.Work{}, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   for within: {S.le(f, keep) == True{} : Bool}
   for ok: {S.allows(p2, B.Final{}) == True{} : Bool}
   for fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}
   for soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}
-  {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, f, Nil{}, a2)) == True{} : Bool}
+  {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, s2, f, Nil{}, a2)) == True{} : Bool}
 
 # LAW budget_side_final_reserve_kept (R4): after a granted side request
 # (a title, a classifier, a compaction, a memory or side question), a
@@ -539,6 +651,7 @@ law budget_side_final_reserve_kept:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -551,12 +664,13 @@ law budget_side_final_reserve_kept:
   for +id2: Nat
   for +now2: Nat
   for +k2: B.Ask
-  for g: {B.reserve(B.Side{}, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for +s2: B.Ask
+  for g: {B.reserve(B.Side{}, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   for within: {S.le(f, keep) == True{} : Bool}
   for ok: {S.allows(p2, B.Final{}) == True{} : Bool}
   for fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}
   for soon: {Nat.is_le(now2, Nat.add(now, S.ms(c))) == True{} : Bool}
-  {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, f, Nil{}, a2)) == True{} : Bool}
+  {S.granted(B.reserve(B.Final{}, p2, id2, now2, base, k2, s2, f, Nil{}, a2)) == True{} : Bool}
 
 # LAW budget_base_kept (R11): after any grant, the final answer of an
 # agent above, within the reserves above and on time, is granted: no
@@ -572,6 +686,7 @@ law budget_base_kept:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +want: B.Ask
   for +less: List<&2, B.Ask>
   for +a: B.Acct
@@ -584,12 +699,13 @@ law budget_base_kept:
   for +id2: Nat
   for +now2: Nat
   for +k2: B.Ask
-  for g: {B.reserve(use, p, id, now, base, keep, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
+  for +s2: B.Ask
+  for g: {B.reserve(use, p, id, now, base, keep, step, want, less, a) == B.Granted{i, c, a2, t} : B.Grant}
   for within: {S.le(f, base) == True{} : Bool}
   for ok: {S.allows(p2, B.Final{}) == True{} : Bool}
   for fresh: {S.has(id2, S.holds(a2)) == False{} : Bool}
   for ontime: {Nat.is_le(Nat.add(now2, S.ms(f)), S.until(a)) == True{} : Bool}
-  {S.granted(B.reserve(B.Final{}, p2, id2, now2, S.nothing(), k2, f, Nil{}, a2)) == True{} : Bool}
+  {S.granted(B.reserve(B.Final{}, p2, id2, now2, S.nothing(), k2, s2, f, Nil{}, a2)) == True{} : Bool}
 
 # Laws: settle (R5, R6)
 # ---------------------
@@ -701,6 +817,27 @@ law budget_settle_keeps_other_ids:
   for +j: Nat
   for other: {Nat.is_eq(j, id) == False{} : Bool}
   {S.has(j, S.holds(B.settle(id, act, a))) == S.has(j, S.holds(a)) : Bool}
+
+# LAW budget_settle_keeps_hold_list (R5, R6): settling the one open
+# reservation under an id (the holds are xs, then that hold, then ys, and
+# neither xs nor ys holds the id) leaves exactly the holds xs then ys:
+# every other reservation stays as it was, each untouched, in its order;
+# a hold left open by a crash is settled the same way
+# EXCLUDES: a settlement that rewrites another open reservation (splits
+#   it into records under the same id, merges, reorders or changes one)
+#   while keeping each id's totals, so a later settlement of that id at
+#   what its record holds after a crash loses spend
+law budget_settle_keeps_hold_list:
+  for +id: Nat
+  for +act: B.Amt
+  for +a: B.Acct
+  for +xs: List<&2, B.Hold>
+  for +x: B.Amt
+  for +ys: List<&2, B.Hold>
+  for split: {S.holds(a) == List.append(&2, B.Hold, xs, B.Hold{id, x} <> ys) : List<&2, B.Hold>}
+  for before: {S.has(id, xs) == False{} : Bool}
+  for after: {S.has(id, ys) == False{} : Bool}
+  {S.holds(B.settle(id, act, a)) == List.append(&2, B.Hold, xs, ys) : List<&2, B.Hold>}
 
 # LAW budget_recover_charges_in_full (R6): a hold left open by a crash,
 # settled at what it holds, adds that to spent and nothing to free or to
@@ -917,10 +1054,11 @@ law budget_fund_resumes:
   for +now: Nat
   for +base: B.Ask
   for +keep: B.Ask
+  for +step: B.Ask
   for +c: B.Ask
   for +a: B.Acct
   for fresh: {S.has(id, S.holds(a)) == False{} : Bool}
-  {S.granted(B.reserve(B.Work{}, B.Working{}, id, now, base, keep, c, Nil{}, B.fund(B.Ask{S.amt(S.plus(S.plus(S.plus(c, base), keep), B.Ask{S.over(a), 0n})), Nat.sub(Nat.add(now, S.ms(S.plus(S.plus(c, base), keep))), S.until(a))}, a))) == True{} : Bool}
+  {S.granted(B.reserve(B.Work{}, B.Working{}, id, now, base, keep, step, c, Nil{}, B.fund(B.Ask{S.amt(S.plus(S.plus(S.plus(c, base), keep), B.Ask{S.over(a), 0n})), Nat.sub(Nat.add(now, S.ms(S.plus(S.plus(c, base), keep))), S.until(a))}, a))) == True{} : Bool}
 
 # Laws: the entry (R9)
 # --------------------
@@ -955,6 +1093,20 @@ law budget_entry_malformed_exact:
   for bad: {LawsBase.wire_opens_err(FBg.ffi(s)) == True{} : Bool}
   {FBg.ffi(s) == Wr.err("budget: malformed request") : String}
 
+# LAW budget_entry_exact (R9): every input the entry does not answer with
+# the error form is a request Rust spells, every number and count within
+# the wire, and nothing after it
+# EXCLUDES: a decision answered on input that is no request: a request cut
+#   off before its end (a missing deadline defaulted to 0, a missing field
+#   defaulted), a number not in canonical decimal (a leading zero, more
+#   than 14 digits, no ','), a list shorter than its count, a known tag
+#   read from an unknown one
+law budget_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FBg.ffi(s)) == False{} : Bool}
+  exs q: FBg.Req
+  {s == sp_w_req(q, "") : String} & {sp_fit_req(q) == True{} : Bool}
+
 # LAW budget_entry_unknown_tag (R9): a tag past the known ones answers the
 # error form, whatever follows it: a request tag past 4 (fund), a use tag
 # past 2 (a side request), a phase tag past 2 (Exhausted) in a reserve
@@ -978,9 +1130,10 @@ law budget_entry_unknown_tag:
 # LAW budget_entry_example (R1-R11): anchor: the wire strings Rust sends
 # and the replies it reads. At 100 ms, work of (5,5,1,1) for 50 ms with
 # reserves above and its own of (2,2,0,0) and (2,2,0,1) for 10 ms each, on
-# 20 free in every dimension until 1000, is granted and not tight; until
-# 160 its 50 ms offer runs past the deadline but its 30 ms offer fits, at
-# place 1, tight; work of (30,1,1,1) is refused for money and wraps the
+# 20 free in every dimension until 1000, its largest step the same, is
+# granted and not low; until 160 its 50 ms offer runs past the deadline
+# but its 30 ms offer fits, at place 1, and two 30 ms steps do not: low;
+# work of (30,1,1,1) is refused for money and wraps the
 # agent up; a final answer one ms past the deadline is refused for time
 # and exhausts the agent; work of 3 requests on 2 free is refused for
 # requests; an exhausted agent is stopped; a hold of (5,5,1,1) settled at
@@ -990,6 +1143,6 @@ law budget_entry_unknown_tag:
 # 1500; an unknown tag, a missing field and input left over are refused
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law budget_entry_example:
-  {[FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,5,5,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,5,5,1,1,50,1,5,5,1,1,30,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,160,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,30,1,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,1,1,7,100,0,0,0,0,0,2,2,0,1,10,1,1,1,1,1,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,100,"), FBg.ffi("0,0,0,7,100,0,0,0,0,0,0,0,0,0,0,1,1,1,3,1,0,20,20,20,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,1,2,7,100,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,")] == ["0,0,5,5,1,1,50,15,15,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,5,5,1,1,1000,F", "0,1,5,5,1,1,30,15,15,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,5,5,1,1,160,T", "1,0,0,1,", "1,0,2,2,", "1,0,4,1,", "1,2,2,"] : List<&2, String>} &
+  {[FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,5,5,1,1,50,5,5,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,5,5,1,1,30,5,5,1,1,50,1,5,5,1,1,30,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,160,"), FBg.ffi("0,0,0,7,100,2,2,0,0,10,2,2,0,1,10,0,0,0,0,0,30,1,1,1,50,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,1,1,7,100,0,0,0,0,0,2,2,0,1,10,0,0,0,0,0,1,1,1,1,1,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,100,"), FBg.ffi("0,0,0,7,100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,3,1,0,20,20,20,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("0,1,2,7,100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,20,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,")] == ["0,0,5,5,1,1,50,15,15,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,5,5,1,1,1000,F", "0,1,5,5,1,1,30,15,15,19,19,0,0,0,0,0,0,0,0,0,0,0,0,1,7,5,5,1,1,160,T", "1,0,0,1,", "1,0,2,2,", "1,0,4,1,", "1,2,2,"] : List<&2, String>} &
   {[FBg.ffi("1,7,3,2,1,1,5,5,9,9,0,0,0,0,0,0,0,0,0,0,0,0,1,7,5,5,1,1,1000,"), FBg.ffi("2,0,100,4,4,1,1,200,2,2,0,1,10,10,10,10,10,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,"), FBg.ffi("3,4,4,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,300,5,5,8,8,0,0,0,0,4,4,1,1,0,0,0,0,0,1000,"), FBg.ffi("4,3,3,3,3,500,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,1000,")] == ["7,8,9,9,3,2,1,1,0,0,0,0,0,0,0,0,0,1000,", "0,6,6,9,9,0,0,0,0,4,4,1,1,0,0,0,0,0,1000,4,4,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,300,", "0,9,9,9,9,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,", "2,2,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1500,"] : List<&2, String>} &
   {[FBg.ffi("5,"), FBg.ffi("1,"), FBg.ffi("4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,x")] == [Wr.err("budget: malformed request"), Wr.err("budget: malformed request"), Wr.err("budget: malformed request")] : List<&2, String>}

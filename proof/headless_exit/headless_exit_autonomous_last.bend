@@ -10,9 +10,9 @@ import ../../laws/headless_exit.bend as HeadlessExit
 import ../../spec/durable/headless.bend as Sp
 import ./base.bend as LAHeadlessExit
 
-def HeadlessExit.headless_exit_autonomous_last(r, p, ok, clean):
-  -f = {Hx.Facts{False{}, False{}, r, p, False{}, True{}} : Hx.Facts}
-  %Equal.sym(Hx.Cause, Hx.cause(f), LAHeadlessExit.hx.cause_spec(f), LAHeadlessExit.hx.cause_eq(Hx.Facts{False{}, False{}, r, p, False{}, True{}})) : {_ == Hx.CAutonomousFailed{} : Hx.Cause}
-  %Equal.sym(Maybe<&2, Hx.Cause>, Sp.run_cause(r), None{}, ok) : {LAHeadlessExit.hx.first([None{}, None{}, _, Sp.primary_cause(p), Sp.when(False{}, Hx.CCompactionFailed{}), Sp.when(True{}, Hx.CAutonomousFailed{})]) == Hx.CAutonomousFailed{} : Hx.Cause}
-  %Equal.sym(Maybe<&2, Hx.Cause>, Sp.primary_cause(p), None{}, clean) : {LAHeadlessExit.hx.first([None{}, None{}, None{}, _, Sp.when(False{}, Hx.CCompactionFailed{}), Sp.when(True{}, Hx.CAutonomousFailed{})]) == Hx.CAutonomousFailed{} : Hx.Cause}
+def HeadlessExit.headless_exit_autonomous_last(r, p, ba, ok, clean):
+  -f = {Hx.Facts{False{}, Hx.Quiet{}, r, p, False{}, True{}, ba} : Hx.Facts}
+  %Equal.sym(Hx.Cause, Hx.cause(f), Sp.exit_cause(f), LAHeadlessExit.hx.cause_eq(Hx.Facts{False{}, Hx.Quiet{}, r, p, False{}, True{}, ba})) : {_ == Hx.CAutonomousFailed{} : Hx.Cause}
+  %Equal.sym(Maybe<&2, Hx.Cause>, Sp.run_cause(r), None{}, ok) : {Sp.first([None{}, None{}, Sp.counts(_, ba), Sp.counts(Sp.primary_cause(p), ba), Sp.when(False{}, Hx.CCompactionFailed{}), Sp.when(True{}, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) == Hx.CAutonomousFailed{} : Hx.Cause}
+  %Equal.sym(Maybe<&2, Hx.Cause>, Sp.primary_cause(p), None{}, clean) : {Sp.first([None{}, None{}, None{}, Sp.counts(_, ba), Sp.when(False{}, Hx.CCompactionFailed{}), Sp.when(True{}, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) == Hx.CAutonomousFailed{} : Hx.Cause}
   {==}

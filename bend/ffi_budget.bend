@@ -12,15 +12,16 @@
 #   request  a question, its tag then its fields:
 #            0 reserve: the use, a tag (0 work, 1 final answer, 2 side
 #              request), the asking agent's phase, the id (Nat), now
-#              (Nat, ms), base, keep, the wanted ask, the smaller offers
-#              (List of asks), the account
+#              (Nat, ms), base, keep, step (the agent's largest recent
+#              step as spent, an ask), the wanted ask, the smaller
+#              offers (List of asks), the account
 #            1 settle: the id (Nat), the actual amount, the account
 #            2 carve: the parent agent's phase, now (Nat, ms), the wanted
 #              ask, base, the parent's account
 #            3 close: the child's account, the parent's account
 #            4 fund: the ask, the account
 #   reply    reserve: 0, the offer's place (Nat), its ask, the account,
-#              T|F tight | 1, the reason, the agent's phase
+#              T|F low | 1, the reason, the agent's phase
 #            settle, fund: the account
 #            carve: 0, the parent's account, the child's account | 1, the
 #              reason
@@ -40,7 +41,7 @@ import ./budget.bend as B
 
 # A request of the entry
 type Req is Data:
-  QReserve{use: B.Use, phase: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, want: B.Ask, less: List<&2, B.Ask>, acct: B.Acct}
+  QReserve{use: B.Use, phase: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, step: B.Ask, want: B.Ask, less: List<&2, B.Ask>, acct: B.Acct}
   QSettle{id: Nat, act: B.Amt, acct: B.Acct}
   QCarve{phase: B.Phase, now: Nat, want: B.Ask, base: B.Ask, acct: B.Acct}
   QClose{child: B.Acct, parent: B.Acct}
@@ -193,31 +194,38 @@ def get_acct(s: String) -> W.Dec<B.Acct>:
 # Requests
 # --------
 
-def get_reserve.acct(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, want: B.Ask, less: List<&2, B.Ask>, r: W.Dec<B.Acct>) -> W.Dec<Req>:
+def get_reserve.acct(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, step: B.Ask, want: B.Ask, less: List<&2, B.Ask>, r: W.Dec<B.Acct>) -> W.Dec<Req>:
   match r:
     case W.Got{a, s}:
-      W.Got{QReserve{u, p, id, now, base, keep, want, less, a}, s}
+      W.Got{QReserve{u, p, id, now, base, keep, step, want, less, a}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_reserve.less(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, want: B.Ask, r: W.Dec<List<&2, B.Ask>>) -> W.Dec<Req>:
+def get_reserve.less(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, step: B.Ask, want: B.Ask, r: W.Dec<List<&2, B.Ask>>) -> W.Dec<Req>:
   match r:
     case W.Got{less, s}:
-      get_reserve.acct(u, p, id, now, base, keep, want, less, get_acct(s))
+      get_reserve.acct(u, p, id, now, base, keep, step, want, less, get_acct(s))
     case W.Bad{}:
       W.Bad{}
 
-def get_reserve.want(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, r: W.Dec<B.Ask>) -> W.Dec<Req>:
+def get_reserve.want(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, step: B.Ask, r: W.Dec<B.Ask>) -> W.Dec<Req>:
   match r:
     case W.Got{want, s}:
-      get_reserve.less(u, p, id, now, base, keep, want, W.get_list(~B.Ask, ~get_ask, s))
+      get_reserve.less(u, p, id, now, base, keep, step, want, W.get_list(~B.Ask, ~get_ask, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_reserve.step(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, keep: B.Ask, r: W.Dec<B.Ask>) -> W.Dec<Req>:
+  match r:
+    case W.Got{step, s}:
+      get_reserve.want(u, p, id, now, base, keep, step, get_ask(s))
     case W.Bad{}:
       W.Bad{}
 
 def get_reserve.keep(u: B.Use, p: B.Phase, id: Nat, now: Nat, base: B.Ask, r: W.Dec<B.Ask>) -> W.Dec<Req>:
   match r:
     case W.Got{keep, s}:
-      get_reserve.want(u, p, id, now, base, keep, get_ask(s))
+      get_reserve.step(u, p, id, now, base, keep, get_ask(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -447,8 +455,8 @@ def put_why(w: B.Why, rest: String) -> String:
 
 def put_grant(g: B.Grant) -> String:
   match g:
-    case B.Granted{i, c, a, t}:
-      W.put_nat(0n, W.put_nat(i, put_ask(c, put_acct(a, W.put_bool(t, "")))))
+    case B.Granted{i, c, a, l}:
+      W.put_nat(0n, W.put_nat(i, put_ask(c, put_acct(a, W.put_bool(l, "")))))
     case B.Refused{w, p}:
       W.put_nat(1n, put_why(w, put_phase(p, "")))
 
@@ -472,8 +480,8 @@ def put_close(c: B.Close) -> String:
 # the reply of a request: the model's answer, encoded
 def answer(q: Req) -> String:
   match q:
-    case QReserve{u, p, id, now, base, keep, want, less, a}:
-      put_grant(B.reserve(u, p, id, now, base, keep, want, less, a))
+    case QReserve{u, p, id, now, base, keep, step, want, less, a}:
+      put_grant(B.reserve(u, p, id, now, base, keep, step, want, less, a))
     case QSettle{id, act, a}:
       put_acct(B.settle(id, act, a), "")
     case QCarve{p, now, want, base, a}:

@@ -1,0 +1,20 @@
+# Every number at the largest a budget holds (eukhe_types::budget
+# BUDGET_AMOUNT_MAX, 13 nines: eukhe-budget keeps every amount, duration
+# and deadline within it), then every number at {MAX} where the core adds
+# at most two of them. A request: n, the use, base, keep, the wanted ask,
+# the smaller offers, what is free, now, the deadline; an ask is an amount
+# (4) then its duration.
+# work of the largest n on the largest account, every ask at the largest
+call 9999999999999,0,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,1,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,
+# a side request of n = 0 (the asker alone), the same numbers
+call 0,2,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,1,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,
+# a final answer and work of n at {MAX}: keep and the offers at {MAX},
+# base zero, from 0 to the largest deadline (the core adds the offer and
+# keep)
+call {MAX},1,0,0,0,0,0,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},1,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},0,{MAX},
+call {MAX},0,0,0,0,0,0,{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},{MAX},0,{MAX},{MAX},{MAX},{MAX},0,{MAX},
+# an unknown use tag, a number past the wire, an offer list shorter than
+# its count: refused, never a stop
+refuse 1,3,
+refuse {LONG},0,
+refuse 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,

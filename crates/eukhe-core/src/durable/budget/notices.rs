@@ -3,9 +3,10 @@
 //! session's main conversation.
 //!
 //! The agent learns of its budget at its first request after the budget
-//! was set or added to, learns that it runs low when a grant came back
-//! tight (once until budget is added), and is told to wrap up in the
-//! request that is its final answer. The first two are written into the
+//! was set or added to, learns that it runs low when a grant says two
+//! steps of its largest actual spend no longer fit (once until budget is
+//! added), and is told to wrap up in the request that is its final
+//! answer. The first two are written into the
 //! conversation as rows the model reads (a busy conversation places them
 //! at its next boundary, an idle one at once); a notice never starts a run
 //! nor continues one. The wrap-up also shows as a display-only row. Each
@@ -17,7 +18,7 @@ use std::sync::{Arc, PoisonError};
 use eukhe_budget::Refusal;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
-use eukhe_types::budget::{BudgetDimension, BudgetReport};
+use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
 
 use super::{BudgetError, BudgetGate};
 use crate::durable::deps::{HarnessCell, SessionClosing};
@@ -133,11 +134,17 @@ impl BudgetGate {
 /// decimals below a dollar, else 2; time until the deadline; each amount
 /// rounded down).
 pub(super) fn remaining(report: &BudgetReport) -> String {
+    shown(&report.limits, report.free)
+}
+
+/// `amounts` in each dimension `limits` limits, as a notice shows them
+/// (see [`remaining`]; `time_ms` is a duration).
+fn shown(limits: &BudgetLimits, amounts: BudgetAmounts) -> String {
     let left: Vec<String> = BudgetDimension::ALL
         .into_iter()
-        .filter(|dimension| report.limits.get(*dimension).is_some())
+        .filter(|dimension| limits.get(*dimension).is_some())
         .map(|dimension| {
-            let left = report.free.get(dimension);
+            let left = amounts.get(dimension);
             match dimension {
                 BudgetDimension::Cost if left < 1_000_000 => format!("$0.{:04}", left / 100),
                 BudgetDimension::Cost => {
@@ -186,11 +193,25 @@ pub(super) fn set_text(report: &BudgetReport) -> String {
     )
 }
 
-/// The notice of a budget that runs low.
-pub(super) fn low_text(report: &BudgetReport) -> String {
+/// The notice of a budget that runs low: what the agent can still spend
+/// (what is free and what its requests in flight hold, which settle at
+/// what they actually spend), and the part of it its final answer keeps
+/// (`keep`).
+pub(super) fn low_text(report: &BudgetReport, keep: BudgetAmounts) -> String {
+    let unspent = BudgetDimension::ALL
+        .into_iter()
+        .filter(|dimension| *dimension != BudgetDimension::Time)
+        .fold(report.free, |sum, dimension| {
+            sum.with(
+                dimension,
+                sum.get(dimension)
+                    .saturating_add(report.held.get(dimension)),
+            )
+        });
     format!(
-        "[budget] Low: {}. Another step of the last size does not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.",
-        remaining(report)
+        "[budget] Low: {} left, of which the final answer keeps {}. Two more steps of the largest size so far would not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.",
+        shown(&report.limits, unspent),
+        shown(&report.limits, keep)
     )
 }
 
@@ -198,7 +219,7 @@ pub(super) fn low_text(report: &BudgetReport) -> String {
 /// tokens: the `short` budget is used up.
 pub(super) fn wrap_up_text(short: &str, report: &BudgetReport, cap: u64) -> String {
     format!(
-        "[budget] The {short} budget of this task is used up ({}). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens.",
+        "[budget] The {short} budget of this task is used up for work: {} left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens.",
         remaining(report)
     )
 }

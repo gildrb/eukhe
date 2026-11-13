@@ -6,7 +6,7 @@ import Base
 import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 
-def HeadlessExit.headless_exit_gave_up_fails(cf, r, p, c, a):
+def HeadlessExit.headless_exit_gave_up_fails(cf, r, p, c, a, ba):
   match cf:
     case True{}:
       {==}

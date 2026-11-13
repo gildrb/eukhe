@@ -10,5 +10,5 @@ import ../../bend/budget.bend as B
 import ../../spec/budget/ledger.bend as S
 import ./base/reserve.bend as BR
 
-def Budget.budget_grant_when_fits(use, p, id, now, base, keep, want, less, a, ok, fresh, some):
-  BR.br.when_fits(a, use, p, id, now, base, keep, want, less, ok, fresh, some)
+def Budget.budget_grant_when_fits(use, p, id, now, base, keep, step, want, less, a, ok, fresh, some):
+  BR.br.when_fits(a, use, p, id, now, base, keep, step, want, less, ok, fresh, some)

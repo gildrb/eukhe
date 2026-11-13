@@ -3,16 +3,20 @@
 //! what a failed request is charged, when a request is stopped, what the
 //! agent is told, and which tool calls run.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use eukhe_ai::api::{FetchDeferredFn, StreamSimpleFn};
 use eukhe_ai::models::{create_models, CreateModelsOptions, Models, ModelsSimpleStreamOptions};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_provider, FauxAssistantMessageOptions, FauxProviderHandle,
-    FauxResponseStep, RegisterFauxProviderOptions,
+    faux_assistant_message, faux_provider, faux_text, faux_thinking, faux_tool_call,
+    FauxAssistantMessageOptions, FauxModelDefinition, FauxProviderHandle, FauxResponseStep,
+    RegisterFauxProviderOptions,
 };
 use eukhe_ai::types::{DeferredFetchOptions, SimpleStreamOptions};
+use eukhe_ai::utils::assistant_message_frame::{
+    reduce_assistant_message_frames, AssistantMessageFrameEncoder,
+};
 use eukhe_ai::utils::context_tokens::{context_tokens, model_tokenizer};
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::overflow::is_context_overflow;
@@ -24,18 +28,18 @@ use eukhe_types::budget::{
     BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
 };
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, Context as PiContext, DeferredHandle, DoneReason,
-    ErrorReason, Message, ModelCost, ModelCostTier, Partial, StopReason, Tool, ToolChoice, Usage,
-    UserContent, UserMessage,
+    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context as PiContext,
+    DeferredHandle, DoneReason, ErrorReason, Message, ModelCost, ModelCostTier, Partial,
+    StopReason, Tool, ToolChoice, Usage, UserContent, UserMessage,
 };
+use futures::StreamExt as _;
 use tempfile::TempDir;
 use tokio::sync::watch;
 
 use super::gate::{offers, CostFacts, FRAMING_TOKENS};
 use super::notices::{self, Notice, NoticeKind};
 use super::tools::ToolOutcome;
-use super::{wrap_models_with_budget, BudgetGate};
-use crate::durable::settings::EukheSettings;
+use super::{wrap_models_with_budget, BudgetGate, FIRST_TURN};
 
 /// The ledger clock of the clocked fixtures: a fixed epoch ms, so a
 /// deadline's granted time is exact.
@@ -43,6 +47,14 @@ const NOW_MS: u64 = 1_800_000_000_000;
 
 fn fixed_clock() -> u64 {
     NOW_MS
+}
+
+/// The ledger clock of the moving fixtures: [`NOW_MS`] until a test moves
+/// it. One test uses it.
+static MOVING_MS: AtomicU64 = AtomicU64::new(NOW_MS);
+
+fn moving_clock() -> u64 {
+    MOVING_MS.load(Ordering::SeqCst)
 }
 
 /// What the provider received with one request.
@@ -80,6 +92,8 @@ enum Answer {
 enum Clock {
     Real,
     Fixed,
+    /// [`moving_clock`].
+    Moving,
 }
 
 impl Fixture {
@@ -88,28 +102,54 @@ impl Fixture {
     }
 
     fn build(answer: Answer, clock: Clock) -> Self {
+        Self::with_provider(answer, clock, RegisterFauxProviderOptions::default())
+    }
+
+    /// A fixture whose faux model has these prices, its largest output
+    /// 16384 tokens.
+    fn priced(cost: ModelCost) -> Self {
+        Self::with_provider(
+            Answer::Faux,
+            Clock::Real,
+            RegisterFauxProviderOptions {
+                models: Some(vec![FauxModelDefinition {
+                    id: "priced".to_owned(),
+                    cost: Some(cost),
+                    context_window: Some(1_000_000),
+                    max_tokens: Some(16_384),
+                    ..FauxModelDefinition::default()
+                }]),
+                ..RegisterFauxProviderOptions::default()
+            },
+        )
+    }
+
+    fn with_provider(answer: Answer, clock: Clock, options: RegisterFauxProviderOptions) -> Self {
         let dir = TempDir::new().unwrap();
         let agent_dir = dir.path().join("agent");
-        let cwd = dir.path().join("work");
         std::fs::create_dir_all(&agent_dir).unwrap();
-        std::fs::create_dir_all(&cwd).unwrap();
-        let settings = Arc::new(EukheSettings::new(cwd, &agent_dir));
+        let ledger = Ledger::of(&agent_dir.join("budgets"), "session");
         let gate = match clock {
-            Clock::Real => BudgetGate::open(&agent_dir, "session", None, settings),
-            Clock::Fixed => Arc::new(BudgetGate {
-                ledger: Ledger::of(&agent_dir.join("budgets"), "session").with_clock(fixed_clock),
-                settings: Some(settings),
+            Clock::Real => BudgetGate::open(&agent_dir, "session", None),
+            Clock::Fixed | Clock::Moving => Arc::new(BudgetGate {
+                ledger: ledger.with_clock(match clock {
+                    Clock::Fixed | Clock::Real => fixed_clock,
+                    Clock::Moving => moving_clock,
+                }),
                 reports: watch::Sender::new(None),
                 keep: Mutex::default(),
                 told: Mutex::default(),
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
+                steps: Mutex::default(),
+                turn: Mutex::new(FIRST_TURN),
+                final_answered: std::sync::atomic::AtomicBool::new(false),
             }),
         };
         let notices = Arc::new(Mutex::new(Vec::new()));
         let told = Arc::clone(&notices);
         gate.deliver_notices(Arc::new(move |notice| told.lock().unwrap().push(notice)));
-        let faux = faux_provider(RegisterFauxProviderOptions::default());
+        let faux = faux_provider(options);
         let models = create_models(CreateModelsOptions::default());
         let mut provider = faux.provider.clone();
         match answer {
@@ -657,6 +697,593 @@ async fn a_request_is_stopped_at_its_granted_time() {
     );
 }
 
+/// Time: an agent's work turn leaves its final answer's time free (180 s
+/// budget, 45 s kept: B14), so it is stopped at 135 s; stopped before it
+/// streamed content, it goes on as the final answer on the same stream,
+/// with no tools and the wrap-up notice. Before, it ended with the budget's
+/// error and the run had no answer.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aborted_at = Arc::new(Mutex::new(None));
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let row: StreamSimpleFn = {
+        let aborted_at = Arc::clone(&aborted_at);
+        let received = Arc::clone(&received);
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            received.lock().unwrap().push(Received {
+                max_tokens: options.stream.max_tokens,
+                tool_choice: options.tool_choice.clone(),
+                last: context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                }),
+            });
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                // The work turn: the provider never answers until stopped.
+                let aborted_at = Arc::clone(&aborted_at);
+                let started = tokio::time::Instant::now();
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                tokio::spawn(async move {
+                    let partial = Partial::new(message("", Usage::default()));
+                    sink.push(AssistantMessageEvent::Start { partial });
+                    signal.cancelled().await;
+                    *aborted_at.lock().unwrap() = Some(started.elapsed());
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..message("", Usage::default())
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                let answer = message("wrapped up", Usage::default());
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let reply = fixture.send(agent("build it")).await;
+    // The ledger's clock stands still: the notice shows the whole budget.
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let received = received.lock().unwrap().clone();
+    assert_eq!(
+        (
+            reply.error_message,
+            reply.content,
+            *aborted_at.lock().unwrap(),
+            received.len(),
+            received.last().cloned(),
+        ),
+        (
+            None,
+            message("wrapped up", Usage::default()).content,
+            Some(std::time::Duration::from_secs(135)),
+            2,
+            Some(Received {
+                max_tokens: Some(2_048),
+                tool_choice: Some(ToolChoice::None),
+                last: Some(notice.to_owned()),
+            }),
+        )
+    );
+}
+
+/// What a budget of `budget_ms` keeps for the final answer at the agent's
+/// first work request, which answers after `first_ms`, and at its next,
+/// which never answers, and when that one is stopped: the ledger's clock
+/// stands still, so at the budget less what it keeps.
+async fn kept_for_the_final_answer(
+    budget_ms: u64,
+    first_ms: u64,
+) -> (u64, u64, Option<std::time::Duration>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aborted_at = Arc::new(Mutex::new(None));
+    let row: StreamSimpleFn = {
+        let aborted_at = Arc::clone(&aborted_at);
+        Arc::new(move |_model, _context, options: SimpleStreamOptions| {
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let answer = message("done", Usage::default());
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            let aborted_at = Arc::clone(&aborted_at);
+            let signal = options.stream.request.signal;
+            tokio::spawn(async move {
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                match call {
+                    0 => tokio::time::sleep(std::time::Duration::from_millis(first_ms)).await,
+                    1 => {
+                        // The second work request answers only when stopped.
+                        let started = tokio::time::Instant::now();
+                        signal.expect("the gate's stop signal").cancelled().await;
+                        *aborted_at.lock().unwrap() = Some(started.elapsed());
+                        sink.push(AssistantMessageEvent::Error {
+                            reason: ErrorReason::Aborted,
+                            error: AssistantMessage {
+                                stop_reason: StopReason::Aborted,
+                                ..answer
+                            },
+                        });
+                        sink.end(None);
+                        return;
+                    }
+                    // Its final answer.
+                    2.. => {}
+                }
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            });
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(budget_ms),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    fixture.send(agent("look around")).await;
+    let first = fixture.gate.keep().time_ms;
+    fixture.send(agent("build it")).await;
+    let next = fixture.gate.keep().time_ms;
+    let stopped = *aborted_at.lock().unwrap();
+    (first, next, stopped)
+}
+
+/// B14: the final answer's time reserve is proportionate. A 3-minute
+/// budget keeps a quarter of it (45 s) at first and, once a request took
+/// 10 s, twice that but at least 20 s, so the next work request is
+/// stopped at 160 s; a 10-minute budget keeps 120 s at most, and after a
+/// 70 s request still 120 s; a 1-minute budget keeps 20 s from the start
+/// (a quarter is less); a 32-second budget keeps half of it, 16 s, from
+/// the start. (A 10-minute budget's stalled request meets the stream's
+/// idle deadline first: only its reserves are compared.) Before, every
+/// budget kept 120 s: a 3-minute budget wrapped up after a minute of work;
+/// then, before any request ended, a quarter of the budget: a 1-minute
+/// budget kept 15 s, a 32-second one 8 s.
+#[tokio::test(start_paused = true)]
+async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
+    let reserves = |(first, next, _): (u64, u64, Option<std::time::Duration>)| (first, next);
+    assert_eq!(
+        (
+            kept_for_the_final_answer(180_000, 10_000).await,
+            reserves(kept_for_the_final_answer(600_000, 10_000).await),
+            reserves(kept_for_the_final_answer(600_000, 70_000).await),
+            reserves(kept_for_the_final_answer(60_000, 10_000).await).0,
+            reserves(kept_for_the_final_answer(32_000, 10_000).await).0,
+        ),
+        (
+            (45_000, 20_000, Some(std::time::Duration::from_secs(160))),
+            (120_000, 20_000),
+            (120_000, 120_000),
+            20_000,
+            16_000,
+        )
+    );
+}
+
+/// The answer, the budget's report after it and the final answer's
+/// notice when an agent's work turn of a `budget_ms` time budget is
+/// stopped at its granted time (3 minutes: 135 s, 45 s kept; 1 minute:
+/// 40 s, 20 s kept), on a ledger clock the stop moves, and `late_ms` more
+/// (what settling the stop takes on a real disk): `streamed`, after it
+/// streamed text; else before any content.
+async fn stopped_at_the_deadline(
+    streamed: bool,
+    late_ms: u64,
+    budget_ms: u64,
+) -> (
+    Vec<AssistantContentBlock>,
+    Option<BudgetReport>,
+    Option<String>,
+) {
+    MOVING_MS.store(NOW_MS, Ordering::SeqCst);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let notice = Arc::new(Mutex::new(None));
+    let row: StreamSimpleFn = {
+        let notice = Arc::clone(&notice);
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let mut live = AssistantMessage {
+                content: Vec::new(),
+                ..message("", Usage::default())
+            };
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                tokio::spawn(async move {
+                    let started = tokio::time::Instant::now();
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                    if streamed {
+                        live.content.push(faux_text("Running"));
+                        sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                            content_index: 0,
+                            partial,
+                        });
+                    }
+                    signal.cancelled().await;
+                    // The ledger's clock moves with the stop.
+                    let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap();
+                    MOVING_MS.fetch_add(elapsed + late_ms, Ordering::SeqCst);
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..live
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                *notice.lock().unwrap() = context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                });
+                let answer = message("wrapped up", Usage::default());
+                sink.push(AssistantMessageEvent::Start {
+                    partial: Partial::new(answer.clone()),
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: answer,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Moving);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(budget_ms),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let reply = fixture.send(agent("build it")).await;
+    let notice = notice.lock().unwrap().clone();
+    (reply.content, fixture.gate.report(), notice)
+}
+
+/// B6, B10: a work turn stopped at the granted time the deadline cut has
+/// used up the time for work: before its final answer the agent is in
+/// `WrapUp`, short of time, as when work is refused for time, whether the
+/// turn streamed or not; the final answer is told so. Before, the agent
+/// stayed Working and the run did not end budget-limited.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
+    let limits = BudgetLimits {
+        time_ms: Some(180_000),
+        ..BudgetLimits::default()
+    };
+    let wrapping_up = BudgetReport {
+        free: BudgetAmounts {
+            time_ms: 45_000,
+            ..BudgetAmounts::default()
+        },
+        phase: BudgetPhase::WrapUp,
+        short: Some(BudgetDimension::Time),
+        deadline_ms: Some(NOW_MS + 180_000),
+        ..report(limits)
+    };
+    let notice = "[budget] The time budget of this task is used up for work: 45s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    assert_eq!(
+        (
+            stopped_at_the_deadline(false, 0, 180_000).await,
+            stopped_at_the_deadline(true, 0, 180_000).await,
+        ),
+        (
+            (
+                vec![faux_text("wrapped up")],
+                Some(wrapping_up.clone()),
+                Some(notice.to_owned()),
+            ),
+            (
+                vec![faux_text("Running"), faux_text("wrapped up")],
+                Some(wrapping_up),
+                Some(notice.to_owned()),
+            ),
+        )
+    );
+}
+
+/// B6, B10, B14: a work turn stopped at its granted time gives its final
+/// answer when the ledger's clock has moved on a little past the stop
+/// (settling it takes a moment of the reserve's time): the final answer
+/// runs for what is left of the reserve. Before, a reserve of at most a
+/// request's floor (30 s; here 20 s of a 1-minute budget) was asked
+/// whole, which no longer fit: it was refused for time, the agent was
+/// exhausted and the run had no final answer (the bench's
+/// `budget_time_model`, a model request stopped at 160 s of 180 s with 20 s
+/// kept, its final answer refused with 19.95 s left).
+#[tokio::test(start_paused = true)]
+async fn a_final_answer_after_a_late_stop_runs_for_what_is_left_of_the_reserve() {
+    let (content, report, _) = stopped_at_the_deadline(false, 50, 60_000).await;
+    assert_eq!(
+        (
+            content,
+            report.map(|report| (report.phase, report.short, report.free.time_ms)),
+        ),
+        (
+            vec![faux_text("wrapped up")],
+            Some((BudgetPhase::WrapUp, Some(BudgetDimension::Time), 19_950)),
+        ),
+    );
+}
+
+/// The block an event of a stream is about.
+fn block_of(event: &AssistantMessageEvent) -> Option<usize> {
+    match event {
+        AssistantMessageEvent::TextStart { content_index, .. }
+        | AssistantMessageEvent::TextDelta { content_index, .. }
+        | AssistantMessageEvent::TextEnd { content_index, .. }
+        | AssistantMessageEvent::ThinkingStart { content_index, .. }
+        | AssistantMessageEvent::ThinkingDelta { content_index, .. }
+        | AssistantMessageEvent::ThinkingEnd { content_index, .. }
+        | AssistantMessageEvent::ToolCallStart { content_index, .. }
+        | AssistantMessageEvent::ToolCallDelta { content_index, .. }
+        | AssistantMessageEvent::ToolCallEnd { content_index, .. } => Some(*content_index),
+        AssistantMessageEvent::Start { .. }
+        | AssistantMessageEvent::PromptProgress { .. }
+        | AssistantMessageEvent::Done { .. }
+        | AssistantMessageEvent::Error { .. } => None,
+    }
+}
+
+/// Time: a work turn stopped at its granted time after it streamed content
+/// (thinking, a whole tool call, open text) gives the final answer in the
+/// same message: what streamed stays and its open text is closed, the
+/// final answer's blocks follow it, and the agent's message, which its
+/// tools run from, holds no tool call of the cut turn. The final answer is
+/// sent with the turn's context, no tools and the wrap-up notice. Before,
+/// the turn ended with the budget's error and the run had no answer.
+#[tokio::test(start_paused = true)]
+async fn a_work_turn_stopped_after_it_streamed_gives_the_final_answer_after_it() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let call = faux_tool_call("probe", serde_json::Map::new(), Some("call-1".to_owned()));
+    let row: StreamSimpleFn = {
+        let received = Arc::clone(&received);
+        let call = call.clone();
+        Arc::new(move |_model, context, options: SimpleStreamOptions| {
+            received.lock().unwrap().push(Received {
+                max_tokens: options.stream.max_tokens,
+                tool_choice: options.tool_choice.clone(),
+                last: context.messages().last().and_then(|last| match last {
+                    Message::User(UserMessage {
+                        content: UserContent::Text(text),
+                        ..
+                    }) => Some(text.clone()),
+                    Message::User(_)
+                    | Message::System(_)
+                    | Message::Assistant(_)
+                    | Message::ToolResult(_) => None,
+                }),
+            });
+            let stream = AssistantMessageEventStream::new();
+            let sink = stream.clone();
+            let mut live = AssistantMessage {
+                content: Vec::new(),
+                ..message("", Usage::default())
+            };
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                // The work turn: it streams, then waits until stopped.
+                let signal = options
+                    .stream
+                    .request
+                    .signal
+                    .expect("the gate's stop signal");
+                let AssistantContentBlock::ToolCall(tool_call) = call.clone() else {
+                    panic!("a tool call");
+                };
+                let call = call.clone();
+                tokio::spawn(async move {
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                    live.content.push(faux_thinking(""));
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingStart {
+                        content_index: 0,
+                        partial,
+                    });
+                    live.content[0] = faux_thinking("Plan the build.");
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingDelta {
+                        content_index: 0,
+                        delta: "Plan the build.".to_owned(),
+                        partial,
+                    });
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ThinkingEnd {
+                        content_index: 0,
+                        content: "Plan the build.".to_owned(),
+                        partial,
+                    });
+                    live.content.push(call);
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ToolCallStart {
+                        content_index: 1,
+                        partial,
+                    });
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::ToolCallEnd {
+                        content_index: 1,
+                        tool_call,
+                        partial,
+                    });
+                    live.content.push(faux_text(""));
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                        content_index: 2,
+                        partial,
+                    });
+                    live.content[2] = faux_text("Running the probe");
+                    sink.push_partial(&live, |partial| AssistantMessageEvent::TextDelta {
+                        content_index: 2,
+                        delta: "Running the probe".to_owned(),
+                        partial,
+                    });
+                    signal.cancelled().await;
+                    sink.push(AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: AssistantMessage {
+                            stop_reason: StopReason::Aborted,
+                            ..live
+                        },
+                    });
+                    sink.end(None);
+                });
+            } else {
+                sink.push_partial(&live, |partial| AssistantMessageEvent::Start { partial });
+                live.content.push(faux_text(""));
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextStart {
+                    content_index: 0,
+                    partial,
+                });
+                live.content[0] = faux_text("wrapped up");
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextDelta {
+                    content_index: 0,
+                    delta: "wrapped up".to_owned(),
+                    partial,
+                });
+                sink.push_partial(&live, |partial| AssistantMessageEvent::TextEnd {
+                    content_index: 0,
+                    content: "wrapped up".to_owned(),
+                    partial,
+                });
+                sink.push(AssistantMessageEvent::Done {
+                    reason: DoneReason::Stop,
+                    message: live,
+                });
+                sink.end(None);
+            }
+            stream
+        })
+    };
+    let fixture = Fixture::build(Answer::Row(row), Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let events: Vec<AssistantMessageEvent> = fixture
+        .models
+        .stream_simple(
+            &fixture.faux.get_model(),
+            agent("build it"),
+            ModelsSimpleStreamOptions::from(SimpleStreamOptions::default()),
+        )
+        .events()
+        .collect()
+        .await;
+    // The consumer's frames replay into one message: one start, every
+    // block where its events say.
+    let mut encoder = AssistantMessageFrameEncoder::new();
+    let frames: Vec<_> = events
+        .iter()
+        .filter_map(|event| encoder.encode(event).unwrap())
+        .collect();
+    let shown = reduce_assistant_message_frames(&frames)
+        .unwrap()
+        .map(|message| message.content);
+    let answer = match events.last() {
+        Some(AssistantMessageEvent::Done { message, .. }) => Some(message.content.clone()),
+        Some(_) | None => None,
+    };
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let received = received.lock().unwrap().clone();
+    assert_eq!(
+        (
+            events
+                .iter()
+                .map(|event| (event.type_name(), block_of(event)))
+                .collect::<Vec<_>>(),
+            shown,
+            answer,
+            received.len(),
+            received.last().cloned(),
+        ),
+        (
+            vec![
+                ("start", None),
+                ("thinking_start", Some(0)),
+                ("thinking_delta", Some(0)),
+                ("thinking_end", Some(0)),
+                ("toolcall_start", Some(1)),
+                ("toolcall_end", Some(1)),
+                ("text_start", Some(2)),
+                ("text_delta", Some(2)),
+                // Closed at the stop.
+                ("text_end", Some(2)),
+                // The final answer, after what streamed.
+                ("text_start", Some(3)),
+                ("text_delta", Some(3)),
+                ("text_end", Some(3)),
+                ("done", None),
+            ],
+            Some(vec![
+                faux_thinking("Plan the build."),
+                call,
+                faux_text("Running the probe"),
+                faux_text("wrapped up"),
+            ]),
+            // No tool call: none of the cut turn runs.
+            Some(vec![
+                faux_thinking("Plan the build."),
+                faux_text("Running the probe"),
+                faux_text("wrapped up"),
+            ]),
+            2,
+            Some(Received {
+                max_tokens: Some(2_048),
+                tool_choice: Some(ToolChoice::None),
+                last: Some(notice.to_owned()),
+            }),
+        )
+    );
+}
+
 /// A refused request carries the typed budget refusal: no retry policy
 /// treats it as transient and no overflow recovery compacts and resends
 /// it, whatever its text.
@@ -701,6 +1328,7 @@ async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
             Use::Work,
             "model:turn",
             parent_keep,
+            BudgetAmounts::default(),
             &[BudgetAmounts {
                 tokens: 1,
                 ..BudgetAmounts::default()
@@ -715,15 +1343,7 @@ async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
         .settle(reservation.id, BudgetAmounts::default())
         .unwrap();
     let agent_dir = fixture.agent_dir();
-    let child = BudgetGate::open(
-        &agent_dir,
-        "child",
-        Some("session"),
-        Arc::new(EukheSettings::new(
-            fixture.dir.path().join("work"),
-            &agent_dir,
-        )),
-    );
+    let child = BudgetGate::open(&agent_dir, "child", Some("session"));
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(fixture.faux.provider.clone());
     wrap_models_with_budget(&models, &child);
@@ -878,7 +1498,7 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
     // No work cap fits 4000 tokens; a final answer of 2048 does.
     fixture.gate.set(tokens(4_000)).unwrap();
     let reply = fixture.request(agent("build it")).await;
-    let notice = "[budget] The tokens budget of this task is used up (4.0k tokens). Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The tokens budget of this task is used up for work: 4.0k tokens left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
     assert_eq!(
         (
             reply.error_message,
@@ -900,6 +1520,30 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
                 text: notice.to_owned(),
             }]
         )
+    );
+}
+
+/// The gate knows whether the agent's last delivered reply is its final
+/// answer from the reserve (print mode's exit reads it): set by the final
+/// answer, cleared by a work turn after added budget.
+#[tokio::test]
+async fn the_gate_knows_the_final_answer_was_the_last_reply() {
+    let fixture = Fixture::new();
+    fixture.gate.set(tokens(4_000)).unwrap();
+    let before = fixture.gate.final_answer_delivered();
+    fixture.request(agent("build it")).await;
+    let answered = fixture.gate.final_answer_delivered();
+    fixture
+        .gate
+        .add(BudgetAmounts {
+            tokens: 100_000,
+            ..BudgetAmounts::default()
+        })
+        .unwrap();
+    fixture.request(agent("build it")).await;
+    assert_eq!(
+        (before, answered, fixture.gate.final_answer_delivered()),
+        (false, true, false)
     );
 }
 
@@ -948,14 +1592,16 @@ async fn an_exhausted_budget_sends_nothing_until_budget_is_added() {
     );
 }
 
-/// B7: the agent learns of its budget at its first request, and that it
-/// runs low once, however many grants come back tight.
+/// B7: a grant that holds whatever is free (the largest output cap that
+/// fits) is no sign that the budget runs low: the agent is told its budget
+/// and not that it runs low while two steps of what it actually spent fit
+/// many times over.
 #[tokio::test]
-async fn a_tight_grant_tells_the_agent_once_that_the_budget_runs_low() {
+async fn a_hold_that_fills_what_is_free_does_not_make_the_budget_run_low() {
     let fixture = Fixture::new();
-    // The smallest cap fits (2 * input + 8192 tokens) and another request
-    // of its size, started when it ends, would not.
-    fixture.gate.set(tokens(9_000)).unwrap();
+    // The largest cap fits (2 * input + 16384 + 7168 tokens), and another
+    // request of its size, started when it ends, would not.
+    fixture.gate.set(tokens(30_000)).unwrap();
     fixture.request(agent("build it")).await;
     fixture.request(agent("build it")).await;
     assert_eq!(
@@ -968,17 +1614,154 @@ async fn a_tight_grant_tells_the_agent_once_that_the_budget_runs_low() {
             fixture.told()
         ),
         (
-            vec![Some(1_024), Some(1_024)],
-            vec![
-                (
-                    NoticeKind::Set,
-                    "budget:session:set:-:9000:-:-:-:-".to_owned()
-                ),
-                (
-                    NoticeKind::Low,
-                    "budget:session:low:-:9000:-:-:-:-".to_owned()
-                ),
-            ]
+            vec![Some(16_384), Some(16_384)],
+            vec![(
+                NoticeKind::Set,
+                "budget:session:set:-:30000:-:-:-:-".to_owned()
+            )]
+        )
+    );
+}
+
+/// B7: the agent learns that its budget runs low, once, when two steps of
+/// the largest it actually spent (3250 tokens) and its final-answer
+/// reserve no longer fit what is left; the notice shows what it can still
+/// spend and what its final answer keeps of it.
+#[tokio::test]
+async fn the_budget_runs_low_once_two_steps_of_the_largest_spend_no_longer_fit() {
+    let row = scripted(|| {
+        vec![AssistantMessageEvent::Done {
+            reason: DoneReason::Stop,
+            message: message(
+                "done",
+                Usage {
+                    input: 250,
+                    output: 3_000,
+                    ..Usage::default()
+                },
+            ),
+        }]
+    });
+    let fixture = Fixture::build(Answer::Row(row), Clock::Real);
+    fixture.gate.set(tokens(20_000)).unwrap();
+    let set = (
+        NoticeKind::Set,
+        "budget:session:set:-:20000:-:-:-:-".to_owned(),
+    );
+    let low = (
+        NoticeKind::Low,
+        "budget:session:low:-:20000:-:-:-:-".to_owned(),
+    );
+    let mut told = Vec::new();
+    for _ in 0..4 {
+        fixture.send(agent("build it")).await;
+        told.push(fixture.told());
+    }
+    let texts: Vec<String> = fixture
+        .notices
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|notice| notice.text.clone())
+        .collect();
+    assert_eq!(
+        told,
+        vec![
+            vec![set.clone()],
+            vec![set.clone()],
+            vec![set.clone(), low.clone()],
+            vec![set, low],
+        ]
+    );
+    // 20000 tokens less two steps of 3250 spent; the request in flight
+    // holds the rest of what it may spend
+    assert!(
+        texts[1].starts_with("[budget] Low: 13.5k tokens left, of which the final answer keeps 7."),
+        "{texts:?}"
+    );
+}
+
+/// B7: the agent is told its budget runs low before its work is refused,
+/// also when what it actually spends (300 tokens a step) is far below the
+/// smallest hold its work can be granted: a step is the larger of the two.
+/// Before, low was judged by the actual steps alone, and the turn that was
+/// refused came with no Low notice before it.
+#[tokio::test]
+async fn the_budget_runs_low_before_work_is_refused_when_a_hold_is_larger_than_a_step() {
+    let row = scripted(|| {
+        vec![AssistantMessageEvent::Done {
+            reason: DoneReason::Stop,
+            message: message(
+                "done",
+                Usage {
+                    input: 250,
+                    output: 50,
+                    ..Usage::default()
+                },
+            ),
+        }]
+    });
+    let fixture = Fixture::build(Answer::Row(row), Clock::Real);
+    fixture.gate.set(tokens(20_000)).unwrap();
+    let mut low_before_refusal = None;
+    for _ in 0..200 {
+        let low = fixture
+            .told()
+            .iter()
+            .any(|(kind, _)| *kind == NoticeKind::Low);
+        fixture.send(agent("build it")).await;
+        if fixture.gate.phase() != Some(BudgetPhase::Working) {
+            low_before_refusal = Some(low);
+            break;
+        }
+    }
+    assert_eq!(low_before_refusal, Some(true));
+}
+
+/// The prices of a model with a long-context tier above 100k input
+/// tokens: $0.1/M input and $0.5/M output below it, five times that
+/// above.
+fn tiered_cost() -> ModelCost {
+    ModelCost {
+        input: 0.1,
+        output: 0.5,
+        cache_read: 0.01,
+        cache_write: 0.125,
+        tiers: Some(vec![ModelCostTier {
+            input: 0.5,
+            output: 2.5,
+            cache_read: 0.05,
+            cache_write: 0.625,
+            input_tokens_above: 100_000,
+        }]),
+    }
+}
+
+/// B1, B2: a small cost budget funds work. A turn of about 10k input
+/// tokens cannot reach the long-context tier, so its worst case and its
+/// final-answer reserve are priced below the tier: $0.02 holds the
+/// largest cap and leaves the reserve (about $0.0102 and $0.0041),
+/// where pricing the tier made the reserve alone pass the budget and
+/// sent the turn as the final answer.
+#[tokio::test]
+async fn a_small_cost_budget_funds_work_below_the_long_context_tier() {
+    let fixture = Fixture::priced(tiered_cost());
+    let limits = BudgetLimits {
+        cost_micros: Some(20_000),
+        ..BudgetLimits::default()
+    };
+    fixture.gate.set(limits).unwrap();
+    let task = "fix the module ".repeat(3_000);
+    fixture.request(agent(&task)).await;
+    assert_eq!(
+        (fixture.received(), fixture.gate.phase()),
+        (
+            vec![Received {
+                max_tokens: Some(16_384),
+                tool_choice: None,
+                last: Some(task),
+            }],
+            Some(BudgetPhase::Working)
         )
     );
 }
@@ -1000,7 +1783,7 @@ async fn a_session_without_a_budget_passes_requests_and_tool_calls_through() {
             fixture.received(),
             ran,
             fixture.gate.report(),
-            fixture.gate.work_allowed(),
+            fixture.gate.funds_turn(),
             fixture.told()
         ),
         (
@@ -1017,10 +1800,112 @@ async fn a_session_without_a_budget_passes_requests_and_tool_calls_through() {
     );
 }
 
+/// L4, tool calls: a budget whose tool calls are spent funds no further
+/// turn, though the agent still works (a model request still fits).
+#[tokio::test]
+async fn a_budget_with_no_tool_call_left_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    fixture
+        .gate
+        .set(BudgetLimits {
+            tool_calls: Some(1),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(agent("build it")).await;
+    let ran = fixture
+        .gate
+        .gated_call("tool:probe".to_owned(), BACKGROUND_CONTEXT.clone(), |_cx| {
+            std::future::ready(7)
+        })
+        .await;
+    assert_eq!(
+        (before, ran, fixture.gate.phase(), fixture.gate.funds_turn()),
+        (true, ToolOutcome::Ran(7), Some(BudgetPhase::Working), false)
+    );
+}
+
+/// L4, model requests: once the request left is the final answer's, no
+/// further turn is funded, though the agent still works.
+#[tokio::test]
+async fn a_budget_with_only_the_final_answer_request_left_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    fixture
+        .gate
+        .set(BudgetLimits {
+            requests: Some(2),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(agent("build it")).await;
+    assert_eq!(
+        (before, fixture.gate.phase(), fixture.gate.funds_turn()),
+        (true, Some(BudgetPhase::Working), false)
+    );
+}
+
+/// L4, tokens: a turn that fit only at its smallest cap leaves too little
+/// for the next turn's smallest offer and its final-answer reserve: no
+/// further turn is funded, though the agent still works.
+#[tokio::test]
+async fn a_budget_without_tokens_for_the_next_turn_funds_no_further_turn() {
+    let fixture = Fixture::new();
+    let context = agent("build it");
+    let input = fixture.input_tokens(&context);
+    fixture.gate.set(tokens(2 * input + 1_024 + 7_168)).unwrap();
+    let before = fixture.gate.funds_turn();
+    fixture.request(context).await;
+    assert_eq!(
+        (
+            before,
+            fixture.received(),
+            fixture.gate.phase(),
+            fixture.gate.funds_turn()
+        ),
+        (
+            true,
+            vec![Received {
+                max_tokens: Some(1_024),
+                tool_choice: None,
+                last: Some("build it".to_owned()),
+            }],
+            Some(BudgetPhase::Working),
+            false
+        )
+    );
+}
+
+/// L4, time: 20 s before the deadline is less than the shortest request
+/// may run, so no turn is funded; added time funds one again.
+#[tokio::test]
+async fn a_budget_without_time_for_a_request_funds_no_turn() {
+    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(20_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let short = (fixture.gate.phase(), fixture.gate.funds_turn());
+    fixture
+        .gate
+        .add(BudgetAmounts {
+            time_ms: 180_000,
+            ..BudgetAmounts::default()
+        })
+        .unwrap();
+    assert_eq!(
+        (short, fixture.gate.funds_turn()),
+        ((Some(BudgetPhase::Working), false), true)
+    );
+}
+
 /// Time: a budget with a deadline cancels a tool call at its granted time
-/// (the time left before the deadline, here under the 30 s blocking
-/// budget): the call's context is cancelled exactly then, and the model
-/// reads the budget's tool error.
+/// (the time left before the deadline): the call's context is cancelled
+/// exactly then, and the model reads the budget's tool error.
 #[tokio::test(start_paused = true)]
 async fn a_tool_call_is_stopped_at_its_granted_time() {
     let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
@@ -1055,6 +1940,37 @@ async fn a_tool_call_is_stopped_at_its_granted_time() {
             Some(std::time::Duration::from_secs(20))
         )
     );
+}
+
+/// B10, B8: only the deadline stops a tool call. A call that blocks past
+/// the tool blocking budget by its own contract (an explicit wait such as
+/// `jobs.wait` blocks up to 30 minutes) runs to its end while the time
+/// budget leaves it room. Before, a call asked only the blocking budget's
+/// time (30 s) and was stopped 5 s past it with "Budget exhausted (time)"
+/// though 114 s of 180 s were left (the bench's `budget_time_tool`): the
+/// model took the budget for spent and gave up its wait.
+#[tokio::test(start_paused = true)]
+async fn a_tool_call_past_the_blocking_budget_runs_while_the_deadline_leaves_it_time() {
+    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    fixture
+        .gate
+        .set(BudgetLimits {
+            time_ms: Some(180_000),
+            ..BudgetLimits::default()
+        })
+        .unwrap();
+    let outcome = fixture
+        .gate
+        .gated_call(
+            "tool:python".to_owned(),
+            BACKGROUND_CONTEXT.clone(),
+            |_cx| async {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                "waited"
+            },
+        )
+        .await;
+    assert_eq!(outcome, ToolOutcome::Ran("waited"));
 }
 
 /// B4, B1: a tool call within the tool-call limit runs and settles one
@@ -1136,6 +2052,7 @@ fn every_offer_is_its_requests_worst_case() {
         price_multiplier: 2.0,
         output_extra: 8_000,
         max_output: 64_000,
+        final_ms: 120_000,
     };
     let input = 150_000;
     let ladder = vec![16_384, 8_192, 4_096, 2_048, 1_024];
@@ -1206,18 +2123,30 @@ fn a_notice_shows_what_is_left_in_each_limited_dimension() {
             tool_calls: 1,
             requests: 1,
         },
+        held: BudgetAmounts {
+            cost_micros: 500_000,
+            tokens: 10_000,
+            ..BudgetAmounts::default()
+        },
         deadline_ms: None,
         ..report.clone()
+    };
+    let keep = BudgetAmounts {
+        cost_micros: 4_200,
+        tokens: 7_400,
+        time_ms: 120_000,
+        tool_calls: 0,
+        requests: 1,
     };
     assert_eq!(
         (
             notices::set_text(&report),
-            notices::low_text(&roomy),
+            notices::low_text(&roomy, keep),
             notices::remaining(&BudgetReport::default())
         ),
         (
             "[budget] This task has a budget: $0.0123, 12.3k tokens, 1m 20s, 7 tool calls, 3 requests. Nothing can be spent past it: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.".to_owned(),
-            "[budget] Low: $2.50, 2.3M tokens, 1 tool call, 1 request. Another step of the last size does not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.".to_owned(),
+            "[budget] Low: $3.00, 2.3M tokens, 1 tool call, 1 request left, of which the final answer keeps $0.0042, 7.4k tokens, 0 tool calls, 1 request. Two more steps of the largest size so far would not fit. Finish what matters most; when the work budget is used up you get one final answer without tools.".to_owned(),
             "no limit".to_owned()
         )
     );

@@ -9,7 +9,7 @@ use eukhe_types::loop_mode::{LoopCondition, LoopEnd, LoopEvidence, LoopLimit, Lo
 use super::docs::LoopDoc;
 
 /// The usage line every malformed-arguments message ends with.
-const LOOP_USAGE: &str = "Usage: /loop [count|duration] [--while|--until '<command>'] [prompt]. Examples: /loop 10, /loop 10m, /loop 20 --until 'bun test' fix the failing tests.";
+const LOOP_USAGE: &str = "Usage: /loop [count|duration] [--while|--until '<command>'] [prompt]. A count N repeats the prompt at most N times after the first turn: N+1 turns at most. Examples: /loop 10, /loop 10m, /loop 20 --until 'bun test' fix the failing tests.";
 
 /// The largest integer a limit may be (2^53 - 1, exact in any client's
 /// double-precision number).
@@ -317,11 +317,11 @@ fn budget(duration_ms: u64) -> String {
     }
 }
 
-fn iterations_word(n: u64) -> &'static str {
+fn repeats_word(n: u64) -> &'static str {
     if n == 1 {
-        "iteration"
+        "repeat"
     } else {
-        "iterations"
+        "repeats"
     }
 }
 
@@ -361,8 +361,9 @@ pub(crate) fn enabled_message(doc: &LoopDoc) -> String {
     let limit = match doc.limit {
         None => String::new(),
         Some(LoopLimit::Iterations { iterations }) => format!(
-            " Limited to {iterations} {word}. {iterations} of {iterations} {word} remaining.",
-            word = iterations_word(iterations)
+            " Limited to {iterations} {word} after the first turn ({total} turns at most). {iterations} of {iterations} {word} remaining.",
+            word = repeats_word(iterations),
+            total = iterations.saturating_add(1)
         ),
         Some(LoopLimit::Duration { duration_ms }) => {
             let spelled = budget(duration_ms);
@@ -461,7 +462,7 @@ pub(crate) fn status_message(doc: &LoopDoc, now_ms: u64) -> String {
     {
         parts.push(format!(
             "{remaining} of {iterations} {} remaining",
-            iterations_word(iterations)
+            repeats_word(iterations)
         ));
     }
     if let Some(deadline) = state.deadline_ms {

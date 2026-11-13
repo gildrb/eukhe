@@ -9,8 +9,10 @@
 //! an account is one call of the compiled core: [`reserve`] before
 //! anything is spent, [`settle`] after (a crash's open hold is settled at
 //! its held amount), [`carve`] and [`close`] for a child given its own
-//! budget, [`fund`] when budget or time is added. Rust (eukhe-budget)
-//! keeps the account on disk and gathers the amounts; it decides nothing.
+//! budget, [`fund`] when budget or time is added. [`share_start`] (entry
+//! `bend/ffi_budget_share.bend`) picks the offer a reservation of an agent
+//! sharing its account starts from. Rust (eukhe-budget) keeps the account
+//! on disk and gathers the amounts; it decides nothing.
 //!
 //! Every number crosses the wire, so each must stay within
 //! [`NAT_MAX`](crate::wire::NAT_MAX): a caller keeps its amounts, durations
@@ -113,13 +115,15 @@ pub enum Why {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grant {
-    /// The offer at `index` is held under the id; `tight` says the same
-    /// ask, started when this one ends, would not fit what is left.
+    /// The offer at `index` is held under the id; `low` says two steps of
+    /// the agent's largest recent step (this one and one more), started
+    /// now, with the reserves, would not fit what was free before the
+    /// grant: the agent's budget runs low. Never low for a zero step.
     Granted {
         index: usize,
         ask: Ask,
         acct: Acct,
-        tight: bool,
+        low: bool,
     },
     /// Nothing is held; `phase` is the agent's phase after the refusal (it
     /// moves when no offer fits).
@@ -260,7 +264,10 @@ fn ask<T>(
 /// first of `want` and then `less` that fits what is free in `acct` and
 /// ends before its deadline, leaving `base` (the final-answer reserves of
 /// the agents above) and, for work and a side request, `keep` (the agent's
-/// own).
+/// own). `step` is the agent's largest recent step as actually spent (per
+/// dimension the largest spend of a recent step, the duration of its
+/// longest), zero before its first step finished; the grant is low when
+/// two such steps would not fit.
 ///
 /// # Errors
 ///
@@ -275,6 +282,7 @@ pub fn reserve(
     now: u64,
     base: Ask,
     keep: Ask,
+    step: Ask,
     want: Ask,
     less: &[Ask],
     acct: &Acct,
@@ -290,6 +298,7 @@ pub fn reserve(
             w.nat(id).nat(now);
             put_ask(w, base);
             put_ask(w, keep);
+            put_ask(w, step);
             put_ask(w, want);
             w.count(less.len());
             for offer in less {
@@ -302,12 +311,12 @@ pub fn reserve(
                 let index = r.count()?;
                 let ask = get_ask(r)?;
                 let acct = get_acct(r)?;
-                let tight = r.bool()?;
+                let low = r.bool()?;
                 Grant::Granted {
                     index,
                     ask,
                     acct,
-                    tight,
+                    low,
                 }
             } else {
                 let why = get_why(r)?;
@@ -407,6 +416,58 @@ pub fn fund(n: Ask, acct: &Acct) -> Result<Acct, Error> {
     )
 }
 
+/// The place among `want` and then `less` (0: `want`) that a reservation
+/// of an agent drawing from a shared account starts from
+/// (`bend/budget_share.bend`, entry `bend/ffi_budget_share.bend`; laws
+/// `laws/budget_share.bend`). `n` is the number of the account's Working
+/// agents that hold nothing, the asker among them (0 counts as 1). For
+/// work and a side request: the first offer that fits `free` by `until`
+/// with `base` and `keep` (as [`reserve`] tests it) and is within the
+/// agent's share, in money and in tokens at most what is free past `base`
+/// and `keep` divided by `n`; when none that fits is, the last offer that
+/// fits. A final answer is not shared: the first offer that fits. When no
+/// offer fits, 0. Reserving the offers from that place on is granted
+/// exactly when reserving all of them would be.
+///
+/// # Errors
+///
+/// A number past the wire, or a failure of the compiled core.
+// The core's request, field for field (bend/ffi_budget_share.bend):
+// bundling them would only restate the wire.
+#[allow(clippy::too_many_arguments)]
+pub fn share_start(
+    n: u64,
+    use_: Use,
+    base: Ask,
+    keep: Ask,
+    want: Ask,
+    less: &[Ask],
+    free: Amt,
+    now: u64,
+    until: u64,
+) -> Result<usize, Error> {
+    let mut request = Writer::new();
+    request.nat(n).tag(match use_ {
+        Use::Work => 0,
+        Use::Final => 1,
+        Use::Side => 2,
+    });
+    put_ask(&mut request, base);
+    put_ask(&mut request, keep);
+    put_ask(&mut request, want);
+    request.count(less.len());
+    for offer in less {
+        put_ask(&mut request, *offer);
+    }
+    put_amt(&mut request, free);
+    request.nat(now).nat(until);
+    let reply = call(Entry::BudgetShare, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let place = reader.count()?;
+    reader.end()?;
+    Ok(place)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,35 +496,42 @@ mod tests {
     #[test]
     fn work_takes_the_first_offer_that_fits_and_leaves_the_reserves() {
         let acct = funded(amt(10, 10, 10, 10), 100);
-        let grant = reserve(
-            Use::Work,
-            Phase::Working,
-            7,
-            0,
-            ask_of(amt(1, 0, 0, 0), 0),
-            ask_of(amt(1, 2, 2, 0), 5),
-            ask_of(amt(9, 1, 1, 1), 10),
-            &[ask_of(amt(8, 1, 1, 1), 10)],
-            &acct,
-        )
-        .unwrap();
-        assert_eq!(
-            grant,
-            Grant::Granted {
-                index: 1,
-                ask: ask_of(amt(8, 1, 1, 1), 10),
-                acct: Acct {
-                    free: amt(2, 9, 9, 9),
-                    holds: vec![Hold {
-                        id: 7,
-                        amt: amt(8, 1, 1, 1)
-                    }],
-                    until: 100,
-                    ..Acct::default()
-                },
-                tight: true,
-            }
-        );
+        let take = |step| {
+            reserve(
+                Use::Work,
+                Phase::Working,
+                7,
+                0,
+                ask_of(amt(1, 0, 0, 0), 0),
+                ask_of(amt(1, 2, 2, 0), 5),
+                step,
+                ask_of(amt(9, 1, 1, 1), 10),
+                &[ask_of(amt(8, 1, 1, 1), 10)],
+                &acct,
+            )
+            .unwrap()
+        };
+        let granted = |low| Grant::Granted {
+            index: 1,
+            ask: ask_of(amt(8, 1, 1, 1), 10),
+            acct: Acct {
+                free: amt(2, 9, 9, 9),
+                holds: vec![Hold {
+                    id: 7,
+                    amt: amt(8, 1, 1, 1),
+                }],
+                until: 100,
+                ..Acct::default()
+            },
+            low,
+        };
+        // the hold fills what is free, yet two steps of (1,1,1,1)
+        // for 10 ms with the reserves fit what was free: not low, nor before
+        // the agent's first step
+        assert_eq!(take(ask_of(amt(1, 1, 1, 1), 10)), granted(false));
+        assert_eq!(take(Ask::default()), granted(false));
+        // two steps of 5 with the reserves of 2 are past 10: low
+        assert_eq!(take(ask_of(amt(5, 1, 1, 1), 10)), granted(true));
     }
 
     #[test]
@@ -479,6 +547,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 9, 9, 9), 0),
                 &[],
                 &acct
@@ -495,6 +564,7 @@ mod tests {
                 Phase::WrapUp,
                 2,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 0),
@@ -514,6 +584,7 @@ mod tests {
             0,
             none,
             keep,
+            none,
             ask_of(amt(10, 10, 10, 0), 0),
             &[],
             &acct,
@@ -527,6 +598,7 @@ mod tests {
                 Phase::WrapUp,
                 4,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 11), 0),
@@ -556,6 +628,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -576,6 +649,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(8, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -591,6 +665,7 @@ mod tests {
                 0,
                 none,
                 keep,
+                none,
                 ask_of(amt(9, 1, 1, 1), 0),
                 &[],
                 &acct
@@ -608,6 +683,7 @@ mod tests {
                 Phase::Exhausted,
                 4,
                 0,
+                none,
                 none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 0),
@@ -635,6 +711,7 @@ mod tests {
                 900,
                 ask_of(Amt::default(), 50),
                 none,
+                none,
                 ask_of(amt(1, 1, 1, 1), 60),
                 &[],
                 &acct
@@ -653,6 +730,7 @@ mod tests {
                 1,
                 900,
                 ask_of(Amt::default(), 50),
+                none,
                 none,
                 ask_of(amt(1, 1, 1, 1), 60),
                 &[ask_of(amt(1, 1, 1, 1), 50)],
@@ -809,5 +887,57 @@ mod tests {
     fn a_number_past_the_wire_is_an_error_not_a_stop() {
         let acct = funded(amt(u64::MAX, 0, 0, 0), 0);
         assert!(settle(0, Amt::default(), &acct).is_err());
+    }
+
+    /// The bench of `budget_share_example`: 12 free in money and 120 in
+    /// tokens, each agent keeping (2, 20) for its own answer, offering
+    /// (8, 80), (4, 40), (2, 20), (1, 10), one call and one request each.
+    fn share_of(n: u64, use_: Use, free: Amt) -> usize {
+        let offer = |cost, tok| ask_of(amt(cost, tok, 1, 1), 10);
+        share_start(
+            n,
+            use_,
+            Ask::default(),
+            ask_of(amt(2, 20, 0, 0), 0),
+            offer(8, 80),
+            &[offer(4, 40), offer(2, 20), offer(1, 10)],
+            free,
+            0,
+            1000,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn four_agents_each_start_from_the_first_offer_within_a_quarter() {
+        // a share of (10, 100) / 4 = (2, 25): (2, 20) is the first within
+        assert_eq!(share_of(4, Use::Work, amt(12, 120, 10, 10)), 2);
+        // with one sibling, (5, 50): (4, 40)
+        assert_eq!(share_of(2, Use::Side, amt(12, 120, 10, 10)), 1);
+    }
+
+    #[test]
+    fn with_no_offer_within_the_share_the_smallest_that_fits_is_taken() {
+        // (10, 100) / 20 = (0, 5): none is within, (1, 10) fits
+        assert_eq!(share_of(20, Use::Work, amt(12, 120, 10, 10)), 3);
+    }
+
+    #[test]
+    fn with_no_offer_that_fits_the_start_is_the_wanted_one() {
+        assert_eq!(share_of(4, Use::Work, amt(1, 120, 10, 10)), 0);
+    }
+
+    #[test]
+    fn a_final_answer_is_not_shared() {
+        assert_eq!(share_of(4, Use::Final, amt(12, 120, 10, 10)), 0);
+    }
+
+    #[test]
+    fn a_lone_agent_starts_from_the_first_offer_that_fits() {
+        assert_eq!(share_of(1, Use::Work, amt(12, 120, 10, 10)), 0);
+        // n = 0 counts the asker alone
+        assert_eq!(share_of(0, Use::Work, amt(12, 120, 10, 10)), 0);
+        // alone, (8, 80) is past what is free: the first that fits, (4, 40)
+        assert_eq!(share_of(1, Use::Work, amt(7, 120, 10, 10)), 1);
     }
 }

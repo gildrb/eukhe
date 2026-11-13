@@ -6,5 +6,5 @@ import Base
 import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 
-def HeadlessExit.headless_exit_command_failed_fails(g, r, p, c, a):
+def HeadlessExit.headless_exit_command_failed_fails(w, r, p, c, a, ba):
   {==}

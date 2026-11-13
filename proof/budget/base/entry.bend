@@ -223,11 +223,12 @@ def be.use_of(u: B.Use, rest: String) -> {FBg.get_reserve.phase(u, FBg.get_phase
 # a spelled request that fits reads back, the rest untouched
 def be.req_rt(q: FBg.Req, +rest: String, h: {Budget.sp_fit_req(q) == True{} : Bool}) -> {FBg.get_req(Budget.sp_w_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FBg.Req>}:
   match q:
-    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +want, +less, +a}:
+    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +step, +want, +less, +a}:
       +h0 = h
-      +b7 = Bool.and(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a))
-      +b6 = Bool.and(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b7)
-      +b5 = Bool.and(Budget.sp_fit_ask(want), b6)
+      +b8 = Bool.and(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a))
+      +b7 = Bool.and(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b8)
+      +b6 = Bool.and(Budget.sp_fit_ask(want), b7)
+      +b5 = Bool.and(Budget.sp_fit_ask(step), b6)
       +b4 = Bool.and(Budget.sp_fit_ask(keep), b5)
       +b3 = Bool.and(Budget.sp_fit_ask(base), b4)
       +b2 = Bool.and(LawsBase.wire_fits(now), b3)
@@ -239,21 +240,24 @@ def be.req_rt(q: FBg.Req, +rest: String, h: {Budget.sp_fit_req(q) == True{} : Bo
       +h3 = be.and_r(Budget.sp_fit_ask(base), b4, h2)
       +fk = be.and_l(Budget.sp_fit_ask(keep), b5, h3)
       +h4 = be.and_r(Budget.sp_fit_ask(keep), b5, h3)
-      +fw = be.and_l(Budget.sp_fit_ask(want), b6, h4)
-      +h5 = be.and_r(Budget.sp_fit_ask(want), b6, h4)
-      +fc = be.and_l(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b7, h5)
-      +h6 = be.and_r(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b7, h5)
-      +fl = be.and_l(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a), h6)
-      +fa = be.and_r(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a), h6)
-      +s9 = Budget.sp_w_acct(a, rest)
-      +s8 = Wr.put_list(~B.Ask, ~Budget.sp_w_ask, less, s9)
-      +s7 = Budget.sp_w_ask(want, s8)
+      +fs = be.and_l(Budget.sp_fit_ask(step), b6, h4)
+      +h5 = be.and_r(Budget.sp_fit_ask(step), b6, h4)
+      +fw = be.and_l(Budget.sp_fit_ask(want), b7, h5)
+      +h6 = be.and_r(Budget.sp_fit_ask(want), b7, h5)
+      +fc = be.and_l(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b8, h6)
+      +h7 = be.and_r(LawsBase.wire_fits(List.length(&2, B.Ask, less)), b8, h6)
+      +fl = be.and_l(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a), h7)
+      +fa = be.and_r(Budget.sp_fit_asks(less), Budget.sp_fit_acct(a), h7)
+      +s10 = Budget.sp_w_acct(a, rest)
+      +s9 = Wr.put_list(~B.Ask, ~Budget.sp_w_ask, less, s10)
+      +s8 = Budget.sp_w_ask(want, s9)
+      +s7 = Budget.sp_w_ask(step, s8)
       +s6 = Budget.sp_w_ask(keep, s7)
       +s5 = Budget.sp_w_ask(base, s6)
       +s4 = Wr.put_nat(now, s5)
       +s3 = Wr.put_nat(id, s4)
       +s2 = Wr.put_nat(Budget.sp_phase_tag(p), s3)
-      +v = {Wr.Got{FBg.QReserve{u, p, id, now, base, keep, want, less, a}, rest} : Wr.Dec<FBg.Req>}
+      +v = {Wr.Got{FBg.QReserve{u, p, id, now, base, keep, step, want, less, a}, rest} : Wr.Dec<FBg.Req>}
       %be.use_nat(u, s2) : {FBg.get_reserve(_) == v : Wr.Dec<FBg.Req>}
       %be.use_of(u, s2) : {_ == v : Wr.Dec<FBg.Req>}
       %be.phase(p, s3) : {FBg.get_reserve.phase(u, _) == v : Wr.Dec<FBg.Req>}
@@ -261,9 +265,10 @@ def be.req_rt(q: FBg.Req, +rest: String, h: {Budget.sp_fit_req(q) == True{} : Bo
       %be.nat(now, s5, fn) : {FBg.get_reserve.now(u, p, id, _) == v : Wr.Dec<FBg.Req>}
       %be.ask(base, s6, fb) : {FBg.get_reserve.base(u, p, id, now, _) == v : Wr.Dec<FBg.Req>}
       %be.ask(keep, s7, fk) : {FBg.get_reserve.keep(u, p, id, now, base, _) == v : Wr.Dec<FBg.Req>}
-      %be.ask(want, s8, fw) : {FBg.get_reserve.want(u, p, id, now, base, keep, _) == v : Wr.Dec<FBg.Req>}
-      %be.asks(less, s9, fc, fl) : {FBg.get_reserve.less(u, p, id, now, base, keep, want, _) == v : Wr.Dec<FBg.Req>}
-      %be.acct(a, rest, fa) : {FBg.get_reserve.acct(u, p, id, now, base, keep, want, less, _) == v : Wr.Dec<FBg.Req>}
+      %be.ask(step, s8, fs) : {FBg.get_reserve.step(u, p, id, now, base, keep, _) == v : Wr.Dec<FBg.Req>}
+      %be.ask(want, s9, fw) : {FBg.get_reserve.want(u, p, id, now, base, keep, step, _) == v : Wr.Dec<FBg.Req>}
+      %be.asks(less, s10, fc, fl) : {FBg.get_reserve.less(u, p, id, now, base, keep, step, want, _) == v : Wr.Dec<FBg.Req>}
+      %be.acct(a, rest, fa) : {FBg.get_reserve.acct(u, p, id, now, base, keep, step, want, less, _) == v : Wr.Dec<FBg.Req>}
       {==}
     case FBg.QSettle{+id, +act, +a}:
       +h0 = h
@@ -401,9 +406,9 @@ def be.w_why(w: B.Why, -r1: String, -r2: String, e: {r1 == r2 : String}) -> {FBg
 
 def be.w_grant(g: B.Grant) -> {FBg.put_grant(g) == Budget.sp_w_grant(g) : String}:
   match g:
-    case B.Granted{i, c, a, +t}:
-      Equal.cong(String, String, z => Wr.put_nat(0n, Wr.put_nat(i, z)), FBg.put_ask(c, FBg.put_acct(a, Wr.put_bool(t, ""))), Budget.sp_w_ask(c, Budget.sp_w_acct(a, Wr.put_bool(t, ""))),
-        be.w_ask(c, FBg.put_acct(a, Wr.put_bool(t, "")), Budget.sp_w_acct(a, Wr.put_bool(t, "")), be.w_acct(a, Wr.put_bool(t, ""), Wr.put_bool(t, ""), {==})))
+    case B.Granted{i, c, a, +lo}:
+      Equal.cong(String, String, z => Wr.put_nat(0n, Wr.put_nat(i, z)), FBg.put_ask(c, FBg.put_acct(a, Wr.put_bool(lo, ""))), Budget.sp_w_ask(c, Budget.sp_w_acct(a, Wr.put_bool(lo, ""))),
+        be.w_ask(c, FBg.put_acct(a, Wr.put_bool(lo, "")), Budget.sp_w_acct(a, Wr.put_bool(lo, "")), be.w_acct(a, Wr.put_bool(lo, ""), Wr.put_bool(lo, ""), {==})))
     case B.Refused{w, +p}:
       Equal.cong(String, String, z => Wr.put_nat(1n, z), FBg.put_why(w, FBg.put_phase(p, "")), Budget.sp_w_why(w, Wr.put_nat(Budget.sp_phase_tag(p), "")),
         be.w_why(w, FBg.put_phase(p, ""), Wr.put_nat(Budget.sp_phase_tag(p), ""), be.w_phase(p, "", "", {==})))
@@ -427,8 +432,8 @@ def be.w_close(c: B.Close) -> {FBg.put_close(c) == Budget.sp_w_close(c) : String
 # the entry's answer is the model's decision, spelled
 def be.reply(q: FBg.Req) -> {FBg.answer(q) == Budget.sp_w_reply(q) : String}:
   match q:
-    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +want, less, a}:
-      be.w_grant(B.reserve(u, p, id, now, base, keep, want, less, a))
+    case FBg.QReserve{+u, +p, +id, +now, +base, +keep, +step, +want, less, a}:
+      be.w_grant(B.reserve(u, p, id, now, base, keep, step, want, less, a))
     case FBg.QSettle{+id, +act, a}:
       be.w_acct(B.settle(id, act, a), "", "", {==})
     case FBg.QCarve{p, +now, +want, base, a}:
@@ -454,7 +459,7 @@ def be.acct_ok(a: B.Acct, rest: String) -> {LawsBase.wire_opens_err(FBg.put_acct
 
 def be.grant_ok(g: B.Grant) -> {LawsBase.wire_opens_err(FBg.put_grant(g)) == False{} : Bool}:
   match g:
-    case B.Granted{i, c, a, t}:
+    case B.Granted{i, c, a, lo}:
       {==}
     case B.Refused{w, p}:
       {==}
@@ -476,8 +481,8 @@ def be.close_ok(c: B.Close) -> {LawsBase.wire_opens_err(FBg.put_close(c)) == Fal
 # no answer opens with 'E'
 def be.answer_ok(q: FBg.Req) -> {LawsBase.wire_opens_err(FBg.answer(q)) == False{} : Bool}:
   match q:
-    case FBg.QReserve{u, p, id, now, base, keep, want, less, a}:
-      be.grant_ok(B.reserve(u, p, id, now, base, keep, want, less, a))
+    case FBg.QReserve{u, p, id, now, base, keep, step, want, less, a}:
+      be.grant_ok(B.reserve(u, p, id, now, base, keep, step, want, less, a))
     case FBg.QSettle{id, act, a}:
       be.acct_ok(B.settle(id, act, a), "")
     case FBg.QCarve{p, now, want, base, a}:

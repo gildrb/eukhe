@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use eukhe_ai::utils::retry::is_budget_refusal;
 use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
 use eukhe_core::durable::messages::{
@@ -89,6 +90,7 @@ impl HeadlessPrimary {
                 StopReason::ToolUse | StopReason::Pending | StopReason::Deferred => {
                     Primary::Unfinished
                 }
+                StopReason::Error if is_budget_refusal(message) => Primary::BudgetRefused,
                 StopReason::Error => Primary::ProviderError,
                 StopReason::Aborted => Primary::Aborted,
             },
@@ -303,7 +305,7 @@ fn user_content_text(content: &UserContent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{step, Step, Walk};
+    use super::{step, Primary, Step, Walk};
     use eukhe_durable::types::EntryRecord;
 
     /// The `provider_retry_outcome` row of an episode (the durable shape
@@ -374,6 +376,39 @@ mod tests {
         assert_eq!(
             (ended, walk.result.primary, walk.result.warnings),
             (vec![false, false, true], None, Vec::<String>::new())
+        );
+    }
+
+    /// A failed reply is a budget refusal for the exit rule when its error
+    /// carries the budget-refusal diagnostic, else a provider error.
+    #[test]
+    fn a_budget_refusal_is_its_own_terminal_entry() {
+        let failed = |diagnostics: serde_json::Value| {
+            let row: EntryRecord = serde_json::from_value(serde_json::json!({
+                "kind": "pi.assistant", "id": 2, "conversationId": 1,
+                "model": [{ "role": "assistant", "content": [],
+                    "api": "faux", "provider": "faux", "model": "faux-1",
+                    "usage": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                      "totalTokens": 0,
+                      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
+                    "stopReason": "error",
+                    "errorMessage": "Budget exhausted (requests): the request was not sent. Add budget to continue.",
+                    "diagnostics": diagnostics, "timestamp": 2 }],
+            }))
+            .expect("an entry record");
+            match step(row) {
+                Step::Stop(Some(primary)) => primary.kind(),
+                Step::Stop(None) | Step::Outcome(_) | Step::Warning(_) | Step::Skip => {
+                    panic!("an assistant entry is the primary")
+                }
+            }
+        };
+        assert_eq!(
+            [
+                failed(serde_json::json!([{ "type": "budget_refusal", "timestamp": 2 }])),
+                failed(serde_json::json!([])),
+            ],
+            [Primary::BudgetRefused, Primary::ProviderError]
         );
     }
 }

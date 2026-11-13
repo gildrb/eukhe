@@ -43,6 +43,13 @@ pub const REQUEST_MIN_MS: u64 = 30_000;
 /// The shortest time a tool call's offers are clipped to.
 pub const TOOL_MIN_MS: u64 = 10_000;
 
+/// The shortest time a final answer's offers are clipped to, below the
+/// least time a final answer's reserve keeps: after a work turn stopped at
+/// its granted time, the final answer runs for what is left of the
+/// reserve's time once the stop is settled and the answer asked; one with
+/// less time left is refused.
+pub const FINAL_MIN_MS: u64 = 10_000;
+
 /// What a reservation is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Use {
@@ -79,9 +86,10 @@ pub struct Reservation {
     /// The granted offer in the dimensions the budget limits; `time_ms`:
     /// how long it may run (0 without a time limit).
     pub amount: BudgetAmounts,
-    /// The same request, started when this one ends, would not fit what
-    /// is left.
-    pub tight: bool,
+    /// Two steps of the agent's `step` (this one and one more), started
+    /// now, with the reserves, would not fit what was free before the
+    /// grant: the budget runs low. It never depends on the offer granted.
+    pub low: bool,
 }
 
 /// The answer to [`Ledger::reserve`].
@@ -265,6 +273,95 @@ fn above(state: &State, agent: &str) -> BudgetAmounts {
     sum
 }
 
+/// `offers` of a reservation of `agent` for `use_` at `now`, each clipped
+/// to the time left for it before the deadline (the reserves above and,
+/// for work and a side request, its own `keep` left), never below
+/// `min_ms` (an offer asking less keeps its own). Unclipped without a
+/// time limit.
+fn clip_offers(
+    state: &State,
+    agent: &str,
+    use_: Use,
+    keep: BudgetAmounts,
+    offers: &[BudgetAmounts],
+    min_ms: u64,
+    now: u64,
+) -> Vec<BudgetAmounts> {
+    match state.limits.time_ms {
+        Some(_) => {
+            let own = match use_ {
+                Use::Work | Use::Side => keep.time_ms,
+                Use::Final => 0,
+            };
+            let left = state
+                .account
+                .until
+                .saturating_sub(now)
+                .saturating_sub(above(state, agent).time_ms)
+                .saturating_sub(own);
+            offers
+                .iter()
+                .map(|offer| BudgetAmounts {
+                    time_ms: if offer.time_ms <= min_ms {
+                        offer.time_ms
+                    } else {
+                        offer.time_ms.min(left.max(min_ms))
+                    },
+                    ..*offer
+                })
+                .collect()
+        }
+        None => offers.to_vec(),
+    }
+}
+
+/// The reserve a request of `agent` for `use_` leaves: `keep`, and for a
+/// side request at least the reserve the agent's turns recorded, whichever
+/// gate asks for it: one that never sent a turn (a compaction's, a
+/// memory's) knows no reserve of its own (B6).
+fn side_keep(state: &State, agent: &str, use_: Use, keep: BudgetAmounts) -> BudgetAmounts {
+    match use_ {
+        Use::Side => state
+            .members
+            .get(agent)
+            .map_or(keep, |member| BudgetAmounts {
+                cost_micros: keep.cost_micros.max(member.keep.cost_micros),
+                tokens: keep.tokens.max(member.keep.tokens),
+                time_ms: keep.time_ms.max(member.keep.time_ms),
+                tool_calls: keep.tool_calls.max(member.keep.tool_calls),
+                requests: keep.requests.max(member.keep.requests),
+            }),
+        Use::Work | Use::Final => keep,
+    }
+}
+
+/// How many agents share what is free when `agent` asks (B13): the asking
+/// one and every other Working member of the account that holds nothing.
+fn sharing(state: &State, agent: &str) -> u64 {
+    let waiting = state
+        .members
+        .iter()
+        .filter(|(member, at)| {
+            member.as_str() != agent
+                && at.phase == BudgetPhase::Working
+                && !state
+                    .account
+                    .holds
+                    .iter()
+                    .any(|hold| &hold.agent == *member)
+        })
+        .count();
+    u64::try_from(waiting).map_or(u64::MAX, |others| others.saturating_add(1))
+}
+
+fn use_record(use_: Use) -> UseRecord {
+    match use_ {
+        Use::Work => UseRecord::Work,
+        Use::Final => UseRecord::Final,
+        Use::Side => UseRecord::Side,
+    }
+}
+
 /// The account after every open hold of `agent` was settled at its held
 /// amount: what a crashed or ended agent left in flight has an unknown
 /// cost, bounded by its reservation.
@@ -362,30 +459,45 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 label: _,
                 now_ms,
                 keep,
+                step,
+                share,
                 offers,
             } => {
                 let member = state
                     .members
                     .get(agent)
                     .ok_or_else(|| LedgerError::NotMember(agent.clone()))?;
-                let (want, less) = offers.split_first().ok_or(LedgerError::NoOffer)?;
-                let less: Vec<core::Ask> = less
+                let offers: Vec<core::Ask> = offers
                     .iter()
                     .map(|offer| to_ask(mask(*offer, &state.limits)))
                     .collect();
+                let use_core = match use_ {
+                    UseRecord::Work => core::Use::Work,
+                    UseRecord::Final => core::Use::Final,
+                    UseRecord::Side => core::Use::Side,
+                };
+                let base = to_ask(mask(above(state, agent), &state.limits));
+                let keep_ask = to_ask(mask(*keep, &state.limits));
+                let (want, less) = offers.split_first().ok_or(LedgerError::NoOffer)?;
+                // The agents that share what is free each start from an
+                // offer within their share (B13).
+                let start = core::share_start(
+                    *share, use_core, base, keep_ask, *want, less, acct.free, *now_ms, acct.until,
+                )?;
+                let (want, less) = offers
+                    .get(start..)
+                    .and_then(<[core::Ask]>::split_first)
+                    .ok_or(LedgerError::NoOffer)?;
                 let grant = core::reserve(
-                    match use_ {
-                        UseRecord::Work => core::Use::Work,
-                        UseRecord::Final => core::Use::Final,
-                        UseRecord::Side => core::Use::Side,
-                    },
+                    use_core,
                     core_phase(member.phase),
                     *id,
                     *now_ms,
-                    to_ask(mask(above(state, agent), &state.limits)),
-                    to_ask(mask(*keep, &state.limits)),
-                    to_ask(mask(*want, &state.limits)),
-                    &less,
+                    base,
+                    keep_ask,
+                    to_ask(mask(*step, &state.limits)),
+                    *want,
+                    less,
                     &acct,
                 )?;
                 let after = next.members.entry(agent.clone()).or_default();
@@ -395,7 +507,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                         index,
                         ask,
                         acct,
-                        tight,
+                        low,
                     } => {
                         next.account = Account::from_acct(&acct, |held| {
                             if held == *id {
@@ -406,9 +518,9 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                         });
                         next.next_id = id.saturating_add(1);
                         Outcome::Granted {
-                            index,
+                            index: start + index,
                             amount: from_ask(ask),
-                            tight,
+                            low,
                         }
                     }
                     core::Grant::Refused { why, phase } => {
@@ -1091,7 +1203,9 @@ impl Ledger {
     /// reserve). With a time limit, each offer's `time_ms` is first
     /// clipped to what is left for the agent, never below `min_ms` (an
     /// offer asking less keeps its own). A side request that does not fit
-    /// changes nothing of the agent. The answer is on disk when this
+    /// changes nothing of the agent. The grant is low when two steps of
+    /// `step` (the agent's largest recent step as actually spent; zero
+    /// before its first) would not fit. The answer is on disk when this
     /// returns: spend only after a grant.
     ///
     /// # Errors
@@ -1099,12 +1213,14 @@ impl Ledger {
     /// [`LedgerError::NoBudget`], [`LedgerError::NotMember`],
     /// [`LedgerError::NoOffer`], and the file's or the core's failures:
     /// each means do not spend.
+    #[allow(clippy::too_many_arguments)] // The facts of one reservation, each its own: the core's `reserve` takes them all.
     pub fn reserve(
         &self,
         agent: &str,
         use_: Use,
         label: &str,
         keep: BudgetAmounts,
+        step: BudgetAmounts,
         offers: &[BudgetAmounts],
         min_ms: u64,
     ) -> Result<Reserved, LedgerError> {
@@ -1113,60 +1229,31 @@ impl Ledger {
         let empty = State::default();
         let state = locked.state().unwrap_or(&empty);
         let id = state.next_id;
-        let offers = match state.limits.time_ms {
-            Some(_) => {
-                let own = match use_ {
-                    Use::Work | Use::Side => keep.time_ms,
-                    Use::Final => 0,
-                };
-                let left = state
-                    .account
-                    .until
-                    .saturating_sub(now)
-                    .saturating_sub(above(state, agent).time_ms)
-                    .saturating_sub(own);
-                offers
-                    .iter()
-                    .map(|offer| BudgetAmounts {
-                        time_ms: if offer.time_ms <= min_ms {
-                            offer.time_ms
-                        } else {
-                            offer.time_ms.min(left.max(min_ms))
-                        },
-                        ..*offer
-                    })
-                    .collect()
-            }
-            None => offers.to_vec(),
-        };
+        let keep = side_keep(state, agent, use_, keep);
+        let offers = clip_offers(state, agent, use_, keep, offers, min_ms, now);
+        let share = sharing(state, agent);
         let outcome = locked.apply(
             Op::Reserve {
                 id,
                 agent: agent.to_owned(),
-                use_: match use_ {
-                    Use::Work => UseRecord::Work,
-                    Use::Final => UseRecord::Final,
-                    Use::Side => UseRecord::Side,
-                },
+                use_: use_record(use_),
                 label: label.to_owned(),
                 now_ms: now,
                 keep,
+                step,
+                share,
                 offers,
             },
             now,
         )?;
         let report = locked.report(&owner, agent, now);
         Ok(match outcome {
-            Outcome::Granted {
-                index,
-                amount,
-                tight,
-            } => Reserved::Granted {
+            Outcome::Granted { index, amount, low } => Reserved::Granted {
                 reservation: Reservation {
                     id,
                     index,
                     amount,
-                    tight,
+                    low,
                 },
                 report,
             },
@@ -1185,6 +1272,47 @@ impl Ledger {
                 refusal: Refusal::Stopped,
                 report,
             },
+        })
+    }
+
+    /// Whether [`Self::reserve`] for `agent` of `offers` for `use_`,
+    /// leaving `keep`, would be granted now. The core answers it on the
+    /// account as it is; nothing is held or written, the agent's phase
+    /// does not move.
+    ///
+    /// # Errors
+    ///
+    /// [`LedgerError::NoBudget`], [`LedgerError::NotMember`],
+    /// [`LedgerError::NoOffer`], and the file's or the core's failures.
+    pub fn admits(
+        &self,
+        agent: &str,
+        use_: Use,
+        keep: BudgetAmounts,
+        offers: &[BudgetAmounts],
+        min_ms: u64,
+    ) -> Result<bool, LedgerError> {
+        let (_, locked) = self.lock()?;
+        let now = (self.clock)();
+        let empty = State::default();
+        let state = locked.state().unwrap_or(&empty);
+        let keep = side_keep(state, agent, use_, keep);
+        let op = Op::Reserve {
+            id: state.next_id,
+            agent: agent.to_owned(),
+            use_: use_record(use_),
+            label: String::new(),
+            now_ms: now,
+            keep,
+            // A step only says whether a grant runs low.
+            step: BudgetAmounts::default(),
+            share: sharing(state, agent),
+            offers: clip_offers(state, agent, use_, keep, offers, min_ms, now),
+        };
+        let (_, outcome) = step(state, &op)?;
+        Ok(match outcome {
+            Outcome::Granted { .. } => true,
+            Outcome::Refused { .. } | Outcome::Done => false,
         })
     }
 

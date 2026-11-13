@@ -10,5 +10,5 @@ import ../../bend/budget.bend as B
 import ../../spec/budget/ledger.bend as S
 import ./base/reserve.bend as BR
 
-def Budget.budget_refuse_short(use, p, id, now, base, keep, want, less, a, d, p2, g):
-  BR.br.res_is(use, p, id, now, base, keep, want, less, a, B.Refused{B.Short{d}, p2}, g)
+def Budget.budget_refuse_short(use, p, id, now, base, keep, step, want, less, a, d, p2, g):
+  BR.br.res_is(use, p, id, now, base, keep, step, want, less, a, B.Refused{B.Short{d}, p2}, g)

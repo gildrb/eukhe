@@ -6,13 +6,19 @@ import Base
 import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 
-def HeadlessExit.headless_exit_unfailed_run_neutral(cf, gu, p, c, a):
+def HeadlessExit.headless_exit_unfailed_run_neutral(cf, w, p, c, a, ba):
   match cf:
     case True{}:
       {==}
     case False{}:
-      match gu:
-        case True{}:
+      match w:
+        case Hx.Quiet{}:
           {==}
-        case False{}:
+        case Hx.GaveUp{}:
           {==}
+        case Hx.BudgetDeadline{}:
+          match ba:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
