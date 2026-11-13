@@ -911,7 +911,6 @@ dependencies = [
  "eukhe-bend",
  "eukhe-build-info",
  "eukhe-types",
- "futures",
  "reqwest",
  "serde",
  "serde_json",
@@ -986,7 +985,6 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "url",
- "uuid",
 ]
 
 [[package]]

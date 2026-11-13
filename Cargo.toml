@@ -81,6 +81,12 @@ mimalloc = { version = "0.1", features = ["no_thp"] }
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# Cargo's own lints (Rust 1.100). Cargo emits them, so the clippy gate's
+# -D warnings misses them: deny the unused-dependency ones outright.
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
+
 [workspace.lints.clippy]
 # The pedantic gate the five clippy campaigns earned (eukhe-daemon #3029,
 # eukhe-cli #3050, eukhe-core #3093, the small crates #3110, eukhe-tui #3134):

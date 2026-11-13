@@ -32,6 +32,10 @@ cc = "1.4.6"
 [lints.rust]
 unsafe_code = "deny"
 
+[lints.cargo]
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
+
 [lints.clippy]
 pedantic = "warn"
 redundant_clone = "warn"
