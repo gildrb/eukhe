@@ -283,7 +283,7 @@ fn grown_fixture(dir: &Path, turns: usize) -> PathBuf {
                 "timestamp": "2026-01-01T00:00:01.000Z",
                 "message": message,
             });
-            parent = Some(id.clone());
+            parent = Some(id);
             lines.push(entry.to_string());
         }
     }

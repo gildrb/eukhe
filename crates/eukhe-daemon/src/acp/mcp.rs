@@ -310,7 +310,7 @@ pub fn resolve_acp_mcp_servers(
         if names.contains(&name) {
             return Err(AcpMcpConfigError::DuplicateServerName { name });
         }
-        names.insert(name.clone());
+        names.insert(name);
         match parsed {
             WireServer::Unsupported { name, kind } => {
                 return Err(AcpMcpConfigError::UnsupportedTransport { name, kind });

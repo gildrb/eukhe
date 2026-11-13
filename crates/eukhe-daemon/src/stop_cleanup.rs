@@ -71,7 +71,7 @@ fn children_by_parent(
         let parent = canonical_session_path(Path::new(&edge.parent));
         map.entry(parent.to_string_lossy().to_string())
             .or_default()
-            .push((edge.child_id.clone(), child));
+            .push((edge.child_id, child));
     }
     map
 }
@@ -117,7 +117,7 @@ fn session_tree(
             };
             members.push(TreeMember {
                 session_id: info.id,
-                session_file: child.clone(),
+                session_file: child,
             });
             queue.push(child_key);
         }

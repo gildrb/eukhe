@@ -374,7 +374,7 @@ fn keeps_push_pop_and_middle_removal_narrow() {
             &json(j!([["p", ["values"], size - 1, 1, []]])),
         );
         let middle = size / 2;
-        let mut removed = items.clone();
+        let mut removed = items;
         removed.remove(middle);
         expect_diff(
             &before,

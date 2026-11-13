@@ -275,7 +275,6 @@ impl McpManager {
             let config_url = if eligibility.repair && record.is_some() {
                 eligibility
                     .endpoint
-                    .clone()
                     .expect("repair eligibility carries an endpoint")
             } else {
                 service.transport.endpoint().expect("checked").to_string()

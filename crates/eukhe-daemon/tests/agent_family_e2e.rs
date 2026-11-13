@@ -865,7 +865,7 @@ async fn family_edges_never_cross_families_end_to_end() {
         assert_eq!(kid_sessions.len(), 1, "one kid session: {kid_sessions:?}");
         kids.push((
             child.active_session_id.clone(),
-            child.session_id.clone(),
+            child.session_id,
             kid_sessions[0].to_string_lossy().to_string(),
         ));
     }

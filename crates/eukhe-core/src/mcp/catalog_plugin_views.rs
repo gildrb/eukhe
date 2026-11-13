@@ -625,7 +625,7 @@ pub fn build_connection_views(
             transport: config.server_type().to_string(),
             login_pending: plugin.login_pending,
             source: ViewSource::User,
-            setup_hint: plugin.setup_hint.clone(),
+            setup_hint: plugin.setup_hint,
         });
     }
     for server in acp_servers {

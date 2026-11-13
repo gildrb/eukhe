@@ -166,7 +166,7 @@ impl MockSupervisor {
                 "prompt" => {
                     {
                         let mut requests = self.prompt_requests.lock().expect("prompt recorder");
-                        requests.push(command.clone());
+                        requests.push(command);
                     }
                     write_json(
                         &mut writer,

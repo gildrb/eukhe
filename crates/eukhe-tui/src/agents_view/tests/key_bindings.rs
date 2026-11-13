@@ -31,7 +31,7 @@ fn page_keys_step_by_visible_list_rows() {
         let mut row = template.clone();
         row.identity = format!("row-{i}");
         row.title = row.identity.clone();
-        row.summary = serde_json::json!({ "sessionName": row.identity.clone() });
+        row.summary = serde_json::json!({ "sessionName": row.identity });
         mode.rows.push(row);
     }
     // TS `visibleListRows()` is `max(4, terminal rows - 9)` and the

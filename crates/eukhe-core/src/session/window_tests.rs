@@ -717,7 +717,7 @@ fn full_history_fixture() -> String {
     let mut parent: Option<String> = None;
     for i in 0..5 {
         let id = format!("u{i}");
-        rows.push(json!({"type":"message","id":id.clone(),"parentId":parent,"message":{"role":"user","content":format!("hello {i}"),"timestamp":0}}));
+        rows.push(json!({"type":"message","id":id,"parentId":parent,"message":{"role":"user","content":format!("hello {i}"),"timestamp":0}}));
         parent = Some(id);
     }
     // One refinement audit row: the in-session history class the refine

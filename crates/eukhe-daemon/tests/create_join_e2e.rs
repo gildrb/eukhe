@@ -235,7 +235,7 @@ fn write_padded_session_file(dir: &Path) -> PathBuf {
     for index in 0..2_000 {
         let entry_id = format!("f{index}");
         lines.push(json!({
-            "type": "message", "id": entry_id.clone(), "parentId": parent,
+            "type": "message", "id": entry_id, "parentId": parent,
             "timestamp": "2026-01-01T00:00:00.000Z",
             "message": {"role": "user", "content": format!("filler {index}"), "timestamp": index as u64},
         }));

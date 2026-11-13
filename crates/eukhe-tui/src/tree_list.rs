@@ -296,14 +296,14 @@ impl TreeList {
             let connector_position = current_display_indent.saturating_sub(1);
             let connector_displayed = show_connector && !is_virtual_root_child;
             let child_gutters = if connector_displayed {
-                let mut gutters = gutters.clone();
+                let mut gutters = gutters;
                 gutters.push(GutterInfo {
                     position: connector_position,
                     show: !is_last,
                 });
                 gutters
             } else {
-                gutters.clone()
+                gutters
             };
             for (index, child) in ordered_children.iter().enumerate().rev() {
                 let child_is_last = index == ordered_children.len() - 1;
@@ -528,10 +528,7 @@ impl TreeList {
                 .and_then(|resolved| self.flat[resolved].data.entry.id())
                 .map(str::to_string);
             self.visible_parent.insert(id.clone(), ancestor.clone());
-            self.visible_children
-                .entry(ancestor)
-                .or_default()
-                .push(id.clone());
+            self.visible_children.entry(ancestor).or_default().push(id);
         }
         let visible_root_ids = self
             .visible_children

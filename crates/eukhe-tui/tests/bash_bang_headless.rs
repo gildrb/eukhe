@@ -338,7 +338,7 @@ impl MockSupervisor {
                             .unwrap_or(false);
                         let request_ordinal = {
                             let mut requests = self.bash_requests.lock().unwrap();
-                            requests.push(command.clone());
+                            requests.push(command);
                             requests.len()
                         };
                         write_json(
