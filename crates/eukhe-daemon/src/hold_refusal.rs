@@ -128,7 +128,8 @@ fn classify_from(exe: Option<&Path>, own_exe: Option<&Path>) -> HolderFlavor {
 /// Whether `exe` lies under the cargo profile directory this process runs
 /// from: a build under a custom `CARGO_TARGET_DIR` has no `target`
 /// component, but its binaries (the daemon in `<dir>/<profile>/`, a test
-/// or example in `<dir>/<profile>/deps/`) share the profile directory.
+/// in `<dir>/<profile>/build/<package>/<hash>/out/` since Cargo 1.100,
+/// `<dir>/<profile>/deps/` before) share the profile directory.
 fn in_own_cargo_profile(exe: &Path, own: &Path) -> bool {
     let Some(profile_dir) = own.parent() else {
         return false;
@@ -566,7 +567,9 @@ Session: rs01ab";
         let dev_own = Path::new("/tmp/build-out/debug/eukhe-daemon");
         assert_eq!(
             classify_from(
-                Some(Path::new("/tmp/build-out/debug/deps/hold_refusal_e2e-1a2b")),
+                Some(Path::new(
+                    "/tmp/build-out/debug/build/eukhe-daemon/1a2b/out/hold_refusal_e2e-1a2b"
+                )),
                 Some(dev_own)
             ),
             HolderFlavor::ThisBuild
