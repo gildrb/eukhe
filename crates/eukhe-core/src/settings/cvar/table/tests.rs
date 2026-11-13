@@ -4,13 +4,13 @@ use serde_json::Value;
 use super::*;
 use crate::settings::types::{
     AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
-    CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings,
-    ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings,
-    PrivacySettings, ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings,
-    QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings, Settings, ShellSettings,
-    SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings, TerminalSettings,
-    ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings,
-    WarningSettings,
+    BudgetSettings, CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings,
+    GatewaySettings, ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode,
+    ModelRolesSettings, PrivacySettings, ProviderRetrySettings, ProviderWaitSettings,
+    ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
+    Settings, ShellSettings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
+    TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
+    TransportSetting, TtsSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -36,6 +36,12 @@ fn populated() -> Settings {
         subagent_stall_ms: Some(1),
         tool_blocking_budget_ms: Some(1),
         max_tool_rounds: Some(1),
+        budget: Some(BudgetSettings {
+            limits: Some("on".into()),
+            plan_reserve: Some(1),
+            profile: Some(Value::from(1)),
+            presets: Some(Value::from(1)),
+        }),
         idle_eviction_minutes: Some(Value::from(1)),
         session_archive_max_age_days: Some(Value::from(1)),
         session_archive_max_sessions: Some(Value::from(1)),

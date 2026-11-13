@@ -27,6 +27,27 @@ pub struct SignalGateway {
     pub cwd: Option<String>,
 }
 
+/// `budget.limits`: whether a run fills the dimensions the principal
+/// leaves unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetLimitsMode {
+    /// Unset dimensions stay unlimited: runs go until finished.
+    Off,
+    /// Unset dimensions fill from the profile, else the limits profile.
+    On,
+}
+
+impl BudgetLimitsMode {
+    /// The setting's word.
+    #[must_use]
+    pub fn word(self) -> &'static str {
+        match self {
+            BudgetLimitsMode::Off => "off",
+            BudgetLimitsMode::On => "on",
+        }
+    }
+}
+
 /// The declared default of a Nat cvar or of a Json cvar whose default is
 /// a number.
 ///
@@ -201,6 +222,32 @@ impl SettingsManager {
         self.cvars().nat(&table::BRANCH_SUMMARY_RESERVE_TOKENS)
     }
 
+    /// `budget.limits`.
+    #[must_use]
+    pub fn get_budget_limits(&self) -> BudgetLimitsMode {
+        match self.cvars().text(&table::BUDGET_LIMITS).as_str() {
+            "on" => BudgetLimitsMode::On,
+            _ => BudgetLimitsMode::Off,
+        }
+    }
+
+    /// `budget.planReserve`, at most 100 percent.
+    #[must_use]
+    pub fn get_budget_plan_reserve(&self) -> u64 {
+        self.cvars().nat(&table::BUDGET_PLAN_RESERVE).min(100)
+    }
+
+    /// `budget.profile` as written (`null` when unset).
+    #[must_use]
+    pub fn get_budget_profile(&self) -> Value {
+        self.cvars().value(&table::BUDGET_PROFILE)
+    }
+
+    /// `budget.presets` as written (`null` when unset).
+    #[must_use]
+    pub fn get_budget_presets(&self) -> Value {
+        self.cvars().value(&table::BUDGET_PRESETS)
+    }
     /// TS `getCompactionEnabled`: the auto-compaction toggle.
     #[must_use]
     pub fn get_compaction_enabled(&self) -> bool {
