@@ -69,6 +69,7 @@ import ./ffi_job_wait.bend as ffi_job_wait
 import ./ffi_kernel_local.bend as ffi_kernel_local
 import ./ffi_kin.bend as ffi_kin
 import ./ffi_launcher.bend as ffi_launcher
+import ./ffi_limits.bend as ffi_limits
 import ./ffi_log.bend as ffi_log
 import ./ffi_loop.bend as ffi_loop
 import ./ffi_mcp_url.bend as ffi_mcp_url
@@ -375,6 +376,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_server_peer.ffi(input)
     case 461:
       ffi_agent_tree.ffi(input)
+    case 462:
+      ffi_limits.ffi(input)
     case _:
       W.err("unknown entry")
 

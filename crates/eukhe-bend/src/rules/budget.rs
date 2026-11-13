@@ -153,11 +153,11 @@ pub enum Close {
     Busy,
 }
 
-fn put_amt(w: &mut Writer, amt: Amt) {
+pub(crate) fn put_amt(w: &mut Writer, amt: Amt) {
     w.nat(amt.cost).nat(amt.tok).nat(amt.calls).nat(amt.reqs);
 }
 
-fn put_ask(w: &mut Writer, ask: Ask) {
+pub(crate) fn put_ask(w: &mut Writer, ask: Ask) {
     put_amt(w, ask.amt);
     w.nat(ask.ms);
 }
@@ -170,7 +170,7 @@ fn put_phase(w: &mut Writer, phase: Phase) {
     });
 }
 
-fn put_acct(w: &mut Writer, acct: &Acct) {
+pub(crate) fn put_acct(w: &mut Writer, acct: &Acct) {
     put_amt(w, acct.free);
     put_amt(w, acct.spent);
     put_amt(w, acct.lent);
@@ -208,7 +208,7 @@ fn get_phase(r: &mut Reader<'_>) -> Result<Phase, WireError> {
     })
 }
 
-fn get_acct(r: &mut Reader<'_>) -> Result<Acct, WireError> {
+pub(crate) fn get_acct(r: &mut Reader<'_>) -> Result<Acct, WireError> {
     let free = get_amt(r)?;
     let spent = get_amt(r)?;
     let lent = get_amt(r)?;

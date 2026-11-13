@@ -266,6 +266,8 @@ pub enum Entry {
     ServerPeer = 460,
     /// `bend/ffi_agent_tree.bend`: a call.
     AgentTree = 461,
+    /// `bend/ffi_limits.bend`: a call.
+    Limits = 462,
 }
 
 impl Entry {
@@ -401,6 +403,7 @@ impl Entry {
         Entry::BudgetShare,
         Entry::ServerPeer,
         Entry::AgentTree,
+        Entry::Limits,
     ];
 
     /// The id `bend/core.bend` dispatches on.
