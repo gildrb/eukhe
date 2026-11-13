@@ -95,6 +95,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 - eukhe is fully local. Only outbound traffic:
   - the model request to the user's configured provider, and its auth (explicit login, cloud credential metadata);
   - the model lists of the signed-in providers on `eukhe model refresh` and `/models refresh` (each provider's own listing endpoint);
+  - the plan usage endpoint of a logged-in provider (Anthropic `api.anthropic.com/api/oauth/usage`, ChatGPT `chatgpt.com/backend-api/wham/usage`, GitHub `api.<domain>/copilot_internal/user`) on `eukhe usage`, and when limits need a plan reading the provider's responses have not given yet;
   - user-configured MCP servers;
   - the Signal service, only while `eukhe gateway` runs (through the user's signal-cli);
   - pinned model files from Hugging Face on `eukhe tiny-models download` (each checked against its pinned sha256 before install);
