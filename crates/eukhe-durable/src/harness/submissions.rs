@@ -317,7 +317,6 @@ impl SubmissionHandle {
     /// # Errors
     ///
     /// `Submission {id} does not exist`, and Session failures.
-    #[must_use]
     pub fn status(&self, cx: &Context) -> BoxFuture<'static, SessionResult<SubmissionRecord>> {
         self.submissions.status(self.id, cx)
     }
@@ -328,7 +327,6 @@ impl SubmissionHandle {
     /// # Errors
     ///
     /// `Harness is closed`, the abort reason of `cx`, and Session failures.
-    #[must_use]
     pub fn wait(&self, cx: &Context) -> BoxFuture<'static, SessionResult<SettledSubmissionRecord>> {
         self.submissions.wait(self.id, cx)
     }
@@ -338,7 +336,6 @@ impl SubmissionHandle {
     /// # Errors
     ///
     /// `Submission {id} does not exist`, and Session failures.
-    #[must_use]
     pub fn abort(&self, cx: &Context) -> BoxFuture<'static, SessionResult<SubmissionAbort>> {
         let id = self.id;
         let result = self.submissions.abort(id, None, cx);

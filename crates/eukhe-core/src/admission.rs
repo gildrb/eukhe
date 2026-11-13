@@ -665,7 +665,6 @@ impl AdmissionHandle {
     }
 
     /// See [`ProviderAdmission::acquire`].
-    #[must_use]
     pub fn acquire(
         &self,
         request: AdmissionRequest,

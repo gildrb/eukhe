@@ -82,7 +82,6 @@ impl Conversation {
     }
 
     /// The agent resolved with the current registry snapshot and settings.
-    #[must_use]
     pub fn agent(&self, cx: &Context) -> BoxFuture<'static, SessionResult<Agent>> {
         self.core.resolve_agent(self.id, None, cx)
     }
@@ -94,7 +93,6 @@ impl Conversation {
     /// The registry's roster is fixed and the change sets the agent's
     /// `tools`, `modelTools` or `extensions` ([`RosterFixed`]); nothing is
     /// written then. Commit failures.
-    #[must_use]
     pub fn configure(
         &self,
         change: AgentChange,
@@ -147,7 +145,6 @@ impl Conversation {
     /// Admit a write of a `pi.reset` entry that starts a new context,
     /// carrying `handoff` as a user message when given. Resolves after
     /// admission; while busy, it is placed at the next boundary.
-    #[must_use]
     pub fn reset(
         &self,
         handoff: Option<String>,
@@ -181,7 +178,6 @@ impl Conversation {
     /// the conversation keeps working and places its summary through a write
     /// submission: at once when idle, otherwise at the next boundary (spec
     /// §8.7).
-    #[must_use]
     pub fn compact(
         &self,
         instructions: Option<String>,
@@ -220,7 +216,6 @@ impl Conversation {
     /// Committed raw active transcript and model context. With `at`, the
     /// context as of that visible entry: the same view `fork(at)` would start
     /// with, without creating a conversation.
-    #[must_use]
     pub fn context(
         &self,
         cx: &Context,
@@ -231,7 +226,6 @@ impl Conversation {
 
     /// Fork-aware history of this conversation, newest first unless
     /// `query.order` is ascending.
-    #[must_use]
     pub fn entries(
         &self,
         query: ConversationEntryQuery,
@@ -258,7 +252,6 @@ impl Conversation {
     }
 
     /// Fork this conversation at the visible entry `at`.
-    #[must_use]
     pub fn fork(
         &self,
         at: EntryId,
@@ -283,7 +276,6 @@ impl Conversation {
     /// non-background task of the ordinary ownership scope, signal them, and
     /// resolve once the scope is idle. Background subtrees survive unless
     /// `options.background` is set.
-    #[must_use]
     pub fn abort(
         &self,
         options: ConversationAbortOptions,
@@ -309,7 +301,6 @@ impl Conversation {
     /// left the work behind, so each hook reports what its work may have
     /// done: a tool call whose intent was recorded settles `interrupted`,
     /// one that never started `abandoned`, never plain `aborted`.
-    #[must_use]
     pub fn abort_unresumed(
         &self,
         options: ConversationAbortOptions,
@@ -328,7 +319,6 @@ impl Conversation {
     /// Resolve when the ordinary ownership scope has no live non-background
     /// task: this conversation and the conversations owned, transitively, by
     /// its non-background tasks.
-    #[must_use]
     pub fn wait_for_idle(&self, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
         self.core.tasks.resume();
         self.core.tasks.wait_for_idle(Some(self.id), cx).boxed()

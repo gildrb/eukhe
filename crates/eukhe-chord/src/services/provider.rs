@@ -488,7 +488,6 @@ impl RemoteServiceProvider {
 
     /// Invoke one method. Misuse is reported through the returned future,
     /// like a rejected TS async method.
-    #[must_use]
     pub fn invoke(&self, call: ServiceCall, context: &Context) -> MethodFuture {
         let target = (|| {
             let state = self.lock_active()?;

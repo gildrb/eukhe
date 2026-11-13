@@ -507,7 +507,6 @@ impl Harness {
 
     /// Return the reserved root conversation, creating it with `agent` and
     /// `init` in one commit when absent.
-    #[must_use]
     pub fn root(
         &self,
         options: RootOptions,
@@ -524,7 +523,6 @@ impl Harness {
     }
 
     /// Handle of an existing conversation, or `None`.
-    #[must_use]
     pub fn conversation(
         &self,
         id: ConversationId,
@@ -545,7 +543,6 @@ impl Harness {
 
     /// Create an independent conversation, applying `agent` and running
     /// `init` in the creating commit.
-    #[must_use]
     pub fn create_conversation(
         &self,
         options: ConversationCreateOptions,
@@ -562,7 +559,6 @@ impl Harness {
     }
 
     /// The committed record of a task, or `None`.
-    #[must_use]
     pub fn get_task<R>(
         &self,
         id: TaskId<R>,
@@ -579,7 +575,6 @@ impl Harness {
 
     /// Live tasks and unsettled submissions. Writes nothing and runs no task
     /// code.
-    #[must_use]
     pub fn inspect(&self, cx: &Context) -> BoxFuture<'static, SessionResult<HarnessInspection>> {
         let core = Arc::clone(&self.core);
         let cx = cx.clone();
@@ -620,7 +615,6 @@ impl Harness {
     }
 
     /// Reacquire a submission, for example after reopen.
-    #[must_use]
     pub fn submission(
         &self,
         id: SubmissionId,
@@ -631,7 +625,6 @@ impl Harness {
 
     /// Withdraw a queued submission. `NotFound` for an unknown submission or
     /// one of another conversation than `conversation_id`.
-    #[must_use]
     pub fn abort_submission(
         &self,
         id: SubmissionId,
@@ -644,7 +637,6 @@ impl Harness {
     /// Commit the abort mark, signal and join an active run invocation, and
     /// schedule the abort invocation. A task whose definition cannot take it
     /// settles as `orphaned` instead.
-    #[must_use]
     pub fn abort_task(
         &self,
         id: TaskId,
@@ -655,7 +647,6 @@ impl Harness {
 
     /// Resolve with the terminal receipt; cancelling `cx` cancels only this
     /// wait.
-    #[must_use]
     pub fn wait_for_task<R>(
         &self,
         id: TaskId<R>,
@@ -667,7 +658,6 @@ impl Harness {
 
     /// Resolve when the ordinary ownership scope of every ownerless
     /// conversation has no live non-background task.
-    #[must_use]
     pub fn wait_for_idle(&self, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
         self.core.tasks.resume();
         self.core.tasks.wait_for_idle(None, cx).boxed()
@@ -675,7 +665,6 @@ impl Harness {
 
     /// Sum every conversation's committed `pi.usage`. Each document is read
     /// at its own point; totals only grow.
-    #[must_use]
     pub fn usage(&self, cx: &Context) -> BoxFuture<'static, SessionResult<UsageState>> {
         let core = Arc::clone(&self.core);
         let cx = cx.clone();
@@ -718,7 +707,6 @@ impl Harness {
     ///
     /// The Storage close failure, or `cx`'s abort reason when the caller
     /// stops waiting; closing continues either way.
-    #[must_use]
     pub fn close(&self, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
         self.core.session.close(cx).boxed()
     }

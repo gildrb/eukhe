@@ -50,7 +50,6 @@ impl Conversation {
     /// only while the conversation is idle and its tail is the one they
     /// were planned on: a run's preparation owns the transcript of a busy
     /// conversation.
-    #[must_use]
     pub fn continuation(
         &self,
         cx: &Context,

@@ -543,7 +543,6 @@ where
 
     /// The task's conversation's agent, resolved at most once per phase, at
     /// first use, and fixed for the phase.
-    #[must_use]
     pub fn agent(&self, cx: &Context) -> BoxFuture<'static, SessionResult<Arc<Agent>>> {
         self.backend.agent(cx)
     }
@@ -562,7 +561,6 @@ where
 
     /// Calls `HarnessOptions.env` for the task's conversation; rejects with
     /// its error.
-    #[must_use]
     pub fn env(
         &self,
         cx: &Context,
@@ -609,7 +607,6 @@ where
     }
 
     /// Read a durable memo of this task.
-    #[must_use]
     pub fn memo<T: DeserializeOwned + Send + 'static>(
         &self,
         name: &str,
@@ -636,7 +633,6 @@ where
     }
 
     /// Committed task record.
-    #[must_use]
     pub fn get_task<T: DeserializeOwned + Send + 'static>(
         &self,
         id: TaskId<T>,
@@ -648,7 +644,6 @@ where
 
     /// Resolve with the task's terminal receipt; rejects when the invocation
     /// ends.
-    #[must_use]
     pub fn wait_for_task<T: DeserializeOwned + Send + 'static>(
         &self,
         id: TaskId<T>,
@@ -661,7 +656,6 @@ where
     /// Abort a task this task owns, as `Harness.abort_task()` does, and
     /// resolve once it is terminal. Rejects for a task another owns;
     /// resolves at once for a terminal one.
-    #[must_use]
     pub fn abort_owned<T>(
         &self,
         id: TaskId<T>,
@@ -672,7 +666,6 @@ where
 
     /// Outcomes of terminal tasks, in order; rejects when one is missing or
     /// not terminal. Used after a wait.
-    #[must_use]
     pub fn outcomes<T: DeserializeOwned + Send + 'static>(
         &self,
         ids: &[TaskId<T>],
@@ -688,7 +681,6 @@ where
     /// this task owns; `None` when absent. Its operations and the
     /// submissions it returns reject after the invocation ends; admitted
     /// work stays durable.
-    #[must_use]
     pub fn conversation(
         &self,
         id: ConversationId,
@@ -698,7 +690,6 @@ where
     }
 
     /// Committed entry visible from the task's conversation.
-    #[must_use]
     pub fn entry(
         &self,
         id: EntryId,
@@ -708,7 +699,6 @@ where
     }
 
     /// `None` when the entry is absent, not visible, or has another kind.
-    #[must_use]
     pub fn typed_entry<D: EntryData + Send + 'static>(
         &self,
         token: &Entry<D>,
@@ -728,7 +718,6 @@ where
 
     /// Committed raw active transcript and model context, optionally cut off
     /// at the visible entry `options.at`.
-    #[must_use]
     pub fn context(
         &self,
         conversation_id: ConversationId,
@@ -758,7 +747,6 @@ where
 
     /// Resolve once the Harness clock reaches `until`; rejects when the
     /// invocation or `cx` is cancelled.
-    #[must_use]
     pub fn sleep(&self, until: f64, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
         self.backend.sleep(until, cx)
     }

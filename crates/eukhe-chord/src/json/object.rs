@@ -130,19 +130,16 @@ impl JsonObject {
     }
 
     /// Keys in JS own-property order (`Object.keys`).
-    #[must_use]
     pub fn keys(&self) -> impl ExactSizeIterator<Item = &str> + '_ {
         self.entries.keys().map(|key| &**key)
     }
 
     /// Values in key order.
-    #[must_use]
     pub fn values(&self) -> impl ExactSizeIterator<Item = &JsonValue> + '_ {
         self.entries.values()
     }
 
     /// Entries in key order.
-    #[must_use]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &JsonValue)> + '_ {
         self.entries.iter().map(|(key, value)| (&**key, value))
     }

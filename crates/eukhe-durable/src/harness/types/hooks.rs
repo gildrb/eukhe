@@ -65,7 +65,6 @@ impl HookApi {
     }
 
     /// Read a durable memo of the asking task.
-    #[must_use]
     pub fn memo<T: DeserializeOwned + Send + 'static>(
         &self,
         name: &str,
@@ -77,7 +76,6 @@ impl HookApi {
 
     /// Store `candidate` unless a memo already exists; return the durable
     /// winner.
-    #[must_use]
     pub fn memo_or<T: Serialize + DeserializeOwned + Send + 'static>(
         &self,
         name: &str,

@@ -37,7 +37,6 @@ pub struct StorageConformanceCase {
 
 impl StorageConformanceCase {
     /// Run the case once with a fresh storage from the provider.
-    #[must_use]
     pub fn run(&self) -> BoxFuture<'static, ()> {
         (self.run)()
     }
@@ -91,7 +90,6 @@ pub struct EnvConformanceCase {
 
 impl EnvConformanceCase {
     /// Run the case once with a fresh environment from the provider.
-    #[must_use]
     pub fn run(&self) -> BoxFuture<'static, ()> {
         (self.run)()
     }

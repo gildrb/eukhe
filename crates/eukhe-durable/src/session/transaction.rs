@@ -413,7 +413,6 @@ impl Tx {
 
     // ─── Table reads ────────────────────────────────────────────────────────
 
-    #[must_use]
     pub fn conversation(&self, id: ConversationId) -> TxFuture<Option<ConversationRecord>> {
         let (storage, cx) = (self.storage(), self.context().clone());
         self.read("conversation", async move {
@@ -421,7 +420,6 @@ impl Tx {
         })
     }
 
-    #[must_use]
     pub fn entry(&self, id: EntryId) -> TxFuture<Option<EntryRecord>> {
         let (storage, cx) = (self.storage(), self.context().clone());
         self.read("entry", async move {
@@ -430,7 +428,6 @@ impl Tx {
     }
 
     /// `None` when the entry is absent or has another kind than `token`'s.
-    #[must_use]
     pub fn typed_entry<D>(&self, token: &Entry<D>, id: EntryId) -> TxFuture<Option<TypedEntry<D>>>
     where
         D: EntryData + Send + 'static,
@@ -444,13 +441,11 @@ impl Tx {
         })
     }
 
-    #[must_use]
     pub fn task(&self, id: TaskId) -> TxFuture<Option<AnyTaskRecord>> {
         let tx = self.clone();
         self.read("task", async move { tx.committed_task(id).await })
     }
 
-    #[must_use]
     pub fn scan_conversations(
         &self,
         query: ConversationQuery,
@@ -465,7 +460,6 @@ impl Tx {
         })
     }
 
-    #[must_use]
     pub fn scan_entries(
         &self,
         query: EntryQuery,
@@ -481,7 +475,6 @@ impl Tx {
     }
 
     /// Newest visible entry of the conversation that carries a `head`.
-    #[must_use]
     pub fn latest_head_marker(
         &self,
         conversation_id: ConversationId,
@@ -494,7 +487,6 @@ impl Tx {
         })
     }
 
-    #[must_use]
     pub fn scan_tasks(
         &self,
         query: TaskQuery,
@@ -510,7 +502,6 @@ impl Tx {
     }
 
     /// Internal: committed submission record.
-    #[must_use]
     pub fn submission(&self, id: SubmissionId) -> TxFuture<Option<SubmissionRecord>> {
         let (storage, cx) = (self.storage(), self.context().clone());
         self.read("submission", async move {
@@ -519,7 +510,6 @@ impl Tx {
     }
 
     /// Committed submission with a conversation-scoped request ID.
-    #[must_use]
     pub fn submission_by_request(
         &self,
         conversation_id: ConversationId,
@@ -536,7 +526,6 @@ impl Tx {
     // ─── Table writes ───────────────────────────────────────────────────────
 
     /// Create a conversation with explicitly selected ownership.
-    #[must_use]
     pub fn create_conversation(
         &self,
         ownership: ConversationOwnership,
@@ -546,7 +535,6 @@ impl Tx {
     }
 
     /// Internal final-form bootstrap path for the reserved root identity.
-    #[must_use]
     pub fn create_root_conversation(&self) -> TxFuture<ConversationRecord> {
         let tx = self.clone();
         self.write(async move {
@@ -561,7 +549,6 @@ impl Tx {
 
     /// Create a history fork at one concrete visible entry with explicitly
     /// selected ownership.
-    #[must_use]
     pub fn fork_conversation(
         &self,
         parent_conversation_id: ConversationId,
@@ -670,7 +657,6 @@ impl Tx {
 
     /// Append one entry. Returned records are Session-owned immutable values
     /// and may be shared with commit listeners.
-    #[must_use]
     pub fn append_entry(
         &self,
         conversation_id: ConversationId,
@@ -710,7 +696,6 @@ impl Tx {
     }
 
     /// Append an entry of `token`'s kind; the token supplies `kind` and types `data`.
-    #[must_use]
     pub fn append_typed_entry<D>(
         &self,
         token: &Entry<D>,
@@ -729,7 +714,6 @@ impl Tx {
     }
 
     /// Create a durable task of `task` with `input`.
-    #[must_use]
     pub fn create_task(
         &self,
         task: Arc<dyn TaskDefinitionRef>,
@@ -800,7 +784,6 @@ impl Tx {
 
     /// Create a raw submission record with a fresh ID. No admission rules
     /// apply: no busy check, no inbox queueing, no placement.
-    #[must_use]
     pub fn create_submission(&self, create: SubmissionCreate) -> TxFuture<SubmissionRecord> {
         let tx = self.clone();
         self.write(async move {
@@ -915,7 +898,6 @@ impl Tx {
 
     /// Acquire the draft of a singleton document, creating it from its
     /// definition when absent. Repeated acquisition returns the same draft.
-    #[must_use]
     pub fn doc<D: SingletonDocToken>(&self, token: &D, locator: D::Locator<'_>) -> TxFuture<Draft> {
         let resolved = resolve_token_address(token, locator);
         self.doc_at(&erase(token), resolved, None)
@@ -924,7 +906,6 @@ impl Tx {
     /// Acquire the draft of a family member, creating it from `seed` when
     /// absent; the first seed of a transaction wins and existing members
     /// ignore it.
-    #[must_use]
     pub fn doc_member<D: FamilyDocToken>(
         &self,
         token: &D,
@@ -940,7 +921,6 @@ impl Tx {
 
     /// Retire the current incarnation at `token`'s address in this commit. A
     /// later acquisition in the same commit creates a new incarnation.
-    #[must_use]
     pub fn retire_doc<D: DocToken>(&self, token: &D, locator: D::Locator<'_>) -> TxFuture<()> {
         let resolved = resolve_token_address(token, locator);
         self.retire_doc_at(&erase(token), resolved)

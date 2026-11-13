@@ -33,7 +33,6 @@ impl LoadedFacets {
     }
 
     /// Release the generation.
-    #[must_use]
     pub fn dispose(&self) -> BoxFuture<'static, Result<(), ChordError>> {
         (self.dispose)()
     }
