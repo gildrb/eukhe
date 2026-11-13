@@ -86,7 +86,7 @@ def pf.absurd_ft(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # proof_compactor: the laws of a compactor call (H1) and of the wait for
 # a settled view (H2), for bend/compactor.bend and the need-first queue of
-# bend/optchat.bend. Every proof is by induction: on the tries of a line,
+# the optchat model (bend/optchat/). Every proof is by induction: on the tries of a line,
 # on the outcomes of the settle, on the view of the queue.
 
 # Logic
@@ -145,7 +145,7 @@ def child.pc.absurd(-A: Type, e: {False{} == True{} : Bool}) -> A:
 
 # ---- run ----
 
-# proof_run: the H4 laws of LAWS.bend about bend/run.bend.
+# proof_run: the H4 laws of LAWS.bend about the run model (bend/run/).
 #
 # - run_ends: an explicit measure M (the inputs a run may still take) falls
 #   by at least one at every input to a live run: lexicographically, the
@@ -453,7 +453,7 @@ def pf.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
 # ---- themes ----
 
 # proof_themes: the T1 laws of the theme model
-# in bend/theme.bend.
+# in bend/theme/.
 #
 # Resolution scans the candidates in order: a candidate that does not
 # resolve the name passes the scan on, so before the first one that does

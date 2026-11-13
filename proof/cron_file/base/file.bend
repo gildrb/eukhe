@@ -1,5 +1,5 @@
 # eukhe: lemmas the proofs of area cron_file share: the file as the store
-# holds it (laws/cron_file.bend `file_of`), read job by job. The first job
+# holds it (laws/cron_file/view.bend `file_of`), read job by job. The first job
 # record of id x (`cfd.first`) decides what the file holds of x: its row,
 # and (when no two jobs share an id) the claim records naming x. The
 # model's `recs` keeps every id, so the first job of id x after a step is

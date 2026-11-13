@@ -150,6 +150,8 @@ wait laws.
 
 ## 5. Core sketch
 
+waive L11-phantom: planned files; the orchestration pillar is spec-only
+(spec/PILLARS.md) and none of its Bend files is built yet.
 `bend/sched.bend` (a stepper), `bend/mailbox.bend` (a stepper),
 `bend/waitfor.bend` (plain calls), `bend/stream.bend` (a stepper):
 

@@ -3,7 +3,7 @@
 #
 # The editor after any events is settled (Reach.final) on the screen the
 # events asked for (Reach.rows_run, Reach.cols_run); each part of its frame
-# fits that screen (proof/screen/parts.bend, frame.bend).
+# fits that screen (parts.bend, frame.bend beside this file).
 
 import Base
 import ../../../vim/types.bend as T

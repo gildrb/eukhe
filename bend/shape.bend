@@ -1,5 +1,5 @@
 # shape: explicit line shapes, the rule eukhe states instead of a regex in a
-# decision (laws/shape.bend). A shape is data: where it may start (at the
+# decision (laws/shape/). A shape is data: where it may start (at the
 # text start, or anywhere: the leftmost place it fits), a list of pieces,
 # and whether it must end the text. The pieces read the text from the
 # place in order; a piece that can read it in several ways tries them in

@@ -163,6 +163,8 @@ way); `untrusted_changes_nothing_guarded`.
 
 ## 5. Core sketch
 
+waive L11-phantom: planned files; the security pillar is spec-only
+(spec/PILLARS.md) and none of its Bend files is built yet.
 `bend/cap.bend` (plain calls) and `bend/cap_tree.bend` (a stepper; its state
 is a durable document so sets survive a restart):
 

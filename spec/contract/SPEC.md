@@ -240,6 +240,8 @@ its lease, and the in-process refusals.
 
 ## 5. Core sketch
 
+waive L11-phantom: planned files; the contract pillar is spec-only
+(spec/PILLARS.md) and none of its Bend files is built yet.
 `bend/proto.bend` and `bend/schema.bend` (plain calls):
 
 ```
@@ -268,6 +270,8 @@ and `decode`; the SDKs for other languages are generated from the same
 file. The dashboard bridge and the RPC mode get their own schema files
 under the same checker.
 
+waive L11-phantom: planned files; the contract pillar is spec-only
+(spec/PILLARS.md) and none of its Bend files is built yet.
 The two doors add `bend/hostcall.bend` and `bend/handoff.bend` (plain
 calls):
 

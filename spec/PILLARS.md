@@ -42,10 +42,11 @@ verified completion, exactly-once, loop) choose theirs, and the table of
    once is shared with exactly-once), on the record (gaps), and on security
    (limits per principal).
 
-Security and orchestration touch separate files (`bend/cap*.bend` against
-`bend/sched.bend`, `bend/mailbox.bend`, `bend/waitfor.bend`,
-`bend/stream.bend`) and can be built by two agents at once after the
-record.
+Security and orchestration will touch separate files (`bend/cap*.bend`
+against `bend/sched.bend`, `bend/mailbox.bend`, `bend/waitfor.bend`,
+`bend/stream.bend`, all planned, none built yet) and can be built by two
+agents at once after the record.
+waive L11-phantom: planned files of the security and orchestration pillars.
 
 ## Interfaces between pillars
 

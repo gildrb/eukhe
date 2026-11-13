@@ -5,7 +5,7 @@
 # record the store read: which jobs a claim pass claims (one new claim
 # record per claimed job, on the job's key), which claim records a
 # recovery or a finish step keeps, and what each job becomes (the per-job
-# decisions of bend/cron_store.bend). laws/cron_file.bend ties each pass,
+# decisions of bend/cron_store.bend). laws/cron_file/pass.bend ties each pass,
 # applied to the file, to the model's `recs` (bend/cron.bend).
 #
 # Rust reads the file under its lock and hands the records it read: each

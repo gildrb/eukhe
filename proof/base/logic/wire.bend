@@ -6,7 +6,7 @@ import ../../../bend/wire_flat.bend as Fl
 import ./nat.bend as LLogicNat
 
 # The proofs of LAWS.bend section wire (bend/wire.bend): the Nat codec
-# (lemmas wn_), the U32 codec (wu_), and the Bool, String and List codecs
+# (lemmas wn_*), the U32 codec (wu_), and the Bool, String and List codecs
 # and the replies (wr_). The kit lemmas are copied from the bend skill's
 # examples/sort/proof (kit.bend, nat_add.bend, u32_order.bend).
 

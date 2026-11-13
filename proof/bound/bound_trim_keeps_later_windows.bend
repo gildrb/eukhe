@@ -135,15 +135,15 @@ def tk.lt_imp_le(b: Nat, c: Nat, h: {Nat.is_lt(b, c) == True{} : Bool}) -> {Nat.
 def tk.lt_trans(+a: Nat, +b: Nat, +c: Nat, h1: {Nat.is_lt(a, b) == True{} : Bool}, h2: {Nat.is_lt(b, c) == True{} : Bool}) -> {Nat.is_lt(a, c) == True{} : Bool}:
   tk.lt_le(a, b, c, h1, tk.lt_imp_le(b, c, h2))
 
-# r <= c < S gives c - r < S - r
-def tk.lt_sub(r: Nat, c: Nat, S: Nat, hrc: {Nat.is_le(r, c) == True{} : Bool}, hcs: {Nat.is_lt(c, S) == True{} : Bool}) -> {Nat.is_lt(Nat.sub(c, r), Nat.sub(S, r)) == True{} : Bool}:
-  match r c S:
-    case 0n c S:
-      %Equal.sym(Nat, Nat.sub(c, 0n), c, LBound.bnd.sub_zero(c)) : {Nat.is_lt(_, Nat.sub(S, 0n)) == True{} : Bool}
-      %Equal.sym(Nat, Nat.sub(S, 0n), S, LBound.bnd.sub_zero(S)) : {Nat.is_lt(c, _) == True{} : Bool}
+# r <= c < s gives c - r < s - r
+def tk.lt_sub(r: Nat, c: Nat, s: Nat, hrc: {Nat.is_le(r, c) == True{} : Bool}, hcs: {Nat.is_lt(c, s) == True{} : Bool}) -> {Nat.is_lt(Nat.sub(c, r), Nat.sub(s, r)) == True{} : Bool}:
+  match r c s:
+    case 0n c s:
+      %Equal.sym(Nat, Nat.sub(c, 0n), c, LBound.bnd.sub_zero(c)) : {Nat.is_lt(_, Nat.sub(s, 0n)) == True{} : Bool}
+      %Equal.sym(Nat, Nat.sub(s, 0n), s, LBound.bnd.sub_zero(s)) : {Nat.is_lt(c, _) == True{} : Bool}
       hcs
-    case 1n+x 0n S:
-      LBound.bnd.ft({Nat.is_lt(Nat.sub(0n, 1n+x), Nat.sub(S, 1n+x)) == True{} : Bool}, hrc)
+    case 1n+x 0n s:
+      LBound.bnd.ft({Nat.is_lt(Nat.sub(0n, 1n+x), Nat.sub(s, 1n+x)) == True{} : Bool}, hrc)
     case 1n+x 1n+y 0n:
       LBound.bnd.ft({Nat.is_lt(Nat.sub(1n+y, 1n+x), Nat.sub(0n, 1n+x)) == True{} : Bool}, hcs)
     case 1n+x 1n+y 1n+z:
