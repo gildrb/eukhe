@@ -361,6 +361,12 @@ spends against the total it reports: `ledger exact` or where it stops adding up.
         "--account <account>  daemon (the default) or a session id",
         "--json               Print JSON",
     ]),
+    CommandSpec::new(&["usage"], "usage [--json]", "Show the plan quota of each login")
+        .description(
+            "Reads each stored login's plan usage from its provider (Anthropic, ChatGPT, GitHub \
+Copilot): each window's used share and reset time. An API key has no plan quota.",
+        )
+        .options(&["--json  Print JSON"]),
     CommandSpec::new(
         &["session"],
         "session export <file> [output]",

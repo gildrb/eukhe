@@ -70,6 +70,7 @@ pub(crate) mod subscription_login;
 pub(crate) mod tiny_command;
 pub(crate) mod tiny_models_command;
 pub(crate) mod update_command;
+pub(crate) mod usage_command;
 
 /// The runtime boundary: everything a mode-runner crate implements to plug
 /// into the `eukhe` binary, plus the entry point that drives it.
