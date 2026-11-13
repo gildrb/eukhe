@@ -32,7 +32,7 @@ pub use ledger::{
     FINAL_MIN_MS, REQUEST_MIN_MS, TOOL_MIN_MS,
 };
 pub use record::{
-    Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord, State,
-    UseRecord,
+    Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord,
+    RunRecord, State, UseRecord, PROGRAM_LABEL,
 };
 pub use worst::{actual_spend, micros_ceil, worst_case_cost_micros, RequestBound};

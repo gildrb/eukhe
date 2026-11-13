@@ -6,10 +6,15 @@
 use std::collections::BTreeMap;
 
 use eukhe_bend::rules::budget::{Acct, Hold};
-use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase};
+use eukhe_types::budget::{
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources, RunKind, RunLimits,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::amounts::{add, from_amt, to_amt};
+
+/// The label prefix of a reservation for a tool call that runs a program.
+pub const PROGRAM_LABEL: &str = "program:";
 
 /// An open reservation, as the file holds it: the agent it is for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +161,19 @@ pub enum RefusalRecord {
     Stopped,
 }
 
+/// A run of an account: what its limits last for and who decided them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RunRecord {
+    pub kind: RunKind,
+    /// Who decided each dimension's limit.
+    pub sources: BudgetSources,
+    /// What the principal set for every run of the session (flags, a
+    /// create config, the SDK); each run fills from it.
+    #[serde(skip_serializing_if = "RunLimits::is_unset")]
+    pub standing: RunLimits,
+}
+
 /// An operation on an account: the facts the core decided on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -174,6 +192,18 @@ pub enum Op {
         deadline_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<ParentRef>,
+        /// The run the budget is for; `None` in a ledger written before
+        /// runs were recorded, and for a child's allotment.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunRecord>,
+    },
+    /// A new run of a root account: its own limits from now (`time_ms`: a
+    /// deadline that long from `now_ms`), what is free being the limits
+    /// less what is still held and lent; spend starts over.
+    Renew {
+        limits: BudgetLimits,
+        run: RunRecord,
+        now_ms: u64,
     },
     /// A child without a budget of its own draws from this account, below
     /// `parent`.
@@ -186,7 +216,8 @@ pub enum Op {
         #[serde(rename = "use")]
         use_: UseRecord,
         /// What the reservation is for (`model:<provider>/<id>`,
-        /// `tool:<name>`).
+        /// `tool:<name>`; [`PROGRAM_LABEL`]`<name>`: a tool call that runs
+        /// a program, counted in the run's `program_runs`).
         label: String,
         now_ms: u64,
         keep: BudgetAmounts,
@@ -289,6 +320,16 @@ pub struct State {
     /// The account as it was handed back, until the parent lends again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned: Option<Account>,
+    /// The account's current run; `None` in a ledger written before runs
+    /// were recorded (it counts no spend without a limit).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunRecord>,
+    /// What the run spent in each dimension without a limit (time: 0).
+    #[serde(skip_serializing_if = "BudgetAmounts::is_zero")]
+    pub tally: BudgetAmounts,
+    /// The tool calls of the run that run a program, as granted.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub program_runs: u64,
 }
 
 /// One line of a ledger file.
@@ -302,4 +343,9 @@ pub struct Record {
     pub op: Op,
     pub outcome: Outcome,
     pub state: State,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `skip_serializing_if` passes a reference.
+fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
