@@ -431,7 +431,7 @@ async fn metadata_and_concurrent_disk_append_survive_hydration() {
         store.first_user_message().unwrap()["content"],
         "x".repeat(CHUNK_BYTES * 3)
     );
-    assert!(store.metadata_entries().is_empty());
+    assert_eq!(store.metadata_entries(), [] as [String; 0]);
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(&path)
@@ -577,8 +577,8 @@ fn adopted_context_matches_unadopted_window_byte_for_byte() {
             phase == "warm",
             "{phase} reference open cache state"
         );
-        assert!(!reference.entries().is_empty());
-        assert!(!reference.raw_entries().is_empty());
+        assert_ne!(reference.entries(), []);
+        assert_ne!(reference.raw_entries(), [] as [String; 0]);
         let adopted = WindowedSessionStore::open(&path).unwrap().unwrap();
         let mut manager = super::super::manager::SessionManager::in_memory(dir.path());
         manager.adopt_window(adopted);
@@ -616,11 +616,11 @@ fn detached_window_serves_lookups_but_not_its_own_context() {
     std::fs::write(&path, fixture()).unwrap();
     let mut window = WindowedSessionStore::open(&path).unwrap().unwrap();
     let (bodies, raw) = window.take_retained();
-    assert!(!bodies.is_empty());
-    assert!(!raw.is_empty());
+    assert_ne!(bodies, []);
+    assert_ne!(raw, [] as [String; 0]);
     assert!(window.retained_detached());
-    assert!(window.entries().is_empty());
-    assert!(window.raw_entries().is_empty());
+    assert_eq!(window.entries(), []);
+    assert_eq!(window.raw_entries(), [] as [String; 0]);
     assert_eq!(window.message_count(), 221);
     assert!(window.has_non_bootstrap_entries());
     assert!(window.has_thinking_level());

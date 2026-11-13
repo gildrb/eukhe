@@ -255,7 +255,7 @@ fn the_headless_settle_names_every_stuck_member() {
     // Everything clear: settled, no blockers.
     let settled = HeadlessSettle::default();
     assert!(settled.settled(), "the default snapshot is the open gate");
-    assert!(settled.blockers().is_empty());
+    assert_eq!(settled.blockers(), [] as [String; 0]);
     // One member at a time: each blocker names exactly its member.
     for stuck in [
         HeadlessSettle {

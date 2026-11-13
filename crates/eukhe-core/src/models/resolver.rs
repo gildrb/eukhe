@@ -945,7 +945,7 @@ mod tests {
         );
         // No other provider serves the model: no candidates, no failover.
         let current = model("anthropic", "claude-sonnet-4-5", "Sonnet");
-        assert!(failover_candidates(&current, &catalog).is_empty());
+        assert_eq!(failover_candidates(&current, &catalog), []);
         // The current provider itself is never a candidate, even when the
         // catalog carries a second entry for it.
         let current = model("zai", "z-ai/glm-5.3", "GLM");

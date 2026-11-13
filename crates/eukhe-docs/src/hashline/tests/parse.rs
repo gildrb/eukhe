@@ -349,7 +349,7 @@ fn abort_terminates_parser_without_warning() {
     let parsed = parse_patch("PUT >1:\n+HELLO\n*** Abort\nPUT >99:\n+never").unwrap();
     assert_eq!(parsed.edits.len(), 1);
     assert!(matches!(&parsed.edits[0], Edit::Insert { text, .. } if text == "HELLO"));
-    assert!(parsed.warnings.is_empty());
+    assert_eq!(parsed.warnings, [] as [String; 0]);
 }
 
 #[test]

@@ -172,7 +172,7 @@ fn user_message_with_text_and_image_keeps_the_text() {
 fn empty_user_message_renders_no_entry() {
     let message = msg(json!({ "role": "user", "content": [] }));
     assert_eq!(user_text(&message), None);
-    assert!(message_value_to_entries(&message).is_empty());
+    assert_eq!(message_value_to_entries(&message), []);
 }
 
 /// TS `orderMessagesForTranscript`: the wire context is summary-first
@@ -1168,7 +1168,7 @@ fn session_command_rows_respect_display_and_shape() {
         "content": "Refined continual harness state: 1 edit applied.",
         "display": false,
     });
-    assert!(message_value_to_entries(&msg(hidden)).is_empty());
+    assert_eq!(message_value_to_entries(&msg(hidden)), []);
     // A displayed outcome row renders in the status-row class with
     // the severity's tone (the operator's 2026-09-25 ruling: command
     // output is system output, never user text).
@@ -1391,7 +1391,7 @@ fn transcript_replay_stacks_provider_failure_rows() {
     );
     assert!(replies[0].error.is_none(), "the healthy reply stays clean");
     for row in &replies[1..] {
-        assert!(row.blocks.is_empty());
+        assert_eq!(row.blocks, []);
         assert_eq!(
             row.error.as_deref(),
             Some("Error: Connection error."),
@@ -1420,7 +1420,7 @@ fn transcript_replay_renders_contentless_abort() {
     let Some(ChatEntry::Assistant(message)) = chat.get(1) else {
         panic!("abort row: {chat:?}");
     };
-    assert!(message.blocks.is_empty());
+    assert_eq!(message.blocks, []);
     assert_eq!(message.error.as_deref(), Some("Operation aborted"));
     assert!(message.aborted);
 }

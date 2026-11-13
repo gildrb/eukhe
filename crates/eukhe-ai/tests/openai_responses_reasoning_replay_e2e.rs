@@ -90,7 +90,7 @@ fn assert_no_error(response: &AssistantMessage) {
         response.error_message
     );
     assert!(response.error_message.as_deref().is_none_or(str::is_empty));
-    assert!(!response.content.is_empty());
+    assert_ne!(response.content, []);
 }
 
 fn log_payload(label: &str, payload: Option<&JsonValue>, log_ids: bool, log_full: bool) {

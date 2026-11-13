@@ -568,7 +568,7 @@ fn scoped_rows_lift_direct_children_and_exclude_the_root() {
     assert_eq!(rows[0].title, "worker one");
     // The scope's ancestors: the root has none; its depth label is
     // rlmDepth + 1.
-    assert!(scope_ancestors(&records, &scope).is_empty());
+    assert_eq!(scope_ancestors(&records, &scope), [] as [String; 0]);
     assert_eq!(
         scope_root(&records, &scope),
         Some(ScopeRoot {
@@ -688,7 +688,7 @@ fn ancestor_ids_walk_the_row_chain_root_most_first() {
         vec!["p".to_string()]
     );
     // A top-level row has no ancestors.
-    assert!(ancestor_session_ids(&rows, None).is_empty());
+    assert_eq!(ancestor_session_ids(&rows, None), [] as [String; 0]);
 }
 
 #[test]

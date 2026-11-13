@@ -79,7 +79,7 @@ async fn reports_nested_calls_in_pi_live_nested_tools_and_as_tool_events_with_th
     .unwrap();
     let chat = open(&setup).await;
     let (stream, events) = listen(&chat.harness, chat.root.id()).await;
-    assert!(stream.snapshot().nested_tools.is_empty());
+    assert_eq!(stream.snapshot().nested_tools, []);
     let submission = chat
         .root
         .submit(InputSubmissionDraft::new("go"), context())

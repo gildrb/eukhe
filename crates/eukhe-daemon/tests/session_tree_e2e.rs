@@ -211,7 +211,7 @@ fn session_tree_commands_over_the_supervisor_wire() {
     let flat = tree["data"]["flatNodes"].as_array().expect("flatNodes");
     assert!(flat.len() >= 4, "entries present: {flat:?}");
     let leaf_id = tree["data"]["leafId"].as_str().expect("leafId").to_string();
-    assert!(!leaf_id.is_empty());
+    assert_ne!(leaf_id, "");
     // The flat nodes are wire entries with id/parentId.
     assert!(flat.iter().all(|node| node["entry"]["id"].is_string()));
     let first_user = flat

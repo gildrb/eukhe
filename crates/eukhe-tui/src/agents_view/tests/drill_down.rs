@@ -98,7 +98,7 @@ fn scoped_left_returns_the_root_and_pops_the_scope() {
     );
     // The scope root has no ancestors of its own, so nothing
     // re-expands after the return chat.
-    assert!(opened.expanded_ancestors.is_empty());
+    assert_eq!(opened.expanded_ancestors, [] as [String; 0]);
 }
 
 #[test]

@@ -152,7 +152,7 @@ async fn xiaomi_mimo_sends_thinking_without_reasoning_effort() {
     let mut levels = THINKING_LEVELS.to_vec();
     levels.push("off");
     let rows = catalog_rows(&providers, |model| model.reasoning, &levels);
-    assert!(!rows.is_empty());
+    assert_ne!(rows, [] as [(&str, String, &str); 0]);
     assert_rows(&borrowed(&rows), |level_name| {
         if level_name == "off" {
             json!({ "thinking": { "type": "disabled" } })
@@ -240,7 +240,7 @@ async fn qwen_sends_enable_thinking_without_reasoning_effort() {
         is_qwen_chat,
         &THINKING_LEVELS,
     );
-    assert!(!rows.is_empty());
+    assert_ne!(rows, [] as [(&str, String, &str); 0]);
     assert_rows(&borrowed(&rows), |_| json!({ "enable_thinking": true })).await;
     assert_rows(
         &[
@@ -272,7 +272,7 @@ async fn cloudflare_workers_ai_sends_reasoning_effort() {
         },
         &["high"],
     );
-    assert!(!rows.is_empty());
+    assert_ne!(rows, [] as [(&str, String, &str); 0]);
     assert_rows(&borrowed(&rows), |_| json!({ "reasoning_effort": "high" })).await;
 }
 

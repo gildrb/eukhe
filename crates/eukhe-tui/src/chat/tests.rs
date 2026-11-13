@@ -499,7 +499,7 @@ fn assistant_error_row_and_spacers() {
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert_eq!(rows.len(), 1, "one body row, no blanks: {rows:?}");
-    assert!(!rows[0].is_empty());
+    assert_ne!(rows[0], []);
     // A tool-only message renders nothing, whatever its lead.
     let message = AssistantMessage {
         blocks: Vec::new(),

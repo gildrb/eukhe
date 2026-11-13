@@ -695,7 +695,7 @@ mod tests {
         let dir = get_global_harness_state_dir(tmp.path());
         // Missing dir loads empty.
         let state = load_harness_state(&dir, HarnessScope::Global);
-        assert!(state.refinements.is_empty());
+        assert_eq!(state.refinements, []);
         // Save + reload preserves entries.
         let mut state = empty_harness_state();
         state

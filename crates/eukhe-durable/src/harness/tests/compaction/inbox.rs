@@ -349,13 +349,10 @@ async fn aborts_the_run_and_both_compactions_on_esc_and_appends_nothing() {
         .await
         .iter()
         .any(|kind| kind == "pi.compaction"));
-    assert!(chat
-        .harness
-        .inspect(context())
-        .await
-        .unwrap()
-        .submissions
-        .is_empty());
+    assert_eq!(
+        chat.harness.inspect(context()).await.unwrap().submissions,
+        []
+    );
     chat.harness.close(context()).await.unwrap();
 }
 

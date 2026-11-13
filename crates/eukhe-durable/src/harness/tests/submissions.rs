@@ -145,7 +145,7 @@ async fn appends_an_idle_write_and_settles_it_done_without_a_turn() {
         )
         .await
         .unwrap();
-    assert!(tasks.items.is_empty());
+    assert_eq!(tasks.items, []);
     harness.close(context()).await.unwrap();
 }
 

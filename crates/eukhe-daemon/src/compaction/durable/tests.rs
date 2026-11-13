@@ -31,7 +31,7 @@ async fn manual_compaction_answers_the_ts_result_and_places_the_summary() {
     assert_eq!(result.summary, "The user asked two questions.");
     assert!(result.tokens_before > 0);
     let first_kept = result.first_kept_entry_id.expect("a kept entry");
-    assert!(!first_kept.is_empty());
+    assert_ne!(first_kept, "");
     assert_eq!(
         kinds(&root).await.last().map(String::as_str),
         Some("pi.compaction")
@@ -81,6 +81,6 @@ async fn abort_with_no_live_compaction_is_a_no_op() {
     let aborted = abort_compactions(session.harness(), &root, cx())
         .await
         .unwrap();
-    assert!(aborted.is_empty());
+    assert_eq!(aborted, []);
     session.close(cx()).await.unwrap();
 }

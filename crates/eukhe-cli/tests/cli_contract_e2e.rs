@@ -123,7 +123,7 @@ fn unknown_command_via_help_is_a_usage_error() {
         stdout(&output),
         stderr(&output)
     );
-    assert!(stdout(&output).is_empty());
+    assert_eq!(stdout(&output), "");
     assert!(stderr(&output).contains("Unknown command: bogus"));
     assert!(stderr(&output).starts_with("Error: "));
 }

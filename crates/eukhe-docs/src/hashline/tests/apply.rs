@@ -125,7 +125,7 @@ fn preserves_intentional_indentation_only_replacements() {
         &replacement(1, 2, &["first();", "second();"], 1),
     );
     assert_eq!(result.text, "first();\nsecond();");
-    assert!(result.warnings.is_empty());
+    assert_eq!(result.warnings, [] as [String; 0]);
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn does_not_spare_a_deleted_closing_line_that_the_payload_restates() {
         &replacement(1, 4, &["class Foo {", "\tok();", "}"], 1),
     );
     assert_eq!(result.text, "class Foo {\n\tok();\n}");
-    assert!(result.warnings.is_empty());
+    assert_eq!(result.warnings, [] as [String; 0]);
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn refuses_to_cross_a_line_targeted_by_another_hunk() {
         result.text,
         "function f() {\n    if (x) {\n        a();\n    c();\n    b();\n}\n"
     );
-    assert!(result.warnings.is_empty());
+    assert_eq!(result.warnings, [] as [String; 0]);
 }
 
 #[test]
@@ -362,7 +362,7 @@ fn named_register_gap_paste_warns_and_does_nothing_when_empty() {
         warnings.push(warning);
     })
     .unwrap();
-    assert!(resolved.is_empty());
+    assert_eq!(resolved, []);
     assert!(warnings[0].starts_with("line 4: `@missing` was empty"));
 }
 

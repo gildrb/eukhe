@@ -269,5 +269,5 @@ async fn login_stores_an_api_key_and_logout_removes_it() {
                     .to_string()
             )
         );
-    assert!(auth.logout_options().await.is_empty());
+    assert_eq!(auth.logout_options().await, []);
 }

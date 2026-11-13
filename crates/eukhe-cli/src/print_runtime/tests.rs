@@ -270,7 +270,7 @@ async fn an_unscripted_request_fails_the_run_with_its_error() {
     let Some(RunFailure::Message(stderr)) = primary.failure() else {
         panic!("exit 1 with stderr text");
     };
-    assert!(!stderr.is_empty());
+    assert_ne!(stderr, "");
 }
 
 #[tokio::test]
@@ -281,7 +281,7 @@ async fn a_failed_session_command_stops_the_prompt_loop() {
     )
     .await;
     let error = failure.expect("the command failed");
-    assert!(!error.is_empty());
+    assert_ne!(error, "");
     // The later prompt never ran: the failure row is the terminal entry.
     match result.primary.expect("the failure row") {
         HeadlessPrimary::SlashCommandResult {

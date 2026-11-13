@@ -18,7 +18,7 @@ fn glm5_matches_reference() {
     let raw = include_str!("../../../fixtures/glm5.json");
     let fixture: serde_json::Value = serde_json::from_str(raw).expect("fixture parses");
     let cases = fixture["cases"].as_array().expect("cases array");
-    assert!(!cases.is_empty());
+    assert_ne!(cases.as_slice(), [] as [serde_json::Value; 0]);
     for case in cases {
         let text = case["text"].as_str().expect("text");
         let want: Vec<u32> = case["ids"]

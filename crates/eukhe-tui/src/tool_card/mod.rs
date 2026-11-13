@@ -424,7 +424,7 @@ mod tests {
             details: serde_json::Value::Null,
             is_error: false,
         });
-        assert!(image_rows(result.as_ref(), true, &theme()).is_empty());
+        assert_eq!(image_rows(result.as_ref(), true, &theme()), [] as [Line; 0]);
         // The elided marker (data: "") stays a real row.
         let elided = Some(ToolResultView {
             content: vec![serde_json::json!({

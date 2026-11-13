@@ -261,7 +261,7 @@ fn npm_install_list_remove_flow() {
     assert!(manager
         .remove_and_persist("npm:fake-pkg", UserOrProject::User)
         .unwrap());
-    assert!(manager.list_configured_packages().is_empty());
+    assert_eq!(manager.list_configured_packages(), []);
     let log = sandbox.log();
     assert!(log.contains("npm install -g fake-pkg\n"), "{log}");
     assert!(log.contains("npm uninstall -g fake-pkg\n"), "{log}");

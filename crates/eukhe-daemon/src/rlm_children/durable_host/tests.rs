@@ -340,7 +340,10 @@ async fn a_token_less_parent_counts_its_familys_running_subagents() {
             active_session_ids: vec!["sess-kid".to_owned(), "sess-grandkid".to_owned()],
         }
     );
-    assert!(commands_of(&shared, "list_agent_peers").is_empty());
+    assert_eq!(
+        commands_of(&shared, "list_agent_peers"),
+        [] as [serde_json::Value; 0]
+    );
 }
 
 #[tokio::test]
@@ -355,7 +358,7 @@ async fn a_restarted_parent_finds_its_resident_child() {
     let sessions = host(&shared, dir.path()).await;
     let child = sessions.spawn(spawn_request()).await.unwrap();
     assert_eq!(child.active_session_id, "child-still-live");
-    assert!(commands_of(&shared, "create").is_empty());
+    assert_eq!(commands_of(&shared, "create"), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -730,7 +733,7 @@ async fn a_prompt_waits_out_a_supervisor_restart() {
         futures::poll!(prompt.as_mut()).is_pending(),
         "a prompt against a down supervisor waits for it"
     );
-    assert!(commands_of(&shared, "prompt").is_empty());
+    assert_eq!(commands_of(&shared, "prompt"), [] as [serde_json::Value; 0]);
     // The restarted supervisor binds the same path.
     std::fs::remove_file(&socket).unwrap();
     serve_fake_supervisor(Arc::clone(&shared), &socket).await;

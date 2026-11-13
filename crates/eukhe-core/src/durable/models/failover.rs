@@ -171,7 +171,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("beta", "shared-1"), ("gamma", "shared-1")]
         );
-        assert!(failover_candidates(&catalog_model("beta", "other-model"), &catalog()).is_empty());
+        assert_eq!(
+            failover_candidates(&catalog_model("beta", "other-model"), &catalog()),
+            []
+        );
     }
 
     #[test]

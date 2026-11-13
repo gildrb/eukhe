@@ -471,7 +471,7 @@ async fn aborting_during_the_delay_ends_the_stream_aborted() {
         aborted.error_message.as_deref(),
         Some("Request was aborted")
     );
-    assert!(aborted.content.is_empty());
+    assert_eq!(aborted.content, []);
     assert_eq!(
         events
             .iter()

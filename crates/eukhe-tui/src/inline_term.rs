@@ -1589,7 +1589,7 @@ mod tests {
             panic!("the frame was shown: {painted:?}");
         };
         assert_eq!(take_rejection(), Some(rejection));
-        assert!(out.is_empty());
+        assert_eq!(out, [] as [u8; 0]);
         paint(&mut term, &mut screen, &["kept 2"], &["> |"]);
         assert_eq!(screen.all(), ["kept 1", "kept 2", "> |"]);
     }

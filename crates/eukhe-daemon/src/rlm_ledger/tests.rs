@@ -116,7 +116,7 @@ fn spawn_rename_delete_replay_in_order() {
             RlmLedgerDeleteReason::User,
         )
         .unwrap();
-    assert!(ledger.edges(false).unwrap().is_empty());
+    assert_eq!(ledger.edges(false).unwrap(), []);
     let tombstones = ledger.edges(true).unwrap();
     assert_eq!(tombstones.len(), 1);
     assert_eq!(tombstones[0].deleted, Some(RlmLedgerDeleteReason::User));
@@ -203,7 +203,7 @@ fn dead_child_or_parent_drops_from_live_edges() {
         .unwrap();
     assert_eq!(ledger.live_edges().unwrap().len(), 1);
     fs::remove_file(&child).unwrap();
-    assert!(ledger.live_edges().unwrap().is_empty());
+    assert_eq!(ledger.live_edges().unwrap(), []);
     // The edge stays in the raw replay.
     assert_eq!(ledger.edges(false).unwrap().len(), 1);
 }
@@ -264,7 +264,7 @@ fn moved_edge_paths_resolve_through_the_session_id() {
 
     // A session with no file anywhere is dead: the edge drops.
     fs::remove_file(&live_child).unwrap();
-    assert!(ledger.live_edges().unwrap().is_empty());
+    assert_eq!(ledger.live_edges().unwrap(), []);
     // The raw replay keeps the recorded paths untouched.
     let raw = ledger.edges(false).unwrap();
     assert_eq!(raw.len(), 1);

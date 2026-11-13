@@ -175,7 +175,7 @@ async fn a_progressing_child_outlives_the_stall_budget() {
             row.session_name
         )]
     );
-    assert!(cancel_keys(&host).is_empty());
+    assert_eq!(cancel_keys(&host), [] as [String; 0]);
     opened.harness.close(cx()).await.unwrap();
 }
 
@@ -203,7 +203,7 @@ async fn a_paused_child_is_not_stalled() {
         (watched.status, watched.error),
         (ChildStatus::Running, None)
     );
-    assert!(cancel_keys(&host).is_empty());
+    assert_eq!(cancel_keys(&host), [] as [String; 0]);
 
     lock(&host.state).paused.clear();
     setup.faux.append_responses(vec![answer("thanks")]);
@@ -227,7 +227,7 @@ async fn a_paused_child_is_not_stalled() {
             row.session_name
         )]
     );
-    assert!(cancel_keys(&host).is_empty());
+    assert_eq!(cancel_keys(&host), [] as [String; 0]);
     opened.harness.close(cx()).await.unwrap();
 }
 

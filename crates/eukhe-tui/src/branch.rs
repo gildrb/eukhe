@@ -179,8 +179,11 @@ mod tests {
 
     #[test]
     fn empty_block_renders_nothing() {
-        assert!(branch_block(&vec![Span::raw("   ")], &theme(), 40).is_empty());
-        assert!(branch_block(&Vec::new(), &theme(), 40).is_empty());
+        assert_eq!(
+            branch_block(&vec![Span::raw("   ")], &theme(), 40),
+            [] as [Line; 0]
+        );
+        assert_eq!(branch_block(&Vec::new(), &theme(), 40), [] as [Line; 0]);
     }
 
     /// Every painted [`branch_markdown`] row clips to the width (the

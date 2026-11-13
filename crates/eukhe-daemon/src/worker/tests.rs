@@ -389,7 +389,7 @@ async fn abort_suspends_the_queue_and_resume_sends_it() {
     })
     .await;
     assert_eq!(texts_of(&transcript, "user"), ["go", "later"]);
-    assert!(worker.core.lock().unwrap().suspended.is_empty());
+    assert_eq!(worker.core.lock().unwrap().suspended, []);
 }
 
 /// `abort`'s suspended inputs are durable (`eukhe.daemon.suspended`): a

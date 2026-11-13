@@ -905,7 +905,7 @@ fn search_text_counter_lockstep_names_every_corpus_mutation_path() {
     // corpus and counter restart at zero together.
     let mut rewritten = SessionScanState::fresh(generation);
     assert_eq!(rewritten.acc.search_text_chars, 0);
-    assert!(rewritten.acc.all_messages_text.is_empty());
+    assert_eq!(rewritten.acc.all_messages_text, "");
     fold_scan_entry(&mut rewritten.acc, &header_line).unwrap();
     fold_scan_entry(&mut rewritten.acc, &message("rewrite from zero", 1)).unwrap();
     assert_eq!(

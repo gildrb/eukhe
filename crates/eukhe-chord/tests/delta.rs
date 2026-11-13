@@ -103,7 +103,7 @@ fn normalizes_a_deep_no_op_to_exact_previous_identity() {
         .unwrap();
     let prepared = change.prepare().unwrap();
     assert!(prepared.value().strict_equals(prepared.base()));
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     tracker.adopt(&prepared).unwrap();
     assert!(tracker.value().strict_equals(prepared.base()));
 }
@@ -121,7 +121,7 @@ fn takes_immutable_ownership_of_replacement_input_and_applies_no_op_normalizatio
         .prepare_replace(j(r#"{"nested":{"value":2}}"#))
         .unwrap();
     assert!(no_op.value().strict_equals(&tracker.value()));
-    assert!(no_op.ops().is_empty());
+    assert_eq!(no_op.ops(), []);
 }
 
 #[test]

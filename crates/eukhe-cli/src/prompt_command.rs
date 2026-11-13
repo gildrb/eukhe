@@ -242,7 +242,7 @@ mod tests {
     fn assembles_the_layered_prompt_for_a_directory() {
         let dir = tempfile::tempdir().unwrap();
         let (breakdown, errors) = assemble_breakdown(dir.path(), Some("mock/mock-1")).unwrap();
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [String; 0]);
         // The chat memory layer leads (`OptChat` sec. 7.2), then the harness.
         assert!(breakdown
             .assembled

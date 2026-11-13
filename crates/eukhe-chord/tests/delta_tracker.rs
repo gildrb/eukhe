@@ -417,7 +417,7 @@ fn detaches_old_handles_for_deeply_equal_object_and_array_assignments_before_nor
     old_row.set("value", 9).unwrap();
     assert_eq!(state.value().unwrap(), initial);
     let prepared = change.prepare().unwrap();
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     tracker.adopt(&prepared).unwrap();
     let value = tracker.value();
     assert!(value.strict_equals(&initial));
@@ -433,7 +433,7 @@ fn normalizes_a_deeply_equal_replacement_without_changing_committed_identity() {
     let prepared = tracker
         .prepare_replace(j(r#"{"nested":{"value":1},"rows":[1,2,3]}"#))
         .unwrap();
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     tracker.adopt(&prepared).unwrap();
     assert!(tracker.value().strict_equals(&initial));
 }
@@ -829,7 +829,7 @@ fn does_not_dirty_read_only_traversals() {
         .unwrap();
     assert_eq!(read(&row, "value"), JsonValue::from(1));
     let prepared = change.prepare().unwrap();
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     tracker.adopt(&prepared).unwrap();
 }
 
@@ -1164,10 +1164,10 @@ fn matches_native_splice_with_zero_or_one_argument() {
         .unwrap()
         .splice(0, 0, Vec::<JsonValue>::new())
         .unwrap();
-    assert!(removed.is_empty());
+    assert_eq!(removed, []);
     let prepared = change.prepare().unwrap();
     assert_eq!(prepared.value()["values"], j("[1,2,3]"));
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     no_arguments.adopt(&prepared).unwrap();
 
     let one_argument = track(j(r#"{"values":[1,2,3,4]}"#)).unwrap();
@@ -1201,7 +1201,7 @@ fn matches_native_splice_with_zero_or_one_argument() {
         .unwrap()
         .splice(3, i64::MAX, Vec::<JsonValue>::new())
         .unwrap();
-    assert!(removed.is_empty());
+    assert_eq!(removed, []);
     let prepared = change.prepare().unwrap();
     assert_eq!(prepared.value()["values"], j("[1,2,3]"));
     past_end.adopt(&prepared).unwrap();
@@ -1736,7 +1736,7 @@ fn normalizes_restored_overrides_and_cancelled_structural_edits_to_no_operations
     );
     let prepared = change.prepare().unwrap();
     assert_eq!(prepared.value(), &j(r#"{"values":[1,2,3]}"#));
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops(), []);
     tracker.adopt(&prepared).unwrap();
 }
 

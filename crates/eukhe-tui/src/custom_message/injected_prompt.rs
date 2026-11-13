@@ -290,7 +290,7 @@ mod tests {
         };
         let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
         assert_eq!(rows.len(), 2, "{rows:?}");
-        assert!(rows[0].is_empty());
+        assert_eq!(rows[0], []);
         assert_eq!(flat(&rows[1]).trim_end(), " @ Heartbeat prompt - every 10m");
         assert_eq!(
             rows[1][1],

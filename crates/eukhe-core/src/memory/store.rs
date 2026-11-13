@@ -452,7 +452,7 @@ mod tests {
     fn appends_go_to_their_day_file_and_read_back_after_a_reload() {
         let dir = tempfile::tempdir().unwrap();
         let (mut store, loaded) = Store::open(dir.path(), LoadMode::Repair).unwrap();
-        assert!(loaded.messages.is_empty());
+        assert_eq!(loaded.messages, []);
         let first = store
             .append_message(&record(0, "hello"), "2026-10-04")
             .unwrap();

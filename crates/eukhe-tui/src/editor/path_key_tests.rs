@@ -94,7 +94,7 @@ fn enter_on_a_row_completes_then_descends_or_runs() {
     type_slowly(&mut e, &chars("/mem"));
     e.handle_input("enter");
     e.materialize_autocomplete();
-    assert!(submitted(&mut e).is_empty());
+    assert_eq!(submitted(&mut e), [] as [String; 0]);
     assert_eq!(e.get_text(), "/memory ");
     assert_eq!(menu_values(&e), ["view", "model"]);
 }
@@ -112,7 +112,7 @@ fn enter_runs_a_full_path_and_completes_a_partial_one() {
     let mut e = ed();
     type_slowly(&mut e, &chars("/go"));
     e.handle_input("enter");
-    assert!(submitted(&mut e).is_empty());
+    assert_eq!(submitted(&mut e), [] as [String; 0]);
     assert_eq!(e.get_text(), "/goal ");
 }
 
@@ -146,7 +146,7 @@ fn enter_submits_only_a_complete_path() {
     }
     e.handle_input("enter");
     e.materialize_autocomplete();
-    assert!(submitted(&mut e).is_empty());
+    assert_eq!(submitted(&mut e), [] as [String; 0]);
     assert_eq!(e.get_text(), "/dynamic-workflow --size ");
     assert_eq!(menu_values(&e), ["small", "medium", "large"]);
 }

@@ -1080,8 +1080,11 @@ pub(crate) mod tests {
         assert_eq!(row.summary["thinkingLevel"], json!("high"));
         // The next family pass never re-reads: the present row skips first.
         let reseeded = supervisor.seed_roster_family_edges(&root_file).await;
-        assert!(reseeded.is_empty());
-        assert!(drain_roster_pushes(&mut events).is_empty());
+        assert_eq!(reseeded, []);
+        assert_eq!(
+            drain_roster_pushes(&mut events),
+            [] as [serde_json::Value; 0]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

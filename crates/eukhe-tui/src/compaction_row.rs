@@ -380,14 +380,20 @@ mod tests {
             "Summary line one.\nSecond line.",
         );
         // Collapsed details: nothing (the loader stands alone).
-        assert!(render_compaction_stream(&state, false, &theme(), 80).is_empty());
+        assert_eq!(
+            render_compaction_stream(&state, false, &theme(), 80),
+            [] as [Line; 0]
+        );
         // An empty live summary: nothing yet (no delta arrived).
         let empty = CompactionState {
             reason: CompactionReason::Threshold,
             custom_instructions: None,
             summary: String::new(),
         };
-        assert!(render_compaction_stream(&empty, true, &theme(), 80).is_empty());
+        assert_eq!(
+            render_compaction_stream(&empty, true, &theme(), 80),
+            [] as [Line; 0]
+        );
 
         let rows = render_compaction_stream(&state, true, &theme(), 80);
         let text = plain(&rows);

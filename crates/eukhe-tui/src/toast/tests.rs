@@ -11,7 +11,7 @@ fn toasts_expire_on_their_ttl() {
     toasts.push("Copied");
     assert_eq!(toasts.active(now()).len(), 1);
     toasts.age_by(TOAST_TTL + Duration::from_millis(1));
-    assert!(toasts.active(now()).is_empty());
+    assert_eq!(toasts.active(now()), [] as [String; 0]);
     assert!(toasts.prune_expired(now()));
     assert!(toasts.entries.is_empty());
 }

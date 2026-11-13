@@ -206,6 +206,6 @@ mod tests {
             other.await.err().map(|error| error.to_string()),
             Some("Harness is closed".to_owned())
         );
-        assert!(waiters.keys().is_empty());
+        assert_eq!(waiters.keys(), [] as [u32; 0]);
     }
 }

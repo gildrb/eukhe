@@ -354,7 +354,7 @@ mod tests {
             }
             other => panic!("agent row: {other:?}"),
         }
-        assert!(entry_to_items(&entry(false)).is_empty());
+        assert_eq!(entry_to_items(&entry(false)), []);
     }
 
     #[test]

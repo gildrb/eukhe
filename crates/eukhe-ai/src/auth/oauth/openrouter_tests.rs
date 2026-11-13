@@ -342,7 +342,7 @@ async fn fails_login_when_the_manual_prompt_is_cancelled() {
         .await
         .expect_err("fails");
     assert!(error.to_string().contains("Login cancelled"));
-    assert!(calls(&bodies).is_empty());
+    assert_eq!(calls(&bodies), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -354,7 +354,7 @@ async fn rejects_empty_manual_input_without_exchanging_a_code() {
         .await
         .expect_err("fails");
     assert!(error.to_string().contains("Missing authorization code"));
-    assert!(calls(&bodies).is_empty());
+    assert_eq!(calls(&bodies), [] as [serde_json::Value; 0]);
 }
 
 fn aborting_interaction(

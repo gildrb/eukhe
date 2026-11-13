@@ -153,7 +153,7 @@ fn lists_and_finds_models_per_provider() {
 
     assert_eq!(ids(&models.get_models(None)), ["m1", "m2", "m3"]);
     assert_eq!(ids(&models.get_models(Some("p1"))), ["m1", "m2"]);
-    assert!(models.get_models(Some("nope")).is_empty());
+    assert_eq!(models.get_models(Some("nope")), []);
     assert_eq!(
         models.get_model("p2", "m3").map(|m| m.id),
         Some("m3".to_owned())
@@ -180,7 +180,7 @@ fn swallows_provider_source_failures_for_both_all_provider_and_single_provider_l
     }));
 
     assert_eq!(ids(&models.get_models(None)), ["m1"]);
-    assert!(models.get_models(Some("broken")).is_empty());
+    assert_eq!(models.get_models(Some("broken")), []);
     // precise failures come from the provider directly
     let broken = models.get_provider("broken").expect("broken");
     assert_eq!((broken.get_models)().expect_err("boom").to_string(), "boom");

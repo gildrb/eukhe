@@ -130,7 +130,7 @@ async fn preserves_empty_signature_thinking_when_allow_empty_signature_is_enable
 #[test]
 fn allows_empty_thinking_signatures_for_every_vercel_ai_gateway_model() {
     let models = get_builtin_models("vercel-ai-gateway");
-    assert!(!models.is_empty());
+    assert_ne!(models, []);
     assert!(models
         .iter()
         .all(|model| compat_value(model, "allowEmptySignature") == json!(true)));

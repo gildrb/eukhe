@@ -245,7 +245,7 @@ async fn applies_the_newest_edit_per_target_within_the_active_range() {
         .await
         .unwrap();
     assert_eq!(view.head.as_ref().map(|head| head.id), Some(reset.id));
-    assert!(described(&view.messages).is_empty());
+    assert_eq!(described(&view.messages), [] as [String; 0]);
     setup
         .append(draft("edit", |draft| {
             draft.edits = Some(vec![replace(second.id, "second v2")]);
@@ -431,7 +431,7 @@ async fn synthesizes_missing_tool_results_after_a_fork_and_drops_results_cut_fro
         .context(context(), crate::harness::types::ContextOptions::default())
         .await
         .unwrap();
-    assert!(parent_view.messages.is_empty());
+    assert_eq!(parent_view.messages, []);
     let kinds: Vec<&str> = parent_view
         .entries
         .iter()

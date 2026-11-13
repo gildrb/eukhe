@@ -393,7 +393,7 @@ mod tests {
             .collect();
         let rendered = render(&entries, 10_000, None, None);
         assert_eq!(rendered.text.lines().count(), 21);
-        assert!(rendered.diags.is_empty());
+        assert_eq!(rendered.diags, []);
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
             "<diag severity=\"info\" kind=\"pagination\" continuation=\":2\" omitted=\"1 lines\">1 lines remain in listing.</diag>"
         );
         let beyond = render(&entries, 10_000, Some(3), Some(1));
-        assert!(beyond.text.is_empty());
+        assert_eq!(beyond.text, "");
         assert_eq!(
             beyond.diags[0].to_string(),
             "<diag severity=\"warn\" kind=\"range_out_of_bounds\" continuation=\":1\">Line 3 is beyond end of listing (2 lines total).</diag>"

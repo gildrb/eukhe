@@ -29,7 +29,7 @@ fn text(rows: &[Line]) -> Vec<String> {
 fn window(view: &mut AgentView) -> Vec<String> {
     let frame = view.compose_fullscreen(WIDTH, HEIGHT);
     assert_eq!(frame.live.len(), HEIGHT);
-    assert!(frame.history.is_empty());
+    assert_eq!(frame.history, [] as [crate::Line; 0]);
     let dock = view.compose_dock(WIDTH).0.len();
     text(&frame.live[..HEIGHT - dock])
 }
@@ -50,7 +50,7 @@ fn every_fullscreen_frame_is_exactly_the_terminal_height() {
             for request in [ScrollRequest::Up(ScrollAmount::Page), ScrollRequest::Bottom] {
                 let frame = view.compose_fullscreen(WIDTH, height);
                 assert_eq!(frame.live.len(), height, "{count} entries at {height} rows");
-                assert!(frame.history.is_empty());
+                assert_eq!(frame.history, [] as [crate::Line; 0]);
                 view.scroll_viewport(request);
             }
         }

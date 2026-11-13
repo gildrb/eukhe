@@ -174,7 +174,7 @@ async fn a_sha256_repository_snapshots_and_verifies() {
     // SHA-256 proof — the object-id cross-check passed, and a SHA-1 hash
     // of the same content could never match the repository's
     // 64-character tree ids.
-    assert!(manifest.captured.is_empty());
+    assert_eq!(manifest.captured, []);
     let Baseline::HeadTree { entries, .. } = manifest.baseline.as_ref().unwrap() else {
         panic!("the HEAD-tree baseline");
     };
@@ -712,7 +712,7 @@ async fn head_tree_baseline_ships_head_content_and_full_coverage() {
                 .iter()
                 .any(|entry| entry.path == path)
     };
-    assert!(!head_paths.is_empty());
+    assert_ne!(head_paths, [] as [&str; 0]);
     for path in head_paths {
         assert!(carried(path), "HEAD path {path} is not covered");
     }

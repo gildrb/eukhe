@@ -306,10 +306,10 @@ mod tests {
         first.attach(&registry, "session-1");
         let outcome = registry.publish("session-1", &frame("hello"));
         assert_eq!(outcome.delivered, 1);
-        assert!(outcome.lagged.is_empty());
+        assert_eq!(outcome.lagged, [] as [String; 0]);
         // An unattached connection's queue stays empty: the frame never
         // even reaches it (the send-time routing set is the attached set).
-        assert!(drained(&mut second_rx).is_empty());
+        assert_eq!(drained(&mut second_rx), [] as [serde_json::Value; 0]);
         assert_eq!(drained(&mut first_rx).len(), 1);
         second.attach(&registry, "session-1");
         let outcome = registry.publish("session-1", &frame("again"));
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(drained(&mut second_rx).len(), 1);
         // A session nobody attached never registers an entry.
         registry.publish("session-2", &frame("nobody"));
-        assert!(drained(&mut first_rx).is_empty());
+        assert_eq!(drained(&mut first_rx), [] as [serde_json::Value; 0]);
     }
 
     #[tokio::test]
@@ -330,7 +330,7 @@ mod tests {
         client.detach(&registry, "session-1");
         let outcome = registry.publish("session-1", &frame("late"));
         assert_eq!(outcome.delivered, 0);
-        assert!(drained(&mut rx).is_empty());
+        assert_eq!(drained(&mut rx), [] as [serde_json::Value; 0]);
         assert!(!client.contains("session-1"));
     }
 
@@ -376,7 +376,7 @@ mod tests {
         let outcome = registry.publish("session-1", &frame("f5"));
         assert_eq!(outcome.delivered, 1);
         let outcome = registry.publish("session-1", &frame("f6"));
-        assert!(outcome.lagged.is_empty());
+        assert_eq!(outcome.lagged, [] as [String; 0]);
         let outcome = registry.publish("session-1", &frame("f7"));
         assert_eq!(outcome.lagged.len(), 1);
     }
@@ -413,6 +413,6 @@ mod tests {
         assert_eq!(drained(&mut rx).len(), 1);
         client.detach_all(&registry);
         assert_eq!(registry.publish("b", &frame("late")).delivered, 0);
-        assert!(drained(&mut rx).is_empty());
+        assert_eq!(drained(&mut rx), [] as [serde_json::Value; 0]);
     }
 }

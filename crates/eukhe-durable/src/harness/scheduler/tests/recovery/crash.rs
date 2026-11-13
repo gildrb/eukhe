@@ -328,7 +328,7 @@ async fn crash_while_the_reservation_commit_is_in_storage_the_task_is_still_pend
             .map(|record| record.state.status()),
         Some(TaskStatus::Pending)
     );
-    assert!(log.all().is_empty());
+    assert_eq!(log.all(), [] as [String; 0]);
     recovered.abort_task(id, context()).await.unwrap();
     recovered.resume().unwrap();
     recovered.wait_for_task(id, context()).await.unwrap();

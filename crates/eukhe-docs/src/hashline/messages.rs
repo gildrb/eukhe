@@ -734,7 +734,7 @@ mod tests {
 
         // Out-of-range anchor ignored.
         let context_oor = format_anchored_context(&[999], &lines);
-        assert!(context_oor.is_empty());
+        assert_eq!(context_oor, [] as [String; 0]);
     }
 
     #[test]

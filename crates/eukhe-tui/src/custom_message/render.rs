@@ -355,7 +355,7 @@ mod tests {
         let rows = render_agent_message(&row, Detail::Overview, &theme(), 60, true);
         // Leading blank + the envelope summary line, no body preview.
         assert_eq!(rows.len(), 2, "{rows:?}");
-        assert!(rows[0].is_empty());
+        assert_eq!(rows[0], []);
         let header = flat(&rows[1]);
         assert_eq!(header.trim_end(), " & Agent message - v model-probe");
         // The collapsed row never carries the body text.
@@ -457,7 +457,7 @@ mod tests {
             content: "[bash-done pid:4371 exit:0]".to_string(),
         };
         let rows = render_shell_completion(&ok, Detail::Overview, &theme(), 60, true);
-        assert!(rows[0].is_empty());
+        assert_eq!(rows[0], []);
         assert_eq!(flat(&rows[1]), " ok Background shell command finished");
         assert_eq!(
             rows[1][0].style,

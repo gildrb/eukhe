@@ -363,7 +363,7 @@ async fn lets_an_error_result_of_a_schema_tool_omit_structured_output_and_keeps_
     .unwrap();
     let received = nested(&setup, "fails").await;
     assert!(received.is_error);
-    assert!(received.diagnostics.is_empty());
+    assert_eq!(received.diagnostics, []);
     assert_eq!(received.structured_output, None);
 }
 

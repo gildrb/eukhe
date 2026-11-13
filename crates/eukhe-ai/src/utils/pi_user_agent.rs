@@ -52,6 +52,6 @@ mod tests {
         let agent = get_pi_user_agent();
         assert!(agent.starts_with(&format!("pi ({} ", node_platform())));
         assert!(agent.ends_with(&format!("; {})", node_arch())));
-        assert!(!node_release().is_empty());
+        assert_ne!(node_release(), "");
     }
 }

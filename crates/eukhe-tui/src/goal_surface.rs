@@ -515,7 +515,7 @@ mod tests {
             1,
             "one blank below the hint: {text:?}"
         );
-        assert!(text.last().expect("the last row").trim().is_empty());
+        assert_eq!(text.last().expect("the last row").trim(), "");
         // A goal without an objective degrades to the placeholder.
         let mut bare = goal(GoalStatus::Active);
         bare.objective = None;

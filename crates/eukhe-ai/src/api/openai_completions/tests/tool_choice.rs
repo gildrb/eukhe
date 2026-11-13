@@ -261,7 +261,7 @@ async fn forwards_tool_choice_from_simple_options_to_payload() {
 
     assert_eq!(params["tool_choice"], json!("required"));
     let tools = params["tools"].as_array().expect("tools array");
-    assert!(!tools.is_empty());
+    assert_ne!(tools.as_slice(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]

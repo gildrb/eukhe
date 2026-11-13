@@ -88,11 +88,11 @@ fn lax_message_content_reads_null_and_missing_as_empty() {
     let Message::Assistant(assistant) = &messages[1] else {
         panic!("assistant")
     };
-    assert!(assistant.content.is_empty());
+    assert_eq!(assistant.content, []);
     let Message::ToolResult(result) = &messages[2] else {
         panic!("toolResult")
     };
-    assert!(result.content.is_empty());
+    assert_eq!(result.content, []);
 }
 
 #[test]

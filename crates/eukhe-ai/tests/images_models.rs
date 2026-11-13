@@ -816,7 +816,7 @@ async fn builtin_models_exposes_openrouter_image_models_under_the_openrouter_pro
     });
     let provider = models.get_provider("openrouter").expect("openrouter");
     let images = models.get_models_of_type(ModelType::Image, Some("openrouter"));
-    assert!(!images.is_empty());
+    assert_ne!(images, []);
     assert!((provider.get_models)()
         .expect("models")
         .iter()

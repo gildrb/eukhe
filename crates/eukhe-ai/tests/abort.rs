@@ -146,7 +146,7 @@ async fn test_abort_signal(llm: &Model, options: &ProviderStreamOptions) {
 
     // If we get here without throwing, the abort didn't work
     assert_eq!(msg.stop_reason, StopReason::Aborted);
-    assert!(!msg.content.is_empty());
+    assert_ne!(msg.content, []);
 
     context.messages.push(Message::Assistant(msg));
     context
@@ -157,7 +157,7 @@ async fn test_abort_signal(llm: &Model, options: &ProviderStreamOptions) {
         .complete(llm, context, options.clone().into())
         .await;
     assert_eq!(follow_up.stop_reason, StopReason::Stop);
-    assert!(!follow_up.content.is_empty());
+    assert_ne!(follow_up.content, []);
 }
 
 /// TS `testImmediateAbort`.
@@ -211,7 +211,7 @@ async fn test_abort_then_new_message(llm: &Model, options: &ProviderStreamOption
         .complete(llm, context, options.clone().into())
         .await;
     assert_eq!(follow_up.stop_reason, StopReason::Stop);
-    assert!(!follow_up.content.is_empty());
+    assert_ne!(follow_up.content, []);
 }
 
 /// Runs `test_abort_signal` with TS `{ retry: 3 }`.

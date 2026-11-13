@@ -288,7 +288,7 @@ fn reconciles_queued_text_events_against_one_advanced_live_partial_without_dupli
     let AssistantMessageFrame::Start { partial } = &frames[0] else {
         panic!("start frame")
     };
-    assert!(partial.content.is_empty());
+    assert_eq!(partial.content, []);
     assert_eq!(partial.stop_reason, StopReason::Pending);
     assert_eq!(reduce(&frames).unwrap().content, vec![text("Hello world")]);
 }

@@ -501,7 +501,7 @@ async fn rejects_a_non_http_s_verification_uri_before_it_reaches_on_device_code(
         .await
         .expect_err("untrusted");
     assert!(error.to_string().contains("Untrusted verification_uri"));
-    assert!(device_codes(&events).is_empty());
+    assert_eq!(device_codes(&events), []);
 }
 
 #[tokio::test(start_paused = true)]

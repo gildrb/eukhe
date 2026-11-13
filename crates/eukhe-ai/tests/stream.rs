@@ -219,7 +219,7 @@ fn text_of(response: &AssistantMessage) -> String {
 }
 
 fn complete_ok(response: &AssistantMessage) {
-    assert!(!response.content.is_empty());
+    assert_ne!(response.content, []);
     assert!(response.usage.input + response.usage.cache_read > 0);
     assert!(response.usage.output > 0);
     assert!(
@@ -294,7 +294,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
                     panic!("expected toolCall at {content_index}");
                 };
                 assert_eq!(tool_call.name, "math_operation");
-                assert!(!tool_call.id.is_empty());
+                assert_ne!(tool_call.id, "");
             }
             AssistantMessageEvent::ToolCallDelta {
                 content_index,
@@ -357,7 +357,7 @@ async fn handle_tool_call(model: Model, options: ProviderStreamOptions) {
         panic!("No tool call found in response");
     };
     assert_eq!(tool_call.name, "math_operation");
-    assert!(!tool_call.id.is_empty());
+    assert_ne!(tool_call.id, "");
 }
 
 async fn handle_streaming(model: Model, options: ProviderStreamOptions) {
@@ -382,7 +382,7 @@ async fn handle_streaming(model: Model, options: ProviderStreamOptions) {
     let response = events.result().await;
 
     assert!(text_started);
-    assert!(!text_chunks.is_empty());
+    assert_ne!(text_chunks, "");
     assert!(text_completed);
     assert!(response
         .content
@@ -423,7 +423,7 @@ async fn handle_thinking(model: Model, options: ProviderStreamOptions) {
         response.error_message
     );
     assert!(thinking_started);
-    assert!(!thinking_chunks.is_empty());
+    assert_ne!(thinking_chunks, "");
     assert!(thinking_completed);
     assert!(response
         .content
@@ -457,7 +457,7 @@ async fn handle_image(model: Model, options: ProviderStreamOptions) {
         .complete(&model, context, options.into())
         .await;
 
-    assert!(!response.content.is_empty());
+    assert_ne!(response.content, []);
     if let Some(AssistantContentBlock::Text(text)) = response
         .content
         .iter()
@@ -496,7 +496,7 @@ async fn multi_turn(model: Model, options: ProviderStreamOptions) {
                 AssistantContentBlock::ToolCall(tool_call) => {
                     has_seen_tool_calls = true;
                     assert_eq!(tool_call.name, "math_operation");
-                    assert!(!tool_call.id.is_empty());
+                    assert_ne!(tool_call.id, "");
                     let (Some(a), Some(b)) = (
                         number_arg(&tool_call.arguments, "a"),
                         number_arg(&tool_call.arguments, "b"),
@@ -540,7 +540,7 @@ async fn multi_turn(model: Model, options: ProviderStreamOptions) {
     }
 
     assert!(has_seen_thinking || has_seen_tool_calls);
-    assert!(!all_text_content.is_empty());
+    assert_ne!(all_text_content, "");
     assert!(all_text_content.contains("714"), "{all_text_content}");
     assert!(all_text_content.contains("887"), "{all_text_content}");
 }

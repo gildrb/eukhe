@@ -697,7 +697,7 @@ mod tests {
             &json!({ "type": "message_end", "message": message("pl", "ACP-OK") }),
             &mut state,
         );
-        assert!(end.is_empty());
+        assert_eq!(end, []);
         let next = wire_updates(
             &json!({ "type": "message_start", "message": message("", "B") }),
             &mut state,

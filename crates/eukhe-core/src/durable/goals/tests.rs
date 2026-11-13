@@ -677,7 +677,7 @@ async fn no_continuation_after_an_abort() {
 
     let entries = entries(&root).await;
     assert_eq!(user_texts(&entries), vec!["work".to_owned()]);
-    assert!(goal_contexts(&entries).is_empty());
+    assert_eq!(goal_contexts(&entries), []);
     let goal = stored_goal(&harness, &root).await;
     // An abort keeps the goal and charges nothing.
     assert_eq!(goal.status, GoalStatus::Active);

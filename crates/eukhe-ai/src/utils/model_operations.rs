@@ -200,7 +200,7 @@ mod tests {
         );
         assert_eq!(result.stop_reason, ImagesStopReason::Aborted);
         assert_eq!(result.error_message.as_deref(), Some("boom"));
-        assert!(result.output.is_empty());
+        assert_eq!(result.output, []);
         let AnyModel::Classifier(classifier) =
             any_model(base(json!({ "type": "classifier", "contextWindow": 10 })))
         else {

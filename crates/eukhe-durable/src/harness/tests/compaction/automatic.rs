@@ -173,7 +173,7 @@ async fn does_not_start(policy: CompactionPolicy) {
     history(&chat).await;
     chat.set_policy(policy);
     turn(&chat, &text("u4", 100), &text("a4", 100)).await;
-    assert!(compaction_tasks(&chat).await.is_empty());
+    assert_eq!(compaction_tasks(&chat).await, []);
     assert!(chat.faux.summary_requests().is_empty());
     chat.harness.close(context()).await.unwrap();
 }
@@ -211,7 +211,7 @@ async fn does_not_start_when_there_is_no_cut() {
         ..BACKGROUND
     });
     turn(&chat, &text("u1", 800), "a1").await;
-    assert!(compaction_tasks(&chat).await.is_empty());
+    assert_eq!(compaction_tasks(&chat).await, []);
     assert!(chat.faux.summary_requests().is_empty());
     chat.harness.close(context()).await.unwrap();
 }

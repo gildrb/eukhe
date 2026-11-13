@@ -167,7 +167,7 @@ async fn starts_no_background_compaction_after_a_blocking_one_in_the_same_genera
     chat.faux.summary(summary("SUMMARY"));
     turn(&chat, &text("u4", 1400), "a4").await;
     assert_eq!(chat.faux.summary_requests().len(), 1);
-    assert!(compaction_tasks(&chat).await.is_empty());
+    assert_eq!(compaction_tasks(&chat).await, []);
     chat.harness.close(context()).await.unwrap();
 }
 
@@ -1023,7 +1023,7 @@ async fn sends_the_request_when_a_blocking_compaction_finds_nothing_under_a_poli
     )
     .unwrap();
     turn(&chat, &text("u4", 200), "a4").await;
-    assert!(compaction_tasks(&chat).await.is_empty());
+    assert_eq!(compaction_tasks(&chat).await, []);
     assert!(chat.faux.summary_requests().is_empty());
     assert!(!kinds(&chat.root)
         .await

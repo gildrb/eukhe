@@ -1218,7 +1218,7 @@ mod tests {
     async fn nothing_resolves_without_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let models = offline_models(dir.path()).models;
-        assert!(!models.get_models(None).is_empty());
+        assert_ne!(models.get_models(None), []);
         assert_eq!(
             resolve(&models, &settings(json!({})), None, None)
                 .await

@@ -86,7 +86,7 @@ async fn reproduces_empty_thinking_signatures_and_preserves_them_for_replay() {
             AssistantContentBlock::Text(_) | AssistantContentBlock::ToolCall(_) => None,
         })
         .collect();
-    assert!(!thinking_blocks.is_empty());
+    assert_ne!(thinking_blocks, []);
     assert!(thinking_blocks
         .iter()
         .any(|block| block.thinking_signature.as_deref() == Some("")));

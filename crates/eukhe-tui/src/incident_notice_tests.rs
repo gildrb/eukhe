@@ -149,18 +149,20 @@ fn derives_an_update_restart_only_from_repeated_successful_starts() {
     // A first-ever start is routine; a failed startup (lock held) never
     // counts toward a replacement, or two failed spawns on one socket
     // would read as an update restart.
-    assert!(
-        derive_incident_notices(&[supervisor_start_line(BASE_MS, 60, "e14de15c")], BASE_MS)
-            .is_empty()
+    assert_eq!(
+        derive_incident_notices(&[supervisor_start_line(BASE_MS, 60, "e14de15c")], BASE_MS),
+        []
     );
-    assert!(derive_incident_notices(
-        &[
-            failed_start_line(BASE_MS, 30),
-            supervisor_start_line(BASE_MS, 20, "e14de15c"),
-        ],
-        BASE_MS
-    )
-    .is_empty());
+    assert_eq!(
+        derive_incident_notices(
+            &[
+                failed_start_line(BASE_MS, 30),
+                supervisor_start_line(BASE_MS, 20, "e14de15c"),
+            ],
+            BASE_MS
+        ),
+        []
+    );
 }
 
 #[test]

@@ -722,7 +722,7 @@ mod tests {
                 UserOrProject::User
             )
             .unwrap());
-        assert!(manager.list_configured_packages().is_empty());
+        assert_eq!(manager.list_configured_packages(), []);
         assert_eq!(read_settings(&dir)["packages"], serde_json::json!([]));
 
         // Removing again is not a match.
@@ -744,7 +744,7 @@ mod tests {
                 dir.path().join("cwd").join("no-such-pkg").display()
             )
         );
-        assert!(manager.list_configured_packages().is_empty());
+        assert_eq!(manager.list_configured_packages(), []);
     }
 
     #[test]
@@ -825,7 +825,7 @@ mod tests {
         assert!(manager
             .remove_source_from_settings(&agent_local.display().to_string(), UserOrProject::User)
             .unwrap());
-        assert!(manager.list_configured_packages().is_empty());
+        assert_eq!(manager.list_configured_packages(), []);
     }
 
     #[test]
@@ -844,7 +844,7 @@ mod tests {
         let error = manager
             .install_and_persist("./no-such-pkg", UserOrProject::User)
             .unwrap_err();
-        assert!(!error.to_string().is_empty());
+        assert_ne!(error.to_string(), "");
         let events = events.lock().unwrap();
         assert_eq!(events[0].0, ProgressEventKind::Start);
         assert_eq!(events[0].1, ProgressAction::Install);

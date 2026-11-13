@@ -72,7 +72,7 @@ mod tests {
             .copied()
             .filter(|asset| asset.path.contains('/'))
             .collect();
-        assert!(!nested.is_empty());
+        assert_ne!(nested, []);
         for asset in nested {
             assert_eq!(lookup(&format!("/prefix/{}", asset.path)), Some(asset));
         }

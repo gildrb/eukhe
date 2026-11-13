@@ -294,7 +294,7 @@ fn untimestamped_fallback_is_not_cached() {
     let modified = newer.modified.clone();
     newer.modified = previous.modified.clone();
     assert_eq!(newer, previous);
-    assert!(!modified.is_empty());
+    assert_ne!(modified, "");
     fs::remove_dir_all(dir).unwrap();
 }
 

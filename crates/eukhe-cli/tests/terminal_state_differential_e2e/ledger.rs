@@ -652,8 +652,11 @@ fn the_ledger_catches_an_absolute_kitty_set_left_on() {
 #[test]
 fn the_ledger_reads_extended_color_forms_as_one_attribute() {
     // The balanced pair: the extended color sets fg, the 39 clears it.
-    assert!(findings_of(b"\x1b[38;5;13mrow\x1b[39m").is_empty());
-    assert!(findings_of(b"\x1b[38;2;0;0;0mrow\x1b[39m").is_empty());
+    assert_eq!(findings_of(b"\x1b[38;5;13mrow\x1b[39m"), [] as [String; 0]);
+    assert_eq!(
+        findings_of(b"\x1b[38;2;0;0;0mrow\x1b[39m"),
+        [] as [String; 0]
+    );
     // The dangling extended color: the ledger must see fg active.
     let findings = findings_of(b"\x1b[38;5;13mrow");
     assert!(

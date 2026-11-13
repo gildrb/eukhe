@@ -108,6 +108,6 @@ mod tests {
 
         let mut only_marker = vec![Span::raw(ZONE_START)];
         strip(&mut only_marker);
-        assert!(only_marker.is_empty());
+        assert_eq!(only_marker, []);
     }
 }

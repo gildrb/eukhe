@@ -712,8 +712,11 @@ async fn no_checks_is_unverified_and_a_goal_completed_without_them_says_so() {
             Some("Goal achieved (unverified: no acceptance checks)")
         )
     );
-    assert!(setup.runner.commands().is_empty());
-    assert!(verdict_rows(&entries(&root).await).is_empty());
+    assert_eq!(setup.runner.commands(), [] as [String; 0]);
+    assert_eq!(
+        verdict_rows(&entries(&root).await),
+        [] as [(String, bool, serde_json::Value); 0]
+    );
     harness.close(cx()).await.expect("close");
 }
 

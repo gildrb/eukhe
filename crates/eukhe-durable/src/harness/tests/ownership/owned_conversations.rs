@@ -512,7 +512,7 @@ async fn aborts_a_subagent_run_with_its_parents_conversation_rejecting_the_waiti
     let settled_input = input.wait(context()).await.unwrap();
     assert_eq!(settled_input.state.status(), SubmissionStatus::Unanswered);
     assert_eq!(settled_input.state.reason(), Some("aborted"));
-    assert!(!tool_wait.wait().await.is_empty());
+    assert_ne!(tool_wait.wait().await, "");
     let child = get(&child).expect("the tool created its child");
     let child_conversation = harness
         .conversation(child, context())

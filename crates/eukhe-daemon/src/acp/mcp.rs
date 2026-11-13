@@ -432,21 +432,21 @@ mod tests {
             Path::new("/tmp"),
         )
         .unwrap();
-        assert!(servers.is_empty());
+        assert_eq!(servers, []);
         // An invalid env item fails the whole entry.
         let servers = resolve_acp_mcp_servers(
             &[json!({ "name": "b", "type": "stdio", "command": "cat", "args": [], "env": [{"name": 1, "value": "x"}] })],
             Path::new("/tmp"),
         )
         .unwrap();
-        assert!(servers.is_empty());
+        assert_eq!(servers, []);
         // http without headers: dropped.
         let servers = resolve_acp_mcp_servers(
             &[json!({ "name": "c", "type": "http", "url": "https://user:pw@x.invalid" })],
             Path::new("/tmp"),
         )
         .unwrap();
-        assert!(servers.is_empty());
+        assert_eq!(servers, []);
         // http with command/args/env still parses as http (union order).
         let servers = resolve_acp_mcp_servers(
             &[json!({ "name": "h2", "type": "http", "url": "https://x.invalid", "headers": [], "command": "cat", "args": [], "env": [] })],

@@ -494,7 +494,7 @@ mod tests {
         let message = crate::prompts::model_prompts::model_prompt_error_message(&[
             "/x/model-prompts.toml: bad TOML".to_string(),
         ]);
-        assert!(convert_to_llm(&[AgentMessage::Custom(message)]).is_empty());
+        assert_eq!(convert_to_llm(&[AgentMessage::Custom(message)]), []);
     }
 
     #[test]
@@ -769,6 +769,6 @@ mod tests {
             artifact: None,
             timestamp: 0,
         });
-        assert!(convert_to_llm(std::slice::from_ref(&excluded)).is_empty());
+        assert_eq!(convert_to_llm(std::slice::from_ref(&excluded)), []);
     }
 }

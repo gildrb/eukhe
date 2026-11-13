@@ -399,7 +399,7 @@ async fn rlm_children_spawn_prompt_settle_delete_end_to_end() {
             .map(|_| ())
     });
     children.delete(delete).await.expect("repeated delete");
-    assert!(children.list().await.expect("listings").is_empty());
+    assert_eq!(children.list().await.expect("listings"), []);
 }
 
 /// TS #2396's daemon-wide half (`createRlmSubagentRuntime`): the

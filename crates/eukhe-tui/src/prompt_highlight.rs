@@ -621,7 +621,7 @@ mod tests {
             ]
         );
         // A bare `--` only highlights with the separator pattern.
-        assert!(find_arg_tokens("x -- y", 0, false).is_empty());
+        assert_eq!(find_arg_tokens("x -- y", 0, false), []);
         assert_eq!(
             find_arg_tokens("x -- y", 0, true),
             vec![ArgTokenSpan {
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn arg_tokens_need_a_whitespace_boundary() {
-        assert!(find_arg_tokens("a@b", 0, false).is_empty());
+        assert_eq!(find_arg_tokens("a@b", 0, false), []);
         assert_eq!(
             find_arg_tokens("a @b", 0, false),
             vec![ArgTokenSpan {
@@ -1032,10 +1032,13 @@ mod tests {
         );
         // The cursor inside the token suppresses it entirely.
         let highlights = editor_chunk_highlights("/model", &[], 0, Some(&command), Some(3));
-        assert!(highlights.is_empty());
+        assert_eq!(highlights, []);
         // An unknown command never highlights.
         let command = command_token("/nope").unwrap();
-        assert!(editor_chunk_highlights("/nope", &[], 0, Some(&command), None).is_empty());
+        assert_eq!(
+            editor_chunk_highlights("/nope", &[], 0, Some(&command), None),
+            []
+        );
     }
 
     /// A selection range renders reversed-video, clipped to the chunk, and

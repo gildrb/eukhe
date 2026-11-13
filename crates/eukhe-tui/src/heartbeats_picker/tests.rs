@@ -94,7 +94,7 @@ fn scoping_keeps_own_and_child_sessions() {
     assert_eq!(scoped.len(), 1);
     assert_eq!(scoped[0].job.id, "user-1");
     // No session identity: nothing shows.
-    assert!(scope_heartbeats(entries(), None, None, &[]).is_empty());
+    assert_eq!(scope_heartbeats(entries(), None, None, &[]), []);
 }
 
 /// A carried selection (the dock's chosen heartbeat) opens on that
@@ -549,7 +549,7 @@ fn a_catalog_refresh_keeps_the_surviving_selection() {
     picker.apply_catalog(refreshed, None);
     assert_eq!(picker.selected_heartbeat_id.as_deref(), Some("agent-1"));
     picker.apply_catalog(Vec::new(), Some("daemon down".to_string()));
-    assert!(picker.heartbeats.is_empty());
+    assert_eq!(picker.heartbeats, []);
     assert_eq!(picker.selected_heartbeat_id, None);
     let frame = picker.render(&theme(), 70, &kb());
     let text = frame_text(&frame);

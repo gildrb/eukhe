@@ -332,7 +332,7 @@ mod tests {
     fn reports_truncation_at_the_end_of_the_body() {
         let message = event("{}");
         let mut chunker = MessageChunker::default();
-        assert!(chunker.push(&message[..message.len() - 3]).is_empty());
+        assert_eq!(chunker.push(&message[..message.len() - 3]), []);
         assert_eq!(
             chunker.finish(),
             Err(ErrorObject::new("Truncated event message received."))

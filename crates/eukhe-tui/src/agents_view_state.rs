@@ -832,7 +832,7 @@ mod tests {
         // An empty unnamed saved row hides unless it is preserved.
         let empty = vec![json!({ "id": "s3", "path": "/x/s3.jsonl", "messageCount": 0 })];
         let records = reconcile_unified_sessions(&[], &empty);
-        assert!(filter_empty_sessions(&records, &[]).is_empty());
+        assert_eq!(filter_empty_sessions(&records, &[]), []);
         assert_eq!(filter_empty_sessions(&records, &["s3"]).len(), 1);
     }
 
@@ -983,7 +983,10 @@ mod tests {
         assert_eq!(titles, vec!["root agent", "child agent"]);
         // An unrelated query matches nothing, and the parent alone matches
         // only its own query.
-        assert!(filter_unified_sessions(&records, &parse_search_query("zebra")).is_empty());
+        assert_eq!(
+            filter_unified_sessions(&records, &parse_search_query("zebra")),
+            []
+        );
         let parent_only = filter_unified_sessions(&records, &parse_search_query("root"));
         assert_eq!(parent_only.len(), 1);
         assert_eq!(

@@ -139,7 +139,7 @@ async fn kernel_state_persists_across_cells_and_turns() {
     assert_eq!(error.status, ExecuteStatus::Error);
     let kernel_error = error.error.expect("error cell carries the kernel error");
     assert_eq!(kernel_error.ename, "ZeroDivisionError");
-    assert!(!kernel_error.traceback.is_empty());
+    assert_ne!(kernel_error.traceback, [] as [String; 0]);
     let after = execute(&manager, "x").await;
     assert_eq!(after.result.as_deref(), Some("21"));
 

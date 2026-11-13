@@ -189,7 +189,7 @@ fn clearing_after_the_pre_search_session_left_selects_the_top() {
     type_query(&mut mode, "gate");
     mode.apply_roster_update(Vec::new(), vec!["s5".to_string()], false);
     mode.handle_key("escape");
-    assert!(mode.query.is_empty());
+    assert_eq!(mode.query, "");
     assert_eq!(mode.selected, first_selectable(&mode));
     assert_eq!(selected_title(&mode), "write docs");
 }

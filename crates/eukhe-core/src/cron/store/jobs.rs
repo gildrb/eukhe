@@ -512,10 +512,12 @@ mod tests {
         // unwinds (the running dispatch drops), it is.
         let second = store.claim_due(now + 1_200_000, now + 1_200_000).unwrap();
         assert_eq!(second.len(), 1);
-        assert!(store
-            .recover_interrupted_dispatches(now + 1_250_000)
-            .unwrap()
-            .is_empty());
+        assert_eq!(
+            store
+                .recover_interrupted_dispatches(now + 1_250_000)
+                .unwrap(),
+            []
+        );
         drop(second);
         let recovered = store
             .recover_interrupted_dispatches(now + 1_300_000)

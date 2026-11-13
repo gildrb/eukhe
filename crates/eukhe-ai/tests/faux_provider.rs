@@ -166,7 +166,7 @@ async fn supports_helper_blocks_for_text_thinking_and_tool_calls() {
     let AssistantContentBlock::ToolCall(call) = &response.content[1] else {
         panic!("tool call");
     };
-    assert!(!call.id.is_empty());
+    assert_ne!(call.id, "");
     assert_eq!(call.name, "echo");
     assert_eq!(call.arguments, args(serde_json::json!({ "text": "hi" })));
     assert_eq!(response.content[2], text_block("done"));

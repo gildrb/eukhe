@@ -145,7 +145,7 @@ fn legacy_entries_sharing_a_key_share_its_bind() {
 #[test]
 fn empty_user_array_disables_binding() {
     let kb = KeybindingsManager::with_user_bindings(&cfg(&[("app.tools.expand", &[])]));
-    assert!(kb.get_keys("app.tools.expand").is_empty());
+    assert_eq!(kb.get_keys("app.tools.expand"), [] as [String; 0]);
     assert!(!kb.matches("ctrl+o", "app.tools.expand"));
     // The other actions of ctrl+o keep it.
     assert!(kb.matches("ctrl+o", "app.agents.program"));
@@ -158,7 +158,7 @@ fn unknown_user_ids_bind_nothing() {
         Vec::new()
     );
     let kb = KeybindingsManager::with_user_bindings(&cfg(&[("not.a.binding", &["ctrl+q"])]));
-    assert!(kb.get_keys("not.a.binding").is_empty());
+    assert_eq!(kb.get_keys("not.a.binding"), [] as [String; 0]);
     assert_eq!(
         kb.get_keys("tui.editor.cursorLineStart"),
         vec![
@@ -225,7 +225,7 @@ fn list_edge_jump_defaults_resolve() {
 #[test]
 fn ctrl_r_is_unbound_by_default() {
     let kb = KeybindingsManager::new();
-    assert!(kb.get_keys("app.heartbeats.open").is_empty());
+    assert_eq!(kb.get_keys("app.heartbeats.open"), [] as [String; 0]);
     assert!(!kb.matches("ctrl+r", "app.heartbeats.open"));
 }
 
@@ -458,7 +458,7 @@ fn first_user_bind_wins_over_defaults() {
         kb.get_keys("app.model.select"),
         vec!["ctrl+l".to_string(), "ctrl+o".to_string()]
     );
-    assert!(kb.get_keys("app.tools.expand").is_empty());
+    assert_eq!(kb.get_keys("app.tools.expand"), [] as [String; 0]);
 }
 
 #[test]

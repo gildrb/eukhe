@@ -48,7 +48,7 @@ fn grouped_matches_have_folded_headers_tags_and_hashline_match_rows() {
         )
     );
     assert!(output.multi_scope);
-    assert!(output.notices.is_empty());
+    assert_eq!(output.notices, []);
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn twenty_file_window_emits_pagination_and_skip_returns_the_next_page() {
         second.text,
         format!("# page/\n## file-21.rs#{tag}\n*1:needle")
     );
-    assert!(second.notices.is_empty());
+    assert_eq!(second.notices, []);
 }
 
 #[test]

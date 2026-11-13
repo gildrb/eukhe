@@ -41,7 +41,7 @@ fn routes_all_github_copilot_gpt_models_through_the_responses_api() {
         .values()
         .filter(|model| model.id.starts_with("gpt-"))
         .collect();
-    assert!(!gpt_models.is_empty());
+    assert_ne!(gpt_models, [] as [&Model; 0]);
     assert!(gpt_models
         .iter()
         .all(|model| model.api == "openai-responses"));

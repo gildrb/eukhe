@@ -67,7 +67,7 @@ fn streamed_catalog_upserts_by_identity_and_the_final_response_replaces() {
     mode.rebuild_rows();
     assert_eq!(mode.saved.len(), 1);
     assert_eq!(mode.saved[0]["id"], "c");
-    assert!(mode.saved_stream.is_empty());
+    assert_eq!(mode.saved_stream, [] as [serde_json::Value; 0]);
 }
 
 /// The carried catalog seeds the mode (TS

@@ -358,7 +358,7 @@ fn consecutive_blank_lines_render_one_space_row() {
     // marked collapses a blank-line run into one `space` token.
     let lines = render_markdown("a\n\n\n\nb", 40, &style);
     assert_eq!(lines.len(), 3);
-    assert!(lines[1].is_empty());
+    assert_eq!(lines[1], []);
 }
 
 #[test]

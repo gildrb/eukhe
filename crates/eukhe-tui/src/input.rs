@@ -1069,9 +1069,7 @@ mod tests {
         assert_eq!(key.code, KeyCode::Up);
         assert_eq!(key.modifiers, KeyModifiers::ALT);
         // The repaired Alt+Up is not a bare Esc press, so nothing is held.
-        assert!(guard
-            .flush_expired(now + crate::sequence_guard::HOLD)
-            .is_empty());
+        assert_eq!(guard.flush_expired(now + crate::sequence_guard::HOLD), []);
     }
 
     /// The repair never steals the guard's held sequence: a real partial
@@ -1099,7 +1097,7 @@ mod tests {
             &mut guard,
             vec![Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))],
         );
-        assert!(held.is_empty());
+        assert_eq!(held, []);
         // The next write carries the rest of the sequence as folded chars.
         let outputs = feed_write(&mut guard, vec![press('['), shift_press('A')]);
         assert_eq!(outputs.len(), 1, "{outputs:?}");
@@ -1108,9 +1106,7 @@ mod tests {
         };
         assert_eq!(key.code, KeyCode::Up);
         assert_eq!(key.modifiers, KeyModifiers::NONE);
-        assert!(guard
-            .flush_expired(now + crate::sequence_guard::HOLD)
-            .is_empty());
+        assert_eq!(guard.flush_expired(now + crate::sequence_guard::HOLD), []);
     }
 
     /// A >2 KB plain keystroke paste (no markers) delivers every character
@@ -1155,9 +1151,7 @@ mod tests {
                     delivered.push_str(&printable_text(&event).expect("a plain character"));
                 }
             }
-            assert!(guard
-                .flush_expired(now + crate::sequence_guard::HOLD)
-                .is_empty());
+            assert_eq!(guard.flush_expired(now + crate::sequence_guard::HOLD), []);
             assert_eq!(delivered, text, "split {split}");
         }
     }

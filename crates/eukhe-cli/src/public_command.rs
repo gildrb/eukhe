@@ -803,7 +803,7 @@ mod incident_dispatch_tests {
         ]));
         assert!(result.handled);
         assert_eq!(result.exit_code, None);
-        assert!(result.args.is_empty());
+        assert_eq!(result.args, [] as [String; 0]);
     }
 
     #[test]

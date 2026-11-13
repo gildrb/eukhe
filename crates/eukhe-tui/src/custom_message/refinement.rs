@@ -590,7 +590,7 @@ mod tests {
         };
         let rows = render_refinement_outcome(&row, Detail::Overview, &theme(), 60);
         // Blank, diamond header, summary row.
-        assert!(rows[0].is_empty());
+        assert_eq!(rows[0], []);
         assert_eq!(flat(&rows[1]).trim_end(), " * Harness refined");
         assert_eq!(
             rows[1][1],

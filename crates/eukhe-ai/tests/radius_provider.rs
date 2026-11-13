@@ -228,5 +228,5 @@ async fn exposes_no_models_when_the_organization_disabled_all_of_them() {
         .await;
 
     assert!(result.errors.is_empty(), "{:?}", result.errors);
-    assert!(models.get_models(Some("radius")).is_empty());
+    assert_eq!(models.get_models(Some("radius")), []);
 }

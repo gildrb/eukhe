@@ -388,7 +388,7 @@ async fn get_system_prompt_matches_the_request_prompt() {
         .as_str()
         .expect("systemPrompt")
         .to_string();
-    assert!(!prompt.is_empty());
+    assert_ne!(prompt, "");
     let answered = worker
         .dispatch("prompt_and_wait", &json!({ "message": "echo" }))
         .await;

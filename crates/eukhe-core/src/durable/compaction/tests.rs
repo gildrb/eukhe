@@ -458,7 +458,7 @@ async fn input_and_reads_proceed_while_the_summary_is_in_flight() {
         .entries(ConversationEntryQuery::default(), 64, None, cx())
         .await
         .unwrap();
-    assert!(!page.items.is_empty());
+    assert_ne!(page.items, []);
     fixture.reply("answer two");
     let input = fixture.submit(&session, "two").await;
     assert_eq!(

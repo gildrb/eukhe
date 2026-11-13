@@ -308,7 +308,7 @@ async fn a_follow_up_heartbeat_due_mid_turn_is_delivered_once_after_the_turn() {
         .collect();
     assert_eq!(heartbeats.len(), 1, "delivered once: {rows:?}");
     assert_eq!(heartbeats[0]["content"], json!(HEARTBEAT_TEXT));
-    assert!(worker_inbox(&worker).await.is_empty());
+    assert_eq!(worker_inbox(&worker).await, [] as [(String, String); 0]);
 }
 
 /// The kernel mutation hook withdraws a dropped heartbeat's queued fire

@@ -67,7 +67,7 @@ async fn repeats_nothing_after_reopen_once_the_summary_is_placed() {
     assert_eq!(usage(&chat).await, ledger);
     let inspection = chat.harness.inspect(context()).await.unwrap();
     assert!(inspection.tasks.is_empty());
-    assert!(inspection.submissions.is_empty());
+    assert_eq!(inspection.submissions, []);
     chat.harness.close(context()).await.unwrap();
 }
 

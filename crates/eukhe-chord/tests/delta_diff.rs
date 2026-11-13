@@ -92,11 +92,13 @@ fn normalizes_reordered_distinct_deeply_equal_objects_to_a_no_op() {
     let first = j(r#"{"nested":{"value":1}}"#);
     let second = j(r#"{"nested":{"value":1}}"#);
     assert!(!first.strict_equals(&second));
-    assert!(diff_revisions(
-        &values(vec![first.clone(), second.clone()]),
-        &values(vec![second, first])
-    )
-    .is_empty());
+    assert_eq!(
+        diff_revisions(
+            &values(vec![first.clone(), second.clone()]),
+            &values(vec![second, first])
+        ),
+        []
+    );
 }
 
 #[test]
@@ -121,21 +123,27 @@ fn validates_and_encodes_permutations() {
 
 #[test]
 fn emits_nothing_for_deeply_equal_reconstructed_values() {
-    assert!(diff_revisions(
-        &j(r#"{"value":{"nested":[1,2]}}"#),
-        &j(r#"{"value":{"nested":[1,2]}}"#)
-    )
-    .is_empty());
-    assert!(diff_revisions(
-        &j(r#"{"values":[{"id":1},{"id":2}]}"#),
-        &j(r#"{"values":[{"id":1},{"id":2}]}"#)
-    )
-    .is_empty());
-    assert!(diff_revisions(
-        &j(r#"{"values":[true,true,true]}"#),
-        &j(r#"{"values":[true,true,true]}"#)
-    )
-    .is_empty());
+    assert_eq!(
+        diff_revisions(
+            &j(r#"{"value":{"nested":[1,2]}}"#),
+            &j(r#"{"value":{"nested":[1,2]}}"#)
+        ),
+        []
+    );
+    assert_eq!(
+        diff_revisions(
+            &j(r#"{"values":[{"id":1},{"id":2}]}"#),
+            &j(r#"{"values":[{"id":1},{"id":2}]}"#)
+        ),
+        []
+    );
+    assert_eq!(
+        diff_revisions(
+            &j(r#"{"values":[true,true,true]}"#),
+            &j(r#"{"values":[true,true,true]}"#)
+        ),
+        []
+    );
 }
 
 #[test]

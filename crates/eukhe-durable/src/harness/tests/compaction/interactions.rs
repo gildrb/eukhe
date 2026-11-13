@@ -135,7 +135,7 @@ async fn ignores_usage_measured_before_a_summary_placed_mid_run(fixed_clock: boo
     // The summary landed at postTools; the successor saw a small context and
     // did not compact again.
     assert_eq!(chat.faux.summary_requests().len(), 1);
-    assert!(compaction_tasks(&chat).await.is_empty());
+    assert_eq!(compaction_tasks(&chat).await, []);
     assert!(first_user_text(&chat.faux.last_agent_messages()).contains("SUMMARY"));
     chat.harness.close(context()).await.unwrap();
 }

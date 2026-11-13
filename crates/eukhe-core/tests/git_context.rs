@@ -307,5 +307,5 @@ fn git_state_entries_stay_out_of_llm_context() {
         &manager.get_entries(),
         manager.get_leaf_id().map(str::to_string).as_deref(),
     );
-    assert!(context.messages.is_empty());
+    assert_eq!(context.messages, []);
 }

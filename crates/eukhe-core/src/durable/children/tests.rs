@@ -1538,7 +1538,7 @@ async fn delete_inactive_child_refuses_a_running_child_and_deletes_a_settled_one
     .await
     .unwrap();
     assert_eq!(running, super::DeleteChildOutcome::Running);
-    assert!(lock(&host.state).deletes.is_empty());
+    assert_eq!(lock(&host.state).deletes, []);
 
     setup.faux.append_responses(vec![answer("noted")]);
     host.settle(
@@ -1739,7 +1739,7 @@ async fn rename_keeps_sibling_names_unique_and_restores_a_refused_rename() {
             first.session_name
         )
     );
-    assert!(lock(&host.state).renames.is_empty());
+    assert_eq!(lock(&host.state).renames, []);
     // Renaming a child to its own name is no conflict.
     handle(
         &opened,
@@ -2021,7 +2021,7 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
         refused.starts_with("error: rlm.spawn accept_returns needs accept"),
         "{refused}"
     );
-    assert!(host.spawn_keys().is_empty());
+    assert_eq!(host.spawn_keys(), [] as [String; 0]);
 
     // The parent spawns a child with one command check and no intent
     // check; the host gets them for the child's create config.

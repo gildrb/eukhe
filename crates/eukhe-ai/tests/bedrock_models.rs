@@ -18,7 +18,7 @@ fn models() -> Vec<Model> {
 #[test]
 fn should_get_all_available_bedrock_models() {
     let models = models();
-    assert!(!models.is_empty());
+    assert_ne!(models, []);
     println!("Found {} Bedrock models", models.len());
 }
 

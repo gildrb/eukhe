@@ -596,10 +596,11 @@ fn a_split_wheel_report_keeps_the_stream_order() {
 fn a_held_esc_flushes_as_the_key_press_at_the_deadline() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
-    assert!(guard
-        .flush_expired((now + HOLD).checked_sub(Duration::from_millis(1)).unwrap())
-        .is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
+    assert_eq!(
+        guard.flush_expired((now + HOLD).checked_sub(Duration::from_millis(1)).unwrap()),
+        []
+    );
     assert_eq!(guard.flush_expired(now + HOLD), vec![esc_press()]);
 }
 
@@ -608,7 +609,7 @@ fn esc_then_a_character_within_the_window_is_the_alt_combo() {
     // crossterm's single-read parse of `\x1ba`: alt+a.
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     let mut expected = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
     expected.modifiers |= KeyModifiers::ALT;
     assert_eq!(
@@ -621,7 +622,7 @@ fn esc_then_a_character_within_the_window_is_the_alt_combo() {
 fn esc_then_an_unrelated_key_flushes_the_esc_first() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     let left = Event::Key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     assert_eq!(
         guard.feed(left.clone(), now + Duration::from_millis(1)),
@@ -633,7 +634,7 @@ fn esc_then_an_unrelated_key_flushes_the_esc_first() {
 fn esc_then_a_parsed_mouse_event_flushes_the_esc_and_passes_the_event() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     let wheel = Event::Mouse(CtMouse {
         kind: CtMouseKind::ScrollUp,
         column: 3,
@@ -651,25 +652,27 @@ fn esc_then_a_parsed_mouse_event_flushes_the_esc_and_passes_the_event() {
 fn a_half_assembled_sequence_is_dropped_at_the_deadline_never_typed() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     for (offset, c) in ['[', '<', '6', '4'].iter().enumerate() {
-        assert!(guard
-            .feed(
+        assert_eq!(
+            guard.feed(
                 char_press(*c),
                 now + Duration::from_millis(offset as u64 + 1)
-            )
-            .is_empty());
+            ),
+            []
+        );
     }
-    assert!(guard
-        .flush_expired(now + HOLD + Duration::from_millis(4))
-        .is_empty());
+    assert_eq!(
+        guard.flush_expired(now + HOLD + Duration::from_millis(4)),
+        []
+    );
 }
 
 #[test]
 fn a_non_keyboard_event_flushes_the_held_esc_first() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     let resize = Event::Resize(80, 24);
     let outputs = guard.feed(resize.clone(), now + Duration::from_millis(1));
     assert_eq!(outputs, vec![esc_press(), resize]);
@@ -685,7 +688,7 @@ fn poll_deadline_parks_when_nothing_is_held() {
 fn poll_deadline_is_the_remaining_hold() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     assert_eq!(
         guard.poll_deadline(now + Duration::from_millis(6)),
         Some(Duration::from_millis(4))
@@ -762,7 +765,7 @@ fn a_split_bracketed_paste_marker_is_consumed_and_the_text_flows() {
 #[test]
 fn a_split_bracketed_paste_end_marker_is_consumed() {
     let outputs = run_guard(read_projection(b"\x1b[201~", &[1]));
-    assert!(leaks(&outputs).is_empty());
+    assert_eq!(leaks(&outputs), []);
 }
 
 // -- the review fixes: expiry, rxvt, keypad CSI-u, UTF-8 ALT ------
@@ -775,7 +778,7 @@ fn a_split_bracketed_paste_end_marker_is_consumed() {
 fn an_expired_hold_flushes_the_esc_before_the_next_key() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
     assert_eq!(
         guard.feed(char_press('a'), now + HOLD + Duration::from_millis(1)),
         vec![esc_press(), char_press('a')]
@@ -789,10 +792,11 @@ fn an_expired_hold_flushes_the_esc_before_the_next_key() {
 fn an_expired_half_assembled_sequence_drops_and_the_key_types() {
     let mut guard = SequenceGuard::default();
     let now = Instant::now();
-    assert!(guard.feed(esc_press(), now).is_empty());
-    assert!(guard
-        .feed(char_press('['), now + Duration::from_millis(1))
-        .is_empty());
+    assert_eq!(guard.feed(esc_press(), now), []);
+    assert_eq!(
+        guard.feed(char_press('['), now + Duration::from_millis(1)),
+        []
+    );
     assert_eq!(
         guard.feed(char_press('x'), now + HOLD + Duration::from_millis(2)),
         vec![char_press('x')]

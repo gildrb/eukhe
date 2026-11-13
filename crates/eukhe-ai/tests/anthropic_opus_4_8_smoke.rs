@@ -62,11 +62,7 @@ async fn streams_claude_opus_4_8_with_reasoning_enabled() {
         "{:?}",
         response.error_message
     );
-    assert!(response
-        .error_message
-        .as_deref()
-        .unwrap_or_default()
-        .is_empty());
+    assert_eq!(response.error_message.as_deref().unwrap_or_default(), "");
     let payload = captured_payload
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -92,7 +88,7 @@ async fn streams_claude_opus_4_8_with_reasoning_enabled() {
     let Some(thinking_signature) = thinking_block.thinking_signature.as_deref() else {
         panic!("Expected thinking signature from Claude Opus 4.8");
     };
-    assert!(!thinking_signature.is_empty());
+    assert_ne!(thinking_signature, "");
 
     let text = response
         .content

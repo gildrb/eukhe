@@ -386,7 +386,7 @@ fn wave_b8_session_input_pause_wire_shapes() {
         .as_str()
         .expect("pause id")
         .to_string();
-    assert!(!pause_id.is_empty());
+    assert_ne!(pause_id, "");
 
     client.send_command(
         "pa-2",

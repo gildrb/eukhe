@@ -1044,7 +1044,7 @@ async fn retires_task_documents_at_terminal_settlement_including_documents_creat
         .scan_documents(&query, 10, None, context())
         .await
         .unwrap();
-    assert!(alive.items.is_empty());
+    assert_eq!(alive.items, []);
     assert_error(
         commit_with(&session, move |tx| async move {
             let task = tx.task(task_id).await?.expect("task exists");

@@ -247,7 +247,7 @@ async fn skips_assistant_text_blocks_emptied_by_surrogate_sanitization() {
         )],
     )
     .await;
-    assert!(messages_of(&payload).is_empty());
+    assert_eq!(messages_of(&payload).as_slice(), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -272,7 +272,7 @@ async fn skips_assistant_messages_whose_blocks_are_all_filtered() {
         )],
     )
     .await;
-    assert!(messages_of(&payload).is_empty());
+    assert_eq!(messages_of(&payload).as_slice(), [] as [Value; 0]);
 }
 
 #[tokio::test]

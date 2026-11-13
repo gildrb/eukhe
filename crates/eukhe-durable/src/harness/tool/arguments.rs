@@ -379,7 +379,7 @@ mod tests {
             repaired.arguments,
             object(json!({ "path": "true", "case": "maybe" }))
         );
-        assert!(repaired.repairs.is_empty());
+        assert_eq!(repaired.repairs, []);
     }
 
     #[test]

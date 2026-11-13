@@ -286,7 +286,7 @@ mod tests {
         std::fs::create_dir_all(&skill_dir).expect("mkdir");
         std::fs::write(skill_dir.join("SKILL.md"), "---\n---\nUse it well.").expect("write");
         let result = crate::skills::load_skills_from_dir(dir.path(), "user");
-        assert!(result.skills.is_empty());
+        assert_eq!(result.skills, []);
         assert!(result.diagnostics.iter().any(
             |d| matches!(d, crate::skills::ResourceDiagnostic::Warning { message, .. }
                 if message == "description is required")

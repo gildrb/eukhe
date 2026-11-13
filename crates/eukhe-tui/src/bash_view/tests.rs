@@ -298,7 +298,7 @@ fn the_pane_runs_to_the_bottom() {
     let frame = view.render(&theme(), 70, &kb());
     let text = frame_text(&frame);
     let last_row = text.last().expect("the trailing blank row");
-    assert!(last_row.trim().is_empty());
+    assert_eq!(last_row.trim(), "");
     assert!(!last_row.contains('-'));
     // The detail pane too.
     let mut view = BashView::new(activities(), 16);
@@ -306,7 +306,7 @@ fn the_pane_runs_to_the_bottom() {
     let frame = view.render(&theme(), 70, &kb());
     let text = frame_text(&frame);
     let last_row = text.last().expect("the trailing blank row");
-    assert!(last_row.trim().is_empty());
+    assert_eq!(last_row.trim(), "");
     assert!(text[text.len() - 2].contains("close"));
 }
 

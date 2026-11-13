@@ -169,7 +169,10 @@ mod tests {
         // No query: all items in order.
         assert_eq!(fuzzy_filter(&items, "", ToString::to_string), items);
         // Multi-token queries need every token to match.
-        assert!(fuzzy_filter(&items, "se zz", ToString::to_string).is_empty());
+        assert_eq!(
+            fuzzy_filter(&items, "se zz", ToString::to_string),
+            [] as [&str; 0]
+        );
     }
 
     #[test]

@@ -55,7 +55,7 @@ fn print_mode_text_output_matches_the_scripted_response() {
     let (stdout, stderr, code) = run(&["-p", "say something"], &script);
     assert_eq!(code, 0, "stderr: {stderr}");
     assert_eq!(stdout, "first answer\n");
-    assert!(stderr.is_empty());
+    assert_eq!(stderr, "");
 }
 
 #[test]
@@ -237,8 +237,8 @@ fn print_mode_reports_provider_errors_as_exit_one() {
     let script = serde_json::json!({ "responses": [] });
     let (stdout, stderr, code) = run(&["-p", "hi"], &script);
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
-    assert!(!stderr.is_empty());
+    assert_eq!(stdout, "");
+    assert_ne!(stderr, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +339,7 @@ fn print_mode_no_session_writes_nothing() {
     let (stdout, stderr, code) = run_in_home(home.path(), &["-p", "hi", "--no-session"], &script);
     assert_eq!(code, 0, "stderr: {stderr}");
     assert_eq!(stdout, "gone\n");
-    assert!(session_files(home.path()).is_empty());
+    assert_eq!(session_files(home.path()), [] as [std::path::PathBuf; 0]);
 }
 
 #[test]
@@ -419,7 +419,7 @@ fn print_mode_resume_unknown_selector_fails_with_browse_hint() {
     let (stdout, stderr, code) =
         run_in_home(home.path(), &["--resume", "deadbeef", "-p", "hi"], &script);
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
     assert!(
         stderr.contains("No session found matching 'deadbeef'"),
         "stderr: {stderr}"
@@ -774,7 +774,7 @@ fn print_mode_stale_overflow_recovers_before_the_next_prompt_after_a_resume() {
     let probe = format!("overflow probe {}", "x".repeat(48_000));
     let (stdout, stderr, code) = run_in_home(home.path(), &["-p", &seed, &probe], &script);
     assert_eq!(code, 1, "stderr: {stderr}");
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
 
     // Run two: the resumed session with compaction enabled: the request
     // overflows, compacts, and retries.
@@ -1153,7 +1153,7 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
         &script,
     );
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
     assert!(
         stderr.contains(&format!(
             "session {selector} belongs to a different project"
@@ -1208,7 +1208,7 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         &script,
     );
     assert_eq!(code, 1);
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
     assert!(
         stderr.contains("Cannot fork: source session file is empty or invalid:"),
         "stderr: {stderr}"
@@ -1229,7 +1229,7 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         &script,
     );
     assert_eq!(code, 2);
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
     assert!(
         stderr.contains("--fork cannot be combined with --resume"),
         "stderr: {stderr}"

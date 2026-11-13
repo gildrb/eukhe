@@ -170,13 +170,13 @@ fn coalescing_merges_same_kind_and_replaces_on_a_kind_switch() {
     let parked = translator.translate_wire(&update(json!([
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
-    assert!(parked.is_empty());
+    assert_eq!(parked, [] as [serde_json::Value; 0]);
     assert!(translator.has_parked());
     for delta in ["a", "b"] {
         let frames = translator.translate_wire(&update(json!([
             { "type": "text_delta", "contentIndex": 0, "delta": delta },
         ])));
-        assert!(frames.is_empty());
+        assert_eq!(frames, [] as [serde_json::Value; 0]);
     }
     let flushed = translator.flush_wire().unwrap();
     assert_eq!(
@@ -496,7 +496,7 @@ fn user_messages_go_out_from_their_message_end() {
     let user = json!({ "role": "user", "content": "hello", "timestamp": 2 });
     let start =
         translator.translate_wire(&event(json!({ "type": "message_start", "message": user })));
-    assert!(start.is_empty());
+    assert_eq!(start, [] as [serde_json::Value; 0]);
     let frames = translator.translate_wire(&event(json!({
         "type": "message_end",
         "entry": entry(4, "pi.user", Some(user.clone()), None),
@@ -785,7 +785,7 @@ fn tool_end_reports_the_result_entry() {
             "isError": false,
         })]
     );
-    assert!(translator.mirror().tools.is_empty());
+    assert_eq!(translator.mirror().tools, []);
 }
 
 #[test]
@@ -913,7 +913,7 @@ fn custom_entries_go_out_as_a_message_pair() {
     );
     let frames =
         translator.translate_wire(&event(json!({ "type": "entry_appended", "entry": state })));
-    assert!(frames.is_empty());
+    assert_eq!(frames, [] as [serde_json::Value; 0]);
 }
 
 /// A committed refinement audit row (`eukhe.refinement` custom state)
@@ -973,7 +973,7 @@ fn compaction_end_reports_the_placed_summary() {
     summary["byTaskId"] = json!(7);
     let frames =
         translator.translate_wire(&event(json!({ "type": "message_end", "entry": summary })));
-    assert!(frames.is_empty());
+    assert_eq!(frames, [] as [serde_json::Value; 0]);
     let frames = translator.translate_wire(&event(json!({
         "type": "compaction_end", "taskId": 7, "reason": "threshold",
     })));
@@ -1256,7 +1256,7 @@ fn turn_end_carries_a_generation_failure_of_its_turn() {
     let failed = translator.translate_wire(&event(json!({
         "type": "task_failed", "taskId": 4, "kind": "pi.generation", "message": "429",
     })));
-    assert!(failed.is_empty());
+    assert_eq!(failed, [] as [serde_json::Value; 0]);
     assert_eq!(
         translator.translate_wire(&event(json!({ "type": "turn_end" }))),
         [json!({ "type": "turn_end", "error": "429" })]
@@ -1316,7 +1316,7 @@ fn run_end_clears_the_live_state() {
     let mirror = translator.mirror();
     assert!(!mirror.is_streaming());
     assert!(mirror.partial.is_none());
-    assert!(mirror.tools.is_empty());
+    assert_eq!(mirror.tools, []);
     assert!(mirror.retry.is_none());
     assert!(!translator.has_parked());
 }
@@ -1518,7 +1518,7 @@ fn a_snapshot_seeds_and_replaces_the_mirror() {
         { "type": "text_start", "contentIndex": 0, "block": { "type": "text", "text": "" } },
     ])));
     let frames = translator.translate_wire(&AgentEvent::Snapshot(snapshot(Vec::new(), &json!({}))));
-    assert!(frames.is_empty());
+    assert_eq!(frames, [] as [serde_json::Value; 0]);
     assert!(!translator.has_parked());
     assert_eq!(
         translator.mirror(),
@@ -1532,7 +1532,7 @@ fn bookkeeping_events_update_only_the_mirror() {
     let inbox = translator.translate_wire(&event(json!({
         "type": "inbox_update", "items": [{ "id": 5, "mode": "followUp" }],
     })));
-    assert!(inbox.is_empty());
+    assert_eq!(inbox, [] as [serde_json::Value; 0]);
     assert_eq!(translator.mirror().inbox[0].mode, "followUp");
     let bash = entry(
         3,
@@ -1540,11 +1540,13 @@ fn bookkeeping_events_update_only_the_mirror() {
         Some(json!({ "role": "user", "content": "Ran `ls`", "timestamp": 1 })),
         Some(json!({ "command": "ls", "output": "", "cancelled": false })),
     );
-    assert!(translator
-        .translate_wire(&event(json!({ "type": "message_end", "entry": bash })))
-        .is_empty());
-    assert!(translator
-        .translate_wire(&event(json!({ "type": "deferred_poll", "pollAt": 1.0 })))
-        .is_empty());
+    assert_eq!(
+        translator.translate_wire(&event(json!({ "type": "message_end", "entry": bash }))),
+        [] as [serde_json::Value; 0]
+    );
+    assert_eq!(
+        translator.translate_wire(&event(json!({ "type": "deferred_poll", "pollAt": 1.0 }))),
+        [] as [serde_json::Value; 0]
+    );
     assert_eq!(translator.mirror().entries.len(), 1);
 }

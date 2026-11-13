@@ -102,9 +102,9 @@ mod tests {
             image_marker_ids("a [image #1] b [image #2] [image #1]"),
             vec![1, 2, 1]
         );
-        assert!(image_marker_ids("no markers").is_empty());
+        assert_eq!(image_marker_ids("no markers"), [] as [u64; 0]);
         // Non-numeric and unsafe-integer ids are not markers.
-        assert!(image_marker_ids("[image #x] [image #1.5]").is_empty());
+        assert_eq!(image_marker_ids("[image #x] [image #1.5]"), [] as [u64; 0]);
     }
 
     #[test]
@@ -116,7 +116,7 @@ mod tests {
         let collected =
             collect_marked_images(&pending, "text [image #1] more [image #2] [image #1]");
         assert_eq!(collected, vec![(1, &"first"), (2, &"second")]);
-        assert!(collect_marked_images(&pending, "").is_empty());
+        assert_eq!(collect_marked_images(&pending, ""), [] as [(u64, &&str); 0]);
     }
 
     #[test]

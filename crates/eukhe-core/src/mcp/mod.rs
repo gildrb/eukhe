@@ -1200,7 +1200,10 @@ mod tests {
         assert!(!linear.enabled);
         assert!(linear.uses_oauth);
         // No user servers -> no generic persistent servers.
-        assert!(manager.get_enabled_persistent_generic_servers().is_empty());
+        assert_eq!(
+            manager.get_enabled_persistent_generic_servers(),
+            [] as [String; 0]
+        );
     }
 
     #[test]

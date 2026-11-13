@@ -209,10 +209,10 @@ fn returns_empty_results_for_unknown_provider_ids() {
     assert!(get_builtin_model("not-a-provider", "x").is_none());
     assert!(get_builtin_image_model("not-a-provider", "x").is_none());
     assert!(get_builtin_classifier_model("not-a-provider", "x").is_none());
-    assert!(get_builtin_models("not-a-provider").is_empty());
-    assert!(get_builtin_image_models("not-a-provider").is_empty());
-    assert!(get_builtin_classifier_models("not-a-provider").is_empty());
-    assert!(get_all_builtin_models("not-a-provider").is_empty());
+    assert_eq!(get_builtin_models("not-a-provider"), []);
+    assert_eq!(get_builtin_image_models("not-a-provider"), []);
+    assert_eq!(get_builtin_classifier_models("not-a-provider"), []);
+    assert_eq!(get_all_builtin_models("not-a-provider"), []);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn keeps_the_conservative_resize_profile_on_every_vision_model() {
         .flat_map(get_builtin_models)
         .filter(|model| model.input.contains(&Modality::Image))
         .collect();
-    assert!(!vision_models.is_empty());
+    assert_ne!(vision_models, []);
     for model in vision_models {
         let resize = model
             .input_limits
@@ -1291,7 +1291,7 @@ async fn lets_a_newer_dynamic_refresh_bypass_and_supersede_older_network_work() 
         ..CreateModelsOptions::default()
     });
     models.set_provider(provider);
-    assert!(listed().is_empty());
+    assert_eq!(listed(), [] as [String; 0]);
 
     let first_models = models.clone();
     let first = tokio::spawn(async move {
@@ -1397,7 +1397,7 @@ async fn submits_polls_and_redeems_deferred_responses() {
     let deferred = submission.result().await;
     assert_eq!(event_types, ["start", "done"]);
     assert_eq!(deferred.stop_reason, StopReason::Deferred);
-    assert!(deferred.content.is_empty());
+    assert_eq!(deferred.content, []);
     let handle = deferred
         .deferred
         .clone()
@@ -1416,7 +1416,7 @@ async fn submits_polls_and_redeems_deferred_responses() {
             Some(25.0)
         )
     );
-    assert!(!handle.id.is_empty());
+    assert_ne!(handle.id, "");
     assert_eq!((handle.expires_at, handle.data.clone()), (None, None));
 
     let pending = models
