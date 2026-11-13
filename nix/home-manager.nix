@@ -1,6 +1,6 @@
 # Home Manager module: `programs.eukhe`.
 self:
-{
+args@{
   config,
   lib,
   pkgs,
@@ -19,6 +19,23 @@ let
     ];
     text = builtins.readFile ./merge-settings.sh;
   };
+  # The NixOS system when Home Manager runs as its module (a special
+  # argument there); `null` standalone.
+  osConfig = args.osConfig or null;
+  # The always-on daemon's PATH: the agent's tools run with it (a session
+  # does not get the terminal's PATH).
+  daemonPath = lib.concatStringsSep ":" [
+    "${config.home.profileDirectory}/bin"
+    "/run/wrappers/bin"
+    "/etc/profiles/per-user/${config.home.username}/bin"
+    "/nix/var/nix/profiles/default/bin"
+    "/run/current-system/sw/bin"
+    "/usr/local/bin"
+    "/usr/bin"
+    "/bin"
+    "/usr/sbin"
+    "/sbin"
+  ];
 in
 {
   options.programs.eukhe = {
@@ -52,7 +69,9 @@ in
         activation says so). A setting chosen in eukhe (the model, a role's
         model, the thinking level, `/set --global`) is saved in
         ~/.eukhe/config.cfg, which sets over this file: a declared key is the
-        default until it is chosen in eukhe.
+        default until it is chosen in eukhe. The declared settings pass
+        through the Nix store, which every user can read: keep credentials
+        out (`eukhe login` keeps them in ~/.eukhe/auth.json).
       '';
     };
 
@@ -60,13 +79,20 @@ in
       type = lib.types.attrsOf lib.types.path;
       default = { };
       example = lib.literalExpression ''{ "AGENTS.md" = ./AGENTS.md; "themes/dusk.json" = ./dusk.json; }'';
-      description = "Files linked into ~/.eukhe, by relative path.";
+      description = ''
+        Files linked into ~/.eukhe, by relative path: `AGENTS.md` (the rules
+        of every session), `themes/<name>.json`, `models.json` (custom
+        models). They are linked from the Nix store, which every user can
+        read: a `models.json` names a key by its environment variable or a
+        `!command`, never the key itself.
+      '';
     };
 
     daemon.enable = lib.mkEnableOption ''
-      an always-on eukhe daemon (a systemd user service): sessions survive
-      closed terminals, and the chat memory's compactor keeps working while
-      no session is open
+      an always-on eukhe daemon (a systemd user service on Linux, a launchd
+      agent on macOS): sessions survive closed terminals, and the chat
+      memory's compactor keeps working while no session is open. Its
+      sessions run their tools with the profile's PATH, not a terminal's
     '';
 
     gateway = {
@@ -124,6 +150,21 @@ in
       }
     ];
 
+    warnings =
+      lib.optional
+        (
+          pkgs.stdenv.hostPlatform.isLinux
+          && osConfig != null
+          && osConfig ? programs.nix-ld
+          && !osConfig.programs.nix-ld.enable
+        )
+        ''
+          programs.eukhe: the Python kernel runs on a standalone CPython that
+          eukhe fetches on first use, which needs nix-ld on NixOS: set
+          `programs.nix-ld.enable = true;` (or use the flake's
+          nixosModules.default), else the `python` tool does not start.
+        '';
+
     home.packages =
       lib.optional (cfg.package != null) cfg.package
       ++ lib.optional cfg.gateway.enable cfg.gateway.signalCli;
@@ -145,10 +186,30 @@ in
           Unit.Description = "eukhe daemon: sessions and the chat memory";
           Service = {
             ExecStart = "${lib.getExe cfg.package} --mode daemon";
+            Environment = [ "PATH=${daemonPath}" ];
             Restart = "on-failure";
           };
           Install.WantedBy = [ "default.target" ];
         };
+
+    # The daemon's socket lives under TMPDIR, which launchd does not promise
+    # an agent: the agent takes the per-user directory a terminal's TMPDIR
+    # names, so `eukhe` in a terminal finds it.
+    launchd.agents.eukhe-daemon = lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "/bin/sh"
+          "-c"
+          ''TMPDIR="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)" exec "$0" --mode daemon''
+          (lib.getExe cfg.package)
+        ];
+        EnvironmentVariables.PATH = daemonPath;
+        KeepAlive.SuccessfulExit = false;
+        RunAtLoad = true;
+        ProcessType = "Background";
+      };
+    };
 
     # The service waits for the link: `eukhe gateway` in a terminal links the
     # phone and restarts it. KillMode=process keeps a daemon that the gateway

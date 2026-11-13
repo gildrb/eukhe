@@ -56,6 +56,12 @@ runtime-test:
 nix-test:
 	python3 nix/test_merge_settings.py
 
+# The flake's checks (nix/checks.nix): every system's outputs evaluate
+# and keep their promises, and this system's Home Manager module builds.
+# Nothing is downloaded from a release or compiled. Needs Nix with flakes.
+nix-check:
+	nix flake check --all-systems
+
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
 include scripts/toolchain.env
 
@@ -274,4 +280,4 @@ site-check:
 site-deploy:
 	cd site && npm ci --no-audit --no-fund && npm run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check laws bend-core bend-core-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy

@@ -8,7 +8,6 @@
   fetchurl,
   autoPatchelfHook,
   makeWrapper,
-  uv,
   git,
   onnxruntime,
   release,
@@ -44,23 +43,18 @@ stdenv.mkDerivation {
     payload="$out/libexec/eukhe"
     mkdir -p "$payload" "$out/bin"
     cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json mcp-services.bundled.json "$payload/"
-    # uv builds the Python kernel's venv; git commits the chat memory after
-    # every turn. A user's own uv or git earlier on PATH wins. The tiny-model
-    # worker loads ONNX Runtime (>= 1.24) at run time; a user's own
-    # ORT_DYLIB_PATH wins.
+    # git commits the chat memory after every turn; a user's own git
+    # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
+    # fetches its own pinned uv and Python. The tiny-model worker loads
+    # ONNX Runtime (>= 1.24) at run time; a user's own ORT_DYLIB_PATH wins.
     makeWrapper "$payload/eukhe" "$out/bin/eukhe" \
-      --suffix PATH : ${
-        lib.makeBinPath [
-          uv
-          git
-        ]
-      } \
+      --suffix PATH : ${lib.makeBinPath [ git ]} \
       --set-default ORT_DYLIB_PATH ${lib.getLib onnxruntime}/lib/libonnxruntime${stdenv.hostPlatform.extensions.sharedLibrary}
     runHook postInstall
   '';
 
   meta = {
-    description = "Eukhe agent harness (prebuilt)";
+    description = "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
     homepage = "https://github.com/gildrb/eukhe";
     license = lib.licenses.mit;
     mainProgram = "eukhe";
