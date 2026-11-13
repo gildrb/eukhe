@@ -10,6 +10,7 @@ use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, JsonValue, Model};
 use futures::stream::{BoxStream, Stream, StreamExt};
 
+use crate::quota::CredentialId;
 use crate::types::OnProviderStreamEvent;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -77,6 +78,8 @@ struct MapState {
     source: EventSource,
     model: Model,
     on_provider_stream_event: Option<OnProviderStreamEvent>,
+    /// The credential the `codex.rate_limits` frames are recorded under.
+    credential: Option<CredentialId>,
     effects: Arc<OutputEffects>,
     finished: bool,
 }
@@ -88,12 +91,14 @@ pub(crate) fn map_codex_events(
     source: EventSource,
     model: &Model,
     on_provider_stream_event: Option<OnProviderStreamEvent>,
+    credential: Option<CredentialId>,
     effects: Arc<OutputEffects>,
 ) -> EventSource {
     let state = MapState {
         source,
         model: model.clone(),
         on_provider_stream_event,
+        credential,
         effects,
         finished: false,
     };
@@ -128,6 +133,13 @@ async fn next_mapped_event(state: &mut MapState) -> Option<Result<JsonValue, Thr
         };
         if event_type.is_empty() {
             continue;
+        }
+        if let Some(credential) = state
+            .credential
+            .as_ref()
+            .filter(|_| event_type == "codex.rate_limits")
+        {
+            crate::quota::record_codex_frame(&state.model.provider, credential, &event);
         }
 
         if event_type == "error" {

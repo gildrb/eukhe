@@ -4,8 +4,8 @@
 mod anthropic;
 mod callback_server;
 mod device_code;
-mod github_copilot;
-mod http;
+pub(crate) mod github_copilot;
+pub(crate) mod http;
 mod kimi_coding;
 mod load;
 mod meta;
