@@ -141,3 +141,54 @@ async fn empty_storage_errors_without_output() {
     );
     assert!(!out.exists(), "an export file was written");
 }
+
+/// An engine's own input exports as a hidden `custom_message` (the HTML
+/// view skips `display: false` rows), with its origin; a re-import gives
+/// it back to the model as user input. The user's prompt stays a message.
+#[test]
+fn engine_inputs_export_as_hidden_custom_messages() {
+    let record = |id: u64, text: &str, origin: Option<Value>| -> EntryRecord {
+        let mut entry = json!({
+            "kind": "pi.user", "id": id, "conversationId": 1,
+            "model": [{ "role": "user", "content": [{ "type": "text", "text": text }], "timestamp": id }],
+        });
+        if let Some(origin) = origin {
+            entry["data"] = json!({ "origin": origin });
+        }
+        serde_json::from_value(entry).expect("entry")
+    };
+    let origin = json!({ "kind": "autonomous", "nudge": "continuation" });
+    let rows = export_rows(&[
+        record(1, "optimize the parser", None),
+        record(
+            2,
+            "[autonomous-continuation]\n\ncontinue",
+            Some(origin.clone()),
+        ),
+    ])
+    .expect("export");
+    let entries = Value::Array(rows.entries);
+    assert_eq!(
+        message_texts(&entries),
+        [("user".to_owned(), "optimize the parser".to_owned())]
+    );
+    let hidden = &entries[1];
+    assert_eq!(hidden["type"], "custom_message");
+    assert_eq!(hidden["customType"], "autonomous_continuation");
+    assert_eq!(hidden["display"], false);
+    assert_eq!(hidden["details"]["origin"], origin);
+    assert_eq!(
+        hidden["content"][0]["text"],
+        "[autonomous-continuation]\n\ncontinue"
+    );
+    // The legacy import makes it a model-visible custom entry again.
+    let draft = crate::durable::custom_entry_draft(
+        "autonomous_continuation",
+        eukhe_types::pi_ai::UserContent::Text("continue".to_owned()),
+        false,
+        None,
+        2,
+    )
+    .expect("draft");
+    assert!(draft.model.is_some(), "the model reads the imported row");
+}

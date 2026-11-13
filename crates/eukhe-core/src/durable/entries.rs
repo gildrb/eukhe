@@ -9,7 +9,7 @@
 //! row's time.
 
 use eukhe_chord::json::{JsonError, JsonValue};
-use eukhe_durable::entries::{Entry, USER_ENTRY};
+use eukhe_durable::entries::{Entry, UserData, USER_ENTRY};
 use eukhe_durable::harness::types::InputEntry;
 use eukhe_durable::types::{EntryData, EntryDraft, EntryRecord, TypedEntryDraft};
 use eukhe_types::input_origin::InputOrigin;
@@ -238,6 +238,45 @@ pub fn is_input_entry(entry: &EntryRecord) -> bool {
             .and_then(|data| data.get("input"))
             .and_then(JsonValue::as_bool)
             == Some(true)
+}
+
+/// An engine's own input placed as a `pi.user` entry (its origin has an
+/// [`InputOrigin::hidden_custom_type`]): the autonomous, goal and Director
+/// continuations, the quota and compaction resumes. The entry stays the
+/// model's user input; transcripts show it as a hidden custom message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HiddenInput<'a> {
+    pub custom_type: &'static str,
+    pub origin: InputOrigin,
+    pub message: &'a UserMessage,
+}
+
+impl HiddenInput<'_> {
+    /// The `details` of its hidden custom message: `{origin}`.
+    #[must_use]
+    pub fn details(&self) -> Value {
+        serde_json::json!({ "origin": self.origin })
+    }
+}
+
+/// The [`HiddenInput`] of `entry`; `None` for every other entry (a
+/// person's input among them, and a `pi.user` entry whose data does not
+/// decode).
+#[must_use]
+pub fn hidden_input(entry: &EntryRecord) -> Option<HiddenInput<'_>> {
+    if entry.kind != USER_ENTRY.kind() {
+        return None;
+    }
+    let origin = UserData::decode(entry.data.as_ref()).ok()?.origin;
+    let custom_type = origin.hidden_custom_type()?;
+    let Some(Message::User(message)) = entry.model.as_deref().and_then(<[Message]>::first) else {
+        return None;
+    };
+    Some(HiddenInput {
+        custom_type,
+        origin,
+        message,
+    })
 }
 
 /// The shown content of a custom entry: `data.content`, else its model

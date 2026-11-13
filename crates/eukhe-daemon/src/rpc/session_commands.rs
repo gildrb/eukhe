@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use eukhe_core::durable::acceptance::{acceptance_state, set_acceptance};
 use eukhe_core::durable::budget::BudgetError;
-use eukhe_core::durable::{fork_main_conversation, fork_session, ForkPoint, SessionLocation};
+use eukhe_core::durable::{
+    fork_main_conversation, fork_session, hidden_input, ForkPoint, SessionLocation,
+};
 use eukhe_durable::entries::USER_ENTRY;
 use eukhe_durable::harness::types::ContextOptions;
 use eukhe_durable::types::{EntryId, EntryRecord};
@@ -122,9 +124,11 @@ fn parse_entry_id(value: &Value) -> Option<EntryId> {
     }
 }
 
-/// The text of a user entry (its user message's text blocks, joined).
+/// The text of a user entry (its user message's text blocks, joined);
+/// `None` for an engine's own input ([`hidden_input`]), which is no user
+/// message to fork from.
 fn user_entry_text(entry: &EntryRecord) -> Option<String> {
-    if !USER_ENTRY.is(Some(entry)) {
+    if !USER_ENTRY.is(Some(entry)) || hidden_input(entry).is_some() {
         return None;
     }
     entry

@@ -2054,6 +2054,58 @@ fn elided_image_tool_results_render_their_marker_metadata() {
     );
 }
 
+/// The hidden custom message the daemon sends for an engine's own input
+/// (an autoresearch or autonomous continuation).
+fn hidden_continuation() -> Value {
+    json!({
+        "role": "custom",
+        "customType": "autonomous_continuation",
+        "content": [{ "type": "text", "text": "[autonomous-continuation]\n\nAutoresearch mode is on: continue the experiment loop." }],
+        "display": false,
+        "details": { "origin": { "kind": "autonomous", "nudge": "continuation" } },
+        "timestamp": 1_700_000_000_090u64,
+    })
+}
+
+/// Live: the continuation's `message_start`/`message_end` pair adds no
+/// row (neither a user block nor a custom panel).
+#[test]
+fn a_hidden_continuation_streams_no_row() {
+    for kind in ["message_start", "message_end"] {
+        assert_eq!(
+            event_to_update(&event(
+                json!({ "type": kind, "message": hidden_continuation() })
+            )),
+            TurnUpdate::StatusUpdate,
+            "{kind}"
+        );
+    }
+}
+
+/// Attach and resume: the transcript shows the user's prompt and the
+/// answers; the continuation leaves no row and is no human prompt.
+#[test]
+fn a_hidden_continuation_leaves_no_row_on_attach() {
+    let mut attach = slim_attach();
+    let messages = attach["snapshot"]["messages"]
+        .as_array_mut()
+        .expect("messages array");
+    messages[0]["timestamp"] = json!(1_700_000_000_000u64);
+    messages.push(hidden_continuation());
+    messages.push(complete_message(json!({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "ran experiment 2" }],
+        "timestamp": 1_700_000_000_100u64,
+    })));
+    let view = reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
+    let rows = format!("{:?}", view.chat);
+    assert!(!rows.contains("autonomous-continuation"), "{rows}");
+    assert!(!rows.contains("Autoresearch mode is on"), "{rows}");
+    assert_eq!(view.chat.len(), 3, "{rows}");
+    assert!(matches!(&view.chat[0], ChatEntry::User { text } if text == "hello"));
+    assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_000));
+}
+
 /// The thinking-channel render pins (the two provider envelopes' stored
 /// row shapes) live in their own child module with this file's harness.
 mod thinking_pins;

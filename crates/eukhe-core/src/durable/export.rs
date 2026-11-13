@@ -16,8 +16,8 @@ use serde_json::{json, Map, Value};
 use super::compaction::compaction_summary_text;
 use super::discovery::{read_main_transcript, DiscoveryError, SessionLocation};
 use super::entries::{
-    custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, BASH_ENTRY,
-    BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY,
+    custom_entry_content, hidden_input, BashEntryData, BranchSummaryData, CustomEntryData,
+    BASH_ENTRY, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY,
 };
 use crate::export_html::SessionExportData;
 use crate::session::manager::{format_iso, format_iso_now};
@@ -147,7 +147,10 @@ fn iso(millis: u64) -> String {
 }
 
 /// The session-file form of one durable entry (without `id`, `parentId`,
-/// `timestamp`), or `None` for bookkeeping entries the export skips.
+/// `timestamp`), or `None` for bookkeeping entries the export skips. An
+/// engine's own input ([`hidden_input`]) exports as a `display: false`
+/// `custom_message`: the HTML view hides it, and a re-import gives it back
+/// to the model as user input.
 fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
     let first = || {
         entry
@@ -158,6 +161,15 @@ fn file_entry(entry: &EntryRecord, timestamp: u64) -> Result<Option<Value>> {
             .transpose()
     };
     let kind = Some(entry);
+    if let Some(hidden) = hidden_input(entry) {
+        return Ok(Some(json!({
+            "type": "custom_message",
+            "customType": hidden.custom_type,
+            "content": serde_json::to_value(&hidden.message.content)?,
+            "display": false,
+            "details": hidden.details(),
+        })));
+    }
     if USER_ENTRY.is(kind) || ASSISTANT_ENTRY.is(kind) || TOOL_RESULT_ENTRY.is(kind) {
         return Ok(first()?.map(|message| json!({ "type": "message", "message": message })));
     }

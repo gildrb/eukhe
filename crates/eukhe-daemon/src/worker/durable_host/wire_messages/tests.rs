@@ -218,3 +218,91 @@ fn an_input_row_shows_in_place_of_its_user_entry() {
     assert_eq!(messages[0]["content"], "hello");
     assert_eq!(messages[1]["role"], "assistant");
 }
+
+/// The engine's own inputs (autonomous, goal and Director continuations,
+/// quota and compaction resumes) reach every transcript as hidden custom
+/// messages carrying their origin; a person's words, a `/loop` iteration
+/// and a report stay user messages.
+#[test]
+fn engine_inputs_show_as_hidden_custom_messages() {
+    let user_entry = |text: &str, origin: Option<Value>| {
+        record(
+            "pi.user",
+            Some(
+                json!({ "role": "user", "content": [{ "type": "text", "text": text }], "timestamp": 7 }),
+            ),
+            origin.map(|origin| json!({ "origin": origin })),
+        )
+    };
+    let hidden = [
+        (
+            json!({ "kind": "autonomous", "nudge": "continuation" }),
+            "autonomous_continuation",
+        ),
+        (
+            json!({ "kind": "autonomous", "nudge": "gateFailed" }),
+            "autonomous_continuation",
+        ),
+        (
+            json!({ "kind": "goal", "context": "continuation" }),
+            "goal_prompt",
+        ),
+        (json!({ "kind": "director" }), "director_continuation"),
+        (json!({ "kind": "quotaResume" }), "quota_resume"),
+        (json!({ "kind": "compactionResume" }), "compaction_resume"),
+    ];
+    for (origin, custom_type) in hidden {
+        let entry = user_entry(
+            "[autonomous-continuation]\n\nkeep going",
+            Some(origin.clone()),
+        );
+        assert_eq!(
+            entry_wire_message(&entry),
+            Some(json!({
+                "role": "custom",
+                "customType": custom_type,
+                "content": [{ "type": "text", "text": "[autonomous-continuation]\n\nkeep going" }],
+                "display": false,
+                "details": { "origin": origin },
+                "timestamp": 7,
+            })),
+        );
+        // The wire type every client decodes keeps the flag.
+        let shown = entry_wire_message(&entry).expect("shown");
+        let wire: AgentMessage = to_wire(&shown).expect("decodes");
+        let AgentMessage::Custom(custom) = wire else {
+            panic!("not a custom message: {wire:?}");
+        };
+        assert!(!custom.display);
+    }
+    for origin in [
+        None,
+        Some(json!({ "kind": "user" })),
+        Some(json!({ "kind": "loop", "iteration": 2 })),
+        Some(json!({
+            "kind": "report",
+            "report": { "report": "heartbeat", "schedule": "5m", "run": 1 },
+        })),
+    ] {
+        let message = entry_wire_message(&user_entry("mine", origin.clone())).expect("shown");
+        assert_eq!(message["role"], "user", "{origin:?}");
+    }
+    // A transcript (attach, `get_messages`, a resume) shows the user's
+    // prompt and the answers, and the continuation only as hidden.
+    let entries = [
+        user_entry("optimize the parser", None),
+        record("pi.assistant", Some(assistant(1, "stop")), None),
+        user_entry(
+            "[autonomous-continuation]\n\nAutoresearch mode is on",
+            Some(json!({ "kind": "autonomous", "nudge": "continuation" })),
+        ),
+        record("pi.assistant", Some(assistant(2, "stop")), None),
+    ];
+    let messages = transcript_messages(&entries);
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(roles, ["user", "assistant", "custom", "assistant"]);
+    assert_eq!(messages[2]["display"], false);
+}
