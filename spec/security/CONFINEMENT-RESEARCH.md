@@ -241,10 +241,13 @@ are kept with the design's working notes, outside this repository.
   denied where sockets are not otherwise scoped, `socketpair` kept.
 - Network only through a proxy that decides per host, resolves once, and
   refuses private addresses; a per-run token.
+- Write denies on deferred execution files inside a write grant (CLI B),
+  on macOS and with namespaces only; on Landlock alone they are listed
+  instead (`CONFINEMENT.md` decision 10).
 - Not taken: a retry after a denial by approval of a wider sandbox for the
   same command (va6: a run is not relaunched on its own); denial keyword
-  heuristics as fact (here: measured); write denies on deferred execution
-  files inside a write grant (decision 10).
+  heuristics as fact (here: measured); bubblewrap as a dependency (Eukhe's
+  own launcher sets up namespaces, decision 4).
 
 ## 4. Escape history
 
