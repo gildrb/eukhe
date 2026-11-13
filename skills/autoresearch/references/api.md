@@ -13,7 +13,7 @@ Opens or reconfigures the session of this branch and turns the loop on.
 - `max_iterations`: logged runs per segment; at the cap the loop stops.
 - `new_segment=True`: a fresh baseline; needed to change the metric or the direction.
 
-The first init needs `autoresearch.sh` in the repository root. Off an `autoresearch/*` branch it creates `autoresearch/<goal>-<YYYYMMDD>` (clean tree only); on it, it commits the harness changes. Returns `branch`, `git`, and the state fields below.
+The first init needs `autoresearch.sh` in the repository root. Off an `autoresearch/*` branch it creates `autoresearch/<up to four words of the goal>-<YYYYMMDD>` (clean tree only; `-2` when the name is taken); on it, it commits the harness changes and keeps the branch name. Returns `branch`, `git`, and the state fields below.
 
 ## `await autoresearch.run(timeout_s=600)`
 
