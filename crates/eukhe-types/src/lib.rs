@@ -32,6 +32,7 @@ pub mod output;
 pub mod path_policy;
 pub mod pi_ai;
 pub mod platform;
+pub mod quota;
 pub mod session;
 pub mod shell;
 pub mod skill_blocks;

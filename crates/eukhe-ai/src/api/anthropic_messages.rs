@@ -660,6 +660,9 @@ async fn run(
         }
     }
     let response = events::send_with_retries(&client, params, options).await?;
+    if let Some(token) = request.api_key.as_deref().filter(|_| is_oauth) {
+        crate::quota::record_anthropic_headers(&model.provider, token, response.headers());
+    }
     if let Some(on_response) = &request.on_response {
         on_response(
             crate::types::ProviderResponse {

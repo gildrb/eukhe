@@ -656,6 +656,21 @@ async fn recovers_a_missing_cached_websocket_continuation() {
             usize::from(recovery_transport == "sse"),
             "{label}"
         );
+        let reading = crate::quota::QuotaBoard::latest("openai-codex").expect("frame recorded");
+        assert_eq!(
+            (reading.plan.as_deref(), reading.source, reading.windows),
+            (
+                Some("plus"),
+                crate::quota::QuotaSource::StreamFrame,
+                vec![crate::quota::QuotaWindow {
+                    label: "7d".to_owned(),
+                    window_minutes: Some(10_080),
+                    used_permille: 70,
+                    resets_at_ms: Some(1_785_269_351_000),
+                }]
+            ),
+            "{label}"
+        );
         let failures = u64::from(recovery_transport == "sse");
         assert_stats(
             &session_id,

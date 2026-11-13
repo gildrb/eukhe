@@ -267,6 +267,9 @@ async fn send_attempt(
         }
         response = send => response?,
     };
+    if let Some(token) = options.stream.request.api_key.as_deref() {
+        crate::quota::record_codex_headers(&model.provider, token, response.headers());
+    }
 
     if let Some(on_response) = &options.stream.request.on_response {
         on_response(
@@ -328,6 +331,12 @@ async fn process_stream(
         parse_sse(body, signal),
         model,
         options.stream.on_provider_stream_event.clone(),
+        options
+            .stream
+            .request
+            .api_key
+            .as_deref()
+            .map(crate::quota::CredentialId::of),
         Arc::clone(&effects),
     );
     let result = process_responses_stream(

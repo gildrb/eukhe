@@ -34,6 +34,7 @@ use crate::env_api_keys::{
     AWS_ACCESS_KEY_ID_ENV, AWS_SECRET_ACCESS_KEY_ENV, AWS_SESSION_TOKEN_ENV,
 };
 use crate::utils::diagnostics::{ErrorObject, Thrown};
+pub(crate) use js_compat::js_date_parse;
 use js_compat::node_path_join;
 use shared_ini::{get_profile_name, load_config, PreferredFile};
 

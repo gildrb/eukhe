@@ -68,9 +68,10 @@ use errors::{
     is_websocket_connection_limit_reached_error, to_provider_error,
 };
 use events::StartEmitter;
+pub(crate) use request::extract_account_id;
 use request::{
-    build_request_body, build_sse_headers, build_websocket_headers, extract_account_id,
-    resolve_codex_service_tier, resolve_codex_websocket_url,
+    build_request_body, build_sse_headers, build_websocket_headers, resolve_codex_service_tier,
+    resolve_codex_websocket_url,
 };
 use session_cache::{
     is_websocket_sse_fallback_active, process_websocket_stream, record_websocket_failure,
