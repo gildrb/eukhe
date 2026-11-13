@@ -246,16 +246,27 @@ proofs() {
 }
 
 # The laws against the committed LAWS.lock (the bend skill's `gate.py
-# --lock-only`, seconds), when a law, a spec helper or the lock changed: a
-# law changed without the user's re-lock fails here. BEND_SKILL: the skill
-# directory (default ~/.agents/skills/bend).
-BEND_SKILL="${BEND_SKILL:-${HOME}/.agents/skills/bend}"
+# --lock-only`, seconds), when a law, a spec helper, the lock or the skill
+# pin changed: a law changed without the user's re-lock fails here.
+# BEND_SKILL: the skill directory (default: the commit BEND_SKILL_REV of
+# scripts/toolchain.env, scripts/pinned_skill.sh). LOCK_FLAGS: what the lock
+# freezes depends on them, so the check and `make lock` pass the same ones
+# (`--code 'bend/*'`: the defs under bend/ are the code, every def a law
+# reaches outside it is a spec helper and frozen).
+LOCK_FLAGS=(--code 'bend/*')
+bend_skill() {
+  if [[ -n "${BEND_SKILL:-}" ]]; then
+    echo "${BEND_SKILL}"
+  else
+    scripts/pinned_skill.sh
+  fi
+}
 laws_lock() {
-  local path old p hit=1
+  local path old p skill hit=1
   while IFS=$'\t' read -r path old; do
     for p in "${path}" "${old}"; do
       case "${p}" in
-        LAWS.bend | LAWS.lock | laws/* | spec/*) hit=0 ;;
+        LAWS.bend | LAWS.lock | laws/* | spec/* | scripts/pinned_skill.sh | scripts/toolchain.env) hit=0 ;;
       esac
     done
   done <<<"$1"
@@ -263,7 +274,8 @@ laws_lock() {
     echo "lock skipped: no law or lock changed"
     return 0
   fi
-  python3 "${BEND_SKILL}/scripts/gate.py" . --lock-only
+  skill="$(bend_skill)"
+  python3 "${skill}/scripts/gate.py" . --lock-only "${LOCK_FLAGS[@]}"
 }
 
 # `make lock`: the proofs the change since origin/main can reach
@@ -271,9 +283,11 @@ laws_lock() {
 # --lock-only --lock`: no checker run). The nightly gate proves everything
 # and runs --verdict.
 relock() {
+  local skill
+  skill="$(bend_skill)"
   python3 scripts/check_laws_wired.py .
   python3 scripts/bend_proofs.py --base "$(git merge-base HEAD origin/main)"
-  python3 "${BEND_SKILL}/scripts/gate.py" . --lock-only --lock
+  python3 "${skill}/scripts/gate.py" . --lock-only --lock "${LOCK_FLAGS[@]}"
 }
 
 secrets_staged() {
