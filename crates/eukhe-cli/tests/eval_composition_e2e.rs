@@ -195,18 +195,35 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
         "events: {events:?}"
     );
 
-    // The gate-failure continuation streamed as a user row, with the
-    // verifier's exit code and output.
+    // The gate-failure continuation streamed as a hidden custom message
+    // (`display: false`: no client shows it), with the verifier's exit
+    // code and output; the only user message is the user's prompt.
+    let user_texts: Vec<String> = events
+        .iter()
+        .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
+        .map(|event| text_of(&event["message"]))
+        .collect();
+    assert!(
+        user_texts
+            .iter()
+            .all(|text| !text.contains("[autonomous-continuation")),
+        "user messages: {user_texts:?}"
+    );
     let continuations: Vec<&Value> = events
         .iter()
         .filter(|event| {
             event["type"] == "message_end"
-                && event["message"]["role"] == "user"
-                && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
+                && event["message"]["role"] == "custom"
+                && event["message"]["customType"] == "autonomous_continuation"
         })
         .collect();
     assert_eq!(continuations.len(), 1, "events: {events:?}");
+    assert_eq!(continuations[0]["message"]["display"], false);
     let continuation = text_of(&continuations[0]["message"]);
+    assert!(
+        continuation.starts_with("[autonomous-continuation: gate-failed]"),
+        "continuation: {continuation}"
+    );
     assert!(
         continuation.contains("Autonomous quality gate failed (attempt 1/3)"),
         "continuation: {continuation}"
@@ -244,8 +261,7 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
         .iter()
         .position(|event| {
             event["type"] == "message_end"
-                && event["message"]["role"] == "user"
-                && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
+                && event["message"]["customType"] == "autonomous_continuation"
         })
         .expect("the continuation's wire pair");
     let around: Vec<&str> = events[continuation_index - 2..=continuation_index + 2]

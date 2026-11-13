@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eukhe_chord::context::Context;
-use eukhe_core::durable::{BranchSummaryData, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY};
+use eukhe_core::durable::{hidden_input, BranchSummaryData, BRANCH_SUMMARY_ENTRY, CUSTOM_ENTRY};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::SessionResult;
@@ -232,10 +232,11 @@ impl SessionTree {
 }
 
 /// The text of a user-message entry (TS `_extractUserMessageText`: the
-/// string content, or the text blocks joined); `None` for other entries
-/// and for user messages without text.
+/// string content, or the text blocks joined); `None` for other entries,
+/// for user messages without text, and for the engine's own inputs
+/// ([`hidden_input`]: they show as hidden custom messages).
 pub(crate) fn user_entry_text(record: &EntryRecord) -> Option<String> {
-    if record.kind != USER_ENTRY.kind() {
+    if record.kind != USER_ENTRY.kind() || hidden_input(record).is_some() {
         return None;
     }
     let Some(Message::User(message)) = record.model.as_deref().and_then(<[Message]>::first) else {
@@ -251,9 +252,10 @@ pub(crate) fn user_entry_text(record: &EntryRecord) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// Whether the entry is a custom message (TS `custom_message`).
+/// Whether the entry is a custom message (TS `custom_message`): a custom
+/// entry, or an engine's own input, which the wire shows as one.
 pub(crate) fn is_custom_entry(record: &EntryRecord) -> bool {
-    record.kind == CUSTOM_ENTRY.kind()
+    record.kind == CUSTOM_ENTRY.kind() || hidden_input(record).is_some()
 }
 
 /// The text a custom-message entry re-enters in the editor (TS: the string
@@ -287,7 +289,7 @@ fn entry_json(entry: &TreeEntry) -> Option<Value> {
     let mut object = Map::new();
     let entry_type = if kind == COMPACTION_ENTRY.kind() {
         "compaction"
-    } else if kind == CUSTOM_ENTRY.kind() {
+    } else if is_custom_entry(record) {
         "custom_message"
     } else if kind == BRANCH_SUMMARY_ENTRY.kind() {
         "branch_summary"

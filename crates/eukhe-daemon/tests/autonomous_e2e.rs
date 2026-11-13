@@ -337,24 +337,35 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
         "events: {:?}",
         harness.client.events
     );
+    // The user sees their own prompt only: the continuation reaches the
+    // wire as a hidden custom message, which no client shows.
     let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
-    assert_eq!(user_texts.len(), 2, "user rows: {user_texts:?}");
-    assert_eq!(user_texts[0], "build the feature");
+    assert_eq!(user_texts, vec!["build the feature".to_string()]);
+    let hidden = harness.message_ends("custom");
+    let continuation = hidden
+        .iter()
+        .find(|message| message["customType"] == "autonomous_continuation")
+        .expect("the continuation's hidden wire message");
+    assert_eq!(continuation["display"], false, "{continuation}");
+    assert_eq!(
+        continuation["details"]["origin"],
+        json!({ "kind": "autonomous", "nudge": "gateFailed" })
+    );
+    let continuation_text = text_of(continuation);
     assert!(
-        user_texts[1].starts_with("[autonomous-continuation: gate-failed]\n\nAutonomous quality gate failed (attempt 1/3): `"),
-        "gate-failure continuation: {}",
-        user_texts[1]
+        continuation_text.starts_with("[autonomous-continuation: gate-failed]\n\nAutonomous quality gate failed (attempt 1/3): `"),
+        "gate-failure continuation: {continuation_text}"
     );
     assert!(
-        user_texts[1].contains("` exited with code 1"),
-        "gate exit surfaced: {}",
-        user_texts[1]
+        continuation_text.contains("` exited with code 1"),
+        "gate exit surfaced: {continuation_text}"
     );
 
-    // The continuation is a durable user row that reached the wire as its
-    // message pair, and the gate-passed stop writes no row (the TS shape,
-    // probed against the binary: the stop surfaces through the status
-    // request and the headless exit contract, never the stream).
+    // The model still reads the continuation: it is a durable user row
+    // (its wire pair is the hidden message), and the gate-passed stop
+    // writes no row (the TS shape, probed against the binary: the stop
+    // surfaces through the status request and the headless exit contract,
+    // never the stream).
     let durable_users = durable_messages(&harness, "user");
     assert!(
         durable_users
@@ -373,8 +384,7 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
         .iter()
         .position(|event| {
             event.get("type").and_then(Value::as_str) == Some("message_end")
-                && event["message"]["role"] == "user"
-                && text_of(&event["message"]).starts_with("[autonomous-continuation: gate-failed]")
+                && event["message"]["customType"] == "autonomous_continuation"
         })
         .expect("the continuation's wire pair");
     let around: Vec<&str> = harness.client.events[continuation_index - 2..=continuation_index + 2]
@@ -436,12 +446,18 @@ fn autonomous_limit_reached_stops_the_run_without_a_row() {
         vec!["still working".to_string(), "more work".to_string()]
     );
     let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
-    assert_eq!(user_texts.len(), 2, "user rows: {user_texts:?}");
-    assert_eq!(user_texts[0], "build the feature");
+    assert_eq!(user_texts, vec!["build the feature".to_string()]);
+    let hidden: Vec<Value> = harness
+        .message_ends("custom")
+        .into_iter()
+        .filter(|message| message["customType"] == "autonomous_continuation")
+        .collect();
+    assert_eq!(hidden.len(), 1, "hidden continuations: {hidden:?}");
+    assert_eq!(hidden[0]["display"], false);
     assert!(
-        user_texts[1].starts_with("[autonomous-continuation]\n\nNo human input is available"),
+        text_of(&hidden[0]).starts_with("[autonomous-continuation]\n\nNo human input is available"),
         "plain continuation: {}",
-        user_texts[1]
+        text_of(&hidden[0])
     );
     // The limit stop writes no row and no stream frame (the TS shape,
     // probed against the binary): the durable autonomous_status rows are

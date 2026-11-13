@@ -33,6 +33,27 @@ pub enum InputOrigin {
     Report { report: Report },
 }
 
+impl InputOrigin {
+    /// The custom type of an engine's own input: the model reads it as
+    /// user input, but no transcript shows it as the user's words. The
+    /// wire, `get_messages`, the session export, and every client carry it
+    /// as a hidden custom message of this type (`display: false`, the
+    /// origin in its `details`). `None` for the inputs that stay user
+    /// messages: a person's words, a `/loop` iteration (the user's own
+    /// prompt again), and reports (their rows show them).
+    #[must_use]
+    pub fn hidden_custom_type(&self) -> Option<&'static str> {
+        match self {
+            Self::User | Self::Loop { .. } | Self::Report { .. } => None,
+            Self::Goal { .. } => Some("goal_prompt"),
+            Self::Autonomous { .. } => Some("autonomous_continuation"),
+            Self::Director => Some("director_continuation"),
+            Self::QuotaResume => Some("quota_resume"),
+            Self::CompactionResume => Some("compaction_resume"),
+        }
+    }
+}
+
 /// Why autonomous mode continued a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -358,6 +379,51 @@ impl From<ReportRecord> for Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The engine's own inputs are hidden from transcripts; a person's
+    /// words, a `/loop` iteration and a report stay user messages.
+    #[test]
+    fn engine_inputs_have_a_hidden_custom_type() {
+        let hidden = [
+            (
+                InputOrigin::Autonomous {
+                    nudge: AutonomousNudge::Continuation,
+                },
+                "autonomous_continuation",
+            ),
+            (
+                InputOrigin::Autonomous {
+                    nudge: AutonomousNudge::GateFailed,
+                },
+                "autonomous_continuation",
+            ),
+            (
+                InputOrigin::Goal {
+                    context: GoalContextKind::BudgetLimit,
+                },
+                "goal_prompt",
+            ),
+            (InputOrigin::Director, "director_continuation"),
+            (InputOrigin::QuotaResume, "quota_resume"),
+            (InputOrigin::CompactionResume, "compaction_resume"),
+        ];
+        for (origin, custom_type) in hidden {
+            assert_eq!(origin.hidden_custom_type(), Some(custom_type), "{origin:?}");
+        }
+        let shown = [
+            InputOrigin::User,
+            InputOrigin::Loop { iteration: 3 },
+            InputOrigin::Report {
+                report: Report::Heartbeat {
+                    schedule: "5m".to_owned(),
+                    run: 1,
+                },
+            },
+        ];
+        for origin in shown {
+            assert_eq!(origin.hidden_custom_type(), None, "{origin:?}");
+        }
+    }
 
     #[test]
     fn report_body_is_the_text_after_its_rendered_header() {

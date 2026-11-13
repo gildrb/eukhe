@@ -5,13 +5,16 @@
 //! `pi.user`/`pi.assistant`/`pi.tool-result` pass their model message
 //! through, the eukhe kinds rebuild their old roles (`custom`,
 //! `bashExecution`, `branchSummary`), and a `pi.compaction` summary becomes a
-//! `compactionSummary`. Kinds the transcript never showed (`pi.system`,
-//! `pi.reset`, custom state) map to nothing.
+//! `compactionSummary`. A `pi.user` entry the engine wrote for itself (an
+//! autonomous, goal or Director continuation, a quota or compaction
+//! resume: [`HiddenInput`]) maps to a `display: false` custom message, so
+//! no client shows it as the user's words. Kinds the transcript never
+//! showed (`pi.system`, `pi.reset`, custom state) map to nothing.
 
 use eukhe_core::durable::compaction::compaction_summary_text;
 use eukhe_core::durable::{
-    custom_entry_content, BashEntryData, BranchSummaryData, CustomEntryData, BASH_ENTRY,
-    BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
+    custom_entry_content, hidden_input, BashEntryData, BranchSummaryData, CustomEntryData,
+    HiddenInput, BASH_ENTRY, BRANCH_SUMMARY_ENTRY, COMPACTION_SUMMARY_ENTRY, CUSTOM_ENTRY,
 };
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY};
 use eukhe_durable::types::EntryRecord;
@@ -120,6 +123,9 @@ pub(crate) fn transcript_messages_of<'a>(
 pub(crate) fn entry_wire_message_with(entry: &EntryRecord, tokens_before: u64) -> Option<Value> {
     let kind = entry.kind.as_str();
     let first = entry.model.as_deref().and_then(<[Message]>::first);
+    if let Some(hidden) = hidden_input(entry) {
+        return Some(hidden_message(&hidden));
+    }
     if kind == USER_ENTRY.kind() || kind == TOOL_RESULT_ENTRY.kind() {
         return first.and_then(|message| serde_json::to_value(message).ok());
     }
@@ -200,6 +206,20 @@ fn custom_message(entry: &EntryRecord) -> Option<Value> {
     }
     message.insert("timestamp".to_owned(), Value::from(entry_timestamp(entry)));
     Some(Value::Object(message))
+}
+
+/// The wire form of an engine's own input ([`HiddenInput`]): a custom
+/// message with `display: false`, as every client hides it; the model's
+/// copy stays the entry's user message.
+fn hidden_message(hidden: &HiddenInput<'_>) -> Value {
+    json!({
+        "role": "custom",
+        "customType": hidden.custom_type,
+        "content": hidden.message.content,
+        "display": false,
+        "details": hidden.details(),
+        "timestamp": hidden.message.timestamp,
+    })
 }
 
 fn bash_message(entry: &EntryRecord) -> Option<Value> {

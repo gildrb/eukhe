@@ -495,14 +495,16 @@ fn message_count(core: &SessionCore) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-/// The first user message's text (summary `firstMessage`).
+/// The first user message's text (summary `firstMessage`); the engine's
+/// own inputs (hidden custom messages on the wire) are not the user's.
 pub(super) fn first_message(view: &ShownView) -> Option<String> {
     view.translator
         .mirror()
         .entries
         .iter()
         .filter(|entry| entry.kind == USER_ENTRY.kind())
-        .find_map(entry_wire_message)
+        .filter_map(entry_wire_message)
+        .find(|message| crate::types::message_role(message) == Some("user"))
         .map(|message| crate::types::message_text(&message))
 }
 
