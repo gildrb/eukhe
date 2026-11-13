@@ -159,7 +159,7 @@ fn walk_directory(
                 if regex.is_some_and(|regex| !regex.is_match(&target)) {
                     return WalkState::Continue;
                 }
-                let relative = entry.path().strip_prefix(walk_base).unwrap_or(entry.path());
+                let relative = entry.path().trim_prefix(walk_base);
                 let path = to_display_path(&relative.to_string_lossy());
                 let is_directory = file_type.is_dir();
                 let path = if is_directory {
@@ -224,7 +224,7 @@ fn search(base: &Path, at_prefix: &str, cancel: &AtomicBool) -> Option<Suggestio
     let items: Vec<CompletionItem> = scored_entries
         .into_iter()
         .map(|(_, entry)| {
-            let path = entry.path.strip_suffix('/').unwrap_or(&entry.path);
+            let path = entry.path.trim_suffix('/');
             let display_path = match &scoped_query {
                 Some(scoped) => scoped_path_for_display(&scoped.display_base, path),
                 None => path.to_string(),

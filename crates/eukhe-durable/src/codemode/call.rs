@@ -1322,11 +1322,7 @@ impl CodemodeCall {
         if self.rows.contains_key(&call.id) {
             return;
         }
-        let name = call
-            .name
-            .strip_prefix(CODEMODE_INTERNAL_PREFIX)
-            .unwrap_or(&call.name)
-            .to_owned();
+        let name = call.name.trim_prefix(CODEMODE_INTERNAL_PREFIX).to_owned();
         self.rows.insert(
             call.id,
             CodemodeNestedCall {

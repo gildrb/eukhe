@@ -182,7 +182,7 @@ pub fn parse_codemode_source(input: &str) -> Result<CodemodeSource, CodemodeSour
             misplaced + 2
         )));
     }
-    let first_line = first.strip_suffix('\r').unwrap_or(first);
+    let first_line = first.trim_suffix('\r');
     let trimmed = first_line.trim_start();
     let Some(directive) = trimmed.strip_prefix(CODEMODE_OPTIONS_PREFIX) else {
         return Ok(CodemodeSource {

@@ -394,7 +394,7 @@ impl GoogleGenAi {
     /// `getRequestUrlInternal` + `constructUrl` for a request path.
     fn construct_url(&self, path: &str) -> Result<url::Url, Thrown> {
         let http = &self.http_options;
-        let base_url = http.base_url.strip_suffix('/').unwrap_or(&http.base_url);
+        let base_url = http.base_url.trim_suffix('/');
         let mut elements = vec![base_url.to_owned()];
         if !http.api_version.is_empty() {
             elements.push(http.api_version.clone());

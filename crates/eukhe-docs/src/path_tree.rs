@@ -114,7 +114,7 @@ pub(crate) fn build_path_tree<'a>(entries: impl IntoIterator<Item = (&'a str, bo
     let mut root = BuilderNode::default();
     for (path, is_dir) in entries {
         let normalized = path.replace('\\', "/");
-        let trimmed = normalized.strip_suffix('/').unwrap_or(&normalized);
+        let trimmed = normalized.trim_suffix('/');
         if trimmed.is_empty() {
             continue;
         }

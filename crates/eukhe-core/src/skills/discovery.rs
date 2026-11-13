@@ -159,7 +159,7 @@ impl DiscoveryState {
     /// that do not build into a matcher are reported in `diagnostics`; the
     /// other rules still apply.
     fn add_ignore_rules(&mut self, dir: &Path, diagnostics: &mut Vec<ResourceDiagnostic>) {
-        let relative = dir.strip_prefix(&self.root).unwrap_or(dir);
+        let relative = dir.trim_prefix(&self.root);
         let prefix = if relative.as_os_str().is_empty() {
             String::new()
         } else {
@@ -261,10 +261,7 @@ pub fn load_skills_from_dir(dir: &Path, source: &str) -> LoadSkillsFromDirResult
 /// The path of `path` under the discovery root, with `/` separators (the
 /// form the ignore rules match).
 fn relative_to(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    path.trim_prefix(root).to_string_lossy().replace('\\', "/")
 }
 
 fn load_skills_from_dir_internal(

@@ -117,7 +117,7 @@ pub(crate) async fn list_models(
                 .and_then(JsonValue::as_str)
                 .ok_or_else(|| unexpected(LABEL, "model list"))?;
             listed.push(ListedModel {
-                id: name.strip_prefix(MODEL_PREFIX).unwrap_or(name).to_owned(),
+                id: name.trim_prefix(MODEL_PREFIX).to_owned(),
                 name: item
                     .get("displayName")
                     .and_then(JsonValue::as_str)

@@ -182,7 +182,7 @@ pub(crate) fn parse_ini(data: &str) -> Result<IniFile, InvalidProfileName> {
     let mut current_section: Option<String> = None;
     let mut current_sub_section: Option<String> = None;
     for line in data.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
+        let line = line.trim_suffix('\r');
         let trimmed = js_trim(strip_comment(line));
         let is_section = trimmed.len() >= 2 && trimmed.starts_with('[') && trimmed.ends_with(']');
         if is_section {

@@ -32,7 +32,7 @@ pub(crate) fn parse_dynamic_workflow_args(
 ) -> Result<DynamicWorkflowArgs, DynamicWorkflowArgsError> {
     let rest = args.trim();
     let (size, request) = if let Some(after) = rest.strip_prefix("--size") {
-        let after = after.strip_prefix('=').unwrap_or(after).trim_start();
+        let after = after.trim_prefix('=').trim_start();
         let end = after.find(char::is_whitespace).unwrap_or(after.len());
         let name = &after[..end];
         if name.is_empty() {

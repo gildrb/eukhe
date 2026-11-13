@@ -192,7 +192,7 @@ fn unbracket_envelope_markers(line: &str) -> &str {
             return rest;
         };
         let tail = inner[marker.len()..].trim_start();
-        let tail = tail.strip_prefix(']').unwrap_or(tail).trim_start();
+        let tail = tail.trim_prefix(']').trim_start();
         if tail.is_empty() {
             return marker;
         }
@@ -201,7 +201,7 @@ fn unbracket_envelope_markers(line: &str) -> &str {
 }
 
 fn strip_leading_blanks(input: &str) -> String {
-    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
+    let input = input.trim_prefix('\u{feff}');
     let mut lines: Vec<&str> = input.split('\n').collect();
     let leading = lines
         .iter()
@@ -218,7 +218,7 @@ fn strip_leading_blanks(input: &str) -> String {
 fn split_raw_sections(input: &str, cwd: &Path) -> Result<Vec<PatchSection>, EditError> {
     // omp validates every header row up to the first well-formed one before
     // splitting, so a malformed header anywhere above it is reported as such.
-    for line in input.strip_prefix('\u{feff}').unwrap_or(input).lines() {
+    for line in input.trim_prefix('\u{feff}').lines() {
         if parse_header_line(line, cwd)?.is_some() {
             break;
         }
@@ -226,7 +226,7 @@ fn split_raw_sections(input: &str, cwd: &Path) -> Result<Vec<PatchSection>, Edit
     let stripped = strip_leading_blanks(input);
     let lines: Vec<&str> = stripped
         .split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .map(|line| line.trim_suffix('\r'))
         .collect();
     let first = lines.first().copied().unwrap_or("");
     if parse_header_line(first, cwd)?.is_none() {

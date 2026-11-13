@@ -62,7 +62,7 @@ struct Lines {
 
 impl Lines {
     fn send(&self, bytes: &[u8]) {
-        let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+        let bytes = bytes.trim_suffix(b"\r");
         // The receiver lives until the run ends: a send fails only after.
         let _ = self
             .sender

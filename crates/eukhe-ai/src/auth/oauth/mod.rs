@@ -97,7 +97,7 @@ fn callback_server_query(url: &url::Url, name: &str) -> Option<String> {
 
 /// `new URLSearchParams(value)` pairs (a leading `?` is ignored).
 pub(crate) fn query_pairs(value: &str) -> Vec<(String, String)> {
-    let value = value.strip_prefix('?').unwrap_or(value);
+    let value = value.trim_prefix('?');
     url::form_urlencoded::parse(value.as_bytes())
         .into_owned()
         .collect()

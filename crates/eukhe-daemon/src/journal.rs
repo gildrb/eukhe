@@ -22,7 +22,7 @@ pub(crate) fn group_journal_path(recovery_journal: &Path) -> PathBuf {
     let name = recovery_journal
         .file_name()
         .map_or_default(|name| name.to_string_lossy().into_owned());
-    let stem = name.strip_suffix(RECOVERY_JOURNAL_SUFFIX).unwrap_or(&name);
+    let stem = name.trim_suffix(RECOVERY_JOURNAL_SUFFIX);
     recovery_journal.with_file_name(format!("{stem}{GROUP_JOURNAL_SUFFIX}"))
 }
 

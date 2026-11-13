@@ -62,7 +62,7 @@ fn linked_worktree(root: &Path, git_dir: &Path) -> Option<LinkedWorktree> {
         common.as_path()
     };
     let project = primary.file_name()?.to_string_lossy();
-    let project = project.strip_suffix(".git").unwrap_or(&project);
+    let project = project.trim_suffix(".git");
     Some(LinkedWorktree {
         project: project.to_string(),
         name: root.file_name()?.to_string_lossy().into_owned(),
@@ -74,12 +74,7 @@ fn read_branch(git_dir: &Path) -> Option<String> {
     let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
     let head = head.trim();
     match head.strip_prefix("ref: ") {
-        Some(reference) => Some(
-            reference
-                .strip_prefix("refs/heads/")
-                .unwrap_or(reference)
-                .to_string(),
-        ),
+        Some(reference) => Some(reference.trim_prefix("refs/heads/").to_string()),
         None => head.get(..7).map(str::to_string),
     }
 }

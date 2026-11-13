@@ -141,7 +141,7 @@ pub(crate) async fn agent_chat(
     name: &str,
     cx: &Context,
 ) -> SessionResult<String> {
-    let selector = name.strip_prefix(CHILD_PREFIX).unwrap_or(name);
+    let selector = name.trim_prefix(CHILD_PREFIX);
     let child = find_child(reader, conversation, selector, cx)
         .await
         .map_err(|error| memory_error(&error))?;

@@ -561,11 +561,7 @@ fn coerce_with_json_schema<'s>(
 /// `formatValidationPath(error)`: the instance path in dot notation, the
 /// missing property appended for `required`, `root` when empty.
 fn format_validation_path(error: &SchemaError) -> String {
-    let path = error
-        .instance_path
-        .strip_prefix('/')
-        .unwrap_or(&error.instance_path)
-        .replace('/', ".");
+    let path = error.instance_path.trim_prefix('/').replace('/', ".");
     if error.keyword == "required" {
         if let Some(required) = error
             .required_properties

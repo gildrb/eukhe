@@ -75,7 +75,7 @@ pub fn timestamp_to_ms(ts: &str) -> Option<i64> {
             let zone_minute = if rest.is_empty() {
                 0u32
             } else {
-                rest = rest.strip_prefix(':').unwrap_or(rest);
+                rest = rest.trim_prefix(':');
                 take_digits(&mut rest, 2)?
             };
             if !rest.is_empty() || zone_hour > 23 || zone_minute > 59 {

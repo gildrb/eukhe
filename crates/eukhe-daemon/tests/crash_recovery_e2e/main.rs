@@ -355,7 +355,7 @@ fn script(request: &Request, release: &Path) -> Reply {
                 // The call after the tool answers the prompt its call
                 // id names.
                 let call = request.tool_results.last().expect("a tool result");
-                Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)))
+                Reply::text(answer_for(call.trim_prefix("call-")))
             } else if request.prompt.contains(codemode::TAG) {
                 Reply::tool_call(
                     format!("call-{prompt}"),

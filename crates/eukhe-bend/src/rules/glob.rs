@@ -241,7 +241,7 @@ pub fn ignored(rules: &[IgnoreRule], entries: &[IgnoreEntry<'_>]) -> Result<Vec<
     }
     writer.count(entries.len());
     for entry in entries {
-        let path = entry.path.strip_suffix('/').unwrap_or(entry.path);
+        let path = entry.path.trim_suffix('/');
         if entry.is_dir {
             writer.str(&format!("{path}/"));
         } else {

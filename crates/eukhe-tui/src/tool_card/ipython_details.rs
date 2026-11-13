@@ -200,7 +200,7 @@ pub(crate) fn literal_shell_command(code: &str) -> Option<String> {
     let call = head.trim_end();
     // `(?:([A-Za-z_]\w*)\s*=\s*)?(?:rlm\.)?bash`
     let call_name = call.strip_suffix("bash")?;
-    let call_name = call_name.strip_suffix(".rlm").unwrap_or(call_name);
+    let call_name = call_name.trim_suffix(".rlm");
     if !call_name.is_empty() {
         let trimmed = call_name.trim();
         let var = trimmed.strip_suffix('=').map(str::trim_end)?;

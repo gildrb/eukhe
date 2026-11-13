@@ -1660,7 +1660,7 @@ fn byte_size(size: usize) -> f64 {
 /// { fatal: true })`: invalid bytes fail and a leading BOM is dropped.
 fn decode_line(bytes: &[u8]) -> Result<&str, std::str::Utf8Error> {
     let text = std::str::from_utf8(bytes)?;
-    Ok(text.strip_prefix('\u{FEFF}').unwrap_or(text))
+    Ok(text.trim_prefix('\u{FEFF}'))
 }
 
 async fn read_lines<T>(

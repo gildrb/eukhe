@@ -452,7 +452,7 @@ fn context_color(tokens: u64, window: u64) -> ThemeColor {
 pub(crate) fn format_count(count: u64) -> String {
     let scaled = |value: f64, unit: &str| {
         let text = format!("{value:.1}");
-        format!("{}{unit}", text.strip_suffix(".0").unwrap_or(&text))
+        format!("{}{unit}", text.trim_suffix(".0"))
     };
     let count_f = count as f64;
     match count {

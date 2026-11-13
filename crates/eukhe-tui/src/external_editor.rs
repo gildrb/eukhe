@@ -71,7 +71,7 @@ pub(crate) async fn edit(command: &str, text: &str) -> Result<Option<String>> {
                     .with_context(|| format!("read the edited draft back from {}", path.display())),
                 // TS strips exactly one trailing newline
                 // (`readFileSync(tmp).replace(/\n$/, "")`).
-                Ok(saved) => Ok(Some(saved.strip_suffix('\n').unwrap_or(&saved).to_string())),
+                Ok(saved) => Ok(Some(saved.trim_suffix('\n').to_string())),
             },
         }
     };

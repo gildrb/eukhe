@@ -826,7 +826,7 @@ fn structured_output_error(
         .as_ref()
         .map(|error| {
             let path = &error.instance_path;
-            path.strip_prefix('/').unwrap_or(path).replace('/', ".")
+            path.trim_prefix('/').replace('/', ".")
         })
         .filter(|path| !path.is_empty())
         .unwrap_or_else(|| "root".to_owned());

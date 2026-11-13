@@ -249,7 +249,7 @@ impl Report {
         let rest = text
             .strip_prefix(&header)
             .ok_or(ReportTextError { header })?;
-        let rest = rest.strip_prefix("\n\n").unwrap_or(rest);
+        let rest = rest.trim_prefix("\n\n");
         if !self.resumes() {
             return Ok(rest);
         }
@@ -258,7 +258,7 @@ impl Report {
         }
         Ok(rest
             .strip_prefix(RESUME_LINE)
-            .map_or(rest, |after| after.strip_prefix("\n\n").unwrap_or(after)))
+            .map_or(rest, |after| after.trim_prefix("\n\n")))
     }
 }
 

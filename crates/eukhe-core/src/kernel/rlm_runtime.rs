@@ -115,8 +115,7 @@ pub fn normalize_requested_rlm_subagent_model(
 pub fn create_default_rlm_subagent_session_name(prompt: &str, child_id: &str) -> String {
     let prompt_slug = slugify(prompt);
     let id_suffix: String = child_id
-        .strip_prefix("sub-")
-        .unwrap_or(child_id)
+        .trim_prefix("sub-")
         .chars()
         .filter(char::is_ascii_alphanumeric)
         .collect();

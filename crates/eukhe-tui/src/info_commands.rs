@@ -294,7 +294,7 @@ fn push_entry(entries: &mut Vec<String>, lines: &[String]) {
 /// `[`, then major.minor.patch.
 fn is_version_header(rest: &str) -> bool {
     let mut rest = rest.trim_start();
-    rest = rest.strip_prefix('[').unwrap_or(rest);
+    rest = rest.trim_prefix('[');
     for part in 0..3 {
         let digits = rest.chars().take_while(char::is_ascii_digit).count();
         if digits == 0 {

@@ -170,10 +170,7 @@ pub fn kept_daemon_notice(client: Build<'_>, daemon: Build<'_>) -> Option<String
         Relation::Other => Some(format!(
             "The background service runs another build of eukhe {} ({}); it does not restart automatically (run: eukhe shutdown).",
             daemon.version,
-            daemon
-                .id
-                .strip_prefix(eukhe_build_info::DAEMON_BUILD_ID_PREFIX)
-                .unwrap_or(daemon.id)
+            daemon.id.trim_prefix(eukhe_build_info::DAEMON_BUILD_ID_PREFIX)
         )),
     }
 }

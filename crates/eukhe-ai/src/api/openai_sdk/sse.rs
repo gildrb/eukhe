@@ -84,7 +84,7 @@ pub(crate) struct SseDecoder {
 
 impl SseDecoder {
     pub(crate) fn decode(&mut self, line: &str) -> Option<ServerSentEvent> {
-        let line = line.strip_suffix('\r').unwrap_or(line);
+        let line = line.trim_suffix('\r');
         if line.is_empty() {
             // `!this.event && !this.data.length`: an empty event name is falsy.
             if self.event.as_deref().is_none_or(str::is_empty) && self.data.is_empty() {
@@ -104,7 +104,7 @@ impl SseDecoder {
             Some(index) => (&line[..index], &line[index + 1..]),
             None => (line, ""),
         };
-        let value = value.strip_prefix(' ').unwrap_or(value);
+        let value = value.trim_prefix(' ');
         if field == "event" {
             self.event = Some(value.to_owned());
         } else if field == "data" {

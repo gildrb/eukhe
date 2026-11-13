@@ -274,7 +274,7 @@ fn hash_dir(root: &Path, hasher: &mut Sha256) {
                 hasher.update(count.to_le_bytes());
                 return;
             }
-            let relative = path.strip_prefix(root).unwrap_or(&path);
+            let relative = path.trim_prefix(root);
             field(hasher, relative.to_string_lossy().as_bytes());
             hash_file(&path, hasher);
         }
@@ -358,7 +358,7 @@ fn list_dir(root: &Path) -> Vec<String> {
                     stack.push(path);
                 }
             } else if found.len() < MAX_FILES {
-                let relative = path.strip_prefix(root).unwrap_or(&path);
+                let relative = path.trim_prefix(root);
                 found.push(relative.to_string_lossy().into_owned());
             }
         }

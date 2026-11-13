@@ -125,7 +125,7 @@ pub fn parse_amount(
     let text = text.trim();
     let (amount, expected) = match dimension {
         BudgetDimension::Cost => (
-            scaled(text.strip_prefix('$').unwrap_or(text), 1_000_000),
+            scaled(text.trim_prefix('$'), 1_000_000),
             "dollars, like 1.50 or $1.50",
         ),
         BudgetDimension::Tokens => (

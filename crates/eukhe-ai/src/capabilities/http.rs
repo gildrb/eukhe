@@ -51,7 +51,7 @@ pub(crate) fn v1_root(base_url: &str) -> String {
 /// `/v1`.
 pub(crate) fn unversioned_root(base_url: &str) -> &str {
     let base = trimmed(base_url);
-    base.strip_suffix("/v1").unwrap_or(base)
+    base.trim_suffix("/v1")
 }
 
 /// The resolved API key, or the error that names the unconfigured

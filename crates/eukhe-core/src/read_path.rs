@@ -60,7 +60,7 @@ fn file_exists(file_path: &str) -> bool {
 }
 
 fn normalize_at_prefix(file_path: &str) -> &str {
-    file_path.strip_prefix('@').unwrap_or(file_path)
+    file_path.trim_prefix('@')
 }
 
 /// Expand a leading `~` to the user's home directory (TS `expandPath`).

@@ -384,8 +384,8 @@ fn heading(line: &str) -> Option<&str> {
 
 fn table_cells(line: &str) -> Vec<&str> {
     let row = line.trim();
-    let row = row.strip_prefix('|').unwrap_or(row);
-    let row = row.strip_suffix('|').unwrap_or(row);
+    let row = row.trim_prefix('|');
+    let row = row.trim_suffix('|');
     row.split('|').map(str::trim).collect()
 }
 

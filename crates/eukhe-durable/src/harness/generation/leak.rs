@@ -217,8 +217,8 @@ impl Markup {
                             }
                         })?;
                         let raw = &parameter[..value_end];
-                        let raw = raw.strip_prefix('\n').unwrap_or(raw);
-                        let raw = raw.strip_suffix('\n').unwrap_or(raw);
+                        let raw = raw.trim_prefix('\n');
+                        let raw = raw.trim_suffix('\n');
                         arguments.insert(key.to_owned(), json_or_string(raw));
                         parameters = &parameter[value_end + PARAMETER_CLOSE.len()..];
                     }

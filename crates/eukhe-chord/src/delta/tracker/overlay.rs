@@ -911,7 +911,7 @@ fn string_to_number(text: &str) -> f64 {
                 });
         }
     }
-    let unsigned = trimmed.strip_prefix(['+', '-']).unwrap_or(trimmed);
+    let unsigned = trimmed.trim_prefix(['+', '-']);
     if unsigned == "Infinity" {
         return if trimmed.starts_with('-') {
             f64::NEG_INFINITY
@@ -939,7 +939,7 @@ fn is_decimal_literal(text: &str) -> bool {
     match exponent {
         None => true,
         Some(exponent) => {
-            let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+            let exponent = exponent.trim_prefix(['+', '-']);
             !exponent.is_empty() && digits(exponent)
         }
     }

@@ -91,7 +91,7 @@ fn script(request: &mock_llm::Request, overflowed: &AtomicBool) -> Reply {
             let prompt = &request.prompt;
             if request.after_tool {
                 let call = request.tool_results.last().expect("a tool result");
-                Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)))
+                Reply::text(answer_for(call.trim_prefix("call-")))
             } else if prompt.contains(OVERFLOW)
                 && carries_an_earlier_answer(&request.body)
                 && !overflowed.swap(true, Ordering::SeqCst)

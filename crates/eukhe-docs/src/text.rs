@@ -243,7 +243,7 @@ mod tests {
     /// The projection of a text, as the laws state it (model `proj`): the
     /// line lengths and endings recounted from the bytes.
     fn recount(content: &str) -> (bool, Vec<(usize, Option<LineEnding>)>) {
-        let body = content.strip_prefix(BOM).unwrap_or(content);
+        let body = content.trim_prefix(BOM);
         let bytes: Vec<char> = body.chars().collect();
         let mut lines = Vec::new();
         let mut len = 0;
@@ -291,7 +291,7 @@ mod tests {
             assert_eq!((projection.bom, lines), recount(text), "{text:?}");
             assert_eq!(
                 projection.lf_text(),
-                text.strip_prefix(BOM).unwrap_or(text).replace("\r\n", "\n")
+                text.trim_prefix(BOM).replace("\r\n", "\n")
             );
         }
     }

@@ -190,7 +190,7 @@ fn scan_span(
             let seq = &content[i..i + len];
             if seq.starts_with("\x1b]8;;") && !is_osc8_close(seq) {
                 let url = &seq["\x1b]8;;".len()..];
-                let url = url.strip_suffix("\x1b\\").unwrap_or(url);
+                let url = url.trim_suffix("\x1b\\");
                 if let Some((start_row, start_col, url)) = carry.take() {
                     ranges.push(LinkRange {
                         row: start_row,

@@ -556,9 +556,9 @@ async fn memory_tree(
 /// The rendered view's `id+n|text` lines without the `<chat>` and `</chat>`
 /// frame lines (empty for an empty view).
 fn unframed_view(text: &str) -> &str {
-    let body = text.strip_prefix("<chat>\n").unwrap_or(text);
-    let body = body.strip_suffix("</chat>").unwrap_or(body);
-    body.strip_suffix('\n').unwrap_or(body)
+    let body = text.trim_prefix("<chat>\n");
+    let body = body.trim_suffix("</chat>");
+    body.trim_suffix('\n')
 }
 
 /// Render the main conversation's system prompt the way its next request

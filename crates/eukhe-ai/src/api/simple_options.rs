@@ -88,7 +88,7 @@ pub(crate) fn clamps_output_to_model_max(model: &Model) -> bool {
                 .ok()
                 .and_then(|url| url.host_str().map(str::to_lowercase))
                 .unwrap_or_default();
-            let host = host.strip_suffix('.').unwrap_or(&host);
+            let host = host.trim_suffix('.');
             let private_172 = host
                 .strip_prefix("172.")
                 .and_then(|rest| rest.split_once('.'))

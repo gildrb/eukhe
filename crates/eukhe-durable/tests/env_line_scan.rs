@@ -56,7 +56,7 @@ fn random_file(next: &mut impl FnMut() -> f64) -> Vec<u8> {
 /// byte-order mark dropped.
 fn decode_whole(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
-    text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned()
+    text.trim_prefix('\u{feff}').to_owned()
 }
 
 /// `new TextDecoder("utf-8", { ignoreBOM: from > 0 }).decode(file.subarray(from, to))`.

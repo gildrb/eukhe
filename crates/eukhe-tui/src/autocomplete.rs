@@ -229,7 +229,7 @@ pub fn slash_path_at(
 #[must_use]
 pub fn slash_line(before: &[char]) -> String {
     let trimmed: String = before.iter().skip_while(|c| c.is_whitespace()).collect();
-    trimmed.strip_prefix('/').unwrap_or(&trimmed).to_string()
+    trimmed.trim_prefix('/').to_string()
 }
 
 /// Delimiters that end a path token (TS `PATH_DELIMITERS`).
@@ -957,7 +957,7 @@ impl CombinedAutocompleteProvider {
         if !at_start || at_prefix.starts_with("@\"") {
             return Vec::new();
         }
-        let query = at_prefix.strip_prefix('@').unwrap_or(at_prefix);
+        let query = at_prefix.trim_prefix('@');
         fuzzy_filter(&self.agent_mentions, query, |item| item.label.clone())
     }
 
@@ -965,7 +965,7 @@ impl CombinedAutocompleteProvider {
     /// `name + aliases`, registry order preserved on ties; the session's
     /// skill commands follow the builtins, TS list order).
     fn slash_suggestions(&self, prefix: &str) -> Vec<CompletionItem> {
-        let query = prefix.strip_prefix('/').unwrap_or(prefix);
+        let query = prefix.trim_prefix('/');
         let commands: Vec<&SlashCommandEntry> = self
             .commands
             .iter()

@@ -278,7 +278,7 @@ fn take_condition(input: &str) -> Result<(Option<LoopCondition>, String), String
             return Err("Use only one of --while or --until.".to_owned());
         }
         let after = &rest[name.len()..];
-        let value_text = after.strip_prefix('=').unwrap_or(after);
+        let value_text = after.trim_prefix('=');
         let needs = || {
             format!(
                 "{name} needs a shell command. Quote it when it contains spaces: /loop {name} 'bun test'."

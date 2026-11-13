@@ -163,7 +163,7 @@ impl Editor {
                 return None;
             }
             let item = state.selected_item()?;
-            let typed = state.prefix.strip_prefix('/').unwrap_or(&state.prefix);
+            let typed = state.prefix.trim_prefix('/');
             let typed_len = typed.chars().count();
             let rest: String = if item.value.to_lowercase().starts_with(&typed.to_lowercase()) {
                 item.value.chars().skip(typed_len).collect()
@@ -456,11 +456,7 @@ fn menu_with_best_match(
 ) -> crate::autocomplete::AutocompleteState {
     let matching_prefix =
         if suggestions.kind == Some(crate::autocomplete::SuggestionKind::SlashCommand) {
-            suggestions
-                .prefix
-                .strip_prefix('/')
-                .unwrap_or(&suggestions.prefix)
-                .to_string()
+            suggestions.prefix.trim_prefix('/').to_string()
         } else {
             suggestions.prefix.clone()
         };

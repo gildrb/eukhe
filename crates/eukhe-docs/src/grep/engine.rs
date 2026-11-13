@@ -533,7 +533,7 @@ fn line_number(number: Option<u64>) -> io::Result<u64> {
 /// so a cut row cannot look like the whole line.
 fn row_text(bytes: &[u8], max_columns: usize) -> (String, bool) {
     let body = match bytes.strip_suffix(b"\n") {
-        Some(line) => line.strip_suffix(b"\r").unwrap_or(line),
+        Some(line) => line.trim_suffix(b"\r"),
         None => bytes,
     };
     let line = String::from_utf8_lossy(body);

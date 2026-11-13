@@ -118,7 +118,7 @@ pub(crate) fn tokenize(text: &str) -> Vec<Token> {
     }
     rows.into_iter()
         .zip(1_u32..)
-        .map(|(row, line_num)| classify_line(row.strip_suffix('\r').unwrap_or(row), line_num))
+        .map(|(row, line_num)| classify_line(row.trim_suffix('\r'), line_num))
         .collect()
 }
 

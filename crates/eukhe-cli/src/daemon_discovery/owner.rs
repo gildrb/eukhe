@@ -105,7 +105,7 @@ impl SocketOwner {
             Path::new(path)
                 .file_name()
                 .and_then(|name| name.to_str())
-                .map(|name| name.strip_suffix(" (deleted)").unwrap_or(name))
+                .map(|name| name.trim_suffix(" (deleted)"))
                 .is_some_and(|name| {
                     FAMILY_NAMES.iter().any(|family| {
                         name == *family

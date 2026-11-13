@@ -67,7 +67,7 @@ fn is_paste_marker(seg: &str) -> bool {
     if num.is_empty() || !num.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    let rest = rest.strip_prefix('+').unwrap_or(rest);
+    let rest = rest.trim_prefix('+');
     match rest.split_once(' ') {
         Some((n, "lines")) => !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()),
         Some((n, "chars")) => !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()),

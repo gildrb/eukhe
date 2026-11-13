@@ -794,7 +794,7 @@ impl Ui {
         let close = rest.find(']')?;
         let (status, rest) = rest.split_at(close);
         let rest = &rest[1..];
-        Some((name, status, rest.strip_prefix(' ').unwrap_or(rest)))
+        Some((name, status, rest.trim_prefix(' ')))
     }
 
     fn event(&self, event: &AgentEvent) {

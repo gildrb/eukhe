@@ -265,7 +265,7 @@ pub(crate) async fn reap_stale_worker_sockets(supervisor_socket: &Path) -> usize
         .filter_map(std::result::Result::ok)
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
-            let socket_name = name.strip_suffix(".lock").unwrap_or(&name);
+            let socket_name = name.trim_suffix(".lock");
             (socket_name.starts_with(&prefix)
                 && Path::new(socket_name)
                     .extension()

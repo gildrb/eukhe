@@ -135,7 +135,7 @@ impl IgnoreMatcher {
         }
         let dir_only = glob.ends_with('/');
         if dir_only {
-            glob = glob.strip_suffix('/').unwrap_or(glob);
+            glob = glob.trim_suffix('/');
         }
         let anchored = glob.contains('/');
         let Err(error) = expect_core(Entry::Glob, glob::check(glob)) else {

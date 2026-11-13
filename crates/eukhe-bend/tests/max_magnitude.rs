@@ -104,7 +104,7 @@ fn run_area(path: &Path) {
         let input = expand(raw);
         let (action, refused) = match kind.strip_prefix("refuse") {
             Some("") => ("call", true),
-            Some(rest) => (rest.strip_prefix('-').unwrap_or(rest), true),
+            Some(rest) => (rest.trim_prefix('-'), true),
             None => (kind, false),
         };
         let reply = match action {

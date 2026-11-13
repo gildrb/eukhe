@@ -76,8 +76,8 @@ fn delimiter_columns(line: &str) -> Option<usize> {
     if trimmed.is_empty() || !(trimmed.contains('|') || trimmed.contains(':')) {
         return None;
     }
-    let body = trimmed.strip_prefix('|').unwrap_or(trimmed);
-    let body = body.strip_suffix('|').unwrap_or(body);
+    let body = trimmed.trim_prefix('|');
+    let body = body.trim_suffix('|');
     let cells: Vec<&str> = body.split('|').collect();
     let valid = cells.iter().all(|cell| {
         let cell = cell.trim();

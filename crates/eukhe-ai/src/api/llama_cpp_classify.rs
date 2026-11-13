@@ -70,7 +70,7 @@ pub struct LabeledQuestion {
 #[must_use]
 pub fn llama_server_root(base_url: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
-    trimmed.strip_suffix("/v1").unwrap_or(trimmed).to_owned()
+    trimmed.trim_suffix("/v1").to_owned()
 }
 
 fn render_state(state: &JsonObject) -> String {
