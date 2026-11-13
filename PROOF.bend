@@ -4228,8 +4228,10 @@ import ./proof/once/once_ends_once.bend as POnceEndsOnce
 import ./proof/once/once_ended_never_launches.bend as POnceEndedNeverLaunches
 import ./proof/once/once_unrun_resumes.bend as POnceUnrunResumes
 import ./proof/once/once_unknown_is_said.bend as POnceUnknownIsSaid
+import ./proof/once/once_stop_settles.bend as POnceStopSettles
 import ./proof/once/once_tool_gate_agrees.bend as POnceToolGateAgrees
 import ./proof/once/once_key_distinct.bend as POnceKeyDistinct
+import ./proof/once/once_key_never_err.bend as POnceKeyNeverErr
 import ./proof/once/once_key_reads.bend as POnceKeyReads
 import ./proof/once/once_key_malformed_exact.bend as POnceKeyMalformedExact
 import ./proof/once/once_entry_reads.bend as POnceEntryReads

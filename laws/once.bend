@@ -322,6 +322,25 @@ def wd_lost(w: S.World) -> Bool:
         case O.Void{}:
           False{}
 
+# the effect has no record, or an end on record (finished, unknown,
+# unstarted)
+def wd_closed(w: S.World) -> Bool:
+  match w:
+    case S.Wd{l, live, hit, n, k, d, x}:
+      match l:
+        case O.Absent{}:
+          True{}
+        case O.Pending{}:
+          False{}
+        case O.Running{again}:
+          False{}
+        case O.Ran{}:
+          True{}
+        case O.Unsure{}:
+          True{}
+        case O.Void{}:
+          True{}
+
 # Tools: the once rule beside the tool gate
 # -----------------------------------------
 
@@ -694,6 +713,21 @@ law once_unknown_is_said:
   for m: O.Mode
   {Bool.or(Bool.not(wd_cut(wd_run(es, S.w0(), O.Never{}))), Bool.and(wd_lost(wd_step(wd_run(es, S.w0(), O.Never{}), S.Tick{m, False{}}, O.Never{})), Bool.not(wd_live(wd_step(wd_run(es, S.w0(), O.Never{}), S.Tick{m, False{}}, O.Never{}))))) == True{} : Bool}
 
+# LAW once_stop_settles (O4, O5): after every history of an effect of
+# any policy, a stop of its run that comes to it with nothing in flight,
+# the world asked or not, leaves it with no record or with an end on
+# record (finished, unknown or unstarted), nothing in flight, and the
+# launches made unchanged
+# EXCLUDES: a stop that leaves a started effect with no end (skipped, or
+#   called settled), a stop that launches a pending effect, or sends a
+#   keyed one again or runs a safe one again, a pending effect a stop
+#   leaves waiting
+law once_stop_settles:
+  for +p: O.Policy
+  for +es: List<&2, S.Ev>
+  for look: Bool
+  {Bool.or(wd_live(wd_run(es, S.w0(), p)), Bool.and(wd_closed(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), Bool.and(Bool.not(wd_live(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p))), Nat.is_eq(S.launches(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), S.launches(wd_run(es, S.w0(), p)))))) == True{} : Bool}
+
 # Laws: tools (H1 beside O2-O5)
 # -----------------------------
 
@@ -738,6 +772,19 @@ law once_key_distinct:
   for fd: {LawsBase.wire_fits(String.length(d)) == True{} : Bool}
   for same: {FO.ffi(on_spell_key(a, b)) == FO.ffi(on_spell_key(c, d)) : String}
   {a == c : String} & {b == d : String}
+
+# LAW once_key_never_err (O7): every key request (two strings whose
+# lengths fit the wire) is answered with a key, never with the error form
+# (a reply that opens with 'E', which Rust reads as an error)
+# EXCLUDES: a key answered as an error for a long id, for an empty scope
+#   or for any request but the example's, however distinct the keys stay
+#   (the effect then fails, or goes out with no key)
+law once_key_never_err:
+  for +a: String
+  for +b: String
+  for fa: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  for fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
+  {LawsBase.wire_opens_err(FO.ffi(on_spell_key(a, b))) == False{} : Bool}
 
 # LAW once_key_reads (O7): a call input the laws' reader reads as exactly
 # two strings is answered as those strings spelled
