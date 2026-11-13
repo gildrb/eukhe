@@ -695,7 +695,7 @@ mod tests {
     }
 
     fn set_mtime_days_ago(path: &Path, days: u64) {
-        let mtime = filetime::FileTime::from_unix_time((days * 24 * 60 * 60) as i64, 0);
-        filetime::set_file_mtime(path, mtime).expect("set mtime");
+        let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(days * 24 * 60 * 60);
+        fs::set_times(path, fs::FileTimes::new().set_modified(mtime)).expect("set mtime");
     }
 }

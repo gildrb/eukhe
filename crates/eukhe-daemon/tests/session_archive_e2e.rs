@@ -258,16 +258,17 @@ fn write_fixture(sessions_dir: &Path, name: &str) -> String {
 /// newest file).
 fn age_days(path: &Path, days: u64) {
     let seconds = days * 24 * 60 * 60;
-    let mtime = filetime::FileTime::from_unix_time(seconds as i64, 0);
+    let mtime = std::fs::FileTimes::new()
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds));
     if path.is_dir() {
         for entry in std::fs::read_dir(path).expect("storage dir") {
             let file = entry.expect("storage entry").path();
             if file.is_file() {
-                filetime::set_file_mtime(&file, mtime).expect("set mtime");
+                std::fs::set_times(&file, mtime).expect("set mtime");
             }
         }
     } else {
-        filetime::set_file_mtime(path, mtime).expect("set mtime");
+        std::fs::set_times(path, mtime).expect("set mtime");
     }
 }
 

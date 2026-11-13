@@ -693,9 +693,12 @@ mod tests {
         bind_stale_socket(&socket);
         let crashed_lock = dir.path().join("daemon.sock.lock");
         std::fs::create_dir(&crashed_lock).unwrap();
-        let six_seconds_ago =
-            filetime::FileTime::from_system_time(std::time::SystemTime::now() - LOCK_STALE_AFTER);
-        filetime::set_file_mtime(&crashed_lock, six_seconds_ago).unwrap();
+        let six_seconds_ago = std::time::SystemTime::now() - LOCK_STALE_AFTER;
+        std::fs::set_times(
+            &crashed_lock,
+            std::fs::FileTimes::new().set_modified(six_seconds_ago),
+        )
+        .expect("age the crashed lock");
         // A lock whose holder crashed (mtime past LOCK_STALE_AFTER) is
         // reclaimed instead of waiting out the full retry budget.
         tokio::time::timeout(Duration::from_secs(2), prepare_socket_path(&socket))
@@ -728,10 +731,12 @@ mod tests {
             "gone00000000",
         ));
         std::fs::create_dir(&orphan_lock).unwrap();
-        let crashed = filetime::FileTime::from_system_time(
-            std::time::SystemTime::now() - 2 * LOCK_STALE_AFTER,
-        );
-        filetime::set_file_mtime(&orphan_lock, crashed).unwrap();
+        let crashed = std::time::SystemTime::now() - 2 * LOCK_STALE_AFTER;
+        std::fs::set_times(
+            &orphan_lock,
+            std::fs::FileTimes::new().set_modified(crashed),
+        )
+        .expect("age the orphan lock");
         let foreign = worker_socket_path(&dir.path().join("other.sock"), "dead00000000");
         bind_stale_socket(&foreign);
         let not_a_socket = worker_socket_path(&supervisor, "file00000000");

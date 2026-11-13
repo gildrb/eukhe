@@ -154,13 +154,14 @@ fn worker_stderr_lands_in_the_per_worker_log_and_prunes_retention() {
     // Retention pressure: more leftover logs than the daemon keeps, each
     // older than anything this run writes (backdated mtimes, the
     // session-archive test convention).
-    for index in 0..70 {
+    for index in 0..70_u64 {
         let path = agent_dir
             .join("logs")
             .join(format!("worker-old{index:03}.stderr.log"));
         std::fs::write(&path, "leftover from an earlier daemon run\n").expect("leftover log");
-        let mtime = filetime::FileTime::from_unix_time(i64::from(index), 0);
-        filetime::set_file_mtime(&path, mtime).expect("set mtime");
+        let mtime = std::time::UNIX_EPOCH + Duration::from_secs(index);
+        std::fs::set_times(&path, std::fs::FileTimes::new().set_modified(mtime))
+            .expect("set mtime");
     }
     // EUKHE_DAEMON_DEBUG makes the real worker narrate its boot on stderr
     // (accepted connection, auth ok): the capture's observable content.

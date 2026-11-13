@@ -186,9 +186,12 @@ fn a_custom_socket_supervisor_keeps_and_cleans_its_endpoints_beside_its_socket()
     bind_dead_socket(&stale_socket);
     let orphan_lock = PathBuf::from(format!("{}.lock", leftover("gone00000000").display()));
     std::fs::create_dir(&orphan_lock).expect("orphan lock dir");
-    let crashed =
-        filetime::FileTime::from_system_time(std::time::SystemTime::now() - Duration::from_mins(1));
-    filetime::set_file_mtime(&orphan_lock, crashed).expect("age the orphan lock");
+    let crashed = std::time::SystemTime::now() - Duration::from_mins(1);
+    std::fs::set_times(
+        &orphan_lock,
+        std::fs::FileTimes::new().set_modified(crashed),
+    )
+    .expect("age the orphan lock");
 
     let daemon = spawn_supervisor(&socket, &agent_dir, &tmp_dir);
     let mut client = Client::connect(&socket);

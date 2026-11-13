@@ -234,9 +234,9 @@ mod tests {
     /// Set the file's mtime to the Unix epoch plus `seconds`, so prune
     /// order is deterministic regardless of filesystem timestamp
     /// granularity (the `session_archive` test convention).
-    fn backdate(path: &Path, seconds: i64) {
-        let mtime = filetime::FileTime::from_unix_time(seconds, 0);
-        filetime::set_file_mtime(path, mtime).expect("set mtime");
+    fn backdate(path: &Path, seconds: u64) {
+        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
+        std::fs::set_times(path, std::fs::FileTimes::new().set_modified(mtime)).expect("set mtime");
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
                 &format!("worker-{index:03}.stderr.log"),
                 "worker died\n",
             );
-            backdate(&path, index as i64);
+            backdate(&path, index as u64);
         }
         // A foreign file in the logs dir is never pruned (the daemon's
         // own log lives here too).
@@ -404,7 +404,7 @@ mod tests {
         std::fs::create_dir_all(&logs_dir).expect("logs dir");
         for index in 0..(RETAINED_FILES + 6) {
             let path = write_log(&logs_dir, &format!("one.sock.{index:08x}.log"), "line\n");
-            backdate(&path, index as i64);
+            backdate(&path, index as u64);
         }
         let rotated = write_log(&logs_dir, "other.sock.abcdef01.log.1", "line\n");
         backdate(&rotated, 0);

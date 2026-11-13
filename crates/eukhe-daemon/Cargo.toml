@@ -44,7 +44,6 @@ uuid = { version = "1", features = ["v4", "v7"] }
 mimalloc.workspace = true
 
 [dev-dependencies]
-filetime = "0.2"
 tempfile = "3"
 socket2 = "0.6"
 # The supervisor property suite draws sibling rosters for the live

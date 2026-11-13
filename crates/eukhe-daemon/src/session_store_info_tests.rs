@@ -2,6 +2,14 @@
 use super::*;
 use std::io::Write;
 
+fn set_mtime(path: &Path, mtime: std::time::SystemTime) {
+    fs::set_times(path, fs::FileTimes::new().set_modified(mtime)).expect("set mtime");
+}
+
+fn unix_seconds(seconds: u64) -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds)
+}
+
 fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
     let content = fs::read_to_string(path).ok()?;
     let mut header: Option<SessionHeader> = None;
@@ -270,7 +278,7 @@ fn cache_rejects_replacement_and_same_length_in_place_rewrite() {
     let saved_mtime = fs::metadata(&path).unwrap().modified().unwrap();
     let original = fs::read_to_string(&path).unwrap();
     fs::write(&path, original.replace("bravo", "delta")).unwrap();
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(saved_mtime)).unwrap();
+    set_mtime(&path, saved_mtime);
     assert_eq!(fs::metadata(&path).unwrap().len(), original.len() as u64);
     assert_fold_matches(&path);
     assert_eq!(
@@ -736,7 +744,7 @@ fn no_timestamp_record_modified_is_the_header_time_across_rescans() {
     );
     // A stamped mtime distinct from both the header time and the scan
     // time: whichever value `modified` carries names its source.
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(1_790_110_000, 0)).unwrap();
+    set_mtime(&path, unix_seconds(1_790_110_000));
     let info = read_session_info(&path).unwrap();
     assert_eq!(info.created, "2026-09-20T12:00:00.000Z");
     assert_eq!(info.modified, "2026-09-20T12:00:00.000Z");
@@ -746,7 +754,7 @@ fn no_timestamp_record_modified_is_the_header_time_across_rescans() {
         read_session_info(&path).unwrap().modified,
         "2026-09-20T12:00:00.000Z"
     );
-    filetime::set_file_mtime(&path, filetime::FileTime::now()).unwrap();
+    set_mtime(&path, std::time::SystemTime::now());
     assert_eq!(
         read_session_info(&path).unwrap().modified,
         "2026-09-20T12:00:00.000Z"
@@ -766,14 +774,14 @@ fn unparseable_header_modified_falls_back_to_the_file_mtime() {
         &path,
         &[json!({"type":"session","id":"legacy","timestamp":"not-a-date","cwd":"/test"})],
     );
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(1_790_110_000, 0)).unwrap();
+    set_mtime(&path, unix_seconds(1_790_110_000));
     let info = read_session_info(&path).unwrap();
     assert_eq!(info.created, "not-a-date");
     assert_eq!(
         info.modified,
         crate::util::iso_from_unix_ms(1_790_110_000_000)
     );
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(1_790_120_000, 0)).unwrap();
+    set_mtime(&path, unix_seconds(1_790_120_000));
     assert_eq!(
         read_session_info(&path).unwrap().modified,
         crate::util::iso_from_unix_ms(1_790_120_000_000)
@@ -798,7 +806,7 @@ fn message_timestamps_still_win_over_the_header_fallback() {
         ],
     );
     // A future mtime proves the message timestamp wins over it too.
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(1_800_000_000, 0)).unwrap();
+    set_mtime(&path, unix_seconds(1_800_000_000));
     let info = read_session_info(&path).unwrap();
     assert_eq!(
         info.modified,
@@ -821,7 +829,7 @@ fn impossible_calendar_date_header_falls_back_to_the_file_mtime() {
             json!({"type":"session","id":"feb","timestamp":"2026-02-31T00:00:00.000Z","cwd":"/test"}),
         ],
     );
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(1_790_110_000, 0)).unwrap();
+    set_mtime(&path, unix_seconds(1_790_110_000));
     let info = read_session_info(&path).unwrap();
     assert_eq!(info.created, "2026-02-31T00:00:00.000Z");
     assert_eq!(
@@ -843,7 +851,7 @@ fn epoch_zero_mtime_renders_the_epoch_not_blank() {
         &path,
         &[json!({"type":"session","id":"epoch","timestamp":"not-a-date","cwd":"/test"})],
     );
-    filetime::set_file_mtime(&path, filetime::FileTime::from_unix_time(0, 0)).unwrap();
+    set_mtime(&path, unix_seconds(0));
     let info = read_session_info(&path).unwrap();
     assert_eq!(info.modified, "1970-01-01T00:00:00.000Z");
     assert_fold_matches(&path);
