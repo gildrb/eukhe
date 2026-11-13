@@ -562,17 +562,6 @@ impl Inner {
     }
 }
 
-/// File-stat identity of a snapshot manifest; `None` when it cannot be stated.
-/// Releases the probe claim on any exit path, including a dropped future
-/// (see [`stats_after_commit`]).
-struct ProbeClaimGuard<'a>(&'a std::sync::atomic::AtomicBool);
-
-impl Drop for ProbeClaimGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, std::sync::atomic::Ordering::Release);
-    }
-}
-
 /// Stat the committed payload + manifest pair, off the executor, bounded,
 /// and SERIALIZED: a stalled (network/FUSE) artifacts filesystem must not
 /// wedge the capture path, and a stalled `fs::metadata` cannot be
@@ -596,7 +585,9 @@ async fn stats_after_commit(
     // cancelled probe must release the claim or every later call would
     // read as in-flight and the skip would stay off for the manager's
     // lifetime.
-    let _guard = ProbeClaimGuard(claim);
+    let _guard = std::mem::DropGuard::new(claim, |claim| {
+        claim.store(false, std::sync::atomic::Ordering::Release);
+    });
     let probe = tokio::task::spawn_blocking(move || {
         (manifest_stat_of(&payload), manifest_stat_of(&manifest))
     });
@@ -605,6 +596,8 @@ async fn stats_after_commit(
         _ => (None, None),
     }
 }
+
+/// File-stat identity of a snapshot manifest; `None` when it cannot be stated.
 fn manifest_stat_of(path: &std::path::Path) -> Option<ManifestStat> {
     std::fs::metadata(path).ok().map(|m| ManifestStat {
         mtime: m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),

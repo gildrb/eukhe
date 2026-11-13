@@ -12,6 +12,7 @@
 //! from another thread) is delivered by that caller, in sequence order.
 
 use std::collections::VecDeque;
+use std::mem::DropGuard;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::{self, ThreadId};
@@ -379,15 +380,6 @@ struct MutableInner {
     changing: Mutex<Option<ThreadId>>,
 }
 
-/// Clears the changing thread when a change callback settles or unwinds.
-struct ChangingGuard<'a>(&'a Mutex<Option<ThreadId>>);
-
-impl Drop for ChangingGuard<'_> {
-    fn drop(&mut self) {
-        *lock(self.0) = None;
-    }
-}
-
 impl MutableReplicatedState {
     fn new(initial: JsonValue) -> Result<Self, ChordError> {
         let tracker = track(initial)?;
@@ -435,7 +427,9 @@ impl MutableReplicatedState {
             let _commit = lock(&self.inner.commit);
             let prepared = {
                 *lock(&self.inner.changing) = Some(current);
-                let _changing = ChangingGuard(&self.inner.changing);
+                // Clears the changing thread when the callback settles or unwinds.
+                let _changing =
+                    DropGuard::new(&self.inner.changing, |changing| *lock(changing) = None);
                 let change = self.inner.tracker.begin_change();
                 let attempt = change
                     .state()

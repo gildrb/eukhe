@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::mem::DropGuard;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -123,16 +124,6 @@ impl<H: AgentCronSchedulerHooks + 'static> AgentCronScheduler<H> {
     }
 }
 
-/// Panic-safe reset for the scheduler's run-pass flag: cleared on drop
-/// however the pass unwinds.
-struct RunningGuard<'a>(&'a AtomicBool);
-
-impl Drop for RunningGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-}
-
 impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
     /// Run one dispatch pass for jobs due at or before `now`, returning how
     /// many dispatches ran. Returns `Ok(0)` without dispatching when the
@@ -157,7 +148,9 @@ impl<H: AgentCronSchedulerHooks + 'static> SchedulerCore<H> {
         // re-entrancy flag at `true` — that would silence every later
         // pass while the timer keeps spinning. The guard resets it on
         // the way out however the pass ends.
-        let _running = RunningGuard(&self.running);
+        let _running = DropGuard::new(&self.running, |running| {
+            running.store(false, Ordering::SeqCst);
+        });
         // Recover interrupted dispatches before claiming: a claim this
         // process left on record (an unwound pass dropped its running
         // dispatch) or a dead process's claim is released here, so its

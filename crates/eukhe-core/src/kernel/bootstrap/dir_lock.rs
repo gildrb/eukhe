@@ -297,13 +297,9 @@ pub(crate) async fn acquire_bootstrap_lock(venv: &Path) -> anyhow::Result<impl D
     loop {
         match try_acquire_dir_lock(&lock_dir)? {
             DirLockAttempt::Acquired => {
-                struct Guard(PathBuf);
-                impl Drop for Guard {
-                    fn drop(&mut self) {
-                        let _ = std::fs::remove_file(&self.0);
-                    }
-                }
-                return Ok(Guard(lock_dir));
+                return Ok(std::mem::DropGuard::new(lock_dir, |lock_dir| {
+                    let _ = std::fs::remove_file(lock_dir);
+                }));
             }
             DirLockAttempt::Held | DirLockAttempt::Reclaimed => {
                 tokio::time::sleep(std::time::Duration::from_millis(BOOTSTRAP_LOCK_RETRY_MS)).await;
