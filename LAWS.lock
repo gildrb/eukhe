@@ -2234,6 +2234,7 @@
     "laws/once.bend::once_key_malformed_exact": "103efbe48555d59d6225d1e4c2bac989e85f7679600c2a6fac8ffdcab3395bfb",
     "laws/once.bend::once_key_never_err": "c962a90fe3203274991f846b9f07c2fa082d3876d425a3e4e9281a20043a78ef",
     "laws/once.bend::once_key_reads": "a037627b0e955d40207ddb3d8adbb020605dbe633104c9e4abd0f8f5eb759c54",
+    "laws/once.bend::once_key_reads_back": "44c72a9f4ff968296e624287116ab1f527f6038ddbc21c2ac4c7f67c73591a4c",
     "laws/once.bend::once_keyed_sends_capped": "0e1ce058a8302a545110601b25db4aa9bba0f279933f5afa6b50d536d75ed441",
     "laws/once.bend::once_life_is_spec": "a708b88d778a71f1ebd446cf10a15fe5b4e2010295a60e967ed1dcca1e1eb57e",
     "laws/once.bend::once_never_launches_twice": "3fd1d98d239ec141b1b4baabf3ca39482867602f5f7c8602b764f1642de9d5e4",
@@ -4229,7 +4230,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "3227dc59e1376e5bf4dc5d5d7f96d68e422846284ade783c1b26074ed1eccdb2",
+    "spec/README.md": "aa0e7662a50a21d100ba18449d0802a0eb61e9e248a06900acf6f348dba93125",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",

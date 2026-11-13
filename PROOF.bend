@@ -4232,6 +4232,7 @@ import ./proof/once/once_stop_settles.bend as POnceStopSettles
 import ./proof/once/once_tool_gate_agrees.bend as POnceToolGateAgrees
 import ./proof/once/once_key_distinct.bend as POnceKeyDistinct
 import ./proof/once/once_key_never_err.bend as POnceKeyNeverErr
+import ./proof/once/once_key_reads_back.bend as POnceKeyReadsBack
 import ./proof/once/once_key_reads.bend as POnceKeyReads
 import ./proof/once/once_key_malformed_exact.bend as POnceKeyMalformedExact
 import ./proof/once/once_entry_reads.bend as POnceEntryReads

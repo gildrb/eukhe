@@ -786,6 +786,19 @@ law once_key_never_err:
   for fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
   {LawsBase.wire_opens_err(FO.ffi(on_spell_key(a, b))) == False{} : Bool}
 
+# LAW once_key_reads_back (O7, O9): the key the entry answers for every
+# key request (two strings whose lengths fit the wire) reads back, by the
+# wire's grammar, as exactly that scope and that id, with nothing after
+# EXCLUDES: a key with bytes after the spelled scope and id (a line feed
+#   that no `Idempotency-Key` header can carry), a key that drops or
+#   changes part of the scope or the id, however distinct the keys stay
+law once_key_reads_back:
+  for +a: String
+  for +b: String
+  for +fa: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  for +fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
+  {on_read_key(FO.ffi(on_spell_key(a, b))) == Some{OnKey{a, b}} : Maybe<&2, OnKey>}
+
 # LAW once_key_reads (O7): a call input the laws' reader reads as exactly
 # two strings is answered as those strings spelled
 # EXCLUDES: an input read otherwise by the entry than by the wire's
