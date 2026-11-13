@@ -252,8 +252,9 @@ proofs() {
 # scripts/toolchain.env, scripts/pinned_skill.sh). LOCK_FLAGS: what the lock
 # freezes depends on them, so the check and `make lock` pass the same ones
 # (`--code 'bend/*'`: the defs under bend/ are the code, every def a law
-# reaches outside it is a spec helper and frozen).
-LOCK_FLAGS=(--code 'bend/*')
+# reaches outside it is a spec helper and frozen; `--freeze`: every doc and
+# every .bend file under spec/, byte for byte).
+LOCK_FLAGS=(--code 'bend/*' --freeze 'spec/**/*.md' --freeze 'spec/**/*.bend')
 bend_skill() {
   if [[ -n "${BEND_SKILL:-}" ]]; then
     echo "${BEND_SKILL}"
