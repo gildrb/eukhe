@@ -322,6 +322,25 @@ def wd_lost(w: S.World) -> Bool:
         case O.Void{}:
           False{}
 
+# the effect has no record, or an end on record (finished, unknown,
+# unstarted)
+def wd_closed(w: S.World) -> Bool:
+  match w:
+    case S.Wd{l, live, hit, n, k, d, x}:
+      match l:
+        case O.Absent{}:
+          True{}
+        case O.Pending{}:
+          False{}
+        case O.Running{again}:
+          False{}
+        case O.Ran{}:
+          True{}
+        case O.Unsure{}:
+          True{}
+        case O.Void{}:
+          True{}
+
 # Tools: the once rule beside the tool gate
 # -----------------------------------------
 
@@ -586,6 +605,21 @@ law once_ended_stays:
   for ended: {S.settled(O.life(j)) == True{} : Bool}
   {O.life(List.append(&2, O.Rec, j, rest)) == O.life(j) : O.Life}
 
+# LAW once_life_step_is_spec (O1, O6, O8): one more record moves the life
+# the spec tells for any journal to the life the spec tells for that
+# journal with the record after it. `life.step` is the step the shipped
+# stepper takes on every record and the step the world laws (O2-O7) run,
+# so this ties those laws to the spec's journal
+# EXCLUDES: a step that drops an `intended` record (the effect stays absent,
+# is never launched at a resume, and every world law holds with nothing
+# ever run), a step stuck at one life whatever the record, a step that
+# reopens an ended effect on a later `started` or counts a launch twice,
+# while `life` folds the records by another, correct, step
+law once_life_step_is_spec:
+  for +j: List<&2, O.Rec>
+  for r: O.Rec
+  {O.life.step(S.life_spec(j), r) == S.life_spec(List.append(&2, O.Rec, j, [r])) : O.Life}
+
 # LAW once_step_is_spec (O1-O8): the stepper, opened and sent any records
 # and any questions in any order (every cap fitting the wire), answers
 # each as the spec asks for the records sent before it: a record with the
@@ -694,6 +728,21 @@ law once_unknown_is_said:
   for m: O.Mode
   {Bool.or(Bool.not(wd_cut(wd_run(es, S.w0(), O.Never{}))), Bool.and(wd_lost(wd_step(wd_run(es, S.w0(), O.Never{}), S.Tick{m, False{}}, O.Never{})), Bool.not(wd_live(wd_step(wd_run(es, S.w0(), O.Never{}), S.Tick{m, False{}}, O.Never{}))))) == True{} : Bool}
 
+# LAW once_stop_settles (O4, O5): after every history of an effect of
+# any policy, a stop of its run that comes to it with nothing in flight,
+# the world asked or not, leaves it with no record or with an end on
+# record (finished, unknown or unstarted), nothing in flight, and the
+# launches made unchanged
+# EXCLUDES: a stop that leaves a started effect with no end (skipped, or
+#   called settled), a stop that launches a pending effect, or sends a
+#   keyed one again or runs a safe one again, a pending effect a stop
+#   leaves waiting
+law once_stop_settles:
+  for +p: O.Policy
+  for +es: List<&2, S.Ev>
+  for look: Bool
+  {Bool.or(wd_live(wd_run(es, S.w0(), p)), Bool.and(wd_closed(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), Bool.and(Bool.not(wd_live(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p))), Nat.is_eq(S.launches(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), S.launches(wd_run(es, S.w0(), p)))))) == True{} : Bool}
+
 # Laws: tools (H1 beside O2-O5)
 # -----------------------------
 
@@ -738,6 +787,32 @@ law once_key_distinct:
   for fd: {LawsBase.wire_fits(String.length(d)) == True{} : Bool}
   for same: {FO.ffi(on_spell_key(a, b)) == FO.ffi(on_spell_key(c, d)) : String}
   {a == c : String} & {b == d : String}
+
+# LAW once_key_never_err (O7): every key request (two strings whose
+# lengths fit the wire) is answered with a key, never with the error form
+# (a reply that opens with 'E', which Rust reads as an error)
+# EXCLUDES: a key answered as an error for a long id, for an empty scope
+#   or for any request but the example's, however distinct the keys stay
+#   (the effect then fails, or goes out with no key)
+law once_key_never_err:
+  for +a: String
+  for +b: String
+  for fa: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  for fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
+  {LawsBase.wire_opens_err(FO.ffi(on_spell_key(a, b))) == False{} : Bool}
+
+# LAW once_key_reads_back (O7, O9): the key the entry answers for every
+# key request (two strings whose lengths fit the wire) reads back, by the
+# wire's grammar, as exactly that scope and that id, with nothing after
+# EXCLUDES: a key with bytes after the spelled scope and id (a line feed
+#   that no `Idempotency-Key` header can carry), a key that drops or
+#   changes part of the scope or the id, however distinct the keys stay
+law once_key_reads_back:
+  for +a: String
+  for +b: String
+  for +fa: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  for +fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
+  {on_read_key(FO.ffi(on_spell_key(a, b))) == Some{OnKey{a, b}} : Maybe<&2, OnKey>}
 
 # LAW once_key_reads (O7): a call input the laws' reader reads as exactly
 # two strings is answered as those strings spelled

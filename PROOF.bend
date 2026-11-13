@@ -4224,6 +4224,7 @@ import ./proof/once/base/world_late.bend as LAOnceWorldLate
 import ./proof/once/once_life_is_spec.bend as POnceLifeIsSpec
 import ./proof/once/once_recover_is_spec.bend as POnceRecoverIsSpec
 import ./proof/once/once_ended_stays.bend as POnceEndedStays
+import ./proof/once/once_life_step_is_spec.bend as POnceLifeStepIsSpec
 import ./proof/once/once_step_is_spec.bend as POnceStepIsSpec
 import ./proof/once/once_never_takes_hold_twice.bend as POnceNeverTakesHoldTwice
 import ./proof/once/once_never_launches_twice.bend as POnceNeverLaunchesTwice
@@ -4234,8 +4235,11 @@ import ./proof/once/once_ends_once.bend as POnceEndsOnce
 import ./proof/once/once_ended_never_launches.bend as POnceEndedNeverLaunches
 import ./proof/once/once_unrun_resumes.bend as POnceUnrunResumes
 import ./proof/once/once_unknown_is_said.bend as POnceUnknownIsSaid
+import ./proof/once/once_stop_settles.bend as POnceStopSettles
 import ./proof/once/once_tool_gate_agrees.bend as POnceToolGateAgrees
 import ./proof/once/once_key_distinct.bend as POnceKeyDistinct
+import ./proof/once/once_key_never_err.bend as POnceKeyNeverErr
+import ./proof/once/once_key_reads_back.bend as POnceKeyReadsBack
 import ./proof/once/once_key_reads.bend as POnceKeyReads
 import ./proof/once/once_key_malformed_exact.bend as POnceKeyMalformedExact
 import ./proof/once/once_entry_reads.bend as POnceEntryReads
