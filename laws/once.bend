@@ -605,6 +605,21 @@ law once_ended_stays:
   for ended: {S.settled(O.life(j)) == True{} : Bool}
   {O.life(List.append(&2, O.Rec, j, rest)) == O.life(j) : O.Life}
 
+# LAW once_life_step_is_spec (O1, O6, O8): one more record moves the life
+# the spec tells for any journal to the life the spec tells for that
+# journal with the record after it. `life.step` is the step the shipped
+# stepper takes on every record and the step the world laws (O2-O7) run,
+# so this ties those laws to the spec's journal
+# EXCLUDES: a step that drops an `intended` record (the effect stays absent,
+# is never launched at a resume, and every world law holds with nothing
+# ever run), a step stuck at one life whatever the record, a step that
+# reopens an ended effect on a later `started` or counts a launch twice,
+# while `life` folds the records by another, correct, step
+law once_life_step_is_spec:
+  for +j: List<&2, O.Rec>
+  for r: O.Rec
+  {O.life.step(S.life_spec(j), r) == S.life_spec(List.append(&2, O.Rec, j, [r])) : O.Life}
+
 # LAW once_step_is_spec (O1-O8): the stepper, opened and sent any records
 # and any questions in any order (every cap fitting the wire), answers
 # each as the spec asks for the records sent before it: a record with the
