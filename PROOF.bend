@@ -4085,6 +4085,7 @@ import ./proof/headless_exit/headless_exit_compaction_failed_fails.bend as PHead
 import ./proof/headless_exit/headless_exit_entry_answers.bend as PHeadlessExitEntryAnswers
 import ./proof/headless_exit/headless_exit_entry_example.bend as PHeadlessExitEntryExample
 import ./proof/headless_exit/headless_exit_entry_malformed_exact.bend as PHeadlessExitEntryMalformedExact
+import ./proof/headless_exit/headless_exit_entry_left_over.bend as PHeadlessExitEntryLeftOver
 import ./proof/headless_exit/headless_exit_entry_reads_only_requests.bend as PHeadlessExitEntryReadsOnlyRequests
 import ./proof/headless_exit/headless_exit_autonomous_last.bend as PHeadlessExitAutonomousLast
 import ./proof/headless_exit/headless_exit_no_failure_answered.bend as PHeadlessExitNoFailureAnswered

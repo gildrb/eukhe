@@ -522,6 +522,18 @@ law headless_exit_entry_malformed_exact:
   for no: {SpW.read_exit(s) == None{} : Maybe<&2, Hx.Facts>}
   {FHx.ffi(s) == Wr.err("headless_exit: malformed request") : String}
 
+# LAW headless_exit_entry_left_over (R6): a spelled request (W3) followed
+# by any more input answers exactly the error form 'E ', then
+# "headless_exit: malformed request"
+# EXCLUDES: the input after the request ignored or read into a field, a
+#   trailing newline or byte answered with an exit or with another error
+#   text
+law headless_exit_entry_left_over:
+  for +f: Hx.Facts
+  for +ch: Char
+  for +t: String
+  {FHx.ffi(SpW.w_exit_req(f, SCon{ch, t})) == Wr.err("headless_exit: malformed request") : String}
+
 # LAW headless_exit_entry_example (R6): anchor: the strings Rust sends and
 # the replies it reads: an answer, a model error, a stale run with an
 # aborted entry, a failed compaction, a final answer from the reserve with

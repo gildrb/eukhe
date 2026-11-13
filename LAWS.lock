@@ -1743,6 +1743,7 @@
     "laws/headless_exit.bend::headless_exit_compaction_failed_fails": "9669f28c4a224c1d208f3d37b2b7b1f3cf2d18d904c7c595d8b6edadfdd28f7e",
     "laws/headless_exit.bend::headless_exit_entry_answers": "a7f625c4caf32bfc75e4c830634d89ae260a2bdf18327781239ad50e84bf47bd",
     "laws/headless_exit.bend::headless_exit_entry_example": "8753992acaa9b6e5f06b5d378d9ccf477d768ad270fb39dac7ebbe46ef28ff24",
+    "laws/headless_exit.bend::headless_exit_entry_left_over": "242b6b93897792cba0ba963e69ba0ab90927d89e5a38b56b61b6371bf5f856e5",
     "laws/headless_exit.bend::headless_exit_entry_malformed_exact": "0c559cd0c88ef0f9fdba68b38c6428023ad4b9aa187bbcbff3d149b1ca800ef4",
     "laws/headless_exit.bend::headless_exit_entry_reads_only_requests": "7c6e98622eddd24719d853a3afa5fcace0e99a496d1c1f47c8f3ecb2592cae79",
     "laws/headless_exit.bend::headless_exit_example": "cd7642058a959fcf412c4eb81a6ff6994319e5fac46fff80bcaf0b4f09e9dbe5",
@@ -4253,7 +4254,7 @@
   },
   "spec_files": {
     "spec/PILLARS.md": "b713acc7123ec05d5d9e083a84dbda8c8b8c5cd92a5ce7708e9996d567e62986",
-    "spec/README.md": "086db26a57901f0d7f96297ffa105a2da5aa730479f32f5484f61e3a02114131",
+    "spec/README.md": "c0000ecd39a9500c200aa421e355123caa76c6e7a881b00ddcf39b7a4b0f38f2",
     "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
     "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
     "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
