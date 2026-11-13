@@ -108,7 +108,6 @@ pub(crate) async fn export_html(
         leaf_id,
         system_prompt,
         tools: Some(tools),
-        rendered_tools: None,
     };
     let sources = match themes {
         ExportThemes::Client(registered) => eukhe_theme::ThemeSources {

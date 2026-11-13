@@ -189,8 +189,8 @@ impl Wire {
 
 /// The fixture session: a custom-tool call (`my_tool`) plus its result —
 /// no renderer covers it in either product, so both exports must treat it
-/// through the template's generic fallback with the `renderedTools`
-/// section omitted. The TS wire usage shape (`input`/`output`/`cost`) is
+/// through the template's generic tool view (the TS export with no
+/// `renderedTools` section). The TS wire usage shape (`input`/`output`/`cost`) is
 /// required: the daemon computes usage summaries at create.
 fn write_fixture(path: &Path, cwd: &Path) -> Vec<Value> {
     let usage = json!({
@@ -391,18 +391,13 @@ fn differential_live_export_matches_ts_binary() {
         ts_data["tools"]
     );
 
-    // The custom-tool call has no renderer in either product: the section
-    // is omitted (not null), so the template's generic fallback applies
-    // identically in both.
+    // The custom-tool call has no renderer in the TS export either: it
+    // writes no pre-rendered section, so the template's generic tool view
+    // applies identically in both.
     assert!(
         ts_data.get("renderedTools").is_none(),
         "TS renderedTools omitted: {}",
         ts_data["renderedTools"]
-    );
-    assert!(
-        rs_data.get("renderedTools").is_none(),
-        "Rust renderedTools omitted: {}",
-        rs_data["renderedTools"]
     );
 
     // The system prompt section exists in both (content parity is

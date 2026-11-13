@@ -4,7 +4,7 @@ then diff the two screens cell for cell.
 
 Real nvim runs in a pty with the user's config, on a temp folder holding the site's files
 (dist/files.json, as `npx vp build` writes it), and draws into a pyte screen. The Bend side is
-scripts/vim-screen.mjs over the same files. Usage:
+scripts/vim-screen.ts over the same files. Usage:
 
     python3 scripts/vim-diff.py                 # every scenario
     python3 scripts/vim-diff.py start ff        # some scenarios
@@ -211,7 +211,7 @@ def bend(files, rows, cols, scenarios):
         ],
     }
     out = subprocess.run(
-        ["node", os.path.join(ROOT, "scripts/vim-screen.mjs")],
+        ["node", os.path.join(ROOT, "scripts/vim-screen.ts")],
         input=json.dumps(job),
         capture_output=True,
         text=True,

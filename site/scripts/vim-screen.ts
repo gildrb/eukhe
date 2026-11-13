@@ -8,10 +8,21 @@
 // and prints {name: {lines, cur: [row, col], ms: [per-key step+frame ms, warm]}} as JSON.
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import Vim from "../src/vim.mjs";
+import Vim, { type BendList, type Buf, type Frame, type St } from "../src/vim.mjs";
 
-export const list = (v) => {
-  const out = [];
+/** A file of the job: its path and lines. */
+export type File = { path: string; lines: string[] };
+/** The JSON job read on stdin. */
+type Job = {
+  files: File[];
+  rows: number;
+  cols: number;
+  scenarios: { name: string; keys: string[] }[];
+};
+type Result = { lines: string[]; cur: [number, number]; ms: number[] };
+
+export const list = <T>(v: BendList<T>): T[] => {
+  const out: T[] = [];
   while (v.$ === "Con") {
     out.push(v.head);
     v = v.tail;
@@ -19,14 +30,14 @@ export const list = (v) => {
   return out;
 };
 
-export const cons = (xs) =>
-  xs.reduceRight((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
+export const cons = <T>(xs: T[]): BendList<T> =>
+  xs.reduceRight<BendList<T>>((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
 
-const wide = (ch) => ch === "\u{1FABF}";
+const wide = (ch: string) => ch === "\u{1FABF}";
 
 /** The cells of s: a wide character's second cell is "". */
-export const cellsOf = (s) => {
-  const out = [];
+export const cellsOf = (s: string): string[] => {
+  const out: string[] = [];
   for (const ch of s) {
     out.push(ch);
     if (wide(ch)) out.push("");
@@ -34,22 +45,27 @@ export const cellsOf = (s) => {
   return out;
 };
 
-/** Writes s into row from cell col on, within cols. */
-const put = (row, col, s, cols) => {
+/** Writes s into row from cell col on, within cols; a row off the grid is an error. */
+const put = (row: string[] | undefined, col: number, s: string, cols: number) => {
   let x = col;
   for (const c of cellsOf(s)) {
     if (x >= cols) break;
+    if (row === undefined) throw new RangeError(`a row off the screen: ${JSON.stringify(s)}`);
     row[x] = c;
     x += 1;
   }
 };
 
 /** The screen of editor st: rows strings (wide cells collapsed) and the cursor. */
-export function screen(st, rows, cols) {
+export function screen(
+  st: St,
+  rows: number,
+  cols: number,
+): { lines: string[]; cur: [number, number]; frame: Frame } {
   const f = Vim["Vim.frame"](st);
   const lines = list(Vim["Vim.lines"](st));
   const nums = list(f.nums);
-  const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
+  const grid = Array.from({ length: rows }, (): string[] => Array(cols).fill(" "));
   const h = rows - 2;
   for (let r = 0; r < h; r++) {
     const num = nums[r] ?? "";
@@ -74,10 +90,17 @@ export function screen(st, rows, cols) {
 }
 
 /** The editor over files after keys, with each key's step+frame time. */
-export function run(files, rows, cols, keys) {
-  const bufs = cons(files.map((file) => ({ $: "Buf", path: file.path, lines: cons(file.lines) })));
+export function run(
+  files: File[],
+  rows: number,
+  cols: number,
+  keys: string[],
+): { st: St; ms: number[] } {
+  const bufs = cons(
+    files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),
+  );
   let st = Vim["Vim.init"](bufs, rows, cols);
-  const ms = [];
+  const ms: number[] = [];
   for (const name of keys) {
     const t0 = performance.now();
     st = Vim["Vim.step"](st, { $: "EvKey", name }).st;
@@ -88,8 +111,8 @@ export function run(files, rows, cols, keys) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const job = JSON.parse(fs.readFileSync(0, "utf8"));
-  const out = {};
+  const job: Job = JSON.parse(fs.readFileSync(0, "utf8"));
+  const out: Record<string, Result> = {};
   for (const sc of job.scenarios) {
     // the first run warms the JIT up; the times are the second run's
     run(job.files, job.rows, job.cols, sc.keys);

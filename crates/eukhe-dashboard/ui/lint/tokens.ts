@@ -14,7 +14,7 @@
 // letter spacing, durations and easings), or to a Radix offset or lucide
 // stroke width in JSX. 0 is a value nowhere; opacity 1 is full opacity.
 
-import { definePlugin, defineRule } from "vite-plus/lint/plugins";
+import { definePlugin, defineRule, type ESTree } from "vite-plus/lint/plugins";
 
 const TOKEN_SOURCE = /[\\/]tokens\.stylex\.ts$/;
 
@@ -104,7 +104,7 @@ const NAMED_COLORS = new Set(
 );
 
 /** The first presentation value in `text`, described, or null. */
-export function literalIn(text) {
+export function literalIn(text: string): string | null {
   for (const { what, test } of PATTERNS) {
     const found = test.exec(text);
     if (found) return `${what} (${found[0]})`;
@@ -122,12 +122,17 @@ export function literalIn(text) {
 }
 
 /** The CSS property a value sits under: the nearest key that is not a condition (`default`, `:hover`, `@media`, `[media.touch]`). */
-function propertyOf(node) {
-  for (let at = node; at?.parent; at = at.parent) {
-    const parent = at.parent;
+function propertyOf(node: ESTree.Node): string | null {
+  for (let at: ESTree.Node = node; at?.parent; at = at.parent) {
+    const parent: ESTree.Node = at.parent;
     if (parent.type === "Property" && parent.value === at) {
       if (parent.computed) continue;
-      const key = parent.key.type === "Identifier" ? parent.key.name : parent.key.value;
+      const key =
+        parent.key.type === "Identifier"
+          ? parent.key.name
+          : parent.key.type === "Literal"
+            ? parent.key.value
+            : null;
       if (typeof key !== "string") return null;
       if (key === "default" || key.startsWith(":") || key.startsWith("@")) continue;
       return key;
@@ -149,14 +154,15 @@ const tokenLiterals = defineRule({
   },
   create(context) {
     if (TOKEN_SOURCE.test(context.filename)) return {};
-    const report = (node, what) => context.report({ node, messageId: "literal", data: { what } });
-    const checkText = (node, text) => {
+    const report = (node: ESTree.Node, what: string) =>
+      context.report({ node, messageId: "literal", data: { what } });
+    const checkText = (node: ESTree.Node, text: string) => {
       const what = literalIn(text);
       if (what) report(node, what);
     };
     return {
       Literal(node) {
-        if (node.regex) return;
+        if ("regex" in node) return;
         const property = propertyOf(node);
         if (typeof node.value === "string") {
           checkText(node, node.value);

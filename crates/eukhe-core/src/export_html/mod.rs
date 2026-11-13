@@ -29,28 +29,27 @@ use eukhe_types::session::FileEntry;
 
 use self::theme::export_theme;
 
-pub mod ansi_to_html;
+#[cfg(test)]
+mod fixtures;
 mod theme;
-pub mod tool_render;
-
-pub use self::tool_render::{
-    pre_render_custom_tools, RenderedToolHtml, RenderedToolResult, ToolHtmlRenderer,
-};
 
 /// The app name in generated export file names.
 pub const EXPORT_APP_NAME: &str = "eukhe";
 
 const TEMPLATE_HTML: &str = include_str!("../../assets/export-html/template.html");
 const TEMPLATE_CSS: &str = include_str!("../../assets/export-html/template.css");
+/// Generated from `template.ts` by `make embedded-js` (never hand-edited);
+/// `session-data.d.ts` types the [`SessionExportData`] it reads.
 const TEMPLATE_JS: &str = include_str!("../../assets/export-html/template.js");
+/// Vendored third-party scripts, as shipped.
 const MARKED_JS: &str = include_str!("../../assets/export-html/vendor/marked.min.js");
 const HIGHLIGHT_JS: &str = include_str!("../../assets/export-html/vendor/highlight.min.js");
 
 /// The session data embedded into an exported file. Field names are the
-/// template's wire contract (`template.js` decodes the base64 blob and
+/// template's wire contract (`template.ts` decodes the base64 blob and
 /// destructures these keys): `header`, `entries`, `leafId`, `systemPrompt`,
-/// `tools`, `renderedTools`. Absent optional sections serialize to `null`,
-/// which the template treats as "not present".
+/// `tools`. Absent optional sections are omitted, which the template treats
+/// as "not present".
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionExportData {
@@ -67,13 +66,6 @@ pub struct SessionExportData {
     /// when the exporter knows them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Value>>,
-    /// Pre-rendered HTML for custom tool calls/results, keyed by
-    /// tool-call id ([`pre_render_custom_tools`] output). The template
-    /// falls back to its generic tool rendering for entries without an
-    /// entry here. Omitted (not `null`) like the TS `JSON.stringify`
-    /// drops undefined fields.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rendered_tools: Option<Value>,
 }
 
 /// The `.jsonl` suffix of a session file name, without the extension (TS
@@ -223,7 +215,6 @@ fn session_data_from_file(input_path: &Path) -> Result<SessionExportData> {
         leaf_id,
         system_prompt: None,
         tools: None,
-        rendered_tools: None,
     })
 }
 
@@ -398,7 +389,6 @@ pub(crate) mod tests {
             leaf_id: None,
             system_prompt: None,
             tools: None,
-            rendered_tools: None,
         };
         let out = dir.path().join("out.html");
         export_session_to_html(
@@ -428,13 +418,11 @@ pub(crate) mod tests {
             leaf_id: None,
             system_prompt: Some("the prompt".to_string()),
             tools: None,
-            rendered_tools: None,
         };
         let raw = serde_json::to_string(&data).expect("serialize");
         assert!(raw.contains("\"systemPrompt\":\"the prompt\""));
         assert!(raw.contains("\"leafId\":null"));
         // Absent optional sections are omitted, not null (TS JSON.stringify).
-        assert!(!raw.contains("renderedTools"));
         assert!(!raw.contains("\"tools\""));
     }
 }

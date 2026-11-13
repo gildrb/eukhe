@@ -7,7 +7,7 @@
         bytes[i] = binary.charCodeAt(i);
       }
       const data = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-      const { header, entries, leafId: defaultLeafId, systemPrompt, tools, renderedTools } = data;
+      const { header, entries, leafId: defaultLeafId, systemPrompt, tools } = data;
       const injectedParams = document.querySelector('meta[name="pi-url-params"]');
       const searchString = injectedParams ? injectedParams.content : window.location.search.substring(1);
       const urlParams = new URLSearchParams(searchString);
@@ -57,6 +57,7 @@
 
         for (const entry of entries) {
           const node = nodeMap.get(entry.id);
+          if (node === undefined) continue;
           if (entry.parentId === null || entry.parentId === undefined || entry.parentId === entry.id) {
             roots.push(node);
           } else {
@@ -124,7 +125,7 @@
           treeNodeMap = new Map();
           const tree = buildTree();
           function mapNodes(node) {
-            treeNodeMap.set(node.entry.id, node);
+            treeNodeMap?.set(node.entry.id, node);
             node.children.forEach(mapNodes);
           }
           tree.forEach(mapNodes);
@@ -171,7 +172,9 @@
         }
 
         while (stack.length > 0) {
-          const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop();
+          const frame = stack.pop();
+          if (frame === undefined) break;
+          const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = frame;
 
           result.push({ node, indent, showConnector, isLast, gutters, isVirtualRootChild, multipleRoots });
 
@@ -311,6 +314,13 @@
             parts.push('service tier', entry.serviceTier || 'default');
             if (entry.serviceTier === 'priority') parts.push('fast on');
             break;
+          case 'custom':
+          case 'child_usage_attributed':
+          case 'label':
+          case 'session_info':
+          case 'session_state':
+          case 'git_state':
+            break;
         }
 
         return parts.join(' ').toLowerCase();
@@ -358,6 +368,7 @@
             case 'all':
               passesFilter = true;
               break;
+            case 'default':
             default: // 'default'
               passesFilter = !isSettingsEntry;
               break;
@@ -444,7 +455,9 @@
         }
 
         while (stack.length > 0) {
-          const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop();
+          const frame = stack.pop();
+          if (frame === undefined) break;
+          const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = frame;
 
           const flatNode = filteredNodeMap.get(nodeId);
           if (!flatNode) continue;
@@ -505,11 +518,13 @@
       function formatToolCall(name, args) {
         switch (name) {
           case 'read': {
-            const path = shortenPath(String(args.path || args.file_path || ''));
-            const offset = args.offset;
-            const limit = args.limit;
+            const path = shortenPath(argText(args.path || args.file_path));
+            const offset = num(args.offset);
+            const limit = num(args.limit);
             let display = path;
-            if (offset !== undefined || limit !== undefined) {
+            if (offset === null || limit === null) {
+              display += ' [invalid arg]';
+            } else if (offset !== undefined || limit !== undefined) {
               const start = offset ?? 1;
               const end = limit !== undefined ? start + limit - 1 : '';
               display += `:${start}${end ? `-${end}` : ''}`;
@@ -517,20 +532,20 @@
             return `[read: ${display}]`;
           }
           case 'write':
-            return `[write: ${shortenPath(String(args.path || args.file_path || ''))}]`;
+            return `[write: ${shortenPath(argText(args.path || args.file_path))}]`;
           case 'edit':
-            return `[edit: ${shortenPath(String(args.path || args.file_path || ''))}]`;
+            return `[edit: ${shortenPath(argText(args.path || args.file_path))}]`;
           case 'bash': {
-            const rawCmd = String(args.command || '');
+            const rawCmd = argText(args.command);
             const cmd = rawCmd.replace(/[\n\t]/g, ' ').trim().slice(0, 50);
             return `[bash: ${cmd}${rawCmd.length > 50 ? '...' : ''}]`;
           }
           case 'grep':
-            return `[grep: /${args.pattern || ''}/ in ${shortenPath(String(args.path || '.'))}]`;
+            return `[grep: /${argText(args.pattern)}/ in ${shortenPath(argText(args.path) || '.')}]`;
           case 'find':
-            return `[find: ${args.pattern || ''} in ${shortenPath(String(args.path || '.'))}]`;
+            return `[find: ${argText(args.pattern)} in ${shortenPath(argText(args.path) || '.')}]`;
           case 'ls':
-            return `[ls: ${shortenPath(String(args.path || '.'))}]`;
+            return `[ls: ${shortenPath(argText(args.path) || '.')}]`;
           default: {
             const argsStr = JSON.stringify(args).slice(0, 40);
             return `[${name}: ${argsStr}${JSON.stringify(args).length > 40 ? '...' : ''}]`;
@@ -617,6 +632,12 @@
             return labelHtml + `<span class="tree-muted">[thinking: ${escapeHtml(entry.thinkingLevel)}]</span>`;
           case 'service_tier_change':
             return labelHtml + `<span class="tree-muted">[service tier: ${escapeHtml(entry.serviceTier || 'default')}]</span>`;
+          case 'custom':
+          case 'child_usage_attributed':
+          case 'label':
+          case 'session_info':
+          case 'session_state':
+          case 'git_state':
           default:
             return labelHtml + `<span class="tree-muted">[${escapeHtml(entry.type)}]</span>`;
         }
@@ -724,6 +745,18 @@
       function str(value) {
         if (typeof value === 'string') return value;
         if (value == null) return '';
+        return null;
+      }
+
+      /** A string argument for the tree's one-line summaries: '' when absent, '[invalid arg]' when not a string. */
+      function argText(value) {
+        return str(value) ?? '[invalid arg]';
+      }
+
+      /** A numeric argument: the number, undefined when absent, null when not a number. */
+      function num(value) {
+        if (typeof value === 'number') return value;
+        if (value == null) return undefined;
         return null;
       }
 
@@ -850,14 +883,18 @@
           }
           case 'read': {
             const filePath = str(args.file_path ?? args.path);
-            const offset = args.offset;
-            const limit = args.limit;
+            const offset = num(args.offset);
+            const limit = num(args.limit);
 
             let pathHtml = filePath === null ? invalidArg : escapeHtml(shortenPath(filePath || ''));
-            if (filePath !== null && (offset !== undefined || limit !== undefined)) {
-              const startLine = offset ?? 1;
-              const endLine = limit !== undefined ? startLine + limit - 1 : '';
-              pathHtml += `<span class="line-numbers">:${startLine}${endLine ? '-' + endLine : ''}</span>`;
+            if (filePath !== null) {
+              if (offset === null || limit === null) {
+                pathHtml += ` ${invalidArg}`;
+              } else if (offset !== undefined || limit !== undefined) {
+                const startLine = offset ?? 1;
+                const endLine = limit !== undefined ? startLine + limit - 1 : '';
+                pathHtml += `<span class="line-numbers">:${startLine}${endLine ? '-' + endLine : ''}</span>`;
+              }
             }
 
             html += `<div class="tool-header"><span class="tool-name">read</span> <span class="tool-path">${pathHtml}</span></div>`;
@@ -912,10 +949,12 @@
           }
           case 'ls': {
             const dirPath = str(args.path);
-            const limit = args.limit;
+            const limit = num(args.limit);
 
             let pathHtml = dirPath === null ? invalidArg : escapeHtml(shortenPath(dirPath || '.'));
-            if (limit !== undefined) {
+            if (limit === null) {
+              pathHtml += ` ${invalidArg}`;
+            } else if (limit !== undefined) {
               pathHtml += ` <span class="line-count">(limit ${escapeHtml(String(limit))})</span>`;
             }
 
@@ -926,35 +965,13 @@
             }
             break;
           }
-          default: {
-            const rendered = renderedTools?.[call.id];
-            if (rendered?.callHtml || rendered?.resultHtmlCollapsed || rendered?.resultHtmlExpanded) {
-              if (rendered.callHtml) {
-                html += `<div class="tool-header ansi-rendered">${rendered.callHtml}</div>`;
-              } else {
-                html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
-              }
-
-              if (rendered.resultHtmlCollapsed && rendered.resultHtmlExpanded && rendered.resultHtmlCollapsed !== rendered.resultHtmlExpanded) {
-                html += `<div class="tool-output expandable ansi-rendered" onclick="if(window.getSelection().toString())return;this.classList.toggle('expanded')">
-                  <div class="output-preview">${rendered.resultHtmlCollapsed}</div>
-                  <div class="output-full">${rendered.resultHtmlExpanded}</div>
-                </div>`;
-              } else if (rendered.resultHtmlExpanded) {
-                html += `<div class="tool-output ansi-rendered">${rendered.resultHtmlExpanded}</div>`;
-              } else if (result) {
-                const output = getResultText();
-                if (output) html += formatExpandableOutput(output, 10);
-              }
-            } else {
-              html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
-              html += `<div class="tool-output"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>`;
-              if (result) {
-                const output = getResultText();
-                if (output) html += formatExpandableOutput(output, 10);
-              }
+          default:
+            html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
+            html += `<div class="tool-output"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>`;
+            if (result) {
+              const output = getResultText();
+              if (output) html += formatExpandableOutput(output, 10);
             }
-          }
         }
 
         html += '</div>';
@@ -968,7 +985,7 @@
       window.downloadSessionJson = function() {
         const lines = [];
         if (header) {
-          lines.push(JSON.stringify({ type: 'header', ...header }));
+          lines.push(JSON.stringify(header));
         }
         for (const entry of entries) {
           lines.push(JSON.stringify(entry));
@@ -1157,13 +1174,15 @@
           }
 
           if (msg.role === 'bashExecution') {
-            const isError = msg.cancelled || (msg.exitCode !== 0 && msg.exitCode !== null);
+            // No exitCode: the command is still running (or ended without one); no exit to show.
+            const failed = msg.exitCode !== undefined && msg.exitCode !== 0;
+            const isError = msg.cancelled || failed;
             let html = `<div class="tool-execution ${isError ? 'error' : 'success'}" id="${entryDomId}">${tsHtml}`;
             html += `<div class="tool-command">$ ${escapeHtml(msg.command)}</div>`;
             if (msg.output) html += formatExpandableOutput(msg.output, 10);
             if (msg.cancelled) {
               html += '<div style="color: var(--warning)">(cancelled)</div>';
-            } else if (msg.exitCode !== 0 && msg.exitCode !== null) {
+            } else if (failed) {
               html += `<div style="color: var(--error)">(exit ${msg.exitCode})</div>`;
             }
             html += '</div>';
@@ -1195,7 +1214,7 @@
         if (entry.type === 'custom_message' && entry.display) {
           return `<div class="hook-message" id="${entryDomId}">${tsHtml}
             <div class="hook-type">[${escapeHtml(entry.customType)}]</div>
-            <div class="markdown-content">${safeMarkedParse(typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content))}</div>
+            <div class="markdown-content">${safeMarkedParse(extractContent(entry.content))}</div>
           </div>`;
         }
 
@@ -1317,7 +1336,7 @@
                 let paramsHtml = '';
                 for (const [name, prop] of Object.entries(properties)) {
                   const isRequired = required.includes(name);
-                  const typeStr = prop.type || 'any';
+                  const typeStr = (Array.isArray(prop.type) ? prop.type.join(' | ') : prop.type) || 'any';
                   const reqLabel = isRequired ? '<span class="tool-param-required">required</span>' : '<span class="tool-param-optional">optional</span>';
                   paramsHtml += `<div class="tool-param"><span class="tool-param-name">${escapeHtml(name)}</span> <span class="tool-param-type">${escapeHtml(typeStr)}</span> ${reqLabel}`;
                   if (prop.description) {
@@ -1663,6 +1682,7 @@
         if (e.key === 'Escape') {
           searchInput.value = '';
           searchQuery = '';
+          treeRendered = false;
           navigateTo(leafId, 'bottom');
         }
 

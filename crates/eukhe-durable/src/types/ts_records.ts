@@ -1,8 +1,10 @@
 // Produces `ts_records.json`: durable record JSON written by the TS package
-// (`@earendil-works/pi-durable` v1.0.4), for the Rust serde round-trip tests.
-// Regenerate from a directory with the npm packages installed:
-//   node --input-type=module < ts_records.mjs > ts_records.json
+// (`@earendil-works/pi-durable` v1.0.4, `@earendil-works/chord` v1.0.4), for
+// the Rust serde round-trip tests. Regenerate from a directory with the npm
+// packages installed (Node 22.18 or later):
+//   node --input-type=module-typescript < ts_records.ts > ts_records.json
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import type { Context, JsonValue } from "@earendil-works/chord";
 import {
 	CompactionEntry,
 	MemoryStorage,
@@ -17,12 +19,17 @@ import {
 	defineEntry,
 	defineTask,
 } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, Seq, StorageWrite, SubmissionId, TaskId, TaskRecord } from "@earendil-works/pi-durable";
 
 class LoggingStorage extends MemoryStorage {
-	batches = [];
-	async commit(writes, ctx) {
+	batches: string[] = [];
+	/** The sequence number of each commit, in order. */
+	seqs: Seq[] = [];
+	override async commit(writes: readonly StorageWrite[], ctx: Context): Promise<Seq> {
 		this.batches.push(JSON.stringify(writes));
-		return super.commit(writes, ctx);
+		const seq = await super.commit(writes, ctx);
+		this.seqs.push(seq);
+		return seq;
 	}
 }
 
@@ -35,6 +42,8 @@ const LatestDoc = defineDoc({ kind: "t.latest", version: 1, scope: "conversation
 const RewindableDoc = defineDoc({ kind: "t.rewindable", version: 2, scope: "conversation", history: "rewindable", fork: "asOf", initial });
 const InitialDoc = defineDoc({ kind: "t.initial", version: 1, scope: "conversation", history: "rewindable", fork: "initial", initial });
 const TaskDoc = defineDoc({ kind: "t.task", version: 1, scope: "task", initial });
+/** A family document; the second commit adds `list`. */
+type FamilyValue = { value: number; "2": string; "1": string; list?: JsonValue[] };
 const Family = defineDocFamily({
 	kind: "t.family",
 	version: 1,
@@ -42,14 +51,14 @@ const Family = defineDocFamily({
 	scope: "conversation",
 	history: "latest",
 	fork: "initial",
-	initial: (seed) => ({ value: seed, "2": "index", "1": "first" }),
+	initial: (seed: number): FamilyValue => ({ value: seed, "2": "index", "1": "first" }),
 });
-const Note = defineEntry("t.note");
+const Note = defineEntry<{ text: string; nested: JsonValue[] }>("t.note");
 
 const Echo = defineTask({
 	name: "t.echo",
 	version: 3,
-	initial: (input) => ({ phase: "run", input }),
+	initial: (input: { text: string } | null) => ({ phase: "run", input }),
 	phases: { run: async () => {} },
 	abort: async () => {},
 });
@@ -63,7 +72,27 @@ const usage = {
 	cost: { input: 0.001, output: 0.002, cacheRead: 0, cacheWrite: 0, total: 0.003 },
 };
 
-const ids = {};
+/** The records the later commits and reads name, filled by the first commits. */
+type Ids = {
+	root?: ConversationId;
+	user?: EntryId;
+	assistant?: EntryId;
+	task?: TaskId;
+	child?: TaskId;
+	queued?: SubmissionId;
+	placed?: SubmissionId;
+	write?: SubmissionId;
+	forkChild?: ConversationId;
+	fork?: ConversationId;
+};
+
+/** `value`, which an earlier commit set. */
+function known<T>(value: T | undefined): T {
+	if (value === undefined) throw new Error("a record the first commits create is missing");
+	return value;
+}
+
+const ids: Ids = {};
 await session.commit(async (tx) => {
 	const root = await tx.createConversation({ ownership: { kind: "ownerless" } });
 	ids.root = root.id;
@@ -142,56 +171,60 @@ await session.commit(async (tx) => {
 }, context);
 
 await session.commit(async (tx) => {
-	(await tx.doc(RewindableDoc, ids.root)).value = 2;
-	(await tx.doc(LatestDoc, ids.root)).value = 3;
-	(await tx.doc(Family, ids.root, "k\"ey", 7)).list = ["a", { b: 1 }];
-	tx.placeSubmission(ids.queued, ids.user);
-	tx.placeSubmission(ids.write, ids.user);
-	tx.settleSubmission(ids.placed, { status: "unanswered", reason: "failed", detail: { codes: ["x"] } });
+	(await tx.doc(RewindableDoc, known(ids.root))).value = 2;
+	(await tx.doc(LatestDoc, known(ids.root))).value = 3;
+	(await tx.doc(Family, known(ids.root), "k\"ey", 7)).list = ["a", { b: 1 }];
+	tx.placeSubmission(known(ids.queued), known(ids.user));
+	tx.placeSubmission(known(ids.write), known(ids.user));
+	tx.settleSubmission(known(ids.placed), { status: "unanswered", reason: "failed", detail: { codes: ["x"] } });
 }, context);
 
 await session.commit(async (tx) => {
-	tx.settleSubmission(ids.queued, { status: "done", answer: ids.assistant });
+	tx.settleSubmission(known(ids.queued), { status: "done", answer: known(ids.assistant) });
 	await tx.retireDoc(SessionDoc);
 }, context);
 
 await session.commit(async (tx) => {
-	const child = await tx.createConversation({ ownership: { kind: "task", taskId: ids.task } });
-	const fork = await tx.forkConversation(ids.root, ids.assistant, { ownership: { kind: "ownerless" } });
+	const child = await tx.createConversation({ ownership: { kind: "task", taskId: known(ids.task) } });
+	const fork = await tx.forkConversation(known(ids.root), known(ids.assistant), { ownership: { kind: "ownerless" } });
 	ids.forkChild = child.id;
 	ids.fork = fork.id;
 }, context);
 
 // Task state transitions are scheduler work; write TS-shaped records directly.
-const stored = await storage.task(ids.task, context);
-const variants = [
+const stored = known(await storage.task(known(ids.task), context));
+if (stored.state.status !== "pending") throw new Error(`task ${stored.id} is ${stored.state.status}, not pending`);
+// A settled task holds no memos.
+const { memos, ...settled } = stored;
+if (memos !== undefined) throw new Error(`task ${stored.id} holds memos`);
+const variants: TaskRecord<JsonValue, JsonValue, JsonValue>[] = [
 	{ ...stored, state: { status: "running", checkpoint: stored.state.checkpoint }, memos: { kept: true, n: 1 } },
-	{ ...stored, state: { status: "waiting", checkpoint: { phase: "wait" }, on: [ids.child], policy: "allSettled" }, abortRequested: true },
-	{ ...stored, state: { status: "waiting", checkpoint: { phase: "wait" }, on: [ids.child], policy: "failFast" } },
-	{ ...stored, state: { status: "completing", outcome: { status: "failed", error: { message: "held", detail: { reason: "model_error" } }, result: { entryId: 3 } } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "completed", result: { entryId: 4, control: { terminate: true } } } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "aborted" } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "aborted", reason: "user", result: null } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "orphaned", reason: "missing_task" } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "faulted", error: { message: "threw" } } } },
-	{ ...stored, state: { status: "terminal", outcome: { status: "completed", result: null } } },
+	{ ...stored, state: { status: "waiting", checkpoint: { phase: "wait" }, on: [known(ids.child)], policy: "allSettled" }, abortRequested: true },
+	{ ...stored, state: { status: "waiting", checkpoint: { phase: "wait" }, on: [known(ids.child)], policy: "failFast" } },
+	{ ...settled, state: { status: "completing", outcome: { status: "failed", error: { message: "held", detail: { reason: "model_error" } }, result: { entryId: 3 } } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "completed", result: { entryId: 4, control: { terminate: true } } } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "aborted" } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "aborted", reason: "user", result: null } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "orphaned", reason: "missing_task" } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "faulted", error: { message: "threw" } } } },
+	{ ...settled, state: { status: "terminal", outcome: { status: "completed", result: null } } },
 ];
 for (const value of variants) await storage.commit([{ type: "task", value }], context);
 
 const records = {
 	conversations: (await storage.scanConversations({}, 100, undefined, context)).items,
-	entries: (await storage.scanEntries({ conversationId: ids.root }, 100, undefined, context)).items,
-	entryLookup: await storage.entry(ids.user, context),
-	tasks: [await storage.task(ids.child, context), ...variants],
+	entries: (await storage.scanEntries({ conversationId: known(ids.root) }, 100, undefined, context)).items,
+	entryLookup: await storage.entry(known(ids.user), context),
+	tasks: [await storage.task(known(ids.child), context), ...variants],
 	submissions: (await storage.scanSubmissions({}, 100, undefined, context)).items,
 	documents: [
-		...(await storage.scanDocuments({ scope: { kind: "conversation", conversationId: ids.root }, at: "current" }, 100, undefined, context)).items,
-		...(await storage.scanDocuments({ scope: { kind: "conversation", conversationId: ids.fork }, at: "current" }, 100, undefined, context)).items,
-		...(await storage.scanDocuments({ scope: { kind: "task", taskId: ids.task }, at: "current" }, 100, undefined, context)).items,
-		await storage.findDocument({ kind: "t.session", scope: { kind: "session" } }, 1, context),
+		...(await storage.scanDocuments({ scope: { kind: "conversation", conversationId: known(ids.root) }, at: "current" }, 100, undefined, context)).items,
+		...(await storage.scanDocuments({ scope: { kind: "conversation", conversationId: known(ids.fork) }, at: "current" }, 100, undefined, context)).items,
+		...(await storage.scanDocuments({ scope: { kind: "task", taskId: known(ids.task) }, at: "current" }, 100, undefined, context)).items,
+		await storage.findDocument({ kind: "t.session", scope: { kind: "session" } }, known(storage.seqs[0]), context),
 	],
 	stored: await storage.document(
-		(await storage.findDocument({ kind: "t.rewindable", scope: { kind: "conversation", conversationId: ids.root } }, "current", context)).id,
+		known(await storage.findDocument({ kind: "t.rewindable", scope: { kind: "conversation", conversationId: known(ids.root) } }, "current", context)).id,
 		"current",
 		context,
 	),

@@ -1,6 +1,6 @@
 //! Port of `test/types.test.ts` (record shapes) plus serde round trips of
 //! every record kind against JSON written by the TS package (`ts_records.json`,
-//! produced by `ts_records.mjs`). The TS compile-time failure checks are
+//! produced by `ts_records.ts`). The TS compile-time failure checks are
 //! `compile_fail` doctests in `types::compile_checks`.
 
 use std::sync::Arc;

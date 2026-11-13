@@ -1,10 +1,10 @@
 // Drives the compiled Bend core (src/vim.mjs) with keys and prints each frame's
-// cursor, ruler and command line. Usage: node scripts/vim-smoke.mjs "j j w G gg"
+// cursor, ruler and command line. Usage: node scripts/vim-smoke.ts "j j w G gg"
 import fs from "node:fs";
-import Vim from "../src/vim.mjs";
+import Vim, { type BendList, type Buf } from "../src/vim.mjs";
 
-const list = (v) => {
-  const out = [];
+const list = <T>(v: BendList<T> | T[]): T[] => {
+  const out: T[] = [];
   while (v && !Array.isArray(v) && v.$ === "Con") {
     out.push(v.head);
     v = v.tail;
@@ -12,15 +12,16 @@ const list = (v) => {
   return Array.isArray(v) ? out.concat(v) : out;
 };
 
-const cons = (xs) => xs.reduceRight((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
+const cons = <T>(xs: T[]): BendList<T> =>
+  xs.reduceRight<BendList<T>>((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
 const page = fs.readFileSync(new URL("../../README.md", import.meta.url), "utf8");
-const files = cons([
+const files = cons<Buf>([
   { $: "Buf", path: "index.md", lines: cons(page.replace(/\n$/, "").split("\n")) },
   { $: "Buf", path: "docs/install.md", lines: cons(["# Install", "", "curl it"]) },
   { $: "Buf", path: "LICENSE", lines: cons(["MIT License", "", "Copyright"]) },
 ]);
 let st = Vim["Vim.init"](files, 40, 120);
-const show = (label) => {
+const show = (label: string) => {
   const f = Vim["Vim.frame"](st);
   const float = f.float.$ === "Some" ? ` float=${f.float.value.width}x${f.float.value.height}` : "";
   console.log(

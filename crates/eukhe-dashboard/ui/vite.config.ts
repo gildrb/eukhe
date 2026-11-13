@@ -13,12 +13,14 @@ export default defineConfig({
   // The app is served under any path (`tailscale serve --set-path /eukhe`): every URL is relative.
   base: "./",
   publicDir: "public",
-  fmt: { ignorePatterns: ["public/**"] },
+  // public/theme.js and public/sw.js are generated from public-src/ (scripts/embedded-js.ts,
+  // which also checks the sources): the formatter leaves the sources as they are written.
+  fmt: { ignorePatterns: ["public/**", "public-src/**"] },
   lint: {
-    ignorePatterns: ["public/**"],
+    ignorePatterns: ["public/**", "public-src/**"],
     plugins: ["typescript", "unicorn", "oxc", "import"],
     // eukhe/token-literals: a presentation value outside src/tokens.stylex.ts fails the check.
-    jsPlugins: ["./lint/tokens.mjs"],
+    jsPlugins: ["./lint/tokens.ts"],
     categories: { correctness: "error", suspicious: "error" },
     rules: {
       "typescript/no-explicit-any": "error",
@@ -44,8 +46,9 @@ export default defineConfig({
       devMode: "css-only",
     }),
   ],
-  // `vp test`: component tests (colocated `*.test.tsx`) in a browser-like DOM.
-  test: { environment: "happy-dom", include: ["src/**/*.test.{ts,tsx}"] },
+  // `vp test`: component tests (colocated `*.test.tsx`) in a browser-like DOM, and the HTML
+  // export template's tests (scripts/export-template.test.ts).
+  test: { environment: "happy-dom", include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"] },
   // Radix and markdown-to-jsx are written for React: they get Preact's
   // compatibility layer in its place (preactjs.com, "Aliasing React to Preact").
   resolve: {

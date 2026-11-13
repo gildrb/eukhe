@@ -99,6 +99,51 @@ async fn imported_legacy_file_exports_its_storage() {
     );
 }
 
+/// A compaction row carries the context size the last assistant reply
+/// before it reported, not 0: the template shows it ("Compacted from …").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compaction_rows_carry_the_context_size_before_them() {
+    let fixture = fixture();
+    let cwd = fixture.project("alpha");
+    let legacy = fixture.sessions.join("compacted-1.jsonl");
+    let usage = json!({"input": 1000, "output": 200, "cacheRead": 0, "cacheWrite": 0,
+        "totalTokens": 1200,
+        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}});
+    let rows = [
+        json!({"type": "session", "version": 3, "id": "compacted-1",
+            "timestamp": "2024-01-01T00:00:00.000Z", "cwd": cwd}),
+        json!({"type": "message", "id": "u1", "parentId": null,
+            "timestamp": "2024-01-01T00:00:01.000Z",
+            "message": {"role": "user", "content": "question", "timestamp": 1000}}),
+        json!({"type": "message", "id": "a1", "parentId": "u1",
+            "timestamp": "2024-01-01T00:00:02.000Z",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "answer"}],
+                "api": "faux", "provider": "faux", "model": "faux-1", "usage": usage,
+                "stopReason": "stop", "timestamp": 2000}}),
+        json!({"type": "compaction", "id": "c1", "parentId": "a1",
+            "timestamp": "2024-01-01T00:00:03.000Z", "summary": "so far",
+            "firstKeptEntryId": "a1", "tokensBefore": 1200}),
+    ];
+    let lines: Vec<String> = rows.iter().map(Value::to_string).collect();
+    std::fs::write(&legacy, lines.join("\n") + "\n").expect("legacy file");
+    import_legacy_session(&legacy, &fixture.sessions.join("compacted-1"), cx())
+        .await
+        .expect("import");
+    let out = fixture.project("out").join("export.html");
+
+    export_to(&legacy, &out).await.expect("export");
+
+    let data = embedded_data(&std::fs::read_to_string(&out).expect("read export"));
+    let compactions: Vec<&Value> = data["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter(|row| row["type"] == "compaction")
+        .collect();
+    assert_eq!(compactions.len(), 1, "{data}");
+    assert_eq!(compactions[0]["tokensBefore"], 1200);
+}
+
 /// A directory without a durable storage is an error naming it, and no
 /// export file is written.
 #[tokio::test]
