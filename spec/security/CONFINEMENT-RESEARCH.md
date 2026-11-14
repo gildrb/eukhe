@@ -361,6 +361,13 @@ FSEvents; probes, then timings.
   a subscriber whatever its sandbox allows [unconfirmed from a primary
   source: a 2019 report on Apple's filesystem-dev list]; a probe in the
   suite checks that a confined program gets no FSEvents stream at all.
+- `kern.procargs2` (`sysctl` with `CTL_KERN`, `KERN_PROCARGS2`, pid) on a
+  same-user Node process started with `SBXSECRET=hunter2`: a program under
+  `(deny default)` read its environment, with `(allow sysctl-read)`, with
+  `sysctl-read` limited to five names, with no `sysctl-read` rule at all,
+  and with no `process-info*` rule, while the same profile denied a file
+  write. Apple's own `/bin/sleep` returned no environment, confined or
+  not. No Seatbelt rule tried here filters the call.
 
 ### 5.2 Linux (AMD Ryzen 7 5800X, NixOS 26.05, kernel 6.18.50, Landlock ABI 7, bubblewrap 0.11.2)
 
