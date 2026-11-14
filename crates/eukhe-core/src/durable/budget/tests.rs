@@ -50,8 +50,14 @@ fn fixed_clock() -> u64 {
 }
 
 /// The ledger clock of the moving fixtures: [`NOW_MS`] until a test moves
-/// it. One test uses it.
+/// it. One process-wide clock (a ledger's clock is a plain `fn`), so a test
+/// that sets and moves it holds [`MOVING_CLOCK_OWNER`] while it runs.
 static MOVING_MS: AtomicU64 = AtomicU64::new(NOW_MS);
+
+/// Held by the test that owns [`MOVING_MS`]: `cargo test` runs tests in
+/// one process, and two tests moving the clock at once read each other's
+/// moves.
+static MOVING_CLOCK_OWNER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn moving_clock() -> u64 {
     MOVING_MS.load(Ordering::SeqCst)
@@ -914,6 +920,7 @@ async fn stopped_at_the_deadline(
     Option<BudgetReport>,
     Option<String>,
 ) {
+    let _clock = MOVING_CLOCK_OWNER.lock().await;
     MOVING_MS.store(NOW_MS, Ordering::SeqCst);
     let calls = Arc::new(AtomicUsize::new(0));
     let notice = Arc::new(Mutex::new(None));
