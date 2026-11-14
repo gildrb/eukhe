@@ -425,3 +425,110 @@ abstract sockets scoped.
   well as loopback and private ranges, since dialling `0.0.0.0` or
   `::ffff:127.0.0.1` reaches this machine's services.
 - Programs that ignore proxy variables get no network: they fail closed.
+
+## 7. Threat model triage
+
+### 7.1 Covert channel measurements
+
+Single runs on 2026-11-14; each states one host's behaviour, not a rate.
+
+- File locks, macOS 27.3 (Apple M4): a Python process under
+  `(deny default)` with `process-exec`, `process-fork`, `file-read*` and
+  `sysctl-read` opened a file read-only and took `LOCK_EX` with `flock`;
+  an unconfined process's `LOCK_EX | LOCK_NB` on the same file failed with
+  `EWOULDBLOCK` (errno 35) while it held the lock.
+- Access times, Linux 6.18.50 (NixOS): a file with an access time two days
+  old and a modification time three days old, read once with `cat`: on a
+  `relatime` tmpfs (`$XDG_RUNTIME_DIR`) and on `/dev/shm` the access time
+  became the read time; on the home and `/tmp` btrfs mounts (`noatime`) it
+  did not change. macOS 27.3, APFS data volume: the same read left the
+  access time unchanged.
+- Abstract names, Linux 6.18.50: `/proc/net/unix` and `/proc/net/tcp` are
+  mode 0444; `/proc/net/unix` listed 23 abstract names (entries starting
+  with `@`). Not repeated under Landlock.
+- inotify across binds and FSEvents paths: reported by reviews (rounds 11
+  and 13), not measured here.
+
+### 7.2 Rounds 6 to 14 against the threat model
+
+Each gap the blind reviews of rounds 6 to 14 reported, classed by the
+guarantee of `CONFINEMENT.md` §2 it broke. A covert channel breaks none;
+it is listed under §2's limits with the evidence of §7.1. Totals: 50
+broke a guarantee and are fixed; 5 are covert channels, now limits (their
+narrowings stay); 1 was measured not to hold; 1 broke no guarantee.
+
+|Round|Gap|Finding|Guarantee|Disposition|
+|---|---|---|---|---|
+|6|1|Descriptor-form metadata changes in check and unattended profiles on Landlock tiers|G1|fixed: denied there|
+|6|2|Re-establishment trusts files an unconfined program could rewrite|G6|fixed: verified launch, head-digest check|
+|6|3|Loopback service ports squatted on the other address|G5|fixed: fixed ports held on both addresses, unbindable|
+|6|4|Abstract daemon name squatted, pid check defeated by pid reuse|G5|fixed: random name per start, server secret|
+|6|5|Credentials denied only for reading|G2, G4|fixed: every access denied|
+|6|6|Seatbelt hard link from outside a write tree into it|G2|measured not to hold (R§5.1); no change|
+|6|7|"highest mark" missed live programs|G6|fixed|
+|6|8|Deferred execution files shown only after the TUI shell ran them|G4|fixed: shown before each TUI command|
+|7|1|Inode flag ioctls outside every grant on Landlock tiers|G1|fixed: denied by seccomp|
+|7|2|Loopback TCP between confined programs carried marked data|G3|fixed: mark channel|
+|7|3|Trusted-base helpers resolved from a write reach|G4, G5|fixed: clean PATH, helpers are state|
+|7|4|Deferred execution files noticed too late|G4|fixed; other terminals stated as a limit|
+|7|5|`unconfined_only_by_grant` allowed no refusal by cause|G6|fixed|
+|7|6|Re-establishment binary substitution|G6|fixed: Team-ID check, `env -i` start|
+|7|7|Software delegates missing from state|G4, G5|fixed|
+|8|1|Symlink swap between listing and Landlock rule|G1, G2|fixed: rules on `openat2` descriptors checked against the listing|
+|8|2|Script helpers load code from interpreter load directories|G4|fixed: isolation flags, refusal|
+|8|3|Escape instances matched by version across release branches|G6|fixed: per-branch introducing version, probes everywhere|
+|8|4|macOS loopback bind missing from the mark-rise stop|G3|fixed|
+|8|5|Entries named like Eukhe executables on `PATH`|G5|fixed: deny set|
+|8|6|Bare repository layouts in write trees|G4|fixed: listed|
+|8|7|Access times of read files as a channel from a held-out check|covert|limit; narrowed by tier N read-only binds|
+|8|8|Abstract daemon name visible in `/proc/net/unix`|covert (visibility); G5 (squat)|limit for visibility; squat closed by the handshake|
+|9|1|macOS `ip` filters admit UDP to proxy and loopback ports|G3|fixed: `tcp` filters (measured)|
+|9|2|Socket bound in the private temp dir renamed into a write tree|G5|fixed: vnode-type deny (measured)|
+|9|3|gpg-agent honours a caller's terminal options|G5|fixed: probe condition|
+|9|4|Check tools and closure parts writable by agent programs|G4, G6|fixed: copied by digest, state|
+|9|5|Held-out source path readable|G2|fixed: state from when a contract names it|
+|9|6|Held-out check with a send grant|G2, G3|fixed: `NoNet`|
+|9|7|NAT64 prefixes bypass the refused-address list|G3|fixed|
+|9|8|§9 and C19 disagreed on affected hosts|G6|fixed|
+|10|1|Crash handler writes program-chosen data outside every profile|G1, G2|fixed: stores are state, `RLIMIT_CORE` 0|
+|10|2|File poisoned before it becomes a credential state part|G4|fixed: commands confirmed, digest bound|
+|10|3|gpg-agent and ssh-agent exceptions reach the principal channel|G2, G5|fixed: extra socket under probe; ssh confirm prompt stated as a limit|
+|10|4|Abstract names and bound ports as a channel between runs on L1|covert|limit|
+|10|5|Held-out check exclusive window undefined for live programs|G2, G6|fixed: start stops every live program|
+|10|6|Decisions 6 and 13 stall unattended runs unstated|G6|fixed: stated in §7, §11, C24|
+|11|1|Loopback endpoints of the trusted base and delegates taken over|G5|fixed: unbindable ports|
+|11|2|FSEvents reports file names whatever the sandbox|covert|limit; narrowed: no profile reaches FSEvents|
+|11|3|Proxy allowed on-link addresses|G3|fixed|
+|12|1|Ephemeral-range endpoint taken by a port-0 bind|G5|fixed|
+|12|2|Path that becomes state stays reachable to a live program|G2|fixed: live programs stopped first|
+|12|3|Proxy could resolve a refused name|G3|fixed: decided before lookup|
+|12|4|Control sequences in program output on the TUI|G5|fixed: escaped|
+|12|5|Private temp dir inside a copy other programs write|G1, G4|fixed: in the work root|
+|13|1|`kern.procargs2` exposes argv and environment on macOS|G2, G3|fixed: no credential in argv or environment; mark channel|
+|13|2|File locks and inotify access events between runs|covert|limit; narrowed: held-out check runs alone|
+|13|3|Datagram `socketpair` sends to any pathname socket|G1, G5|fixed: stream and seqpacket only|
+|13|4|Abstract endpoints of delegates and helper agents squatted|G5|fixed: proof of a secret|
+|14|1|Loader variables reach the launcher before any rule|G1, G2|fixed: fixed launcher environment|
+|14|2|Environment-supplied provider credential readable through `kern.procargs2`|G2|fixed: re-exec without it; loss on macOS|
+|14|3|Held-out check stores content in an agent with `PUTVAL`|G2|fixed: no `Socket` grant|
+|14|4|No law bound `not_isolated`|G6|fixed|
+|14|5|L3 signal scope contradicted C9|G6|fixed: platform fact with a loss|
+|14|6|Dashboard renders program output|G5, G3|fixed: escaped, no outside resource|
+|14|7|POSIX shared memory namespace uncounted|G1|fixed: shared write under tm8|
+|14|8|Tools that apply their own Seatbelt profile missing from §11|none (usability)|not a gap under the rubric; the row stays|
+
+### 7.3 Review rubric from round 15
+
+A gap is a concrete way to violate one of the guarantees G1 to G6 of
+`CONFINEMENT.md` §2 as the design is written: the steps a program takes
+(or a builder takes following the text), the platform and tier, and the
+guarantee that fails. A mechanism fact the design gets wrong, a law that
+admits the violating program, and a contradiction a builder must resolve
+in a way that breaks a guarantee are gaps when shown by such steps. Covert
+and side channels between processes of the same user, and every other
+limit §2 states, are not gaps; neither are kernel or hardware isolation
+beyond tier N's namespaces, wording, usability or migration cost, unless
+the design claims something false about them (G6). Each round's reviewer
+is fresh and sees only the design, its appendix and the cited philosophy.
+The reviews stop after two rounds in a row report no gap under this
+rubric.
