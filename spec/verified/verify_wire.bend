@@ -117,7 +117,8 @@ def w_req(q: FV.Req, rest: String) -> String:
 # Spellers: the reply, as Rust reads it
 # -------------------------------------
 
-# the tag of a label: 0 verified, 1 failed, 2 unverified
+# the tag of a label: 0 verified, 1 failed, 2 unverified, 3 passed (checks
+# passed, unconfined)
 def w_label(l: V.Label) -> Nat:
   match l:
     case V.Verified{}:
@@ -126,6 +127,8 @@ def w_label(l: V.Label) -> Nat:
       1n
     case V.Unverified{}:
       2n
+    case V.Passed{}:
+      3n
 
 # an action: 0 rest; 1 run and the index; 2 return; 3 end and the label
 def w_action(x: V.Action, rest: String) -> String:
@@ -151,15 +154,16 @@ def w_advanced(r: V.Action & V.Acc) -> String:
 # The decisions are the model's (bend/verify.bend), each pinned by the
 # laws of laws/verify.bend: act by the laws of R3, advance by the laws of
 # R4, label by verify_label_is_spec, exit by verify_exit_is_spec, the
-# verdicts by the laws of R1, claims by the laws of R7
+# verdicts by the laws of R1, claims by the laws of R7. The label and the
+# advance are for programs run unconfined (S6: no confinement exists).
 def w_reply(q: FV.Req) -> String:
   match q:
     case FV.QAct{who, op, a}:
       w_acted(V.act(who, op, a))
     case FV.QAdvance{now, cap, a}:
-      w_advanced(V.advance(now, cap, a))
+      w_advanced(V.advance(False{}, now, cap, a))
     case FV.QLabel{now, slots}:
-      Wr.put_nat(w_label(V.label(now, slots)), "")
+      Wr.put_nat(w_label(V.label(False{}, now, slots)), "")
     case FV.QExit{base, now, slots}:
       Wr.put_nat(V.exit(base, now, slots), "")
     case FV.QCommand{expect, intact, ev}:

@@ -325,7 +325,7 @@ impl RlmChildVerdict {
     pub fn headline(&self) -> String {
         format!(
             "{} ({}/{} checks confirmed on its final state)",
-            self.label.slug(),
+            self.label.text(),
             self.confirmed,
             self.checks
         )

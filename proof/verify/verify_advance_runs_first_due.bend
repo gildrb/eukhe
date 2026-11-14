@@ -10,6 +10,6 @@ import ../../spec/verified/verify.bend as S
 import ../../laws/verify.bend as Verify
 import ./base/act.bend as LA
 
-def Verify.verify_advance_runs_first_due(now, cap, rev, slots, tries, left):
-  %LA.va.due_some(now, slots, left) : {V.advance(now, cap, V.Acc{rev, slots, True{}, tries}) == V.advance.go(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
+def Verify.verify_advance_runs_first_due(conf, now, cap, rev, slots, tries, left):
+  %LA.va.due_some(now, slots, left) : {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == V.advance.go(conf, _, now, cap, rev, slots, tries) : V.Action & V.Acc}
   {==}

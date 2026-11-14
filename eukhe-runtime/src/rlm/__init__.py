@@ -215,15 +215,16 @@ async def spawn(
     one the child draws from this task's budget, which the whole tree shares; the
     reserve this agent keeps for its final answer stays out of its reach. A spawn
     whose budget does not fit is refused.
-    ``accept``: the child's acceptance checks, this agent their owner (the child
-    cannot change them): a list of ``{"kind": "command", "command": "pytest -q",
+    ``accept``: the child's acceptance checks, this agent their owner (only
+    this agent sets them): a list of ``{"kind": "command", "command": "pytest -q",
     "expect": 0, "timeout_ms"?: int, "protect"?: [paths]}``,
     ``{"kind": "judge", "condition": str, "evidence"?: [commands], "model"?: str}``
     or ``{"kind": "until", "command": str, "timeout_ms"?: int}``. The child's
     "done" counts only when the harness confirms every check on its final state;
-    its report and ``collect()`` carry the verdict (``verified``, ``failed`` or
-    ``unverified``). ``accept_intent`` (default True with ``accept``) adds the
-    intent check: an independent judge decides from the child's task whether its
+    its report and ``collect()`` carry the verdict (``checks passed, unconfined``,
+    ``failed`` or ``unverified``). ``accept_intent`` (default True with ``accept``)
+    adds the intent check: a judge (one model request with no tools and no
+    transcript) decides from the child's task whether its
     final state meets it. ``accept_returns``: the most times in a row a refuted
     "done" goes back to the child before it ends failed.
     """

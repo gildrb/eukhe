@@ -6,5 +6,5 @@ import Base
 import ../../bend/verify.bend as V
 import ../../laws/verify.bend as Verify
 
-def Verify.verify_no_checks_unverified(now):
+def Verify.verify_no_checks_unverified(conf, now):
   {==}

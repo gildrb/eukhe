@@ -7,5 +7,5 @@ import Base
 import ../../bend/verify.bend as V
 import ../../laws/verify.bend as Verify
 
-def Verify.verify_advance_rests_unclaimed(now, cap, rev, slots, tries):
+def Verify.verify_advance_rests_unclaimed(conf, now, cap, rev, slots, tries):
   {==}

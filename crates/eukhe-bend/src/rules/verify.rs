@@ -191,22 +191,28 @@ impl Acceptance {
 /// The label of a result (`V.Label`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Label {
-    /// There is a check and every check is confirmed on the final state.
+    /// There is a check, every check is confirmed on the final state and
+    /// programs run confined. The entry answers it for no request: no
+    /// confinement exists (`V.confined`).
     Verified,
     /// A check is refuted on the final state.
     Failed,
     /// Neither: no checks, or a check that did not judge the final state,
     /// is broken or unjudged.
     Unverified,
+    /// There is a check and every check is confirmed on the final state;
+    /// programs run unconfined: checks passed, unconfined.
+    Passed,
 }
 
 impl Label {
     fn read(reader: &mut Reader<'_>) -> Result<Self, WireError> {
-        Ok(match reader.tag_of(3, "a label")? {
+        Ok(match reader.tag_of(4, "a label")? {
             0 => Label::Verified,
             1 => Label::Failed,
-            // `tag_of` answers a tag below 3: this is 2.
-            _ => Label::Unverified,
+            2 => Label::Unverified,
+            // `tag_of` answers a tag below 4: this is 3.
+            _ => Label::Passed,
         })
     }
 }
@@ -461,7 +467,9 @@ mod tests {
         let (_, both) =
             act(Actor::Verifier, record(1, Verdict::Confirmed, 7), &first).expect("record");
         let (action, ended) = advance(7, 3, &both).expect("advance");
-        assert_eq!(action, Action::End(Label::Verified));
+        // Programs run unconfined: every check confirmed is "checks
+        // passed, unconfined", never verified.
+        assert_eq!(action, Action::End(Label::Passed));
         assert_eq!(
             ended,
             Acceptance {
@@ -472,7 +480,7 @@ mod tests {
             }
         );
         // The worker's next effect makes the verdicts stale.
-        assert_eq!(label(7, &ended.slots).expect("label"), Label::Verified);
+        assert_eq!(label(7, &ended.slots).expect("label"), Label::Passed);
         assert_eq!(label(8, &ended.slots).expect("label"), Label::Unverified);
         assert_eq!(exit(0, 7, &ended.slots).expect("exit"), 0);
         assert_eq!(exit(0, 8, &ended.slots).expect("exit"), 1);

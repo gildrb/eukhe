@@ -2169,7 +2169,7 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
         .unwrap();
     assert_eq!(
         (judged.revision, judged.checks.len(), judged.label),
-        (1, 1, AcceptanceLabel::Verified)
+        (1, 1, AcceptanceLabel::ChecksPassedUnconfined)
     );
     assert_eq!(lock(&checks.commands).clone(), ["pytest -q"]);
     // The child's harness reads the verdict from its acceptance.
@@ -2177,7 +2177,7 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
     assert_eq!(
         verdict,
         RlmChildVerdict {
-            label: AcceptanceLabel::Verified,
+            label: AcceptanceLabel::ChecksPassedUnconfined,
             confirmed: 1,
             checks: 1,
             open: Vec::new(),
@@ -2209,20 +2209,20 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
         super::children_verdicts(&opened.harness, ROOT_CONVERSATION_ID, cx())
             .await
             .unwrap(),
-        ["child fixer: verified (1/1 checks confirmed on its final state)"]
+        ["child fixer: checks passed, unconfined (1/1 checks confirmed on its final state)"]
     );
     let reports = user_texts(&opened.root, "[child-exited: no-reply child:fixer]").await;
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(
         reports[0].ends_with(
-            "Last assistant text: fixed\n\nAcceptance, checked by the harness on the child's final state: verified (1/1 checks confirmed on its final state)"
+            "Last assistant text: fixed\n\nAcceptance, checked by the harness on the child's final state: checks passed, unconfined (1/1 checks confirmed on its final state)"
         ),
         "{reports:?}"
     );
     let collected = handle(&opened, "rlm.collect", json!({})).await.unwrap();
     assert_eq!(
         collected["results"][0]["acceptance"],
-        json!("verified (1/1 checks confirmed on its final state)")
+        json!("checks passed, unconfined (1/1 checks confirmed on its final state)")
     );
     opened.harness.close(cx()).await.unwrap();
 }

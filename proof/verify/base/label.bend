@@ -253,40 +253,92 @@ def vl.pass_unrefuted(+now: Nat, n: Nat) -> {False{} == V.refuted(now, Verify.sp
 # The label and the exit code by cases
 # ------------------------------------
 
-def vl.label.all(b: Bool) -> {V.label.of(False{}, b) == S.label.all(b) : V.Label}:
-  match b:
+def vl.label.ok(conf: Bool) -> {V.label.good(conf) == S.label.ok(conf) : V.Label}:
+  match conf:
     case True{}:
       {==}
     case False{}:
       {==}
 
+def vl.label.all(conf: Bool, b: Bool) -> {V.label.of(conf, False{}, b) == S.label.all(conf, b) : V.Label}:
+  match b:
+    case True{}:
+      vl.label.ok(conf)
+    case False{}:
+      {==}
+
 # the model's label of the folds is the spec's label of the counts
-def vl.label.of(r: Nat, xs: List<&2, V.Slot>, c: Nat) -> {V.label.of(Bool.not(Nat.is_eq(r, 0n)), Bool.and(V.some(xs), Nat.is_eq(c, List.length(&2, V.Slot, xs)))) == S.label.of(r, c, List.length(&2, V.Slot, xs)) : V.Label}:
+def vl.label.of(conf: Bool, r: Nat, xs: List<&2, V.Slot>, c: Nat) -> {V.label.of(conf, Bool.not(Nat.is_eq(r, 0n)), Bool.and(V.some(xs), Nat.is_eq(c, List.length(&2, V.Slot, xs)))) == S.label.of(conf, r, c, List.length(&2, V.Slot, xs)) : V.Label}:
   match r:
     case 0n:
       match xs:
         case Nil{}:
           {==}
         case Con{h, t}:
-          vl.label.all(Nat.is_eq(c, 1n+List.length(&2, V.Slot, t)))
+          vl.label.all(conf, Nat.is_eq(c, 1n+List.length(&2, V.Slot, t)))
     case 1n+p:
       {==}
 
-# a label whose checks do not all hold is not verified
-def vl.unheld(r: Bool) -> {Verify.sp_is_verified(V.label.of(r, False{})) == False{} : Bool}:
+# a label whose checks do not all hold is neither verified nor passed
+def vl.unheld(conf: Bool, r: Bool) -> {Verify.sp_succeeds(V.label.of(conf, r, False{})) == False{} : Bool}:
   match r:
     case True{}:
       {==}
     case False{}:
       {==}
 
-# a label with no check refuted is not failed
-def vl.unfailed(g: Bool) -> {Verify.sp_is_failed(V.label.of(False{}, g)) == False{} : Bool}:
-  match g:
+def vl.unfailed.ok(conf: Bool) -> {Verify.sp_is_failed(V.label.good(conf)) == False{} : Bool}:
+  match conf:
     case True{}:
       {==}
     case False{}:
       {==}
+
+# a label with no check refuted is not failed
+def vl.unfailed(conf: Bool, g: Bool) -> {Verify.sp_is_failed(V.label.of(conf, False{}, g)) == False{} : Bool}:
+  match g:
+    case True{}:
+      vl.unfailed.ok(conf)
+    case False{}:
+      {==}
+
+# the label is passed exactly when programs run unconfined and it reports
+# every check confirmed, verified exactly when they run confined and it
+# does
+def vl.qualifier(conf: Bool, b: Bool, g: Bool) -> {Verify.sp_is_passed(V.label.of(conf, b, g)) == Bool.and(Bool.not(conf), Verify.sp_succeeds(V.label.of(conf, b, g))) : Bool} & {Verify.sp_is_verified(V.label.of(conf, b, g)) == Bool.and(conf, Verify.sp_succeeds(V.label.of(conf, b, g))) : Bool}:
+  match conf:
+    case True{}:
+      match b:
+        case True{}:
+          ({==}, {==})
+        case False{}:
+          match g:
+            case True{}:
+              ({==}, {==})
+            case False{}:
+              ({==}, {==})
+    case False{}:
+      match b:
+        case True{}:
+          ({==}, {==})
+        case False{}:
+          match g:
+            case True{}:
+              ({==}, {==})
+            case False{}:
+              ({==}, {==})
+
+# a label of programs run unconfined is never verified
+def vl.unconfined(b: Bool, g: Bool) -> {Verify.sp_is_verified(V.label.of(False{}, b, g)) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      match g:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
 
 # the model's exit code is the spec's
 def vl.exit(ok: Bool, base: Nat) -> {V.exit.code(ok, base) == S.exit.of(ok, base) : Nat}:

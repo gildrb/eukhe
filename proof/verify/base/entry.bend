@@ -287,6 +287,8 @@ def ve.put_label(l: V.Label, rest: String) -> {FV.put_label(l, rest) == Wr.put_n
       {==}
     case V.Unverified{}:
       {==}
+    case V.Passed{}:
+      {==}
 
 def ve.put_slot(x: V.Slot, rest: String) -> {FV.put_slot(x, rest) == SW.w_slot(x, rest) : String}:
   match x:
@@ -339,6 +341,8 @@ def ve.put_action(x: V.Action, rest: String) -> {FV.put_action(x, rest) == SW.w_
           {==}
         case V.Unverified{}:
           {==}
+        case V.Passed{}:
+          {==}
 
 def ve.acted(r: Bool & V.Acc) -> {FV.put_acted(r) == SW.w_acted(r) : String}:
   (+ok, +a) = r
@@ -356,9 +360,9 @@ def ve.answer(q: FV.Req) -> {FV.answer(q) == SW.w_reply(q) : String}:
     case FV.QAct{who, op, a}:
       ve.acted(V.act(who, op, a))
     case FV.QAdvance{now, cap, a}:
-      ve.advanced(V.advance(now, cap, a))
+      ve.advanced(V.advance(False{}, now, cap, a))
     case FV.QLabel{now, slots}:
-      ve.put_label(V.label(now, slots), "")
+      ve.put_label(V.label(False{}, now, slots), "")
     case FV.QExit{base, now, slots}:
       {==}
     case FV.QCommand{expect, intact, ev}:

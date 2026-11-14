@@ -4426,8 +4426,11 @@ import ./proof/verify/verify_judge_table.bend as PVerifyJudgeTable
 import ./proof/verify/verify_no_checks_unverified.bend as PVerifyNoChecksUnverified
 import ./proof/verify/verify_unconfirmed_check_never_verified.bend as PVerifyUnconfirmedCheckNeverVerified
 import ./proof/verify/verify_all_confirmed_verifies.bend as PVerifyAllConfirmedVerifies
+import ./proof/verify/verify_all_confirmed_unconfined_passes.bend as PVerifyAllConfirmedUnconfinedPasses
+import ./proof/verify/verify_unconfined_qualifier_exact.bend as PVerifyUnconfinedQualifierExact
 import ./proof/verify/verify_refuted_check_fails.bend as PVerifyRefutedCheckFails
 import ./proof/verify/verify_failed_needs_refuted.bend as PVerifyFailedNeedsRefuted
+import ./proof/verify/verify_unconfined_never_verified.bend as PVerifyUnconfinedNeverVerified
 import ./proof/verify/verify_assign_needs_owner.bend as PVerifyAssignNeedsOwner
 import ./proof/verify/verify_assign_too_many_refused.bend as PVerifyAssignTooManyRefused
 import ./proof/verify/verify_assign_resets.bend as PVerifyAssignResets
