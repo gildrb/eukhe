@@ -889,6 +889,23 @@ law agent_tree_parallel_is_sequential:
   for e: {S.tidy(t) == True{} : Bool}
   {T.apply(f, T.result(t)) == S.apply_seq(S.patches(t), f) : List<&2, Nat>}
 
+# LAW agent_tree_result_integrates (T3, T5): for every split with the info
+# i and the children l, r, and every files f, the files with its
+# integrated patch are the files after the left child's integrated patch
+# inside the left child's scope, then the right child's inside the right
+# child's scope, then the split's own patch; a child's write outside its
+# scope never reaches the files, on any tree (tidy or not)
+# EXCLUDES: a split's patch that takes its children's patches whole (a
+#   write outside a child's scope applied); a child's result dropped; the
+#   own patch applied before the children's
+law agent_tree_result_integrates:
+  for +i: T.Info
+  for own: List<&2, Bool>
+  for +l: T.Node
+  for +r: T.Node
+  for +f: List<&2, Nat>
+  {T.apply(f, T.result(T.Split{i, own, l, r})) == T.apply(T.apply(T.apply(f, S.restrict(T.result(l), T.scope_of(T.info(l)))), S.restrict(T.result(r), T.scope_of(T.info(r)))), T.patch_of(i)) : List<&2, Nat>}
+
 # Laws: settle (T6)
 # -----------------
 

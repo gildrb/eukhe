@@ -3721,6 +3721,7 @@ import ./proof/agent_tree/agent_tree_cancel_keeps.bend as PAgentTreeCancelKeeps
 import ./proof/agent_tree/agent_tree_cancel_shape.bend as PAgentTreeCancelShape
 import ./proof/agent_tree/agent_tree_split_reads_bounds.bend as PAgentTreeSplitReadsBounds
 import ./proof/agent_tree/agent_tree_apply_lands.bend as PAgentTreeApplyLands
+import ./proof/agent_tree/agent_tree_result_integrates.bend as PAgentTreeResultIntegrates
 import ./proof/agent_tree/agent_tree_split_margin_both.bend as PAgentTreeSplitMarginBoth
 import ./proof/agent_tree/agent_tree_apply_ends.bend as PAgentTreeApplyEnds
 import ./proof/agent_tree/agent_tree_depth_configured.bend as PAgentTreeDepthConfigured
