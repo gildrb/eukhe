@@ -23,6 +23,7 @@ use super::persist::{
     edit_document, edit_read, read_document, BrokenDocument, DocRead, KeyEdit, Persisted,
     SettingsEditError, Shadow,
 };
+use super::retired::{self, RetiredSetting};
 use super::storage::{Holding, SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
 use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
@@ -55,6 +56,9 @@ pub struct SettingsManager {
     /// The aliases of the config cfg files.
     aliases: Aliases,
     errors: Vec<SettingsError>,
+    /// The retired settings the settings files held (dropped by the
+    /// migration; named once: [`Self::unnamed_retired`]).
+    retired: Vec<RetiredSetting>,
     /// The raw global document (the parsed JSON before the field load).
     /// A reader that must tell an ABSENT key from a PRESENT-but-malformed
     /// one (the model allowlist, the admission limits) reads it: the typed
@@ -79,6 +83,7 @@ enum WriteFailure {
 }
 
 /// One loaded scope.
+#[derive(Default)]
 struct ScopeLoad {
     /// The typed settings: every leaf that applies.
     settings: Settings,
@@ -86,6 +91,8 @@ struct ScopeLoad {
     raw: Option<Value>,
     /// Why the document could not be read or parsed.
     error: Option<String>,
+    /// The retired settings the document held.
+    retired: Vec<&'static str>,
 }
 
 impl SettingsManager {
@@ -106,11 +113,19 @@ impl SettingsManager {
         let global = load_scope(storage.as_ref(), SettingsScope::Global, &mut errors);
         // A project scope that is the global one is the global scope: its
         // files loaded above, once.
-        let project_document = if storage.project_is_global() {
-            Settings::default()
+        let project = if storage.project_is_global() {
+            ScopeLoad::default()
         } else {
-            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors).settings
+            load_scope(storage.as_ref(), SettingsScope::Project, &mut errors)
         };
+        let retired = [
+            (SettingsScope::Global, &global.retired),
+            (SettingsScope::Project, &project.retired),
+        ]
+        .into_iter()
+        .flat_map(|(scope, ids)| ids.iter().map(move |id| RetiredSetting { scope, id }))
+        .collect();
+        let project_document = project.settings;
         // An unreadable global config.cfg trusts nothing; config_layer
         // records its error.
         let trusted = global_list(storage.as_ref(), &global.settings, &table::TRUSTED_PROJECTS)
@@ -149,6 +164,7 @@ impl SettingsManager {
             bounds: layer.bounds,
             aliases: layer.aliases,
             errors,
+            retired,
             global_raw: global.raw,
             global_load_error: global.error,
         }
@@ -233,6 +249,18 @@ impl SettingsManager {
     #[must_use]
     pub fn errors(&self) -> &[SettingsError] {
         &self.errors
+    }
+
+    /// The retired settings of the settings files that no session named
+    /// yet (each is named once: [`Self::note_retired_named`]).
+    #[must_use]
+    pub fn unnamed_retired(&self) -> Vec<RetiredSetting> {
+        retired::unnamed(self.storage.as_ref(), &self.retired)
+    }
+
+    /// Record `settings` as named to the user.
+    pub fn note_retired_named(&self, settings: &[RetiredSetting]) {
+        retired::note_named(self.storage.as_ref(), settings);
     }
 
     /// Take and clear the recorded settings errors (warnings are printed once
@@ -548,7 +576,7 @@ impl SettingsManager {
     /// Load `document`, just written to `scope`, as that scope; its leaf
     /// diagnostics not recorded before are recorded.
     fn install_scope(&mut self, scope: SettingsScope, document: &Map<String, Value>) {
-        let document = migrate(document);
+        let document = migrate(document).document;
         let loaded = load_document(&document);
         for error in &loaded.rejected {
             let error = cfg_error(scope, SETTINGS_JSON, error);
@@ -970,13 +998,7 @@ fn load_scope(
         Err(error) => DocRead::Broken(BrokenDocument::Unreadable(error)),
     };
     let document = match read {
-        DocRead::Missing => {
-            return ScopeLoad {
-                settings: Settings::default(),
-                raw: None,
-                error: None,
-            }
-        }
+        DocRead::Missing => return ScopeLoad::default(),
         DocRead::Parsed(document) => document,
         DocRead::Broken(reason) => {
             // The load diagnostic: rendered once, for the error list and
@@ -987,18 +1009,16 @@ fn load_scope(
                 message: message.clone(),
             });
             return ScopeLoad {
-                settings: Settings::default(),
-                raw: None,
                 error: Some(message),
+                ..ScopeLoad::default()
             };
         }
     };
     let migrated = migrate(&document);
-    if migrated != document {
+    if migrated.document != document {
         save_migration(storage, scope);
     }
-    let document = migrated;
-    let loaded = load_document(&document);
+    let loaded = load_document(&migrated.document);
     errors.extend(
         loaded
             .rejected
@@ -1007,22 +1027,35 @@ fn load_scope(
     );
     ScopeLoad {
         settings: loaded.settings,
-        raw: Some(Value::Object(document)),
+        raw: Some(Value::Object(migrated.document)),
         error: None,
+        retired: migrated.retired,
     }
 }
 
 /// Save the migration of `scope`'s file when eukhe owns it
-/// ([`rewrite`]); a link is never written. A failed save is logged: the
-/// migration applies on each read.
+/// ([`rewrite`]); a link is never written. The retired settings the save
+/// drops stay to name ([`retired::note_pending`]). A failed save is
+/// logged: the migration applies on each read.
 fn save_migration(storage: &dyn SettingsStorage, scope: SettingsScope) {
     match storage.holding(scope) {
         Holding::Link => {}
         Holding::Plain => {
-            if let Err(error) =
-                storage.with_lock(scope, &mut |current| current.as_deref().and_then(rewrite))
-            {
-                tracing::debug!(%error, "settings migration not saved");
+            let mut dropped: Vec<&'static str> = Vec::new();
+            let saved = storage.with_lock(scope, &mut |current| {
+                let (text, retired) = current.as_deref().and_then(rewrite)?;
+                dropped = retired;
+                Some(text)
+            });
+            match saved {
+                Ok(()) => {
+                    let settings: Vec<RetiredSetting> = dropped
+                        .into_iter()
+                        .map(|id| RetiredSetting { scope, id })
+                        .collect();
+                    retired::note_pending(storage, &settings);
+                }
+                Err(error) => tracing::debug!(%error, "settings migration not saved"),
             }
         }
     }

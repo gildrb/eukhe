@@ -31,7 +31,9 @@ use super::deps::{HostDeps, OpenedSession, ServiceStop};
 use super::rlm::CustomNotice;
 use crate::settings::cvar::{AgentLayer, CvarError, CvarWriteError, Target};
 use crate::settings::types::{QueueModeSetting, ThinkingLevelSetting, TransportSetting};
-use crate::settings::{SettingsError, SettingsManager, SettingsScope, CONFIG_DIR_NAME};
+use crate::settings::{
+    RetiredSetting, SettingsError, SettingsManager, SettingsScope, CONFIG_DIR_NAME,
+};
 
 /// What a settings file looked like at the last load: `None` when absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,24 +73,32 @@ struct State {
 }
 
 /// The settings errors this session queued for the user (each distinct
-/// error once), and the ones not shown yet.
+/// error once), and the ones not shown yet; the same for the retired
+/// settings no session named yet.
 #[derive(Default)]
 struct Notices {
     queued: HashSet<(SettingsScope, String)>,
     unshown: Vec<SettingsError>,
+    retired_queued: HashSet<RetiredSetting>,
+    retired: Vec<RetiredSetting>,
 }
 
 impl Notices {
-    /// Queue the errors of `manager` not queued before; `true` when one is
-    /// new.
+    /// Queue the errors and the unnamed retired settings of `manager` not
+    /// queued before; `true` when one is new.
     fn note(&mut self, manager: &SettingsManager) -> bool {
-        let before = self.unshown.len();
+        let before = (self.unshown.len(), self.retired.len());
         for error in manager.errors() {
             if self.queued.insert((error.scope, error.message.clone())) {
                 self.unshown.push(error.clone());
             }
         }
-        self.unshown.len() > before
+        for setting in manager.unnamed_retired() {
+            if self.retired_queued.insert(setting) {
+                self.retired.push(setting);
+            }
+        }
+        (self.unshown.len(), self.retired.len()) != before
     }
 }
 
@@ -296,6 +306,25 @@ impl EukheSettings {
         std::mem::take(&mut self.lock().notices.unshown)
     }
 
+    /// The retired settings queued since the last call that no session
+    /// named meanwhile, for the user. Name them, then
+    /// [`Self::note_retired_named`].
+    #[must_use]
+    pub fn take_unnamed_retired(&self) -> Vec<RetiredSetting> {
+        let mut guard = self.lock();
+        let queued = std::mem::take(&mut guard.notices.retired);
+        let unnamed = guard.loaded.manager.unnamed_retired();
+        queued
+            .into_iter()
+            .filter(|setting| unnamed.contains(setting))
+            .collect()
+    }
+
+    /// Record `settings` as named: no session names them again.
+    pub fn note_retired_named(&self, settings: &[RetiredSetting]) {
+        self.lock().loaded.manager.note_retired_named(settings);
+    }
+
     /// Notified when a load queues a new error
     /// ([`Self::take_unshown_errors`]).
     #[must_use]
@@ -362,7 +391,8 @@ impl HarnessSettingsSource for EukheSettings {
 /// The extension name.
 pub const SETTINGS_EXTENSION: &str = "eukhe.settings";
 
-/// The custom type of the row that shows settings errors (display-only).
+/// The custom type of the rows that show settings errors and retired
+/// settings (display-only).
 pub const SETTINGS_ERROR_CUSTOM_TYPE: &str = "eukhe.settings_error";
 
 /// The `eukhe.settings` extension of a session: no hooks, only the service
@@ -392,6 +422,10 @@ fn start(opened: OpenedSession) -> BoxFuture<'static, SessionResult<Option<Servi
         let task = tokio::spawn(async move {
             loop {
                 show_errors(&main, settings.take_unshown_errors()).await;
+                let retired = settings.take_unnamed_retired();
+                if show_retired(&main, &retired).await {
+                    settings.note_retired_named(&retired);
+                }
                 tokio::select! {
                     () = ready.notified() => {}
                     () = task_close.notified() => break,
@@ -411,15 +445,33 @@ fn start(opened: OpenedSession) -> BoxFuture<'static, SessionResult<Option<Servi
     .boxed()
 }
 
+/// The scope of a row line.
+fn scope_name(scope: SettingsScope) -> &'static str {
+    match scope {
+        SettingsScope::Global => "global",
+        SettingsScope::Project => "project",
+    }
+}
+
 /// The row text of `errors`: one line each, with its scope.
 fn settings_error_text(errors: &[SettingsError]) -> String {
     let mut text = "Settings errors (the rest of the settings apply):".to_string();
     for error in errors {
-        let scope = match error.scope {
-            SettingsScope::Global => "global",
-            SettingsScope::Project => "project",
-        };
-        let _ = write!(text, "\n- {scope}: {}", error.message);
+        let _ = write!(text, "\n- {}: {}", scope_name(error.scope), error.message);
+    }
+    text
+}
+
+/// The row text of `retired`: one line each, with its scope.
+fn retired_text(retired: &[RetiredSetting]) -> String {
+    let mut text = "Settings no longer used (ignored):".to_string();
+    for setting in retired {
+        let _ = write!(
+            text,
+            "\n- {}: settings.json: `{}`",
+            scope_name(setting.scope),
+            setting.id
+        );
     }
     text
 }
@@ -428,15 +480,22 @@ fn settings_error_text(errors: &[SettingsError]) -> String {
 /// cannot be submitted is logged: it has no other place to go.
 #[tracing::instrument(skip_all, fields(errors = errors.len()))]
 async fn show_errors(main: &Conversation, errors: Vec<SettingsError>) {
-    if errors.is_empty() {
-        return;
+    if !errors.is_empty() {
+        submit_row(main, settings_error_text(&errors)).await;
     }
-    let notice = CustomNotice::new(
-        SETTINGS_ERROR_CUSTOM_TYPE,
-        settings_error_text(&errors),
-        true,
-        None,
-    );
+}
+
+/// Submit the row of `retired` to `main`; `true` when it was delivered
+/// (none when empty).
+#[tracing::instrument(skip_all, fields(retired = retired.len()))]
+async fn show_retired(main: &Conversation, retired: &[RetiredSetting]) -> bool {
+    !retired.is_empty() && submit_row(main, retired_text(retired)).await
+}
+
+/// Submit a settings row with `text` to `main`; `true` when delivered. A
+/// row that cannot be submitted is logged: it has no other place to go.
+async fn submit_row(main: &Conversation, text: String) -> bool {
+    let notice = CustomNotice::new(SETTINGS_ERROR_CUSTOM_TYPE, text, true, None);
     let submitted = match notice.draft() {
         Ok(entry) => main
             .submit(
@@ -451,8 +510,12 @@ async fn show_errors(main: &Conversation, errors: Vec<SettingsError>) {
             .map_err(anyhow::Error::from),
         Err(error) => Err(anyhow::Error::from(error)),
     };
-    if let Err(error) = submitted {
-        tracing::warn!(%error, "settings error row not delivered");
+    match submitted {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(%error, "settings row not delivered");
+            false
+        }
     }
 }
 
@@ -617,6 +680,25 @@ mod tests {
     use eukhe_durable::harness::types::{CompactionPolicy, ConversationRetryPolicy, QueueMode};
 
     use super::*;
+
+    /// Every retired setting found together is named in one row.
+    #[test]
+    fn retired_settings_share_one_row() {
+        let retired = [
+            RetiredSetting {
+                scope: SettingsScope::Global,
+                id: "telemetry",
+            },
+            RetiredSetting {
+                scope: SettingsScope::Project,
+                id: "updateChannel",
+            },
+        ];
+        assert_eq!(
+            super::retired_text(&retired),
+            "Settings no longer used (ignored):\n- global: settings.json: `telemetry`\n- project: settings.json: `updateChannel`"
+        );
+    }
 
     fn write(path: &Path, text: &str) {
         std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
