@@ -17,12 +17,13 @@ use super::cvar::{
     Cvars, Decl, LayerKind, Sets, Target,
 };
 use super::load::load_document;
-use super::merge::{deep_merge, migrate};
+use super::merge::deep_merge;
+use super::migrate::{migrate, rewrite};
 use super::persist::{
     edit_document, edit_read, read_document, BrokenDocument, DocRead, KeyEdit, Persisted,
     SettingsEditError, Shadow,
 };
-use super::storage::{SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
+use super::storage::{Holding, SettingsScope, SettingsStorage, CONFIG_DIR_NAME};
 use super::trust::{apply_project_trust, effective_project, ProjectTrust};
 use super::types::{QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting};
 
@@ -538,7 +539,7 @@ impl SettingsManager {
         if let Some(reason) = failure {
             return Err(anyhow!("{label} settings not saved: {reason}"));
         }
-        if let Some(document) = written {
+        if let Some(document) = &written {
             self.install_scope(scope, document);
         }
         Ok(())
@@ -546,8 +547,8 @@ impl SettingsManager {
 
     /// Load `document`, just written to `scope`, as that scope; its leaf
     /// diagnostics not recorded before are recorded.
-    fn install_scope(&mut self, scope: SettingsScope, mut document: Map<String, Value>) {
-        migrate(&mut document);
+    fn install_scope(&mut self, scope: SettingsScope, document: &Map<String, Value>) {
+        let document = migrate(document);
         let loaded = load_document(&document);
         for error in &loaded.rejected {
             let error = cfg_error(scope, SETTINGS_JSON, error);
@@ -968,7 +969,7 @@ fn load_scope(
         Ok(content) => read_document(content.as_deref()),
         Err(error) => DocRead::Broken(BrokenDocument::Unreadable(error)),
     };
-    let mut document = match read {
+    let document = match read {
         DocRead::Missing => {
             return ScopeLoad {
                 settings: Settings::default(),
@@ -992,7 +993,11 @@ fn load_scope(
             };
         }
     };
-    migrate(&mut document);
+    let migrated = migrate(&document);
+    if migrated != document {
+        save_migration(storage, scope);
+    }
+    let document = migrated;
     let loaded = load_document(&document);
     errors.extend(
         loaded
@@ -1004,6 +1009,22 @@ fn load_scope(
         settings: loaded.settings,
         raw: Some(Value::Object(document)),
         error: None,
+    }
+}
+
+/// Save the migration of `scope`'s file when eukhe owns it
+/// ([`rewrite`]); a link is never written. A failed save is logged: the
+/// migration applies on each read.
+fn save_migration(storage: &dyn SettingsStorage, scope: SettingsScope) {
+    match storage.holding(scope) {
+        Holding::Link => {}
+        Holding::Plain => {
+            if let Err(error) =
+                storage.with_lock(scope, &mut |current| current.as_deref().and_then(rewrite))
+            {
+                tracing::debug!(%error, "settings migration not saved");
+            }
+        }
     }
 }
 

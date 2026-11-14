@@ -24,6 +24,16 @@ pub enum SettingsScope {
     Project,
 }
 
+/// How a scope's settings file is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holding {
+    /// A file in place, or none yet.
+    Plain,
+    /// A link to another file (a Home Manager or Nix store file): eukhe
+    /// never rewrites it on its own (a migration applies on each read).
+    Link,
+}
+
 /// Read/modify/write under a per-file advisory lock. `update` returns the next
 /// document or `None` to leave the file unchanged (TS `withLock`).
 pub trait SettingsStorage: Send + Sync {
@@ -76,6 +86,9 @@ pub trait SettingsStorage: Send + Sync {
     /// files apply once, as global), and a project write goes to the
     /// global scope.
     fn project_is_global(&self) -> bool;
+
+    /// How the scope's `settings.json` is held.
+    fn holding(&self, scope: SettingsScope) -> Holding;
 
     /// The cfg file `name` of a scope (`config.cfg`, `subagent.cfg`,
     /// `agents/<agent>.cfg`, `binds.cfg`): `<agentDir>/<name>` for the
@@ -397,6 +410,16 @@ impl SettingsStorage for FileSettingsStorage {
     fn project_is_global(&self) -> bool {
         self.project_is_global
     }
+
+    fn holding(&self, scope: SettingsScope) -> Holding {
+        let link = fs::symlink_metadata(self.path(scope))
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        if link {
+            Holding::Link
+        } else {
+            Holding::Plain
+        }
+    }
 }
 
 /// The content of cfg file `path`; `None` when it is absent.
@@ -541,6 +564,10 @@ impl SettingsStorage for InMemorySettingsStorage {
 
     fn project_is_global(&self) -> bool {
         false
+    }
+
+    fn holding(&self, _scope: SettingsScope) -> Holding {
+        Holding::Plain
     }
 
     fn read_cfg(&self, scope: SettingsScope, name: &str) -> Result<Option<String>> {
