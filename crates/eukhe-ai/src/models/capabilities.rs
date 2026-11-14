@@ -12,10 +12,10 @@ use super::collection::Models;
 use super::requests::{ModelsRequestOptions, RequestOptions};
 use crate::api::classifier_shared::error;
 use crate::capabilities::{
-    anthropic, capabilities_of, deepseek, google, llama_cpp, openai, openrouter, xai, AccountUsage,
-    Capabilities, Capability, CapabilityError, CapabilityOptions, Compaction, Dialect,
-    EmbedRequest, Embeddings, GeneratedImages, ImageRequest, ListedModel, Support, TokenCount,
-    Tokens, Unsupported, WebSearchRequest, WebSearchResult,
+    anthropic, capabilities_of, chatgpt, deepseek, google, llama_cpp, openai, openrouter, xai,
+    AccountUsage, Capabilities, Capability, CapabilityError, CapabilityOptions, Compaction,
+    Dialect, EmbedRequest, Embeddings, GeneratedImages, ImageRequest, ListedModel, Support,
+    TokenCount, Tokens, Unsupported, WebSearchRequest, WebSearchResult,
 };
 use crate::types::{ImagesOptions, ProviderRequestOptions};
 use crate::utils::transcript::normalize_context;
@@ -102,7 +102,7 @@ impl Models {
             Dialect::OpenAi => Ok(openai::count_tokens(&model, &context, &options).await?),
             Dialect::Google => Ok(google::count_tokens(&model, &context, &options).await?),
             Dialect::LlamaCpp => Ok(llama_cpp::count_tokens(&model, &context, &options).await?),
-            Dialect::Xai | Dialect::OpenRouter | Dialect::DeepSeek => {
+            Dialect::Xai | Dialect::OpenRouter | Dialect::DeepSeek | Dialect::ChatGpt => {
                 Err(unsupported(capability, &model))
             }
         }
@@ -125,6 +125,7 @@ impl Models {
             Dialect::Anthropic => Ok(anthropic::list_models(&model, &options).await?),
             Dialect::OpenAi => Ok(openai::list_models(&model, &options).await?),
             Dialect::Google => Ok(google::list_models(&model, &options).await?),
+            Dialect::ChatGpt => Ok(chatgpt::list_models(&model, &options).await?),
             Dialect::LlamaCpp | Dialect::Xai | Dialect::OpenRouter | Dialect::DeepSeek => {
                 Err(unsupported(capability, &model))
             }
@@ -153,7 +154,8 @@ impl Models {
             | Dialect::LlamaCpp
             | Dialect::Xai
             | Dialect::OpenRouter
-            | Dialect::DeepSeek => Err(unsupported(capability, &model)),
+            | Dialect::DeepSeek
+            | Dialect::ChatGpt => Err(unsupported(capability, &model)),
         }
     }
 
@@ -184,7 +186,8 @@ impl Models {
             | Dialect::Google
             | Dialect::LlamaCpp
             | Dialect::Xai
-            | Dialect::DeepSeek => Err(unsupported(capability, model)),
+            | Dialect::DeepSeek
+            | Dialect::ChatGpt => Err(unsupported(capability, model)),
         }
     }
 
@@ -279,7 +282,8 @@ impl Models {
             | Dialect::OpenAi
             | Dialect::Google
             | Dialect::OpenRouter
-            | Dialect::DeepSeek => Err(unsupported(capability, &model)),
+            | Dialect::DeepSeek
+            | Dialect::ChatGpt => Err(unsupported(capability, &model)),
         }
     }
 
@@ -303,7 +307,8 @@ impl Models {
             | Dialect::OpenAi
             | Dialect::Google
             | Dialect::LlamaCpp
-            | Dialect::Xai => Err(unsupported(capability, &model)),
+            | Dialect::Xai
+            | Dialect::ChatGpt => Err(unsupported(capability, &model)),
         }
     }
 
@@ -326,9 +331,11 @@ impl Models {
             Dialect::Anthropic => Ok(anthropic::web_search(&model, request, &options).await?),
             Dialect::OpenAi => Ok(openai::web_search(&model, request, &options).await?),
             Dialect::Google => Ok(google::web_search(&model, request, &options).await?),
-            Dialect::LlamaCpp | Dialect::Xai | Dialect::OpenRouter | Dialect::DeepSeek => {
-                Err(unsupported(capability, &model))
-            }
+            Dialect::LlamaCpp
+            | Dialect::Xai
+            | Dialect::OpenRouter
+            | Dialect::DeepSeek
+            | Dialect::ChatGpt => Err(unsupported(capability, &model)),
         }
     }
 
@@ -355,7 +362,8 @@ impl Models {
             | Dialect::LlamaCpp
             | Dialect::Xai
             | Dialect::OpenRouter
-            | Dialect::DeepSeek => Err(unsupported(capability, &model)),
+            | Dialect::DeepSeek
+            | Dialect::ChatGpt => Err(unsupported(capability, &model)),
         }
     }
 }

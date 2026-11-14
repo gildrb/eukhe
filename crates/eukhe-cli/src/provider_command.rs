@@ -444,12 +444,14 @@ mod tests {
                 name: Some("Claude Sonnet 4.5".to_string()),
                 context_window: Some(200_000),
                 max_output_tokens: Some(64_000),
+                ..ListedModel::default()
             },
             ListedModel {
                 id: "qwen3-8b".to_string(),
                 name: None,
                 context_window: None,
                 max_output_tokens: None,
+                ..ListedModel::default()
             },
         ];
         assert_eq!(

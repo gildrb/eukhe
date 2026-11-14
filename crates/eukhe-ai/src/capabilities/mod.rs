@@ -21,7 +21,7 @@
 
 use std::fmt;
 
-use eukhe_types::pi_ai::JsonValue;
+use eukhe_types::pi_ai::{JsonValue, Modality};
 use serde::Serialize;
 
 use crate::quirks::{Lookup, Quirks};
@@ -29,6 +29,7 @@ use crate::types::{Model, ProviderRequestOptions};
 use crate::utils::diagnostics::Thrown;
 
 pub(crate) mod anthropic;
+pub(crate) mod chatgpt;
 pub(crate) mod deepseek;
 pub(crate) mod google;
 pub(crate) mod http;
@@ -118,11 +119,14 @@ pub enum Dialect {
     /// The `DeepSeek` API's own endpoints.
     #[serde(rename = "deepseek")]
     DeepSeek,
+    /// The `ChatGPT` subscription backend (`chatgpt.com/backend-api`).
+    #[serde(rename = "chatgpt")]
+    ChatGpt,
 }
 
 impl Dialect {
     /// Every dialect, in declaration order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Anthropic,
         Self::OpenAi,
         Self::Google,
@@ -130,6 +134,7 @@ impl Dialect {
         Self::Xai,
         Self::OpenRouter,
         Self::DeepSeek,
+        Self::ChatGpt,
     ];
 
     /// The name rules use.
@@ -143,6 +148,7 @@ impl Dialect {
             Self::Xai => "xai",
             Self::OpenRouter => "openrouter",
             Self::DeepSeek => "deepseek",
+            Self::ChatGpt => "chatgpt",
         }
     }
 
@@ -187,6 +193,7 @@ impl Dialect {
             }
             (Self::OpenRouter, Capability::Usage) => Some("GET /v1/key"),
             (Self::DeepSeek, Capability::Usage) => Some("GET /user/balance"),
+            (Self::ChatGpt, Capability::ListModels) => Some("GET /codex/models"),
             (
                 Self::Anthropic,
                 Capability::Embed
@@ -238,6 +245,16 @@ impl Dialect {
                 | Capability::Embed
                 | Capability::GenerateImage
                 | Capability::Tokenize
+                | Capability::WebSearch
+                | Capability::Compact,
+            )
+            | (
+                Self::ChatGpt,
+                Capability::CountTokens
+                | Capability::Embed
+                | Capability::GenerateImage
+                | Capability::Tokenize
+                | Capability::Usage
                 | Capability::WebSearch
                 | Capability::Compact,
             ) => None,
@@ -362,7 +379,7 @@ pub struct TokenCount {
 }
 
 /// One model a provider lists.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedModel {
     pub id: String,
@@ -372,6 +389,15 @@ pub struct ListedModel {
     pub context_window: Option<u64>,
     /// The output cap in tokens, when the provider gives one.
     pub max_output_tokens: Option<u64>,
+    /// Whether the model reasons, when the provider says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    /// The input modalities, when the provider names them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Vec<Modality>>,
+    /// Whether the model answers chat requests, when the provider says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat: Option<bool>,
 }
 
 /// An embedding request: the embedding model and the texts.

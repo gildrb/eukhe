@@ -125,6 +125,15 @@ pub(crate) async fn list_models(
                     .map(str::to_owned),
                 context_window: count(item.get("inputTokenLimit")),
                 max_output_tokens: count(item.get("outputTokenLimit")),
+                chat: item
+                    .get("supportedGenerationMethods")
+                    .and_then(JsonValue::as_array)
+                    .map(|methods| {
+                        methods
+                            .iter()
+                            .any(|method| method.as_str() == Some("generateContent"))
+                    }),
+                ..ListedModel::default()
             });
         }
         page_token = body
@@ -346,12 +355,17 @@ mod tests {
                     "name": "models/gemini-2.5-flash",
                     "displayName": "Gemini 2.5 Flash",
                     "inputTokenLimit": 1_048_576,
-                    "outputTokenLimit": 65_536
+                    "outputTokenLimit": 65_536,
+                    "supportedGenerationMethods": ["generateContent", "countTokens"]
                 }],
                 "nextPageToken": "page-2"
             })),
             Reply::ok(json!({
-                "models": [{ "name": "models/text-embedding-004", "inputTokenLimit": 2_048 }]
+                "models": [{
+                    "name": "models/text-embedding-004",
+                    "inputTokenLimit": 2_048,
+                    "supportedGenerationMethods": ["embedContent"]
+                }]
             })),
         ])
         .await;
@@ -367,12 +381,16 @@ mod tests {
                     name: Some("Gemini 2.5 Flash".to_owned()),
                     context_window: Some(1_048_576),
                     max_output_tokens: Some(65_536),
+                    chat: Some(true),
+                    ..ListedModel::default()
                 },
                 ListedModel {
                     id: "text-embedding-004".to_owned(),
                     name: None,
                     context_window: Some(2_048),
                     max_output_tokens: None,
+                    chat: Some(false),
+                    ..ListedModel::default()
                 },
             ]
         );

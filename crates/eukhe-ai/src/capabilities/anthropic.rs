@@ -133,6 +133,7 @@ pub(crate) async fn list_models(
                     .map(str::to_owned),
                 context_window: count(item.get("max_input_tokens")),
                 max_output_tokens: count(item.get("max_tokens")),
+                ..ListedModel::default()
             });
         }
         let has_more = body.get("has_more").and_then(JsonValue::as_bool) == Some(true);
@@ -329,12 +330,14 @@ mod tests {
                     name: Some("Claude Opus 4.1".to_owned()),
                     context_window: Some(200_000),
                     max_output_tokens: Some(32_000),
+                    ..ListedModel::default()
                 },
                 ListedModel {
                     id: "claude-haiku-4-5".to_owned(),
                     name: Some("Claude Haiku 4.5".to_owned()),
                     context_window: None,
                     max_output_tokens: None,
+                    ..ListedModel::default()
                 },
             ]
         );

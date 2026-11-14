@@ -171,6 +171,7 @@ pub(crate) async fn list_models(
                 name: name.map(str::to_owned),
                 context_window,
                 max_output_tokens,
+                ..ListedModel::default()
             })
         })
         .collect()
@@ -486,18 +487,21 @@ mod tests {
                     name: Some("OpenAI: GPT-5".to_owned()),
                     context_window: Some(400_000),
                     max_output_tokens: Some(128_000),
+                    ..ListedModel::default()
                 },
                 ListedModel {
                     id: "mistral-large-latest".to_owned(),
                     name: None,
                     context_window: Some(131_072),
                     max_output_tokens: None,
+                    ..ListedModel::default()
                 },
                 ListedModel {
                     id: "gpt-4o".to_owned(),
                     name: None,
                     context_window: None,
                     max_output_tokens: None,
+                    ..ListedModel::default()
                 },
             ]
         );
@@ -538,6 +542,7 @@ mod tests {
                 name: None,
                 context_window: None,
                 max_output_tokens: None,
+                ..ListedModel::default()
             }]
         );
         assert_eq!(

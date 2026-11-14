@@ -58,6 +58,7 @@ use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_declared_tools, resolve_transcript};
 use crate::utils::uuid::uuidv7;
 
+pub(crate) use request::backend_headers;
 pub use session_cache::{
     close_openai_codex_websocket_sessions, get_openai_codex_websocket_debug_stats,
     reset_openai_codex_websocket_debug_stats, OpenAICodexWebSocketDebugStats,

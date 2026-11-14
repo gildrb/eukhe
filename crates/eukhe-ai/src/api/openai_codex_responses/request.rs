@@ -338,6 +338,13 @@ fn build_base_codex_headers(
     Ok(headers)
 }
 
+/// The headers of a backend request other than a response (the model
+/// listing): the base headers for `token`'s account.
+pub(crate) fn backend_headers(token: &str) -> Result<HeaderMap, Thrown> {
+    let account_id = extract_account_id(token)?;
+    build_base_codex_headers(None, None, &account_id, token)
+}
+
 /// TS `buildSSEHeaders`.
 pub(crate) fn build_sse_headers(
     init_headers: Option<&IndexMap<String, String>>,
