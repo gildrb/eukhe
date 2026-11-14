@@ -10,6 +10,7 @@ use std::fmt::Write;
 use super::{EffortLayout, ModelPicker};
 use crate::keybindings::{format_key_text, KeybindingsManager};
 use crate::menu_panel::{hint_row, menu_row, no_match_row, scroll_row, search_field_lines};
+use crate::model_labels as labels;
 use crate::theme::{Theme, ThemeColor};
 use crate::width::str_width;
 use crate::{Line, Span};
@@ -79,21 +80,43 @@ pub(super) fn render(
 
     let (start, end) = picker.filtered_window();
     let effort_layout = picker.effort_layout(start, end);
-    for index in start..end {
-        let Some(model_index) = picker.filtered_index(index) else {
+    let window: Vec<(usize, usize)> = (start..end)
+        .filter_map(|index| Some((index, picker.filtered_index(index)?)))
+        .filter(|(_, model_index)| picker.model_at(*model_index).is_some())
+        .collect();
+    let window_labels: Vec<&str> = window
+        .iter()
+        .map(|(_, model_index)| picker.label_at(*model_index))
+        .collect();
+    let shared = labels::shared_prefixes(&window_labels);
+    for ((index, model_index), (label, shared)) in
+        window.iter().zip(window_labels.iter().zip(shared))
+    {
+        let Some(model) = picker.model_at(*model_index) else {
             continue;
         };
-        let Some(model) = picker.model_at(model_index).cloned() else {
-            continue;
+        let row = Row {
+            label,
+            shared,
+            selected: *index == picker.selected_index(),
         };
-        let selected = index == picker.selected_index();
-        let primary = row_primary(picker, theme, &model, selected, effort_layout);
-        let trailing = picker.trailing_segments(&model);
+        let (primary, trailing_shown) =
+            row_primary(picker, theme, model, &row, effort_layout, width);
+        let trailing = match trailing_shown {
+            Trailing::Shown => picker.trailing_segments(model),
+            Trailing::Hidden => Vec::new(),
+        };
         let trailing_refs: Vec<crate::menu_panel::MenuSegment> = trailing
             .iter()
             .map(|segment| crate::menu_panel::MenuSegment::muted(segment))
             .collect();
-        lines.push(menu_row(theme, width, primary, &trailing_refs, selected));
+        lines.push(menu_row(
+            theme,
+            width,
+            primary,
+            &trailing_refs,
+            row.selected,
+        ));
     }
 
     let filtered_len = picker.filtered_len();
@@ -124,30 +147,67 @@ pub(super) fn render(
     lines
 }
 
-/// The primary cell of one row: the model name, or the name with the inline
-/// effort cluster (arrows, squares, level label) when the window fits it.
+/// Whether a row shows its trailing segments: the selected row gives them
+/// up when its full name needs their columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trailing {
+    Shown,
+    Hidden,
+}
+
+/// One listed row's facts: its label, the graphemes the label shares with
+/// the most similar other visible label ([`labels::shared_prefixes`]), and
+/// whether the row is selected.
+struct Row<'a> {
+    label: &'a str,
+    shared: usize,
+    selected: bool,
+}
+
+/// The primary cell of one row: the model's label, or the label with the
+/// inline effort cluster (arrows, squares, level label) when the window
+/// fits it. A label wider than its column is cut so the visible rows still
+/// differ ([`labels::cut_label`]); the selected row shows its label whole
+/// when the row has the room, taking the trailing segments' columns for
+/// it.
 fn row_primary(
     picker: &ModelPicker,
     theme: &Theme,
     model: &Model,
-    selected: bool,
+    row: &Row<'_>,
     layout: EffortLayout,
-) -> Line {
-    let name = model.name.clone();
-    if !layout.show_cluster {
-        return vec![Span::raw(name)];
-    }
+    width: usize,
+) -> (Line, Trailing) {
+    let label_width = str_width(row.label);
+    // The row inside the marker column.
+    let inner = width.saturating_sub(2).max(1);
     let levels = picker.selectable_levels(model);
-    let Some(effort) = picker.effort_of(model) else {
-        return vec![Span::raw(name)];
+    let effort = picker.effort_of(model);
+    let Some(effort) = effort.filter(|_| layout.show_cluster && !levels.is_empty()) else {
+        if label_width <= layout.name_room {
+            return (vec![Span::raw(row.label.to_string())], Trailing::Shown);
+        }
+        if row.selected {
+            let name = labels::cut_label(row.label, row.shared, inner);
+            return (vec![Span::raw(name)], Trailing::Hidden);
+        }
+        let name = labels::cut_label(row.label, row.shared, layout.name_room);
+        return (vec![Span::raw(name)], Trailing::Shown);
     };
-    if levels.is_empty() {
-        return vec![Span::raw(name)];
-    }
-    let mut primary: Line = vec![Span::raw(truncate_pad(&name, layout.name_column, "..."))];
-    primary.push(Span::raw(" ".repeat(layout.gap)));
+    let RowName {
+        text: name,
+        trailing,
+        show_label,
+    } = cluster_row_name(row, layout, inner);
+    // A widened selected name pushes the cluster right by what it took.
+    let gap = layout
+        .gap
+        .saturating_sub(str_width(&name).saturating_sub(layout.name_column))
+        .max(1);
+    let mut primary: Line = vec![Span::raw(name)];
+    primary.push(Span::raw(" ".repeat(gap)));
     // Arrow slots: only the selected row shows the effort-adjustment arrows.
-    if selected {
+    if row.selected {
         primary.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::LEFT));
     } else {
         primary.push(Span::raw(" "));
@@ -158,22 +218,62 @@ fn row_primary(
         levels,
         effort,
         layout.square_slots,
-        selected,
+        row.selected,
     ));
     primary.push(Span::raw(" "));
-    if selected {
+    if row.selected {
         primary.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::RIGHT));
     } else {
         primary.push(Span::raw(" "));
     }
     primary.push(Span::raw(" "));
-    if layout.show_label {
+    if show_label {
         let mut label = effort.wire_name().to_string();
         let pad = layout.label_width.saturating_sub(label.chars().count());
         label.push_str(&" ".repeat(pad));
         primary.push(theme.fg_span(ThemeColor::Muted, label));
     }
-    primary
+    (primary, trailing)
+}
+
+/// The name cell of a row with the effort cluster and what the rest of
+/// the row keeps.
+struct RowName {
+    text: String,
+    trailing: Trailing,
+    /// The row shows the level label after the squares.
+    show_label: bool,
+}
+
+/// A label that fits the name column fills it. The selected row widens
+/// past the column into the trailing segments' columns, and gives up its
+/// level label (the squares still show the level) when that lets the
+/// whole label show. Any other label is cut to the column.
+fn cluster_row_name(row: &Row<'_>, layout: EffortLayout, inner: usize) -> RowName {
+    let cut = |room: usize| labels::cut_label(row.label, row.shared, room);
+    let label_width = str_width(row.label);
+    let in_column = |text: &str| RowName {
+        text: pad_to(text, layout.name_column),
+        trailing: Trailing::Shown,
+        show_label: layout.show_label,
+    };
+    if label_width <= layout.name_column {
+        return in_column(row.label);
+    }
+    // The name's room beside the cluster, one space between them.
+    let room = |with_level: bool| {
+        let level = if with_level { layout.label_width } else { 0 };
+        inner.saturating_sub(6 + layout.square_slots + level + 1)
+    };
+    let show_label = layout.show_label && (room(true) >= label_width || room(false) < label_width);
+    if row.selected && room(show_label) > layout.name_column {
+        return RowName {
+            text: cut(room(show_label)),
+            trailing: Trailing::Hidden,
+            show_label,
+        };
+    }
+    in_column(&cut(layout.name_column))
 }
 
 /// The effort squares (TS `renderEffortSquares`): one slot per on-level,
@@ -340,35 +440,10 @@ fn hint_line(theme: &Theme, width: usize, kb: &KeybindingsManager) -> Line {
     hint_row(theme, width, &hint)
 }
 
-/// Truncate to a width and pad to it (TS `truncateToWidth` with
-/// `pad: true`).
-fn truncate_pad(text: &str, width: usize, ellipsis: &str) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    let ellipsis_width = str_width(ellipsis);
-    if str_width(text) <= width {
-        let mut out = text.to_string();
-        let pad = width.saturating_sub(str_width(text));
-        out.push_str(&" ".repeat(pad));
-        return out;
-    }
-    if ellipsis_width >= width {
-        return " ".repeat(width);
-    }
-    let mut out = String::new();
-    let mut used = 0;
-    let target = width - ellipsis_width;
-    for character in text.chars() {
-        let character_width = crate::width::char_width(character);
-        if used + character_width > target {
-            break;
-        }
-        out.push(character);
-        used += character_width;
-    }
-    out.push_str(ellipsis);
-    out
+/// `text` padded with spaces to `width` columns (unchanged when wider).
+fn pad_to(text: &str, width: usize) -> String {
+    let pad = width.saturating_sub(str_width(text));
+    format!("{text}{}", " ".repeat(pad))
 }
 
 #[cfg(test)]

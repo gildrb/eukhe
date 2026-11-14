@@ -135,8 +135,13 @@ fn picker_options(catalog: Vec<CatalogModel>) -> ModelPickerOptions {
 
 /// Rendered frame rows as trimmed plain text (tmux-capture shape).
 fn frame_text(picker: &mut ModelPicker) -> Vec<String> {
+    frame_text_at(picker, 120)
+}
+
+/// [`frame_text`] at `width` columns.
+fn frame_text_at(picker: &mut ModelPicker, width: usize) -> Vec<String> {
     picker
-        .render(&theme(), 120, &kb())
+        .render(&theme(), width, &kb())
         .iter()
         .map(|line| {
             line.iter()
@@ -890,4 +895,78 @@ fn search_preserves_overlong_version_runs() {
         filtered_ids(&picker),
         vec!["model-18446744073709551616", "model-2"]
     );
+}
+
+/// The current model plus two reasoning models whose long names share
+/// their first 29 characters.
+fn long_name_catalog() -> Vec<CatalogModel> {
+    vec![
+        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model(
+            "prime-inference",
+            "tm/inkling-2-preview",
+            "Thinking Machines: Inkling 2 Preview Edition",
+            true,
+            Some(opus_levels()),
+        ),
+        model(
+            "prime-inference",
+            "tm/inkling-2-fast",
+            "Thinking Machines: Inkling 2 Fast Edition",
+            true,
+            Some(opus_levels()),
+        ),
+    ]
+}
+
+/// A wide pane shows long names whole: the name column grows to the
+/// longest visible name instead of stopping at a fixed width.
+#[test]
+fn long_names_use_the_row_width() {
+    let mut picker = ModelPicker::new(picker_options(long_name_catalog()));
+    let rows = frame_text(&mut picker);
+    for name in [
+        "Thinking Machines: Inkling 2 Preview Edition",
+        "Thinking Machines: Inkling 2 Fast Edition",
+    ] {
+        assert!(
+            rows.iter().any(|row| row.contains(name)),
+            "{name}: {rows:#?}"
+        );
+    }
+}
+
+/// A narrow pane cuts long names where they differ, so two rows never
+/// read alike; the selected row shows its whole name, giving up the
+/// trailing provider (and the level word when that makes the room).
+#[test]
+fn narrow_rows_stay_distinct_and_the_selection_shows_its_name() {
+    let mut picker = ModelPicker::new(picker_options(long_name_catalog()));
+    let rows = frame_text_at(&mut picker, 60);
+    let effort_row =
+        |name: &str| format!("  {name}   ##..   medium{}prime-inference", " ".repeat(12));
+    assert_eq!(rows[4], effort_row("...Fast Edition"));
+    assert_eq!(rows[5], effort_row("...Preview E..."));
+    let full_rows = |picker: &mut ModelPicker| -> Vec<String> {
+        picker
+            .render(&theme(), 60, &kb())
+            .iter()
+            .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+            .collect()
+    };
+    picker.handle_key("down", &kb());
+    let rows = full_rows(&mut picker);
+    assert!(
+        rows[4].starts_with("> Thinking Machines: Inkling 2 Fast Edition"),
+        "{rows:#?}"
+    );
+    assert!(rows[4].contains("medium") && !rows[4].contains("prime-inference"));
+    picker.handle_key("down", &kb());
+    let rows = full_rows(&mut picker);
+    assert!(
+        rows[5].starts_with("> Thinking Machines: Inkling 2 Preview Edition"),
+        "{rows:#?}"
+    );
+    assert!(!rows[5].contains("medium"), "{}", rows[5]);
+    assert!(rows.iter().all(|row| crate::width::str_width(row) <= 60));
 }

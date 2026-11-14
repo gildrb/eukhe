@@ -76,6 +76,53 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str) -> String
     format!("{kept}{ellipsis}")
 }
 
+/// Truncate a plain string to a display-width budget by cutting its middle:
+/// the head and the tail stay, the ellipsis joins them, and the tail keeps
+/// the larger half (names that share a long prefix still differ on
+/// screen: `Thinking Machines: Inkling (preview)` in 26 columns reads
+/// `Thinking Ma...ng (preview)`). Grapheme-aware like
+/// [`truncate_to_width`]; a budget too small for the ellipsis plus one
+/// column on each side falls back to it.
+#[must_use]
+pub fn truncate_middle(text: &str, max_width: usize, ellipsis: &str) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    if str_width(text) <= max_width {
+        return text.to_string();
+    }
+    let ellipsis_width = str_width(ellipsis);
+    if max_width < ellipsis_width + 2 {
+        return truncate_to_width(text, max_width, ellipsis);
+    }
+    let target = max_width - ellipsis_width;
+    let tail_budget = target.div_ceil(2);
+    let head_budget = target - tail_budget;
+    let graphemes: Vec<&str> = text.graphemes(true).collect();
+    let mut tail_start = graphemes.len();
+    let mut tail_used = 0usize;
+    while tail_start > 0 {
+        let width = grapheme_width(graphemes[tail_start - 1]);
+        if tail_used + width > tail_budget {
+            break;
+        }
+        tail_used += width;
+        tail_start -= 1;
+    }
+    // A wide grapheme that does not fit the tail leaves its column to the
+    // head.
+    let head_budget = head_budget + (tail_budget - tail_used);
+    let mut head = String::new();
+    let mut head_used = 0usize;
+    for grapheme in &graphemes[..tail_start] {
+        let width = grapheme_width(grapheme);
+        if head_used + width > head_budget {
+            break;
+        }
+        head.push_str(grapheme);
+        head_used += width;
+    }
+    format!("{head}{ellipsis}{}", graphemes[tail_start..].concat())
+}
+
 /// Width of one grapheme cluster approximated by its first char plus zero-width
 /// continuation chars. Good enough for the terminal layout we render.
 #[must_use]
@@ -596,6 +643,24 @@ mod tests {
         assert_eq!(str_width("\u{feff}"), 0); // zero-width BOM
         assert_eq!(str_width("\u{200d}"), 0); // lone ZWJ
         assert_eq!(str_width("a\u{200d}b"), 2); // ZWJ does not cluster letters
+    }
+
+    #[test]
+    fn truncate_middle_keeps_head_and_tail() {
+        let ellipsis = crate::glyphs::ELLIPSIS;
+        let name = "Thinking Machines: Inkling (preview)";
+        assert_eq!(
+            truncate_middle(name, 26, ellipsis),
+            "Thinking Ma...ng (preview)"
+        );
+        assert_eq!(truncate_middle(name, 60, ellipsis), name);
+        assert_eq!(truncate_middle(name, 4, ellipsis), "T...");
+        // A wide tail grapheme that misses the tail budget leaves its
+        // column to the head.
+        assert_eq!(
+            truncate_middle("abcdef\u{4e2d}\u{4e2d}", 8, ellipsis),
+            "abc...\u{4e2d}"
+        );
     }
 
     #[test]

@@ -90,6 +90,9 @@ pub(crate) struct EffortLayout {
     label_width: usize,
     show_label: bool,
     show_cluster: bool,
+    /// The columns a row without the effort cluster gives its name: the
+    /// row less the marker and the widest trailing cluster of the window.
+    name_room: usize,
 }
 
 /// One picker over the model catalog.
@@ -144,6 +147,9 @@ pub struct ModelPicker {
     /// The normalized search fields of each `all_models` entry, indexed
     /// alike: a keystroke only scores them.
     search_fields: Vec<SearchFields>,
+    /// The row label of each `all_models` entry, indexed alike
+    /// ([`crate::model_labels::row_labels`]).
+    labels: Vec<String>,
 }
 
 impl ModelPicker {
@@ -178,6 +184,7 @@ impl ModelPicker {
             scope: ModelScope::All,
             version_keys: Vec::new(),
             search_fields: Vec::new(),
+            labels: Vec::new(),
         };
         picker.load_models(options.models);
         picker.resolve_scope_positions();
@@ -445,6 +452,7 @@ impl ModelPicker {
             .map(|model| version_key(&model.id))
             .collect();
         self.search_fields = self.all_models.iter().map(SearchFields::new).collect();
+        self.labels = crate::model_labels::row_labels(&self.all_models);
         self.resolve_effort_defaults();
         let current_index = self
             .all_models
@@ -720,13 +728,33 @@ impl ModelPicker {
         self.search.cursor()
     }
 
+    /// The window's columns: the name column and the effort cluster of
+    /// rows with a thinking surface, and the name room of rows without
+    /// one. The name column is as wide as the window's longest label
+    /// needs, up to the room the cluster and the trailing column leave.
     pub(crate) fn effort_layout(&self, start: usize, end: usize) -> EffortLayout {
-        /// TS constant: wide detail columns must fit "Cached input".
-        const EFFORT_NAME_COLUMN_MAX: usize = 30;
         const EFFORT_NAME_COLUMN_MIN: usize = 12;
         /// Arrow slots and the spaces around the squares and label.
         const ARROWS_AND_GAPS: usize = 6;
 
+        let width = self.render_width;
+        let window: Vec<usize> = (start..end)
+            .filter_map(|index| self.filtered.get(index).copied())
+            .filter(|model_index| *model_index < self.all_models.len())
+            .collect();
+        let max_trailing_width = window
+            .iter()
+            .map(|model_index| {
+                let segments = self.trailing_segments(&self.all_models[*model_index]);
+                let refs: Vec<crate::menu_panel::MenuSegment> = segments
+                    .iter()
+                    .map(|segment| crate::menu_panel::MenuSegment::muted(segment))
+                    .collect();
+                crate::menu_panel::trailing_width(&refs, width)
+            })
+            .max()
+            .unwrap_or(0);
+        let available = width.saturating_sub(2 + max_trailing_width + 2).max(1);
         let empty = EffortLayout {
             name_column: 0,
             square_slots: 0,
@@ -734,42 +762,28 @@ impl ModelPicker {
             label_width: 0,
             show_label: false,
             show_cluster: false,
+            name_room: available,
         };
-        let reasoning: Vec<&Model> = (start..end)
-            .filter_map(|index| {
-                let model_index = self.filtered.get(index).copied()?;
-                self.all_models.get(model_index)
+        let reasoning_rows: Vec<usize> = window
+            .into_iter()
+            .filter(|model_index| {
+                !self
+                    .selectable_levels(&self.all_models[*model_index])
+                    .is_empty()
             })
-            .filter(|model| !self.selectable_levels(model).is_empty())
             .collect();
-        if reasoning.is_empty() {
+        if reasoning_rows.is_empty() {
             return empty;
         }
-        let width = self.render_width;
-        let mut max_trailing_width = 0;
-        for index in start..end {
-            let Some(model_index) = self.filtered.get(index).copied() else {
-                continue;
-            };
-            let Some(model) = self.all_models.get(model_index) else {
-                continue;
-            };
-            let segments = self.trailing_segments(model);
-            let refs: Vec<crate::menu_panel::MenuSegment> = segments
-                .iter()
-                .map(|segment| crate::menu_panel::MenuSegment::muted(segment))
-                .collect();
-            max_trailing_width =
-                max_trailing_width.max(crate::menu_panel::trailing_width(&refs, width));
-        }
-        let available = width.saturating_sub(2 + max_trailing_width + 2).max(1);
-
-        let max_name_column = reasoning
+        let reasoning: Vec<&Model> = reasoning_rows
             .iter()
-            .map(|model| crate::width::str_width(&model.name))
+            .map(|model_index| &self.all_models[*model_index])
+            .collect();
+        let max_name_column = reasoning_rows
+            .iter()
+            .map(|model_index| crate::width::str_width(&self.labels[*model_index]))
             .max()
-            .unwrap_or(0)
-            .min(EFFORT_NAME_COLUMN_MAX);
+            .unwrap_or(0);
         let square_slots = reasoning
             .iter()
             .map(|model| {
@@ -806,6 +820,7 @@ impl ModelPicker {
                 label_width,
                 show_label,
                 show_cluster: true,
+                name_room: available,
             }
         };
         if max_name_column + cluster_width + label_width + ARROWS_AND_GAPS <= available {
@@ -824,6 +839,11 @@ impl ModelPicker {
             return place(max_name_column.min(cluster_name_column), false);
         }
         empty
+    }
+
+    /// The row label of the catalog entry at `model_index`.
+    pub(crate) fn label_at(&self, model_index: usize) -> &str {
+        self.labels.get(model_index).map_or("", String::as_str)
     }
 
     /// The trailing segments of one row (TS `getTrailingSegments`):
