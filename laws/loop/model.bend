@@ -58,7 +58,8 @@ import ../../spec/loop/loop.bend as S
 #   L5 after the user's interrupt no turn and no check starts until the
 #      user acts again; a turn that did not run to its end pauses the loop.
 #                     loop_abort_holds, loop_halted_turn_pauses,
-#                     loop_abort_pauses
+#                     loop_abort_pauses, loop_paused_waits,
+#                     loop_stale_turn_ignored, loop_stale_check_ignored
 #   L6 a loop ends once: it reports its end once, and after the end (or
 #      with no loop) nothing changes and nothing starts until a new `/loop`.
 #                     loop_off_stays_off, loop_reports_once,
@@ -71,7 +72,8 @@ import ../../spec/loop/loop.bend as S
 #                     loop_restart_resumes_submit,
 #                     loop_restart_resumes_adopted, loop_restart_rejudges,
 #                     loop_restart_idle_rests, loop_redelivery_is_noop,
-#                     loop_keeps_condition, loop_keeps_deadline
+#                     loop_keeps_condition, loop_keeps_deadline,
+#                     loop_stale_turn_ignored, loop_stale_check_ignored
 #   L8 while user input is queued or work is unsettled the loop waits: it
 #      starts nothing, judges nothing and changes nothing, and asks again.
 #                     loop_blocked_waits, loop_blocked_defers
@@ -679,6 +681,35 @@ law loop_abort_pauses:
   for on: {S.is_on(S.phase(s)) == True{} : Bool}
   {(S.does(s, Lp.Abort{}), (S.phase(S.next(s, Lp.Abort{})), (S.iter(S.next(s, Lp.Abort{})), (S.left(S.next(s, Lp.Abort{})), (S.deadline(S.next(s, Lp.Abort{})), (S.cond(S.next(s, Lp.Abort{})), S.last(S.next(s, Lp.Abort{})))))))) == (Lp.Rest{}, (Lp.Paused{}, (S.iter(s), (S.left(s), (S.deadline(s), (S.cond(s), S.last(s))))))) : Lp.Act & (Lp.Phase & (Nat & (Maybe<&2, Nat> & (Maybe<&2, Nat> & (Lp.Cond & Lp.Last)))))}
 
+# LAW loop_paused_waits (L5): a paused loop waits for the user: a turn
+# that settles or a check that is judged meanwhile, whatever its
+# iteration, outcome or evidence and whether the session is idle, changes
+# nothing and starts nothing; the user's next prompt resumes the loop at
+# the next iteration with its count left, its deadline, its condition and
+# its evidence, no failed turn counted
+# EXCLUDES: a judge answer cut off by the Esc that ends the paused loop
+#   (a broken check, a satisfied condition), a late settled turn that
+#   starts the next iteration or counts a failure, a paused loop that the
+#   next prompt no longer resumes
+law loop_paused_waits:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for k: Nat
+  for o: Lp.Out
+  for ev: Lp.Evid
+  for bl: Bool
+  for now: Nat
+  for fu: Bool
+  for t: String
+  {Lp.step(Lp.St{Lp.Paused{}, i, l, d, c, b, f, x}, Lp.Settled{k, o, bl, now, fu}) == (Lp.St{Lp.Paused{}, i, l, d, c, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act} &
+  {Lp.step(Lp.St{Lp.Paused{}, i, l, d, c, b, f, x}, Lp.Judged{k, ev, bl, now, fu}) == (Lp.St{Lp.Paused{}, i, l, d, c, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act} &
+  {Lp.step(Lp.St{Lp.Paused{}, i, l, d, c, b, f, x}, Lp.Prompt{t}) == (Lp.St{Lp.Turn{}, 1n+i, l, d, c, t, 0n, x}, Lp.Adopt{1n+i}) : Lp.St & Lp.Act}
+
 # Laws: the end (L6)
 # ------------------
 
@@ -762,6 +793,40 @@ law loop_redelivery_is_noop:
   for +e: Lp.Ev
   for h: {S.once(e) == True{} : Bool}
   {Lp.step(S.next(s, e), e) == (S.next(s, e), Lp.Rest{}) : Lp.St & Lp.Act}
+
+# LAW loop_stale_turn_ignored (L5, L7): a settled turn that is not the
+# turn the loop has in flight (another iteration's, or the loop is not in
+# a turn: armed, judging, paused, ended, off), whatever its outcome,
+# changes nothing and starts nothing
+# EXCLUDES: a turn that settles after the Esc, the end or a restart and
+#   starts an iteration, counts a failure, pauses or ends the loop
+law loop_stale_turn_ignored:
+  for +s: Lp.St
+  for k: Nat
+  for o: Lp.Out
+  for bl: Bool
+  for now: Nat
+  for fu: Bool
+  for h: {Bool.and(S.is_turn(S.phase(s)), Nat.is_eq(k, S.iter(s))) == False{} : Bool}
+  {Lp.step(s, Lp.Settled{k, o, bl, now, fu}) == (s, Lp.Rest{}) : Lp.St & Lp.Act}
+
+# LAW loop_stale_check_ignored (L5, L7): a judged check that is not the
+# check the loop waits for (another iteration's, a second answer after a
+# restart asked again, or the loop is not judging: armed, in a turn,
+# paused, ended, off), whatever its evidence, changes nothing and starts
+# nothing
+# EXCLUDES: a judge answer cut off by the Esc that ends the paused loop,
+#   a stale exit status or ruling that ends a running loop or starts an
+#   iteration, a stale check kept as the loop's evidence
+law loop_stale_check_ignored:
+  for +s: Lp.St
+  for k: Nat
+  for ev: Lp.Evid
+  for bl: Bool
+  for now: Nat
+  for fu: Bool
+  for h: {Bool.and(S.is_judging(S.phase(s)), Nat.is_eq(k, S.iter(s))) == False{} : Bool}
+  {Lp.step(s, Lp.Judged{k, ev, bl, now, fu}) == (s, Lp.Rest{}) : Lp.St & Lp.Act}
 
 # Laws: queued input (L8)
 # -----------------------

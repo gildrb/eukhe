@@ -4319,6 +4319,7 @@ import ./proof/loop/loop_late_stops.bend as PLoopLateStops
 import ./proof/loop/loop_inside_continues.bend as PLoopInsideContinues
 import ./proof/loop/loop_halted_turn_pauses.bend as PLoopHaltedTurnPauses
 import ./proof/loop/loop_abort_pauses.bend as PLoopAbortPauses
+import ./proof/loop/loop_paused_waits.bend as PLoopPausedWaits
 import ./proof/loop/loop_report_names_the_end.bend as PLoopReportNamesTheEnd
 import ./proof/loop/loop_restart_changes_nothing.bend as PLoopRestartChangesNothing
 import ./proof/loop/loop_restart_resumes_submit.bend as PLoopRestartResumesSubmit
@@ -4326,6 +4327,8 @@ import ./proof/loop/loop_restart_resumes_adopted.bend as PLoopRestartResumesAdop
 import ./proof/loop/loop_restart_rejudges.bend as PLoopRestartRejudges
 import ./proof/loop/loop_restart_idle_rests.bend as PLoopRestartIdleRests
 import ./proof/loop/loop_redelivery_is_noop.bend as PLoopRedeliveryIsNoop
+import ./proof/loop/loop_stale_turn_ignored.bend as PLoopStaleTurnIgnored
+import ./proof/loop/loop_stale_check_ignored.bend as PLoopStaleCheckIgnored
 import ./proof/loop/loop_blocked_waits.bend as PLoopBlockedWaits
 import ./proof/loop/loop_blocked_defers.bend as PLoopBlockedDefers
 import ./proof/loop/loop_records_evidence.bend as PLoopRecordsEvidence
