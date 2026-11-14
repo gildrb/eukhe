@@ -99,6 +99,14 @@ confirmed in the text); <https://landlock.io/talks/2026-10-08_landlock-lss.pdf>.
   (`FS_XFLAG_NOATIME` among them) by path, and `inotify_add_watch`
   reports entry names in a watched directory; Landlock has no right for
   either, so they follow the "not covered" list above.
+- Landlock's scopes are abstract Unix sockets and signals only (kernel
+  doc, "IPC scoping"): SysV IPC, POSIX message queues and
+  `/proc/<pid>/cmdline` of other processes of the same user stay
+  reachable between sandboxed programs.
+- Mount namespaces: since Linux 3.18 a file or directory that is a mount
+  point only in another namespace can be renamed or unlinked, and the
+  mount disappears there (mount_namespaces(7)); a file-level bind over a
+  path the host replaces by rename stops covering it.
 - Errata are queryable (`LANDLOCK_CREATE_RULESET_ERRATA`). Erratum 1: TCP
   rights used to restrict other IPv4 and IPv6 stream protocols (SMC, MPTCP,
   SCTP); since the fix only TCP sockets are subject to them, so a sandbox
