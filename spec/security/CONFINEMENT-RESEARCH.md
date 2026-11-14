@@ -345,6 +345,17 @@ FSEvents; probes, then timings.
 - A symlink inside a write tree `w` pointing at a directory outside it:
   under `(allow file-write* (subpath w))`, writing `w/link/f` failed with
   `EPERM`; Seatbelt matched the path the access resolved to.
+- Under `(allow network-outbound (remote tcp "localhost:9999"))` and
+  `(allow network-bind network-inbound (local tcp "localhost:*"))`, a TCP
+  connect to `127.0.0.1:9999` reached the network stack (refused, no
+  listener), while a UDP `sendto` to that port and a UDP bind on loopback
+  failed with `EPERM`: the `tcp` filters exclude UDP, which `ip` filters
+  admit.
+- A Unix socket bound and listening in an allowed directory `d` could be
+  renamed and hard-linked into another write tree under `file-write*`;
+  with `(deny file-write-create (require-all (vnode-type SOCKET)
+  (require-not (subpath d))))` both failed with `EPERM`, while renaming
+  and linking regular files there still worked.
 
 ### 5.2 Linux (AMD Ryzen 7 5800X, NixOS 26.05, kernel 6.18.50, Landlock ABI 7, bubblewrap 0.11.2)
 
