@@ -2,7 +2,11 @@
 
 import Base
 import ../bend/agent_tree.bend as T
+import ../bend/agent_crown.bend as C
+import ../bend/ffi_agent_tree.bend as FAt
+import ../bend/wire.bend as Wr
 import ../spec/agents/agent_tree.bend as S
+import ./base.bend as LawsBase
 
 # (T1-T11) The binary agent tree
 # ------------------------------
@@ -314,6 +318,341 @@ def idle(v: T.View) -> Bool:
     case T.View{m, n, w}:
       Bool.and(Bool.not(m), Bool.and(Nat.is_eq(n, 0n), Bool.not(w)))
 
+# Spec helpers: the wire (T13)
+# ----------------------------
+# T13: the compiled core answers every request Rust spells with the
+#      model's decision, and refuses every other input with one error.
+#
+# How Rust spells a request of the entry (bend/ffi_agent_tree.bend) and
+# reads its reply, written from the grammar with the wire's primitives
+# (Wr.put_nat, Wr.put_bool), never the entry's encoders: a constructor is
+# its index then its fields, a record its fields, a list its count then
+# its items, a Maybe 0 or 1 then the value.
+
+# a list of Bools: its count, then each Bool
+def w_bools.items(xs: List<&2, Bool>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      Wr.put_bool(x, w_bools.items(t, rest))
+
+def w_bools(+xs: List<&2, Bool>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Bool, xs), w_bools.items(xs, rest))
+
+# a unit of a patch: 0 untouched, 1 then its bytes
+def w_mnat(m: Maybe<&2, Nat>, rest: String) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, rest)
+    case Some{x}:
+      Wr.put_nat(1n, Wr.put_nat(x, rest))
+
+def w_patch.items(xs: List<&2, Maybe<&2, Nat>>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case Con{x, t}:
+      w_mnat(x, w_patch.items(t, rest))
+
+def w_patch(+xs: List<&2, Maybe<&2, Nat>>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, Maybe<&2, Nat>, xs), w_patch.items(xs, rest))
+
+# the index of a direction in T.Dir
+def dir_tag(d: T.Dir) -> Nat:
+  match d:
+    case T.GoL{}:
+      0n
+    case T.GoR{}:
+      1n
+
+def w_path.items(ps: List<&2, T.Dir>, rest: String) -> String:
+  match ps:
+    case Nil{}:
+      rest
+    case Con{p, t}:
+      Wr.put_nat(dir_tag(p), w_path.items(t, rest))
+
+def w_path(+ps: List<&2, T.Dir>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, T.Dir, ps), w_path.items(ps, rest))
+
+# a limit: 0 Unlimited, 1 then the value
+def w_lim(l: T.Lim, rest: String) -> String:
+  match l:
+    case T.Unlimited{}:
+      Wr.put_nat(0n, rest)
+    case T.Value{n}:
+      Wr.put_nat(1n, Wr.put_nat(n, rest))
+
+# the index of a status in T.Status
+def status_tag(st: T.Status) -> Nat:
+  match st:
+    case T.Running{}:
+      0n
+    case T.Finished{}:
+      1n
+    case T.Failed{}:
+      2n
+    case T.Cancelled{}:
+      3n
+
+# a node's info: status, scope, limit, spent, deadline, patch
+def w_info(i: T.Info, rest: String) -> String:
+  match i:
+    case T.Info{st, sc, lim, sp, dl, p}:
+      Wr.put_nat(status_tag(st), w_bools(sc, w_lim(lim, Wr.put_nat(sp, w_lim(dl, w_patch(p, rest))))))
+
+# a node: 0 then a leaf's info, or 1 then a split's info, own, left, right
+def w_node(t: T.Node, rest: String) -> String:
+  match t:
+    case T.Leaf{i}:
+      Wr.put_nat(0n, w_info(i, rest))
+    case T.Split{i, own, l, r}:
+      Wr.put_nat(1n, w_info(i, w_bools(own, w_node(l, w_node(r, rest)))))
+
+def w_bounds(b: T.Bounds, rest: String) -> String:
+  match b:
+    case T.Bounds{d, n, m}:
+      Wr.put_nat(d, Wr.put_nat(n, Wr.put_nat(m, rest)))
+
+# an event: its index in T.Ev, then its fields in order
+def w_ev(e: T.Ev, rest: String) -> String:
+  match e:
+    case T.EvSplit{at, own, ls, rs, hold}:
+      Wr.put_nat(0n, w_path(at, w_bools(own, w_bools(ls, w_bools(rs, Wr.put_nat(hold, rest))))))
+    case T.EvSpend{at, n}:
+      Wr.put_nat(1n, w_path(at, Wr.put_nat(n, rest)))
+    case T.EvFinish{at, p}:
+      Wr.put_nat(2n, w_path(at, w_patch(p, rest)))
+    case T.EvFail{at, p}:
+      Wr.put_nat(3n, w_path(at, w_patch(p, rest)))
+    case T.EvCancel{at}:
+      Wr.put_nat(4n, w_path(at, rest))
+    case T.EvRedo{at, side, x}:
+      Wr.put_nat(5n, w_path(at, Wr.put_nat(dir_tag(side), Wr.put_nat(x, rest))))
+    case T.EvTick{now}:
+      Wr.put_nat(6n, Wr.put_nat(now, rest))
+
+def w_view(v: T.View, rest: String) -> String:
+  match v:
+    case T.View{m, n, w}:
+      Wr.put_bool(m, Wr.put_nat(n, Wr.put_bool(w, rest)))
+
+# a help leaf: its path, status, limit, spent, deadline
+def w_help(h: C.Help, rest: String) -> String:
+  match h:
+    case C.Help{at, st, lim, sp, dl}:
+      w_path(at, Wr.put_nat(status_tag(st), w_lim(lim, Wr.put_nat(sp, w_lim(dl, rest)))))
+
+def w_helps.items(hs: List<&2, C.Help>, rest: String) -> String:
+  match hs:
+    case Nil{}:
+      rest
+    case Con{h, t}:
+      w_help(h, w_helps.items(t, rest))
+
+def w_helps(+hs: List<&2, C.Help>, rest: String) -> String:
+  Wr.put_nat(List.length(&2, C.Help, hs), w_helps.items(hs, rest))
+
+# a crown: the tree, then the help leaves
+def w_crown(c: C.Crown, rest: String) -> String:
+  match c:
+    case C.Crown{t, hs}:
+      w_node(t, w_helps(hs, rest))
+
+# a crown event: its index in C.CEv, then its fields
+def w_cev(e: C.CEv, rest: String) -> String:
+  match e:
+    case C.OnTree{x}:
+      Wr.put_nat(0n, w_ev(x, rest))
+    case C.EvHelp{at, n}:
+      Wr.put_nat(1n, w_path(at, Wr.put_nat(n, rest)))
+    case C.EvHelpSpend{k, n}:
+      Wr.put_nat(2n, Wr.put_nat(k, Wr.put_nat(n, rest)))
+    case C.EvHelpEnd{k, ok}:
+      Wr.put_nat(3n, Wr.put_nat(k, Wr.put_bool(ok, rest)))
+
+# a request: its tag, then its fields
+def w_req(q: FAt.Req, rest: String) -> String:
+  match q:
+    case FAt.QStep{b, c, e}:
+      Wr.put_nat(0n, w_bounds(b, w_crown(c, w_cev(e, rest))))
+    case FAt.QOverlay{cur, a, s}:
+      Wr.put_nat(1n, w_patch(cur, w_patch(a, w_bools(s, rest))))
+    case FAt.QNext{v}:
+      Wr.put_nat(2n, w_view(v, rest))
+    case FAt.QFree{c, p}:
+      Wr.put_nat(3n, w_crown(c, w_path(p, rest)))
+
+# the index of a refusal in T.Refusal
+def refusal_tag(w: T.Refusal) -> Nat:
+  match w:
+    case T.NoNode{}:
+      0n
+    case T.NotRunning{}:
+      1n
+    case T.NotLeaf{}:
+      2n
+    case T.TooDeep{}:
+      3n
+    case T.TooMany{}:
+      4n
+    case T.BadScopes{}:
+      5n
+    case T.NoBudget{}:
+      6n
+    case T.Unsettled{}:
+      7n
+    case T.NotRedoable{}:
+      8n
+
+# the index of an action in T.Action
+def action_tag(a: T.Action) -> Nat:
+  match a:
+    case T.ReadMessage{}:
+      0n
+    case T.Integrate{}:
+      1n
+    case T.WorkOwn{}:
+      2n
+    case T.Waits{}:
+      3n
+
+# a step's decision: 0 then the new crown, or 1 then the refusal
+def w_cstep(s: C.CStep) -> String:
+  match s:
+    case C.CTook{c}:
+      Wr.put_nat(0n, w_crown(c, ""))
+    case C.CRefused{w}:
+      Wr.put_nat(1n, Wr.put_nat(refusal_tag(w), ""))
+
+# a free: 0 when no node is there, else 1 then the limit
+def w_mlim(m: Maybe<&2, T.Lim>) -> String:
+  match m:
+    case None{}:
+      Wr.put_nat(0n, "")
+    case Some{l}:
+      Wr.put_nat(1n, w_lim(l, ""))
+
+# the model's decision on a request, spelled
+def w_reply(q: FAt.Req) -> String:
+  match q:
+    case FAt.QStep{b, c, e}:
+      w_cstep(C.hstep(b, c, e))
+    case FAt.QOverlay{cur, +a, +s}:
+      w_patch(T.overlay(cur, a, s), w_bools(T.conflicts(a, s), ""))
+    case FAt.QNext{v}:
+      Wr.put_nat(action_tag(T.next(v)), "")
+    case FAt.QFree{c, p}:
+      w_mlim(C.cfree(c, p))
+
+# Fits: every number and every count of a value is within the wire (at
+# most 14 digits)
+
+def fit_bools(+xs: List<&2, Bool>) -> Bool:
+  LawsBase.wire_fits(List.length(&2, Bool, xs))
+
+def fit_patch.items(xs: List<&2, Maybe<&2, Nat>>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{x, t}:
+      Bool.and(LawsBase.wire_mfits(x), fit_patch.items(t))
+
+def fit_patch(+xs: List<&2, Maybe<&2, Nat>>) -> Bool:
+  Bool.and(LawsBase.wire_fits(List.length(&2, Maybe<&2, Nat>, xs)), fit_patch.items(xs))
+
+def fit_path(+ps: List<&2, T.Dir>) -> Bool:
+  LawsBase.wire_fits(List.length(&2, T.Dir, ps))
+
+def fit_lim(l: T.Lim) -> Bool:
+  match l:
+    case T.Unlimited{}:
+      True{}
+    case T.Value{n}:
+      LawsBase.wire_fits(n)
+
+def fit_info(i: T.Info) -> Bool:
+  match i:
+    case T.Info{st, +sc, lim, sp, dl, +p}:
+      Bool.and(fit_bools(sc), Bool.and(fit_lim(lim), Bool.and(LawsBase.wire_fits(sp), Bool.and(fit_lim(dl), fit_patch(p)))))
+
+def fit_node(t: T.Node) -> Bool:
+  match t:
+    case T.Leaf{i}:
+      fit_info(i)
+    case T.Split{i, +own, l, r}:
+      Bool.and(fit_info(i), Bool.and(fit_bools(own), Bool.and(fit_node(l), fit_node(r))))
+
+def fit_bounds(b: T.Bounds) -> Bool:
+  match b:
+    case T.Bounds{d, n, m}:
+      Bool.and(LawsBase.wire_fits(d), Bool.and(LawsBase.wire_fits(n), LawsBase.wire_fits(m)))
+
+def fit_ev(e: T.Ev) -> Bool:
+  match e:
+    case T.EvSplit{+at, +own, +ls, +rs, hold}:
+      Bool.and(fit_path(at), Bool.and(fit_bools(own), Bool.and(fit_bools(ls), Bool.and(fit_bools(rs), LawsBase.wire_fits(hold)))))
+    case T.EvSpend{+at, n}:
+      Bool.and(fit_path(at), LawsBase.wire_fits(n))
+    case T.EvFinish{+at, +p}:
+      Bool.and(fit_path(at), fit_patch(p))
+    case T.EvFail{+at, +p}:
+      Bool.and(fit_path(at), fit_patch(p))
+    case T.EvCancel{+at}:
+      fit_path(at)
+    case T.EvRedo{+at, side, x}:
+      Bool.and(fit_path(at), LawsBase.wire_fits(x))
+    case T.EvTick{now}:
+      LawsBase.wire_fits(now)
+
+def fit_view(v: T.View) -> Bool:
+  match v:
+    case T.View{m, n, w}:
+      LawsBase.wire_fits(n)
+
+def fit_help(h: C.Help) -> Bool:
+  match h:
+    case C.Help{+at, st, lim, sp, dl}:
+      Bool.and(fit_path(at), Bool.and(fit_lim(lim), Bool.and(LawsBase.wire_fits(sp), fit_lim(dl))))
+
+def fit_helps.items(hs: List<&2, C.Help>) -> Bool:
+  match hs:
+    case Nil{}:
+      True{}
+    case Con{h, t}:
+      Bool.and(fit_help(h), fit_helps.items(t))
+
+def fit_helps(+hs: List<&2, C.Help>) -> Bool:
+  Bool.and(LawsBase.wire_fits(List.length(&2, C.Help, hs)), fit_helps.items(hs))
+
+def fit_crown(c: C.Crown) -> Bool:
+  match c:
+    case C.Crown{t, +hs}:
+      Bool.and(fit_node(t), fit_helps(hs))
+
+def fit_cev(e: C.CEv) -> Bool:
+  match e:
+    case C.OnTree{x}:
+      fit_ev(x)
+    case C.EvHelp{+at, n}:
+      Bool.and(fit_path(at), LawsBase.wire_fits(n))
+    case C.EvHelpSpend{k, n}:
+      Bool.and(LawsBase.wire_fits(k), LawsBase.wire_fits(n))
+    case C.EvHelpEnd{k, ok}:
+      LawsBase.wire_fits(k)
+
+def fit_req(q: FAt.Req) -> Bool:
+  match q:
+    case FAt.QStep{b, c, e}:
+      Bool.and(fit_bounds(b), Bool.and(fit_crown(c), fit_cev(e)))
+    case FAt.QOverlay{+cur, +a, +s}:
+      Bool.and(fit_patch(cur), Bool.and(fit_patch(a), fit_bools(s)))
+    case FAt.QNext{v}:
+      fit_view(v)
+    case FAt.QFree{c, +p}:
+      Bool.and(fit_crown(c), fit_path(p))
+
 # Laws: split (T1)
 # ----------------
 
@@ -354,6 +693,47 @@ law agent_tree_halves_fair:
 law agent_tree_halves_unlimited:
   {Bool.and(is_unlimited(T.half_hi(T.Unlimited{})), is_unlimited(T.half_lo(T.Unlimited{}))) == True{} : Bool}
 
+# the deadline of a split's left child (a leaf: None)
+def kid_deadline(t: T.Node) -> Maybe<&2, T.Lim>:
+  match t:
+    case T.Leaf{i}:
+      None{}
+    case T.Split{i, own, l, r}:
+      Some{T.deadline_of(T.info(l))}
+
+# LAW agent_tree_split_reads_bounds (T1, T9): under any bounds that allow
+# one level and three nodes (max_depth 1 + d, max_nodes 3 + k), a fresh
+# root over two units with the deadline x splits into one unit each, and
+# its children's deadline is x less the configured margin m
+# EXCLUDES: a configured depth or node bound read as zero (every split
+#   refused); the margin ignored or read as another number
+law agent_tree_split_reads_bounds:
+  for d: Nat
+  for k: Nat
+  for +m: Nat
+  for +x: Nat
+  {kid_deadline(landed(T.step(T.Bounds{1n+d, 3n+k, m}, T.init([True{}, True{}], T.Unlimited{}, T.Value{x}), T.EvSplit{[], [False{}, False{}], [True{}, False{}], [False{}, True{}], 0n}), T.init([True{}, True{}], T.Unlimited{}, T.Value{x}))) == Some{T.Value{Nat.sub(x, m)}} : Maybe<&2, T.Lim>}
+
+# the deadlines of a split's two children, left then right (a leaf: [])
+def kid_deadlines(t: T.Node) -> List<&2, T.Lim>:
+  match t:
+    case T.Leaf{i}:
+      []
+    case T.Split{i, own, l, r}:
+      [T.deadline_of(T.info(l)), T.deadline_of(T.info(r))]
+
+# LAW agent_tree_split_margin_both (T1, T9): the split of
+# agent_tree_split_reads_bounds gives each of its two children, left and
+# right, the deadline x less the configured margin m
+# EXCLUDES: one child (either side) keeping the parent's deadline, or
+#   any deadline other than x less m
+law agent_tree_split_margin_both:
+  for d: Nat
+  for k: Nat
+  for +m: Nat
+  for +x: Nat
+  {kid_deadlines(landed(T.step(T.Bounds{1n+d, 3n+k, m}, T.init([True{}, True{}], T.Unlimited{}, T.Value{x}), T.EvSplit{[], [False{}, False{}], [True{}, False{}], [False{}, True{}], 0n}), T.init([True{}, True{}], T.Unlimited{}, T.Value{x}))) == [T.Value{Nat.sub(x, m)}, T.Value{Nat.sub(x, m)}] : List<&2, T.Lim>}
+
 # Laws: run (T2, T6, T8, T9: "reachable")
 # ---------------------------------------
 
@@ -375,6 +755,40 @@ law agent_tree_run_last:
   for +t: T.Node
   {T.run(List.append(&2, T.Ev, evs, [e]), b, t) == landed(T.step(b, T.run(evs, b, t), e), T.run(evs, b, t)) : T.Node}
 
+# the step admitted the event
+def admitted(s: T.Step) -> Bool:
+  match s:
+    case T.Took{n}:
+      True{}
+    case T.Refused{why}:
+      False{}
+
+# LAW agent_tree_init_admits (T8): the root a run starts from admits a
+# spend a at the root exactly when a fits the configured limit lim
+# (Unlimited, the default run: every a)
+# EXCLUDES: a root that drops the configured limit (zero, a constant, or
+#   Unlimited for a bounded run); a root that starts with a spend charged
+law agent_tree_init_admits:
+  for +b: T.Bounds
+  for s: List<&2, Bool>
+  for +lim: T.Lim
+  for dl: T.Lim
+  for +a: Nat
+  {admitted(T.step(b, T.init(s, lim, dl), T.EvSpend{[], a})) == S.has(a, lim) : Bool}
+
+# LAW agent_tree_init_deadline (T8): the root a run starts from runs until
+# its configured deadline dl: a tick at now cancels it exactly when dl is
+# up at now (Unlimited: never)
+# EXCLUDES: a root that drops the configured deadline (Unlimited for a
+#   bounded run, or a deadline already up); a root that starts settled
+law agent_tree_init_deadline:
+  for +b: T.Bounds
+  for +s: List<&2, Bool>
+  for +lim: T.Lim
+  for +dl: T.Lim
+  for +now: Nat
+  {S.is_running(landed(T.step(b, T.init(s, lim, dl), T.EvTick{now}), T.init(s, lim, dl))) == Bool.not(S.up(dl, now)) : Bool}
+
 # Laws: partition (T2)
 # --------------------
 
@@ -393,6 +807,27 @@ law agent_tree_tiles_root:
 
 # Laws: integration (T3, T4, T5)
 # ------------------------------
+
+# LAW agent_tree_apply_lands (T3, T5): applying a patch to files sets a
+# unit the patch writes to the written bytes y and keeps a unit it leaves
+# untouched, unit by unit
+# EXCLUDES: an apply that writes nothing (every integration law then
+#   reads files == files); one that drops or shifts the untouched units
+law agent_tree_apply_lands:
+  for x: Nat
+  for +y: Nat
+  for z: Nat
+  for +f: List<&2, Nat>
+  for +p: List<&2, Maybe<&2, Nat>>
+  {[T.apply(x <> f, Some{y} <> p), T.apply(z <> f, None{} <> p)] == [y <> T.apply(f, p), z <> T.apply(f, p)] : List<&2, List<&2, Nat>>}
+
+# LAW agent_tree_apply_ends (T3): a patch that ends before the files (an
+# empty patch past its end) leaves every remaining unit as it is
+# EXCLUDES: an apply that drops, empties or changes the units past the
+#   patch's end
+law agent_tree_apply_ends:
+  for +f: List<&2, Nat>
+  {T.apply(f, []) == f : List<&2, Nat>}
 
 # LAW agent_tree_overlay_applies (T3): for every files f, parent patch c,
 # child patch a and child scope s, the files with the integrated patch
@@ -521,6 +956,134 @@ law agent_tree_cancel_frame:
   for +n: T.Node
   for e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
   {S.put(p, landed(T.step(b, t, T.EvCancel{p}), t), n) == t : T.Node}
+
+# T7: the status a cancel leaves a node: a running node is cancelled, a
+# settled one keeps how it settled
+def cancel_status(st: T.Status) -> T.Status:
+  match st:
+    case T.Running{}:
+      T.Cancelled{}
+    case T.Finished{}:
+      T.Finished{}
+    case T.Failed{}:
+      T.Failed{}
+    case T.Cancelled{}:
+      T.Cancelled{}
+
+# the status of the node mn (none: None)
+def status_of(mn: Maybe<&2, T.Node>) -> Maybe<&2, T.Status>:
+  match mn:
+    case None{}:
+      None{}
+    case Some{y}:
+      Some{T.st_of(T.info(y))}
+
+# the status of the node at q below the node mn (none: None)
+def status_below(mn: Maybe<&2, T.Node>, q: List<&2, T.Dir>) -> Maybe<&2, T.Status>:
+  match mn:
+    case None{}:
+      None{}
+    case Some{x}:
+      status_of(S.node_at(q, x))
+
+# LAW agent_tree_cancel_marks (T7): for every tree t with the node n at p
+# and the node m at q below n, after a cancel at p the node at q below p
+# is Cancelled when m ran, and keeps m's status when m had settled
+# EXCLUDES: a cancel that marks running nodes Finished or Failed (a
+#   cancelled child read as done); a cancel that rewrites a finished or
+#   failed node's status
+# WITNESS: p = q = [], n = m = t.
+law agent_tree_cancel_marks:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +n: T.Node
+  for +q: List<&2, T.Dir>
+  for m: T.Node
+  for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  for f: {S.node_at(q, n) == Some{m} : Maybe<&2, T.Node>}
+  {status_below(S.node_at(p, landed(T.step(b, t, T.EvCancel{p}), t)), q) == Some{cancel_status(T.st_of(T.info(m)))} : Maybe<&2, T.Status>}
+
+# T7: the info a cancel leaves a node: its status as cancel_status says,
+# everything else (scope, limit, spend, deadline, patch) as it was
+def cancel_info_spec(i: T.Info) -> T.Info:
+  match i:
+    case T.Info{st, s, lim, sp, dl, q}:
+      T.Info{cancel_status(st), s, lim, sp, dl, q}
+
+# the info of the node mn (none: None)
+def info_of(mn: Maybe<&2, T.Node>) -> Maybe<&2, T.Info>:
+  match mn:
+    case None{}:
+      None{}
+    case Some{y}:
+      Some{T.info(y)}
+
+# the info of the node at q below the node mn (none: None)
+def info_below(mn: Maybe<&2, T.Node>, q: List<&2, T.Dir>) -> Maybe<&2, T.Info>:
+  match mn:
+    case None{}:
+      None{}
+    case Some{x}:
+      info_of(S.node_at(q, x))
+
+# LAW agent_tree_cancel_keeps (T7, T11): for every tree t with the node n
+# at p and the node m at q below n, after a cancel at p the node at q below
+# p changes only its status (as agent_tree_cancel_marks says): its scope,
+# limit, spend, deadline and patch stay m's, so a finished node keeps its
+# result and a failed or cancelled one its partial patch for a redo
+# EXCLUDES: a cancel that drops or rewrites the patch, spend, limit,
+#   deadline or scope of any node of the subtree
+# WITNESS: p = q = [], n = m = t.
+law agent_tree_cancel_keeps:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +n: T.Node
+  for +q: List<&2, T.Dir>
+  for m: T.Node
+  for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  for f: {S.node_at(q, n) == Some{m} : Maybe<&2, T.Node>}
+  {info_below(S.node_at(p, landed(T.step(b, t, T.EvCancel{p}), t)), q) == Some{cancel_info_spec(T.info(m))} : Maybe<&2, T.Info>}
+
+# T7: a node with its status forgotten (read as Running), everything
+# else (scope, limit, spend, deadline, patch) as it is
+def unstatus_info(i: T.Info) -> T.Info:
+  match i:
+    case T.Info{st, s, lim, sp, dl, q}:
+      T.Info{T.Running{}, s, lim, sp, dl, q}
+
+# T7: the tree t with every node's status forgotten: its shape, its
+# splits' own scopes and every info but the status
+def unstatus(t: T.Node) -> T.Node:
+  match t:
+    case T.Leaf{i}:
+      T.Leaf{unstatus_info(i)}
+    case T.Split{i, own, l, r}:
+      T.Split{unstatus_info(i), own, unstatus(l), unstatus(r)}
+
+# the node mn with every status forgotten (none: None)
+def unstatus_of(mn: Maybe<&2, T.Node>) -> Maybe<&2, T.Node>:
+  match mn:
+    case None{}:
+      None{}
+    case Some{x}:
+      Some{unstatus(x)}
+
+# LAW agent_tree_cancel_shape (T7, T2, T11): for every tree t with the node
+# n at p, after a cancel at p the subtree at p differs from n in statuses
+# only: the same leaves and splits, each split's own scope, and every
+# node's scope, limit, spend, deadline and patch
+# EXCLUDES: a cancel that empties or rewrites a split's own scope, turns a
+#   split into a leaf or a leaf into a split, or drops a child
+# WITNESS: p = [], n = t.
+law agent_tree_cancel_shape:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +n: T.Node
+  for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  {unstatus_of(S.node_at(p, landed(T.step(b, t, T.EvCancel{p}), t))) == Some{unstatus(n)} : Maybe<&2, T.Node>}
 
 # LAW agent_tree_fail_quiets (T7): for every tree t with a running node at
 # p, after a fail at p with the patch q the node is Failed with q and no
@@ -705,6 +1268,35 @@ law agent_tree_nodes_bound:
   for e: {Nat.is_le(1n, T.bound_nodes(b)) == True{} : Bool}
   {Nat.is_le(S.nodes(T.run(evs, b, T.init(s, lim, dl))), T.bound_nodes(b)) == True{} : Bool}
 
+# LAW agent_tree_depth_configured (T9): under the bounds Bounds{d, n, m}
+# every reachable tree is at most d deep, d the configured max_depth as
+# written in the bounds, not as the code reads it
+# EXCLUDES: the configured max_depth read off by one (or as any other
+#   number) and so one level too deep admitted
+law agent_tree_depth_configured:
+  for evs: List<&2, T.Ev>
+  for +d: Nat
+  for n: Nat
+  for m: Nat
+  for s: List<&2, Bool>
+  for lim: T.Lim
+  for dl: T.Lim
+  {Nat.is_le(S.depth(T.run(evs, T.Bounds{d, n, m}, T.init(s, lim, dl))), d) == True{} : Bool}
+
+# LAW agent_tree_nodes_configured (T9): under the bounds Bounds{d, 1+n, m}
+# (max_nodes at least one) every reachable tree has at most 1+n nodes,
+# the configured max_nodes as written in the bounds, not as the code reads it
+# EXCLUDES: the configured max_nodes read as a larger number
+law agent_tree_nodes_configured:
+  for evs: List<&2, T.Ev>
+  for d: Nat
+  for +n: Nat
+  for m: Nat
+  for s: List<&2, Bool>
+  for lim: T.Lim
+  for dl: T.Lim
+  {Nat.is_le(S.nodes(T.run(evs, T.Bounds{d, 1n+n, m}, T.init(s, lim, dl))), 1n+n) == True{} : Bool}
+
 # Laws: never idle (T10)
 # ----------------------
 
@@ -756,3 +1348,60 @@ law agent_tree_redo_is_spec:
   for +d: T.Dir
   for +x: Nat
   {T.step(b, t, T.EvRedo{p, d, x}) == redo_spec(t, p, d, x) : T.Step}
+
+# Laws: the entry (T13)
+# ---------------------
+
+# LAW agent_tree_entry_answers (T13): the entry answers every request Rust
+# spells (w_req), every number and count within the wire, with the
+# model's decision spelled (w_reply)
+# EXCLUDES: fields read in another order (max_depth and max_nodes swapped,
+#   limit and deadline swapped, a split's children swapped, a help leaf's
+#   index and amount swapped), a tag table off by one (a status, a
+#   refusal, a tree or crown event, an action), a list item lost, a node
+#   cut short, a default
+law agent_tree_entry_answers:
+  for +q: FAt.Req
+  for fit: {fit_req(q) == True{} : Bool}
+  {FAt.ffi(w_req(q, "")) == w_reply(q) : String}
+
+# LAW agent_tree_entry_reads (T13): the entry's decoder reads a spelled
+# request back whole and leaves the input after it untouched
+# EXCLUDES: a decoder that eats or skips input after the request, a node
+#   reader that reads past its node
+law agent_tree_entry_reads:
+  for +q: FAt.Req
+  for +rest: String
+  for fit: {fit_req(q) == True{} : Bool}
+  {FAt.get_req(w_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FAt.Req>}
+
+# LAW agent_tree_entry_exact (T13): every input the entry does not answer
+# with the error form is a spelled request that fits the wire
+# EXCLUDES: a decision answered on input that is no request (an unknown
+#   tag read as a known one, a short list, a cut node, input left over)
+law agent_tree_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FAt.ffi(s)) == False{} : Bool}
+  exs q: FAt.Req
+  {s == w_req(q, "") : String} & {fit_req(q) == True{} : Bool}
+
+# LAW agent_tree_entry_refuses (T13): for every input whose answer opens
+# with 'E' (an error), the answer is exactly
+# `E agent_tree: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law agent_tree_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FAt.ffi(s)) == True{} : Bool}
+  {FAt.ffi(s) == Wr.err("agent_tree: malformed request") : String}
+
+# LAW agent_tree_entry_example (T13): anchor: the wire strings Rust sends
+# and the replies it reads: a split of a running leaf with no help leaf
+# (the new split), the same split past max_nodes (TooMany), a help leaf
+# asked with 4 (admitted, limit 4), that help leaf spending 3, an overlay
+# (the child's write outside its scope a conflict, not applied), a next
+# with an arrived result (Integrate), the free at the root (7 of 10 left)
+# and below a leaf (no node); an unknown tag, a short list and input left
+# over are refused
+# EXCLUDES: a field order other than Rust's, another reply spelling
+law agent_tree_entry_example:
+  {[FAt.ffi("0,3,7,0,0,0,2,TT1,10,0,0,0,0,0,0,0,2,FF2,TF2,FT0,"), FAt.ffi("0,3,2,0,0,0,2,TT1,10,0,0,0,0,0,0,0,2,FF2,TF2,FT0,"), FAt.ffi("0,3,7,0,0,0,2,TT1,10,0,0,0,0,1,0,4,"), FAt.ffi("0,3,7,0,0,0,2,TT1,10,0,0,0,1,0,0,1,4,0,0,2,0,3,"), FAt.ffi("1,2,1,5,0,2,0,1,7,2,TF"), FAt.ffi("2,F2,T"), FAt.ffi("3,0,0,2,TT1,10,3,0,0,0,0,"), FAt.ffi("3,0,0,2,TT1,10,3,0,0,0,1,0,"), FAt.ffi("4,"), FAt.ffi("1,2,1,5,0,2,0,1,7,3,TF"), FAt.ffi("2,F2,TX")] == ["0,1,0,2,TT1,10,0,0,0,2,FF0,0,2,TF1,5,0,0,0,0,0,2,FT1,5,0,0,0,0,", "1,4,", "0,0,0,2,TT1,10,0,0,0,1,0,0,1,4,0,0,", "0,0,0,2,TT1,10,0,0,0,1,0,0,1,4,3,0,", "2,1,5,0,2,FT", "1,", "1,1,7,", "0,", Wr.err("agent_tree: malformed request"), Wr.err("agent_tree: malformed request"), Wr.err("agent_tree: malformed request")] : List<&2, String>}

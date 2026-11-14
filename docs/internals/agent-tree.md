@@ -1,8 +1,9 @@
 # Agent tree
 
-Status: design and proven Bend model (`bend/agent_tree.bend`, laws
-`laws/agent_tree.bend`, requirements T1-T12 in `spec/README.md`). No Rust
-runs it yet; section 9 lists the Rust work.
+Status: design, proven Bend model and core entry (`bend/agent_tree.bend`,
+`bend/agent_crown.bend`, `bend/ffi_agent_tree.bend`, laws
+`laws/agent_tree.bend`, `laws/agent_crown.bend`, requirements T1-T14 in
+`spec/README.md`). No Rust calls it yet; section 9 lists the Rust work.
 
 The agent tree is how one task runs on several agents at once. Every node
 of the tree is one agent. A node either does its work alone (a leaf) or
@@ -116,6 +117,29 @@ parent decides: `redo` (the child runs again from its partial work), or
 absorb (the parent writes the child's scope itself: a settled child's scope
 joins the parent's write scope).
 
+### Help leaves
+
+Writers form the binary tree; read-only helpers are extra leaves
+(`bend/agent_crown.bend`, T14). A running node asks one with `help(a)`: it
+is admitted when the node runs, the tree's nodes plus the help leaves plus
+one fit `max_nodes`, and `a` fits the node's room on the view (below);
+its limit is `a` (`Unlimited` under an `Unlimited` room), its deadline the
+node's less the margin. A help leaf has no write scope: integrating its
+patch applies nothing, and every unit it wrote is a conflict. It spends
+within its limit and settles (`Finished` or `Failed`) while running.
+
+A help leaf charges its node: while running its limit (an `Unlimited` one
+nothing), once settled what it spent. Every tree event is decided on the
+view, the tree with each node's spent raised by the charges at its path,
+under `max_nodes` less the help leaves; the charges are then taken off
+again, and every running help leaf whose node no longer runs (cancel,
+fail, finish, a tick above it), or whose own deadline a tick finds up, is
+cancelled. A help leaf never blocks its node's finish. In every reachable
+crown no running help leaf sits at a node that does not run, nodes plus
+help leaves stay within `max_nodes`, and under a `Value` root limit the
+tree's spend plus the help leaves' fits it. With no help leaf a tree event
+is exactly the tree's step, so T1-T11 carry over.
+
 ## 5. Integration
 
 The parent's view of a child's result is a patch over units. Integrating
@@ -181,8 +205,9 @@ that costs against a wider split, as information:
 
 ## 9. Rust work (not built)
 
-1. Core entry `bend/ffi_agent_tree.bend` (decisions of `step`, `overlay`,
-   `conflicts`, `next`), with its id in `bend/core_entries.txt`.
+1. Core entry `bend/ffi_agent_tree.bend`, id 460 `agent_tree` in
+   `bend/core_entries.txt` (built and proven, T13): the crown's `hstep`,
+   `overlay` and `conflicts`, `next`, `cfree`.
 2. The `split` tool for a node: own scope, two (scope, task) pairs, hold.
    Scope paths resolved to units; the core admits or refuses.
 3. Each child in a copy-on-write checkout of the parent's live tree
@@ -206,15 +231,28 @@ that costs against a wider split, as information:
 |T1|`agent_tree_split_is_spec`|a split is decided exactly as the spec: checks in order, the new split node, nothing else changed|
 |T1, T8|`agent_tree_halves_fair`, `agent_tree_halves_unlimited`|the halves add up and differ by at most one; Unlimited halves are Unlimited|
 |T2|`agent_tree_tiles_root`|every reachable tree's own and leaf scopes own each unit as often as the root's scope|
-|T3|`agent_tree_overlay_applies`, `agent_tree_conflicts_cover`, `agent_tree_conflicts_outside`|integration applies exactly the in-scope writes; every other write is a conflict; a conflict is never in scope|
+|T3|`agent_tree_overlay_applies`, `agent_tree_conflicts_cover`, `agent_tree_conflicts_outside`, `agent_tree_apply_lands`, `agent_tree_apply_ends`|integration applies exactly the in-scope writes; every other write is a conflict; a conflict is never in scope; applying a patch sets each written unit to its new bytes and keeps every other unit, those past the patch's end too|
 |T4|`agent_tree_arrival_commutes`|disjoint scopes: either arrival order gives the same files|
 |T5|`agent_tree_parallel_is_sequential`|the tree's integrated patch gives the files of every patch applied in post-order|
 |T6|`agent_tree_finish_is_spec`, `agent_tree_no_orphan`, `agent_tree_done_settled`|a split finishes only after both children settled; no running node under a settled one|
-|T7|`agent_tree_cancel_quiets`, `agent_tree_cancel_frame`, `agent_tree_fail_quiets`, `agent_tree_fail_frame`, `agent_tree_fail_needs_running`|cancel and fail stop the whole subtree and nothing else; a failed node keeps its partial patch|
-|T8|`agent_tree_spend_is_spec`, `agent_tree_budget_holds`, `agent_tree_deadlines_down`, `agent_tree_tick_none_late`, `agent_tree_tick_keeps_on_time`, `agent_tree_tick_cancels_only_late`|spends within room; the tree's spend fits the root's limit; deadlines never rise going down; a tick cancels the late nodes and their subtrees, and no node on an on-time path|
-|T9|`agent_tree_depth_bound`, `agent_tree_nodes_bound`|reachable trees stay within both bounds|
+|T7|`agent_tree_cancel_quiets`, `agent_tree_cancel_marks`, `agent_tree_cancel_keeps`, `agent_tree_cancel_shape`, `agent_tree_cancel_frame`, `agent_tree_fail_quiets`, `agent_tree_fail_frame`, `agent_tree_fail_needs_running`|cancel and fail stop the whole subtree and nothing else; a cancel marks running nodes Cancelled, keeps settled ones and changes nothing in the subtree but statuses (shape, own scopes, every info); a failed node keeps its partial patch|
+|T8|`agent_tree_spend_is_spec`, `agent_tree_init_admits`, `agent_tree_init_deadline`, `agent_tree_budget_holds`, `agent_tree_deadlines_down`, `agent_tree_tick_none_late`, `agent_tree_tick_keeps_on_time`, `agent_tree_tick_cancels_only_late`|spends within room; the root starts with the configured limit and deadline; the tree's spend fits the root's limit; deadlines never rise going down; a tick cancels the late nodes and their subtrees, and no node on an on-time path|
+|T9|`agent_tree_depth_bound`, `agent_tree_nodes_bound`, `agent_tree_depth_configured`, `agent_tree_nodes_configured`, `agent_tree_split_reads_bounds`, `agent_tree_split_margin_both`|reachable trees stay within both bounds as configured; the configured bounds and margin apply to both children|
 |T10|`agent_tree_next_waits_iff_idle`, `agent_tree_next_message_first`, `agent_tree_next_integrates_first`, `agent_tree_next_works_own`|the next action's order; a wait only with nothing to do|
 |T11|`agent_tree_redo_is_spec`|a redo is decided exactly as the spec|
+|T13|`agent_tree_entry_answers`, `agent_tree_entry_reads`, `agent_tree_entry_exact`, `agent_tree_entry_refuses`, `agent_tree_entry_example`|the core entry `bend/ffi_agent_tree.bend` (id 460) answers every request Rust spells (a step of the crown, an overlay, a next, a free) with the model's decision and refuses any other input with `E agent_tree: malformed request`|
+|T14|`crown_help_is_spec`, `crown_free_is_spec`, `crown_help_spend_is_spec`, `crown_help_end_is_spec`|a help, the free reported at a node, a help leaf's spend and its end are decided exactly as the spec: checks in order, the help leaf appended or changed, the tree unchanged; the free is the view's room|
+|T14|`crown_tree_is_spec`, `crown_tree_alone`, `crown_init_steps_as_tree`, `crown_init_root`|a tree event is the tree's step on the view under `max_nodes` less the help leaves, the charges taken off again, orphaned or late help leaves cancelled; with no help leaf exactly the tree's step; a run starts from one running root with the configured scope, limit and deadline and no help leaf|
+|T14|`crown_help_overlay_nothing`|a help leaf's patch applies nothing; every unit it wrote is a conflict|
+|T14|`crown_never_blocks`|a finish is taken exactly when the tree's step on the view takes it; after it no help leaf at the node runs|
+|T14|`crown_no_orphan`, `crown_nodes_bound`, `crown_budget_holds`; "reachable": `crown_run_none`, `crown_run_last`|in every reachable crown running help leaves sit at running nodes, nodes plus help leaves fit `max_nodes`, and under a Value root limit the tree's plus the help leaves' spend fits it|
+
+Mutation probe (`mutate.py` on `bend/agent_tree.bend`): every mutant is
+killed or stillborn but four, all equivalent:
+each swaps the two arguments of a `Bool.or` or `Bool.and` in `cell`, and
+both are commutative, so the mutant returns the same Bool on every input.
+On `bend/agent_crown.bend` one survives, also equivalent: `hscope`'s body
+replaced by `Nil{}` is the body it already has (`[]`).
 
 ## 11. Decisions
 

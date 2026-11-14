@@ -177,9 +177,9 @@ import ./laws/arg_token_shapes.bend as ArgTokenShapes
 import ./laws/autolink_shapes.bend as AutolinkShapes
 import ./laws/preview_shapes.bend as PreviewShapes
 import ./laws/shape/entry.bend as ShapeEntry
-import ./laws/family.bend as Family
 import ./laws/kin.bend as Kin
 import ./laws/agent_tree.bend as AgentTree
+import ./laws/agent_crown.bend as AgentCrown
 import ./laws/task_life.bend as TaskLife
 import ./laws/autoresearch/model.bend as Autoresearch
 import ./laws/autoresearch/history.bend as AutoresearchHistory
