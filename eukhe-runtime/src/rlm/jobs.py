@@ -26,7 +26,10 @@ from typing import Any
 
 JOB_STATES = ("running", "ok", "error", "aborted", "killed")
 
-_MESSAGE_TEXT = "A message arrived for this session; it follows this result."
+_MESSAGE_TEXT = (
+    "A message arrived and ended this wait; it follows this result. Answer or act on it before"
+    " waiting again: the jobs keep running and their results arrive on their own."
+)
 
 # A wait asked for no length: the host caps it.
 _UNBOUNDED_MS = 2**53

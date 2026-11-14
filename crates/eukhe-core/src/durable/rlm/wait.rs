@@ -337,7 +337,11 @@ pub(crate) fn served_text(ended: &Ended, holder: &Job) -> String {
             )
         }
         Ended::Message => {
-            format!("{note}\nA message arrived for this session; it follows this result.")
+            format!(
+                "{note}\nA message arrived and ended this wait; it follows this result. Answer or \
+                 act on it before waiting again: the jobs keep running and their results arrive on \
+                 their own."
+            )
         }
         Ended::TimedOut => {
             format!("{note}\nNone: nothing settled before the wait's length passed.")

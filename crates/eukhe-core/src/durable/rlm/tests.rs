@@ -1194,8 +1194,8 @@ async fn a_waited_job_is_delivered_by_the_wait_alone() {
     session.close(cx()).await.expect("close");
 }
 
-/// A call that finds the kernel held by a detached cell waits for it only
-/// within its own budget, then reports the job without running its code;
+/// A call that finds the kernel held by a detached cell is answered at
+/// once with the job, without running its code or waiting for the job;
 /// `jobs.cancel` stops the job through the kernel's abort, its reply
 /// carries the end (the agent's own stop sends no notice), and the kernel
 /// serves the next cell.
@@ -1226,6 +1226,10 @@ async fn a_call_on_a_kernel_held_by_a_job_reports_it_busy_and_a_cancel_stops_the
     assert!(
         !result_text(&all[1]).contains("second"),
         "the busy call's code must not run: {all:?}"
+    );
+    assert!(
+        all[1].timestamp.saturating_sub(all[0].timestamp) < TEST_BUDGET_MS,
+        "the busy call waited for the job: {all:?}"
     );
 
     let cancelled = job_request(&session, "jobs.cancel", json!({ "job": job })).await;
