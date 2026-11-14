@@ -147,6 +147,21 @@ struct WorkerStderrEvent {
     tokens: Vec<String>,
 }
 
+impl WorkerStderrEvent {
+    /// The supervisor event of this body, at the entry's time.
+    fn into_event(self, entry: &IncidentLogEntry) -> IncidentEvent {
+        incident_event(
+            entry,
+            self.severity,
+            IncidentCategory::Supervisor,
+            self.event_class,
+            self.subject,
+            self.summary,
+            self.tokens,
+        )
+    }
+}
+
 /// Build an event from an entry (TS `event`).
 fn event(
     entry: &IncidentLogEntry,
@@ -188,6 +203,26 @@ fn incident_event(
     }
 }
 
+/// Build an event about `worker`, its one filter token.
+fn worker_event(
+    entry: &IncidentLogEntry,
+    severity: IncidentSeverity,
+    category: IncidentCategory,
+    event_class: &str,
+    worker: &str,
+    summary: impl Into<String>,
+) -> IncidentEvent {
+    incident_event(
+        entry,
+        severity,
+        category,
+        event_class,
+        format!("worker {worker}"),
+        summary,
+        vec![worker.to_string()],
+    )
+}
+
 /// Key events on the entry's socket path so anomalies and aggregation
 /// never mix entries from different daemons sharing one agent.jsonl;
 /// entries without a socket field (the per-daemon fallback log) key on
@@ -199,6 +234,25 @@ fn daemon_subject(entry: &IncidentLogEntry) -> String {
         .unwrap_or_else(|| "daemon".to_string())
 }
 
+/// The error a failed command reports when its worker never answered.
+const WORKER_TIMEOUT: &str = "Timed out waiting for daemon worker response";
+
+/// A failure that timed out waiting for a worker is an error `timeout`;
+/// any other is a warning `command-failure`.
+fn failure_class(err: &str) -> (IncidentSeverity, &'static str) {
+    if err.contains(WORKER_TIMEOUT) {
+        (IncidentSeverity::Error, "timeout")
+    } else {
+        (IncidentSeverity::Warn, "command-failure")
+    }
+}
+
+/// The first line of an error, without its `Error:` prefix, shortened for
+/// a summary.
+fn error_summary(err: &str) -> String {
+    truncate_text(error_message(first_line(err)), 100)
+}
+
 /// The classification of a command failure (TS
 /// `classifyCommandFailure`'s return shape).
 struct CommandFailure {
@@ -208,11 +262,26 @@ struct CommandFailure {
     tokens: Vec<String>,
 }
 
+impl CommandFailure {
+    /// The supervisor event of this failure about `subject`.
+    fn into_event(self, entry: &IncidentLogEntry, subject: String) -> IncidentEvent {
+        incident_event(
+            entry,
+            self.severity,
+            IncidentCategory::Supervisor,
+            self.event_class,
+            subject,
+            self.summary,
+            self.tokens,
+        )
+    }
+}
+
 /// Classify the error body of a failed supervisor/daemon command (TS
 /// `classifyCommandFailure`).
 fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) -> CommandFailure {
     let err = first_line(error);
-    if err.contains("Timed out waiting for daemon worker response") {
+    if err.contains(WORKER_TIMEOUT) {
         return CommandFailure {
             severity: IncidentSeverity::Error,
             event_class: "timeout",
@@ -272,10 +341,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
     CommandFailure {
         severity: IncidentSeverity::Warn,
         event_class: "command-failure",
-        summary: format!(
-            "command {command} failed: {}",
-            truncate_text(error_message(first_line(err)), 100)
-        ),
+        summary: format!("command {command} failed: {}", error_summary(err)),
         tokens: quoted_names,
     }
 }
@@ -458,365 +524,250 @@ fn provider_failure_event(entry: &IncidentLogEntry, worker_pids: &WorkerPidMap) 
 
 /// Classify one log entry into an incident event; `None` when the entry is
 /// noise (TS `classifyIncidentEntry`).
-// One arm per incident kind, mirroring the TS switch; refactoring is out of
-// scope for this zero-behavior-change sweep.
-#[allow(clippy::too_many_lines)]
+#[must_use]
 pub fn classify_incident_entry(
     rules: IncidentRules,
     entry: &IncidentLogEntry,
     worker_pids: &WorkerPidMap,
 ) -> Option<IncidentEvent> {
-    let msg = first_line(&entry.msg);
-    let worker_id = worker_id_from_socket_path(rules, entry.socket_path.as_deref());
-    let worker_id = worker_id.as_deref();
-
     if entry.component == "ai.provider" {
         return Some(provider_failure_event(entry, worker_pids));
     }
-
     if let Some((_, captures)) = first_shape(rules, &entry.msg, &[IncidentShape::StderrForward]) {
-        let worker = captures.get(1);
-        let body = captures.get(2);
-        let body = classify_worker_stderr_body(rules, worker, body, true)?;
-        return Some(incident_event(
-            entry,
-            body.severity,
-            IncidentCategory::Supervisor,
-            body.event_class,
-            body.subject,
-            body.summary,
-            body.tokens,
-        ));
+        let body = classify_worker_stderr_body(rules, captures.get(1), captures.get(2), true)?;
+        return Some(body.into_event(entry));
     }
+    let worker_id = worker_id_from_socket_path(rules, entry.socket_path.as_deref());
+    let worker_id = worker_id.as_deref();
+    first_shape(rules, first_line(&entry.msg), &LINE_SHAPES)
+        .and_then(|(shape, captures)| line_event(rules, entry, worker_id, shape, &captures))
+        .or_else(|| daemon_event(rules, entry, worker_id))
+}
 
-    let fit = first_shape(rules, msg, &LINE_SHAPES);
-    let shape = fit.as_ref().map(|(shape, _)| *shape);
-    if shape == Some(IncidentShape::SupervisorListening) {
-        return Some(event(
+/// The event of a log line that fits `shape`, one of [`LINE_SHAPES`];
+/// `None` for any other shape.
+fn line_event(
+    rules: IncidentRules,
+    entry: &IncidentLogEntry,
+    worker_id: Option<&str>,
+    shape: IncidentShape,
+    captures: &Captures,
+) -> Option<IncidentEvent> {
+    use IncidentCategory::{Recovery, Supervisor};
+    use IncidentSeverity::{Error, Info, Warn};
+    let msg = first_line(&entry.msg);
+    // Capture 1 of every worker shape names the worker.
+    let worker = captures.get(1);
+    let on_daemon = |severity, category, event_class, summary: String| {
+        event(
             entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Supervisor,
-            "supervisor-start",
+            severity,
+            category,
+            event_class,
             daemon_subject(entry),
-            "daemon supervisor listening",
-        ));
-    }
-    if let Some((IncidentShape::StartupFailed, captures)) = &fit {
-        let err = captures.get(1);
-        // TS tests the message case-insensitively
-        // (/lock file is already being held/i): real log lines carry
-        // "Lock file is already being held".
-        if err
-            .to_ascii_lowercase()
-            .contains("lock file is already being held")
-        {
-            return Some(event(
-                entry,
-                IncidentSeverity::Warn,
-                IncidentCategory::Supervisor,
-                "supervisor-start",
-                daemon_subject(entry),
-                "supervisor startup blocked: another daemon holds the lock",
-            ));
+            summary,
+        )
+    };
+    let on_worker = |severity, category, event_class, summary: String| {
+        worker_event(entry, severity, category, event_class, worker, summary)
+    };
+    Some(match shape {
+        IncidentShape::SupervisorListening => {
+            let summary = "daemon supervisor listening".to_string();
+            on_daemon(Info, Supervisor, "supervisor-start", summary)
         }
-        return Some(event(
-            entry,
-            IncidentSeverity::Error,
-            IncidentCategory::Supervisor,
-            "supervisor-start",
-            daemon_subject(entry),
-            format!(
-                "supervisor startup failed: {}",
-                truncate_text(error_message(first_line(err)), 100)
-            ),
-        ));
-    }
-    if let Some((IncidentShape::SupervisorCommand, captures)) = &fit {
-        let command = captures.get(1);
-        let error = captures.get(2);
-        let classified = classify_command_failure(rules, command, error);
-        return Some(incident_event(
-            entry,
-            classified.severity,
-            IncidentCategory::Supervisor,
-            classified.event_class,
-            daemon_subject(entry),
-            classified.summary,
-            classified.tokens,
-        ));
-    }
-    if let Some((IncidentShape::DaemonCommand, captures)) = &fit {
-        let command = captures.get(1);
-        let error = captures.get(2);
-        let classified = classify_command_failure(rules, command, error);
-        return Some(incident_event(
-            entry,
-            classified.severity,
-            IncidentCategory::Supervisor,
-            classified.event_class,
-            worker_id.map_or_else(
-                || "worker".to_string(),
-                |worker_id| format!("worker {worker_id}"),
-            ),
-            classified.summary,
-            // Keep the session ids/names classified out of the error, not
-            // just the worker id.
-            match worker_id {
-                Some(worker_id) => {
-                    let mut tokens = vec![worker_id.to_string()];
-                    tokens.extend(classified.tokens);
-                    tokens
-                }
-                None => classified.tokens,
-            },
-        ));
-    }
-    if let Some((IncidentShape::CatchUp, captures)) = &fit {
-        let session_id = captures.opt(1);
-        let err = captures.get(2);
-        let timed_out = err.contains("Timed out waiting for daemon worker response");
-        return Some(incident_event(
-            entry,
-            if timed_out {
-                IncidentSeverity::Error
-            } else {
-                IncidentSeverity::Warn
-            },
-            IncidentCategory::Supervisor,
-            if timed_out {
-                "timeout"
-            } else {
-                "command-failure"
-            },
-            session_id.map_or_else(
-                || daemon_subject(entry),
-                |session_id| format!("session {session_id}"),
-            ),
-            format!(
-                "client catch-up failed{}: {}",
-                session_id.map_or_else(String::new, |id| format!(" for session {id}")),
-                truncate_text(error_message(first_line(err)), 100)
-            ),
-            session_id.map_or_else(Vec::new, |session_id| vec![session_id.to_string()]),
-        ));
-    }
-    if let Some((IncidentShape::HeartbeatsList, captures)) = &fit {
-        let err = captures.get(1);
-        let timed_out = err.contains("Timed out waiting for daemon worker response");
-        return Some(event(
-            entry,
-            if timed_out {
-                IncidentSeverity::Error
-            } else {
-                IncidentSeverity::Warn
-            },
-            IncidentCategory::Supervisor,
-            if timed_out {
-                "timeout"
-            } else {
-                "command-failure"
-            },
-            daemon_subject(entry),
-            format!(
-                "worker heartbeat list failed: {}",
-                truncate_text(error_message(first_line(err)), 100)
-            ),
-        ));
-    }
-
-    if let Some((IncidentShape::Recovered, captures)) = &fit {
-        let worker = captures.get(1);
-        let operations = captures.get(2);
-        let (count, breakdown) = recovery_breakdown(operations);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Warn,
-            IncidentCategory::Recovery,
-            "recovery-replay",
-            format!("worker {worker}"),
-            format!(
-                "worker {worker} recovered; {count} uncertain operation{} not replayed ({breakdown})",
-                if count == 1 { "" } else { "s" }
-            ),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::RecoveredPlain, captures)) = &fit {
-        let worker = captures.get(1);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Recovery,
-            "recovery-replay",
-            format!("worker {worker}"),
-            format!("worker {worker} recovered"),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::AdoptFailed, captures)) = &fit {
-        let worker = captures.get(1);
-        let err = captures.get(2);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Warn,
-            IncidentCategory::Recovery,
-            "recovery-failure",
-            format!("worker {worker}"),
-            format!(
-                "could not adopt worker {worker}: {}",
-                truncate_text(error_message(first_line(err)), 100)
-            ),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::RecoverFailed, captures)) = &fit {
-        let worker = captures.get(1);
-        let err = captures.get(2);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Error,
-            IncidentCategory::Recovery,
-            "recovery-failure",
-            format!("worker {worker}"),
-            format!(
-                "could not recover worker {worker}: {}",
-                truncate_text(error_message(first_line(err)), 100)
-            ),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::FailedAfterRetries, captures)) = &fit {
-        let worker = captures.get(1);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Error,
-            IncidentCategory::Recovery,
-            "recovery-failure",
-            format!("worker {worker}"),
-            format!("worker {worker} failed after three recovery attempts"),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::Unresponsive, captures)) = &fit {
-        let worker = captures.get(1);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Error,
-            IncidentCategory::Recovery,
-            "recovery-failure",
-            format!("worker {worker}"),
-            msg,
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::Reclaimed, captures)) = &fit {
-        let worker = captures.get(1);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Recovery,
-            "recovery-action",
-            format!("worker {worker}"),
-            format!("reclaimed stale registration for stopped worker {worker}"),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::Migrated, captures)) = &fit {
-        let jobs = captures.get(1);
-        return Some(event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Recovery,
-            "recovery-action",
-            daemon_subject(entry),
-            format!("migrated {jobs} scheduled jobs into session artifacts"),
-        ));
-    }
-    if shape == Some(IncidentShape::Replacement) {
-        return Some(event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Recovery,
-            "recovery-action",
-            daemon_subject(entry),
-            msg,
-        ));
-    }
-    if shape == Some(IncidentShape::Woke) {
+        IncidentShape::StartupFailed => startup_failed_event(entry, captures.get(1)),
+        IncidentShape::SupervisorCommand => {
+            classify_command_failure(rules, captures.get(1), captures.get(2))
+                .into_event(entry, daemon_subject(entry))
+        }
+        IncidentShape::DaemonCommand => daemon_command_event(rules, entry, worker_id, captures),
+        IncidentShape::CatchUp => catch_up_event(entry, captures.opt(1), captures.get(2)),
+        IncidentShape::HeartbeatsList => {
+            let err = captures.get(1);
+            let (severity, event_class) = failure_class(err);
+            let summary = format!("worker heartbeat list failed: {}", error_summary(err));
+            on_daemon(severity, Supervisor, event_class, summary)
+        }
+        IncidentShape::Recovered => {
+            let (count, breakdown) = recovery_breakdown(captures.get(2));
+            let plural = if count == 1 { "" } else { "s" };
+            let summary = format!(
+                "worker {worker} recovered; {count} uncertain operation{plural} not replayed ({breakdown})"
+            );
+            on_worker(Warn, Recovery, "recovery-replay", summary)
+        }
+        IncidentShape::RecoveredPlain => {
+            let summary = format!("worker {worker} recovered");
+            on_worker(Info, Recovery, "recovery-replay", summary)
+        }
+        IncidentShape::AdoptFailed => {
+            let err = error_summary(captures.get(2));
+            let summary = format!("could not adopt worker {worker}: {err}");
+            on_worker(Warn, Recovery, "recovery-failure", summary)
+        }
+        IncidentShape::RecoverFailed => {
+            let err = error_summary(captures.get(2));
+            let summary = format!("could not recover worker {worker}: {err}");
+            on_worker(Error, Recovery, "recovery-failure", summary)
+        }
+        IncidentShape::FailedAfterRetries => {
+            let summary = format!("worker {worker} failed after three recovery attempts");
+            on_worker(Error, Recovery, "recovery-failure", summary)
+        }
+        IncidentShape::Unresponsive => {
+            on_worker(Error, Recovery, "recovery-failure", msg.to_string())
+        }
+        IncidentShape::Reclaimed => {
+            let summary = format!("reclaimed stale registration for stopped worker {worker}");
+            on_worker(Info, Recovery, "recovery-action", summary)
+        }
+        IncidentShape::Migrated => {
+            let jobs = captures.get(1);
+            let summary = format!("migrated {jobs} scheduled jobs into session artifacts");
+            on_daemon(Info, Recovery, "recovery-action", summary)
+        }
+        IncidentShape::Replacement => on_daemon(Info, Recovery, "recovery-action", msg.to_string()),
         // A scheduled wake is a supervisor lifecycle action, not crash
         // recovery.
-        return Some(event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Supervisor,
-            "supervisor-action",
-            daemon_subject(entry),
-            msg,
-        ));
-    }
+        IncidentShape::Woke => on_daemon(Info, Supervisor, "supervisor-action", msg.to_string()),
+        IncidentShape::EvictedIdle => {
+            let (idle, sessions) = (captures.get(2), captures.get(3));
+            let summary =
+                format!("evicted idle worker {worker} (idle {idle}m, {sessions} session(s))");
+            on_worker(Info, Supervisor, "worker-stop", summary)
+        }
+        IncidentShape::EvictedEmpty => {
+            let summary = format!("evicted empty session worker {worker} on last detach");
+            on_worker(Info, Supervisor, "worker-stop", summary)
+        }
+        IncidentShape::WorkerSocket
+        | IncidentShape::StderrForward
+        | IncidentShape::WorkerListening
+        | IncidentShape::CrashLine
+        | IncidentShape::CrashPrefix
+        | IncidentShape::ShutdownExit
+        | IncidentShape::SignalShutdown
+        | IncidentShape::StopRequested
+        | IncidentShape::Passivated
+        | IncidentShape::AuthFailed
+        | IncidentShape::UnknownSession
+        | IncidentShape::StackFrame
+        | IncidentShape::DaemonLine => return None,
+    })
+}
 
-    if let Some((IncidentShape::EvictedIdle, captures)) = &fit {
-        let worker = captures.get(1);
-        let idle = captures.get(2);
-        let sessions = captures.get(3);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Supervisor,
-            "worker-stop",
-            format!("worker {worker}"),
-            format!("evicted idle worker {worker} (idle {idle}m, {sessions} session(s))"),
-            vec![worker.to_string()],
-        ));
-    }
-    if let Some((IncidentShape::EvictedEmpty, captures)) = &fit {
-        let worker = captures.get(1);
-        return Some(incident_event(
-            entry,
-            IncidentSeverity::Info,
-            IncidentCategory::Supervisor,
-            "worker-stop",
-            format!("worker {worker}"),
-            format!("evicted empty session worker {worker} on last detach"),
-            vec![worker.to_string()],
-        ));
-    }
+/// The event of a `Daemon supervisor startup failed: <err>` line.
+fn startup_failed_event(entry: &IncidentLogEntry, err: &str) -> IncidentEvent {
+    // TS tests the message case-insensitively
+    // (/lock file is already being held/i): real log lines carry
+    // "Lock file is already being held".
+    let (severity, summary) = if err
+        .to_ascii_lowercase()
+        .contains("lock file is already being held")
+    {
+        (
+            IncidentSeverity::Warn,
+            "supervisor startup blocked: another daemon holds the lock".to_string(),
+        )
+    } else {
+        (
+            IncidentSeverity::Error,
+            format!("supervisor startup failed: {}", error_summary(err)),
+        )
+    };
+    event(
+        entry,
+        severity,
+        IncidentCategory::Supervisor,
+        "supervisor-start",
+        daemon_subject(entry),
+        summary,
+    )
+}
 
-    if entry.component == "coding-agent.daemon" {
+/// The event of a `daemon command "<command>" failed: <error>` line, on
+/// the worker of the entry's socket.
+fn daemon_command_event(
+    rules: IncidentRules,
+    entry: &IncidentLogEntry,
+    worker_id: Option<&str>,
+    captures: &Captures,
+) -> IncidentEvent {
+    let failure = classify_command_failure(rules, captures.get(1), captures.get(2));
+    let subject = worker_id.map_or_else(
+        || "worker".to_string(),
+        |worker_id| format!("worker {worker_id}"),
+    );
+    CommandFailure {
+        // Keep the session ids/names classified out of the error, not
+        // just the worker id.
+        tokens: worker_id
+            .map(str::to_string)
+            .into_iter()
+            .chain(failure.tokens)
+            .collect(),
+        ..failure
+    }
+    .into_event(entry, subject)
+}
+
+/// The event of a failed client catch-up, for `session_id` if the line
+/// names one.
+fn catch_up_event(entry: &IncidentLogEntry, session_id: Option<&str>, err: &str) -> IncidentEvent {
+    let (severity, event_class) = failure_class(err);
+    let for_session = session_id.map_or_else(String::new, |id| format!(" for session {id}"));
+    incident_event(
+        entry,
+        severity,
+        IncidentCategory::Supervisor,
+        event_class,
+        session_id.map_or_else(
+            || daemon_subject(entry),
+            |session_id| format!("session {session_id}"),
+        ),
+        format!(
+            "client catch-up failed{for_session}: {}",
+            error_summary(err)
+        ),
+        session_id.map(str::to_string).into_iter().collect(),
+    )
+}
+
+/// The event of a daemon line no line shape fits: the worker's own
+/// lifecycle line or crash, else a summary of the diagnostic. `None` for
+/// a line of any other component.
+fn daemon_event(
+    rules: IncidentRules,
+    entry: &IncidentLogEntry,
+    worker_id: Option<&str>,
+) -> Option<IncidentEvent> {
+    let msg = first_line(&entry.msg);
+    let own = match entry.component.as_str() {
         // The worker logs its own lifecycle lines; reusing the stderr-body
         // classifier gives them the same summaries as the supervisor's
         // stderr forward, so the duplicated log pair collapses in the
         // timeline.
-        if let Some(worker_id) = worker_id {
-            if let Some(body) = classify_worker_stderr_body(rules, worker_id, msg, false) {
-                return Some(incident_event(
+        "coding-agent.daemon" => match worker_id {
+            Some(worker_id) => classify_worker_stderr_body(rules, worker_id, msg, false)
+                .map(|body| body.into_event(entry)),
+            None => first_shape(rules, msg, &[IncidentShape::CrashPrefix]).map(|_| {
+                event(
                     entry,
-                    body.severity,
+                    IncidentSeverity::Critical,
                     IncidentCategory::Supervisor,
-                    body.event_class,
-                    body.subject,
-                    body.summary,
-                    body.tokens,
-                ));
-            }
-        } else if first_shape(rules, msg, &[IncidentShape::CrashPrefix]).is_some() {
-            return Some(event(
-                entry,
-                IncidentSeverity::Critical,
-                IncidentCategory::Supervisor,
-                "worker-crash",
-                "worker",
-                format!("worker crashed: {}", truncate_text(msg, 100)),
-            ));
-        }
-    }
-
-    if entry.component == "coding-agent.daemon-supervisor"
-        || entry.component == "coding-agent.daemon"
-    {
-        // Unknown diagnostics still matter during an incident; summarize
-        // them.
-        return Some(event(
+                    "worker-crash",
+                    "worker",
+                    format!("worker crashed: {}", truncate_text(msg, 100)),
+                )
+            }),
+        },
+        "coding-agent.daemon-supervisor" => None,
+        _ => return None,
+    };
+    // Unknown diagnostics still matter during an incident; summarize them.
+    Some(own.unwrap_or_else(|| {
+        event(
             entry,
             if entry.level == "error" {
                 IncidentSeverity::Error
@@ -830,9 +781,8 @@ pub fn classify_incident_entry(
                 |worker_id| format!("worker {worker_id}"),
             ),
             truncate_text(msg, SUMMARY_TRUNCATION),
-        ));
-    }
-    None
+        )
+    }))
 }
 
 /// Classify every entry, dropping the duplicate event the daemon writes
