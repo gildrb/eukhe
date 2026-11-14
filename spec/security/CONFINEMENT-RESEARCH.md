@@ -356,6 +356,11 @@ FSEvents; probes, then timings.
   with `(deny file-write-create (require-all (vnode-type SOCKET)
   (require-not (subpath d))))` both failed with `EPERM`, while renaming
   and linking regular files there still worked.
+- The measured profile above allowed `mach-lookup` of FSEvents; the design
+  now omits it, since fseventsd is reported to deliver changes by path to
+  a subscriber whatever its sandbox allows [unconfirmed from a primary
+  source: a 2019 report on Apple's filesystem-dev list]; a probe in the
+  suite checks that a confined program gets no FSEvents stream at all.
 
 ### 5.2 Linux (AMD Ryzen 7 5800X, NixOS 26.05, kernel 6.18.50, Landlock ABI 7, bubblewrap 0.11.2)
 
