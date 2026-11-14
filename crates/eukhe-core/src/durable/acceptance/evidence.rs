@@ -4,7 +4,10 @@
 //! final answer, its claim) never enter: a judge reads the condition its
 //! owner wrote and what the harness observed, nothing else. The verdict of
 //! each piece of evidence is the compiled core's
-//! (`eukhe_bend::rules::verify`).
+//! (`eukhe_bend::rules::verify`). The same judge decides a loop's stated
+//! condition (`JudgeQuestion::Stated`, asked by `eukhe.loop`): there the
+//! evidence also holds the turn's final answer, read as the worker's own
+//! account.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -53,6 +56,11 @@ const JUDGE_SYSTEM_PROMPT: &str = "You are an acceptance judge: a request separa
 /// evidence alone whether the final state meets it.
 const INTENT_SYSTEM_PROMPT: &str = "You are an acceptance judge: a request separate from the worker, with no tools and no transcript. The USER MESSAGES are everything the user wrote in this conversation, oldest first. First decide what the conversation asks for now: a later message that adds a requirement extends the task; a later message that drops or changes a requirement removes or replaces it; a side question (a message that asks for information or an explanation and changes nothing in the task) adds no requirement and does not end the task; a request that is only for an answer in chat is met by the reply, which you do not see, so it puts no requirement on the final state. Then decide from the EVIDENCE alone whether the final state meets every current requirement. The harness gathered the evidence itself; the worker did not write it. If the evidence does not show a current requirement met, the answer is FAIL. Reply with the single word PASS or FAIL on the first line, then list the current requirements, each with the evidence that decided it.";
 
+/// The judge's system prompt for a loop's stated condition: it decides
+/// from the turn's final answer and the workspace changes, and reads the
+/// answer as the worker's own account.
+const STATED_SYSTEM_PROMPT: &str = "You are an independent judge of a loop's stop condition. The user stated the CONDITION in words; decide whether it holds now. The harness gathered the EVIDENCE: the worker's final answer of its last turn, which is the worker's own account and may claim more than it did (believe a claim only where the workspace changes bear it out), and the workspace changes (git status, the diff, the files git does not track). If the evidence does not show that the condition holds, the answer is FAIL. Reply with the single word PASS or FAIL on the first line, then one short sentence naming the evidence that decided it.";
+
 /// What a judge decides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JudgeQuestion {
@@ -61,6 +69,10 @@ pub enum JudgeQuestion {
     /// Whether the final state meets what the user's messages (oldest
     /// first) ask for now.
     Intent(Vec<String>),
+    /// Whether the condition the user stated for a loop holds now; the
+    /// evidence holds the turn's final answer beside the workspace's
+    /// changes.
+    Stated(String),
 }
 
 /// What a judge is asked.
@@ -132,6 +144,7 @@ impl Judge for ModelJudge {
             let system_prompt = match request.question {
                 JudgeQuestion::Condition(_) => JUDGE_SYSTEM_PROMPT,
                 JudgeQuestion::Intent(_) => INTENT_SYSTEM_PROMPT,
+                JudgeQuestion::Stated(_) => STATED_SYSTEM_PROMPT,
             };
             let context = PiContext {
                 system_prompt: Some(system_prompt.to_owned()),
@@ -194,7 +207,7 @@ impl ModelJudge {
 /// the evidence.
 pub(crate) fn judge_prompt(request: &JudgeRequest) -> String {
     let question = match &request.question {
-        JudgeQuestion::Condition(condition) => {
+        JudgeQuestion::Condition(condition) | JudgeQuestion::Stated(condition) => {
             format!("<condition>\n{condition}\n</condition>")
         }
         JudgeQuestion::Intent(messages) => {

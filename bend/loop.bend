@@ -4,34 +4,43 @@
 # runs as the compiled Bend core (entry bend/ffi_loop.bend, a plain call:
 # Rust keeps the state in the session's durable storage and sends it with
 # each event). Rust gathers the facts (the clock, the exit status of the
-# condition command, whether the session is busy, whether the budget still
-# funds a turn), does the IO each answer names, and decides nothing.
+# condition command or the ruling of the judge of a stated condition,
+# whether the session is busy, whether the budget still funds a turn, how
+# the text after `--until`/`--while` reads), does the IO each answer
+# names, and decides nothing.
 #
 # One loop per session. Its life: Off -> (Enter) -> Armed or Turn -> ...
 # -> Ended. A turn of the loop is an iteration; `iter` numbers them from 1.
-# After a turn settles the loop runs the condition command (Judging) and
-# reads its evidence; only then, and only inside every bound, the next
+# After a turn settles the loop checks its condition (Judging) and reads
+# its evidence; only then, and only inside every bound, the next
 # iteration starts. Pure: no IO, no @unsafe.
 
 import Base
 
-# The condition: a shell command whose exit status is the evidence.
-# Until: the loop stops once the command succeeds. While: the loop stops
-# once the command fails (exits nonzero, other than 126 or 127).
+# The condition. Until: the loop stops once the command succeeds. While:
+# the loop stops once the command fails (exits nonzero, other than 126 or
+# 127). Stated: the condition the user wrote in words (until: True, the
+# loop stops once a model judge finds it met; False, once the judge finds
+# it no longer met); no word of it runs as a command.
 type Cond is Data:
   NoCond{}
   Until{cmd: String}
   While{cmd: String}
+  Stated{until: Bool, text: String}
 
-# What one run of the condition command showed: its exit status; no exit
-# status (killed by a signal); the deadline passed; it could not start; the
-# run was cancelled before it answered.
+# What one check showed. Of a command: its exit status; no exit status
+# (killed by a signal); the deadline passed; it could not start. Of a
+# stated condition: the judge's ruling (met: the condition holds); the
+# judge could not rule (it failed, or answered neither). Of either: the
+# check was cancelled before it answered.
 type Evid is Data:
   Exited{code: Nat}
   NoStatus{}
   TimedOut{}
   SpawnFailed{}
   Cancelled{}
+  Ruled{met: Bool}
+  Unruled{}
 
 # What the evidence says of the loop's stop condition: it holds; it does
 # not hold yet; the check itself is broken (never read as either); nothing
@@ -164,7 +173,8 @@ def judge.exit(until: Bool, code: Nat) -> Verdict:
       judge.while(code)
 
 # what the evidence says of the stop condition of an `--until` (True) or a
-# `--while` (False) loop
+# `--while` (False) command: only its exit status decides; a ruling of the
+# judge is no evidence about a command
 def judge(until: Bool, ev: Evid) -> Verdict:
   match ev:
     case Exited{code}:
@@ -177,6 +187,79 @@ def judge(until: Bool, ev: Evid) -> Verdict:
       Broken{}
     case Cancelled{}:
       Unjudged{}
+    case Ruled{met}:
+      Broken{}
+    case Unruled{}:
+      Broken{}
+
+def said.until(met: Bool) -> Verdict:
+  match met:
+    case True{}:
+      Confirmed{}
+    case False{}:
+      Refuted{}
+
+def said.while(met: Bool) -> Verdict:
+  match met:
+    case True{}:
+      Refuted{}
+    case False{}:
+      Confirmed{}
+
+def said.met(until: Bool, met: Bool) -> Verdict:
+  match until:
+    case True{}:
+      said.until(met)
+    case False{}:
+      said.while(met)
+
+# what the evidence says of the stop condition of a stated condition,
+# until (True) or while (False): only the judge's ruling decides; an exit
+# status is no evidence about words
+def said(until: Bool, ev: Evid) -> Verdict:
+  match ev:
+    case Exited{code}:
+      Broken{}
+    case NoStatus{}:
+      Broken{}
+    case TimedOut{}:
+      Broken{}
+    case SpawnFailed{}:
+      Broken{}
+    case Cancelled{}:
+      Unjudged{}
+    case Ruled{met}:
+      said.met(until, met)
+    case Unruled{}:
+      Broken{}
+
+# The condition typed after `--until` (until: True) or `--while`
+# ----------------------------------------------------------------
+
+def classify.command(until: Bool, word: String) -> Cond:
+  match until:
+    case True{}:
+      Until{word}
+    case False{}:
+      While{word}
+
+def classify.found(until: Bool, word: String, raw: String, found: Bool) -> Cond:
+  match found:
+    case True{}:
+      classify.command(until, word)
+    case False{}:
+      Stated{until, raw}
+
+# the condition of the text `raw` typed after the flag, whose first shell
+# word is `word`: a command when any part of that word was quoted or when
+# it names an executable or a shell builtin (found); else the whole text is
+# a stated condition
+def classify(until: Bool, word: String, raw: String, quoted: Bool, found: Bool) -> Cond:
+  match quoted:
+    case True{}:
+      classify.command(until, word)
+    case False{}:
+      classify.found(until, word, raw, found)
 
 # The bounds
 # ----------
@@ -391,6 +474,8 @@ def gate(c: Cond, +i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, b: String, f: N
       (St{Judging{}, i, l, d, Until{cmd}, b, f, x}, Judge{i})
     case While{cmd}:
       (St{Judging{}, i, l, d, While{cmd}, b, f, x}, Judge{i})
+    case Stated{u, t}:
+      (St{Judging{}, i, l, d, Stated{u, t}, b, f, x}, Judge{i})
 
 def settled.out(out: Out, i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, c: Cond, b: String, f: Nat, x: Last, now: Nat, funded: Bool) -> St & Act:
   match out:
@@ -434,6 +519,8 @@ def judged.cond(c: Cond, i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, b: String
       judged.verdict(judge(True{}, ev), i, l, d, Until{cmd}, b, f, x, ev, now, funded)
     case While{cmd}:
       judged.verdict(judge(False{}, ev), i, l, d, While{cmd}, b, f, x, ev, now, funded)
+    case Stated{+u, t}:
+      judged.verdict(said(u, ev), i, l, d, Stated{u, t}, b, f, x, ev, now, funded)
 
 def judged.mine(blocked: Bool, i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, c: Cond, b: String, f: Nat, x: Last, ev: Evid, now: Nat, funded: Bool) -> St & Act:
   match blocked:

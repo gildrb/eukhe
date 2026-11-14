@@ -63,7 +63,8 @@ pub struct LoopDoc {
     /// How many times a cut turn was sent again (keeps their request ids
     /// apart).
     pub resends: u64,
-    /// The first output line of the last condition command that broke.
+    /// The output of the last check: the condition command's first output
+    /// lines, or the judge's reason (its error, when it could not rule).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check_output: Option<String>,
 }

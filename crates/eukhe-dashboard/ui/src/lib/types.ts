@@ -75,10 +75,12 @@ export type LoopPhase =
   | { state: "off" | "armed" | "turn" | "judging" | "paused" }
   | { state: "ended"; end: LoopEnd };
 
-/** What one run of the condition command showed (eukhe-types `LoopEvidence`). */
+/** What one check of the condition showed (eukhe-types `LoopEvidence`): a
+ * command's run, or the ruling of a stated condition's model judge. */
 export type LoopEvidence =
   | { kind: "exited"; code: number }
-  | { kind: "no_status" | "timed_out" | "spawn_failed" | "cancelled" };
+  | { kind: "ruled"; met: boolean }
+  | { kind: "no_status" | "timed_out" | "spawn_failed" | "cancelled" | "unruled" };
 
 /** A session's `/loop` (eukhe-types `LoopStatus`): `loop_update` and `state.loop`. */
 export type LoopStatus = {
@@ -89,8 +91,9 @@ export type LoopStatus = {
   remaining?: number;
   /** The deadline, in milliseconds since the epoch; absent with no span. */
   deadlineMs?: number;
-  /** `until`: the loop stops once the command succeeds; else once it fails. */
-  condition?: { command: string; until: boolean };
+  /** `until`: the loop stops once the condition holds; else once it no longer
+   * holds. `stated`: the user's words, decided by a model judge; else a command. */
+  condition?: { command: string; until: boolean; stated?: boolean };
   prompt: string;
   failures: number;
   /** The last evidence, and the iteration it was read after. */

@@ -18,20 +18,29 @@ import ../../spec/loop/loop.bend as S
 #                     loop_enter_sets_bounds, loop_enter_starts_fresh,
 #                     loop_enter_ends_running,
 #                     loop_stop_ends, loop_stop_never_starts
+#      The text after `--until` / `--while` is a command (its first word)
+#      only when that word was quoted or the shell finds it (an executable
+#      on PATH or a builtin); otherwise the whole text is a stated
+#      condition, and no word of it becomes a command.
+#                     loop_command_needs_quote_or_lookup,
+#                     loop_words_stay_words
 #   L2 every automatic iteration sends the loop's prompt, byte for byte;
 #      a prompt the user sends while the loop is on becomes the prompt
 #      from then on and spends nothing of the count.
 #                     loop_resends_body, loop_prompt_adopted,
 #                     loop_unattended_resends_same
-#   L3 a loop with a condition judges after every settled turn, on the
-#      exit status of its command only (the verdict table); it ends satisfied
+#   L3 a loop with a condition judges after every settled turn: a command
+#      on its exit status only (the verdict table), a stated condition on
+#      a model judge's ruling only (a judge that could not rule is a broken
+#      check); it ends satisfied
 #      only on fresh evidence that shows the stop condition, and starts an
 #      automatic iteration only on fresh evidence that shows it does not
 #      hold yet.
 #                     loop_verdict_table, loop_settled_turn_is_judged,
 #                     loop_satisfied_needs_confirmation,
 #                     loop_auto_needs_refutation, loop_confirmed_ends,
-#                     loop_broken_check_ends, loop_cancelled_check_waits
+#                     loop_broken_check_ends, loop_cancelled_check_waits,
+#                     loop_said_table, loop_unruled_ends
 #   L4 an automatic iteration starts only inside every bound: the count,
 #      the deadline, fewer than three failed turns in a row, a funded
 #      budget; each bound ends the loop with its own reason (when several
@@ -72,8 +81,8 @@ import ../../spec/loop/loop.bend as S
 #                     loop_records_evidence, loop_evidence_only_from_checks,
 #                     loop_report_names_the_end
 #
-# Every law is about Lp.step or Lp.judge, the two defs the entry
-# (bend/ffi_loop.bend) calls. Inputs are free unless a premise says
+# Every law is about Lp.step, Lp.judge, Lp.said or Lp.classify, the defs
+# the entry (bend/ffi_loop.bend) calls. Inputs are free unless a premise says
 # otherwise; each premise is the condition its requirement states.
 
 # Laws: the verdict (L3)
@@ -108,6 +117,82 @@ law loop_verdict_table:
   {Lp.judge(False{}, Lp.SpawnFailed{}) == Lp.Broken{} : Lp.Verdict} &     # either polarity
   {Lp.judge(True{}, Lp.Cancelled{}) == Lp.Unjudged{} : Lp.Verdict} &      # cancelled: aborted, no verdict
   {Lp.judge(False{}, Lp.Cancelled{}) == Lp.Unjudged{} : Lp.Verdict}       # either polarity
+
+# LAW loop_said_table (L3): the verdict of each piece of evidence for a
+# stated condition (the user's words), `--until` (True) and `--while`
+# (False): only the model judge's ruling decides; a judge that could not
+# rule, an exit status (k free) or any other run of a command is a broken
+# check; a cancelled check decides nothing. And a ruling is no evidence
+# about a command (m free).
+# EXCLUDES: a judge that failed or answered neither read as met or not met
+#   (the loop ends as finished, or runs on unchecked), a word of the
+#   condition run as a command and its exit status read as the condition,
+#   the polarity swapped, a model's ruling read as a command's evidence
+law loop_said_table:
+  for k: Nat
+  for u: Bool
+  for m: Bool
+  {Lp.said(True{}, Lp.Ruled{True{}}) == Lp.Confirmed{} : Lp.Verdict} &   # met, --until: halt, "found the condition met"
+  {Lp.said(True{}, Lp.Ruled{False{}}) == Lp.Refuted{} : Lp.Verdict} &    # not met, --until: continue
+  {Lp.said(False{}, Lp.Ruled{True{}}) == Lp.Refuted{} : Lp.Verdict} &    # met, --while: continue
+  {Lp.said(False{}, Lp.Ruled{False{}}) == Lp.Confirmed{} : Lp.Verdict} & # not met, --while: halt
+  {Lp.said(u, Lp.Unruled{}) == Lp.Broken{} : Lp.Verdict} &               # "the judge could not decide"
+  {Lp.said(u, Lp.Exited{k}) == Lp.Broken{} : Lp.Verdict} &               # an exit status says nothing of words
+  {Lp.said(u, Lp.NoStatus{}) == Lp.Broken{} : Lp.Verdict} &
+  {Lp.said(u, Lp.TimedOut{}) == Lp.Broken{} : Lp.Verdict} &
+  {Lp.said(u, Lp.SpawnFailed{}) == Lp.Broken{} : Lp.Verdict} &
+  {Lp.said(u, Lp.Cancelled{}) == Lp.Unjudged{} : Lp.Verdict} &           # cancelled: no verdict
+  {Lp.judge(u, Lp.Ruled{m}) == Lp.Broken{} : Lp.Verdict} &               # a ruling says nothing of a command
+  {Lp.judge(u, Lp.Unruled{}) == Lp.Broken{} : Lp.Verdict}
+
+# LAW loop_unruled_ends (L3): a stated condition whose judge could not
+# rule (its request failed, or its reply answered neither) ends the loop
+# at once as a broken check, reports it, and keeps that evidence
+# EXCLUDES: a failed judge read as "not yet" (the loop runs on, unjudged,
+#   to its bound), as met, retried silently, or left unreported
+law loop_unruled_ends:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for u: Bool
+  for t: String
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for fu: Bool
+  {Lp.step(Lp.St{Lp.Judging{}, i, l, d, Lp.Stated{u, t}, b, f, x}, Lp.Judged{i, Lp.Unruled{}, False{}, now, fu}) == (Lp.St{Lp.Ended{Lp.CheckBroke{}}, i, l, d, Lp.Stated{u, t}, b, f, Lp.Check{i, Lp.Unruled{}}}, Lp.Report{Lp.CheckBroke{}}) : Lp.St & Lp.Act}
+
+# Laws: the condition typed after the flag (L1)
+# ---------------------------------------------
+
+# LAW loop_command_needs_quote_or_lookup (L1): the text after `--until`
+# (True) or `--while` (False) is a command, its first word w, when that
+# word was quoted (whatever the shell finds), or when unquoted it names an
+# executable on PATH or a shell builtin
+# EXCLUDES: a quoted command read as words, a found command read as
+#   words, the polarity swapped, the whole text or another word taken as
+#   the command
+law loop_command_needs_quote_or_lookup:
+  for w: String
+  for r: String
+  for f: Bool
+  {Lp.classify(True{}, w, r, True{}, f) == Lp.Until{w} : Lp.Cond} &      # quoted
+  {Lp.classify(False{}, w, r, True{}, f) == Lp.While{w} : Lp.Cond} &
+  {Lp.classify(True{}, w, r, False{}, True{}) == Lp.Until{w} : Lp.Cond} & # unquoted, found by the shell
+  {Lp.classify(False{}, w, r, False{}, True{}) == Lp.While{w} : Lp.Cond}
+
+# LAW loop_words_stay_words (L1, L3): an unquoted first word the shell
+# does not find makes the whole text r a stated condition, with the
+# flag's polarity: no word of it becomes a command
+# EXCLUDES: the first word run as a command (`you`: exit 127, the loop
+#   ended broken), the text cut to its first word or to the rest, the
+#   polarity lost
+law loop_words_stay_words:
+  for u: Bool
+  for w: String
+  for r: String
+  {Lp.classify(u, w, r, False{}, False{}) == Lp.Stated{u, r} : Lp.Cond}
 
 # LAW loop_settled_turn_is_judged (L3): when the turn of a loop with a
 # condition settles in an idle session, having run to its end or failed,

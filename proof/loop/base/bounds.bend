@@ -152,6 +152,10 @@ def lb.exit0(ev: Lp.Evid, h: {S.exited_with(ev, 0n) == True{} : Bool}) -> {Lp.Ex
       lb.absurd_ft({Lp.Exited{0n} == Lp.SpawnFailed{} : Lp.Evid}, h)
     case Lp.Cancelled{}:
       lb.absurd_ft({Lp.Exited{0n} == Lp.Cancelled{} : Lp.Evid}, h)
+    case Lp.Ruled{met}:
+      lb.absurd_ft({Lp.Exited{0n} == Lp.Ruled{met} : Lp.Evid}, h)
+    case Lp.Unruled{}:
+      lb.absurd_ft({Lp.Exited{0n} == Lp.Unruled{} : Lp.Evid}, h)
 
 # a nonzero exit, neither 126 nor 127 (b, the test of those two, False),
 # refutes an `--until` condition
@@ -179,6 +183,44 @@ def lb.until_go(ev: Lp.Evid, h: {S.exited_failing(ev) == True{} : Bool}) -> {Lp.
       lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
     case Lp.Cancelled{}:
       lb.absurd_ft({Lp.Refuted{} == Lp.Unjudged{} : Lp.Verdict}, h)
+    case Lp.Ruled{met}:
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
+    case Lp.Unruled{}:
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
+
+# a ruling the spec reads as `m` is the ruling `m`
+def lb.ruled(ev: Lp.Evid, m: Bool, h: {S.ruled_with(ev, m) == True{} : Bool}) -> {Lp.Ruled{m} == ev : Lp.Evid}:
+  match ev:
+    case Lp.Exited{code}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.Exited{code} : Lp.Evid}, h)
+    case Lp.NoStatus{}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.NoStatus{} : Lp.Evid}, h)
+    case Lp.TimedOut{}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.TimedOut{} : Lp.Evid}, h)
+    case Lp.SpawnFailed{}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.SpawnFailed{} : Lp.Evid}, h)
+    case Lp.Cancelled{}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.Cancelled{} : Lp.Evid}, h)
+    case Lp.Unruled{}:
+      lb.absurd_ft({Lp.Ruled{m} == Lp.Unruled{} : Lp.Evid}, h)
+    case Lp.Ruled{met}:
+      match met m:
+        case True{} True{}:
+          {==}
+        case True{} False{}:
+          lb.absurd_ft({Lp.Ruled{False{}} == Lp.Ruled{True{}} : Lp.Evid}, h)
+        case False{} True{}:
+          lb.absurd_ft({Lp.Ruled{True{}} == Lp.Ruled{False{}} : Lp.Evid}, h)
+        case False{} False{}:
+          {==}
+
+# a "not yet" ruling of a stated condition advances the loop
+def lb.go_said(u: Bool, -t: String, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> {Lp.advance(i, l, d, Lp.Stated{u, t}, b, f, Lp.Check{i, Lp.Ruled{Bool.not(u)}}, now, fu) == Lp.judged.cond(Lp.Stated{u, t}, i, l, d, b, f, x, Lp.Ruled{Bool.not(u)}, now, fu) : Lp.St & Lp.Act}:
+  match u:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
 
 # evidence that shows the stop condition does not hold yet is refuted: the
 # check advances the loop and keeps the evidence
@@ -192,6 +234,9 @@ def lb.go_cond(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&
     case Lp.While{cmd}:
       %lb.exit0(ev, hg) : {Lp.advance(i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, _}, now, fu) == Lp.judged.cond(Lp.While{cmd}, i, l, d, b, f, x, _, now, fu) : Lp.St & Lp.Act}
       {==}
+    case Lp.Stated{+u, t}:
+      %lb.ruled(ev, Bool.not(u), hg) : {Lp.advance(i, l, d, Lp.Stated{u, t}, b, f, Lp.Check{i, _}, now, fu) == Lp.judged.cond(Lp.Stated{u, t}, i, l, d, b, f, x, _, now, fu) : Lp.St & Lp.Act}
+      lb.go_said(u, t, i, l, d, b, f, x, now, fu)
 
 # the decision point of a loop with a condition: judging iteration i, it
 # reads fresh evidence that shows "not yet"
@@ -253,6 +298,8 @@ def lb.gate_fails(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b:
       {==}
     case Lp.While{cmd}:
       {==}
+    case Lp.Stated{u, t}:
+      {==}
 
 def lb.adv_last(h: Maybe<&2, Lp.End>, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last) -> {S.last(S.state(Lp.advance.on(h, i, l, d, c, b, f, x))) == x : Lp.Last}:
   match h:
@@ -290,6 +337,8 @@ def lb.ns_gate(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: St
     case Lp.Until{cmd}:
       {==}
     case Lp.While{cmd}:
+      {==}
+    case Lp.Stated{u, t}:
       {==}
 
 # a settled turn starts no automatic iteration when a bound halts the
@@ -337,6 +386,8 @@ def lb.ns_judged(m: Bool, bl: Bool, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Maybe<
               lb.ns_verdict(Lp.judge(True{}, ev), i, l, d, Lp.Until{cmd}, b, f, x, ev, now, fu, hs)
             case Lp.While{cmd}:
               lb.ns_verdict(Lp.judge(False{}, ev), i, l, d, Lp.While{cmd}, b, f, x, ev, now, fu, hs)
+            case Lp.Stated{u, t}:
+              lb.ns_verdict(Lp.said(u, ev), i, l, d, Lp.Stated{u, t}, b, f, x, ev, now, fu, hs)
     case False{}:
       {==}
 
@@ -489,6 +540,8 @@ def lb.tied_gate(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: 
       {==}
     case Lp.While{cmd}:
       {==}
+    case Lp.Stated{u, t}:
+      {==}
 
 def lb.tied_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Tied(Lp.settled(m, p, i, l, d, c, b, f, x, o, bl, now, fu)):
   match m:
@@ -532,6 +585,8 @@ def lb.tied_judged(m: Bool, bl: Bool, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Mayb
               lb.tied_verdict(Lp.judge(True{}, ev), i, l, d, Lp.Until{cmd}, b, f, x, ev, now, fu)
             case Lp.While{cmd}:
               lb.tied_verdict(Lp.judge(False{}, ev), i, l, d, Lp.While{cmd}, b, f, x, ev, now, fu)
+            case Lp.Stated{u, t}:
+              lb.tied_verdict(Lp.said(u, ev), i, l, d, Lp.Stated{u, t}, b, f, x, ev, now, fu)
     case False{}:
       Unit{}
 
@@ -700,6 +755,8 @@ def lb.noop_gate_s(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b
       {==}
     case Lp.While{cmd}:
       {==}
+    case Lp.Stated{u, t}:
+      {==}
 
 # a settled turn of an idle session, delivered again to a loop that was in
 # its turn: not its own (m False), or its own and the loop moved on
@@ -742,6 +799,19 @@ def lb.noop_while(b: Bool, -cmd: String, -q: Nat, -k: Nat, -i: Nat, -l: Maybe<&2
     case False{}:
       {==}
 
+# a ruling of a stated condition, delivered again: the loop ended, or it
+# moved on to the next turn
+def lb.noop_said(u: Bool, met: Bool, -t: String, -k: Nat, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Noop(Lp.judged.verdict(Lp.said(u, Lp.Ruled{met}), i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu), Lp.Judged{k, Lp.Ruled{met}, False{}, now, fu}):
+  match u met:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      lb.noop_adv_j(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Stated{True{}, t}, b, f, Lp.Check{i, Lp.Ruled{False{}}}, k, Lp.Ruled{False{}}, now, fu)
+    case False{} True{}:
+      lb.noop_adv_j(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Stated{False{}, t}, b, f, Lp.Check{i, Lp.Ruled{True{}}}, k, Lp.Ruled{True{}}, now, fu)
+    case False{} False{}:
+      {==}
+
 # a judged check of an idle session, delivered again to a loop that was
 # judging: not its own (m False); its own and the loop ended or moved on;
 # or cancelled, which changed nothing the first time either
@@ -768,6 +838,10 @@ def lb.noop_judged(m: Bool, c: Lp.Cond, ev: Lp.Evid, -k: Nat, -i: Nat, l: Maybe<
             case Lp.Cancelled{}:
               %hm : {Lp.judged(_, Lp.Judging{}, i, l, d, Lp.Until{cmd}, b, f, x, Lp.Cancelled{}, False{}, now, fu) == (Lp.St{Lp.Judging{}, i, l, d, Lp.Until{cmd}, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}
               {==}
+            case Lp.Ruled{met}:
+              {==}
+            case Lp.Unruled{}:
+              {==}
         case Lp.While{cmd}:
           match ev:
             case Lp.Exited{code}:
@@ -785,6 +859,27 @@ def lb.noop_judged(m: Bool, c: Lp.Cond, ev: Lp.Evid, -k: Nat, -i: Nat, l: Maybe<
             case Lp.Cancelled{}:
               %hm : {Lp.judged(_, Lp.Judging{}, i, l, d, Lp.While{cmd}, b, f, x, Lp.Cancelled{}, False{}, now, fu) == (Lp.St{Lp.Judging{}, i, l, d, Lp.While{cmd}, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}
               {==}
+            case Lp.Ruled{met}:
+              {==}
+            case Lp.Unruled{}:
+              {==}
+        case Lp.Stated{u, t}:
+          match ev:
+            case Lp.Exited{code}:
+              {==}
+            case Lp.NoStatus{}:
+              {==}
+            case Lp.TimedOut{}:
+              {==}
+            case Lp.SpawnFailed{}:
+              {==}
+            case Lp.Cancelled{}:
+              %hm : {Lp.judged(_, Lp.Judging{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Cancelled{}, False{}, now, fu) == (Lp.St{Lp.Judging{}, i, l, d, Lp.Stated{u, t}, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}
+              {==}
+            case Lp.Unruled{}:
+              {==}
+            case Lp.Ruled{met}:
+              lb.noop_said(u, met, t, k, i, l, d, b, f, x, now, fu)
     case False{}:
       %hm : {Lp.judged(_, Lp.Judging{}, i, l, d, c, b, f, x, ev, False{}, now, fu) == (Lp.St{Lp.Judging{}, i, l, d, c, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}
       {==}
@@ -971,6 +1066,18 @@ def lb.records_while(b: Bool, -cmd: String, -q: Nat, -i: Nat, -l: Maybe<&2, Nat>
     case False{}:
       {==}
 
+# a ruling of a stated condition keeps the evidence with the iteration
+def lb.records_said(u: Bool, met: Bool, -t: String, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> {S.last(S.state(Lp.judged.verdict(Lp.said(u, Lp.Ruled{met}), i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu))) == Lp.Check{i, Lp.Ruled{met}} : Lp.Last}:
+  match u met:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      lb.adv_last(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Stated{True{}, t}, b, f, Lp.Check{i, Lp.Ruled{False{}}})
+    case False{} True{}:
+      lb.adv_last(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Stated{False{}, t}, b, f, Lp.Check{i, Lp.Ruled{True{}}})
+    case False{} False{}:
+      {==}
+
 # LAW loop_records_evidence, at the check: every verdict but Unjudged
 # keeps the evidence with the iteration
 def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.When(S.has_cond(c), lb.When(S.decides(ev), {S.last(S.state(Lp.judged.cond(c, i, l, d, b, f, x, ev, now, fu))) == Lp.Check{i, ev} : Lp.Last})):
@@ -993,6 +1100,10 @@ def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2,
           {==}
         case Lp.Cancelled{}:
           Unit{}
+        case Lp.Ruled{met}:
+          {==}
+        case Lp.Unruled{}:
+          {==}
     case Lp.While{cmd}:
       match ev:
         case Lp.Exited{code}:
@@ -1009,6 +1120,26 @@ def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2,
           {==}
         case Lp.Cancelled{}:
           Unit{}
+        case Lp.Ruled{met}:
+          {==}
+        case Lp.Unruled{}:
+          {==}
+    case Lp.Stated{u, t}:
+      match ev:
+        case Lp.Exited{code}:
+          {==}
+        case Lp.NoStatus{}:
+          {==}
+        case Lp.TimedOut{}:
+          {==}
+        case Lp.SpawnFailed{}:
+          {==}
+        case Lp.Cancelled{}:
+          Unit{}
+        case Lp.Unruled{}:
+          {==}
+        case Lp.Ruled{met}:
+          lb.records_said(u, met, t, i, l, d, b, f, x, now, fu)
 
 # the result keeps the evidence x
 def lb.Kept(r: Lp.St & Lp.Act, x: Lp.Last) -> Type:
@@ -1021,6 +1152,8 @@ def lb.kept_gate(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: 
     case Lp.Until{cmd}:
       {==}
     case Lp.While{cmd}:
+      {==}
+    case Lp.Stated{u, t}:
       {==}
 
 def lb.kept_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Kept(Lp.settled(m, p, i, l, d, c, b, f, x, o, bl, now, fu), x):

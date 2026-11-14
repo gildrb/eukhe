@@ -3,12 +3,13 @@
 //! surface (TUI, ACP, RPC, dashboard, an SDK client), so the shared
 //! vocabulary lives in eukhe-types. The decisions are the compiled core's
 //! (`bend/loop.bend`, called through `eukhe_bend::rules::loop_mode`); the
-//! runtime (the durable state, the condition command, the hooks) lives in
+//! runtime (the durable state, the condition check, the hooks) lives in
 //! eukhe-core.
 //!
 //! A client starts a loop by sending the prompt `/loop [count|duration]
-//! [--while|--until '<command>'] [prompt]`, stops it with `/loop --stop`
-//! ([`LOOP_STOP_COMMAND`]) and watches it through `loop_update`.
+//! [--while|--until '<command>'|<condition in words>] [prompt]`, stops it
+//! with `/loop --stop` ([`LOOP_STOP_COMMAND`]) and watches it through
+//! `loop_update`.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -18,17 +19,21 @@ pub const LOOP_STOP_COMMAND: &str = "/loop --stop";
 /// The prompt text that shows a session's loop.
 pub const LOOP_STATUS_COMMAND: &str = "/loop --status";
 
-/// The condition of a loop: a shell command whose exit status decides.
-/// `until`: the loop stops once the command succeeds; else (`--while`) it
-/// stops once the command fails.
+/// The condition of a loop. A command (`stated` false): a shell command
+/// whose exit status decides. A stated condition (`stated`): the condition
+/// the user wrote in words, in `command`, decided by a model judge; no word
+/// of it runs. `until`: the loop stops once the condition holds; else
+/// (`--while`) once it no longer holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopCondition {
     pub command: String,
     pub until: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stated: bool,
 }
 
-/// What one run of the condition command showed.
+/// What one check of the condition showed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LoopEvidence {
@@ -40,8 +45,13 @@ pub enum LoopEvidence {
     TimedOut,
     /// The command could not start.
     SpawnFailed,
-    /// The run was cancelled before it answered.
+    /// The check was cancelled before it answered.
     Cancelled,
+    /// The judge of a stated condition ruled: `met`, the condition holds.
+    Ruled { met: bool },
+    /// The judge of a stated condition could not rule (its request failed,
+    /// or its reply answered neither).
+    Unruled,
 }
 
 /// What a piece of evidence says of the loop's stop condition. On the wire
@@ -102,10 +112,12 @@ impl<'de> Deserialize<'de> for LoopVerdict {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LoopEnd {
-    /// Its stop condition was confirmed by the condition command.
+    /// Its stop condition was confirmed: by the condition command, or for
+    /// a stated condition by the judge's ruling.
     Satisfied,
-    /// The condition command broke (exit 126 or 127: it cannot run or is
-    /// not found; no status, a timeout, a failed start).
+    /// The check broke: the condition command could not run (exit 126 or
+    /// 127: it cannot run or is not found), no status, a timeout, a failed
+    /// start; or the judge of a stated condition could not rule.
     CheckBroke,
     /// The iteration count is used up.
     OutOfTurns,
@@ -145,7 +157,7 @@ pub enum LoopPhase {
     Armed,
     /// An iteration's turn is in flight.
     Turn,
-    /// The turn settled; the condition command runs.
+    /// The turn settled; the condition is checked.
     Judging,
     /// Suspended by the user's interrupt, waiting for a new prompt.
     Paused,
@@ -281,6 +293,7 @@ mod tests {
                 condition: Some(LoopCondition {
                     command: "test -f done".to_owned(),
                     until: true,
+                    stated: false,
                 }),
                 prompt: "fix it".to_owned(),
                 failures: 0,
@@ -303,5 +316,33 @@ mod tests {
             serde_json::from_str::<LoopStatus>(&text).expect("decode"),
             status
         );
+    }
+
+    /// A stated condition and a judge's ruling in their wire shape; a
+    /// condition stored before stated conditions existed reads as a
+    /// command.
+    #[test]
+    fn a_stated_condition_and_a_ruling_round_trip() {
+        let check = LoopCheck {
+            iteration: 2,
+            evidence: LoopEvidence::Ruled { met: false },
+        };
+        let condition = LoopCondition {
+            command: "the tests pass".to_owned(),
+            until: true,
+            stated: true,
+        };
+        let text = serde_json::to_string(&(&condition, check)).expect("encode");
+        assert_eq!(
+            text,
+            r#"[{"command":"the tests pass","until":true,"stated":true},{"iteration":2,"evidence":{"kind":"ruled","met":false}}]"#
+        );
+        assert_eq!(
+            serde_json::to_string(&LoopEvidence::Unruled).expect("encode"),
+            r#"{"kind":"unruled"}"#
+        );
+        let old: LoopCondition =
+            serde_json::from_str(r#"{"command":"test -f done","until":false}"#).expect("decode");
+        assert!(!old.stated);
     }
 }

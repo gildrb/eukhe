@@ -26,7 +26,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::EntryData;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::loop_mode::LoopPhase;
-use eukhe_types::pi_ai::{Message, UserContent, UserContentBlock};
+use eukhe_types::pi_ai::{AssistantMessage, Message, UserContent, UserContentBlock};
 use futures::FutureExt;
 
 use super::docs::LOOP_MODE_DOC;
@@ -56,13 +56,14 @@ pub(crate) fn generation_hooks(host: &LoopHost) -> HookRegistration {
                 .boxed()
             })),
             after_response: None,
-            on_yield: Some(Arc::new(move |_message, api, cx| {
+            on_yield: Some(Arc::new(move |message, api, cx| {
                 let host = yielded.clone();
+                let message = message.clone();
                 let api = api.clone();
                 let cx = cx.clone();
                 async move {
                     Ok(host
-                        .on_yield(&api, &cx)
+                        .on_yield(&message, &api, &cx)
                         .await?
                         .map(|(text, origin)| YieldContinuation {
                             r#continue: UserContent::Text(text),
@@ -151,6 +152,7 @@ impl LoopHost {
     #[tracing::instrument(skip_all)]
     async fn on_yield(
         &self,
+        answer: &AssistantMessage,
         api: &HookApi,
         cx: &Context,
     ) -> SessionResult<Option<(String, InputOrigin)>> {
@@ -188,6 +190,7 @@ impl LoopHost {
             &conversation,
             Input::TurnSettled(TurnOutcome::Ran),
             Mode::Yield(task_id),
+            Some(answer),
             cx,
         )
         .await

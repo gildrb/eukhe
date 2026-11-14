@@ -413,11 +413,15 @@ def lh.view_settled(m: Bool, blocked: Bool, out: Lp.Out, c: Lp.Cond, -i: Nat, +l
       {==}
     case True{} False{} Lp.Ran{} Lp.While{cmd}:
       {==}
+    case True{} False{} Lp.Ran{} Lp.Stated{u, t}:
+      {==}
     case True{} False{} Lp.Errored{} Lp.NoCond{}:
       lh.view_adv(Lp.halt(1n+f, funded, l, d, now), l, i, d, Lp.NoCond{}, b, 1n+f, x, lh.halt_spent(Lp.spent(l), Lp.tired(1n+f), funded, Lp.late(d, now)))
     case True{} False{} Lp.Errored{} Lp.Until{cmd}:
       {==}
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
+      {==}
+    case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
       {==}
 
 def lh.view_verdict(v: Lp.Verdict, -i: Nat, +l: Maybe<&2, Nat>, +d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, +f: Nat, -x: Lp.Last, -ev: Lp.Evid, +now: Nat, +funded: Bool) -> lh.ViewOk(Lp.judged.verdict(v, i, l, d, c, b, f, x, ev, now, funded), True{}, c, d, l, b):
@@ -443,6 +447,8 @@ def lh.view_judged(m: Bool, blocked: Bool, c: Lp.Cond, -i: Nat, +l: Maybe<&2, Na
       lh.view_verdict(Lp.judge(True{}, ev), i, l, d, Lp.Until{cmd}, b, f, x, ev, now, funded)
     case True{} False{} Lp.While{cmd}:
       lh.view_verdict(Lp.judge(False{}, ev), i, l, d, Lp.While{cmd}, b, f, x, ev, now, funded)
+    case True{} False{} Lp.Stated{u, t}:
+      lh.view_verdict(Lp.said(u, ev), i, l, d, Lp.Stated{u, t}, b, f, x, ev, now, funded)
 
 def lh.view_step(s: Lp.St, e: Lp.Ev, u: {Bool.not(S.is_user(e)) == True{} : Bool}) -> lh.ViewStep(s, e):
   match s e:
@@ -910,6 +916,8 @@ def lh.pot_settled(m: Bool, blocked: Bool, out: Lp.Out, c: Lp.Cond, +f: Nat, -i:
       lh.le_refl(Nat.sub(2n, f))
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
       lh.le_refl(Nat.sub(2n, f))
+    case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
+      lh.le_refl(Nat.sub(2n, f))
 
 def lh.pot_verdict(v: Lp.Verdict, +f: Nat, -i: Nat, +l: Maybe<&2, Nat>, +d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -x: Lp.Last, -ev: Lp.Evid, +now: Nat, +funded: Bool) -> lh.PotLe(Lp.judged.verdict(v, i, l, d, c, b, f, x, ev, now, funded), Nat.sub(3n, f)):
   match v:
@@ -934,6 +942,8 @@ def lh.pot_judged(m: Bool, blocked: Bool, c: Lp.Cond, +f: Nat, -i: Nat, +l: Mayb
       lh.pot_verdict(Lp.judge(True{}, ev), f, i, l, d, Lp.Until{cmd}, b, x, ev, now, funded)
     case True{} False{} Lp.While{cmd}:
       lh.pot_verdict(Lp.judge(False{}, ev), f, i, l, d, Lp.While{cmd}, b, x, ev, now, funded)
+    case True{} False{} Lp.Stated{u, t}:
+      lh.pot_verdict(Lp.said(u, ev), f, i, l, d, Lp.Stated{u, t}, b, x, ev, now, funded)
 
 # an unattended event that is no turn run to its end: the iteration it
 # starts, and those still possible after it, were possible before it

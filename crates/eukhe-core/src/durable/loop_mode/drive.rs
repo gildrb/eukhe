@@ -9,37 +9,90 @@
 //! recorded with the answering generation task, so a rerun of that task
 //! repeats the continuation instead of deciding again.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use eukhe_bend::rules::loop_mode::{step, LoopAct, LoopEvent, TurnOutcome};
+use eukhe_bend::rules::verify::Answer;
 use eukhe_chord::context::Context;
+use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
-use eukhe_durable::harness::{Conversation, Harness, LIVE_DOC};
+use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, TaskId};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::loop_mode::{LoopCondition, LoopEnd, LoopEvidence, LoopLimit, LoopPhase};
-use eukhe_types::pi_ai::UserContent;
+use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, UserContent};
 use serde_json::json;
 
 use super::args::{enabled_message, end_message, CONDITION_TIMEOUT_MS};
 use super::docs::{LoopDoc, LoopYield, LOOP_MODE_DOC};
 use super::LOOP_NOTICE_CUSTOM_TYPE;
 use crate::autonomous::{now_millis, GateCommandRunner};
+use crate::durable::acceptance::{
+    read_answer, workspace_files, Judge, JudgeQuestion, JudgeReply, JudgeRequest,
+};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::goals::{conversation_of, open_doc, read_doc, user_input_queued, write_doc};
 use crate::durable::workflow::unsettled_runs;
 use crate::durable::HarnessCell;
 
+/// How long the shell's lookup of a condition's first word may take.
+const LOOKUP_TIMEOUT_MS: u64 = 5_000;
+/// How many of the newest entries the judge of a stated condition reads to
+/// find the turn's final answer.
+const RECENT_ENTRIES: usize = 32;
+/// The most characters of the final answer the judge reads.
+const MAX_ANSWER_CHARS: usize = 12_000;
+/// The most characters of the workspace's changes the judge reads.
+const MAX_CHANGES_CHARS: usize = 40_000;
+/// The most characters of the files git does not track the judge reads.
+const MAX_FILES_CHARS: usize = 24_000;
+
 /// The services of the loop: the session's Harness, the runner of the
-/// condition command (in the session cwd), and whether the budget funds
-/// one more turn (blocking: ledger file IO).
+/// condition command and of the lookup of its first word (in the session
+/// cwd), the judge of a stated condition, the session cwd, and whether the
+/// budget funds one more turn (blocking: ledger file IO).
 #[derive(Clone)]
 pub(crate) struct LoopHost {
     pub(crate) harness: HarnessCell,
     pub(crate) gates: Arc<dyn GateCommandRunner>,
+    pub(crate) judge: Arc<dyn Judge>,
+    pub(crate) cwd: PathBuf,
     pub(crate) funded: Arc<dyn Fn() -> bool + Send + Sync>,
+}
+
+/// The text of an answer: its text blocks.
+fn answer_text(message: &AssistantMessage) -> String {
+    message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            AssistantContentBlock::Text(text) => Some(text.text.as_str()),
+            AssistantContentBlock::Thinking(_) | AssistantContentBlock::ToolCall(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `text` cut to `max` chars.
+fn cut(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let prefix: String = text.chars().take(max).collect();
+    format!("{prefix}\n... [truncated]")
+}
+
+/// The judge's reason: its reply after the PASS or FAIL that opens it.
+fn reason(reply: &str) -> String {
+    let rest = reply
+        .trim_start()
+        .trim_start_matches(|c: char| c.is_ascii_alphabetic());
+    rest.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '.' | '-' | ','))
+        .trim()
+        .to_owned()
 }
 
 /// Where a decision is carried out.
@@ -293,6 +346,128 @@ impl LoopHost {
         }
     }
 
+    /// Whether the shell that runs condition commands finds `word`: an
+    /// executable on PATH or a shell builtin (`type -t`). A lookup that
+    /// cannot run finds nothing.
+    pub(crate) async fn resolves(&self, word: &str) -> bool {
+        let quoted = format!("'{}'", word.replace('\'', r"'\''"));
+        match self
+            .gates
+            .run_gate(&format!("type -t -- {quoted}"), LOOKUP_TIMEOUT_MS)
+            .await
+        {
+            Ok(run) => {
+                !run.timed_out
+                    && run.status == Some(0)
+                    && matches!(run.stdout.trim(), "file" | "builtin")
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// The final answer of the turn that settled: `answer` when the hook
+    /// holds it, else the newest answer in the transcript.
+    async fn final_answer(
+        &self,
+        conversation: &Conversation,
+        answer: Option<&AssistantMessage>,
+        cx: &Context,
+    ) -> SessionResult<Option<String>> {
+        if let Some(answer) = answer {
+            return Ok(Some(answer_text(answer)));
+        }
+        let page = conversation
+            .entries(ConversationEntryQuery::default(), RECENT_ENTRIES, None, cx)
+            .await?;
+        // Newest first.
+        Ok(page
+            .items
+            .iter()
+            .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
+            .find_map(|entry| match entry.model.as_ref()?.first()? {
+                Message::Assistant(message) => Some(answer_text(message)),
+                _ => None,
+            }))
+    }
+
+    /// Ask the judge whether the stated condition holds: the evidence is
+    /// the turn's final answer and the workspace's changes, gathered here;
+    /// no word of the condition runs. A judge that fails or answers
+    /// neither PASS nor FAIL could not rule.
+    ///
+    /// # Errors
+    ///
+    /// `cx` was cancelled (nothing is learned: the check runs again), or a
+    /// read failure.
+    async fn rule(
+        &self,
+        conversation: &Conversation,
+        condition: &LoopCondition,
+        answer: Option<&AssistantMessage>,
+        cx: &Context,
+    ) -> SessionResult<(LoopEvidence, String)> {
+        let mut parts = Vec::new();
+        match self.final_answer(conversation, answer, cx).await? {
+            Some(text) => parts.push(format!(
+                "The worker's final answer of its last turn (its own account):\n{}",
+                cut(&text, MAX_ANSWER_CHARS)
+            )),
+            None => parts.push("The last turn has no final answer.".to_owned()),
+        }
+        let snapshot = self.gates.capture_snapshot().await;
+        if let Some(snapshot) = &snapshot {
+            parts.push(cut(
+                &format!(
+                    "`git status --porcelain`:\n{}\n\n`git diff HEAD`:\n{}",
+                    snapshot.status.replace('\0', "\n"),
+                    snapshot.diff
+                ),
+                MAX_CHANGES_CHARS,
+            ));
+        }
+        match workspace_files(&self.cwd, MAX_FILES_CHARS).await {
+            Some(files) => parts.push(files),
+            None if snapshot.is_none() => {
+                parts.push("The harness could not read the workspace.".to_owned());
+            }
+            None => {}
+        }
+        let reply = self
+            .judge
+            .judge(
+                JudgeRequest {
+                    conversation_id: conversation.id(),
+                    question: JudgeQuestion::Stated(condition.command.clone()),
+                    evidence: parts.join("\n\n"),
+                    model: None,
+                },
+                cx,
+            )
+            .await;
+        if reply == JudgeReply::Stopped {
+            if let Some(reason) = cx.abort_signal().and_then(|signal| signal.reason()) {
+                return Err(SessionError::Aborted(reason));
+            }
+        }
+        Ok(match (read_answer(&reply), reply) {
+            (Answer::Yes, JudgeReply::Text(text)) => {
+                (LoopEvidence::Ruled { met: true }, reason(&text))
+            }
+            (Answer::No, JudgeReply::Text(text)) => {
+                (LoopEvidence::Ruled { met: false }, reason(&text))
+            }
+            (_, JudgeReply::Stopped) => (LoopEvidence::Cancelled, String::new()),
+            (_, JudgeReply::Unavailable(why)) => (LoopEvidence::Unruled, why),
+            (_, JudgeReply::Text(text)) => (
+                LoopEvidence::Unruled,
+                format!(
+                    "its reply starts with neither PASS nor FAIL: {}",
+                    text.trim()
+                ),
+            ),
+        })
+    }
+
     /// Send iteration `iteration` as a submission of `doc`'s loop: the
     /// request id names it, so a second send queues nothing. Returns
     /// whether that submission is already settled (its turn is over).
@@ -325,10 +500,12 @@ impl LoopHost {
         Ok(submission.status(cx).await?.state.is_settled())
     }
 
-    /// Decide on `input`, then carry out every act it leads to: run the
-    /// condition command and decide on its evidence, start the next
-    /// iteration (as the continuation this returns in [`Mode::Yield`], as
-    /// a submission in [`Mode::Idle`]), or take up a turn in flight.
+    /// Decide on `input`, then carry out every act it leads to: check the
+    /// condition (run its command, or ask the judge of a stated condition,
+    /// with `answer` the turn's final answer when the hook holds it) and
+    /// decide on its evidence, start the next iteration (as the
+    /// continuation this returns in [`Mode::Yield`], as a submission in
+    /// [`Mode::Idle`]), or take up a turn in flight.
     ///
     /// # Errors
     ///
@@ -338,6 +515,7 @@ impl LoopHost {
         conversation: &Conversation,
         mut input: Input,
         mode: Mode,
+        answer: Option<&AssistantMessage>,
         cx: &Context,
     ) -> SessionResult<Option<(String, InputOrigin)>> {
         let harness = self.harness.require()?;
@@ -347,6 +525,9 @@ impl LoopHost {
             match act {
                 LoopAct::Judge { iteration } => {
                     let (evidence, output) = match &doc.state.condition {
+                        Some(condition) if condition.stated => {
+                            self.rule(conversation, condition, answer, cx).await?
+                        }
                         Some(condition) => self.check(condition).await,
                         None => (LoopEvidence::SpawnFailed, String::new()),
                     };

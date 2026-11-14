@@ -4,8 +4,11 @@
 //! The caller keeps the [`LoopState`] (in the session's durable storage)
 //! and sends it with each [`LoopEvent`]; the core answers the next state
 //! and the one [`LoopAct`] to carry out. The caller gathers the facts (the
-//! clock, the condition command's exit status, whether the session is
-//! idle, whether the budget funds a turn) and decides nothing.
+//! clock, the condition command's exit status or the ruling of a stated
+//! condition's judge, whether the session is idle, whether the budget
+//! funds a turn, whether the shell finds a condition's first word) and
+//! decides nothing: the core also classifies the text after `--until` /
+//! `--while` ([`classify`]).
 
 use eukhe_types::loop_mode::{
     LoopCheck, LoopCondition, LoopEnd, LoopEvidence, LoopLimit, LoopPhase, LoopState, LoopVerdict,
@@ -89,6 +92,8 @@ pub enum LoopAct {
 /// The request tags of the entry.
 const STEP: u32 = 0;
 const VERDICT: u32 = 1;
+const SAID: u32 = 2;
+const CLASSIFY: u32 = 3;
 
 /// The state after `event`, and what to do now.
 ///
@@ -189,16 +194,17 @@ pub fn step(state: &LoopState, event: &LoopEvent) -> Result<(LoopState, LoopAct)
     Ok((next, act))
 }
 
-/// What `evidence` says of the stop condition of an `--until` (`until`)
-/// or a `--while` loop.
+/// What `evidence` says of the stop condition of `condition`: a command's
+/// exit status (`Verdict`), a stated condition's ruling (`Said`).
 ///
 /// # Errors
 ///
 /// An exit status past the wire's bound, or a failed call to the compiled
 /// core.
-pub fn verdict(until: bool, evidence: LoopEvidence) -> Result<LoopVerdict, Error> {
+pub fn verdict(condition: &LoopCondition, evidence: LoopEvidence) -> Result<LoopVerdict, Error> {
     let mut w = Writer::new();
-    w.tag(VERDICT).bool(until);
+    w.tag(if condition.stated { SAID } else { VERDICT })
+        .bool(condition.until);
     put_evidence(&mut w, evidence);
     let reply = call(Entry::Loop, &w.finish()?)?;
     let mut r = Reader::reply(&reply)?;
@@ -213,32 +219,89 @@ pub fn verdict(until: bool, evidence: LoopEvidence) -> Result<LoopVerdict, Error
     Ok(verdict)
 }
 
+/// How the text after `--until` (`until`) or `--while` reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionText<'a> {
+    /// The flag was `--until`.
+    pub until: bool,
+    /// Its first shell word, quotes removed.
+    pub word: &'a str,
+    /// The whole text after the flag.
+    pub raw: &'a str,
+    /// Some part of the first word was quoted.
+    pub quoted: bool,
+    /// The first word names an executable on PATH or a shell builtin.
+    pub found: bool,
+}
+
+/// The condition `text` gives: a command (its first word) when that word
+/// was quoted or names an executable or a builtin; else the whole text, a
+/// stated condition.
+///
+/// # Errors
+///
+/// A text past the wire's bound, or a failed call to the compiled core.
+pub fn classify(text: &ConditionText<'_>) -> Result<LoopCondition, Error> {
+    let mut w = Writer::new();
+    w.tag(CLASSIFY)
+        .bool(text.until)
+        .str(text.word)
+        .str(text.raw)
+        .bool(text.quoted)
+        .bool(text.found);
+    let reply = call(Entry::Loop, &w.finish()?)?;
+    let mut r = Reader::reply(&reply)?;
+    let condition = read_condition(&mut r)?;
+    r.end()?;
+    Ok(condition.ok_or(WireError::Malformed {
+        at: 0,
+        expected: "a loop condition",
+    })?)
+}
+
 fn put_condition(w: &mut Writer, condition: Option<&LoopCondition>) {
     match condition {
         None => w.tag(0),
         Some(LoopCondition {
             command,
+            until,
+            stated: true,
+        }) => w.tag(3).bool(*until).str(command),
+        Some(LoopCondition {
+            command,
             until: true,
+            stated: false,
         }) => w.tag(1).str(command),
         Some(LoopCondition {
             command,
             until: false,
+            stated: false,
         }) => w.tag(2).str(command),
     };
 }
 
 fn read_condition(r: &mut Reader<'_>) -> Result<Option<LoopCondition>, WireError> {
-    Ok(match r.tag_of(3, "a loop condition")? {
+    Ok(match r.tag_of(4, "a loop condition")? {
         0 => None,
         1 => Some(LoopCondition {
             command: r.str()?.to_owned(),
             until: true,
+            stated: false,
         }),
-        // `tag_of` answers a tag below 3: this is 2.
-        _ => Some(LoopCondition {
+        2 => Some(LoopCondition {
             command: r.str()?.to_owned(),
             until: false,
+            stated: false,
         }),
+        // `tag_of` answers a tag below 4: this is 3.
+        _ => {
+            let until = r.bool()?;
+            Some(LoopCondition {
+                command: r.str()?.to_owned(),
+                until,
+                stated: true,
+            })
+        }
     })
 }
 
@@ -249,17 +312,21 @@ fn put_evidence(w: &mut Writer, evidence: LoopEvidence) {
         LoopEvidence::TimedOut => w.tag(2),
         LoopEvidence::SpawnFailed => w.tag(3),
         LoopEvidence::Cancelled => w.tag(4),
+        LoopEvidence::Ruled { met } => w.tag(5).bool(met),
+        LoopEvidence::Unruled => w.tag(6),
     };
 }
 
 fn read_evidence(r: &mut Reader<'_>) -> Result<LoopEvidence, WireError> {
-    Ok(match r.tag_of(5, "loop evidence")? {
+    Ok(match r.tag_of(7, "loop evidence")? {
         0 => LoopEvidence::Exited { code: r.nat()? },
         1 => LoopEvidence::NoStatus,
         2 => LoopEvidence::TimedOut,
         3 => LoopEvidence::SpawnFailed,
-        // `tag_of` answers a tag below 5: this is 4.
-        _ => LoopEvidence::Cancelled,
+        4 => LoopEvidence::Cancelled,
+        5 => LoopEvidence::Ruled { met: r.bool()? },
+        // `tag_of` answers a tag below 7: this is 6.
+        _ => LoopEvidence::Unruled,
     })
 }
 
@@ -370,6 +437,23 @@ mod tests {
         LoopCondition {
             command: command.to_owned(),
             until: true,
+            stated: false,
+        }
+    }
+
+    fn command(until: bool) -> LoopCondition {
+        LoopCondition {
+            command: "test -f done".to_owned(),
+            until,
+            stated: false,
+        }
+    }
+
+    fn stated(until: bool) -> LoopCondition {
+        LoopCondition {
+            command: "the tests pass".to_owned(),
+            until,
+            stated: true,
         }
     }
 
@@ -510,6 +594,9 @@ mod tests {
             LoopEvidence::TimedOut,
             LoopEvidence::SpawnFailed,
             LoopEvidence::Cancelled,
+            LoopEvidence::Ruled { met: true },
+            LoopEvidence::Ruled { met: false },
+            LoopEvidence::Unruled,
         ];
         for (index, phase) in phases.into_iter().enumerate() {
             let state = LoopState {
@@ -517,13 +604,15 @@ mod tests {
                 iteration: 9,
                 remaining: (index % 2 == 0).then_some(4),
                 deadline_ms: (index % 3 == 0).then_some(1_700_000_000_000),
-                condition: match index % 3 {
+                condition: match index % 4 {
                     0 => None,
                     1 => Some(until("grep -q 'a b' f, é")),
-                    _ => Some(LoopCondition {
+                    2 => Some(LoopCondition {
                         command: "true".to_owned(),
                         until: false,
+                        stated: false,
                     }),
+                    _ => Some(stated(index % 8 == 3)),
                 },
                 prompt: "do, the\nthing é".to_owned(),
                 failures: 2,
@@ -556,7 +645,7 @@ mod tests {
                     LoopEvidence::SpawnFailed,
                     LoopEvidence::Cancelled,
                 ]
-                .map(|evidence| verdict(until, evidence).expect("a verdict"))
+                .map(|evidence| verdict(&command(until), evidence).expect("a verdict"))
             })
             .collect();
         assert_eq!(
@@ -565,6 +654,84 @@ mod tests {
                 Confirmed, Refuted, Refuted, Broken, Broken, Broken, Broken, Broken, Unjudged,
                 Refuted, Confirmed, Confirmed, Broken, Broken, Broken, Broken, Broken, Unjudged,
             ]
+        );
+    }
+
+    /// A stated condition is decided by the judge's ruling only: an exit
+    /// status is no evidence about words, a judge that could not rule is a
+    /// broken check; and a ruling is no evidence about a command
+    /// (`loop_said_table`, `loop_command_ignores_rulings`).
+    #[test]
+    fn a_stated_condition_reads_the_judges_ruling_only() {
+        use LoopVerdict::{Broken, Confirmed, Refuted, Unjudged};
+        let evidence = [
+            LoopEvidence::Ruled { met: true },
+            LoopEvidence::Ruled { met: false },
+            LoopEvidence::Unruled,
+            LoopEvidence::Cancelled,
+            LoopEvidence::Exited { code: 0 },
+            LoopEvidence::Exited { code: 1 },
+        ];
+        let read = |condition: LoopCondition| -> Vec<LoopVerdict> {
+            evidence
+                .map(|evidence| verdict(&condition, evidence).expect("a verdict"))
+                .to_vec()
+        };
+        assert_eq!(
+            read(stated(true)),
+            vec![Confirmed, Refuted, Broken, Unjudged, Broken, Broken]
+        );
+        assert_eq!(
+            read(stated(false)),
+            vec![Refuted, Confirmed, Broken, Unjudged, Broken, Broken]
+        );
+        assert_eq!(read(command(true))[..3], [Broken, Broken, Broken]);
+        assert_eq!(read(command(false))[..3], [Broken, Broken, Broken]);
+    }
+
+    /// The text after the flag is a command only when its first word was
+    /// quoted or names something the shell runs; else the whole text is a
+    /// stated condition (`loop_classify_table`).
+    #[test]
+    fn the_core_classifies_the_text_after_the_flag() {
+        let text = "you should definitely be iterating on that skill";
+        let classify = |until: bool, word: &str, raw: &str, quoted: bool, found: bool| {
+            super::classify(&ConditionText {
+                until,
+                word,
+                raw,
+                quoted,
+                found,
+            })
+            .expect("a condition")
+        };
+        assert_eq!(
+            classify(true, "you", text, false, false),
+            LoopCondition {
+                command: text.to_owned(),
+                until: true,
+                stated: true,
+            }
+        );
+        assert_eq!(
+            classify(false, "you", text, false, false),
+            LoopCondition {
+                command: text.to_owned(),
+                until: false,
+                stated: true,
+            }
+        );
+        assert_eq!(
+            classify(true, "bun test", "'bun test' fix it", true, false),
+            until("bun test")
+        );
+        assert_eq!(
+            classify(false, "true", "true keep going", false, true),
+            LoopCondition {
+                command: "true".to_owned(),
+                until: false,
+                stated: false,
+            }
         );
     }
 }

@@ -34,7 +34,7 @@ Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash co
 
 - Budgets: `/budget set cost=5 time=2h` gives a task and its subagents $5 and 2 hours. Budgets cover money, tokens, tool calls, model requests and time. The agent is told when a budget runs low and still gives a final answer when it runs out.
 - Checks: `/accept cmd cargo test` makes the task done only when `cargo test`, run by Eukhe on the final result, passes; the result is labelled `checks passed, unconfined`. Only the task's owner sets checks. A failed check returns to the agent with its output.
-- Loops: `/loop 20 --until 'cargo test' fix the failing tests` resends the prompt until the command passes or 20 repeats have run.
+- Loops: `/loop 20 --until 'cargo test' fix the failing tests` resends the prompt until the command passes or 20 repeats have run. `/loop --until the README explains every flag` states the condition in words: it is also the prompt, and after each turn a separate model judge decides whether it is met; none of its words runs as a command.
 - Crash recovery: a session killed with `kill -9` reopens from its log. A tool call, job or subagent of unknown outcome is reported interrupted and is not run again; `eukhe effects` lists them.
 - Memory: a long session keeps every message. Older ones become summaries the agent can reopen.
 - Python: a REPL for the agent that keeps its state between calls (variables up to 16 MiB each survive a compaction or restart) and can start subagents.

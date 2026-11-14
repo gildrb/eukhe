@@ -148,7 +148,8 @@ async fn run_ended(host: &LoopHost, harness: &Harness, run: EndedRun) {
             (true, false) => Input::Abort,
             (false, _) => Input::TurnSettled(TurnOutcome::Errored),
         };
-        host.drive(&conversation, input, Mode::Idle, &cx).await?;
+        host.drive(&conversation, input, Mode::Idle, None, &cx)
+            .await?;
         Ok(())
     };
     let result: SessionResult<()> = handled.await;
@@ -167,7 +168,7 @@ async fn take_up(host: &LoopHost, harness: &Harness, conversation_id: Conversati
             return Ok(());
         }
         let conversation = host.conversation(conversation_id, &cx).await?;
-        host.drive(&conversation, Input::TakeUp, Mode::Idle, &cx)
+        host.drive(&conversation, Input::TakeUp, Mode::Idle, None, &cx)
             .await?;
         Ok(())
     };

@@ -108,6 +108,24 @@ def lj.settled_judged(c: Lp.Cond, o: Lp.Out, -i: Nat, -l: Maybe<&2, Nat>, -d: Ma
       {==}
     case Lp.While{cmd} Lp.Halted{}:
       Unit{}
+    case Lp.Stated{u, t} Lp.Ran{}:
+      {==}
+    case Lp.Stated{u, t} Lp.Errored{}:
+      {==}
+    case Lp.Stated{u, t} Lp.Halted{}:
+      Unit{}
+
+# loop_confirmed_ends for a ruling of a stated condition
+def lj.confirmed_said(u: Bool, met: Bool, -t: String, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(S.shows_stop(Lp.Stated{u, t}, Lp.Ruled{met}), {Lp.judged.mine(False{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu) == (Lp.St{Lp.Ended{Lp.Satisfied{}}, i, l, d, Lp.Stated{u, t}, b, f, Lp.Check{i, Lp.Ruled{met}}}, Lp.Report{Lp.Satisfied{}}) : Lp.St & Lp.Act}):
+  match u met:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      Unit{}
+    case False{} True{}:
+      Unit{}
+    case False{} False{}:
+      {==}
 
 # a nonzero exit of a `--while` condition, neither 126 nor 127 (bb, the
 # test of those two, False), ends the loop satisfied
@@ -135,6 +153,10 @@ def lj.confirmed(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe
       Unit{}
     case Lp.Until{cmd} Lp.Cancelled{}:
       Unit{}
+    case Lp.Until{cmd} Lp.Ruled{met}:
+      Unit{}
+    case Lp.Until{cmd} Lp.Unruled{}:
+      Unit{}
     case Lp.While{cmd} Lp.Exited{0n}:
       Unit{}
     case Lp.While{cmd} Lp.Exited{1n++k}:
@@ -147,6 +169,24 @@ def lj.confirmed(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe
       Unit{}
     case Lp.While{cmd} Lp.Cancelled{}:
       Unit{}
+    case Lp.While{cmd} Lp.Ruled{met}:
+      Unit{}
+    case Lp.While{cmd} Lp.Unruled{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.Exited{code}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.NoStatus{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.TimedOut{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.SpawnFailed{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.Cancelled{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.Unruled{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.Ruled{met}:
+      lj.confirmed_said(u, met, t, i, l, d, b, f, x, now, fu)
 
 # the four premises of loop_broken_check_ends, as one
 def lj.broken_if(-c: Lp.Cond, -ev: Lp.Evid, hc: {S.has_cond(c) == True{} : Bool}, hd: {S.decides(ev) == True{} : Bool}, hs: {S.shows_stop(c, ev) == False{} : Bool}, hg: {S.shows_go(c, ev) == False{} : Bool}) -> {Bool.and(S.has_cond(c), Bool.and(S.decides(ev), Bool.and(Bool.not(S.shows_stop(c, ev)), Bool.not(S.shows_go(c, ev))))) == True{} : Bool}:
@@ -168,6 +208,19 @@ def lj.broken_w(bb: Bool, -cmd: String, -k: Nat, -i: Nat, -l: Maybe<&2, Nat>, -d
     case False{}:
       Unit{}
 
+# loop_broken_check_ends for a ruling of a stated condition: a ruling
+# shows the stop condition or its absence, never neither
+def lj.broken_said(u: Bool, met: Bool, -t: String, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(Bool.and(S.has_cond(Lp.Stated{u, t}), Bool.and(S.decides(Lp.Ruled{met}), Bool.and(Bool.not(S.shows_stop(Lp.Stated{u, t}, Lp.Ruled{met})), Bool.not(S.shows_go(Lp.Stated{u, t}, Lp.Ruled{met}))))), {(S.act(Lp.judged.mine(False{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu)), S.phase(S.state(Lp.judged.mine(False{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu)))) == (Lp.Report{Lp.CheckBroke{}}, Lp.Ended{Lp.CheckBroke{}}) : Lp.Act & Lp.Phase}):
+  match u met:
+    case True{} True{}:
+      Unit{}
+    case True{} False{}:
+      Unit{}
+    case False{} True{}:
+      Unit{}
+    case False{} False{}:
+      Unit{}
+
 # loop_broken_check_ends, once the check is the loop's own
 def lj.broken(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(Bool.and(S.has_cond(c), Bool.and(S.decides(ev), Bool.and(Bool.not(S.shows_stop(c, ev)), Bool.not(S.shows_go(c, ev))))), {(S.act(Lp.judged.mine(False{}, i, l, d, c, b, f, x, ev, now, fu)), S.phase(S.state(Lp.judged.mine(False{}, i, l, d, c, b, f, x, ev, now, fu)))) == (Lp.Report{Lp.CheckBroke{}}, Lp.Ended{Lp.CheckBroke{}}) : Lp.Act & Lp.Phase}):
   match c ev:
@@ -185,6 +238,10 @@ def lj.broken(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2
       {==}
     case Lp.Until{cmd} Lp.Cancelled{}:
       Unit{}
+    case Lp.Until{cmd} Lp.Ruled{met}:
+      {==}
+    case Lp.Until{cmd} Lp.Unruled{}:
+      {==}
     case Lp.While{cmd} Lp.Exited{0n}:
       Unit{}
     case Lp.While{cmd} Lp.Exited{1n++k}:
@@ -197,6 +254,24 @@ def lj.broken(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2
       {==}
     case Lp.While{cmd} Lp.Cancelled{}:
       Unit{}
+    case Lp.While{cmd} Lp.Ruled{met}:
+      {==}
+    case Lp.While{cmd} Lp.Unruled{}:
+      {==}
+    case Lp.Stated{u, t} Lp.Exited{code}:
+      {==}
+    case Lp.Stated{u, t} Lp.NoStatus{}:
+      {==}
+    case Lp.Stated{u, t} Lp.TimedOut{}:
+      {==}
+    case Lp.Stated{u, t} Lp.SpawnFailed{}:
+      {==}
+    case Lp.Stated{u, t} Lp.Cancelled{}:
+      Unit{}
+    case Lp.Stated{u, t} Lp.Unruled{}:
+      {==}
+    case Lp.Stated{u, t} Lp.Ruled{met}:
+      lj.broken_said(u, met, t, i, l, d, b, f, x, now, fu)
 
 # loop_cancelled_check_waits, once the check is the loop's own
 def lj.cancelled(c: Lp.Cond, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(S.has_cond(c), {Lp.judged.mine(False{}, i, l, d, c, b, f, x, Lp.Cancelled{}, now, fu) == (Lp.St{Lp.Judging{}, i, l, d, c, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}):
@@ -206,6 +281,8 @@ def lj.cancelled(c: Lp.Cond, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b
     case Lp.Until{cmd}:
       {==}
     case Lp.While{cmd}:
+      {==}
+    case Lp.Stated{u, t}:
       {==}
 
 # a bound never ends the loop satisfied
@@ -235,11 +312,15 @@ def lj.settled_sat(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Maybe<
       Unit{}
     case True{} False{} Lp.Ran{} Lp.While{cmd}:
       Unit{}
+    case True{} False{} Lp.Ran{} Lp.Stated{u, t}:
+      Unit{}
     case True{} False{} Lp.Errored{} Lp.NoCond{}:
       lj.halt_unsat(Lp.tired(1n+f), fu, Lp.spent(l), Lp.late(d, now), i, l, d, Lp.NoCond{}, b, 1n+f, x, {False{} == True{} : Bool})
     case True{} False{} Lp.Errored{} Lp.Until{cmd}:
       Unit{}
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
+      Unit{}
+    case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
       Unit{}
     case True{} False{} Lp.Halted{} _:
       Unit{}
@@ -260,6 +341,19 @@ def lj.sat_w(bb: Bool, -cmd: String, -k: Nat, -i: Nat, -l: Maybe<&2, Nat>, -d: M
     case True{}:
       Unit{}
     case False{}:
+      {==}
+
+# a ruling of a stated condition ends the loop satisfied only if it shows
+# the stop condition
+def lj.judged_sat_said(u: Bool, met: Bool, +t: String, +i: Nat, +l: Maybe<&2, Nat>, +d: Maybe<&2, Nat>, +b: String, +f: Nat, +x: Lp.Last, +now: Nat, +fu: Bool) -> lj.If(S.is_satisfied(S.phase(S.state(Lp.judged(True{}, Lp.Judging{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, False{}, now, fu)))), {Bool.and(True{}, Bool.and(Bool.not(False{}), S.shows_stop(Lp.Stated{u, t}, Lp.Ruled{met}))) == True{} : Bool}):
+  match u met:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      lj.halt_unsat(Lp.tired(f), fu, Lp.spent(l), Lp.late(d, now), i, l, d, Lp.Stated{True{}, t}, b, f, Lp.Check{i, Lp.Ruled{False{}}}, {False{} == True{} : Bool})
+    case False{} True{}:
+      lj.halt_unsat(Lp.tired(f), fu, Lp.spent(l), Lp.late(d, now), i, l, d, Lp.Stated{False{}, t}, b, f, Lp.Check{i, Lp.Ruled{True{}}}, {False{} == True{} : Bool})
+    case False{} False{}:
       {==}
 
 # a judged check ends the loop satisfied only if it is the loop's own (m),
@@ -284,6 +378,10 @@ def lj.judged_sat(m: Bool, bl: Bool, c: Lp.Cond, ev: Lp.Evid, +i: Nat, +l: Maybe
       Unit{}
     case True{} False{} Lp.Until{cmd} Lp.Cancelled{}:
       Unit{}
+    case True{} False{} Lp.Until{cmd} Lp.Ruled{met}:
+      Unit{}
+    case True{} False{} Lp.Until{cmd} Lp.Unruled{}:
+      Unit{}
     case True{} False{} Lp.While{cmd} Lp.Exited{0n}:
       lj.halt_unsat(Lp.tired(f), fu, Lp.spent(l), Lp.late(d, now), i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, Lp.Exited{0n}}, {False{} == True{} : Bool})
     case True{} False{} Lp.While{cmd} Lp.Exited{1n++k}:
@@ -296,6 +394,24 @@ def lj.judged_sat(m: Bool, bl: Bool, c: Lp.Cond, ev: Lp.Evid, +i: Nat, +l: Maybe
       Unit{}
     case True{} False{} Lp.While{cmd} Lp.Cancelled{}:
       Unit{}
+    case True{} False{} Lp.While{cmd} Lp.Ruled{met}:
+      Unit{}
+    case True{} False{} Lp.While{cmd} Lp.Unruled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Exited{code}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.NoStatus{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.TimedOut{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.SpawnFailed{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Cancelled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Unruled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Ruled{met}:
+      lj.judged_sat_said(u, met, t, i, l, d, b, f, x, now, fu)
 
 # loop_satisfied_needs_confirmation, by the event and the phase
 def lj.sat(+e: Lp.Ev, +s: Lp.St) -> lj.If(S.newly_satisfied(s, e), {S.confirms(s, e) == True{} : Bool}):
@@ -410,11 +526,15 @@ def lj.settled_auto(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Maybe
       Unit{}
     case True{} False{} Lp.Ran{} Lp.While{cmd}:
       Unit{}
+    case True{} False{} Lp.Ran{} Lp.Stated{u, t}:
+      Unit{}
     case True{} False{} Lp.Errored{} Lp.NoCond{}:
       lj.if_any(S.is_submit(S.act(Lp.advance(i, l, d, Lp.NoCond{}, b, 1n+f, x, now, fu))), Unit, Unit{})
     case True{} False{} Lp.Errored{} Lp.Until{cmd}:
       Unit{}
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
+      Unit{}
+    case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
       Unit{}
     case True{} False{} Lp.Halted{} _:
       Unit{}
@@ -434,6 +554,19 @@ def lj.auto_w(bb: Bool, -cmd: String, -k: Nat, -i: Nat, -l: Maybe<&2, Nat>, -d: 
     case True{}:
       Unit{}
     case False{}:
+      Unit{}
+
+# a ruling of a stated condition starts an iteration only if it shows the
+# stop condition does not hold yet
+def lj.judged_auto_said(u: Bool, met: Bool, +t: String, +i: Nat, +l: Maybe<&2, Nat>, +d: Maybe<&2, Nat>, +b: String, +f: Nat, +x: Lp.Last, +now: Nat, +fu: Bool) -> lj.If(S.is_submit(S.act(Lp.judged(True{}, Lp.Judging{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, False{}, now, fu))), lj.If(S.has_cond(Lp.Stated{u, t}), {Bool.and(True{}, Bool.and(Bool.not(False{}), S.shows_go(Lp.Stated{u, t}, Lp.Ruled{met}))) == True{} : Bool})):
+  match u met:
+    case True{} True{}:
+      Unit{}
+    case True{} False{}:
+      lj.if_any(S.is_submit(S.act(Lp.advance(i, l, d, Lp.Stated{True{}, t}, b, f, Lp.Check{i, Lp.Ruled{False{}}}, now, fu))), {True{} == True{} : Bool}, {==})
+    case False{} True{}:
+      lj.if_any(S.is_submit(S.act(Lp.advance(i, l, d, Lp.Stated{False{}, t}, b, f, Lp.Check{i, Lp.Ruled{True{}}}, now, fu))), {True{} == True{} : Bool}, {==})
+    case False{} False{}:
       Unit{}
 
 # a judged check starts an iteration of a loop with a condition only if it
@@ -459,6 +592,10 @@ def lj.judged_auto(m: Bool, bl: Bool, c: Lp.Cond, ev: Lp.Evid, +i: Nat, +l: Mayb
       Unit{}
     case True{} False{} Lp.Until{cmd} Lp.Cancelled{}:
       Unit{}
+    case True{} False{} Lp.Until{cmd} Lp.Ruled{met}:
+      Unit{}
+    case True{} False{} Lp.Until{cmd} Lp.Unruled{}:
+      Unit{}
     case True{} False{} Lp.While{cmd} Lp.Exited{0n}:
       lj.if_any(S.is_submit(S.act(Lp.advance(i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, Lp.Exited{0n}}, now, fu))), {True{} == True{} : Bool}, {==})
     case True{} False{} Lp.While{cmd} Lp.Exited{1n++k}:
@@ -471,6 +608,24 @@ def lj.judged_auto(m: Bool, bl: Bool, c: Lp.Cond, ev: Lp.Evid, +i: Nat, +l: Mayb
       Unit{}
     case True{} False{} Lp.While{cmd} Lp.Cancelled{}:
       Unit{}
+    case True{} False{} Lp.While{cmd} Lp.Ruled{met}:
+      Unit{}
+    case True{} False{} Lp.While{cmd} Lp.Unruled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Exited{code}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.NoStatus{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.TimedOut{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.SpawnFailed{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Cancelled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Unruled{}:
+      Unit{}
+    case True{} False{} Lp.Stated{u, t} Lp.Ruled{met}:
+      lj.judged_auto_said(u, met, t, i, l, d, b, f, x, now, fu)
 
 def lj.auto_tbl(+e: Lp.Ev, +s: Lp.St) -> lj.If(Bool.and(Bool.not(S.is_enter(e)), S.is_submit(S.does(s, e))), lj.If(S.has_cond(S.cond(s)), {S.refutes(s, e) == True{} : Bool})):
   match e s:
@@ -654,11 +809,15 @@ def lj.settled_resends(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Ma
       Unit{}
     case True{} False{} Lp.Ran{} Lp.While{cmd}:
       Unit{}
+    case True{} False{} Lp.Ran{} Lp.Stated{u, t}:
+      Unit{}
     case True{} False{} Lp.Errored{} Lp.NoCond{}:
       lj.adv_resends(Lp.halt(1n+f, fu, l, d, now), i, l, d, Lp.NoCond{}, b, 1n+f, x)
     case True{} False{} Lp.Errored{} Lp.Until{cmd}:
       Unit{}
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
+      Unit{}
+    case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
       Unit{}
     case True{} False{} Lp.Halted{} _:
       Unit{}
@@ -686,6 +845,8 @@ def lj.judged_resends(m: Bool, bl: Bool, c: Lp.Cond, +ev: Lp.Evid, +i: Nat, +l: 
       lj.verdict_resends(Lp.judge(True{}, ev), Lp.Until{cmd}, ev, i, l, d, b, f, x, now, fu)
     case True{} False{} Lp.While{cmd}:
       lj.verdict_resends(Lp.judge(False{}, ev), Lp.While{cmd}, ev, i, l, d, b, f, x, now, fu)
+    case True{} False{} Lp.Stated{u, t}:
+      lj.verdict_resends(Lp.said(u, ev), Lp.Stated{u, t}, ev, i, l, d, b, f, x, now, fu)
 
 # loop_resends_body, by the event and the phase
 def lj.resends(+e: Lp.Ev, +s: Lp.St) -> lj.If(Bool.and(Bool.not(S.is_enter(e)), S.is_submit(S.does(s, e))), {S.does(s, e) == Lp.Submit{1n+S.iter(s), S.body(s)} : Lp.Act}):

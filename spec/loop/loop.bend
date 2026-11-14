@@ -15,6 +15,12 @@
 #     yet; for `--while` the reverse. Nothing else shows either (exit 126
 #     and 127, where the shell could not run the command, no status, a
 #     timeout or a failed start is the check breaking).
+#     A stated condition (the user's words) has no command: its evidence
+#     is the ruling of a model judge, read after the last turn. For
+#     `--until`, met shows the stop condition and not met shows it does
+#     not hold yet; for `--while` the reverse. Nothing else shows either
+#     (an exit status is no evidence about words, a ruling none about a
+#     command; a judge that could not rule is the check breaking).
 # S4: the bounds of an automatic iteration: the count of the start (one
 #     fewer after each), the deadline of the start (the clock must be
 #     before it), three failed turns in a row, the budget.
@@ -364,6 +370,8 @@ def has_cond(c: Lp.Cond) -> Bool:
       True{}
     case Lp.While{cmd}:
       True{}
+    case Lp.Stated{u, t}:
+      True{}
 
 # the command exited with status n
 def exited_with(ev: Lp.Evid, n: Nat) -> Bool:
@@ -377,6 +385,36 @@ def exited_with(ev: Lp.Evid, n: Nat) -> Bool:
     case Lp.SpawnFailed{}:
       False{}
     case Lp.Cancelled{}:
+      False{}
+    case Lp.Ruled{met}:
+      False{}
+    case Lp.Unruled{}:
+      False{}
+
+# a and b are the same answer
+def same(a: Bool, b: Bool) -> Bool:
+  match a:
+    case True{}:
+      b
+    case False{}:
+      Bool.not(b)
+
+# the judge ruled the stated condition met (m True) or not met (m False)
+def ruled_with(ev: Lp.Evid, m: Bool) -> Bool:
+  match ev:
+    case Lp.Exited{code}:
+      False{}
+    case Lp.NoStatus{}:
+      False{}
+    case Lp.TimedOut{}:
+      False{}
+    case Lp.SpawnFailed{}:
+      False{}
+    case Lp.Cancelled{}:
+      False{}
+    case Lp.Ruled{met}:
+      same(met, m)
+    case Lp.Unruled{}:
       False{}
 
 # the command exited nonzero with a status other than 126 (found, not
@@ -393,6 +431,10 @@ def exited_failing(ev: Lp.Evid) -> Bool:
       False{}
     case Lp.Cancelled{}:
       False{}
+    case Lp.Ruled{met}:
+      False{}
+    case Lp.Unruled{}:
+      False{}
 
 # the evidence shows the stop condition of c
 def shows_stop(c: Lp.Cond, ev: Lp.Evid) -> Bool:
@@ -403,6 +445,8 @@ def shows_stop(c: Lp.Cond, ev: Lp.Evid) -> Bool:
       exited_with(ev, 0n)
     case Lp.While{cmd}:
       exited_failing(ev)
+    case Lp.Stated{u, t}:
+      ruled_with(ev, u)
 
 # the evidence shows the stop condition of c does not hold yet
 def shows_go(c: Lp.Cond, ev: Lp.Evid) -> Bool:
@@ -413,6 +457,8 @@ def shows_go(c: Lp.Cond, ev: Lp.Evid) -> Bool:
       exited_failing(ev)
     case Lp.While{cmd}:
       exited_with(ev, 0n)
+    case Lp.Stated{u, t}:
+      ruled_with(ev, Bool.not(u))
 
 # the evidence decides something: the check was not cancelled
 def decides(ev: Lp.Evid) -> Bool:
@@ -427,6 +473,10 @@ def decides(ev: Lp.Evid) -> Bool:
       True{}
     case Lp.Cancelled{}:
       False{}
+    case Lp.Ruled{met}:
+      True{}
+    case Lp.Unruled{}:
+      True{}
 
 # e is evidence read after the last turn of s, in an idle session, with
 # the answer `shows`

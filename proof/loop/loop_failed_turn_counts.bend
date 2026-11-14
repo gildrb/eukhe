@@ -21,3 +21,6 @@ def Loop.loop_failed_turn_counts(i, l, d, c, b, f, x, now, fu, hc):
     case Lp.While{cmd}:
       %LALoopBounds.lb.turn_mine(i, l, d, Lp.While{cmd}, b, f, x, Lp.Errored{}, False{}, now, fu) : {(S.act(_), S.fails(S.state(_))) == (Lp.Judge{i}, 1n+f) : Lp.Act & Nat}
       {==}
+    case Lp.Stated{u, t}:
+      %LALoopBounds.lb.turn_mine(i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Errored{}, False{}, now, fu) : {(S.act(_), S.fails(S.state(_))) == (Lp.Judge{i}, 1n+f) : Lp.Act & Nat}
+      {==}

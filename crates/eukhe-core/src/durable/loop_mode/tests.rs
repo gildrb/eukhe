@@ -278,7 +278,98 @@ fn until(command: &str) -> Option<LoopCondition> {
     Some(LoopCondition {
         command: command.to_owned(),
         until: true,
+        stated: false,
     })
+}
+
+/// The owner's message that once ran the word `you` as a command.
+const OWNERS_CONDITION: &str = "you should definitely be iterating on that skill until it works reliably. you should and could test this out on the https://github.com/gildrb/dotfiles repository.";
+
+/// L1, L3: a condition in words is no command: `/loop --until <words>`
+/// sends the words as the prompt, and after every turn a model judge
+/// (one request with the condition, the final answer and the workspace's
+/// changes) decides it; its ruling ends the loop, reported as a model's
+/// judgment. The owner's exact message.
+#[tokio::test]
+async fn a_condition_in_words_is_decided_by_a_model_judge() {
+    let lab = open(vec![
+        answer("one"),
+        answer("FAIL\nThe diff shows no change to the skill."),
+        answer("two"),
+        answer("PASS\nThe diff and the answer show the skill tested."),
+        answer("no"),
+    ])
+    .await;
+    let shown = lab.run(&format!("/loop --until {OWNERS_CONDITION}")).await;
+    assert!(
+        shown.starts_with(
+            "Loop on: repeats after each turn until a model judge finds this met: \"you should definitely be iterating"
+        ) && shown.ends_with("\". Esc suspends the ongoing loop; /loop again to disable."),
+        "{shown}"
+    );
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends(OWNERS_CONDITION, &[1, 2]));
+    assert_eq!(
+        lab.notices().await,
+        vec![
+            "Loop done: a model judge found the condition met (The diff and the answer show the skill tested.)."
+                .to_owned()
+        ]
+    );
+    let status = lab.status().await;
+    assert_eq!(
+        (
+            status.state.condition,
+            status.state.last_check,
+            status.verdict
+        ),
+        (
+            Some(LoopCondition {
+                command: OWNERS_CONDITION.to_owned(),
+                until: true,
+                stated: true,
+            }),
+            Some(LoopCheck {
+                iteration: 2,
+                evidence: LoopEvidence::Ruled { met: true },
+            }),
+            Some(LoopVerdict::Confirmed),
+        )
+    );
+    assert_eq!(lab.provider.get_pending_response_count(), 1);
+    lab.close().await;
+}
+
+/// L3: a judge that answers neither PASS nor FAIL is a broken check: the
+/// loop ends at once and says the judge could not decide.
+#[tokio::test]
+async fn a_judge_that_cannot_decide_ends_the_loop() {
+    let lab = open(vec![answer("one"), answer("Maybe."), answer("no")]).await;
+    lab.run("/loop 5 --until the README explains every flag")
+        .await;
+    lab.idle().await;
+    assert_eq!(
+        lab.sent().await,
+        sends("the README explains every flag", &[1])
+    );
+    assert_eq!(
+        lab.notices().await,
+        vec![
+            "Loop stopped: the judge could not decide (its reply starts with neither PASS nor FAIL: Maybe.)."
+                .to_owned()
+        ]
+    );
+    let status = lab.status().await;
+    assert_eq!(
+        (status.state.phase, status.verdict),
+        (
+            LoopPhase::Ended {
+                end: LoopEnd::CheckBroke
+            },
+            Some(LoopVerdict::Broken)
+        )
+    );
+    lab.close().await;
 }
 
 /// L1-L3: `/loop --until` sends its prompt again after every turn until
@@ -401,7 +492,7 @@ async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
     assert_eq!(lab.sent().await, sends("go", &[1, 2]));
     assert_eq!(
         lab.notices().await,
-        vec!["Loop stopped: the budget funds no further turn. Loop mode disabled.".to_owned()]
+        vec!["Loop stopped: the budget funds no further turn.".to_owned()]
     );
     let status = lab.status().await;
     assert_eq!(
@@ -466,7 +557,7 @@ async fn a_loop_stops_when_the_budget_has_no_tool_call_left() {
         ),
         (
             sends("go", &[1]),
-            vec!["Loop stopped: the budget funds no further turn. Loop mode disabled.".to_owned()],
+            vec!["Loop stopped: the budget funds no further turn.".to_owned()],
             LoopPhase::Ended {
                 end: LoopEnd::OutOfBudget
             },
@@ -522,7 +613,7 @@ async fn a_broken_condition_ends_the_loop() {
     assert_eq!(
         lab.notices().await,
         vec![
-            "Loop condition `echo boom; exit 127` failed (exit 127): boom. Loop mode disabled."
+            "Loop stopped: the condition command `echo boom; exit 127` could not run (exit 127: command not found)."
                 .to_owned()
         ]
     );
@@ -702,7 +793,7 @@ async fn three_failed_turns_in_a_row_end_the_loop() {
     assert_eq!(lab.sent().await, sends("go", &[1, 2, 3]));
     assert_eq!(
         lab.notices().await,
-        vec!["Loop stopped: 3 turns failed in a row. Loop mode disabled.".to_owned()]
+        vec!["Loop stopped: 3 turns failed in a row.".to_owned()]
     );
     assert_eq!(lab.provider.get_pending_response_count(), 1);
     lab.close().await;
@@ -978,7 +1069,7 @@ async fn malformed_arguments_start_no_loop() {
     let lab = open(vec![answer("no")]).await;
     assert_eq!(
         lab.run("/loop --until").await,
-        "Command failed: --until needs a shell command. Quote it when it contains spaces: /loop --until 'bun test'."
+        "Command failed: --until needs a condition: a quoted command (/loop --until 'bun test') or the condition in words (/loop --until the tests pass)."
     );
     assert_eq!(
         lab.run("/loop 0").await,

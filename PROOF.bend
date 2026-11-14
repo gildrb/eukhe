@@ -4293,6 +4293,10 @@ import ./proof/loop/loop_auto_needs_refutation.bend as PLoopAutoNeedsRefutation
 import ./proof/loop/loop_confirmed_ends.bend as PLoopConfirmedEnds
 import ./proof/loop/loop_broken_check_ends.bend as PLoopBrokenCheckEnds
 import ./proof/loop/loop_cancelled_check_waits.bend as PLoopCancelledCheckWaits
+import ./proof/loop/loop_said_table.bend as PLoopSaidTable
+import ./proof/loop/loop_unruled_ends.bend as PLoopUnruledEnds
+import ./proof/loop/loop_command_needs_quote_or_lookup.bend as PLoopCommandNeedsQuoteOrLookup
+import ./proof/loop/loop_words_stay_words.bend as PLoopWordsStayWords
 import ./proof/loop/loop_enter_first_turn.bend as PLoopEnterFirstTurn
 import ./proof/loop/loop_enter_arms.bend as PLoopEnterArms
 import ./proof/loop/loop_enter_sets_bounds.bend as PLoopEnterSetsBounds

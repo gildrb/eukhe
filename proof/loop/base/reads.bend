@@ -179,6 +179,21 @@ def le.cc_while(-s: String, -s1: String, e: {s == Wr.put_nat(2n, s1) : String}, 
     case Wr.Bad{}:
       Unit{}
 
+def le.cc_text(-s: String, -s1: String, -u: Bool, e: {s == Wr.put_nat(3n, Wr.put_bool(u, s1)) : String}, d: Wr.Dec<String>, ct: le.ci_str(s1, d)) -> le.ci_cond(s, FLp.get_cond.text(u, d)):
+  match d:
+    case Wr.Got{+t, +s2}:
+      (e2, f) = ct
+      (le.into(s, z => Wr.put_nat(3n, Wr.put_bool(u, z)), s1, Wr.put_str(t, s2), e, e2), f)
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cc_stated(-s: String, -s1: String, e: {s == Wr.put_nat(3n, s1) : String}, d: Wr.Dec<Bool>, cb: le.ci_bool(s1, d)) -> le.ci_cond(s, FLp.get_cond.stated(d)):
+  match d:
+    case Wr.Got{+u, +s2}:
+      le.cc_text(s, s2, u, le.into(s, z => Wr.put_nat(3n, z), s1, Wr.put_bool(u, s2), e, cb), Wr.get_str(s2), le.ci_str_all(s2))
+    case Wr.Bad{}:
+      Unit{}
+
 def le.cc_tag(-s: String, t: Nat, +s1: String, e: {s == Wr.put_nat(t, s1) : String}) -> le.ci_cond(s, FLp.get_cond.tag(t, s1)):
   match t:
     case 0n:
@@ -187,7 +202,9 @@ def le.cc_tag(-s: String, t: Nat, +s1: String, e: {s == Wr.put_nat(t, s1) : Stri
       le.cc_until(s, s1, e, Wr.get_str(s1), le.ci_str_all(s1))
     case 2n:
       le.cc_while(s, s1, e, Wr.get_str(s1), le.ci_str_all(s1))
-    case 3n+x:
+    case 3n:
+      le.cc_stated(s, s1, e, Wr.get_bool(s1), le.ci_bool_all(s1))
+    case 4n+x:
       Unit{}
 
 def le.cc_go(-s: String, d: Wr.Dec<Nat>, cn: le.ci_nat(s, d)) -> le.ci_cond(s, FLp.get_cond.go(d)):
@@ -218,6 +235,13 @@ def le.cv_code(-s: String, -s1: String, e: {s == Wr.put_nat(0n, s1) : String}, d
     case Wr.Bad{}:
       Unit{}
 
+def le.cv_met(-s: String, -s1: String, e: {s == Wr.put_nat(5n, s1) : String}, d: Wr.Dec<Bool>, cb: le.ci_bool(s1, d)) -> le.ci_evid(s, FLp.get_evid.met(d)):
+  match d:
+    case Wr.Got{+met, +s2}:
+      (le.into(s, z => Wr.put_nat(5n, z), s1, Wr.put_bool(met, s2), e, cb), {==})
+    case Wr.Bad{}:
+      Unit{}
+
 def le.cv_tag(-s: String, t: Nat, +s1: String, e: {s == Wr.put_nat(t, s1) : String}) -> le.ci_evid(s, FLp.get_evid.tag(t, s1)):
   match t:
     case 0n:
@@ -230,7 +254,11 @@ def le.cv_tag(-s: String, t: Nat, +s1: String, e: {s == Wr.put_nat(t, s1) : Stri
       (e, {==})
     case 4n:
       (e, {==})
-    case 5n+x:
+    case 5n:
+      le.cv_met(s, s1, e, Wr.get_bool(s1), le.ci_bool_all(s1))
+    case 6n:
+      (e, {==})
+    case 7n+x:
       Unit{}
 
 def le.cv_go(-s: String, d: Wr.Dec<Nat>, cn: le.ci_nat(s, d)) -> le.ci_evid(s, FLp.get_evid.go(d)):
@@ -823,13 +851,92 @@ def le.cr_until(-s0: String, -s1: String, pre: {s0 == Wr.put_nat(1n, s1) : Strin
     case Wr.Bad{}:
       Unit{}
 
+def le.cr_said_evid(-s0: String, -u: Bool, -s1: String, pre: {s0 == Wr.put_nat(2n, Wr.put_bool(u, s1)) : String},
+  d: Wr.Dec<Lp.Evid>, cv: le.ci_evid(s1, d)) -> le.ci_req(s0, FLp.get_req.said.evid(u, d)):
+  match d:
+    case Wr.Got{+ev, +s2}:
+      (e, f) = cv
+      (le.into(s0, y => Wr.put_nat(2n, Wr.put_bool(u, y)), s1, LoopEntry.lp_spell_evid(ev, s2), pre, e), f)
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_said(-s0: String, -s1: String, pre: {s0 == Wr.put_nat(2n, s1) : String}, d: Wr.Dec<Bool>, cb: le.ci_bool(s1, d)) -> le.ci_req(s0, FLp.get_req.said(d)):
+  match d:
+    case Wr.Got{+u, +s2}:
+      le.cr_said_evid(s0, u, s2,
+        le.into(s0, y => Wr.put_nat(2n, y), s1, Wr.put_bool(u, s2), pre, cb),
+        FLp.get_evid(s2), le.ci_evid_all(s2))
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_cls_found(-s0: String, -u: Bool, -w: String, -r: String, -q: Bool, -s4: String,
+  pre: {s0 == Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, Wr.put_str(r, Wr.put_bool(q, s4))))) : String},
+  fw: {LawsBase.wire_fits(String.length(w)) == True{} : Bool}, fr: {LawsBase.wire_fits(String.length(r)) == True{} : Bool},
+  d: Wr.Dec<Bool>, cb: le.ci_bool(s4, d)) -> le.ci_req(s0, FLp.get_req.cls.found(u, w, r, q, d)):
+  match d:
+    case Wr.Got{+f, +s5}:
+      (le.into(s0, y => Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, Wr.put_str(r, Wr.put_bool(q, y))))), s4, Wr.put_bool(f, s5), pre, cb),
+        LAWireSpell.ws_and_tt(LawsBase.wire_fits(String.length(w)), LawsBase.wire_fits(String.length(r)), fw, fr))
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_cls_quoted(-s0: String, -u: Bool, -w: String, -r: String, -s3: String,
+  pre: {s0 == Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, Wr.put_str(r, s3)))) : String},
+  fw: {LawsBase.wire_fits(String.length(w)) == True{} : Bool}, fr: {LawsBase.wire_fits(String.length(r)) == True{} : Bool},
+  d: Wr.Dec<Bool>, cb: le.ci_bool(s3, d)) -> le.ci_req(s0, FLp.get_req.cls.quoted(u, w, r, d)):
+  match d:
+    case Wr.Got{+q, +s4}:
+      le.cr_cls_found(s0, u, w, r, q, s4,
+        le.into(s0, y => Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, Wr.put_str(r, y)))), s3, Wr.put_bool(q, s4), pre, cb),
+        fw, fr, Wr.get_bool(s4), le.ci_bool_all(s4))
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_cls_raw(-s0: String, -u: Bool, -w: String, -s2: String,
+  pre: {s0 == Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, s2))) : String},
+  fw: {LawsBase.wire_fits(String.length(w)) == True{} : Bool},
+  d: Wr.Dec<String>, ct: le.ci_str(s2, d)) -> le.ci_req(s0, FLp.get_req.cls.raw(u, w, d)):
+  match d:
+    case Wr.Got{+r, +s3}:
+      (e, fr) = ct
+      le.cr_cls_quoted(s0, u, w, r, s3,
+        le.into(s0, y => Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, y))), s2, Wr.put_str(r, s3), pre, e),
+        fw, fr, Wr.get_bool(s3), le.ci_bool_all(s3))
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_cls_word(-s0: String, -u: Bool, -s1: String,
+  pre: {s0 == Wr.put_nat(3n, Wr.put_bool(u, s1)) : String},
+  d: Wr.Dec<String>, ct: le.ci_str(s1, d)) -> le.ci_req(s0, FLp.get_req.cls.word(u, d)):
+  match d:
+    case Wr.Got{+w, +s2}:
+      (e, fw) = ct
+      le.cr_cls_raw(s0, u, w, s2,
+        le.into(s0, y => Wr.put_nat(3n, Wr.put_bool(u, y)), s1, Wr.put_str(w, s2), pre, e),
+        fw, Wr.get_str(s2), le.ci_str_all(s2))
+    case Wr.Bad{}:
+      Unit{}
+
+def le.cr_cls(-s0: String, -s1: String, pre: {s0 == Wr.put_nat(3n, s1) : String}, d: Wr.Dec<Bool>, cb: le.ci_bool(s1, d)) -> le.ci_req(s0, FLp.get_req.cls(d)):
+  match d:
+    case Wr.Got{+u, +s2}:
+      le.cr_cls_word(s0, u, s2,
+        le.into(s0, y => Wr.put_nat(3n, y), s1, Wr.put_bool(u, s2), pre, cb),
+        Wr.get_str(s2), le.ci_str_all(s2))
+    case Wr.Bad{}:
+      Unit{}
+
 def le.cr_tag(-s0: String, t: Nat, +s1: String, e: {s0 == Wr.put_nat(t, s1) : String}) -> le.ci_req(s0, FLp.get_req.tag(t, s1)):
   match t:
     case 0n:
       le.cr_st(s0, s1, e, FLp.get_st(s1), le.ci_st_all(s1))
     case 1n:
       le.cr_until(s0, s1, e, Wr.get_bool(s1), le.ci_bool_all(s1))
-    case 2n+x:
+    case 2n:
+      le.cr_said(s0, s1, e, Wr.get_bool(s1), le.ci_bool_all(s1))
+    case 3n:
+      le.cr_cls(s0, s1, e, Wr.get_bool(s1), le.ci_bool_all(s1))
+    case 4n+x:
       Unit{}
 
 def le.cr_go(-s: String, d: Wr.Dec<Nat>, cn: le.ci_nat(s, d)) -> le.ci_req(s, FLp.get_req.go(d)):

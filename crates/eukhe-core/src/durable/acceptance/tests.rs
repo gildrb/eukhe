@@ -1124,7 +1124,9 @@ fn judge_requests(setup: &Setup) -> Vec<JudgeRequest> {
 fn intent_messages(request: &JudgeRequest) -> Vec<String> {
     match &request.question {
         JudgeQuestion::Intent(messages) => messages.clone(),
-        JudgeQuestion::Condition(condition) => panic!("a condition, not the intent: {condition}"),
+        JudgeQuestion::Condition(condition) | JudgeQuestion::Stated(condition) => {
+            panic!("a condition, not the intent: {condition}")
+        }
     }
 }
 

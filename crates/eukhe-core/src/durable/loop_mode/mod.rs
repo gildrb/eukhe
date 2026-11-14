@@ -4,9 +4,12 @@
 //! Every decision is the compiled core's (`bend/loop.bend`, laws
 //! `laws/loop/`, called through `eukhe_bend::rules::loop_mode`): Rust keeps
 //! the state in the conversation document `eukhe.loop`, gathers the facts
-//! (the clock, the exit status of the condition command, whether the
-//! session is idle, whether the budget funds a turn) and carries out the
-//! core's answer. The `pi.generation` hooks drive the loop at each final
+//! (the clock, the exit status of the condition command or the ruling of
+//! the judge of a stated condition, whether the shell finds the first word
+//! of a condition, whether the session is idle, whether the budget funds a
+//! turn) and carries out the core's answer; no word of a stated condition
+//! reaches the shell but its first, looked up with `type -t`, never run.
+//! The `pi.generation` hooks drive the loop at each final
 //! answer; the run-end observer at each run that ends without one; the
 //! `/loop` session command starts and stops it. [`watch_loop_updates`]
 //! feeds the `loop_update` event.
@@ -36,11 +39,12 @@ use eukhe_types::loop_mode::{LoopPhase, LoopStatus};
 pub use self::docs::{LoopDoc, LOOP_MODE_DOC};
 pub use self::watch::{watch_loop_updates, LoopUpdates};
 
-use self::args::{parse_loop_command, status_message, LoopCommand};
+use self::args::{parse_loop_command, resolve_condition, status_message, LoopCommand};
 use self::drive::{decide, Input, LoopHost, Mode};
+use super::acceptance::ModelJudge;
 use super::goals::{open_doc, read_doc, write_doc};
 use super::HostDeps;
-use crate::autonomous::{now_millis, GateCommandRunner, ShellGateRunner};
+use crate::autonomous::{now_millis, ShellGateRunner};
 
 /// The extension's name.
 pub const LOOP_EXTENSION: &str = "eukhe.loop";
@@ -61,30 +65,13 @@ fn loop_funded(deps: &HostDeps) -> Arc<dyn Fn() -> bool + Send + Sync> {
 }
 
 /// The loop extension of one session: the `pi.generation` hooks and the
-/// run-end observer. The condition command runs in the session cwd.
+/// run-end observer. The condition command runs in the session cwd; a
+/// stated condition's judge is one request to the session's model.
 /// Installed before the goal extension: while a loop continues a final
 /// answer, the goal's continuation waits.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
-    loop_extension(
-        deps,
-        Arc::new(ShellGateRunner::new(deps.cwd.clone())),
-        loop_funded(deps),
-    )
-}
-
-/// [`extension`] over explicit services (the condition runner and the
-/// budget fact are the seams the tests script).
-pub(crate) fn loop_extension(
-    deps: &Arc<HostDeps>,
-    gates: Arc<dyn GateCommandRunner>,
-    funded: Arc<dyn Fn() -> bool + Send + Sync>,
-) -> Arc<Extension> {
-    let host = LoopHost {
-        harness: deps.harness.clone(),
-        gates,
-        funded,
-    };
+    let host = host_of(deps);
     observer::install(deps, &host);
     define_extension(Extension {
         name: LOOP_EXTENSION.to_owned(),
@@ -93,12 +80,17 @@ pub(crate) fn loop_extension(
     })
 }
 
-/// The loop services of a session outside its hooks (the `/loop` command,
-/// the compaction hold).
+/// The loop services of a session: its Harness, the shell in its cwd, the
+/// judge of a stated condition, its budget.
 fn host_of(deps: &Arc<HostDeps>) -> LoopHost {
     LoopHost {
         harness: deps.harness.clone(),
         gates: Arc::new(ShellGateRunner::new(deps.cwd.clone())),
+        judge: Arc::new(ModelJudge {
+            harness: deps.harness.clone(),
+            models: deps.models.clone(),
+        }),
+        cwd: deps.cwd.clone(),
         funded: loop_funded(deps),
     }
 }
@@ -123,7 +115,7 @@ pub async fn loop_status(
 fn status_of(doc: &LoopDoc) -> SessionResult<LoopStatus> {
     let last_verdict = match (&doc.state.condition, doc.state.last_check) {
         (Some(condition), Some(check)) => {
-            Some(verdict(condition.until, check.evidence).map_err(|error| {
+            Some(verdict(condition, check.evidence).map_err(|error| {
                 SessionError::error(format!("the loop's verdict failed: {error}"))
             })?)
         }
@@ -202,11 +194,24 @@ pub(crate) async fn execute_loop_command(
             limit,
             condition,
             prompt,
-        } => Input::Enter {
-            limit,
-            condition,
-            prompt,
-        },
+        } => {
+            let (condition, prompt) = match condition {
+                None => (None, prompt),
+                Some(arg) => {
+                    // Only an unquoted first word is looked up; a word
+                    // of a stated condition is looked up, never run.
+                    let found = !arg.quoted && host.resolves(&arg.word).await;
+                    let (condition, prompt) =
+                        resolve_condition(&arg, prompt, found).map_err(LoopCommandError::Args)?;
+                    (Some(condition), prompt)
+                }
+            };
+            Input::Enter {
+                limit,
+                condition,
+                prompt,
+            }
+        }
     };
     let facts = host
         .facts(&harness, conversation.id(), Mode::Idle, cx)
@@ -303,7 +308,7 @@ pub async fn resume_loop_after_compaction(
         .await?;
     if released {
         host_of(deps)
-            .drive(conversation, Input::TakeUp, Mode::Idle, cx)
+            .drive(conversation, Input::TakeUp, Mode::Idle, None, cx)
             .await?;
     }
     Ok(())

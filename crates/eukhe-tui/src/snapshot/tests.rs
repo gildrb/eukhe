@@ -1674,6 +1674,7 @@ fn running_loop() -> eukhe_types::loop_mode::LoopStatus {
             condition: Some(LoopCondition {
                 command: "test -f done".to_string(),
                 until: true,
+                stated: false,
             }),
             prompt: "fix it".to_string(),
             ..LoopState::default()

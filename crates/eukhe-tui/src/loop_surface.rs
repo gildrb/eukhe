@@ -70,10 +70,16 @@ fn time_left(left_ms: u64) -> String {
     }
 }
 
-/// `until: <command>` or `while: <command>`
-/// on one line, the command cut to the part's width.
+/// `until: <command>` or `while: <command>`, for a stated condition
+/// `until (judged): <text>` or `while (judged): <text>`, on one line, cut
+/// to the part's width.
 fn condition_text(condition: &LoopCondition) -> String {
-    let label = if condition.until { "until" } else { "while" };
+    let label = match (condition.until, condition.stated) {
+        (true, false) => "until",
+        (false, false) => "while",
+        (true, true) => "until (judged)",
+        (false, true) => "while (judged)",
+    };
     let command = condition
         .command
         .split(|c: char| c.is_whitespace() || c.is_control())
@@ -87,7 +93,7 @@ fn condition_text(condition: &LoopCondition) -> String {
     )
 }
 
-/// What the last run of the condition command showed.
+/// What the last check of the condition showed.
 fn check_text(evidence: LoopEvidence) -> String {
     match evidence {
         LoopEvidence::Exited { code } => format!("last: exit {code}"),
@@ -95,6 +101,9 @@ fn check_text(evidence: LoopEvidence) -> String {
         LoopEvidence::TimedOut => "last: timed out".to_string(),
         LoopEvidence::SpawnFailed => "last: could not run".to_string(),
         LoopEvidence::Cancelled => "last: cancelled".to_string(),
+        LoopEvidence::Ruled { met: true } => "last: judged met".to_string(),
+        LoopEvidence::Ruled { met: false } => "last: judged not met".to_string(),
+        LoopEvidence::Unruled => "last: judge could not decide".to_string(),
     }
 }
 
@@ -161,6 +170,21 @@ mod tests {
         status.state.condition = Some(LoopCondition {
             command: command.to_string(),
             until,
+            stated: false,
+        });
+        status
+    }
+
+    fn stated(evidence: LoopEvidence) -> LoopStatus {
+        let mut status = status(LoopPhase::Turn);
+        status.state.condition = Some(LoopCondition {
+            command: "the tests pass".to_string(),
+            until: true,
+            stated: true,
+        });
+        status.state.last_check = Some(LoopCheck {
+            iteration: 2,
+            evidence,
         });
         status
     }
@@ -188,6 +212,7 @@ mod tests {
         full.state.condition = Some(LoopCondition {
             command: "test -f done".to_string(),
             until: true,
+            stated: false,
         });
         full.state.last_check = Some(LoopCheck {
             iteration: 2,
@@ -269,6 +294,19 @@ mod tests {
             (
                 checked(LoopEvidence::Cancelled),
                 label("Loop running until: test -f done last: cancelled"),
+            ),
+            // A stated condition: the judge's ruling.
+            (
+                stated(LoopEvidence::Ruled { met: false }),
+                label("Loop running until (judged): the tests pass last: judged not met"),
+            ),
+            (
+                stated(LoopEvidence::Ruled { met: true }),
+                label("Loop running until (judged): the tests pass last: judged met"),
+            ),
+            (
+                stated(LoopEvidence::Unruled),
+                label("Loop running until (judged): the tests pass last: judge could not decide"),
             ),
             // Everything at once: limit, condition, last check.
             (

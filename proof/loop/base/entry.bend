@@ -48,6 +48,8 @@ def le.e_cond(c: Lp.Cond, -rest: String) -> {FLp.put_cond(c, rest) == LoopEntry.
       {==}
     case Lp.While{cmd}:
       {==}
+    case Lp.Stated{u, t}:
+      {==}
 
 def le.e_evid(e: Lp.Evid, -rest: String) -> {FLp.put_evid(e, rest) == LoopEntry.lp_spell_evid(e, rest) : String}:
   match e:
@@ -60,6 +62,10 @@ def le.e_evid(e: Lp.Evid, -rest: String) -> {FLp.put_evid(e, rest) == LoopEntry.
     case Lp.SpawnFailed{}:
       {==}
     case Lp.Cancelled{}:
+      {==}
+    case Lp.Ruled{met}:
+      {==}
+    case Lp.Unruled{}:
       {==}
 
 def le.e_end(w: Lp.End, -rest: String) -> {FLp.put_end(w, rest) == LoopEntry.lp_spell_end(w, rest) : String}:
@@ -164,6 +170,10 @@ def le.run(r: FLp.Req) -> {FLp.ffi.run(r) == LoopEntry.lp_spell_reply(r) : Strin
       le.e_stepped(Lp.step(x, e))
     case FLp.Verdict{u, ev}:
       le.e_verdict(Lp.judge(u, ev), "")
+    case FLp.Said{u, ev}:
+      le.e_verdict(Lp.said(u, ev), "")
+    case FLp.Classify{u, w, x, q, f}:
+      le.e_cond(Lp.classify(u, w, x, q, f), "")
 
 # ---- the readers read the spelling ----
 
@@ -202,6 +212,10 @@ def le.r_cond(c: Lp.Cond, +rest: String, h: {LoopEntry.lp_cond_fits(c) == True{}
     case Lp.While{+cmd}:
       %le.r_str(cmd, rest, h) : {FLp.get_cond.while(_) == Wr.Got{Lp.While{cmd}, rest} : Wr.Dec<Lp.Cond>}
       {==}
+    case Lp.Stated{+u, +t}:
+      %le.r_bool(u, Wr.put_str(t, rest)) : {FLp.get_cond.stated(_) == Wr.Got{Lp.Stated{u, t}, rest} : Wr.Dec<Lp.Cond>}
+      %le.r_str(t, rest, h) : {FLp.get_cond.text(u, _) == Wr.Got{Lp.Stated{u, t}, rest} : Wr.Dec<Lp.Cond>}
+      {==}
 
 def le.r_evid(e: Lp.Evid, +rest: String, h: {LoopEntry.lp_evid_fits(e) == True{} : Bool}) -> {FLp.get_evid(LoopEntry.lp_spell_evid(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Lp.Evid>}:
   match e:
@@ -215,6 +229,11 @@ def le.r_evid(e: Lp.Evid, +rest: String, h: {LoopEntry.lp_evid_fits(e) == True{}
     case Lp.SpawnFailed{}:
       {==}
     case Lp.Cancelled{}:
+      {==}
+    case Lp.Ruled{+met}:
+      %le.r_bool(met, rest) : {FLp.get_evid.met(_) == Wr.Got{Lp.Ruled{met}, rest} : Wr.Dec<Lp.Evid>}
+      {==}
+    case Lp.Unruled{}:
       {==}
 
 def le.r_end(w: Lp.End, -rest: String) -> {FLp.get_end(LoopEntry.lp_spell_end(w, rest)) == Wr.Got{w, rest} : Wr.Dec<Lp.End>}:
@@ -386,6 +405,24 @@ def le.r_req(r: FLp.Req, +rest: String, h: {LoopEntry.lp_req_fits(r) == True{} :
       +s1 = LoopEntry.lp_spell_evid(ev, rest)
       %le.r_bool(u, s1) : {FLp.get_req.until(_) == Wr.Got{FLp.Verdict{u, ev}, rest} : Wr.Dec<FLp.Req>}
       %Equal.sym(Wr.Dec<Lp.Evid>, FLp.get_evid(s1), Wr.Got{ev, rest}, le.r_evid(ev, rest, h)) : {FLp.get_req.evid(u, _) == Wr.Got{FLp.Verdict{u, ev}, rest} : Wr.Dec<FLp.Req>}
+      {==}
+    case FLp.Said{+u, +ev}:
+      +s1 = LoopEntry.lp_spell_evid(ev, rest)
+      %le.r_bool(u, s1) : {FLp.get_req.said(_) == Wr.Got{FLp.Said{u, ev}, rest} : Wr.Dec<FLp.Req>}
+      %Equal.sym(Wr.Dec<Lp.Evid>, FLp.get_evid(s1), Wr.Got{ev, rest}, le.r_evid(ev, rest, h)) : {FLp.get_req.said.evid(u, _) == Wr.Got{FLp.Said{u, ev}, rest} : Wr.Dec<FLp.Req>}
+      {==}
+    case FLp.Classify{+u, +w, +x, +q, +f}:
+      +hh = h
+      +s4 = Wr.put_bool(f, rest)
+      +s3 = Wr.put_bool(q, s4)
+      +s2 = Wr.put_str(x, s3)
+      +s1 = Wr.put_str(w, s2)
+      -got = {Wr.Got{FLp.Classify{u, w, x, q, f}, rest} : Wr.Dec<FLp.Req>}
+      %le.r_bool(u, s1) : {FLp.get_req.cls(_) == got : Wr.Dec<FLp.Req>}
+      %le.r_str(w, s2, le.and_l(LawsBase.wire_fits(String.length(w)), LawsBase.wire_fits(String.length(x)), hh)) : {FLp.get_req.cls.word(u, _) == got : Wr.Dec<FLp.Req>}
+      %le.r_str(x, s3, le.and_r(LawsBase.wire_fits(String.length(w)), LawsBase.wire_fits(String.length(x)), hh)) : {FLp.get_req.cls.raw(u, w, _) == got : Wr.Dec<FLp.Req>}
+      %le.r_bool(q, s4) : {FLp.get_req.cls.quoted(u, w, x, _) == got : Wr.Dec<FLp.Req>}
+      %le.r_bool(f, rest) : {FLp.get_req.cls.found(u, w, x, q, _) == got : Wr.Dec<FLp.Req>}
       {==}
 
 # the entry on a spelled request that fits, then rest: the request is read

@@ -1,15 +1,17 @@
 # ffi_loop: the entry of the compiled Bend core for `/loop`
 # (bend/loop.bend): every decision of a loop (start, stop, abort, a new
-# prompt, a settled turn, the evidence of the condition command, a worker
-# restart) and the verdict of one piece of evidence. A plain call: Rust
+# prompt, a settled turn, the evidence of the condition, a worker
+# restart), the verdict of one piece of evidence, and the condition the
+# text after `--until`/`--while` gives. A plain call: Rust
 # (crates/eukhe-bend/src/rules/loop_mode.rs) keeps the state in the
 # session's durable storage, as the text this entry wrote, and sends it
 # back with each event.
 #
 # Wire (crates/eukhe-bend/WIRE.md):
 #   Cond    = tag 0 NoCond | 1 Until (cmd: String) | 2 While (cmd: String)
+#             | 3 Stated (until: Bool, text: String)
 #   Evid    = tag 0 Exited (code: Nat) | 1 NoStatus | 2 TimedOut
-#             | 3 SpawnFailed | 4 Cancelled
+#             | 3 SpawnFailed | 4 Cancelled | 5 Ruled (met: Bool) | 6 Unruled
 #   End     = tag 0 Satisfied | 1 CheckBroke | 2 OutOfTurns | 3 OutOfTime
 #             | 4 TurnsFailed | 5 OutOfBudget | 6 Stopped
 #   Phase   = tag 0 Off | 1 Armed | 2 Turn | 3 Judging | 4 Paused
@@ -29,11 +31,16 @@
 #               funded: Bool)
 #             | 6 Restart
 #   request = tag 0 Step (st: St, ev: Ev) | 1 Verdict (until: Bool, ev: Evid)
+#             | 2 Said (until: Bool, ev: Evid)
+#             | 3 Classify (until: Bool, word: String, raw: String,
+#               quoted: Bool, found: Bool)
 #   reply   Step: the new St, then Act = tag 0 Rest
 #             | 1 Submit (iter: Nat, text: String) | 2 Adopt (iter: Nat)
 #             | 3 Judge (iter: Nat) | 4 Resume (iter: Nat, text: String)
 #             | 5 Report (why: End) | 6 Defer
-#           Verdict: tag 0 Confirmed | 1 Refuted | 2 Broken | 3 Unjudged
+#           Verdict, Said: tag 0 Confirmed | 1 Refuted | 2 Broken
+#             | 3 Unjudged
+#           Classify: the Cond
 # A malformed request, or one with input left over, answers the error
 # form. Pure: no IO, no @unsafe.
 
@@ -44,6 +51,8 @@ import ./loop.bend as M
 type Req is Data:
   Step{st: M.St, ev: M.Ev}
   Verdict{until: Bool, ev: M.Evid}
+  Said{until: Bool, ev: M.Evid}
+  Classify{until: Bool, word: String, raw: String, quoted: Bool, found: Bool}
 
 # Maybe<Nat>, Maybe<String>
 # -------------------------
@@ -118,6 +127,8 @@ def put_cond(c: M.Cond, rest: String) -> String:
       W.put_nat(1n, W.put_str(cmd, rest))
     case M.While{cmd}:
       W.put_nat(2n, W.put_str(cmd, rest))
+    case M.Stated{u, t}:
+      W.put_nat(3n, W.put_bool(u, W.put_str(t, rest)))
 
 def get_cond.until(d: W.Dec<String>) -> W.Dec<M.Cond>:
   match d:
@@ -133,6 +144,20 @@ def get_cond.while(d: W.Dec<String>) -> W.Dec<M.Cond>:
     case W.Bad{}:
       W.Bad{}
 
+def get_cond.text(u: Bool, d: W.Dec<String>) -> W.Dec<M.Cond>:
+  match d:
+    case W.Got{t, s}:
+      W.Got{M.Stated{u, t}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_cond.stated(d: W.Dec<Bool>) -> W.Dec<M.Cond>:
+  match d:
+    case W.Got{u, s}:
+      get_cond.text(u, W.get_str(s))
+    case W.Bad{}:
+      W.Bad{}
+
 def get_cond.tag(t: Nat, s: String) -> W.Dec<M.Cond>:
   match t:
     case 0n:
@@ -141,7 +166,9 @@ def get_cond.tag(t: Nat, s: String) -> W.Dec<M.Cond>:
       get_cond.until(W.get_str(s))
     case 2n:
       get_cond.while(W.get_str(s))
-    case 3n+x:
+    case 3n:
+      get_cond.stated(W.get_bool(s))
+    case 4n+x:
       W.Bad{}
 
 def get_cond.go(d: W.Dec<Nat>) -> W.Dec<M.Cond>:
@@ -169,11 +196,22 @@ def put_evid(e: M.Evid, rest: String) -> String:
       W.put_nat(3n, rest)
     case M.Cancelled{}:
       W.put_nat(4n, rest)
+    case M.Ruled{met}:
+      W.put_nat(5n, W.put_bool(met, rest))
+    case M.Unruled{}:
+      W.put_nat(6n, rest)
 
 def get_evid.code(d: W.Dec<Nat>) -> W.Dec<M.Evid>:
   match d:
     case W.Got{code, s}:
       W.Got{M.Exited{code}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_evid.met(d: W.Dec<Bool>) -> W.Dec<M.Evid>:
+  match d:
+    case W.Got{met, s}:
+      W.Got{M.Ruled{met}, s}
     case W.Bad{}:
       W.Bad{}
 
@@ -189,7 +227,11 @@ def get_evid.tag(t: Nat, s: String) -> W.Dec<M.Evid>:
       W.Got{M.SpawnFailed{}, s}
     case 4n:
       W.Got{M.Cancelled{}, s}
-    case 5n+x:
+    case 5n:
+      get_evid.met(W.get_bool(s))
+    case 6n:
+      W.Got{M.Unruled{}, s}
+    case 7n+x:
       W.Bad{}
 
 def get_evid.go(d: W.Dec<Nat>) -> W.Dec<M.Evid>:
@@ -637,13 +679,66 @@ def get_req.until(d: W.Dec<Bool>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+def get_req.said.evid(u: Bool, d: W.Dec<M.Evid>) -> W.Dec<Req>:
+  match d:
+    case W.Got{ev, s}:
+      W.Got{Said{u, ev}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.said(d: W.Dec<Bool>) -> W.Dec<Req>:
+  match d:
+    case W.Got{u, s}:
+      get_req.said.evid(u, get_evid(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.cls.found(u: Bool, w: String, r: String, q: Bool, d: W.Dec<Bool>) -> W.Dec<Req>:
+  match d:
+    case W.Got{f, s}:
+      W.Got{Classify{u, w, r, q, f}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.cls.quoted(u: Bool, w: String, r: String, d: W.Dec<Bool>) -> W.Dec<Req>:
+  match d:
+    case W.Got{q, s}:
+      get_req.cls.found(u, w, r, q, W.get_bool(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.cls.raw(u: Bool, w: String, d: W.Dec<String>) -> W.Dec<Req>:
+  match d:
+    case W.Got{r, s}:
+      get_req.cls.quoted(u, w, r, W.get_bool(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.cls.word(u: Bool, d: W.Dec<String>) -> W.Dec<Req>:
+  match d:
+    case W.Got{w, s}:
+      get_req.cls.raw(u, w, W.get_str(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_req.cls(d: W.Dec<Bool>) -> W.Dec<Req>:
+  match d:
+    case W.Got{u, s}:
+      get_req.cls.word(u, W.get_str(s))
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
       get_req.st(get_st(s))
     case 1n:
       get_req.until(W.get_bool(s))
-    case 2n+x:
+    case 2n:
+      get_req.said(W.get_bool(s))
+    case 3n:
+      get_req.cls(W.get_bool(s))
+    case 4n+x:
       W.Bad{}
 
 def get_req.go(d: W.Dec<Nat>) -> W.Dec<Req>:
@@ -700,6 +795,10 @@ def ffi.run(r: Req) -> String:
       ffi.stepped(M.step(x, e))
     case Verdict{u, ev}:
       put_verdict(M.judge(u, ev), "")
+    case Said{u, ev}:
+      put_verdict(M.said(u, ev), "")
+    case Classify{u, w, r, q, f}:
+      put_cond(M.classify(u, w, r, q, f), "")
 
 def ffi.whole(r: Req, done: Bool) -> String:
   match done:
@@ -715,6 +814,6 @@ def ffi.go(d: W.Dec<Req>) -> String:
     case W.Bad{}:
       W.err("loop: malformed request")
 
-# a loop step or a verdict in, the model's answer out
+# a loop step, a verdict or a classification in, the model's answer out
 def ffi(input: String) -> String:
   ffi.go(get_req(input))

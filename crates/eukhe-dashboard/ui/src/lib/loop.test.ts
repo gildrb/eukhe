@@ -96,6 +96,33 @@ describe("the session's loop", () => {
       { kind: "note", text: "Loop ended: you stopped it." },
     ]);
   });
+
+  test("a stated condition ends as a model's judgment, or broken when the judge could not decide", () => {
+    const running = reduce(open({}), { type: "loop_update", loop: judging }, NOW);
+    const endNote = (loop: LoopStatus) => {
+      const [only] = reduce(running, { type: "loop_update", loop }, NOW).notes;
+      return only && { kind: only.kind, text: only.text };
+    };
+    const stated = { command: "the tests pass", until: true, stated: true };
+    expect([
+      endNote(status({ state: "ended", end: "satisfied" }, { condition: stated })),
+      endNote(
+        status(
+          { state: "ended", end: "check_broke" },
+          { condition: stated, lastCheck: { iteration: 3, evidence: { kind: "unruled" } } },
+        ),
+      ),
+    ]).toEqual([
+      {
+        kind: "note",
+        text: "Loop ended after iteration 3: a model judge found its condition holds.",
+      },
+      {
+        kind: "error",
+        text: "Loop ended after iteration 3: the condition check broke (judge could not decide).",
+      },
+    ]);
+  });
 });
 
 describe("the loop line", () => {
@@ -152,6 +179,21 @@ describe("the loop line", () => {
     expect(
       loopCountsDown(status({ state: "ended", end: "out_of_time" }, { deadlineMs: NOW })),
     ).toBe(false);
+  });
+
+  test("a stated condition reads as judged, with the judge's ruling", () => {
+    const stated: LoopStatus = JSON.parse(
+      '{"phase":{"state":"turn"},"iteration":2,"condition":{"command":"the tests pass","until":true,"stated":true},"prompt":"the tests pass","failures":0,"lastCheck":{"iteration":1,"evidence":{"kind":"ruled","met":false}},"verdict":1}',
+    ) as LoopStatus;
+    expect(loopLine(stated, NOW)).toEqual({
+      lead: "Loop running",
+      parts: [
+        "iteration 2",
+        "until (judged) the tests pass",
+        "last check after iteration 1: judged not met, not met yet",
+      ],
+      paused: false,
+    });
   });
 
   test("the time left keeps the two largest units and counts a started second whole", () => {

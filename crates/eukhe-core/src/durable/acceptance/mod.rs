@@ -45,8 +45,10 @@ pub(crate) use ops::{claim, Claimed};
 pub(crate) use verifier::describe;
 pub use watch::{watch_acceptance_updates, AcceptanceUpdates};
 
-use self::evidence::{Gatherer, ModelJudge};
+use self::evidence::Gatherer;
+pub(crate) use self::evidence::{read_answer, ModelJudge};
 use self::verifier::Verifier;
+pub(crate) use self::workspace::workspace_files;
 use super::HostDeps;
 use crate::autonomous::{GateCommandRunner, ShellGateRunner};
 use crate::durable::{HarnessCell, HostRequestRegistry};

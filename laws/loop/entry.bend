@@ -27,7 +27,8 @@ import ../base.bend as LawsBase
 # The grammar of the header of bend/ffi_loop.bend, spelled with the wire
 # primitives (Wr.put_nat, Wr.put_str, Wr.put_bool) only.
 
-# a condition: tag 0 none, 1 until (its command), 2 while (its command)
+# a condition: tag 0 none, 1 until (its command), 2 while (its command), 3
+# stated (until, its text)
 def lp_spell_cond(c: Lp.Cond, rest: String) -> String:
   match c:
     case Lp.NoCond{}:
@@ -36,9 +37,11 @@ def lp_spell_cond(c: Lp.Cond, rest: String) -> String:
       Wr.put_nat(1n, Wr.put_str(cmd, rest))
     case Lp.While{cmd}:
       Wr.put_nat(2n, Wr.put_str(cmd, rest))
+    case Lp.Stated{u, t}:
+      Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(t, rest)))
 
 # the evidence: tag 0 exited (its code), 1 no status, 2 timed out, 3 spawn
-# failed, 4 cancelled
+# failed, 4 cancelled, 5 ruled (met), 6 unruled
 def lp_spell_evid(e: Lp.Evid, rest: String) -> String:
   match e:
     case Lp.Exited{code}:
@@ -51,6 +54,10 @@ def lp_spell_evid(e: Lp.Evid, rest: String) -> String:
       Wr.put_nat(3n, rest)
     case Lp.Cancelled{}:
       Wr.put_nat(4n, rest)
+    case Lp.Ruled{met}:
+      Wr.put_nat(5n, Wr.put_bool(met, rest))
+    case Lp.Unruled{}:
+      Wr.put_nat(6n, rest)
 
 # why a loop ended: tag 0 satisfied, 1 check broke, 2 out of turns, 3 out
 # of time, 4 turns failed, 5 out of budget, 6 stopped
@@ -158,13 +165,19 @@ def lp_spell_ev(e: Lp.Ev, rest: String) -> String:
     case Lp.Restart{}:
       Wr.put_nat(6n, rest)
 
-# a request: tag 0 a step (state, event), 1 a verdict (until, evidence)
+# a request: tag 0 a step (state, event), 1 a verdict (until, evidence), 2
+# a stated condition's verdict (until, evidence), 3 a classification
+# (until, first word, whole text, quoted, found)
 def lp_spell_req(r: FLp.Req, rest: String) -> String:
   match r:
     case FLp.Step{s, e}:
       Wr.put_nat(0n, lp_spell_st(s, lp_spell_ev(e, rest)))
     case FLp.Verdict{u, ev}:
       Wr.put_nat(1n, Wr.put_bool(u, lp_spell_evid(ev, rest)))
+    case FLp.Said{u, ev}:
+      Wr.put_nat(2n, Wr.put_bool(u, lp_spell_evid(ev, rest)))
+    case FLp.Classify{u, w, x, q, f}:
+      Wr.put_nat(3n, Wr.put_bool(u, Wr.put_str(w, Wr.put_str(x, Wr.put_bool(q, Wr.put_bool(f, rest))))))
 
 # what Rust does: tag 0 rest, 1 submit (iteration, text), 2 adopt
 # (iteration), 3 judge (iteration), 4 resume (iteration, text), 5 report
@@ -210,6 +223,10 @@ def lp_spell_reply(r: FLp.Req) -> String:
       lp_spell_stepped(Lp.step(s, e))
     case FLp.Verdict{u, ev}:
       lp_spell_verdict(Lp.judge(u, ev), "")
+    case FLp.Said{u, ev}:
+      lp_spell_verdict(Lp.said(u, ev), "")
+    case FLp.Classify{u, w, x, q, f}:
+      lp_spell_cond(Lp.classify(u, w, x, q, f), "")
 
 # Spec helpers: what fits the wire
 # --------------------------------
@@ -222,6 +239,8 @@ def lp_cond_fits(c: Lp.Cond) -> Bool:
       LawsBase.wire_fits(String.length(cmd))
     case Lp.While{cmd}:
       LawsBase.wire_fits(String.length(cmd))
+    case Lp.Stated{u, t}:
+      LawsBase.wire_fits(String.length(t))
 
 def lp_evid_fits(e: Lp.Evid) -> Bool:
   match e:
@@ -234,6 +253,10 @@ def lp_evid_fits(e: Lp.Evid) -> Bool:
     case Lp.SpawnFailed{}:
       True{}
     case Lp.Cancelled{}:
+      True{}
+    case Lp.Ruled{met}:
+      True{}
+    case Lp.Unruled{}:
       True{}
 
 def lp_last_fits(x: Lp.Last) -> Bool:
@@ -289,6 +312,10 @@ def lp_req_fits(r: FLp.Req) -> Bool:
       Bool.and(lp_st_fits(s), lp_ev_fits(e))
     case FLp.Verdict{u, ev}:
       lp_evid_fits(ev)
+    case FLp.Said{u, ev}:
+      lp_evid_fits(ev)
+    case FLp.Classify{u, w, x, q, f}:
+      Bool.and(LawsBase.wire_fits(String.length(w)), LawsBase.wire_fits(String.length(x)))
 
 # Laws: the entry
 # ---------------

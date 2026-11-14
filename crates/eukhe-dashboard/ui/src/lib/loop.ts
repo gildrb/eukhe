@@ -49,7 +49,7 @@ export function timeLeft(leftMs: number): string {
   return `${seconds}s left`;
 }
 
-/** What one run of the condition command showed (`exit 1`, `timed out`). */
+/** What one check of the condition showed (`exit 1`, `timed out`, `judged met`). */
 export function evidenceText(evidence: LoopEvidence): string {
   switch (evidence.kind) {
     case "exited":
@@ -62,6 +62,10 @@ export function evidenceText(evidence: LoopEvidence): string {
       return "could not run";
     case "cancelled":
       return "cancelled";
+    case "ruled":
+      return evidence.met ? "judged met" : "judged not met";
+    case "unruled":
+      return "judge could not decide";
     default:
       return "unknown";
   }
@@ -70,7 +74,8 @@ export function evidenceText(evidence: LoopEvidence): string {
 /** The verdict of the last check on the stop condition (0 confirmed … 3 unjudged). */
 const VERDICTS = ["condition met", "not met yet", "check broken", "no answer"];
 
-/** The condition on one line: `until test -f done`, `while pgrep server`. */
+/** The condition on one line: `until test -f done`, `while pgrep server`,
+ * `until (judged) the tests pass` (a stated condition, decided by a model judge). */
 function conditionText(status: LoopStatus): string | null {
   const condition = status.condition;
   if (!condition) return null;
@@ -78,7 +83,8 @@ function conditionText(status: LoopStatus): string | null {
     .split(/[\s\p{Cc}]+/u)
     .filter(Boolean)
     .join(" ");
-  return `${condition.until ? "until" : "while"} ${command}`;
+  const label = condition.until ? "until" : "while";
+  return `${condition.stated ? `${label} (judged)` : label} ${command}`;
 }
 
 /** What is left of the bound given at `/loop`: `7 of 10 left`, `5m30s left`. */
@@ -119,10 +125,13 @@ export function loopLine(status: LoopStatus | null, now: number): LoopLine | nul
 /** Why a loop ended, as the end of a sentence. */
 export function endReason(end: LoopEnd, status: LoopStatus): string {
   switch (end) {
-    case "satisfied":
-      return status.condition && !status.condition.until
-        ? "its condition no longer holds"
-        : "its condition holds";
+    case "satisfied": {
+      const holds =
+        status.condition && !status.condition.until
+          ? "its condition no longer holds"
+          : "its condition holds";
+      return status.condition?.stated ? `a model judge found ${holds}` : holds;
+    }
     case "check_broke": {
       const check = status.lastCheck;
       return check
