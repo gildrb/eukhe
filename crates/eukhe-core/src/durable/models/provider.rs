@@ -1017,10 +1017,18 @@ async fn park_for_quota_reset(
         }
     }
     let parks_used = existing.as_ref().map_or(0, |park| park.park_count);
-    let resume_after_ms = match provider_park_decision(parks_used, reset_ms, &policy) {
+    // A park ends by the run's deadline (its budget's time limit).
+    let time_left_ms = inner
+        .deps
+        .budget
+        .report()
+        .and_then(|report| report.deadline_ms)
+        .map(|deadline| deadline.saturating_sub(now));
+    let resume_after_ms = match provider_park_decision(parks_used, reset_ms, time_left_ms, &policy)
+    {
         ProviderParkDecision::Park { resume_after_ms } => resume_after_ms,
         ProviderParkDecision::None { reason } => match reason {
-            NoParkReason::Disabled | NoParkReason::ParkBudget => {
+            NoParkReason::Disabled | NoParkReason::ParkBudget | NoParkReason::Deadline => {
                 // The episode ends here: a stale park's wake already fired,
                 // so nothing else would resume it.
                 if let Some(park) = existing.filter(|park| park.resume_at_ms <= now) {

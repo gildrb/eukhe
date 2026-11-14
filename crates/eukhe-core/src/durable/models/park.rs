@@ -82,6 +82,8 @@ pub enum NoParkReason {
     /// No provider-reported reset: the bounded wait keeps its abort behavior
     /// (a blind park would guess a wake time).
     NoReset,
+    /// The run's deadline has passed: a park would wait past it.
+    Deadline,
 }
 
 /// Resolution of one park decision (TS `ProviderParkDecision`).
@@ -95,11 +97,14 @@ pub enum ProviderParkDecision {
 
 /// Park decision after a quota failure whose provider-reported reset exceeds
 /// the bounded wait (TS `providerParkDecision`): pure and clock-free — the
-/// caller owns the clock at the seam.
+/// caller owns the clock at the seam. `time_left_ms` is what is left until
+/// the run's deadline (`None`: the run has no time limit): a park ends by
+/// the deadline, and none starts once it passed.
 #[must_use]
 pub fn provider_park_decision(
     parks_used: u32,
     reset_ms: Option<u64>,
+    time_left_ms: Option<u64>,
     policy: &ProviderParkPolicy,
 ) -> ProviderParkDecision {
     if !policy.pause_until_reset {
@@ -117,11 +122,17 @@ pub fn provider_park_decision(
             reason: NoParkReason::NoReset,
         };
     };
+    if time_left_ms == Some(0) {
+        return ProviderParkDecision::None {
+            reason: NoParkReason::Deadline,
+        };
+    }
     let max_pause_ms = policy.max_pause_ms.min(MAX_PROVIDER_PAUSE_MS);
     ProviderParkDecision::Park {
         resume_after_ms: reset_ms
             .saturating_add(PROVIDER_RESUME_GRACE_MS)
-            .min(max_pause_ms),
+            .min(max_pause_ms)
+            .min(time_left_ms.unwrap_or(u64::MAX)),
     }
 }
 
@@ -301,7 +312,7 @@ mod tests {
     #[test]
     fn parks_until_the_reported_reset_plus_grace() {
         assert_eq!(
-            provider_park_decision(0, Some(3_600_000), &DEFAULT_PROVIDER_PARK_POLICY),
+            provider_park_decision(0, Some(3_600_000), None, &DEFAULT_PROVIDER_PARK_POLICY),
             ProviderParkDecision::Park {
                 resume_after_ms: 3_600_000 + PROVIDER_RESUME_GRACE_MS
             }
@@ -311,7 +322,12 @@ mod tests {
     #[test]
     fn clamps_a_long_horizon_reset_to_the_pause_ceiling() {
         assert_eq!(
-            provider_park_decision(0, Some(90 * 86_400_000), &DEFAULT_PROVIDER_PARK_POLICY),
+            provider_park_decision(
+                0,
+                Some(90 * 86_400_000),
+                None,
+                &DEFAULT_PROVIDER_PARK_POLICY
+            ),
             ProviderParkDecision::Park {
                 resume_after_ms: DEFAULT_PROVIDER_PARK_POLICY.max_pause_ms
             }
@@ -324,6 +340,7 @@ mod tests {
             provider_park_decision(
                 0,
                 Some(1000),
+                None,
                 &ProviderParkPolicy {
                     pause_until_reset: false,
                     ..DEFAULT_PROVIDER_PARK_POLICY
@@ -337,6 +354,7 @@ mod tests {
             provider_park_decision(
                 DEFAULT_PROVIDER_PARK_POLICY.max_parks,
                 Some(1000),
+                None,
                 &DEFAULT_PROVIDER_PARK_POLICY
             ),
             ProviderParkDecision::None {
@@ -344,7 +362,7 @@ mod tests {
             }
         );
         assert_eq!(
-            provider_park_decision(0, None, &DEFAULT_PROVIDER_PARK_POLICY),
+            provider_park_decision(0, None, None, &DEFAULT_PROVIDER_PARK_POLICY),
             ProviderParkDecision::None {
                 reason: NoParkReason::NoReset
             }
@@ -401,6 +419,31 @@ mod tests {
         assert_eq!(
             resume_entry_data("wake"),
             serde_json::json!({ "outcome": "wake" })
+        );
+    }
+
+    /// A park ends by the run's deadline: it wakes no later than the time
+    /// left, and none starts once the deadline passed.
+    #[test]
+    fn a_park_ends_by_the_runs_deadline() {
+        let policy = &DEFAULT_PROVIDER_PARK_POLICY;
+        assert_eq!(
+            provider_park_decision(0, Some(3_600_000), Some(60_000), policy),
+            ProviderParkDecision::Park {
+                resume_after_ms: 60_000
+            }
+        );
+        assert_eq!(
+            provider_park_decision(0, Some(1_000), Some(3_600_000), policy),
+            ProviderParkDecision::Park {
+                resume_after_ms: 1_000 + PROVIDER_RESUME_GRACE_MS
+            }
+        );
+        assert_eq!(
+            provider_park_decision(0, Some(1_000), Some(0), policy),
+            ProviderParkDecision::None {
+                reason: NoParkReason::Deadline
+            }
         );
     }
 }
