@@ -59,14 +59,28 @@ const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
 /// `quota_parked_final_error` and `quota_already_parked_final_error`).
 const PARKED_MARKER: &str = " parked until ";
 
+/// Whether an error is a provider's server error (a 5xx status) while it
+/// checked the login (`503 credential validation failed`): a fault on the
+/// provider's side, not a rejected login (that is a 401).
+fn is_login_check_fault(normalized: &str) -> bool {
+    normalized
+        .to_ascii_lowercase()
+        .contains("credential validation")
+        && normalized
+            .split(|c: char| !c.is_ascii_digit())
+            .any(|digits| digits.len() == 3 && digits.starts_with('5'))
+}
+
 /// The next step a failed turn's error row names, so a turn that ends
 /// without an answer always tells the user what to do. A missing key names
 /// its provider and the three ways out (sign in, set the key, switch
-/// models); a quota park says the turn resumes on its own; every other
+/// models); a quota park says the turn resumes on its own; a provider
+/// that failed to check the login (`provider`: its name, when the row
+/// knows it) says whose fault it is and when to sign in again; every other
 /// failure offers the resend or a model switch. An error that already
 /// carries the login-recovery hint has its next step, so it gets none.
 #[must_use]
-pub fn failure_next_step(error: &str) -> Option<String> {
+pub fn failure_next_step(error: &str, provider: Option<&str>) -> Option<String> {
     let normalized = normalize_error_details(error);
     if normalized.contains(LOGIN_RECOVERY_MESSAGE) {
         return None;
@@ -76,6 +90,15 @@ pub fn failure_next_step(error: &str) -> Option<String> {
             "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
                 .to_string(),
         );
+    }
+    if is_login_check_fault(&normalized) {
+        let provider = provider
+            .map(str::trim)
+            .filter(|provider| !provider.is_empty())
+            .unwrap_or("The provider");
+        return Some(format!(
+            "Next: {provider} could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
+        ));
     }
     let provider = normalized
         .split_once(MISSING_KEY_PREFIX)
@@ -254,13 +277,14 @@ mod tests {
         );
     }
 
-    /// A missing key names its provider and every way out; any other
-    /// failure offers the resend or a model switch; an error carrying the
-    /// login-recovery hint already has its next step.
+    /// A missing key names its provider and every way out; a provider that
+    /// failed to check the login says so and when to sign in again; any
+    /// other failure offers the resend or a model switch; an error
+    /// carrying the login-recovery hint already has its next step.
     #[test]
     fn failure_next_step_names_the_way_out() {
         assert_eq!(
-            failure_next_step("Error: No API key for provider: cloudflare-ai-gateway"),
+            failure_next_step("Error: No API key for provider: cloudflare-ai-gateway", None),
             Some(
                 "Next: sign in with /login, set the cloudflare-ai-gateway API key, or pick another model with /model."
                     .to_string()
@@ -268,7 +292,8 @@ mod tests {
         );
         assert_eq!(
             failure_next_step(
-                "! Error: Retry failed after 2 attempts: No API key for provider: anthropic."
+                "! Error: Retry failed after 2 attempts: No API key for provider: anthropic.",
+                None
             ),
             Some(
                 "Next: sign in with /login, set the anthropic API key, or pick another model with /model."
@@ -276,12 +301,36 @@ mod tests {
             )
         );
         assert_eq!(
-            failure_next_step("Error: 529 overloaded"),
+            failure_next_step("Error: 529 overloaded", None),
+            Some("Next: send the message again, or pick another model with /model.".to_string())
+        );
+        // The owner's row: the provider's login check failed on its side.
+        assert_eq!(
+            failure_next_step(
+                "! Error: Retry failed after 3 attempts: 503 credential validation failed",
+                Some("Anthropic")
+            ),
+            Some(
+                "Next: Anthropic could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            failure_next_step("Error: 503 credential validation failed", None),
+            Some(
+                "Next: The provider could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
+                    .to_string()
+            )
+        );
+        // A 4xx that names credentials is no fault of the provider.
+        assert_eq!(
+            failure_next_step("Error: 401 credential validation failed", Some("Anthropic")),
             Some("Next: send the message again, or pick another model with /model.".to_string())
         );
         assert_eq!(
             failure_next_step(
-                "Provider requested a 172800s wait before retrying (above retry.provider.maxRetryDelayMs=15000ms). Session parked until 2026-10-23T14:05:00.000Z and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"
+                "Provider requested a 172800s wait before retrying (above retry.provider.maxRetryDelayMs=15000ms). Session parked until 2026-10-23T14:05:00.000Z and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit",
+                None
             ),
             Some(
                 "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
@@ -289,7 +338,7 @@ mod tests {
             )
         );
         assert_eq!(
-            failure_next_step("Auth failed.\n\nRun /login to update credentials."),
+            failure_next_step("Auth failed.\n\nRun /login to update credentials.", None),
             None
         );
     }

@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_ai::models::Models;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonError, JsonValue};
@@ -131,17 +132,18 @@ fn start(
             close_signal.notify_one();
         }))?;
         let harness = opened.harness.clone();
+        let models = opened.deps.models.clone();
         let task_close = Arc::clone(&close);
         let task = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     event = event_rx.recv() => {
                         let Some(event) = event else { break };
-                        service(&harness, event).await;
+                        service(&harness, &models, event).await;
                     }
                     () = task_close.notified() => {
                         while let Ok(event) = event_rx.try_recv() {
-                            service(&harness, event).await;
+                            service(&harness, &models, event).await;
                         }
                         break;
                     }
@@ -302,7 +304,7 @@ fn committed_live(
 
 /// Service one episode end; a failure is logged (the row is a disclosure,
 /// never a reason to fail the session).
-async fn service(harness: &eukhe_durable::harness::Harness, event: Observed) {
+async fn service(harness: &eukhe_durable::harness::Harness, models: &Models, event: Observed) {
     let Observed::Ended {
         conversation_id,
         entry_id,
@@ -317,7 +319,12 @@ async fn service(harness: &eukhe_durable::harness::Harness, event: Observed) {
         let Some(row) = outcome_row(&message, &failed) else {
             return Ok(());
         };
-        record_row(&conversation, entry_id, row, &cx).await
+        // The provider's display name, for the row's next step.
+        let provider = models.get_provider(&message.provider).map_or_else(
+            || message.provider.clone(),
+            |provider| provider.name.clone(),
+        );
+        record_row(&conversation, entry_id, row, &provider, &cx).await
     };
     if let Err(error) = handled.await {
         tracing::warn!(target: "eukhe.retry_outcome", "provider retry outcome row failed: {error:#}");
@@ -432,6 +439,7 @@ async fn record_row(
     conversation: &Conversation,
     entry_id: EntryId,
     row: RetryRow,
+    provider: &str,
     cx: &Context,
 ) -> anyhow::Result<()> {
     let content = if row.success {
@@ -447,6 +455,7 @@ async fn record_row(
             "success": row.success,
             "attempts": row.attempts,
             "finalError": row.error,
+            "provider": provider,
         })),
         crate::durable::rlm::now_millis(),
     )?;

@@ -27,7 +27,7 @@ pub(crate) fn failure_row(error: &str) -> ChatEntry {
 /// blank answer, a turn the engine reported nothing for, or a run that
 /// ended before its turn answered.
 pub(crate) fn no_reply_row() -> ChatEntry {
-    let step = crate::error_summary::failure_next_step("").unwrap_or_default();
+    let step = crate::error_summary::failure_next_step("", None).unwrap_or_default();
     ChatEntry::Status {
         text: format!("{WARN} The turn ended without a reply{SEP}{step}"),
         kind: StatusKind::Warning,

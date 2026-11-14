@@ -200,7 +200,8 @@ pub fn custom_message_entries(
                     kind: crate::chat::StatusKind::Info,
                 }]
             } else {
-                let text = match crate::error_summary::failure_next_step(&text) {
+                let provider = details.get("provider").and_then(Value::as_str);
+                let text = match crate::error_summary::failure_next_step(&text, provider) {
                     Some(step) => format!("{text}{}{step}", crate::glyphs::SEP),
                     None => text,
                 };
