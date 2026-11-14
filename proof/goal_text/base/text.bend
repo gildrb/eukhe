@@ -90,15 +90,15 @@ def gth.rtime(-u: String, +t: String, z: Bool) -> {Gt.report.of(Gt.report.parts(
     case True{}:
       {==}
     case False{}:
-      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal achieved. Report final budget usage to the user: time used: ", w)}, String.append(String.append(t, " seconds"), "."), String.append(t, String.append(" seconds", ".")), gtt.assoc(t, " seconds", "."))
+      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal complete. Report final budget usage to the user: time used: ", w)}, String.append(String.append(t, " seconds"), "."), String.append(t, String.append(" seconds", ".")), gtt.assoc(t, " seconds", "."))
 
 # the report with a budget, for either answer z of "the seconds are 0"
 def gth.rboth(+u: String, +x: String, +t: String, z: Bool) -> {Gt.report.of(Gt.report.parts(Some{x}, u, z, t)) == GoalText.gt_report.both(z, u, x, t) : Maybe<&2, String>}:
   match z:
     case True{}:
-      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal achieved. Report final budget usage to the user: tokens used: ", w)}, String.append(String.append(u, String.append(" of ", String.append(x, ""))), "."), String.append(u, String.append(" of ", String.append(x, "."))), gth.tok(u, x))
+      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal complete. Report final budget usage to the user: tokens used: ", w)}, String.append(String.append(u, String.append(" of ", String.append(x, ""))), "."), String.append(u, String.append(" of ", String.append(x, "."))), gth.tok(u, x))
     case False{}:
-      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal achieved. Report final budget usage to the user: tokens used: ", w)}, String.append(String.append(String.append(u, String.append(" of ", String.append(x, ""))), String.append("; time used: ", String.append(t, " seconds"))), "."), String.append(u, String.append(" of ", String.append(x, String.append("; time used: ", String.append(t, " seconds."))))), gth.both_u(u, x, t))
+      Equal.cong(String, Maybe<&2, String>, w => Some{String.append("Goal complete. Report final budget usage to the user: tokens used: ", w)}, String.append(String.append(String.append(u, String.append(" of ", String.append(x, ""))), String.append("; time used: ", String.append(t, " seconds"))), "."), String.append(u, String.append(" of ", String.append(x, String.append("; time used: ", String.append(t, " seconds."))))), gth.both_u(u, x, t))
 
 def gth.report(b: Maybe<&2, String>, +u: String, +t: String) -> {Gt.report.of(Gt.report.parts(b, u, String.eq(t, "0"), t)) == GoalText.gt_report(b, u, t) : Maybe<&2, String>}:
   match b:

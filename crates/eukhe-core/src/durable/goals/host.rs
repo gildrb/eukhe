@@ -120,7 +120,7 @@ impl GoalsHost {
                             &conversation,
                             |current, _| match completed(
                                 current,
-                                "Goal achieved (unverified: no acceptance checks)",
+                                "unverified (no acceptance checks)",
                             ) {
                                 Some(goal) => Ok(Some((goal, None))),
                                 None => Err(SessionError::error(
