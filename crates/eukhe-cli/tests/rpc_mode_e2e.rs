@@ -888,6 +888,56 @@ fn rpc_get_available_models_lists_the_catalog() {
     client.drain_stderr();
 }
 
+/// `set_model` from a model that cannot think (its level is `off`) to one
+/// that can: the session takes the settings default level (`medium`), as a
+/// switch in a daemon session does, never the `off` the old model held.
+#[test]
+fn rpc_set_model_leaving_a_model_without_thinking_takes_the_default_level() {
+    // No faux script: the session's catalog is the models.json one, and
+    // no prompt runs.
+    let mut client = RpcChild::spawn_configured(
+        &[
+            "--mode",
+            "rpc",
+            "--no-session",
+            "--provider",
+            "battery",
+            "--model",
+            "plain",
+        ],
+        &json!({}),
+        Some(json!({
+            "providers": {
+                "battery": {
+                    "api": "openai-completions",
+                    "baseUrl": "http://127.0.0.1:9/v1",
+                    "apiKey": "battery-key",
+                    "models": [{ "id": "plain" }, { "id": "think", "reasoning": true }],
+                }
+            }
+        })),
+        |command, _| {
+            command.env_remove("EUKHE_FAUX_SCRIPT");
+        },
+    );
+    let before = client.request(&json!({ "type": "get_state" }));
+    assert_eq!(
+        before["data"]["thinkingLevel"], "off",
+        "the state: {before}"
+    );
+
+    let switched = client.request(&json!({
+        "type": "set_model", "provider": "battery", "modelId": "think",
+    }));
+    assert_eq!(switched["success"], true, "the response: {switched}");
+    let after = client.request(&json!({ "type": "get_state" }));
+    assert_eq!(
+        after["data"]["thinkingLevel"], "medium",
+        "the state: {after}"
+    );
+    client.drain_stderr();
+}
+
 /// Stdin close settles the running turn and exits 0 (TS `onInputEnd`).
 #[test]
 fn rpc_eof_settles_and_exits_zero() {

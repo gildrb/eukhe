@@ -9,7 +9,7 @@ use std::sync::Arc;
 use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
 use eukhe_chord::context::Context;
-use eukhe_core::durable::EukheSession;
+use eukhe_core::durable::{carried_thinking_level, default_thinking_level, EukheSession};
 use eukhe_core::settings::cvar::table;
 use eukhe_core::settings::ThinkingLevelSetting;
 use eukhe_durable::harness::types::{AgentChange, FieldChange, ModelRef};
@@ -63,16 +63,25 @@ pub(crate) async fn set_model(
 }
 
 /// Apply one model selection (the shared `set_model`/`cycle_model`
-/// tail): the model and the clamped thinking level in one `configure`
-/// commit (TS `_getThinkingLevelForModelSwitch`: keep the level when the
-/// new model supports it, else clamp), then the settings default.
+/// tail): the model and the level [`carried_thinking_level`] carries,
+/// clamped to the new model, in one `configure` commit, then the settings
+/// default.
 async fn apply_model_selection(
     session: &EukheSession,
     model: &Model,
     cx: &Context,
 ) -> Result<(), RpcCommandError> {
     let agent = main_agent(session, cx).await?;
-    let level = clamp_thinking_level(model, agent.thinking_level);
+    let current = agent.model.as_ref().and_then(|current| {
+        session
+            .deps()
+            .models
+            .get_model(&current.provider, &current.model_id)
+    });
+    let carried = carried_thinking_level(current.as_ref(), agent.thinking_level, || {
+        default_thinking_level(&settings_for(session))
+    });
+    let level = clamp_thinking_level(model, carried);
     session
         .main()
         .configure(
