@@ -3,6 +3,9 @@
 //! `Exec`; the caller adds the effects of the step's redirections and of
 //! the paths it names.
 
+mod git;
+mod sed;
+
 use eukhe_types::shell::{ShellEffect, ShellEffects};
 
 /// Commands that only read files or shell state, with the options
@@ -101,20 +104,6 @@ const NET: &[&str] = &[
     "wget",
 ];
 
-/// `git` options before the subcommand that set no configuration and no
-/// program (`-C DIR` aside). Any other one (`-c`, `--config-env`,
-/// `--exec-path`, `--git-dir`, `-p`, ...) makes the step `Exec`.
-const GIT_GLOBAL: &[&str] = &[
-    "--glob-pathspecs",
-    "--icase-pathspecs",
-    "--literal-pathspecs",
-    "--no-optional-locks",
-    "--no-pager",
-    "--no-replace-objects",
-    "--noglob-pathspecs",
-    "-P",
-];
-
 /// The leading `git` arguments for a working tree the user may not trust
 /// (a session cwd, a snapshot or gate target, a `bash` step): with them a
 /// repository's own configuration cannot run a program through the
@@ -135,69 +124,6 @@ pub const GIT_UNTRUSTED_REPO_ARGS: [&str; 11] = [
     "--no-pager",
 ];
 
-/// `git` subcommands that, run with [`GIT_UNTRUSTED_REPO_ARGS`] and
-/// without the options [`classify`] checks, read objects and refs only
-/// and run no program a repository can name. `status`, `diff` of the
-/// work tree, `blame`, `add` and the like hash work-tree files through
-/// the repository's clean filters (programs no argument can switch off):
-/// they are `Exec`.
-const GIT_READ: &[&str] = &[
-    "cat-file",
-    "count-objects",
-    "describe",
-    "for-each-ref",
-    "grep",
-    "log",
-    "ls-files",
-    "ls-tree",
-    "merge-base",
-    "name-rev",
-    "rev-list",
-    "rev-parse",
-    "shortlog",
-    "show",
-    "show-ref",
-    "version",
-];
-
-/// `git` subcommands that show a diff: run with `--no-ext-diff
-/// --no-textconv` after the subcommand, so no external diff or textconv
-/// driver of the repository runs.
-const GIT_DIFFING: &[&str] = &["diff", "log", "show"];
-
-/// `git` subcommands that talk to a remote. A remote transport runs
-/// programs the repository can name (`core.sshCommand`, credential
-/// helpers, hooks): `Net` and `Exec`.
-const GIT_NET: &[&str] = &["clone", "fetch", "ls-remote", "pull", "push", "submodule"];
-
-/// `git branch` options that change a branch (`--edit-description` runs
-/// an editor and is checked apart).
-const GIT_BRANCH_CHANGE: &[&str] = &[
-    "copy",
-    "create-reflog",
-    "delete",
-    "force",
-    "move",
-    "no-track",
-    "set-upstream-to",
-    "track",
-    "unset-upstream",
-];
-
-/// `git log --pretty`/`--format` names git defines; any other name without
-/// a `%` is a `pretty.<name>` alias from the configuration.
-const GIT_PRETTY: &[&str] = &[
-    "email",
-    "full",
-    "fuller",
-    "medium",
-    "mboxrd",
-    "oneline",
-    "raw",
-    "reference",
-    "short",
-];
-
 /// `curl` long options that write a file.
 const CURL_WRITING: &[&str] = &[
     "alt-svc",
@@ -215,20 +141,6 @@ const CURL_WRITING: &[&str] = &[
     "stderr",
     "trace",
     "trace-ascii",
-];
-
-/// `sed` long options that only change how the script reads its input
-/// (`--expression` and `--in-place` are checked apart).
-const SED_LONG: &[&str] = &[
-    "null-data",
-    "posix",
-    "quiet",
-    "regexp-extended",
-    "sandbox",
-    "separate",
-    "silent",
-    "unbuffered",
-    "zero-terminated",
 ];
 
 /// `uniq` options whose value may be the next word.
@@ -296,10 +208,8 @@ fn operands(args: &[String], valued: &[&str]) -> usize {
 
 /// The effects of a step with the assignments `assigns` and the expanded
 /// words `words` (no words: only assignments or redirections, which change
-/// shell state). A `git` step that is not `Exec` is rewritten in place to
-/// run with [`GIT_UNTRUSTED_REPO_ARGS`] (and a diffing subcommand with
-/// `--no-ext-diff --no-textconv`): its class holds only with them.
-#[allow(clippy::too_many_lines)] // One arm per command of the table.
+/// shell state). A `git` step that is not `Exec` is rewritten in place
+/// ([`git::classify`]).
 pub(crate) fn classify(assigns: &[(String, String)], words: &mut Vec<String>) -> ShellEffects {
     let read = ShellEffects::of(&[ShellEffect::Read]);
     let write = ShellEffects::of(&[ShellEffect::Write]);
@@ -320,293 +230,26 @@ pub(crate) fn classify(assigns: &[(String, String)], words: &mut Vec<String>) ->
         // coreutils answer only a bare name. `export` with an operand
         // changes the environment, as an assignment does.
         name if name.contains('/') || name == "export" => exec,
-        "git" => {
-            // Options before the subcommand; `-C` takes a value. `at` is
-            // the subcommand's place in `words`.
-            let mut at = 1;
-            loop {
-                match words.get(at).map(String::as_str) {
-                    Some("-C") => at += 2,
-                    Some(arg) if GIT_GLOBAL.contains(&arg) => at += 1,
-                    Some(arg) if arg.starts_with('-') => return exec,
-                    Some(_) | None => break,
-                }
-            }
-            let Some(sub) = words.get(at).map(String::as_str) else {
-                return read;
-            };
-            let options = words.get(at + 1..).unwrap_or_default();
-            let any = |name: &str| options.iter().any(|arg| long(arg, name));
-            // A signature check runs `gpg.program`; a `pretty.<name>` alias
-            // may ask for one (`%G`).
-            let checks_signature = options.iter().any(|arg| {
-                arg.starts_with('-')
-                    && (arg.contains("%G")
-                        || arg.contains("signature")
-                        || (long(arg, "format") || long(arg, "pretty"))
-                            && arg.split_once('=').is_some_and(|(_, value)| {
-                                !value.contains('%')
-                                    && !value.starts_with("format:")
-                                    && !value.starts_with("tformat:")
-                                    && !GIT_PRETTY.contains(&value)
-                            }))
-            });
-            let runs_driver = any("textconv") || any("ext-diff") || any("filters");
-            let effects = if GIT_NET.contains(&sub) {
-                net.union(exec)
-            } else if checks_signature || runs_driver {
-                exec
-            } else {
-                match sub {
-                    "grep"
-                        if options
-                            .iter()
-                            .any(|arg| short(arg, 'O') || long(arg, "open-files-in-pager")) =>
-                    {
-                        exec
-                    }
-                    "describe" if any("dirty") || any("broken") => exec,
-                    "ls-files"
-                        if options
-                            .iter()
-                            .any(|arg| short(arg, 'm') || long(arg, "modified")) =>
-                    {
-                        exec
-                    }
-                    "diff" if any("cached") || any("staged") => read,
-                    "branch" if any("edit-description") => exec,
-                    "branch"
-                        if options.iter().any(|arg| {
-                            ['c', 'C', 'd', 'D', 'f', 'm', 'M', 't', 'u']
-                                .into_iter()
-                                .any(|letter| short(arg, letter))
-                                || GIT_BRANCH_CHANGE.iter().any(|name| long(arg, name))
-                        }) || (operands(options, &[]) > 0
-                            && !options
-                                .iter()
-                                .any(|arg| short(arg, 'l') || long(arg, "list"))) =>
-                    {
-                        write
-                    }
-                    "branch" => read,
-                    "symbolic-ref" if operands(options, &[]) < 2 => read,
-                    "symbolic-ref" | "update-ref" | "init" => write,
-                    sub if GIT_READ.contains(&sub) => read,
-                    _ => exec,
-                }
-            };
-            let effects = if any("output") {
-                effects.with(ShellEffect::Write)
-            } else {
-                effects
-            };
-            let diffing = GIT_DIFFING.contains(&sub);
-            if !effects.contains(ShellEffect::Exec) {
-                if diffing {
-                    let after = at + 1;
-                    words.splice(
-                        after..after,
-                        ["--no-ext-diff", "--no-textconv"].map(String::from),
-                    );
-                }
-                words.splice(1..1, GIT_UNTRUSTED_REPO_ARGS.map(String::from));
-            }
-            effects
-        }
-        "sed" => {
-            // Every script must be a known-safe form: no `e`, `r`, `w`
-            // command and no `e` or `w` flag of `s`.
-            let mut scripts: Vec<&str> = Vec::new();
-            let mut first_operand: Option<&str> = None;
-            let mut in_place = false;
-            let mut options_end = false;
-            let mut rest = args.iter();
-            while let Some(arg) = rest.next() {
-                if options_end || arg == "-" || !arg.starts_with('-') {
-                    first_operand.get_or_insert(arg);
-                } else if arg == "--" {
-                    options_end = true;
-                } else if arg.starts_with("--") {
-                    if long(arg, "in-place") {
-                        in_place = true;
-                    } else if long(arg, "expression") {
-                        match arg.split_once('=') {
-                            Some((_, script)) => scripts.push(script),
-                            None => match rest.next() {
-                                Some(script) => scripts.push(script),
-                                None => return exec,
-                            },
-                        }
-                    } else if !SED_LONG.iter().any(|name| long(arg, name)) {
-                        return exec;
-                    }
-                } else {
-                    let flags = &arg[1..];
-                    for (at, flag) in flags.char_indices() {
-                        match flag {
-                            'n' | 'E' | 'r' | 's' | 'u' | 'z' => {}
-                            // The rest of the word is the backup suffix.
-                            'i' => {
-                                in_place = true;
-                                break;
-                            }
-                            // The rest of the word, else the next word, is
-                            // the script.
-                            'e' => {
-                                let attached = &flags[at + 1..];
-                                if attached.is_empty() {
-                                    match rest.next() {
-                                        Some(script) => scripts.push(script),
-                                        None => return exec,
-                                    }
-                                } else {
-                                    scripts.push(attached);
-                                }
-                                break;
-                            }
-                            _ => return exec,
-                        }
-                    }
-                }
-            }
-            // Without `-e`, the first operand is the script.
-            if scripts.is_empty() {
-                match first_operand {
-                    Some(script) => scripts.push(script),
-                    None => return read,
-                }
-            }
-            let known = |script: &str| -> bool {
-                let bytes = script.as_bytes();
-                let mut at = 0;
-                // Move `at` past the next `end` that no `\` escapes: false
-                // when none follows.
-                let past = |at: &mut usize, end: u8| -> bool {
-                    while let Some(&byte) = bytes.get(*at) {
-                        *at += 1;
-                        if byte == b'\\' {
-                            *at += 1;
-                        } else if byte == end {
-                            return true;
-                        }
-                    }
-                    false
-                };
-                // Move `at` past an address (`N`, `$`, `/regex/`): false
-                // when none is there.
-                let address = |at: &mut usize| -> bool {
-                    match bytes.get(*at) {
-                        Some(byte) if byte.is_ascii_digit() => {
-                            while bytes.get(*at).is_some_and(u8::is_ascii_digit) {
-                                *at += 1;
-                            }
-                            true
-                        }
-                        Some(b'$') => {
-                            *at += 1;
-                            true
-                        }
-                        Some(b'/') => {
-                            *at += 1;
-                            past(at, b'/')
-                        }
-                        Some(_) | None => false,
-                    }
-                };
-                let blank = |at: &mut usize| {
-                    while bytes
-                        .get(*at)
-                        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
-                    {
-                        *at += 1;
-                    }
-                };
-                loop {
-                    while bytes
-                        .get(at)
-                        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b';'))
-                    {
-                        at += 1;
-                    }
-                    if at == bytes.len() {
-                        return true;
-                    }
-                    if address(&mut at) && bytes.get(at) == Some(&b',') {
-                        at += 1;
-                        if !address(&mut at) {
-                            return false;
-                        }
-                    }
-                    blank(&mut at);
-                    if bytes.get(at) == Some(&b'!') {
-                        at += 1;
-                        blank(&mut at);
-                    }
-                    let Some(&command) = bytes.get(at) else {
-                        return false;
-                    };
-                    at += 1;
-                    match command {
-                        b'{' => continue,
-                        b'=' | b'}' | b'd' | b'D' | b'g' | b'G' | b'h' | b'H' | b'n' | b'N'
-                        | b'p' | b'P' | b'q' | b'Q' | b'x' => {}
-                        b's' | b'y' => {
-                            let Some(&delimiter) = bytes.get(at) else {
-                                return false;
-                            };
-                            if matches!(delimiter, b'\\' | b'\n') {
-                                return false;
-                            }
-                            at += 1;
-                            if !(past(&mut at, delimiter) && past(&mut at, delimiter)) {
-                                return false;
-                            }
-                            if command == b's' {
-                                while bytes
-                                    .get(at)
-                                    .is_some_and(|flag| b"gimpIM0123456789".contains(flag))
-                                {
-                                    at += 1;
-                                }
-                            }
-                        }
-                        _ => return false,
-                    }
-                    // A command ends at a blank, `;`, a newline, `}` or the
-                    // end of the script.
-                    if !matches!(
-                        bytes.get(at),
-                        None | Some(b' ' | b'\t' | b'\n' | b';' | b'}')
-                    ) {
-                        return false;
-                    }
-                }
-            };
-            if !scripts.into_iter().all(known) {
-                exec
-            } else if in_place {
-                write
-            } else {
-                read
-            }
-        }
-        "find" => {
+        "git" => git::classify(words),
+        "sed" => sed::classify(args),
+        "find"
             if args
                 .iter()
-                .any(|arg| matches!(arg.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir"))
-            {
-                exec
-            } else if args.iter().any(|arg| {
+                .any(|arg| matches!(arg.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir")) =>
+        {
+            exec
+        }
+        "find"
+            if args.iter().any(|arg| {
                 matches!(
                     arg.as_str(),
                     "-delete" | "-fls" | "-fprint" | "-fprint0" | "-fprintf"
                 )
-            }) {
-                write
-            } else {
-                read
-            }
+            }) =>
+        {
+            write
         }
+        "find" => read,
         "rg" if args
             .iter()
             .any(|arg| arg.starts_with("--pre") || arg.starts_with("--hostname-bin")) =>
