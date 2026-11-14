@@ -146,7 +146,7 @@ impl Wire {
     fn connect(socket: &Path) -> (Self, Value) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -808,9 +808,12 @@ fn ts_daemon_differential_cli_output() {
     std::fs::create_dir_all(&sessions).expect("sessions dir");
     std::fs::create_dir_all(&work).expect("work dir");
     // The `schedule` command cannot take --daemon-socket (TS parity), so the
-    // daemon must live on the default socket path under the temp TMPDIR.
+    // daemon must live on the default socket path: the run dir of the
+    // fixture's agent dir.
+    std::env::set_var("EUKHE_CODING_AGENT_DIR", &agent_dir);
     std::env::set_var("TMPDIR", dir.path());
     let socket = eukhe_types::platform::daemon_socket::default_daemon_socket_path();
+    assert!(socket.starts_with(&agent_dir), "{}", socket.display());
     // The TS daemon does not create the socket's parent directory on bind
     // (the Rust supervisor does), so the default-path socket needs the
     // directory to exist before the TS daemon is spawned.
@@ -843,7 +846,7 @@ fn ts_daemon_differential_cli_output() {
     let mut daemon = daemon_command.spawn().expect("spawn TS daemon");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        if UnixStream::connect(&socket).is_ok() {
+        if eukhe_types::platform::transport::connect_std(&socket).is_ok() {
             break;
         }
         assert!(Instant::now() < deadline, "TS daemon socket never appeared");
@@ -1080,6 +1083,7 @@ fn ts_daemon_differential_cli_output() {
     let _ = daemon.kill();
     let _ = daemon.wait();
     std::env::remove_var("TMPDIR");
+    std::env::remove_var("EUKHE_CODING_AGENT_DIR");
     assert!(
         failures.is_empty(),
         "TS differential mismatches:\n{}",

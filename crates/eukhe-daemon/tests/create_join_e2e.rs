@@ -95,7 +95,8 @@ struct WorkerClient {
 
 impl WorkerClient {
     fn connect(socket: &Path, token: &str) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect worker socket");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect worker socket");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");

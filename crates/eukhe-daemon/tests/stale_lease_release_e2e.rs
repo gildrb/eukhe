@@ -143,7 +143,7 @@ impl Client {
     fn connect(socket: &Path) -> Self {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -304,7 +304,7 @@ fn worker_socket_of(agent_dir: &Path, socket: &Path, session_id: &str) -> PathBu
 /// waits out a socket that never comes up), so the crash loop paces its
 /// kills on this probe instead.
 fn worker_serving(socket_path: &Path) -> bool {
-    UnixStream::connect(socket_path).is_ok()
+    eukhe_types::platform::transport::connect_std(socket_path).is_ok()
 }
 
 /// The operator's open: a create that targets an existing session file.

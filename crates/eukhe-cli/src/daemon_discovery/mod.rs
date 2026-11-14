@@ -68,9 +68,13 @@ pub(crate) struct DiscoveredDaemonProcess {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DiscoveryScope {
     /// Nothing named: this user's default scope -- every socket in the
-    /// per-user default socket dir, anywhere inside the (default) agent dir,
-    /// and the default socket.
-    Default { socket_dir: PathBuf },
+    /// per-user default socket dir and in the earlier releases' one (a
+    /// daemon still serving there after an upgrade), anywhere inside the
+    /// (default) agent dir, and the default socket.
+    Default {
+        socket_dir: PathBuf,
+        legacy_socket_dir: PathBuf,
+    },
     /// `--daemon-socket` or `EUKHE_DAEMON_SOCKET`: the root's socket only.
     Socket,
     /// `EUKHE_CODING_AGENT_DIR` without a named socket: sockets inside the
@@ -103,9 +107,13 @@ impl DaemonStateRoot {
         match &self.scope {
             DiscoveryScope::Socket => socket_path == self.default_socket_path,
             DiscoveryScope::AgentDir => inside(socket_path.parent(), &self.agent_dir),
-            DiscoveryScope::Default { socket_dir } => {
+            DiscoveryScope::Default {
+                socket_dir,
+                legacy_socket_dir,
+            } => {
                 socket_path == self.default_socket_path
                     || socket_path.parent() == Some(socket_dir)
+                    || socket_path.parent() == Some(legacy_socket_dir)
                     || inside(socket_path.parent(), &self.agent_dir)
             }
         }
@@ -113,12 +121,13 @@ impl DaemonStateRoot {
 }
 
 /// Directories the lib's unit tests must never touch: the developer box's
-/// live product-default socket dirs (`<tmp>/eukhe-<uid>` for uid 1000 and
-/// root) and mission sockets. A unit test whose root leaks onto the ambient
-/// environment still cannot enumerate, probe, unlink, or stop them. Test
-/// builds only: in the shipped binary `/tmp/eukhe-1000` is the real default
-/// socket dir, and hiding it would make `status`/`doctor`/`shutdown` blind
-/// to the user's own daemon.
+/// live product-default socket dirs (the account's `~/.eukhe/run`, whatever
+/// HOME a test sets, and earlier releases' `<tmp>/eukhe-<uid>` for uid 1000
+/// and root) and mission sockets. A unit test whose root leaks onto the
+/// ambient environment still cannot enumerate, probe, unlink, or stop them.
+/// Test builds only: in the shipped binary these are the real default
+/// socket dirs, and hiding them would make `status`/`doctor`/`shutdown`
+/// blind to the user's own daemon.
 #[cfg(test)]
 pub(crate) const NEVER_TOUCH_SOCKET_DIRS: &[&str] = &[
     "/tmp/eukhe-1000",
@@ -128,6 +137,17 @@ pub(crate) const NEVER_TOUCH_SOCKET_DIRS: &[&str] = &[
     "/tmp/mission-tmp/eukhe-0",
 ];
 
+/// The account's own default socket dir (`<passwd home>/.eukhe/run`).
+#[cfg(test)]
+fn account_run_dir() -> Option<PathBuf> {
+    let user = nix::unistd::User::from_uid(nix::unistd::Uid::current()).ok()??;
+    Some(
+        user.dir
+            .join(eukhe_types::platform::dirs::AGENT_DIR_NAME)
+            .join(eukhe_types::platform::dirs::RUN_DIR_NAME),
+    )
+}
+
 /// True when `path` is or sits inside a never-touch directory (unit-test
 /// builds only; always false in the product).
 pub(crate) fn is_never_touch(path: &Path) -> bool {
@@ -136,6 +156,7 @@ pub(crate) fn is_never_touch(path: &Path) -> bool {
         NEVER_TOUCH_SOCKET_DIRS
             .iter()
             .any(|dir| path.starts_with(Path::new(dir)))
+            || account_run_dir().is_some_and(|dir| path.starts_with(dir))
     }
     #[cfg(not(test))]
     {
@@ -205,6 +226,7 @@ pub(crate) fn current_state_root(daemon_socket: Option<&str>) -> DaemonStateRoot
     } else {
         DiscoveryScope::Default {
             socket_dir: eukhe_types::platform::daemon_socket::socket_dir(),
+            legacy_socket_dir: eukhe_types::platform::daemon_socket::legacy_socket_dir(),
         }
     };
     DaemonStateRoot {
@@ -281,27 +303,15 @@ pub(crate) fn is_daemon_process_listening(
         )
 }
 
-/// Socket files in the given socket dir (TS `scanSocketDir`): live daemons
-/// and orphaned files alike. Never-touch paths are filtered out here too,
-/// so even a root handed in on purpose cannot sweep them.
+/// Endpoints in the given socket dir (TS `scanSocketDir`): listening
+/// abstract sockets named under it (Linux) and socket files there, live
+/// daemons and orphaned files alike. Never-touch paths are filtered out
+/// here too, so even a root handed in on purpose cannot sweep them.
 fn scan_socket_dir(socket_dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(socket_dir) else {
-        return Vec::new();
-    };
-    let mut sockets = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if is_socket_file(&path) && !is_never_touch(&path) {
-            sockets.push(path);
-        }
-    }
-    sockets
-}
-
-/// True when the path is a unix socket file.
-fn is_socket_file(path: &Path) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
+    eukhe_types::platform::endpoints::endpoints_in(socket_dir)
+        .into_iter()
+        .filter(|path| !is_never_touch(path))
+        .collect()
 }
 
 /// One tracked worker from a supervisor descriptor (TS `TrackedWorker`).
@@ -529,7 +539,13 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
     // Only the default scope sweeps the per-user socket dir: a scoped
     // invocation never even lists it.
     let swept = match &root.scope {
-        DiscoveryScope::Default { socket_dir } => scan_socket_dir(socket_dir),
+        DiscoveryScope::Default {
+            socket_dir,
+            legacy_socket_dir,
+        } => [socket_dir, legacy_socket_dir]
+            .into_iter()
+            .flat_map(|dir| scan_socket_dir(dir))
+            .collect(),
         DiscoveryScope::Socket | DiscoveryScope::AgentDir => Vec::new(),
     };
     let mut sockets: BTreeSet<PathBuf> = process_by_socket
@@ -545,7 +561,10 @@ pub(crate) fn discover_daemons(root: &DaemonStateRoot) -> Vec<DaemonInfo> {
         // `--daemon-socket`/`EUKHE_DAEMON_SOCKET` path outside the socket
         // dir is otherwise found only by the listener census (never as an
         // orphan file, and not at all where the census tools are missing).
-        .chain(is_socket_file(&root.default_socket_path).then(|| root.default_socket_path.clone()))
+        .chain(
+            eukhe_types::platform::endpoints::endpoint_exists(&root.default_socket_path)
+                .then(|| root.default_socket_path.clone()),
+        )
         .collect();
     sockets.retain(|path| state_root_matches(root, path));
 
@@ -634,21 +653,28 @@ mod tests {
 
     /// A synthetic default-scope state root inside a fixture directory:
     /// unit tests never touch the ambient environment's real agent dir or
-    /// socket dir. Its socket dir is [`fixture_socket_dir`].
+    /// socket dir. Its socket dir is [`fixture_socket_dir`], its earlier
+    /// releases' socket dir [`fixture_legacy_socket_dir`].
     fn fixture_root(dir: &Path) -> DaemonStateRoot {
         DaemonStateRoot {
             agent_dir: dir.join("agent"),
             default_socket_path: fixture_socket_dir(dir).join("daemon.sock"),
             scope: DiscoveryScope::Default {
                 socket_dir: fixture_socket_dir(dir),
+                legacy_socket_dir: fixture_legacy_socket_dir(dir),
             },
         }
     }
 
-    /// The fixture's default socket dir, beside (not inside) its agent dir
-    /// like the product's `<tmp>/eukhe-<uid>` beside `~/.eukhe`.
+    /// The fixture's default socket dir.
     fn fixture_socket_dir(dir: &Path) -> PathBuf {
         dir.join("sockets")
+    }
+
+    /// The fixture's socket dir of earlier releases, beside (not inside) its
+    /// agent dir like the product's `<tmp>/eukhe-<uid>` beside `~/.eukhe`.
+    fn fixture_legacy_socket_dir(dir: &Path) -> PathBuf {
+        dir.join("legacy-sockets")
     }
 
     /// Accept-and-drop listener on `path`: a probe finds it reachable
@@ -684,6 +710,7 @@ mod tests {
         let candidates = [
             default.default_socket_path.clone(),
             fixture_socket_dir(fixture).join("other.sock"),
+            fixture_legacy_socket_dir(fixture).join("daemon.sock"),
             default.agent_dir.join("nested/daemon.sock"),
             custom.clone(),
             PathBuf::from("/tmp/other-root/daemon.sock"),
@@ -710,9 +737,9 @@ mod tests {
                 matches(&agent_dir_scoped)
             ],
             [
-                vec![true, true, true, false, false],
-                vec![false, false, false, true, false],
-                vec![false, false, true, false, false],
+                vec![true, true, true, true, false, false],
+                vec![false, false, false, false, true, false],
+                vec![false, false, false, true, false, false],
             ]
         );
     }
@@ -726,6 +753,7 @@ mod tests {
                 default_socket_path: dir.join("daemon.sock"),
                 scope: DiscoveryScope::Default {
                     socket_dir: dir.to_path_buf(),
+                    legacy_socket_dir: dir.to_path_buf(),
                 },
             };
             assert!(
@@ -755,6 +783,7 @@ mod tests {
                 default_socket_path: PathBuf::from(dir).join("daemon.sock"),
                 scope: DiscoveryScope::Default {
                     socket_dir: PathBuf::from(dir),
+                    legacy_socket_dir: PathBuf::from(dir),
                 },
             };
             assert!(
@@ -790,6 +819,36 @@ mod tests {
         assert_eq!(infos[0].status, DaemonStatus::OrphanFile);
         // Not the root's default path: leftover.sock, not daemon.sock.
         assert!(!infos[0].is_default);
+    }
+
+    /// The default scope finds this release's endpoint in the socket dir
+    /// (on Linux an abstract socket: no file) and an earlier release's
+    /// daemon still listening on a socket file in the legacy dir.
+    #[test]
+    fn the_default_scope_finds_the_endpoint_and_the_earlier_releases_daemon() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = fixture_root(tmp.path());
+        for dir in [
+            fixture_socket_dir(tmp.path()),
+            fixture_legacy_socket_dir(tmp.path()),
+        ] {
+            std::fs::create_dir_all(dir).expect("socket dir");
+        }
+        let legacy = fixture_legacy_socket_dir(tmp.path()).join("daemon.sock");
+        let listener =
+            eukhe_types::platform::transport::bind_std(&root.default_socket_path).expect("bind");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                drop(stream);
+            }
+        });
+        listen(&legacy);
+        let mut found: Vec<PathBuf> = discover_daemons(&root)
+            .into_iter()
+            .map(|info| info.socket_path)
+            .collect();
+        found.sort();
+        assert_eq!(found, vec![legacy, root.default_socket_path]);
     }
 
     /// The invocation's scope follows what it names: a socket (flag, then
@@ -831,6 +890,7 @@ mod tests {
             [
                 DiscoveryScope::Default {
                     socket_dir: eukhe_types::platform::daemon_socket::socket_dir(),
+                    legacy_socket_dir: eukhe_types::platform::daemon_socket::legacy_socket_dir(),
                 },
                 DiscoveryScope::Socket,
                 DiscoveryScope::AgentDir,

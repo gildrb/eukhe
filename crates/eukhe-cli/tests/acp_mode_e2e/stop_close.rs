@@ -164,8 +164,11 @@ fn acp_daemon_attached_close_stop_failure_fences_the_session() {
         &json!({ "engine": "faux", "responses": ["unused"] }),
     );
     let session_id = initialize_and_new_session(&mut client);
-    let probe =
-        eukhe_types::platform::transport::connect_blocking(&client.socket).expect("daemon socket");
+    let probe = eukhe_types::platform::transport::connect_blocking(
+        &client.socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    )
+    .expect("daemon socket");
     let reader = probe.try_clone_box().expect("daemon socket clone");
     let _ = reader.set_read_timeout(Duration::from_mins(2));
     let hello = BufReader::new(reader)

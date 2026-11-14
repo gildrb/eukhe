@@ -44,7 +44,9 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
         ),
         socket,
     );
-    wait_until("the supervisor socket", || socket.exists());
+    wait_until("the supervisor socket", || {
+        eukhe_types::platform::endpoints::endpoint_exists(socket)
+    });
     supervisor
 }
 

@@ -336,7 +336,10 @@ impl ProcessLauncher {
         let socket_path = self.socket_path.as_path();
         let caller = match start {
             Start::Background => Caller::Background,
-            Start::Interactive(_) => Caller::Interactive,
+            Start::Interactive(takeover) => {
+                self.retire_legacy_daemon(client, takeover).await;
+                Caller::Interactive
+            }
         };
         match probe_daemon(socket_path).await {
             DaemonProbe::Absent => {}
@@ -381,7 +384,8 @@ impl ProcessLauncher {
                     return outcome.map(Launched::found);
                 };
                 match (
-                    self.stop_daemon_if_idle(&daemon_client, takeover).await?,
+                    self.stop_daemon_if_idle(socket_path, &daemon_client, takeover)
+                        .await?,
                     protocol,
                 ) {
                     (IdleStop::Stopped, Protocol::Compatible | Protocol::Incompatible) => {}
@@ -523,6 +527,49 @@ impl ProcessLauncher {
         }
     }
 
+    /// An interactive start on the default socket stops the daemon an
+    /// earlier release left serving on its default socket in the per-user
+    /// temp dir (releases up to 0.10.73), as it replaces an older daemon on
+    /// its own socket: the core's replacement verdict decides, an idle one
+    /// is asked to stop, and a busy one keeps running until a later start
+    /// finds it idle. No start uses it: every client of this build looks for
+    /// the daemon in the run dir. A daemon that stays is logged, never an
+    /// error of the start.
+    async fn retire_legacy_daemon(&self, client: Build<'_>, takeover: &impl SocketTakeover) {
+        let legacy = eukhe_types::platform::daemon_socket::legacy_daemon_socket_path();
+        if self.socket_path != eukhe_types::platform::daemon_socket::default_daemon_socket_path()
+            || self.socket_path == legacy
+        {
+            return;
+        }
+        let DaemonProbe::Answered {
+            client: daemon_client,
+            protocol: _,
+        } = probe_daemon(&legacy).await
+        else {
+            return;
+        };
+        match replacement_verdict(client, daemon_client.daemon_build(), Caller::Interactive) {
+            Replacement::Replace => {
+                match self
+                    .stop_daemon_if_idle(&legacy, &daemon_client, takeover)
+                    .await
+                {
+                    Ok(IdleStop::Stopped) => {}
+                    Ok(IdleStop::Busy) => tracing::info!(
+                        socket = %legacy.display(),
+                        "the earlier release's daemon has active work; a later start stops it"
+                    ),
+                    Err(error) => tracing::warn!(
+                        socket = %legacy.display(),
+                        "the earlier release's daemon was not stopped: {error:#}"
+                    ),
+                }
+            }
+            Replacement::Keep(_) => daemon_client.close(),
+        }
+    }
+
     /// The error for a daemon this start does not use or replace.
     fn incompatible(&self, why: &str) -> anyhow::Error {
         anyhow!(
@@ -541,6 +588,7 @@ impl ProcessLauncher {
     /// persist and reattach to the replacement.
     async fn stop_daemon_if_idle(
         &self,
+        socket_path: &Path,
         client: &DaemonClient,
         takeover: &impl SocketTakeover,
     ) -> Result<IdleStop> {
@@ -566,20 +614,20 @@ impl ProcessLauncher {
             // No answer: the daemon may stop before it answers, so the
             // socket decides.
             Err(_) => {
-                return Ok(if socket_released(&self.socket_path, wait).await {
+                return Ok(if socket_released(socket_path, wait).await {
                     IdleStop::Stopped
                 } else {
                     IdleStop::Busy
                 });
             }
         }
-        if !socket_released(&self.socket_path, wait).await {
+        if !socket_released(socket_path, wait).await {
             takeover
                 .stop_holder(
-                    &self.socket_path,
+                    socket_path,
                     &format!(
                         "the Eukhe daemon on {} did not stop after it agreed to an idle shutdown",
-                        self.socket_path.display()
+                        socket_path.display()
                     ),
                 )
                 .await?;
@@ -663,7 +711,10 @@ pub async fn socket_released(socket_path: &Path, within: Duration) -> bool {
 /// Whether something accepts a connection on `socket_path` within one
 /// probe's connect budget.
 async fn socket_accepts(socket_path: &Path) -> bool {
-    let connect = eukhe_types::platform::transport::connect_transport(socket_path);
+    let connect = eukhe_types::platform::transport::connect_transport(
+        socket_path,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    );
     matches!(
         tokio::time::timeout(RELEASE_PROBE_TIMEOUT, connect).await,
         Ok(Ok(_))

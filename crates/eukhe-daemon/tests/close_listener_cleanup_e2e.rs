@@ -37,11 +37,10 @@
 //! the poisoned gate matches the successor's live file and unlinks it.
 #![cfg(unix)]
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixListener;
+use std::path::Path;
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -50,8 +49,23 @@ use serde_json::{json, Value};
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
-use daemon::{daemon_command, supervisor_command};
+use daemon::daemon_command;
 use process::{wait_socket_file, Daemon};
+
+// The socket-file oracles (off Linux): a Linux endpoint is an abstract
+// name, nothing to rename aside or bind over.
+#[cfg(not(target_os = "linux"))]
+use daemon::supervisor_command;
+#[cfg(not(target_os = "linux"))]
+use std::io::Read;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::fs::MetadataExt;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::net::UnixStream;
+#[cfg(not(target_os = "linux"))]
+use std::path::PathBuf;
+#[cfg(not(target_os = "linux"))]
+use std::process::Command;
 
 /// The bind-capture gap the oracles set: wide enough that the replacement
 /// provably lands inside the window, small enough to keep the oracle fast.
@@ -59,6 +73,7 @@ const BIND_CAPTURE_GAP_MS: &str = "2000";
 
 /// The filesystem identity the gate compares: dev + ino of the file
 /// currently at the path.
+#[cfg(not(target_os = "linux"))]
 fn socket_identity(path: &Path) -> (u64, u64) {
     let metadata = std::fs::symlink_metadata(path).expect("stat socket file");
     (metadata.dev(), metadata.ino())
@@ -68,6 +83,7 @@ fn socket_identity(path: &Path) -> (u64, u64) {
 /// listener keeps serving through the rename (the kernel tracks the inode,
 /// not the name), so the oracle can still drive the owner through its
 /// real exit path while the successor owns the original path.
+#[cfg(not(target_os = "linux"))]
 fn rename_bound_socket_aside(socket: &Path) -> PathBuf {
     let aside: PathBuf = socket.parent().expect("socket parent").join(format!(
         "{}.poisoned-aside",
@@ -85,6 +101,7 @@ fn rename_bound_socket_aside(socket: &Path) -> PathBuf {
 /// as the owner's own - the poisoned state the microsecond race
 /// produces. The original inode stays allocated (renamed aside), so the
 /// identities provably differ.
+#[cfg(not(target_os = "linux"))]
 fn bind_poisoning_successor(socket: &Path) -> (UnixListener, (u64, u64)) {
     let successor = UnixListener::bind(socket).expect("bind the poisoning successor");
     let identity = socket_identity(socket);
@@ -93,6 +110,7 @@ fn bind_poisoning_successor(socket: &Path) -> (UnixListener, (u64, u64)) {
 
 /// A live successor's socket must answer connects after the poisoned
 /// owner's exit: the file survived AND it still serves.
+#[cfg(not(target_os = "linux"))]
 fn assert_successor_serves(socket: &Path, identity: (u64, u64)) {
     assert!(
         socket.exists(),
@@ -103,7 +121,8 @@ fn assert_successor_serves(socket: &Path, identity: (u64, u64)) {
         identity,
         "the file at the path is still the successor's, not a new file"
     );
-    let connect = UnixStream::connect(socket).expect("the successor socket still accepts");
+    let connect = eukhe_types::platform::transport::connect_std(socket)
+        .expect("the successor socket still accepts");
     drop(connect);
 }
 
@@ -126,6 +145,7 @@ fn wait_clean_exit(child: &mut Child, budget: Duration) -> std::process::ExitSta
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn(
@@ -218,8 +238,10 @@ fn spawn_rejecting_supervisor(socket: &Path) {
 /// Read one JSONL line from the supervisor's aside socket within the
 /// deadline: a served hello proves the supervisor's accept loop (and so
 /// the capture before it) has completed - the poisoned state is armed.
+#[cfg(not(target_os = "linux"))]
 fn supervisor_hello_line(socket: &Path) -> Value {
-    let stream = UnixStream::connect(socket).expect("connect the supervisor aside socket");
+    let stream = eukhe_types::platform::transport::connect_std(socket)
+        .expect("connect the supervisor aside socket");
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
         .expect("set timeout");
@@ -243,13 +265,16 @@ fn supervisor_hello_line(socket: &Path) -> Value {
 
 /// A raw private-frame client for the worker's aside socket (the same
 /// wire the supervisor's request pump speaks).
+#[cfg(not(target_os = "linux"))]
 struct WorkerClient {
     stream: UnixStream,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl WorkerClient {
     fn connect(socket: &Path, token: &str) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect the worker aside socket");
+        let stream = eukhe_types::platform::transport::connect_std(socket)
+            .expect("connect the worker aside socket");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");
@@ -320,6 +345,7 @@ impl WorkerClient {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Instant) {
     let mut read = 0usize;
     while read < buffer.len() {
@@ -339,6 +365,11 @@ fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Inst
 /// inside the worker's bind->capture window poisons the captured
 /// identity, the worker's real exit path runs, and the successor's LIVE
 /// socket at the path must survive it.
+///
+/// Socket files only (off Linux): a Linux endpoint is an abstract name,
+/// which binds once while its owner listens, so no successor can take the
+/// path inside the window and there is no file to rename aside.
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn a_poisoned_workers_shutdown_exit_spares_the_successors_live_socket() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -370,7 +401,9 @@ fn a_poisoned_workers_shutdown_exit_spares_the_successors_live_socket() {
 /// The poisoned supervisor's SIGTERM graceful drain: a replacement bound
 /// at the path inside the supervisor's bind->capture window poisons the
 /// captured identity, the real drain exit runs, and the successor's LIVE
-/// socket at the path must survive it.
+/// socket at the path must survive it. Socket files only (off Linux), as
+/// above.
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn a_poisoned_supervisors_drain_spares_the_successors_live_socket() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -397,21 +430,18 @@ fn a_poisoned_supervisors_drain_spares_the_successors_live_socket() {
 /// registration rejection lands while the worker is parked in the
 /// fault-injection seam, so the exit path's identity is still `None`
 /// when it fires): the exit must WAIT for the serve handshake to resume,
-/// capture, arm, and drop the listener - and then remove the worker's
-/// OWN now-dead socket file (the registration-refusal arm of the
+/// capture, arm, and drop the listener - and then leave nothing of the
+/// worker's OWN endpoint behind (the registration-refusal arm of the
 /// close-then-cleanup choreography; a flag-gated wait that skips the
-/// handshake in that window preserves the live file and strands a stale
-/// socket). The refusal is driven through the real
-/// `exit_refused_registration` path by a supervisor stand-in that
-/// definitively rejects the registration.
+/// handshake in that window strands a live endpoint). The refusal is
+/// driven through the real `exit_refused_registration` path by a
+/// supervisor stand-in that definitively rejects the registration.
 ///
-/// Linux-only: `unix_listener_definitely_closed` rules `ECONNREFUSED`
-/// definitive there alone (the unit-test platform split mirrors this),
-/// so the refusal exit unlinks its own dead file on Linux and
-/// conservatively preserves it everywhere else.
+/// Linux: the endpoint is an abstract socket and its pid record; both are
+/// gone after the exit.
 #[cfg(target_os = "linux")]
 #[test]
-fn a_refused_registrations_exit_removes_the_workers_own_dead_socket() {
+fn a_refused_registrations_exit_leaves_no_endpoint_of_the_worker() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("worker.sock");
     let supervisor_socket = dir.path().join("rejecting-supervisor.sock");
@@ -425,11 +455,15 @@ fn a_refused_registrations_exit_removes_the_workers_own_dead_socket() {
     wait_socket_file(&socket, Duration::from_secs(15));
     // The rejection retires the worker while it is parked in the gap;
     // the exit parks on the close confirmation until the serve task
-    // resumes, then unlinks the worker's own dead file.
+    // resumes, then closes the worker's endpoint.
     wait_clean_exit(&mut worker.child, Duration::from_secs(10));
     assert!(
-        !socket.exists(),
-        "the refused worker's own dead socket file is removed, not left stale"
+        !eukhe_types::platform::endpoints::endpoint_exists(&socket),
+        "the refused worker's endpoint is closed, not left listening"
+    );
+    assert!(
+        !eukhe_types::platform::transport::record_path(&socket).exists(),
+        "the refused worker's pid record is removed"
     );
 }
 
@@ -465,7 +499,8 @@ fn a_refused_registrations_exit_preserves_its_dead_file_off_linux() {
 /// exit must still spare that successor - the liveness probe refuses the
 /// unlink even though the poisoned identity gate would match. This pins
 /// the refusal exit to the same successor-protection contract the
-/// routed-shutdown exit carries.
+/// routed-shutdown exit carries. Socket files only (off Linux), as above.
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn a_refused_registrations_exit_spares_the_poisoning_successor() {
     let dir = tempfile::TempDir::new().expect("temp dir");

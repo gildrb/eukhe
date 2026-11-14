@@ -57,7 +57,7 @@ impl Client {
     fn connect(socket: &std::path::Path) -> (Self, serde_json::Value) {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            if let Ok(stream) = UnixStream::connect(socket) {
+            if let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) {
                 let writer = stream.try_clone().expect("clone stream");
                 let mut client = Client {
                     reader: BufReader::new(stream),
@@ -430,7 +430,8 @@ struct WorkerClient {
 
 impl WorkerClient {
     fn connect(socket: &std::path::Path) -> (Self, serde_json::Value) {
-        let stream = UnixStream::connect(socket).expect("connect worker socket");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect worker socket");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");

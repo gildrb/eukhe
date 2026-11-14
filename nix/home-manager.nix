@@ -180,6 +180,8 @@ in
       ''
     );
 
+    # The daemon's socket: the abstract socket named by
+    # ~/.eukhe/run/daemon.sock (no file).
     systemd.user.services.eukhe-daemon =
       lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isLinux)
         {
@@ -192,9 +194,9 @@ in
           Install.WantedBy = [ "default.target" ];
         };
 
-    # The daemon's socket lives under TMPDIR, which launchd does not promise
-    # an agent: the agent takes the per-user directory a terminal's TMPDIR
-    # names, so `eukhe` in a terminal finds it.
+    # The daemon's socket file lives in ~/.eukhe/run. launchd does not
+    # promise an agent a TMPDIR: the agent takes the per-user directory a
+    # terminal's TMPDIR names, for the programs the daemon runs.
     launchd.agents.eukhe-daemon = lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
       enable = true;
       config = {

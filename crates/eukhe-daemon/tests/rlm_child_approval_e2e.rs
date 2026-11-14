@@ -37,7 +37,8 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");

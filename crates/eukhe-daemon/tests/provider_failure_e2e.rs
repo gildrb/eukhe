@@ -283,7 +283,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = std::os::unix::net::UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         let writer = stream.try_clone().expect("clone");
         let mut client = Client {
             reader: BufReader::new(stream),
@@ -981,7 +981,7 @@ struct DirectClient {
 impl DirectClient {
     fn connect(socket: &Path, ticket: &Value, session_id: &str) -> DirectClient {
         let mut client = DirectClient {
-            stream: std::os::unix::net::UnixStream::connect(socket).expect("connect worker"),
+            stream: eukhe_types::platform::transport::connect_std(socket).expect("connect worker"),
         };
         client
             .stream

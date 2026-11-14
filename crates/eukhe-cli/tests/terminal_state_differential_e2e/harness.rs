@@ -178,7 +178,7 @@ impl DifferentialHarness {
         };
         self.refusing.store(true, Ordering::SeqCst);
         drop(listener);
-        let wake = std::os::unix::net::UnixStream::connect(&self.socket_path)
+        let wake = eukhe_types::platform::transport::connect_std(&self.socket_path)
             .expect("wake the mock accept loop");
         server.join().expect("the mock accept loop stops");
         drop(wake);

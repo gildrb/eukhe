@@ -258,7 +258,10 @@ mod tests {
         DaemonStateRoot {
             agent_dir: dir.join("agent"),
             default_socket_path: socket_dir.join("daemon.sock"),
-            scope: DiscoveryScope::Default { socket_dir },
+            scope: DiscoveryScope::Default {
+                socket_dir,
+                legacy_socket_dir: dir.join("legacy-sockets"),
+            },
         }
     }
 
@@ -285,6 +288,7 @@ mod tests {
                 default_socket_path: PathBuf::from(dir).join("daemon.sock"),
                 scope: DiscoveryScope::Default {
                     socket_dir: PathBuf::from(dir),
+                    legacy_socket_dir: PathBuf::from(dir),
                 },
             };
             let mut stopped: Vec<(String, String)> = Vec::new();

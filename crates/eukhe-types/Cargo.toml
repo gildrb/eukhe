@@ -14,9 +14,9 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 libc = "0.2"
 # platform: signals, the suspend's thread mask and stop, the tty's
-# termios, and this process's uid (platform/access) through safe
-# wrappers. MIT.
-nix = { version = "0.29", features = ["signal", "process", "pthread", "term", "user"] }
+# termios, this process's uid (platform/access), and the uid at the other
+# end of a blocking socket (platform/transport) through safe wrappers. MIT.
+nix = { version = "0.29", features = ["signal", "process", "pthread", "term", "user", "socket"] }
 # platform/transport: a socket peer of another uid is dropped with a
 # warning. Already in the graph (workspace). MIT.
 tracing.workspace = true

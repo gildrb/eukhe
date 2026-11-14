@@ -817,7 +817,10 @@ async fn send_request(socket_target: &str, request: Value) -> bool {
     // and starve later states or the release.
     let connected = tokio::time::timeout(
         Duration::from_millis(SEND_TIMEOUT_MS),
-        eukhe_types::platform::transport::connect_transport(std::path::Path::new(socket_target)),
+        eukhe_types::platform::transport::connect_transport(
+            std::path::Path::new(socket_target),
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        ),
     )
     .await;
     let Ok(Ok(stream)) = connected else {

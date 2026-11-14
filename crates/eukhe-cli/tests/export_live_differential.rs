@@ -74,7 +74,7 @@ impl Drop for Supervisor {
 }
 
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {
@@ -146,7 +146,8 @@ struct Wire {
 
 impl Wire {
     fn connect(socket: &Path) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         let writer = stream.try_clone().expect("clone stream");
         let mut reader = BufReader::new(stream);
         let mut hello = String::new();

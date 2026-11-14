@@ -110,7 +110,7 @@ fn process_alive(pid: u32) -> bool {
 /// Send the daemon protocol shutdown and wait (bounded) for the supervisor
 /// it names to exit.
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = std::os::unix::net::UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {

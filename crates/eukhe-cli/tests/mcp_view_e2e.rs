@@ -91,9 +91,8 @@ impl Drop for Supervisor {
 
 fn graceful_shutdown(socket: &Path) {
     use std::io::{BufRead, BufReader};
-    use std::os::unix::net::UnixStream;
 
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {

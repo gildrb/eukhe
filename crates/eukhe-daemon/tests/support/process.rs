@@ -4,7 +4,6 @@
 
 #![allow(dead_code)] // each including test binary uses its own subset
 
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
@@ -61,7 +60,7 @@ impl Daemon {
 /// Wait until the socket file exists.
 pub fn wait_socket_file(socket: &Path, timeout: Duration) {
     let deadline = Instant::now() + timeout;
-    while !socket.exists() {
+    while !eukhe_types::platform::endpoints::endpoint_exists(socket) {
         assert!(
             Instant::now() < deadline,
             "socket {} never appeared",
@@ -76,7 +75,7 @@ pub fn wait_socket_file(socket: &Path, timeout: Duration) {
 /// not readiness).
 pub fn wait_socket_accepts(socket: &Path, timeout: Duration) {
     let deadline = Instant::now() + timeout;
-    while UnixStream::connect(socket).is_err() {
+    while eukhe_types::platform::transport::connect_std(socket).is_err() {
         assert!(
             Instant::now() < deadline,
             "socket {} never came up",

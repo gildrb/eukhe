@@ -106,7 +106,10 @@ fn shutdown_command_exits_the_supervisor_process() {
     // Linux removes the socket file at the exit; off Linux the exit keeps
     // it and the next start reclaims it (checked once the workers are gone).
     #[cfg(target_os = "linux")]
-    assert!(!socket.exists(), "the socket file is removed on exit");
+    assert!(
+        !eukhe_types::platform::endpoints::endpoint_exists(&socket),
+        "the socket is closed and its file removed on exit"
+    );
 
     // No worker process outlives the shutdown.
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -161,8 +164,8 @@ fn a_sigterm_exits_the_supervisor_through_the_graceful_drain() {
     // it and the next start reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
-        !socket.exists(),
-        "the drained supervisor cleans its socket file up"
+        !eukhe_types::platform::endpoints::endpoint_exists(&socket),
+        "the drained supervisor closes its socket and cleans its file up"
     );
     #[cfg(not(target_os = "linux"))]
     assert_the_next_start_reclaims_the_socket(&socket, &agent_dir);
@@ -193,7 +196,7 @@ fn a_sigterm_landing_before_the_accept_loop_still_drains() {
     );
     // The listen backlog accepts the connect while the boot is parked.
     let deadline = Instant::now() + Duration::from_secs(10);
-    while UnixStream::connect(&socket).is_err() {
+    while eukhe_types::platform::transport::connect_std(&socket).is_err() {
         assert!(
             Instant::now() < deadline,
             "the supervisor socket never accepted a connect"
@@ -215,8 +218,8 @@ fn a_sigterm_landing_before_the_accept_loop_still_drains() {
     // it and the next start reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
-        !socket.exists(),
-        "the drained supervisor cleans its socket file up"
+        !eukhe_types::platform::endpoints::endpoint_exists(&socket),
+        "the drained supervisor closes its socket and cleans its file up"
     );
     #[cfg(not(target_os = "linux"))]
     assert_the_next_start_reclaims_the_socket(&socket, &agent_dir);

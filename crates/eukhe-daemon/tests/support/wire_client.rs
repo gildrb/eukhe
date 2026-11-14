@@ -39,7 +39,8 @@ pub struct WireClient {
 impl WireClient {
     /// Connect and read the hello.
     pub fn connect(socket: &Path) -> WireClient {
-        let stream = UnixStream::connect(socket).expect("connect the supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect the supervisor");
         let reader = stream.try_clone().expect("clone the socket");
         let shared = Arc::new(Shared {
             lines: Mutex::new(Lines::default()),

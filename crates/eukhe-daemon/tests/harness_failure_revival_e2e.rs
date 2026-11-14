@@ -39,7 +39,9 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
         ),
         socket,
     );
-    wait_until("the supervisor socket", || socket.exists());
+    wait_until("the supervisor socket", || {
+        eukhe_types::platform::endpoints::endpoint_exists(socket)
+    });
     supervisor
 }
 
@@ -60,7 +62,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = std::os::unix::net::UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         stream
             .set_read_timeout(Some(Duration::from_mins(2)))
             .expect("read timeout");

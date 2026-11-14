@@ -53,6 +53,7 @@ pub mod rlm_query;
 pub mod runners;
 pub mod scan;
 pub mod semver;
+pub mod server_peer;
 pub mod shape;
 pub mod shell;
 pub mod slash;

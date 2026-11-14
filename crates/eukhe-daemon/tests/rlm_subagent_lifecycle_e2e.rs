@@ -95,7 +95,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
 fn connect(socket: &Path) -> Client {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        if let Ok(stream) = UnixStream::connect(socket) {
+        if let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) {
             let writer = stream.try_clone().expect("clone socket");
             let mut client = Client {
                 reader: BufReader::new(stream),

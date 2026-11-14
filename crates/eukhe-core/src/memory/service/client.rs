@@ -9,9 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eukhe_types::daemon::MemoryUpdate;
+use eukhe_types::platform::endpoints::is_socket_file;
 use eukhe_types::platform::transport::{
     bind_transport, connect_transport, AsyncReadHalf, AsyncWriteHalf, TransportListener,
-    TransportStream,
+    TransportStream, ENDPOINTS_ARE_FILES,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::sync::oneshot;
@@ -68,9 +69,22 @@ pub(super) async fn claim(dir: &Path) -> anyhow::Result<Claim> {
 }
 
 async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
+    // An owner of an earlier release listens on a socket file at the path
+    // while this build's endpoint is abstract (Linux): reach that owner
+    // instead of owning the files beside it; a dead one's file goes.
+    if !ENDPOINTS_ARE_FILES && is_socket_file(lock) {
+        if let Ok(stream) =
+            connect_transport(lock, eukhe_bend::rules::server_peer::PEER_RULES).await
+        {
+            return Ok(Claim::Held(stream));
+        }
+        remove_stale(lock)?;
+    }
     match bind_transport(lock, eukhe_bend::rules::fsmode::peer_verdict).await {
         Ok(listener) => {
-            crate::platform::restrict_file(lock)?;
+            if ENDPOINTS_ARE_FILES {
+                crate::platform::restrict_file(lock)?;
+            }
             return Ok(Claim::Owned(listener));
         }
         Err(bind_error) => {
@@ -79,22 +93,29 @@ async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
             }
         }
     }
-    match connect_transport(lock).await {
+    match connect_transport(lock, eukhe_bend::rules::server_peer::PEER_RULES).await {
         Ok(stream) => Ok(Claim::Held(stream)),
         Err(connect_error) => match io_kind(&connect_error) {
             Some(std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound) => {
-                match std::fs::remove_file(lock) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
-                }
+                remove_stale(lock)?;
                 let listener =
                     bind_transport(lock, eukhe_bend::rules::fsmode::peer_verdict).await?;
-                crate::platform::restrict_file(lock)?;
+                if ENDPOINTS_ARE_FILES {
+                    crate::platform::restrict_file(lock)?;
+                }
                 Ok(Claim::Owned(listener))
             }
             _ => Err(connect_error),
         },
+    }
+}
+
+/// Remove the socket file a dead owner left at `lock`; already gone is fine.
+fn remove_stale(lock: &Path) -> anyhow::Result<()> {
+    match std::fs::remove_file(lock) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -303,7 +324,11 @@ impl Subscription {
     ///
     /// Returns an error when the owner cannot be reached or refuses.
     pub(super) async fn open(dir: &Path) -> anyhow::Result<Subscription> {
-        let stream = connect_transport(&dir.join("lock")).await?;
+        let stream = connect_transport(
+            &dir.join("lock"),
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        )
+        .await?;
         let (read_half, mut writer) = stream.split();
         let mut line = serde_json::to_string(&ClientFrame::Request {
             id: SUBSCRIPTION_ID,

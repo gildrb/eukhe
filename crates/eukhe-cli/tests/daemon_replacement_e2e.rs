@@ -12,7 +12,6 @@
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
-use std::os::unix::net::UnixStream;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -268,7 +267,7 @@ fn wait_exit(child: &mut Child) -> Option<std::process::ExitStatus> {
 
 /// The hello of whatever listens on `socket` now.
 fn read_hello(socket: &Path) -> Value {
-    let stream = UnixStream::connect(socket).expect("daemon socket");
+    let stream = eukhe_types::platform::transport::connect_std(socket).expect("daemon socket");
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .expect("read timeout");
@@ -299,7 +298,7 @@ struct DetachedDaemon {
 
 impl Drop for DetachedDaemon {
     fn drop(&mut self) {
-        let Ok(mut stream) = UnixStream::connect(&self.socket) else {
+        let Ok(mut stream) = eukhe_types::platform::transport::connect_std(&self.socket) else {
             return;
         };
         if stream
@@ -325,7 +324,7 @@ impl Drop for DetachedDaemon {
         });
         let _ = writeln!(stream, "{command}");
         let deadline = Instant::now() + Duration::from_secs(10);
-        while UnixStream::connect(&self.socket).is_ok() {
+        while eukhe_types::platform::transport::connect_std(&self.socket).is_ok() {
             if Instant::now() > deadline {
                 if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
                     // The pid comes from this fixture supervisor's own
@@ -485,6 +484,100 @@ async fn an_idle_older_version_daemon_is_replaced() {
     assert_eq!(shutdowns.load(Ordering::SeqCst), 1, "old daemon shut down");
     old.await.expect("old daemon task");
     assert_eq!(identity(&hello_now(&socket).await), current_identity());
+}
+
+/// The default sockets of the fixture's pinned state env: this build's in
+/// the agent dir's run dir, and the one releases up to 0.10.73 listened on
+/// in the temp dir (`eukhe-<uid>`, mode 0700 as they made it).
+fn default_sockets(root: &Path) -> (PathBuf, PathBuf) {
+    let legacy_dir = root.join("tmp").join(format!(
+        "eukhe-{}",
+        eukhe_types::platform::access::current_uid()
+    ));
+    std::fs::create_dir_all(&legacy_dir).expect("legacy socket dir");
+    std::fs::set_permissions(&legacy_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("private dir");
+    (
+        root.join("agent").join("run").join("daemon.sock"),
+        legacy_dir.join("daemon.sock"),
+    )
+}
+
+/// An idle daemon of an earlier release on the old default socket (in the
+/// temp dir) is stopped by an interactive start on the new default socket,
+/// which starts this build's daemon in the run dir.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_earlier_release_on_the_old_default_socket_is_retired() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path();
+    let (socket, legacy) = default_sockets(root);
+    let _replacement = DetachedDaemon {
+        socket: socket.clone(),
+    };
+    let (old, shutdowns) = start_mock(
+        &legacy,
+        MockDaemon::idle(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old"),
+    );
+
+    assert_eq!(
+        launch(root, &socket, Build::THIS, Caller::Interactive).await,
+        current()
+    );
+    assert_eq!(
+        shutdowns.load(Ordering::SeqCst),
+        1,
+        "the old daemon is asked to stop"
+    );
+    old.await.expect("old daemon task");
+    assert!(!legacy.exists(), "the old socket is gone");
+    assert_eq!(identity(&hello_now(&socket).await), current_identity());
+}
+
+/// A background start leaves the earlier release's daemon alone, and a
+/// busy one keeps serving its sessions after an interactive start: either
+/// way this build's daemon starts in the run dir beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_earlier_release_with_work_or_a_background_start_keeps_its_daemon() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path();
+    let (socket, legacy) = default_sockets(root);
+    let _replacement = DetachedDaemon {
+        socket: socket.clone(),
+    };
+    let (idle, idle_shutdowns) = start_mock(
+        &legacy,
+        MockDaemon::idle(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old"),
+    );
+    assert_eq!(
+        launch(root, &socket, Build::THIS, Caller::Background).await,
+        current()
+    );
+    assert_eq!(
+        idle_shutdowns.load(Ordering::SeqCst),
+        0,
+        "a background start asks nothing"
+    );
+    idle.abort();
+    let _ = idle.await;
+    let _ = std::fs::remove_file(&legacy);
+
+    let busy = MockDaemon {
+        busy: true,
+        ..MockDaemon::idle(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old")
+    };
+    let (old, shutdowns) = start_mock(&legacy, busy);
+    assert_eq!(
+        launch(root, &socket, Build::THIS, Caller::Interactive).await,
+        current()
+    );
+    assert_eq!(shutdowns.load(Ordering::SeqCst), 1, "asked once, refused");
+    assert_eq!(
+        hello_now(&legacy).await["appVersion"],
+        OLD_VERSION,
+        "the busy old daemon still serves"
+    );
+    assert_eq!(identity(&hello_now(&socket).await), current_identity());
+    old.abort();
 }
 
 /// A busy daemon of an older eukhe version refuses the idle shutdown and

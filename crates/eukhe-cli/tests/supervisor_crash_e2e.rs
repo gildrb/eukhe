@@ -15,7 +15,6 @@
 
 use std::future::Future;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -107,7 +106,7 @@ impl Drop for Teardown {
         // A sync `shutdown` request (this runs inside the async test's
         // runtime). Best effort: the answer is the sync point, the
         // supervisor's exit the end.
-        if let Ok(stream) = UnixStream::connect(&self.socket) {
+        if let Ok(stream) = eukhe_types::platform::transport::connect_std(&self.socket) {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
             let writer = stream.try_clone();
             let mut reader = BufReader::new(stream);

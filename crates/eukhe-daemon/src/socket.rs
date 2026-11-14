@@ -13,7 +13,10 @@ pub use crate::platform::{socket_identity, worker_socket_path, SocketIdentity};
 
 /// Try to connect to an endpoint within `timeout`; true when a peer accepts.
 pub async fn can_connect(path: &Path, timeout: Duration) -> bool {
-    let connect = eukhe_types::platform::transport::connect_transport(path);
+    let connect = eukhe_types::platform::transport::connect_transport(
+        path,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok(stream)) => {
             drop(stream);
@@ -69,6 +72,18 @@ async fn acquire_cleanup_lock(path: &Path) -> Result<eukhe_core::platform::LockD
 pub async fn prepare_socket_path(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         crate::platform::prepare_socket_dir(parent)?;
+    }
+    // An abstract endpoint (Linux) leaves no file: a live listener of the
+    // name, of any uid, is the one thing that blocks the bind.
+    if !eukhe_types::platform::transport::ENDPOINTS_ARE_FILES
+        && tokio::time::timeout(
+            Duration::from_millis(250),
+            eukhe_types::platform::transport::connect_tokio(path),
+        )
+        .await
+        .is_ok_and(|connected| connected.is_ok())
+    {
+        return Err(anyhow!("Daemon socket already in use: {}", path.display()));
     }
     // lstat, not `Path::exists()`: a dangling symlink still blocks `bind`
     // while `exists()` - which follows links - denies it, and it must reach
@@ -208,12 +223,16 @@ pub fn cleanup_socket_path_after_close(path: &Path, expected_identity: Option<So
 
 /// Restrict the bound socket file to its owner (mode 0o600). The checked
 /// 0700 dir already hides it; the mode keeps it private if the dir ever
-/// opens up.
+/// opens up. An abstract endpoint (Linux) has no file: nothing to do, the
+/// peer rule alone keeps other uids out.
 ///
 /// # Errors
 ///
 /// Returns an error that names the socket when the mode cannot be set.
 pub fn restrict_socket_path(path: &Path) -> Result<()> {
+    if !eukhe_types::platform::transport::ENDPOINTS_ARE_FILES {
+        return Ok(());
+    }
     eukhe_core::platform::perms::restrict_file(path)
         .with_context(|| format!("set mode 0600 on the socket {}", path.display()))
 }
@@ -408,15 +427,15 @@ mod tests {
     /// landing in the bind->capture window produces - and still unlinks
     /// the dead file the matching identity describes (the still-ours
     /// direction: a respawn does not wait out the stale-socket path).
+    /// Socket files on every platform: the cleanup's subject (an abstract
+    /// endpoint leaves none).
     #[tokio::test]
     async fn exit_cleanup_after_close_spares_a_live_successor_with_a_matching_identity() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
         // The owner's own bind, closed exactly like the exit sequences
         // close it before their cleanup.
-        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let owner = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         drop(owner);
         // The poisoned capture: the successor binds the path after the
         // owner's file is renamed aside, and the "captured" identity is
@@ -424,9 +443,7 @@ mod tests {
         // bind->capture window stores exactly this).
         let aside = dir.path().join("owner.sock");
         std::fs::rename(&socket, &aside).unwrap();
-        let successor = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let successor = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let poisoned = socket_identity(&socket).unwrap();
         cleanup_socket_path_after_close(&socket, Some(poisoned.clone()));
         assert!(
@@ -448,9 +465,7 @@ mod tests {
     async fn exit_cleanup_after_close_unlinks_the_dead_still_ours_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let owner = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let identity = socket_identity(&socket).unwrap();
         drop(owner);
         cleanup_socket_path_after_close(&socket, Some(identity));
@@ -489,9 +504,7 @@ mod tests {
     async fn exit_cleanup_preserves_a_backlogged_successor_with_a_matching_identity() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let owner = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         drop(owner);
         let aside = dir.path().join("owner.sock");
         std::fs::rename(&socket, &aside).unwrap();
@@ -531,16 +544,23 @@ mod tests {
         std::fs::remove_file(&aside).unwrap();
     }
 
+    /// A socket file deeper than the 108-byte address limit (bound here
+    /// through its dir's `/proc/self/fd` path, as an earlier release bound
+    /// it) still unlinks once its listener closed.
     #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn exit_cleanup_unlinks_a_closed_listener_on_a_long_socket_path() {
+        use std::os::fd::AsRawFd;
         let dir = tempfile::TempDir::new().unwrap();
         let deep = dir.path().join("a".repeat(80)).join("b".repeat(80));
         std::fs::create_dir_all(&deep).unwrap();
         let socket = deep.join("daemon.sock");
-        let owner = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let deep_fd = std::fs::File::open(&deep).unwrap();
+        let owner = std::os::unix::net::UnixListener::bind(format!(
+            "/proc/self/fd/{}/daemon.sock",
+            deep_fd.as_raw_fd()
+        ))
+        .unwrap();
         let identity = socket_identity(&socket).unwrap();
         drop(owner);
         cleanup_socket_path_after_close(&socket, Some(identity));
@@ -572,9 +592,7 @@ mod tests {
     async fn live_listener_is_never_unlinked() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let error = prepare_socket_path(&socket).await.unwrap_err();
         assert!(error.to_string().contains("already in use"), "{error}");
         // The live socket file survives untouched and still accepts.
@@ -600,9 +618,7 @@ mod tests {
     async fn unlink_refuses_a_live_listener_even_when_marked_stale() {
         let dir = tempfile::TempDir::new().unwrap();
         let socket = dir.path().join("daemon.sock");
-        let listener = bind_transport(&socket, eukhe_bend::rules::fsmode::peer_verdict)
-            .await
-            .unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let stale = socket_identity(&socket).unwrap();
         let error = unlink_stale_socket(&socket, stale).await.unwrap_err();
         assert!(error.to_string().contains("already in use"), "{error}");
@@ -706,9 +722,10 @@ mod tests {
     }
 
     /// The supervisor-start sweep removes exactly this supervisor's dead
-    /// worker endpoints and orphaned lock dirs: a live worker, a dead
-    /// endpoint whose lock a live process holds, another supervisor's
-    /// endpoint, and a non-socket file keep their entries.
+    /// worker endpoints and orphaned lock dirs: a live worker (Linux: its
+    /// abstract endpoint's pid record), a dead endpoint whose lock a live
+    /// process holds, another supervisor's endpoint, and a non-socket
+    /// file keep their entries.
     #[tokio::test]
     async fn the_start_sweep_reaps_only_this_supervisors_dead_worker_endpoints() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -744,7 +761,12 @@ mod tests {
             .map(|entry| entry.unwrap().path())
             .collect();
         remaining.sort();
-        let mut expected = vec![live, held, held_lock, foreign, not_a_socket];
+        let live_entry = if eukhe_types::platform::transport::ENDPOINTS_ARE_FILES {
+            live
+        } else {
+            eukhe_types::platform::transport::record_path(&live)
+        };
+        let mut expected = vec![live_entry, held, held_lock, foreign, not_a_socket];
         expected.sort();
         assert_eq!(remaining, expected);
     }

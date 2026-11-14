@@ -26,7 +26,6 @@
 //! the agents-back key returns from the child to the agents view.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -59,7 +58,7 @@ impl Drop for Supervisor {
 
 /// Stop the daemon on `socket` by protocol; kill the child when it fails.
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {

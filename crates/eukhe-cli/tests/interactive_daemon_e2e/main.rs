@@ -180,9 +180,9 @@ impl Drop for DetachedDaemon {
 fn assert_daemon_stops_clean(socket: &Path) {
     // Sync JSONL exchange (called from the sync guard path).
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
 
-    let stream = UnixStream::connect(socket).expect("connect the spawned daemon");
+    let stream =
+        eukhe_types::platform::transport::connect_std(socket).expect("connect the spawned daemon");
     let write_half = stream.try_clone().expect("clone socket");
     let mut reader = BufReader::new(stream);
     let mut writer = write_half;
@@ -219,8 +219,8 @@ fn assert_daemon_stops_clean(socket: &Path) {
     // (`assert_the_next_start_reclaims_the_socket`).
     #[cfg(target_os = "linux")]
     assert!(
-        !socket.exists(),
-        "the spawned supervisor removed its socket file"
+        !eukhe_types::platform::endpoints::endpoint_exists(socket),
+        "the spawned supervisor closed its socket and removed its file"
     );
     // No worker process outlives the shutdown.
     for pid in worker_pids {
@@ -279,9 +279,8 @@ async fn assert_the_next_start_reclaims_the_socket(socket: &Path, spawn_cwd: &Pa
 /// so the caller can reap the workers it spawned.
 fn graceful_shutdown(socket: &Path) -> Option<u32> {
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
 
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return None;
     };
     let Ok(write_half) = stream.try_clone() else {

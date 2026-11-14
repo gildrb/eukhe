@@ -364,7 +364,11 @@ fn acp_daemon_attached_supervisor_loss_fails_the_prompt() {
     // Crash the supervisor (no graceful drain, so the in-flight response
     // can never arrive). Its pid comes from the hello frame every new
     // connection receives.
-    let probe = eukhe_types::platform::transport::connect_blocking(&socket).expect("daemon socket");
+    let probe = eukhe_types::platform::transport::connect_blocking(
+        &socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    )
+    .expect("daemon socket");
     let reader = probe.try_clone_box().expect("daemon socket clone");
     let _ = reader.set_read_timeout(Duration::from_mins(2));
     let hello = BufReader::new(reader)

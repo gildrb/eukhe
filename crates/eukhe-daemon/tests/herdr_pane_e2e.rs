@@ -137,7 +137,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> (Self, Value) {
-        let writer = UnixStream::connect(socket).expect("connect");
+        let writer = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         let reader = BufReader::new(writer.try_clone().expect("clone"));
         let mut client = Self { reader, writer };
         let hello = client.read_line();

@@ -347,7 +347,10 @@ fn live_sessions(socket: &std::path::Path) -> Vec<Value> {
 /// product behavior leaves it running; a test owns its sandbox).
 fn shutdown_sandboxed_daemon(socket: &std::path::Path) {
     use std::io::Write as _;
-    let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(socket) else {
+    let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(
+        socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    ) else {
         return;
     };
     let frame = format!(
@@ -363,8 +366,11 @@ fn shutdown_sandboxed_daemon(socket: &std::path::Path) {
 /// One raw daemon command on a fresh connection (the hello frame is skipped by the id match).
 fn daemon_request(socket: &std::path::Path, id: &str, command: &Value) -> Value {
     use std::io::{BufRead as _, BufReader, Write as _};
-    let mut writer =
-        eukhe_types::platform::transport::connect_blocking(socket).expect("daemon socket");
+    let mut writer = eukhe_types::platform::transport::connect_blocking(
+        socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    )
+    .expect("daemon socket");
     let reader = writer.try_clone_box().expect("daemon socket clone");
     let _ = reader.set_read_timeout(Duration::from_mins(2));
     let protocol =

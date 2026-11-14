@@ -13,8 +13,9 @@ pub const ENV_DAEMON_SOCKET: &str = "EUKHE_DAEMON_SOCKET";
 
 /// The daemon socket path: `explicit` (the `--daemon-socket` flag) wins,
 /// then a non-empty [`ENV_DAEMON_SOCKET`], then the per-user default
-/// (`$TMPDIR/eukhe-<uid>/daemon.sock`). A leading `~`/`~/` expands against
-/// the home dir. A relative path resolves against the current directory
+/// (`<agent dir>/run/daemon.sock`, default `~/.eukhe/run/daemon.sock`).
+/// A leading `~`/`~/` expands against the home dir. A relative path
+/// resolves against the current directory
 /// (TS `normalizeSocketPath`), so the daemon binds, and the OS listener
 /// census reports, the same absolute path every client and `shutdown`
 /// resolve.
@@ -88,22 +89,23 @@ mod tests {
     }
 
     /// Flag over env over default; `~` and relative paths on both the flag
-    /// and the env; an empty env is no env. `TMPDIR` stays as it is: the
-    /// other tests of this binary make their temp dirs under it.
+    /// and the env; an empty env is no env. The default sits in the agent
+    /// dir's run dir.
     #[test]
     fn the_socket_is_the_flag_then_the_env_then_the_default() {
         let os = |value: &'static str| Some(OsStr::new(value));
         let cwd = std::env::current_dir().unwrap();
         let resolved = |env: Option<&OsStr>, explicit: Option<&str>| {
             with_env(
-                &[(ENV_DAEMON_SOCKET, env), ("HOME", os("/home/tester"))],
+                &[
+                    (ENV_DAEMON_SOCKET, env),
+                    ("HOME", os("/home/tester")),
+                    (eukhe_types::platform::dirs::ENV_AGENT_DIR, None),
+                ],
                 || resolve_daemon_socket_path(explicit.map(Path::new)),
             )
         };
-        let uid = eukhe_types::platform::access::current_uid();
-        let default = std::env::var_os("TMPDIR")
-            .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
-            .join(format!("eukhe-{uid}/daemon.sock"));
+        let default = PathBuf::from("/home/tester/.eukhe/run/daemon.sock");
         assert_eq!(
             [
                 resolved(os("/env/d.sock"), None),

@@ -91,7 +91,7 @@ fn a_replaced_supervisor_binary_still_launches_workers_of_its_own_build() {
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     std::fs::set_permissions(&binary, permissions).expect("make the replacement executable");
 
-    let stream = std::os::unix::net::UnixStream::connect(&socket).expect("connect");
+    let stream = eukhe_types::platform::transport::connect_std(&socket).expect("connect");
     stream
         .set_read_timeout(Some(Duration::from_mins(2)))
         .expect("read timeout");

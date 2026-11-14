@@ -54,7 +54,8 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> (Self, Value) {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         let write_stream = stream.try_clone().expect("clone socket");
         let mut client = Client {
             reader: BufReader::new(stream),

@@ -67,7 +67,12 @@ async fn deliver_once(
 ) -> PeerDeliveryOutcome {
     // Link establishment: connect, hello, and the grant burn. Any failure
     // here means nothing was delivered.
-    let Ok(stream) = connect_transport(std::path::Path::new(&ticket.socket_path)).await else {
+    let Ok(stream) = connect_transport(
+        std::path::Path::new(&ticket.socket_path),
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    )
+    .await
+    else {
         return PeerDeliveryOutcome::NotEstablished;
     };
     let (reader, mut writer) = stream.split();

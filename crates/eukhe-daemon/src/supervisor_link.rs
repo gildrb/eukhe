@@ -273,12 +273,15 @@ impl SupervisorLink {
 
     /// Consume the supervisor hello and hand back a live client.
     async fn connect(&self) -> Result<LinkClient> {
-        let stream = connect_transport(&self.socket_path)
-            .await
-            .map_err(|error| LinkConnectFailed {
-                socket: self.socket_path.display().to_string(),
-                source: error.into(),
-            })?;
+        let stream = connect_transport(
+            &self.socket_path,
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        )
+        .await
+        .map_err(|error| LinkConnectFailed {
+            socket: self.socket_path.display().to_string(),
+            source: error.into(),
+        })?;
         let (reader, writer) = stream.split();
         let mut client = LinkClient {
             reader: BufReader::new(reader),

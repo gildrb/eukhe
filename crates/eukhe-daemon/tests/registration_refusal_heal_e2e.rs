@@ -59,7 +59,7 @@ impl Client {
     fn connect(socket: &Path) -> Self {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -344,7 +344,7 @@ fn a_refused_registration_retires_the_worker() {
     // The refusal leaves the worker's own socket behind it: a graceful
     // exit owns its endpoint file.
     assert!(
-        !dir.path().join("orphan.sock").exists(),
+        !eukhe_types::platform::endpoints::endpoint_exists(&dir.path().join("orphan.sock")),
         "the retired worker cleaned up its own socket"
     );
     let _ = std::fs::remove_file(dir.path().join("orphan.sock"));

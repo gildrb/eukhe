@@ -24,7 +24,6 @@
 //! drive the full path.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -47,7 +46,7 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
 /// so the print path's guard has an active session to find. Returns the
 /// worker's active session id.
 fn make_session_active(socket: &Path, session_path: &Path, cwd: &Path) -> String {
-    let stream = UnixStream::connect(socket).expect("connect daemon");
+    let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect daemon");
     let write_half = stream.try_clone().expect("clone");
     let mut reader = BufReader::new(stream);
     let mut writer = write_half;

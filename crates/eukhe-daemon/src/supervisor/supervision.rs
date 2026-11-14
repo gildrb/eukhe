@@ -713,11 +713,14 @@ impl Supervisor {
             )
         };
         let stream = if auth_floor {
-            connect_transport(&socket_path).await
+            connect_transport(&socket_path, eukhe_bend::rules::server_peer::PEER_RULES).await
         } else {
-            tokio::time::timeout_at(connect_deadline, connect_transport(&socket_path))
-                .await
-                .map_err(|_| anyhow!("Session worker timed out"))?
+            tokio::time::timeout_at(
+                connect_deadline,
+                connect_transport(&socket_path, eukhe_bend::rules::server_peer::PEER_RULES),
+            )
+            .await
+            .map_err(|_| anyhow!("Session worker timed out"))?
         }
         .with_context(|| format!("connect worker socket {}", socket_path.display()))?;
         let (reader, mut writer) = stream.split();

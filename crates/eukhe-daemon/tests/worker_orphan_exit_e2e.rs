@@ -97,8 +97,8 @@ fn orphaned_worker_exits_when_the_supervisor_socket_never_answers() {
     // the path reclaims it.
     #[cfg(target_os = "linux")]
     assert!(
-        !dir.path().join("worker.sock").exists(),
-        "the exited worker removed its socket file"
+        !eukhe_types::platform::endpoints::endpoint_exists(&dir.path().join("worker.sock")),
+        "the exited worker closed its endpoint"
     );
     #[cfg(not(target_os = "linux"))]
     assert_the_next_worker_reclaims_the_socket(dir.path(), &supervisor_socket);
@@ -122,7 +122,7 @@ fn assert_the_next_worker_reclaims_the_socket(dir: &Path, supervisor_socket: &Pa
     let mut successor = spawn_worker(dir, supervisor_socket);
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut stream = loop {
-        if let Ok(stream) = UnixStream::connect(&socket) {
+        if let Ok(stream) = eukhe_types::platform::transport::connect_std(&socket) {
             break stream;
         }
         assert!(
@@ -198,7 +198,8 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
             .expect("set read timeout");

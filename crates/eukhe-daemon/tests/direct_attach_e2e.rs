@@ -69,7 +69,8 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> (Self, Value) {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         let write_stream = stream.try_clone().expect("clone socket");
         let mut client = Client {
             reader: BufReader::new(stream),
@@ -136,7 +137,8 @@ struct WorkerClient {
 
 impl WorkerClient {
     fn connect(socket: &Path) -> (Self, Value) {
-        let stream = UnixStream::connect(socket).expect("connect worker socket");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect worker socket");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");

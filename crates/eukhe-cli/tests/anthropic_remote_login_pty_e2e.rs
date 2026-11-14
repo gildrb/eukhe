@@ -179,7 +179,7 @@ impl Drop for Supervisor {
 /// The protocol shutdown; waits (bounded) for the supervisor its hello
 /// names to exit.
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = std::os::unix::net::UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(mut writer) = stream.try_clone() else {

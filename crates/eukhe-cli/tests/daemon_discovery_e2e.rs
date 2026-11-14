@@ -25,7 +25,7 @@
 //! next to the real mission daemon; its sockets must never surface in a
 //! report).
 
-use std::os::unix::net::UnixStream;
+use eukhe_types::platform::transport::connect_std;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -163,7 +163,7 @@ fn interactive_launcher_detaches_supervisor_from_client_session() {
     );
     // The spawning client's process, runtime, and probe connection are gone.
 
-    let stream = UnixStream::connect(&socket).expect("daemon socket");
+    let stream = connect_std(&socket).expect("daemon socket");
     let mut hello = String::new();
     BufReader::new(stream)
         .read_line(&mut hello)
@@ -181,10 +181,7 @@ fn interactive_launcher_detaches_supervisor_from_client_session() {
         Ok(supervisor),
         "daemon must not share the launching client's terminal session"
     );
-    assert!(
-        UnixStream::connect(&socket).is_ok(),
-        "daemon remains available"
-    );
+    assert!(connect_std(&socket).is_ok(), "daemon remains available");
 }
 
 /// Child mode for the test above (a plain `cargo test` run without the env
@@ -252,7 +249,7 @@ impl Drop for DetachedDaemon {
 /// already gone, or wedged before its hello.
 fn run_shutdown_on_socket(socket: &Path) -> Option<i32> {
     use std::io::{BufRead as _, BufReader, Write as _};
-    let mut stream = UnixStream::connect(socket).ok()?;
+    let mut stream = connect_std(socket).ok()?;
     // A wedged daemon must not hang the cleanup handshake: the hello is
     // read under a short bound.
     stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
@@ -279,7 +276,7 @@ fn run_shutdown_on_socket(socket: &Path) -> Option<i32> {
 /// means the bound passed with the socket still live.
 fn socket_stops_accepting(socket: &Path, bound: Duration) -> bool {
     let deadline = Instant::now() + bound;
-    while UnixStream::connect(socket).is_ok() {
+    while connect_std(socket).is_ok() {
         if Instant::now() > deadline {
             return false;
         }
@@ -344,7 +341,7 @@ fn doctor_lists_and_then_reaps_an_idle_root_owned_daemon() {
         "a non-default socket must not carry the default footnote: {table}"
     );
     assert!(
-        UnixStream::connect(&socket).is_ok(),
+        connect_std(&socket).is_ok(),
         "doctor (inspect) must leave the daemon listening"
     );
     assert!(daemon.child.try_wait().expect("wait").is_none());
@@ -403,7 +400,7 @@ fn shutdown_without_force_requires_confirmation_and_harms_nothing() {
         stdout(&tty_error),
         stderr(&tty_error)
     );
-    assert!(UnixStream::connect(&socket).is_ok());
+    assert!(connect_std(&socket).is_ok());
 
     // JSON without force: the one stderr error document asks for --force,
     // stdout stays empty.
@@ -429,7 +426,7 @@ fn shutdown_without_force_requires_confirmation_and_harms_nothing() {
     );
 
     // The daemon is untouched by both refusals.
-    assert!(UnixStream::connect(&socket).is_ok());
+    assert!(connect_std(&socket).is_ok());
     assert!(daemon.child.try_wait().expect("wait").is_none());
 }
 
@@ -476,7 +473,7 @@ fn discovery_and_shutdown_from_another_root_leave_a_foreign_daemon_alive() {
 
     // The daemon in A survived untouched: still listening, still running.
     assert!(
-        UnixStream::connect(&socket_a).is_ok(),
+        connect_std(&socket_a).is_ok(),
         "foreign daemon socket must still accept connections"
     );
     assert!(
@@ -555,20 +552,20 @@ fn force_shutdown_paths(output: &Output) -> Vec<String> {
 /// The regression: `shutdown --force` scoped to its own socket and agent
 /// dir (isolated HOME, `EUKHE_DAEMON_SOCKET`, `EUKHE_CODING_AGENT_DIR`)
 /// also swept the per-user default socket dir and stopped the default
-/// daemon there. TMPDIR points the default-discovery root at the fixture,
-/// so its `eukhe-<uid>/daemon.sock` daemon stands in for the user's own.
-/// A scope named by env socket, by agent dir alone, or by the
+/// daemon there. HOME points the default-discovery root at the fixture,
+/// so its `home/.eukhe/run/daemon.sock` daemon stands in for the user's
+/// own. A scope named by env socket, by agent dir alone, or by the
 /// `--daemon-socket` flag stops its own daemon and leaves the default one
 /// running; only the unscoped invocation reaches the default daemon.
 #[test]
 fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
 
     let fixture = tempfile::tempdir().expect("fixture");
     let root = fixture.path();
     let tmp = root.join("tmp");
-    let uid = std::fs::metadata(root).expect("fixture metadata").uid();
-    let default_dir = tmp.join(format!("eukhe-{uid}"));
+    std::fs::create_dir_all(&tmp).expect("tmp dir");
+    let default_dir = root.join("home/.eukhe/run");
     std::fs::create_dir_all(&default_dir).expect("default socket dir");
     std::fs::set_permissions(&default_dir, std::fs::Permissions::from_mode(0o700))
         .expect("default socket dir mode");
@@ -576,7 +573,7 @@ fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
     let mut default_daemon = spawn_daemon(&default_socket, &root.join("home/.eukhe"), &tmp);
     let assert_default_running = |default_daemon: &mut Daemon, after: &str| {
         assert!(
-            UnixStream::connect(&default_socket).is_ok(),
+            connect_std(&default_socket).is_ok(),
             "{after}: the default daemon must still accept connections"
         );
         assert!(
@@ -642,7 +639,7 @@ fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
     assert_default_running(&mut default_daemon, "flag-scoped shutdown");
 
     // Positive control: the unscoped invocation does reach the default
-    // daemon through the same TMPDIR seam, so its survival above is the
+    // daemon through the same HOME seam, so its survival above is the
     // scope's doing.
     let shutdown = run_cli_scoped(root, &[], &["shutdown", "--force", "--json"]);
     assert_eq!(
@@ -657,11 +654,11 @@ fn a_scoped_shutdown_stops_its_own_daemon_and_leaves_the_default_one_running() {
 /// the bound only guards a stuck test).
 fn wait_until_stopped(socket: &Path, daemon: &mut Daemon) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    while UnixStream::connect(socket).is_ok() && Instant::now() < deadline {
+    while connect_std(socket).is_ok() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(
-        UnixStream::connect(socket).is_err(),
+        connect_std(socket).is_err(),
         "daemon must stop listening: {}",
         socket.display()
     );

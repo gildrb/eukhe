@@ -128,7 +128,10 @@ fn select_params(session_id: &str, config_id: &str, value: &Value) -> Value {
 
 fn shutdown_sandboxed_daemon(socket: &std::path::Path) {
     use std::io::Write as _;
-    let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(socket) else {
+    let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(
+        socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    ) else {
         return;
     };
     let frame = format!(

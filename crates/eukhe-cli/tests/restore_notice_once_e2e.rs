@@ -16,7 +16,6 @@
 #![allow(clippy::large_futures, clippy::too_many_lines)]
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -111,7 +110,7 @@ fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
 
 /// Send `command` to the daemon on `socket` and return its response.
 fn request(socket: &Path, command: &serde_json::Value) -> serde_json::Value {
-    let stream = UnixStream::connect(socket).expect("connect the daemon");
+    let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect the daemon");
     stream
         .set_read_timeout(Some(WAIT_BOUND))
         .expect("set the read timeout");

@@ -4468,3 +4468,15 @@ import ./proof/verify/verify_entry_malformed_exact.bend as PVerifyEntryMalformed
 import ./proof/verify/verify_entry_leftover_refused.bend as PVerifyEntryLeftoverRefused
 import ./proof/verify/verify_entry_unknown_tag_refused.bend as PVerifyEntryUnknownTagRefused
 import ./proof/verify/verify_entry_example.bend as PVerifyEntryExample
+import ./proof/server_peer/base.bend as LAServerPeer
+import ./proof/server_peer/server_peer_served_only_recorded_own.bend as PServerPeerServedOnlyRecordedOwn
+import ./proof/server_peer/server_peer_recorded_own_served.bend as PServerPeerRecordedOwnServed
+import ./proof/server_peer/server_peer_other_uid.bend as PServerPeerOtherUid
+import ./proof/server_peer/server_peer_no_record.bend as PServerPeerNoRecord
+import ./proof/server_peer/server_peer_other_pid.bend as PServerPeerOtherPid
+import ./proof/server_peer/server_peer_example.bend as PServerPeerExample
+import ./proof/server_peer/server_peer_entry_reads.bend as PServerPeerEntryReads
+import ./proof/server_peer/server_peer_entry_answers.bend as PServerPeerEntryAnswers
+import ./proof/server_peer/server_peer_entry_exact.bend as PServerPeerEntryExact
+import ./proof/server_peer/server_peer_entry_refuses.bend as PServerPeerEntryRefuses
+import ./proof/server_peer/server_peer_entry_example.bend as PServerPeerEntryExample

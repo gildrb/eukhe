@@ -24,7 +24,6 @@
 
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -55,7 +54,7 @@ impl Drop for Supervisor {
 
 /// Stop the daemon on `socket` by protocol; kill the child when it fails.
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {
@@ -124,7 +123,7 @@ fn write_fixture(dir: &Path, id: &str, name: &str, turns: &[(&str, &str)]) -> Pa
 /// The daemon-connection ask behind one raw command: the hello-greeting
 /// envelope, the request, and the response line.
 fn ask(socket: &Path, command: &serde_json::Value) -> Option<serde_json::Value> {
-    let stream = UnixStream::connect(socket).ok()?;
+    let stream = eukhe_types::platform::transport::connect_std(socket).ok()?;
     let write_half = stream.try_clone().ok()?;
     let mut reader = BufReader::new(stream);
     let mut writer = write_half;

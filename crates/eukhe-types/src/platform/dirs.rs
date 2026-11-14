@@ -31,6 +31,9 @@ pub const ENV_AGENT_DIR: &str = "EUKHE_CODING_AGENT_DIR";
 /// configuration stays `<project>/.eukhe`.
 pub const AGENT_DIR_NAME: &str = ".eukhe";
 
+/// The directory under the agent dir that holds the daemon's and workers' sockets (macOS) and their locks.
+pub const RUN_DIR_NAME: &str = "run";
+
 /// The agent state directory (TS `getAgentDir`): the env override with a
 /// leading `~`/`~/` expanded against [`home_dir`], else `<home>/.eukhe`.
 /// `None` when no override is set and the home directory does not resolve

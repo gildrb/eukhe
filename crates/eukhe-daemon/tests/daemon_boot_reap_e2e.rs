@@ -89,7 +89,8 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> (Self, Value) {
-        let stream = UnixStream::connect(socket).expect("connect supervisor");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect supervisor");
         let write_stream = stream.try_clone().expect("clone socket");
         let mut client = Client {
             reader: BufReader::new(stream),
@@ -365,8 +366,8 @@ fn boot_reap_clears_the_leftover_and_the_session_reopens() {
         "the boot reap names what it cleared: {log}"
     );
     assert!(
-        !worker_socket.exists(),
-        "the reaped leftover's socket file left with it: {}",
+        !eukhe_types::platform::endpoints::endpoint_exists(&worker_socket),
+        "the reaped leftover's endpoint left with it: {}",
         worker_socket.display()
     );
 

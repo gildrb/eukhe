@@ -458,7 +458,10 @@ impl DaemonClient {
     ) -> Result<(Self, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
         let connect = tokio::time::timeout(
             Duration::from_millis(CONNECT_TIMEOUT_MS),
-            eukhe_types::platform::transport::connect_transport(socket_path),
+            eukhe_types::platform::transport::connect_transport(
+                socket_path,
+                eukhe_bend::rules::server_peer::PEER_RULES,
+            ),
         )
         .await
         .map_err(|_| {

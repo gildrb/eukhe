@@ -198,7 +198,10 @@ pub(crate) async fn connect_direct(
 ) -> Result<DirectLink> {
     let stream = timeout(
         Duration::from_millis(CONNECT_TIMEOUT_MS),
-        connect_transport(Path::new(&ticket.socket_path)),
+        connect_transport(
+            Path::new(&ticket.socket_path),
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        ),
     )
     .await
     .map_err(|_| anyhow!("timed out connecting to the session worker socket"))?

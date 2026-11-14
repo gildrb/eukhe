@@ -29,8 +29,10 @@ struct SandboxedDaemon {
 impl Drop for SandboxedDaemon {
     fn drop(&mut self) {
         use std::io::{BufRead as _, BufReader, Write as _};
-        let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(&self.socket)
-        else {
+        let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(
+            &self.socket,
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        ) else {
             return;
         };
         let Ok(reader) = stream.try_clone_box() else {
@@ -428,7 +430,12 @@ fn print_run_keeps_a_running_daemon_and_stops_its_children() {
     };
     // Readiness: the daemon accepts connections.
     let deadline = Instant::now() + Duration::from_secs(30);
-    while eukhe_types::platform::transport::connect_blocking(&socket).is_err() {
+    while eukhe_types::platform::transport::connect_blocking(
+        &socket,
+        eukhe_bend::rules::server_peer::PEER_RULES,
+    )
+    .is_err()
+    {
         assert!(Instant::now() < deadline, "the daemon never listened");
         std::thread::sleep(Duration::from_millis(20));
     }

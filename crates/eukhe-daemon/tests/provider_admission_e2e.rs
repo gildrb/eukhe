@@ -235,7 +235,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("read timeout");

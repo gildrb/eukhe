@@ -349,8 +349,10 @@ struct SandboxedDaemon {
 impl Drop for SandboxedDaemon {
     fn drop(&mut self) {
         use std::io::{BufRead as _, BufReader, Write as _};
-        let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(&self.socket)
-        else {
+        let Ok(mut stream) = eukhe_types::platform::transport::connect_blocking(
+            &self.socket,
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        ) else {
             return;
         };
         let Ok(reader) = stream.try_clone_box() else {

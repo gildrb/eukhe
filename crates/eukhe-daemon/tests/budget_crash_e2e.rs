@@ -50,7 +50,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         stream.set_read_timeout(Some(WAIT)).expect("read timeout");
         let writer = stream.try_clone().expect("clone");
         let mut client = Client {

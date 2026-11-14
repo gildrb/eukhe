@@ -10,6 +10,7 @@
 pub mod access;
 pub mod daemon_socket;
 pub mod dirs;
+pub mod endpoints;
 pub mod group_journal;
 pub mod identity;
 pub mod kill_point;

@@ -67,7 +67,7 @@ impl Client {
     fn connect(socket: &Path) -> (Self, serde_json::Value) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));

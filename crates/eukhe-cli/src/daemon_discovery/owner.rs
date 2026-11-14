@@ -133,7 +133,8 @@ impl SocketOwner {
             return Some("it is not running in --mode daemon".to_string());
         }
         // A supervisor started without `--daemon-socket` (a service unit)
-        // listens on the default socket.
+        // listens on the default socket: this release's, or the earlier
+        // releases' one in the per-user temp dir.
         let socket_arg = self
             .argv
             .windows(2)
@@ -148,6 +149,8 @@ impl SocketOwner {
             Some(path) => Path::new(path) == socket_path,
             None => {
                 socket_path == eukhe_types::platform::daemon_socket::default_daemon_socket_path()
+                    || socket_path
+                        == eukhe_types::platform::daemon_socket::legacy_daemon_socket_path()
             }
         };
         if !on_socket {
@@ -186,13 +189,10 @@ pub(crate) fn socket_holder(socket_path: &Path) -> Option<SocketHolder> {
 #[cfg(target_os = "linux")]
 fn listening_owners(socket_path: &Path) -> Vec<SocketOwner> {
     use std::os::unix::fs::MetadataExt as _;
-    let Ok(unix) = std::fs::read("/proc/net/unix") else {
-        return Vec::new();
-    };
-    let inodes: Vec<String> = super::scan::parse_proc_net_unix(&unix)
+    let inodes: Vec<String> = eukhe_types::platform::endpoints::listening()
         .into_iter()
-        .filter(|(_, path)| Path::new(path) == socket_path)
-        .map(|(inode, _)| inode)
+        .filter(|listener| listener.path == socket_path)
+        .map(|listener| listener.inode.to_string())
         .collect();
     if inodes.is_empty() {
         return Vec::new();

@@ -222,7 +222,10 @@ impl RegistrationTask {
     async fn connect_and_register(
         &self,
     ) -> Result<(BufReader<Box<dyn AsyncReadHalf>>, Box<dyn AsyncWriteHalf>)> {
-        let connect = connect_transport(&self.supervisor_socket_path);
+        let connect = connect_transport(
+            &self.supervisor_socket_path,
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        );
         let stream = tokio::time::timeout(Duration::from_millis(CONNECT_TIMEOUT_MS), connect)
             .await
             .map_err(|_| anyhow!("registration connect timed out"))??;

@@ -64,7 +64,7 @@ impl Drop for Supervisor {
 
 /// Stop the daemon on `socket` by protocol; kill the child when it fails.
 fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = UnixStream::connect(socket) else {
+    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
         return;
     };
     let Ok(write_half) = stream.try_clone() else {
@@ -127,7 +127,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         let writer = stream.try_clone().expect("clone");
         let mut client = Client {
             reader: BufReader::new(stream),

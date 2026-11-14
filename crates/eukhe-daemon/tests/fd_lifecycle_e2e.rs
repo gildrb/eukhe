@@ -147,7 +147,7 @@ impl Client {
     fn connect(socket: &Path) -> (Self, serde_json::Value) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -495,7 +495,8 @@ fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Inst
 /// clients (`get_direct_worker_transport`) do exactly this shape, and every
 /// peer delivery opens one.
 fn probe_worker(socket: &Path) {
-    let mut stream = UnixStream::connect(socket).expect("connect worker socket");
+    let mut stream =
+        eukhe_types::platform::transport::connect_std(socket).expect("connect worker socket");
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
         .expect("set timeout");

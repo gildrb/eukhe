@@ -492,7 +492,7 @@ struct TimedClient {
 
 impl TimedClient {
     fn connect(socket: &Path) -> TimedClient {
-        let stream = std::os::unix::net::UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         let writer = stream.try_clone().expect("clone");
         let mut client = TimedClient {
             reader: BufReader::new(stream),

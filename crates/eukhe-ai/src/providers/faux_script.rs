@@ -356,7 +356,7 @@ async fn held_until_released(gate: &Path) -> Result<(), Thrown> {
             gate.display()
         )))
     };
-    let stream = connect_transport(gate)
+    let stream = connect_transport(gate, eukhe_bend::rules::server_peer::PEER_RULES)
         .await
         .map_err(|error| failed(&error))?;
     let (mut reader, _writer) = stream.split();

@@ -32,10 +32,9 @@
 //! keeping the original inode allocated guarantees the identities differ
 //! and the oracle is never vacuous on inode reuse.
 use std::io::{Read, Write};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -44,11 +43,25 @@ use serde_json::{json, Value};
 mod daemon;
 #[path = "support/process.rs"]
 mod process;
-use daemon::{daemon_command, supervisor_command};
+use daemon::daemon_command;
 use process::{wait_socket_file, Daemon};
+
+// The replaced-file oracles (off Linux): a Linux endpoint is an abstract
+// name, which binds once while its owner listens; no file to replace.
+#[cfg(not(target_os = "linux"))]
+use daemon::supervisor_command;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::fs::MetadataExt;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::net::UnixListener;
+#[cfg(not(target_os = "linux"))]
+use std::path::PathBuf;
+#[cfg(not(target_os = "linux"))]
+use std::process::Command;
 
 /// The filesystem identity the guard compares: dev + ino of the file
 /// currently at the path.
+#[cfg(not(target_os = "linux"))]
 fn socket_identity(path: &Path) -> (u64, u64) {
     let metadata = std::fs::symlink_metadata(path).expect("stat socket file");
     (metadata.dev(), metadata.ino())
@@ -58,6 +71,7 @@ fn socket_identity(path: &Path) -> (u64, u64) {
 /// renamed aside: the original inode stays allocated, so the replacement's
 /// identity is guaranteed to differ from `original_identity`. Returns the
 /// replacement listener and its identity.
+#[cfg(not(target_os = "linux"))]
 fn bind_replacement_at(socket: &Path, original_identity: (u64, u64)) -> (UnixListener, (u64, u64)) {
     let aside: PathBuf = socket.parent().expect("socket parent").join(format!(
         "{}.replaced-aside",
@@ -78,6 +92,7 @@ fn bind_replacement_at(socket: &Path, original_identity: (u64, u64)) -> (UnixLis
 
 /// A live replacement socket must answer connects after the old owner's
 /// exit: the file survived AND it still serves.
+#[cfg(not(target_os = "linux"))]
 fn assert_replacement_serves(socket: &Path, identity: (u64, u64)) {
     assert!(
         socket.exists(),
@@ -88,7 +103,8 @@ fn assert_replacement_serves(socket: &Path, identity: (u64, u64)) {
         identity,
         "the file at the path is still the replacement's, not a new file"
     );
-    let connect = UnixStream::connect(socket).expect("the replacement socket still accepts");
+    let connect = eukhe_types::platform::transport::connect_std(socket)
+        .expect("the replacement socket still accepts");
     drop(connect);
 }
 
@@ -111,6 +127,7 @@ fn wait_clean_exit(child: &mut Child, budget: Duration) -> std::process::ExitSta
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_listening(
@@ -168,7 +185,8 @@ struct WorkerClient {
 
 impl WorkerClient {
     fn connect(socket: &Path, token: &str) -> Self {
-        let stream = UnixStream::connect(socket).expect("connect worker socket");
+        let stream =
+            eukhe_types::platform::transport::connect_std(socket).expect("connect worker socket");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .expect("set timeout");
@@ -256,7 +274,9 @@ fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Inst
 /// replacement on the same deterministic socket path, and the old
 /// process's late orphan exit must leave the replacement's live socket
 /// alone - a stale-socket unlink there bounces every route to the
-/// replacement until the next relaunch cycle.
+/// replacement until the next relaunch cycle. Socket files only (off
+/// Linux), as the module's other replaced-file oracles.
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn orphan_exit_never_unlinks_a_replacement_bound_on_the_worker_path() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -278,11 +298,12 @@ fn orphan_exit_never_unlinks_a_replacement_bound_on_the_worker_path() {
 }
 
 /// The routed `shutdown` control (the still-ours direction of
-/// `finish_close`): a worker's graceful exit owns its socket file - it
-/// must remove it so a respawn does not wait out the stale-socket path,
-/// and it removes it BEFORE the reply: the supervisor escalates against a
-/// still-running worker as soon as the reply lands, so an unlink after
-/// the reply could be cut by that signal and leak the file.
+/// `finish_close`): a worker's graceful exit owns its endpoint - it must
+/// close it (Linux: the abstract socket and its pid record) so a respawn
+/// does not wait out the stale-socket path, and it does so BEFORE the
+/// reply: the supervisor escalates against a still-running worker as
+/// soon as the reply lands, so a cleanup after the reply could be cut by
+/// that signal and leak it.
 /// The still-ours directions of the other two call sites are pinned by the
 /// in-tree controls named in the module doc.
 // Linux-only: only Linux proves a closed listener by a refused connect (a
@@ -299,8 +320,12 @@ fn routed_shutdown_removes_the_workers_own_socket_file() {
     let shutdown = client.request("shutdown", &json!({}));
     assert_eq!(shutdown["success"], true, "shutdown failed: {shutdown}");
     assert!(
-        !socket.exists(),
-        "the worker's own socket file is gone by the time its reply lands"
+        !eukhe_types::platform::endpoints::endpoint_exists(&socket),
+        "the worker's own endpoint is closed by the time its reply lands"
+    );
+    assert!(
+        !eukhe_types::platform::transport::record_path(&socket).exists(),
+        "the worker's pid record is gone by the time its reply lands"
     );
     wait_clean_exit(&mut worker.child, Duration::from_secs(10));
 }
@@ -308,7 +333,8 @@ fn routed_shutdown_removes_the_workers_own_socket_file() {
 /// The replaced-socket scenario on the routed `shutdown` arm
 /// (`worker.rs` `finish_close`): the same survivor class as the
 /// orphan exit - a file replaced at the path after the bind is never
-/// unlinked by the old owner's exit.
+/// unlinked by the old owner's exit. Socket files only (off Linux).
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn routed_shutdown_never_unlinks_a_replacement_bound_on_the_worker_path() {
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -337,7 +363,8 @@ fn routed_shutdown_never_unlinks_a_replacement_bound_on_the_worker_path() {
 /// and a successor binds the path while the original still serves its
 /// nameless listener. The original's graceful drain must not unlink the
 /// successor's live socket - every new connect would fail ENOENT while
-/// the socket looks alive.
+/// the socket looks alive. Socket files only (off Linux).
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn a_drained_supervisor_never_unlinks_a_replaced_socket_file() {
     let dir = tempfile::TempDir::new().expect("temp dir");

@@ -83,7 +83,7 @@ struct Client {
 
 impl Client {
     fn connect(socket: &Path) -> Client {
-        let stream = UnixStream::connect(socket).expect("connect");
+        let stream = eukhe_types::platform::transport::connect_std(socket).expect("connect");
         let writer = stream.try_clone().expect("clone");
         let mut client = Client {
             reader: BufReader::new(stream),
@@ -262,7 +262,10 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
             .as_str()
             .expect("worker socket path"),
     );
-    assert!(worker_socket.exists(), "the live worker's socket exists");
+    assert!(
+        eukhe_types::platform::endpoints::endpoint_exists(&worker_socket),
+        "the live worker's socket exists"
+    );
 
     // The live worker holds the runtime lease: a fresh open's acquire
     // refuses (the premise the escalation must break).
@@ -351,7 +354,7 @@ fn a_hung_worker_is_killed_within_the_escalation_window_and_its_lease_frees() {
     // A SIGKILLed worker never unlinks its own socket: the stop that
     // proved it dead removed the endpoint for it.
     assert!(
-        !worker_socket.exists(),
+        !eukhe_types::platform::endpoints::endpoint_exists(&worker_socket),
         "the escalated stop must remove the dead worker's socket"
     );
     // The kill's durable half ran on the failed route: the session file

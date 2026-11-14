@@ -44,7 +44,7 @@ impl Client {
     fn connect(socket: &Path) -> Self {
         let deadline = Instant::now() + Duration::from_secs(5);
         let stream = loop {
-            match UnixStream::connect(socket) {
+            match eukhe_types::platform::transport::connect_std(socket) {
                 Ok(stream) => break stream,
                 Err(_) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -220,10 +220,11 @@ fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
         ("EUKHE_DAEMON_WORKER_CONNECT_TIMEOUT_MS", "2000"),
     );
     // Worker sockets live beside the supervisor's: once the supervisor is
-    // bound, its socket dir moves aside (the listener keeps serving
-    // through the moved path) and a plain file takes the dir's place, so
-    // the worker's socket dir is un-creatable (ENOTDIR, even for root)
-    // and the real worker dies at its socket-path preparation with the
+    // bound, its socket dir moves aside (a socket file's listener keeps
+    // serving through the moved path; a Linux abstract name stays the
+    // original path) and a plain file takes the dir's place, so the
+    // worker's socket dir is un-creatable (ENOTDIR, even for root) and
+    // the real worker dies at its socket-path preparation with the
     // failure on stderr — the exact silent death the capture exists for.
     let served_dir = dir.path().join("served");
     std::fs::rename(&socket_dir, &served_dir).expect("move the socket dir aside");
@@ -236,7 +237,12 @@ fn never_ready_worker_failure_carries_the_captured_stderr_tail() {
         "sessionDir": agent_dir.join("sessions").to_string_lossy(),
         "script": script_path.to_string_lossy(),
     });
-    let mut client = Client::connect(&served_dir.join("daemon.sock"));
+    let served_socket = if eukhe_types::platform::transport::ENDPOINTS_ARE_FILES {
+        served_dir.join("daemon.sock")
+    } else {
+        socket
+    };
+    let mut client = Client::connect(&served_socket);
     client.send_command("c1", &json!({ "type": "create", "config": create_config }));
     let failed = client.read_response("c1");
     assert_eq!(failed["success"], false, "create must fail: {failed}");

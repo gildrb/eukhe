@@ -84,7 +84,10 @@ impl DaemonLink {
     async fn connect(socket_path: &Path) -> Result<Self, DaemonLinkError> {
         let stream = tokio::time::timeout(
             std::time::Duration::from_secs(3),
-            eukhe_types::platform::transport::connect_transport(socket_path),
+            eukhe_types::platform::transport::connect_transport(
+                socket_path,
+                eukhe_bend::rules::server_peer::PEER_RULES,
+            ),
         )
         .await
         .map_err(|_| DaemonLinkError::ConnectTimeout)?
