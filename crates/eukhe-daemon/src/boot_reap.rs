@@ -133,8 +133,7 @@ pub(crate) async fn reap_predecessors(supervisor: &Arc<Supervisor>) {
     // one is not).
     let protected: HashSet<u32> =
         protected_worker_pids(&supervisor.options.agent_dir, &socket_path);
-    let mut targets = same_socket_worker_targets(&socket_path, &protected, None);
-    targets.extend(same_socket_supervisor_targets(&socket_path));
+    let targets = same_socket_predecessors(&socket_path, &protected);
     if targets.is_empty() {
         return;
     }
@@ -239,7 +238,7 @@ pub(crate) async fn reap_abandoned_workers(supervisor: &Arc<Supervisor>, worker_
             protected.insert(pid);
         }
     }
-    let targets = same_socket_worker_targets(&socket_path, &protected, Some(worker_id));
+    let targets = same_socket_worker_targets(&socket_path, &protected, worker_id);
     if targets.is_empty() {
         return;
     }
@@ -468,6 +467,85 @@ async fn await_gone(target: &ReapTarget, budget: Duration) -> bool {
     }
 }
 
+/// One process of the census: a product binary by its `/proc/<pid>/exe`,
+/// with the identity captured before any other read of it.
+#[cfg(target_os = "linux")]
+struct ProductProcess {
+    pid: u32,
+    start_id: Option<String>,
+    argv: Vec<String>,
+}
+
+/// The processes other than this one that run a product binary. The
+/// identity captures BEFORE every /proc read and every target re-verifies
+/// it AFTER its qualification: a process that exits mid-census and whose
+/// pid the kernel immediately recycles must never leave a target behind
+/// under the REPLACEMENT'S identity. The executable check rides the
+/// UNFORGEABLE identity (argv[0] can be forged: `exec -a eukhe sleep
+/// worker 300` inherits the env and passes the argv gate, while
+/// /proc/<pid>/exe names the binary the kernel loaded; an unreadable link
+/// is never a target), and it runs before the command line read: the exe
+/// link is a cheap read, while a command line read takes the target's
+/// memory map lock, so only product processes pay it.
+#[cfg(target_os = "linux")]
+fn product_census() -> Vec<ProductProcess> {
+    numeric_proc_entries()
+        .into_iter()
+        .filter(|pid| *pid != std::process::id())
+        .filter_map(|pid| {
+            let start_id = crate::lease::get_process_start_id(pid);
+            if !exe_is_product_binary(pid) {
+                return None;
+            }
+            let argv = read_proc_argv(pid)?;
+            Some(ProductProcess {
+                pid,
+                start_id,
+                argv,
+            })
+        })
+        .collect()
+}
+
+/// Whether the pid still names the process the census qualified.
+#[cfg(target_os = "linux")]
+fn still_censused(process: &ProductProcess) -> bool {
+    crate::lease::get_process_start_id(process.pid).as_deref() == process.start_id.as_deref()
+}
+
+/// The boot reap's targets: the same-socket leftover workers and wedged
+/// supervisors, from one census. Linux-only (the /proc census); other
+/// platforms answer nothing.
+#[cfg(target_os = "linux")]
+fn same_socket_predecessors(socket_path: &Path, protected: &HashSet<u32>) -> Vec<ReapTarget> {
+    let census = product_census();
+    let mut targets = worker_targets(&census, socket_path, protected, None);
+    targets.extend(supervisor_targets(&census, socket_path));
+    targets
+}
+
+#[cfg(not(target_os = "linux"))]
+fn same_socket_predecessors(_socket_path: &Path, _protected: &HashSet<u32>) -> Vec<ReapTarget> {
+    Vec::new()
+}
+
+/// The give-up sweep's targets: the same-socket workers whose
+/// active-session env names `active_session`. Linux-only (the /proc
+/// census); other platforms answer nothing.
+#[cfg(target_os = "linux")]
+fn same_socket_worker_targets(
+    socket_path: &Path,
+    protected: &HashSet<u32>,
+    active_session: &str,
+) -> Vec<ReapTarget> {
+    worker_targets(
+        &product_census(),
+        socket_path,
+        protected,
+        Some(active_session),
+    )
+}
+
 /// The same-socket leftover workers, identified by the WORKER PROCESS
 /// SHAPE, never by the environment alone: the supervisor-socket env var
 /// propagates to EVERY process a session worker spawns (its kernel, its
@@ -479,48 +557,28 @@ async fn await_gone(target: &ReapTarget, budget: Duration) -> bool {
 /// (2) whose supervisor socket env names THIS daemon's socket, and
 /// (3) whose own worker socket env names its endpoint - minus the pids
 /// this daemon's own descriptors name (the adoption pass's business).
-/// Linux-only (the /proc census); other platforms answer nothing.
+/// `active_session` keeps only the workers whose active-session env names
+/// that id (the give-up belt's target class); `None` keeps every one.
 #[cfg(target_os = "linux")]
-fn same_socket_worker_targets(
+fn worker_targets(
+    census: &[ProductProcess],
     socket_path: &Path,
     protected: &HashSet<u32>,
     active_session: Option<&str>,
 ) -> Vec<ReapTarget> {
     let socket = normalize_socket_spelling(socket_path);
     let mut targets = Vec::new();
-    for pid in numeric_proc_entries() {
-        if pid == std::process::id() || protected.contains(&pid) {
+    for process in census {
+        let pid = process.pid;
+        if protected.contains(&pid) {
             continue;
         }
-        // The identity captures BEFORE every /proc read (the abandoned-id
-        // filter included) and re-verifies AFTER the qualification: a
-        // worker that exits mid-census and whose pid the kernel
-        // immediately recycles must never leave a target behind under
-        // the REPLACEMENT'S identity - a recycled worker of ANOTHER
-        // session would otherwise pass the late identity check with its
-        // own argv/exe/socket and take the abandoned id's signal.
-        let start_id = crate::lease::get_process_start_id(pid);
-        // The abandoned-id filter (the give-up belt's target class): only
-        // workers whose active-session env names the given-up id. `None`
-        // keeps the boot reap's whole-census shape.
         if let Some(active_session) = active_session {
             if !proc_environ_names_active_session(pid, active_session) {
                 continue;
             }
         }
-        let Some(argv) = read_proc_argv(pid) else {
-            continue;
-        };
-        if !is_worker_argv(&argv) {
-            continue;
-        }
-        // The executable check rides the UNFORGEABLE identity: argv[0] can
-        // be forged (`exec -a eukhe sleep worker 300` inherits the
-        // env and passes the argv gate), while /proc/<pid>/exe names the
-        // binary the kernel actually loaded. An unreadable exe link
-        // (permission, a dying process) is never a target - the
-        // conservative no-signal default.
-        if !exe_is_product_binary(pid) {
+        if !is_worker_argv(&process.argv) {
             continue;
         }
         let Some(environ) = read_proc_environ(pid) else {
@@ -533,9 +591,7 @@ fn same_socket_worker_targets(
         }) {
             continue;
         }
-        // The post-qualification identity re-check: the pid must still
-        // name the same process the census qualified.
-        if crate::lease::get_process_start_id(pid).as_deref() != start_id.as_deref() {
+        if !still_censused(process) {
             continue;
         }
         // The KILL decision rests on the worker role and the same-socket
@@ -553,7 +609,7 @@ fn same_socket_worker_targets(
             .map(PathBuf::from);
         targets.push(ReapTarget {
             pid,
-            start_id,
+            start_id: process.start_id.clone(),
             worker_socket,
             kind: ReapKind::Worker,
         });
@@ -626,7 +682,7 @@ pub(crate) fn is_our_worker_socket(path: &str, supervisor_socket: &Path) -> bool
 fn same_socket_worker_targets(
     _socket_path: &Path,
     _protected: &HashSet<u32>,
-    _active_session: Option<&str>,
+    _active_session: &str,
 ) -> Vec<ReapTarget> {
     Vec::new()
 }
@@ -652,49 +708,27 @@ fn proc_environ_names_active_session(pid: u32, active_session: &str) -> bool {
 /// eukhe-daemon form), excluding this process. A healthy predecessor can never
 /// be here: its listener would have refused this daemon's bind.
 #[cfg(target_os = "linux")]
-fn same_socket_supervisor_targets(socket_path: &Path) -> Vec<ReapTarget> {
+fn supervisor_targets(census: &[ProductProcess], socket_path: &Path) -> Vec<ReapTarget> {
     let socket = normalize_socket_spelling(socket_path);
-    let mut targets = Vec::new();
-    for pid in numeric_proc_entries() {
-        if pid == std::process::id() {
-            continue;
-        }
-        // Identity-first capture (the same anti-recycling order as the
-        // worker census).
-        let start_id = crate::lease::get_process_start_id(pid);
-        let Some(mut argv) = read_proc_argv(pid) else {
-            continue;
-        };
-        // A RELATIVE socket token resolves against the PROCESS's own
-        // working directory (never this daemon's): two daemons started
-        // from different directories with the same relative argument are
-        // different sockets.
-        resolve_relative_socket_tokens(pid, &mut argv);
-        if !supervisor_argv_names_socket(&argv, &socket) {
-            continue;
-        }
-        // Same unforgeable-exe gate as the worker census: a forged argv
-        // never carries a signal.
-        if !exe_is_product_binary(pid) {
-            continue;
-        }
-        // The post-qualification identity re-check.
-        if crate::lease::get_process_start_id(pid).as_deref() != start_id.as_deref() {
-            continue;
-        }
-        targets.push(ReapTarget {
-            pid,
-            start_id,
+    census
+        .iter()
+        .filter(|process| {
+            // A RELATIVE socket token resolves against the PROCESS's own
+            // working directory (never this daemon's): two daemons started
+            // from different directories with the same relative argument
+            // are different sockets.
+            let mut argv = process.argv.clone();
+            resolve_relative_socket_tokens(process.pid, &mut argv);
+            supervisor_argv_names_socket(&argv, &socket)
+        })
+        .filter(|process| still_censused(process))
+        .map(|process| ReapTarget {
+            pid: process.pid,
+            start_id: process.start_id.clone(),
             worker_socket: None,
             kind: ReapKind::Supervisor,
-        });
-    }
-    targets
-}
-
-#[cfg(not(target_os = "linux"))]
-fn same_socket_supervisor_targets(_socket_path: &Path) -> Vec<ReapTarget> {
-    Vec::new()
+        })
+        .collect()
 }
 
 /// Resolve the socket-flag tokens that are RELATIVE against the target
