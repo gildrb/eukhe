@@ -353,6 +353,20 @@ impl Job {
         self.inner.started.elapsed()
     }
 
+    /// When the job started, in Unix milliseconds: what a client counts
+    /// its running time from.
+    #[must_use]
+    pub fn started_at_ms(&self) -> u64 {
+        let started = std::time::SystemTime::now()
+            .checked_sub(self.elapsed())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        started
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+            })
+    }
+
     #[must_use]
     pub fn state(&self) -> JobState {
         *self.inner.state.borrow()

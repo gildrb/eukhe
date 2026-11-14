@@ -16,9 +16,9 @@
 //! `detached` with the output so far, and the cell's end settles the job
 //! ([`super::jobs`]). A cell inside a blocking wait (`jobs.wait`,
 //! `rlm.collect`) does not detach: the budget restarts when its last wait
-//! ends. A later call waits for a detached job within its own budget,
-//! then settles `busy` without running its code, unless its whole code is
-//! one `await jobs.wait(...)`, which runs without the kernel
+//! ends. A later call while a detached job holds the kernel settles `busy`
+//! at once without running its code, unless its whole code is one
+//! `await jobs.wait(...)`, which runs without the kernel
 //! ([`super::wait::served`]).
 //!
 //! A cell runs code that may run any program, so the approval gate covers
@@ -78,7 +78,7 @@ use crate::kernel::ReplKernelManager;
 pub const PYTHON_TOOL_NAME: &str = "python";
 
 /// The tool description.
-const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPython): top-level `await` works; the last expression is shown. `%pip install <pkg>` installs its locked version; no `!cmd`: shell is `bash('cmd')`/`await bash('cmd')`. State persists across calls and is revived best-effort on resume. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run the project's imports, tests and CLIs through `bash()`. A cell outliving the blocking budget continues as a job: the call returns its output so far and the end arrives as `[job-settled ...]`; to wait in-turn: `await jobs.wait(\"<job>\")` (or `jobs.wait()` for the first).";
+const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPython): top-level `await` works; the last expression is shown. `%pip install <pkg>` installs its locked version; no `!cmd`: shell is `bash('cmd')`/`await bash('cmd')`. State persists across calls and is revived best-effort on resume. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run the project's imports, tests and CLIs through `bash()`. A cell outliving the blocking budget continues as a job that holds the kernel until it ends: the call returns its output so far, and the end arrives on its own as `[job-settled ...]`. Run long or serial workloads with background `bash()` or children, not in a cell. `await jobs.wait(\"<job>\")` only when nothing else can proceed.";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -153,6 +153,19 @@ pub(crate) async fn call_aborted(cx: &Context) {
     }
 }
 
+/// What a detached cell's job is called where it is listed (`jobs.list`,
+/// the pending work the TUI shows): the call's intent, else the cell's
+/// first code line.
+fn cell_label(args: &PiJsonValue, code: &str) -> String {
+    args.get("i")
+        .and_then(PiJsonValue::as_str)
+        .map(str::trim)
+        .filter(|intent| !intent.is_empty())
+        .or_else(|| code.lines().map(str::trim).find(|line| !line.is_empty()))
+        .unwrap_or(PYTHON_TOOL_NAME)
+        .to_owned()
+}
+
 #[tracing::instrument(skip_all, fields(call = api.call_id()))]
 async fn execute(
     runtime: &RlmRuntime,
@@ -166,6 +179,7 @@ async fn execute(
         .and_then(PiJsonValue::as_str)
         .ok_or_else(|| SessionError::error("python tool requires a code string"))?
         .to_owned();
+    let label = cell_label(args, &code);
     // The gate (the compiled core, bend/runners.bend `within`, `cell`): a
     // cell outside the auto set runs only once the user approves it. No
     // kernel, job or budget before the answer.
@@ -208,11 +222,10 @@ async fn execute(
             )));
         }
     }
-    // The runtime's one blocking budget bounds this call's waits on the
-    // kernel (ADR 0010), each the one blocking wait on a job
-    // ([`jobs::wait_until`]): on a detached cell still holding it, then on
-    // this cell. Booting the kernel is the provisioner's, bounded by its own
-    // startup deadlines, so its time extends the deadline.
+    // The runtime's one blocking budget bounds this call's wait on its cell
+    // (ADR 0010), the one blocking wait on a job ([`jobs::wait_until`]).
+    // Booting the kernel is the provisioner's, bounded by its own startup
+    // deadlines, so its time extends the deadline.
     let budget = runtime.deps.blocking_budget();
     let mut deadline = tokio::time::Instant::now() + budget;
     let conversation_id = api.conversation_id();
@@ -228,23 +241,14 @@ async fn execute(
         .map_err(|error| session_error(&error))?;
 
     // A detached cell still holds the kernel. A cell that only waits on
-    // the agent's work runs without the kernel; any other waits for the
-    // detached cell within the budget, then reports it instead of queueing
-    // behind it.
+    // the agent's work runs without the kernel; any other is answered at
+    // once with the job holding it: the agent's turn never stalls behind a
+    // job, whose result arrives on its own.
     if let Some(running) = kernel.jobs.running() {
-        if let Some(ask) = wait::served(&code) {
-            return serve_wait(runtime, &running, ask, conversation_id, cx).await;
-        }
-        let waited = tokio::select! {
-            waited = jobs::wait_until(deadline, running.ended()) => waited,
-            () = call_aborted(cx) => {
-                return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
-            }
+        return match wait::served(&code) {
+            Some(ask) => serve_wait(runtime, &running, ask, conversation_id, &api, cx).await,
+            None => Ok(busy_result(&running)),
         };
-        match waited {
-            Wait::Detached => return Ok(busy_result(&running)),
-            Wait::Settled(_) => {}
-        }
     }
 
     let signal = cx
@@ -366,7 +370,7 @@ async fn execute(
             let record = match runtime
                 .deps
                 .jobs
-                .record_start(job.id().clone(), JobKind::Cell, PYTHON_TOOL_NAME.to_owned())
+                .record_start(job.id().clone(), JobKind::Cell, label)
                 .await
             {
                 Ok(record) => record,
@@ -570,12 +574,12 @@ fn detached_result(
         severity: ToolDiagnosticSeverity::Info,
         code: Some("detached".to_owned()),
         message: format!(
-            "The cell outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
-             the cell keeps running. Keep working; when the next step needs its result, wait for it \
-             in this turn with `await jobs.wait(\"{job}\")` (up to 30 min), which runs while the kernel \
-             is busy; never sleep-poll and never end the turn on it. Otherwise its end arrives as a \
-             [job-settled job:{job}] message. Until then any other python call waits for the job up \
-             to the budget, then reports it still running."
+            "The cell outlived the {budget_ms} ms blocking budget and continues as job {job}, \
+             holding the kernel until it ends; a python call before then is answered busy. Its \
+             result arrives on its own as a [job-settled job:{job}] message: never poll. Meanwhile \
+             `read`, `grep`, `glob`, `edit` and the `bash` tool work without the kernel: do the work \
+             that does not need this result. `await jobs.wait(\"{job}\")` only when nothing else can \
+             proceed."
         ),
         omitted: None,
         artifact: None,
@@ -595,16 +599,19 @@ fn detached_result(
     }
 }
 
-/// A call that found the kernel still held by a detached cell past the
-/// budget: its code did not run.
+/// A call that found the kernel held by a detached cell: its code did not
+/// run.
 fn busy_result(running: &Job) -> ToolExecutionResult {
     let job = running.id();
-    let elapsed_ms = running.elapsed().as_millis();
+    let label = running.label();
+    let elapsed = running.elapsed().as_secs();
+    let (minutes, seconds) = (elapsed / 60, elapsed % 60);
     ToolExecutionResult {
         output: Some(vec![UserContentBlock::Text(TextContent::new(format!(
-            "Not run: the kernel is still running job {job} (started {elapsed_ms} ms ago). \
-             Wait for it with `await jobs.wait(\"{job}\")`, which runs while the kernel is busy, \
-             or stop it with `await jobs.cancel(\"{job}\")`."
+            "Not run: job {job} holds the kernel (\"{label}\", running {minutes}m {seconds:02}s). \
+             `read`, `grep`, `glob`, `edit` and the `bash` tool work without the kernel: use them \
+             meanwhile. The job's result arrives on its own as [job-settled job:{job}]; \
+             `await jobs.cancel(\"{job}\")` stops it."
         )))]),
         is_error: Some(true),
         details: Some(JsonValue::from(json!({
@@ -617,14 +624,28 @@ fn busy_result(running: &Job) -> ToolExecutionResult {
 }
 
 /// A cell whose whole code is one `jobs.wait`, run without the kernel the
-/// detached cell `holder` holds ([`wait::served`]).
+/// detached cell `holder` holds ([`wait::served`]). While it waits, the
+/// call's details name the job holding the kernel (`status: "waiting"`),
+/// so live clients show what the agent waits on and since when.
 async fn serve_wait(
     runtime: &RlmRuntime,
     holder: &Job,
     ask: wait::Ask,
     conversation: eukhe_durable::types::ConversationId,
+    api: &Arc<dyn ToolExecutionApi>,
     cx: &Context,
 ) -> SessionResult<ToolExecutionResult> {
+    let waiting = JsonValue::from(json!({
+        "status": "waiting",
+        "job": {
+            "id": holder.id().as_str(),
+            "label": holder.label(),
+            "startedAtMs": holder.started_at_ms(),
+        },
+    }));
+    if let Err(error) = api.details(waiting, cx).await {
+        tracing::debug!(%error, "python waiting status not published");
+    }
     match wait::wait(runtime, conversation, ask, None, call_aborted(cx)).await {
         Ok(wait::Ended::Cancelled) => {
             Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")))

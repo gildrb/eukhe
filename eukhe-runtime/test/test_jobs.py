@@ -123,7 +123,14 @@ class JobsApiTest(unittest.TestCase):
         with patch.object(rlm_module, "host_request", host_request):
             job = asyncio.run(rlm_module.jobs.wait())
 
-        self.assertEqual((job.kind, job.output), ("message", "A message arrived for this session; it follows this result."))
+        self.assertEqual(
+            (job.kind, job.output),
+            (
+                "message",
+                "A message arrived and ended this wait; it follows this result. Answer or act on it"
+                " before waiting again: the jobs keep running and their results arrive on their own.",
+            ),
+        )
 
     def test_cancel_returns_the_settled_job(self) -> None:
         killed = {"id": "cell-1", "kind": "cell", "state": "killed", "elapsed_ms": 3000, "output": ""}

@@ -9,7 +9,7 @@ Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the har
 - `bash(command) -> BashHandle`: starts a process and returns at once; each call is a fresh process. Handle: `.pid`, `.running`, `.tail(n=50)`, `.output()`, `.poll()`, `.kill()`, and `await handle` -> `.exit_code`, `.output`, `.duration`. A command that ends outside the calling cell sends a notice.
 - `jobs` (async calls): cells and `bash` tool scripts past the blocking budget, `bash()` handles, and children. Work `jobs.wait` did not return arrives as `[job-settled job:ID status:S]` (or `[bash-done ...]`).
   - `jobs.list()`: running and recent jobs
-  - `jobs.wait(targets=None, *, timeout_s=None)`: the first job to settle (`.id`, `.state`, `.output`), `None` on timeout; a message for this session ends it early
+  - `jobs.wait(targets=None, *, timeout_s=None)`: the first job to settle (`.id`, `.state`, `.output`), `None` on timeout; a message for this session ends it early. Only when nothing else can proceed.
   - `jobs.cancel(target)`
 - The file tools are also sync functions with the same anchors, raising `FsError` (`edit`: `EditRejected`):
 - `read(path)`

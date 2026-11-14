@@ -505,11 +505,10 @@ fn detached_result(
         severity: ToolDiagnosticSeverity::Info,
         code: Some("detached".to_owned()),
         message: format!(
-            "The script outlived the {budget_ms} ms blocking budget, so this call settled as job {job}; \
-             the script keeps running, and a step that needs approval still asks the user. Keep \
-             working; when the next step needs its result, wait for it in this turn with \
-             `await jobs.wait(\"{job}\")` (up to 30 min) — never sleep-poll and never end the turn on \
-             it. Otherwise its end arrives as a [job-settled job:{job}] message."
+            "The script outlived the {budget_ms} ms blocking budget and continues as job {job}; a \
+             step that needs approval still asks the user. Its result arrives on its own as a \
+             [job-settled job:{job}] message: never poll. Do the work that does not need this \
+             result; `await jobs.wait(\"{job}\")` only when nothing else can proceed."
         ),
         omitted: None,
         artifact: None,

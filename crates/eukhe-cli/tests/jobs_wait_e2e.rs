@@ -136,7 +136,7 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
             Vec::<String>::new(),
             "the result the wait returned is not delivered again"
         ),
-        "message ok A message arrived for this session; it follows this result.\n" => assert!(
+        "message ok A message arrived and ended this wait; it follows this result. Answer or act on it before waiting again: the jobs keep running and their results arrive on their own.\n" => assert!(
             notices.len() == 1 && notices[0].contains("BUILD-OK"),
             "the build's notice follows the wait: {notices:?}"
         ),
