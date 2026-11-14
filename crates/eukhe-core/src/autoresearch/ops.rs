@@ -71,14 +71,6 @@ pub(crate) struct LogArgs {
     pub(crate) flags: Vec<(u32, String)>,
 }
 
-/// What `/autoresearch <goal>` did: the branch, and whether the store had
-/// a config already (a resume) or not (the harness comes first).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Begun {
-    pub(crate) branch: Branch,
-    pub(crate) configured: bool,
-}
-
 impl Autoresearch {
     /// Open or reconfigure the session (`Event::Init`). Off an
     /// `autoresearch/*` branch, the branch comes first (a clean tree is
@@ -368,6 +360,18 @@ impl Autoresearch {
         Ok(self.session().await?.opened()?.lab.snapshot()?)
     }
 
+    /// The Lab's snapshot of the current branch, and the branch's name
+    /// (`None` off git or on a detached head).
+    ///
+    /// # Errors
+    ///
+    /// A git, store or core failure.
+    pub(crate) async fn view(&self) -> anyhow::Result<(Snapshot, Option<String>)> {
+        let mut session = self.session().await?;
+        let snapshot = session.opened()?.lab.snapshot()?;
+        Ok((snapshot, session.workspace.branch.clone()))
+    }
+
     /// Turn the mode on or off (`SetMode`).
     ///
     /// # Errors
@@ -390,13 +394,12 @@ impl Autoresearch {
     /// # Errors
     ///
     /// A dirty tree off the branch, a git, store or core failure.
-    pub(crate) async fn begin(&self, goal: &str) -> anyhow::Result<Begun> {
+    pub(crate) async fn begin(&self, goal: &str) -> anyhow::Result<Branch> {
         let workspace = Workspace::of(&self.cwd).await?;
         let branch = ensure_branch(&workspace, Some(goal), &today()?).await?;
         let mut session = self.session().await?;
         session.accept(&Event::SetMode(Mode::On), Durability::Synced)?;
-        let configured = session.opened()?.lab.snapshot()?.config.is_some();
-        Ok(Begun { branch, configured })
+        Ok(branch)
     }
 
     /// `/autoresearch clear`: turn the mode off and close the session of

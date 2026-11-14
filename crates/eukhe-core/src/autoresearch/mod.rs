@@ -17,12 +17,15 @@
 //! - [`host`]: the kernel host requests `autoresearch.*` of the
 //!   `autoresearch` skill, and the autonomous run that continues the loop
 //!   while the Lab's mode is on;
+//! - [`prompt`]: the system prompt section that holds the mode's
+//!   instructions while the loop runs;
 //! - [`command`]: `/autoresearch <goal> | off | status | clear`.
 
 mod command;
 mod git;
 mod host;
 mod ops;
+mod prompt;
 mod runner;
 mod store;
 
@@ -37,6 +40,7 @@ use eukhe_bend::rules::autoresearch::{Event, Lab, Outcome};
 
 pub(crate) use command::{execute as execute_command, AutoresearchCommandError};
 pub(crate) use host::register_host_requests;
+pub(crate) use prompt::section as prompt_section;
 
 use self::git::Workspace;
 use self::runner::RunGate;

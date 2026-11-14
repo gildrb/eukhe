@@ -6,9 +6,11 @@
 //! `eukhe.prompt` holds the install-stable sections ([`section_keys`]);
 //! the other extensions' sections (such as `codemode`) follow; then
 //! `eukhe.closing`, installed last, holds the closing `<critical>` block,
-//! the project's instructions and the environment ([`CLOSING_KEYS`]), and
-//! last `running-jobs`, present only while a job runs
-//! ([`super::jobs::running_jobs_section`]). Nothing varies per session, so
+//! the project's instructions and the environment ([`CLOSING_KEYS`]), then
+//! `autoresearch`, present only while the autoresearch loop runs
+//! (`autoresearch::prompt_section`), and last `running-jobs`, present only
+//! while a job runs ([`super::jobs::running_jobs_section`]). Nothing else
+//! varies per session, so
 //! a second session in a project reuses the provider's cached prompt. The
 //! leading static sections ([`SHARED_SECTIONS`]) are the same in every
 //! project too: requests send them as a cache-marked block of their own,
@@ -197,7 +199,8 @@ impl PromptBuilder {
 
 /// The session's two prompt extensions sharing one breakdown: `eukhe.prompt`
 /// ([`SECTION_KEYS`]), which the registry installs first, and
-/// `eukhe.closing` ([`CLOSING_KEYS`], then `running-jobs`), which it
+/// `eukhe.closing` ([`CLOSING_KEYS`], then `autoresearch` and
+/// `running-jobs`), which it
 /// installs last, after every other extension's sections. A user prompt
 /// that replaces the layered defaults drops the closing block: its section
 /// is then empty.
@@ -261,7 +264,10 @@ pub fn extensions(deps: &Arc<HostDeps>) -> [Arc<Extension>; 2] {
         ..Extension::default()
     });
     let mut closing = sections(&CLOSING_KEYS, 0);
-    // Last: it comes and goes with the jobs, after the stable sections.
+    // Last: they come and go with the autoresearch loop and the jobs, after
+    // the stable sections; the loop's section changes less often, so it
+    // comes first and a job's section is appended after it.
+    closing.push(crate::autoresearch::prompt_section(deps));
     closing.push(super::jobs::running_jobs_section(deps));
     let closing = define_extension(Extension {
         name: CLOSING_EXTENSION.to_owned(),

@@ -88,6 +88,12 @@ async fn run(lab: &Autoresearch) -> Value {
         .value
 }
 
+/// The `autoresearch` system prompt section for the Lab's current view.
+async fn section(lab: &Autoresearch) -> Option<String> {
+    let (snapshot, branch) = lab.view().await.unwrap();
+    super::prompt::text(&snapshot, branch.as_deref())
+}
+
 #[tokio::test]
 async fn the_loop_runs_end_to_end_on_a_real_repository() {
     let home = tempfile::tempdir().unwrap();
@@ -103,9 +109,24 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
         "autoresearch/speed-up-parser-{:04}{:02}{:02}",
         date.year, date.month, date.day
     );
-    assert_eq!(begun.branch, Branch::Created(branch.clone()));
-    assert!(!begun.configured);
+    assert_eq!(begun, Branch::Created(branch.clone()));
     assert_eq!(git(&repo, &["branch", "--show-current"]), branch);
+
+    // The setup phase of the system prompt section: the harness first, on
+    // this branch; the goal is the user's message, not repeated here.
+    let setup = section(&lab).await.expect("the mode is on");
+    assert!(
+        setup.starts_with(&format!(
+            "Autoresearch mode is on and this branch has no experiment yet. Branch: `{branch}`. \
+The user's message that turned the mode on is the goal."
+        )),
+        "{setup}"
+    );
+    assert!(
+        setup.contains("validate it with `bash autoresearch.sh`"),
+        "{setup}"
+    );
+    assert!(!setup.contains("Speed up the parser"), "{setup}");
 
     // The harness, then init: the harness becomes the baseline commit.
     std::fs::write(repo.join("autoresearch.sh"), HARNESS).unwrap();
@@ -132,6 +153,19 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
         git(&repo, &["log", "-1", "--format=%s"]),
         "autoresearch: harness"
     );
+
+    // The loop phase: the experiment, its metric and cap, and the loop's
+    // instructions.
+    let looping = section(&lab).await.expect("the mode is on");
+    assert!(
+        looping.starts_with(&format!(
+            "Autoresearch mode is on: experiment `parser`. Branch: `{branch}`. Goal: Speed up \
+the parser\n\nPrimary metric `time_ms` (ms), lower is better. The iteration cap is 4 runs.\n\n\
+Follow the autoresearch skill."
+        )),
+        "{looping}"
+    );
+    assert!(looping.ends_with("never game the benchmark."), "{looping}");
 
     // Baseline: passes, parses both metrics, keeps (nothing to commit).
     let baseline = run(&lab).await;
@@ -160,6 +194,8 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
         "cache the table\n\nResult: {\"status\":\"keep\",\"time_ms\":8}"
     );
     assert_eq!(kept.value["state"]["best"], json!("8"));
+    // Runs do not change the section: the loop keeps one recorded text.
+    assert_eq!(section(&lab).await.as_ref(), Some(&looping));
 
     // A worse run: the Lab refuses its keep and logs nothing; the discard
     // resets the tree (tracked change and untracked file).
@@ -188,6 +224,8 @@ async fn the_loop_runs_end_to_end_on_a_real_repository() {
         .unwrap();
     assert_eq!(stopped.value["stopped"], json!(true));
     assert_eq!(stopped.mode, Mode::Off);
+    // Mode off: no section.
+    assert_eq!(section(&lab).await, None);
     assert!(!repo.join("exit.txt").exists());
 
     // A reopen replays the log to the very same state.
@@ -221,12 +259,12 @@ async fn the_branch_name_is_short_unique_and_stable() {
 tokenizer, and keep every existing test passing while you iterate on the benchmark.";
     let begun = lab.begin(prompt).await.unwrap();
     let second = format!("{taken}-2");
-    assert_eq!(begun.branch, Branch::Created(second.clone()));
+    assert_eq!(begun, Branch::Created(second.clone()));
     assert_eq!(git(&repo, &["branch", "--show-current"]), second);
 
     // A resume on the branch, with another goal: the name stays.
     let resumed = lab.begin("a different goal altogether").await.unwrap();
-    assert_eq!(resumed.branch, Branch::Kept(second.clone()));
+    assert_eq!(resumed, Branch::Kept(second.clone()));
     assert_eq!(git(&repo, &["branch", "--show-current"]), second);
 }
 
