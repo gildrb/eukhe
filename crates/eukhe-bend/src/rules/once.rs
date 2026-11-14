@@ -32,6 +32,19 @@ pub enum Mode {
     Stop,
 }
 
+/// What the target of a keyed effect declares of a repeat of its
+/// idempotency key: a declaration the principal or the target's operator
+/// made, never one a model or a generic tool wrote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dedup {
+    /// No such declaration, or one that drops a repeat only within a
+    /// window (only the harness's own clock could tell that a relaunch
+    /// falls inside it): a repeat may take hold again.
+    Undeclared,
+    /// Every repeat of the key is dropped, whenever it comes.
+    Lasting,
+}
+
 /// What a second launch of an effect would do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Policy {
@@ -40,9 +53,11 @@ pub enum Policy {
     Never,
     /// It changes nothing: it may run again.
     Safe,
-    /// Its receiver drops a repeat of its idempotency key ([`key`]): it may
-    /// be sent again under the same key, at most `cap` more times.
-    Keyed { cap: u32 },
+    /// Every launch carries its idempotency key ([`key`]); it is sent again
+    /// under it only when its target's declaration `dedup` is
+    /// [`Dedup::Lasting`], at most `cap` more times
+    /// (`once_undeduped_sends_once`, `once_keyed_sends_capped`).
+    Keyed { dedup: Dedup, cap: u32 },
 }
 
 /// What the world shows of a started effect at a restart.
@@ -168,7 +183,10 @@ impl Effect {
         match policy {
             Policy::Never => request.tag(0),
             Policy::Safe => request.tag(1),
-            Policy::Keyed { cap } => request.tag(2).nat(u64::from(cap)),
+            Policy::Keyed { dedup, cap } => request.tag(2).nat(u64::from(cap)).tag(match dedup {
+                Dedup::Undeclared => 0,
+                Dedup::Lasting => 1,
+            }),
         };
         request.tag(match seen {
             Seen::Dark => 0,
@@ -312,12 +330,16 @@ mod tests {
         );
     }
 
-    /// A keyed effect is sent again while fewer than its cap, counted
-    /// across restarts by the starts on record.
+    /// A keyed effect whose target drops every repeat of its key is sent
+    /// again while fewer than its cap, counted across restarts by the
+    /// starts on record.
     #[test]
     fn a_keyed_effect_is_sent_again_up_to_its_cap() {
         let mut effect = Effect::of([Record::Intended, Record::Started]);
-        let policy = Policy::Keyed { cap: 2 };
+        let policy = Policy::Keyed {
+            dedup: Dedup::Lasting,
+            cap: 2,
+        };
         let mut verdicts = Vec::new();
         for _ in 0..3 {
             let verdict = effect.restart(Mode::Resume, policy, Seen::Dark);
@@ -333,6 +355,21 @@ mod tests {
                 (Life::Running { again: 1 }, Verdict::Launch),
                 (Life::Running { again: 2 }, Verdict::Interrupt),
             ]
+        );
+    }
+
+    /// A keyed effect whose target has no declaration is never sent
+    /// again: a cut one is interrupted, whatever its cap.
+    #[test]
+    fn a_keyed_effect_without_a_lasting_declaration_is_sent_once() {
+        let mut effect = Effect::of([Record::Intended, Record::Started]);
+        let policy = Policy::Keyed {
+            dedup: Dedup::Undeclared,
+            cap: 5,
+        };
+        assert_eq!(
+            effect.restart(Mode::Resume, policy, Seen::Dark),
+            Verdict::Interrupt
         );
     }
 

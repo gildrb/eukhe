@@ -232,6 +232,11 @@ async fn resends_a_request_interrupted_before_any_partial_without_repeating_prep
     let directory = temp();
     let path = directory.path().to_owned();
     let setup = chat_setup(RegisterFauxProviderOptions::default());
+    // The provider declares that it drops every repeat of a request's key,
+    // so the restart sends the cut request again (spec O7).
+    let mut provider = setup.faux.provider.clone();
+    provider.dedups_requests = true;
+    setup.models.set_provider(provider);
     add_section(
         &setup.registry,
         "preamble",
@@ -396,6 +401,11 @@ async fn converts_a_committed_partial_into_an_aborted_entry_and_resends_the_same
     let (id, watched) = crash_with_partial(&path).await;
 
     let setup = chat_setup(RegisterFauxProviderOptions::default());
+    // The provider declares that it drops every repeat of a request's key,
+    // so the restart sends the cut request again (spec O7).
+    let mut provider = setup.faux.provider.clone();
+    provider.dedups_requests = true;
+    setup.models.set_provider(provider);
     let sent: Arc<Mutex<Vec<Vec<&'static str>>>> = Arc::default();
     let sent_sink = Arc::clone(&sent);
     setup

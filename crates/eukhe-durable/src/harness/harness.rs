@@ -439,6 +439,7 @@ impl Harness {
                 }),
                 now: Arc::clone(&now),
                 report: Arc::clone(&report),
+                lost_request_cost: options.lost_request_cost.clone(),
                 settle_outcome: Arc::new(settle_scheduler_outcome),
                 withdraw_inputs: Arc::new(withdraw_queued_inputs),
                 conversation: Arc::new(move |id, binding, cx| {

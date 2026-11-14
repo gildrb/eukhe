@@ -393,6 +393,7 @@ pub fn test_provider(input: TestProvider) -> Provider {
         name: input.id,
         base_url: None,
         headers: None,
+        dedups_requests: false,
         auth: input.auth.unwrap_or_else(|| ProviderAuth {
             api_key: Some(ambient_auth()),
             oauth: None,

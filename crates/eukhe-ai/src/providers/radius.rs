@@ -172,6 +172,7 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
         name: name.clone(),
         base_url: None,
         headers: None,
+        dedups_requests: false,
         auth: ProviderAuth {
             api_key: Some(env_api_key_auth("Radius API key", &["RADIUS_API_KEY"])),
             oauth: Some(lazy_oauth(LazyOAuthInput {

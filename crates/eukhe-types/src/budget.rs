@@ -230,3 +230,15 @@ pub struct BudgetReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
 }
+
+/// Micro-dollars as every surface shows money: dollars and cents; an
+/// amount below half a cent keeps four decimals, rounded up, so it never
+/// reads as nothing.
+#[must_use]
+pub fn dollars(micros: u64) -> String {
+    if (1..5_000).contains(&micros) {
+        return format!("$0.{:04}", micros.div_ceil(100));
+    }
+    let cents = micros.saturating_add(5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
+}

@@ -75,6 +75,16 @@ pub(crate) struct ProviderConfig {
     pub auth_header: Option<bool>,
     pub models: Option<Vec<ModelDefinition>>,
     pub model_overrides: Option<BTreeMap<String, ModelOverride>>,
+    pub request_dedup: Option<RequestDedupConfig>,
+}
+
+/// `requestDedup`: the principal's declaration that the provider drops
+/// every repeat of a model request's `Idempotency-Key`, whenever it comes.
+/// The one value is `"lasting"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RequestDedupConfig {
+    Lasting,
 }
 
 /// The parsed and validated models.json document.
@@ -140,7 +150,7 @@ pub(crate) enum ProviderError {
     Schema(#[source] serde_json::Error),
     /// The entry configures nothing.
     #[error(
-        "must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", or \"models\"."
+        "must specify \"baseUrl\", \"headers\", \"compat\", \"modelOverrides\", \"models\", or \"requestDedup\"."
     )]
     NothingConfigured,
     /// A custom provider defines models without `baseUrl`.
@@ -275,6 +285,7 @@ impl ProviderConfig {
                 && self.headers.is_none()
                 && self.compat.is_none()
                 && !has_model_overrides
+                && self.request_dedup.is_none()
             {
                 return Err(ProviderError::NothingConfigured);
             }
@@ -864,6 +875,29 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.starts_with("Provider battery, model m: "), "{error}");
+    }
+
+    /// `requestDedup` takes exactly `"lasting"` and alone configures a
+    /// provider; a window or any other value drops the entry (a window
+    /// never lets a cut request go out again).
+    #[test]
+    fn request_dedup_is_lasting_or_nothing() {
+        let config = provider(r#"{ "providers": { "anthropic": { "requestDedup": "lasting" } } }"#);
+        assert_eq!(config.request_dedup, Some(RequestDedupConfig::Lasting));
+        assert_eq!(
+            provider(r#"{ "providers": { "p": { "baseUrl": "http://x" } } }"#).request_dedup,
+            None
+        );
+        for bad in [r#"{ "windowSeconds": 60 }"#, r#""expiring""#, "true"] {
+            let load = ModelsConfig::parse(
+                &format!(
+                    r#"{{ "providers": {{ "p": {{ "baseUrl": "http://x", "requestDedup": {bad} }} }} }}"#
+                ),
+                &|_| false,
+            );
+            assert!(load.config.providers.is_empty(), "{bad}");
+            assert_eq!(load.diagnostics.len(), 1, "{bad}");
+        }
     }
 
     /// TS `755-configured-max-tokens.test.ts`: a models.json `maxTokens`

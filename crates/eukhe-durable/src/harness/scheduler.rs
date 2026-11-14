@@ -55,7 +55,7 @@ use futures::future::BoxFuture;
 use crate::env::ExecutionEnv;
 use crate::harness::live::progress::LiveProgress;
 use crate::harness::types::{
-    Agent, ConversationHandle, RegistryReader, RegistrySnapshot, Settings,
+    Agent, ConversationHandle, LostRequestCost, RegistryReader, RegistrySnapshot, Settings,
 };
 use crate::session::{Session, SessionError, SessionResult, Tx};
 use crate::types::{AnyTaskRecord, ConversationId, Storage, TaskOutcome, TaskOutcomeError};
@@ -164,6 +164,8 @@ pub(crate) struct TaskSchedulerOptions {
     pub(crate) now: Arc<dyn Fn() -> f64 + Send + Sync>,
     /// `HarnessOptions.onReport`.
     pub(crate) report: Arc<dyn Fn(SessionError) + Send + Sync>,
+    /// `HarnessOptions.lost_request_cost`.
+    pub(crate) lost_request_cost: Option<LostRequestCost>,
     /// Harness cleanup staged in the commit that makes an outcome the
     /// scheduler wrote itself terminal.
     pub(crate) settle_outcome: SettleOutcome,
@@ -205,6 +207,7 @@ struct Inner {
     env: EnvBuilder,
     now: Arc<dyn Fn() -> f64 + Send + Sync>,
     report: Arc<dyn Fn(SessionError) + Send + Sync>,
+    lost_request_cost: Option<LostRequestCost>,
     settle_outcome: SettleOutcome,
     withdraw_inputs: WithdrawInputs,
     conversation: ConversationSource,
@@ -259,6 +262,7 @@ impl TaskScheduler {
                 env: options.env,
                 now: options.now,
                 report: options.report,
+                lost_request_cost: options.lost_request_cost,
                 settle_outcome: options.settle_outcome,
                 withdraw_inputs: options.withdraw_inputs,
                 conversation: options.conversation,

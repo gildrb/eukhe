@@ -115,17 +115,43 @@ impl World {
     /// A world whose daemon processes run with `env` added to their
     /// environment (a kill point, `EUKHE_TEST_KILL_AT`).
     fn with_env(context_window: u64, settings: &Value, env: &[(&str, String)]) -> World {
+        World::build(context_window, settings, env, |_| {})
+    }
+
+    /// A world whose provider declares in models.json that it drops every
+    /// repeat of a request's `Idempotency-Key` (`"requestDedup":
+    /// "lasting"`).
+    fn deduplicating(context_window: u64, settings: &Value) -> World {
+        World::build(context_window, settings, &[], |models| {
+            models["providers"]["mock"]["requestDedup"] = json!("lasting");
+        })
+    }
+
+    /// A world whose model has a price (models.json `cost`, dollars per
+    /// million tokens), so a budget that limits money holds money for
+    /// each of its requests.
+    fn priced(context_window: u64, settings: &Value) -> World {
+        World::build(context_window, settings, &[], |models| {
+            models["providers"]["mock"]["models"][0]["cost"] =
+                json!({ "input": 3, "output": 15, "cacheRead": 0, "cacheWrite": 0 });
+        })
+    }
+
+    fn build(
+        context_window: u64,
+        settings: &Value,
+        env: &[(&str, String)],
+        edit_models: impl FnOnce(&mut Value),
+    ) -> World {
         let dir = tempfile::tempdir().expect("temp dir");
         let agent_dir = dir.path().join("agent");
         let session_dir = agent_dir.join("sessions");
         std::fs::create_dir_all(&session_dir).expect("session dir");
         let release = dir.path().join("release");
         let mock = MockLlm::start(move |request| script(request, &release));
-        std::fs::write(
-            agent_dir.join("models.json"),
-            mock.models_json(MODEL, context_window, 4096).to_string(),
-        )
-        .expect("models.json");
+        let mut models = mock.models_json(MODEL, context_window, 4096);
+        edit_models(&mut models);
+        std::fs::write(agent_dir.join("models.json"), models.to_string()).expect("models.json");
         let mut settings = settings.clone();
         settings["defaultProvider"] = json!("mock");
         settings["defaultModel"] = json!(MODEL);

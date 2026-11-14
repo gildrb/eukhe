@@ -6,7 +6,7 @@
 # the fold tells the spec's life (ob.go_pending, ob.go_run); the fold
 # runs through an append (ob.go_append). The restart: a keyed effect is
 # sent again exactly while fewer than cap (ob.keyed), and its verdict is
-# a launch or an interrupt (ob.keyed_cases).
+# a launch or an interrupt (ob.keyed_cases, ob.dedup_cases).
 
 import Base
 import ../../bend/once.bend as O
@@ -277,3 +277,21 @@ def ob.keyed_within(cap: Nat, again: Nat, -P: O.Verdict -> Type, launch: {Nat.is
           launch(ob.le_one(c))
         case 1n+a:
           ob.keyed_within(c, a, P, launch, interrupt)
+
+# what holds of a launch and of an interrupt holds of a keyed effect's
+# verdict, whatever its target declares
+def ob.dedup_cases(d: O.Dedup, cap: Nat, again: Nat, -P: O.Verdict -> Type, launch: P(O.Launch{}), interrupt: P(O.Interrupt{})) -> P(O.dedup(d, cap, again)):
+  match d:
+    case O.Undeclared{}:
+      interrupt
+    case O.Lasting{}:
+      ob.keyed_cases(cap, again, P, launch, interrupt)
+
+# what holds of a launch made within the cap and of an interrupt holds
+# of a keyed effect's verdict, whatever its target declares
+def ob.dedup_within(d: O.Dedup, cap: Nat, again: Nat, -P: O.Verdict -> Type, launch: {Nat.is_le(1n+again, cap) == True{} : Bool} -> P(O.Launch{}), interrupt: P(O.Interrupt{})) -> P(O.dedup(d, cap, again)):
+  match d:
+    case O.Undeclared{}:
+      interrupt
+    case O.Lasting{}:
+      ob.keyed_within(cap, again, P, launch, interrupt)

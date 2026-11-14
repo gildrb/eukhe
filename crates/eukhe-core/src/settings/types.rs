@@ -204,8 +204,9 @@ pub struct RetrySettings {
     pub enabled: Option<bool>,
     pub max_retries: Option<u64>,
     /// The times a model request a restart found sent and unanswered is
-    /// sent again, under the same idempotency key, before its run ends
-    /// with an error (default 2).
+    /// sent again, under the same idempotency key, to a provider that
+    /// declares lasting deduplication (models.json `requestDedup`); then it
+    /// is interrupted (default 2).
     pub max_resends: Option<u64>,
     pub base_delay_ms: Option<u64>,
     pub failover: Option<RetryFailoverSettings>,

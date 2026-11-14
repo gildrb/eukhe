@@ -28,11 +28,18 @@ type Mode is Data:
   Resume{}  # the run goes on
   Stop{}    # the run was ended: nothing of it starts any more
 
+# What the target of a keyed effect declares of a repeat of its
+# idempotency key: a declaration the principal or the target's operator
+# made, never one a model or a generic tool wrote
+type Dedup is Data:
+  Undeclared{}  # no such declaration, or one that drops a repeat only within a window (only the harness's own clock could tell that a relaunch falls inside it): a repeat may take hold again
+  Lasting{}     # every repeat of the key is dropped, whenever it comes
+
 # What a second launch of an effect would do
 type Policy is Data:
-  Never{}          # it may change state and nothing drops a repeat: never launched twice
-  Safe{}           # it changes nothing: it may run again
-  Keyed{cap: Nat}  # its receiver drops a repeat of its idempotency key: it may be sent again under the same key, at most cap more times
+  Never{}                    # it may change state and nothing drops a repeat: never launched twice
+  Safe{}                     # it changes nothing: it may run again
+  Keyed{d: Dedup, cap: Nat}  # every launch carries its idempotency key: sent again under it only when its target declares d lasting, at most cap more times
 
 # What the world shows of a started effect at a restart
 type Seen is Data:
@@ -141,6 +148,16 @@ def keyed(cap: Nat, again: Nat) -> Verdict:
         case 1n+a:
           keyed(c, a)
 
+# one more send of a keyed effect sent again `again` times: only when its
+# target drops every repeat of the key (lasting), and while fewer than
+# cap; elapsed time never sends it again
+def dedup(d: Dedup, cap: Nat, again: Nat) -> Verdict:
+  match d:
+    case Undeclared{}:
+      Interrupt{}
+    case Lasting{}:
+      keyed(cap, again)
+
 # an effect that certainly never ran: it starts when its run goes on
 def unrun(m: Mode) -> Verdict:
   match m:
@@ -159,8 +176,8 @@ def dark(m: Mode, p: Policy, again: Nat) -> Verdict:
           Interrupt{}
         case Safe{}:
           Launch{}
-        case Keyed{cap}:
-          keyed(cap, again)
+        case Keyed{d, cap}:
+          dedup(d, cap, again)
     case Stop{}:
       Interrupt{}
 

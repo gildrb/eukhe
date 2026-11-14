@@ -5,10 +5,15 @@
 //!
 //! - a request killed before it went out goes out once,
 //! - a request whose reply committed never goes out again,
-//! - a request cut mid-stream goes out again under the same
-//!   `Idempotency-Key`, at most `retry.maxResends` times; past that the run
-//!   ends with an error saying so, and the request is listed unknown by
-//!   `get_unknown_effects`.
+//! - a request cut mid-stream to a provider that declares no
+//!   deduplication is never sent again: it is listed unknown by
+//!   `get_unknown_effects` and the run goes on with a new request (a new
+//!   `Idempotency-Key`), at most `retry.maxRetries` times in a row; past
+//!   that the run ends with an error saying so,
+//! - a request cut mid-stream to a provider whose models.json declares
+//!   `"requestDedup": "lasting"` goes out again under the same key, at most
+//!   `retry.maxResends` times; past that it is listed unknown and the run
+//!   goes on with a new request.
 
 use super::*;
 
@@ -98,10 +103,10 @@ fn a_request_killed_at_its_intent_goes_out_once() {
 }
 
 /// Killed once its send committed and before it went out: the restart
-/// cannot tell, sends it again under its key (the provider never saw the
-/// first), and it is answered once.
+/// cannot tell whether it went out, so it is listed unknown and never
+/// sent again; the run goes on with a new request, answered once.
 #[test]
-fn a_request_killed_after_its_start_goes_out_once_more() {
+fn a_request_killed_after_its_start_is_replaced_by_a_new_one() {
     let (world, _) = crash_at("started");
     let sent = turn_requests(&world, "crash");
     assert_eq!(sent.len(), 1, "{:?}", mock_llm::summary(&world.mock.log()));
@@ -118,13 +123,24 @@ fn a_request_killed_after_its_reply_committed_never_goes_out_again() {
     assert_eq!(answers(&world, "crash"), 1);
 }
 
-/// Hold the `crash` turn's answer mid-stream and kill the worker `kills`
-/// times (each relaunch sends the request again and holds it once more);
-/// answers the world, the session, a client and the prompt.
-fn killed_mid_stream(kills: usize, settings: &Value) -> (World, String, WireClient, String) {
-    let world = World::new(128_000, settings);
+/// In `world`, hold the `crash` turn's answer mid-stream and kill the
+/// worker `kills` times (each relaunch sends a request again, the same or
+/// a new one, and holds it once more); answers the session, a client and
+/// the prompt. `limits`: a budget the session is given before the prompt.
+fn killed_mid_stream(
+    world: &World,
+    kills: usize,
+    limits: Option<Value>,
+) -> (String, WireClient, String) {
     let mut client = world.connect();
     let session_id = world.create(&mut client, 1);
+    if let Some(limits) = limits {
+        let set = client.request(
+            &json!({ "type": "set_budget", "activeSessionId": session_id, "limits": limits }),
+            WAIT,
+        );
+        assert_eq!(set["success"], true, "set_budget: {set}");
+    }
     let message = prompt("crash", &[HOLD_STREAM], 0);
     client.send(&json!({ "type": "prompt", "activeSessionId": session_id, "message": message }));
     for kill in 0..kills {
@@ -142,27 +158,104 @@ fn killed_mid_stream(kills: usize, settings: &Value) -> (World, String, WireClie
         sigkill(pid);
         wait_dead(pid);
         drop(client);
-        client = reattach(&world, &session_id);
+        client = reattach(world, &session_id);
     }
-    (world, session_id, client, message)
+    (session_id, client, message)
 }
 
-/// Cut mid-stream once: the restart sends it again under the same key, and
-/// the run answers once.
+/// The keys the sends of the `crash` turn carried, in order.
+fn keys(sent: &[Logged]) -> Vec<Option<String>> {
+    sent.iter()
+        .map(|entry| entry.request.idempotency_key.clone())
+        .collect()
+}
+
+/// The money the session's budget held for the request sent under `key`
+/// when the restart found it in flight: what the recovery charged it at.
+fn held_at_recovery(world: &World, key: &str) -> u64 {
+    let budgets = world.agent_dir.join("budgets");
+    let ledgers: Vec<PathBuf> = std::fs::read_dir(&budgets)
+        .expect("the budgets dir")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .collect();
+    assert_eq!(ledgers.len(), 1, "one account: {ledgers:?}");
+    let records: Vec<Value> = std::fs::read_to_string(&ledgers[0])
+        .expect("the ledger")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("a ledger line"))
+        .collect();
+    let before = records
+        .windows(2)
+        .find(|pair| pair[1]["op"]["kind"] == "recover")
+        .map(|pair| pair[0].clone())
+        .expect("a recovery");
+    before["state"]["account"]["holds"]
+        .as_array()
+        .expect("holds")
+        .iter()
+        .filter(|hold| hold["key"] == key)
+        .map(|hold| hold["amount"]["costMicros"].as_u64().unwrap_or(0))
+        .sum()
+}
+
+/// Cut mid-stream once, the provider declaring no deduplication, in a
+/// session whose budget limits money: the restart never sends it again;
+/// the run goes on with a new request under a new key, which is answered,
+/// and the cut request is listed unknown with what was cut, why, and the
+/// money its reservation still holds counted (what the recovery charged).
 #[test]
-fn a_request_cut_mid_stream_goes_out_again_under_its_key() {
-    let (world, session_id, mut client, message) = killed_mid_stream(1, &json!({}));
+fn an_undeclared_request_cut_mid_stream_is_replaced_by_a_new_one() {
+    let world = World::priced(128_000, &json!({}));
+    let (session_id, mut client, message) =
+        killed_mid_stream(&world, 1, Some(json!({ "costMicros": 5_000_000 })));
     world.mock.open_gate(STREAM_GATE);
     wait_idle(&mut client, &session_id);
     assert_transcript(&world, &[message]);
     let sent = turn_requests(&world, "crash");
     assert_eq!(sent.len(), 2, "{:?}", mock_llm::summary(&world.mock.log()));
-    let key = sent[0].request.idempotency_key.clone();
-    assert!(key.is_some(), "the first send carries a key");
-    assert_eq!(
-        sent[1].request.idempotency_key, key,
-        "the resend carries the same key"
+    let keys = keys(&sent);
+    assert!(
+        keys.iter().all(Option::is_some),
+        "every send is keyed: {keys:?}"
     );
+    assert_ne!(keys[0], keys[1], "the new request has a new key");
+    assert_eq!(answers(&world, "crash"), 1);
+    let held = held_at_recovery(&world, keys[0].as_deref().expect("a key"));
+    assert!(held > 0, "the cut request held money");
+    let effects = unknown_effects(&mut client, &session_id);
+    assert_eq!(effects.len(), 1, "one interrupted request: {effects:?}");
+    assert_eq!(effects[0]["kind"], "request");
+    assert!(effects[0].get("resolution").is_none(), "{effects:?}");
+    assert_eq!(
+        effects[0]["what"],
+        format!(
+            "Model request to mock/{MODEL} cut by a crash, not resent (no deduplication \
+             declared). Up to {} stays counted until its usage is known.",
+            eukhe_types::budget::dollars(held)
+        )
+    );
+}
+
+/// Cut mid-stream once, the provider declaring that it drops every repeat
+/// of the key: the restart sends it again under the same key, the run
+/// answers once, and nothing is listed unknown.
+#[test]
+fn a_deduplicated_request_cut_mid_stream_goes_out_again_under_its_key() {
+    let world = World::deduplicating(128_000, &json!({}));
+    let (session_id, mut client, message) = killed_mid_stream(&world, 1, None);
+    world.mock.open_gate(STREAM_GATE);
+    wait_idle(&mut client, &session_id);
+    assert_transcript(&world, &[message]);
+    let sent = turn_requests(&world, "crash");
+    assert_eq!(sent.len(), 2, "{:?}", mock_llm::summary(&world.mock.log()));
+    let keys = keys(&sent);
+    assert!(keys[0].is_some(), "the first send carries a key");
+    assert_eq!(keys[1], keys[0], "the resend carries the same key");
     assert_eq!(answers(&world, "crash"), 1);
     assert_eq!(
         unknown_effects(&mut client, &session_id),
@@ -170,55 +263,47 @@ fn a_request_cut_mid_stream_goes_out_again_under_its_key() {
     );
 }
 
-/// Cut mid-stream past `retry.maxResends` (0 here): the restart sends it no
-/// more; the run ends with an error that says so, and the request is listed
-/// unknown.
+/// A deduplicated request cut past `retry.maxResends` (0 here): the restart
+/// sends it no more; it is listed unknown and the run goes on with a new
+/// request, which is answered.
 #[test]
-fn a_request_cut_past_its_resends_ends_the_run_unknown() {
-    let (world, session_id, mut client, _) =
-        killed_mid_stream(1, &json!({ "retry": { "maxResends": 0 } }));
+fn a_deduplicated_request_cut_past_its_resends_is_replaced_by_a_new_one() {
+    let world = World::deduplicating(128_000, &json!({ "retry": { "maxResends": 0 } }));
+    let (session_id, mut client, _) = killed_mid_stream(&world, 1, None);
+    world.mock.open_gate(STREAM_GATE);
     wait_idle(&mut client, &session_id);
     let sent = turn_requests(&world, "crash");
-    assert_eq!(sent.len(), 1, "{:?}", mock_llm::summary(&world.mock.log()));
+    assert_eq!(sent.len(), 2, "{:?}", mock_llm::summary(&world.mock.log()));
+    let keys = keys(&sent);
+    assert_ne!(keys[0], keys[1], "the new request has a new key");
+    assert_eq!(answers(&world, "crash"), 1);
+    let effects = unknown_effects(&mut client, &session_id);
+    assert_eq!(effects.len(), 1, "{effects:?}");
+    assert_eq!(
+        effects[0]["what"],
+        format!("Model request to mock/{MODEL} cut by a crash, not resent (resend limit reached).")
+    );
+}
+
+/// Cut as many times in a row as `retry.maxRetries` (1 here) allows new
+/// requests, and once more: each cut request is listed unknown, none is
+/// sent twice, and the run ends with an error that says so; the session
+/// still answers the next prompt.
+#[test]
+fn requests_cut_past_the_retries_end_the_run() {
+    let world = World::new(128_000, &json!({ "retry": { "maxRetries": 1 } }));
+    let (session_id, mut client, _) = killed_mid_stream(&world, 2, None);
+    wait_idle(&mut client, &session_id);
+    let sent = turn_requests(&world, "crash");
+    assert_eq!(sent.len(), 2, "{:?}", mock_llm::summary(&world.mock.log()));
+    let keys: BTreeSet<_> = keys(&sent).into_iter().collect();
+    assert_eq!(keys.len(), 2, "every request its own key: {keys:?}");
     assert_eq!(answers(&world, "crash"), 0, "no answer was claimed");
     let effects = unknown_effects(&mut client, &session_id);
-    assert_eq!(effects.len(), 1, "one unknown request: {effects:?}");
-    assert_eq!(effects[0]["kind"], "request");
-    assert!(effects[0].get("resolution").is_none(), "{effects:?}");
-    // The ledger is settled by a client that looked.
-    let id = effects[0]["id"].as_str().expect("an effect id");
-    let resolved = client.request(
-        &json!({
-            "type": "resolve_unknown_effect",
-            "activeSessionId": session_id,
-            "effectId": id,
-            "resolution": "notRun",
-        }),
-        WAIT,
-    );
-    assert_eq!(resolved["success"], true, "resolve: {resolved}");
-    assert_eq!(resolved["data"]["effect"]["resolution"], "notRun");
-    // The session still answers the next prompt.
+    assert_eq!(effects.len(), 2, "two interrupted requests: {effects:?}");
+    assert!(effects.iter().all(|effect| effect["kind"] == "request"));
+    world.mock.open_gate(STREAM_GATE);
     let next = prompt("next", &[], 0);
     run_turn(&mut client, &session_id, &next);
     assert_eq!(answers(&world, "next"), 1);
-}
-
-/// The default cap (2): cut three times, it went out three times under one
-/// key, then the run ends unknown.
-#[test]
-fn a_request_cut_three_times_goes_out_three_times_then_ends_unknown() {
-    let (world, session_id, mut client, _) = killed_mid_stream(3, &json!({}));
-    wait_idle(&mut client, &session_id);
-    let sent = turn_requests(&world, "crash");
-    assert_eq!(sent.len(), 3, "{:?}", mock_llm::summary(&world.mock.log()));
-    let keys: BTreeSet<_> = sent
-        .iter()
-        .map(|entry| entry.request.idempotency_key.clone())
-        .collect();
-    assert_eq!(keys.len(), 1, "one key for every send: {keys:?}");
-    assert_eq!(answers(&world, "crash"), 0);
-    let effects = unknown_effects(&mut client, &session_id);
-    assert_eq!(effects.len(), 1, "{effects:?}");
-    assert_eq!(effects[0]["kind"], "request");
 }

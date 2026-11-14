@@ -26,7 +26,8 @@ import ./base.bend as LawsBase
 #
 # Not pinned here: that Rust writes each record where the spec says
 # (before the launch, after the end) and reads the world truthfully; that
-# a receiver drops a repeated key. The Rust tests kill the process at
+# a target's declaration is admitted only from the principal or the
+# target's operator and that the target keeps it. The Rust tests kill the process at
 # each point of each effect kind (crates/eukhe-daemon/tests/
 # exactly_once_e2e).
 
@@ -55,15 +56,24 @@ def on_spell_mode(m: O.Mode, rest: String) -> String:
     case O.Stop{}:
       Wr.put_nat(1n, rest)
 
-# a policy: 0 never, 1 safe, 2 keyed and its cap
+# what a target declares of a repeat of the key: 0 undeclared, 1 lasting
+def on_spell_dedup(d: O.Dedup, rest: String) -> String:
+  match d:
+    case O.Undeclared{}:
+      Wr.put_nat(0n, rest)
+    case O.Lasting{}:
+      Wr.put_nat(1n, rest)
+
+# a policy: 0 never, 1 safe, 2 keyed, its cap and its target's
+# declaration
 def on_spell_policy(p: O.Policy, rest: String) -> String:
   match p:
     case O.Never{}:
       Wr.put_nat(0n, rest)
     case O.Safe{}:
       Wr.put_nat(1n, rest)
-    case O.Keyed{cap}:
-      Wr.put_nat(2n, Wr.put_nat(cap, rest))
+    case O.Keyed{d, cap}:
+      Wr.put_nat(2n, Wr.put_nat(cap, on_spell_dedup(d, rest)))
 
 # what the world shows: 0 dark, 1 landed, 2 clean
 def on_spell_seen(s: O.Seen, rest: String) -> String:
@@ -166,7 +176,7 @@ def on_fit.policy(p: O.Policy) -> Bool:
       True{}
     case O.Safe{}:
       True{}
-    case O.Keyed{cap}:
+    case O.Keyed{d, cap}:
       LawsBase.wire_fits(cap)
 
 def on_fit.ev(e: FO.Ev) -> Bool:
@@ -429,10 +439,26 @@ def on_read_mode(r: Wr.Dec<Nat>) -> Wr.Dec<O.Mode>:
     case Wr.Bad{}:
       Wr.Bad{}
 
+def on_read_dedup.tag(cap: Nat, n: Nat, s: String) -> Wr.Dec<O.Policy>:
+  match n:
+    case 0n:
+      Wr.Got{O.Keyed{O.Undeclared{}, cap}, s}
+    case 1n:
+      Wr.Got{O.Keyed{O.Lasting{}, cap}, s}
+    case 2n+p:
+      Wr.Bad{}
+
+def on_read_dedup(cap: Nat, r: Wr.Dec<Nat>) -> Wr.Dec<O.Policy>:
+  match r:
+    case Wr.Got{n, s}:
+      on_read_dedup.tag(cap, n, s)
+    case Wr.Bad{}:
+      Wr.Bad{}
+
 def on_read_policy.cap(r: Wr.Dec<Nat>) -> Wr.Dec<O.Policy>:
   match r:
     case Wr.Got{cap, s}:
-      Wr.Got{O.Keyed{cap}, s}
+      on_read_dedup(cap, Wr.get_nat(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
@@ -585,8 +611,9 @@ law once_life_is_spec:
 # nothing, a launch of an ended effect, a `done` for an effect the world
 # does not show, an abandon of an effect that may have run, a pending
 # effect interrupted or skipped, a safe effect not run again, a keyed
-# effect sent past its cap or refused under it, a stopped run that
-# launches
+# effect sent past its cap or refused under it, a keyed effect sent again
+# to a target that does not declare it drops every repeat of the key, a
+# stopped run that launches
 law once_recover_is_spec:
   for l: O.Life
   for s: O.Seen
@@ -657,13 +684,30 @@ law once_never_launches_twice:
   {Nat.is_le(S.launches(wd_run(S.dim(es), S.w0(), O.Never{})), 1n) == True{} : Bool}
 
 # LAW once_keyed_sends_capped (O7): in every history in which the world
-# is never asked, a keyed effect of any cap is sent at most 1 + cap times
+# is never asked, a keyed effect of any declaration and any cap is sent
+# at most 1 + cap times
 # EXCLUDES: a crash loop that sends (and bills) one request without
 # bound, a cap off by one, a count that restarts after a crash
 law once_keyed_sends_capped:
+  for +d: O.Dedup
   for +cap: Nat
   for +es: List<&2, S.Ev>
-  {Nat.is_le(S.launches(wd_run(S.dim(es), S.w0(), O.Keyed{cap})), 1n+cap) == True{} : Bool}
+  {Nat.is_le(S.launches(wd_run(S.dim(es), S.w0(), O.Keyed{d, cap})), 1n+cap) == True{} : Bool}
+
+# LAW once_undeduped_sends_once (O7; sr01, sr170): in every history in
+# which the world is never asked, a keyed effect whose target does not
+# declare that it drops every repeat of the key whenever it comes
+# (`undeclared`) is sent at most once, whatever its cap
+# EXCLUDES: a model request sent again after a crash to a provider that
+#   does not deduplicate (every keyed effect sent again up to its cap,
+#   whatever its target), a cap that stands in for the missing
+#   declaration
+law once_undeduped_sends_once:
+  for +d: O.Dedup
+  for +no: {S.lasting(d) == False{} : Bool}
+  for +cap: Nat
+  for +es: List<&2, S.Ev>
+  {Nat.is_le(S.launches(wd_run(S.dim(es), S.w0(), O.Keyed{d, cap})), 1n) == True{} : Bool}
 
 # LAW once_done_ran (O3): in every history of an effect of any policy,
 # when its journal says finished it took hold in the world
@@ -883,13 +927,15 @@ law once_entry_shut:
 # call interrupted, a safe one launched, a stopped run's interrupted); a
 # call cut before its start (launched by a resume, abandoned by a stop);
 # a file write the world shows landed (adopted) or clean (launched); a
-# provider request sent twice asked again under cap 1 and cap 2; an ended
-# effect; a record after an end; garbage: a bad tag, a short question,
-# input left over; the key of scope "s1" and id "t:9", and a key request
+# provider request sent twice asked again under cap 1 and cap 2 to a
+# target that drops every repeat of its key, and under cap 2 to one with
+# no declaration; an ended effect; a record after an
+# end; garbage: a bad tag, a short question, a bad declaration, input
+# left over; the key of scope "s1" and id "t:9", and a key request
 # with input left over
 # EXCLUDES: an entry that answers other bytes than the grammar's
 law once_entry_example:
-  {on_replies([FO.Note{O.Intended{}}, FO.Note{O.Started{}}, FO.Ask{O.Resume{}, O.Never{}, O.Dark{}}, FO.Ask{O.Resume{}, O.Safe{}, O.Dark{}}, FO.Ask{O.Stop{}, O.Safe{}, O.Dark{}}, FO.Ask{O.Resume{}, O.Never{}, O.Landed{}}, FO.Ask{O.Resume{}, O.Never{}, O.Clean{}}, FO.Note{O.Started{}}, FO.Ask{O.Resume{}, O.Keyed{1n}, O.Dark{}}, FO.Ask{O.Resume{}, O.Keyed{2n}, O.Dark{}}, FO.Note{O.Unknown{}}, FO.Note{O.Finished{}}, FO.Ask{O.Resume{}, O.Safe{}, O.Landed{}}], on_opened()) == ["1,", "2,0,", "3,", "1,", "3,", "2,", "1,", "2,1,", "3,", "1,", "4,", "4,", "5,"] : List<&2, String>} &
+  {on_replies([FO.Note{O.Intended{}}, FO.Note{O.Started{}}, FO.Ask{O.Resume{}, O.Never{}, O.Dark{}}, FO.Ask{O.Resume{}, O.Safe{}, O.Dark{}}, FO.Ask{O.Stop{}, O.Safe{}, O.Dark{}}, FO.Ask{O.Resume{}, O.Never{}, O.Landed{}}, FO.Ask{O.Resume{}, O.Never{}, O.Clean{}}, FO.Note{O.Started{}}, FO.Ask{O.Resume{}, O.Keyed{O.Lasting{}, 1n}, O.Dark{}}, FO.Ask{O.Resume{}, O.Keyed{O.Lasting{}, 2n}, O.Dark{}}, FO.Ask{O.Resume{}, O.Keyed{O.Undeclared{}, 2n}, O.Dark{}}, FO.Note{O.Unknown{}}, FO.Note{O.Finished{}}, FO.Ask{O.Resume{}, O.Safe{}, O.Landed{}}], on_opened()) == ["1,", "2,0,", "3,", "1,", "3,", "2,", "1,", "2,1,", "3,", "1,", "3,", "4,", "4,", "5,"] : List<&2, String>} &
   {on_replies([FO.Note{O.Intended{}}, FO.Ask{O.Resume{}, O.Never{}, O.Dark{}}, FO.Ask{O.Stop{}, O.Never{}, O.Dark{}}], on_opened()) == ["1,", "1,", "4,"] : List<&2, String>} &
-  {[on_reply(FO.step(on_opened(), "0,1,")), on_reply(FO.step(on_opened(), "1,0,2,3,0,")), on_reply(FO.step(on_opened(), "2,")), on_reply(FO.step(on_opened(), "1,0,")), on_reply(FO.step(on_opened(), "0,1,x")), on_reply(FO.step(on_opened(), "0,5,"))] == ["2,0,", "0,", SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}] : List<&2, String>} &
+  {[on_reply(FO.step(on_opened(), "0,1,")), on_reply(FO.step(on_opened(), "1,0,2,3,1,0,")), on_reply(FO.step(on_opened(), "1,0,2,3,2,0,")), on_reply(FO.step(on_opened(), "2,")), on_reply(FO.step(on_opened(), "1,0,")), on_reply(FO.step(on_opened(), "0,1,x")), on_reply(FO.step(on_opened(), "0,5,"))] == ["2,0,", "0,", SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}, SCon{'E', SCon{' ', "once: malformed event"}}] : List<&2, String>} &
   {[FO.ffi("2,s13,t:9"), FO.ffi("2,s13,t:9x"), FO.ffi("2,s1")] == ["2,s13,t:9", SCon{'E', SCon{' ', "once: malformed key"}}, SCon{'E', SCon{' ', "once: malformed key"}}] : List<&2, String>}

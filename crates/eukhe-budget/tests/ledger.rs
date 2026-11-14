@@ -532,6 +532,58 @@ fn a_recovery_charges_only_the_crashed_agents_holds_in_full() {
     assert_exact(&root, 6, cost(320));
 }
 
+/// A model request's hold keeps its idempotency key: a restarted process
+/// reads what each request it lost left held, by key, before the recovery
+/// settles it; another agent's holds and an unkeyed hold are told apart.
+#[test]
+fn a_restart_reads_each_lost_requests_hold_by_its_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = at(dir.path(), "root");
+    root.open_root(cost_only(1_000)).unwrap();
+    let keyed = |ledger: &Ledger, agent: &str, key: Option<&str>, amount: u64| {
+        granted(
+            ledger
+                .reserve_keyed(
+                    agent,
+                    Use::Final,
+                    "model:test/m",
+                    key,
+                    BudgetAmounts::default(),
+                    BudgetAmounts::default(),
+                    &[cost(amount)],
+                    0,
+                )
+                .unwrap(),
+        )
+    };
+    let settled = keyed(&root, "root", Some("k0"), 100).id;
+    root.settle(settled, cost(40)).unwrap();
+    let lost = keyed(&root, "root", Some("k1"), 250).id;
+    let unkeyed = keyed(&root, "root", None, 50).id;
+    let kid = at(dir.path(), "kid");
+    kid.join("root").unwrap();
+    keyed(&kid, "kid", Some("k2"), 70);
+    let restarted = at(dir.path(), "root");
+    let mut holds: Vec<_> = restarted
+        .holds("root")
+        .unwrap()
+        .into_iter()
+        .map(|hold| (hold.id, hold.key, hold.amount))
+        .collect();
+    holds.sort_by_key(|(id, _, _)| *id);
+    assert_eq!(
+        holds,
+        [
+            (lost, Some("k1".to_owned()), cost(250)),
+            (unkeyed, None, cost(50))
+        ]
+    );
+    restarted.recover("root").unwrap();
+    assert_eq!(restarted.holds("root").unwrap(), []);
+    assert_eq!(restarted.holds("kid").unwrap().len(), 1);
+    assert_eq!(at(dir.path(), "nobody").holds("nobody").unwrap(), []);
+}
+
 #[test]
 fn a_released_child_is_charged_what_it_left_in_flight_and_draws_no_more() {
     let dir = tempfile::tempdir().unwrap();

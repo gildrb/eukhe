@@ -35,9 +35,16 @@
 #     launched, whatever records, restarts and answers of the world
 #     follow.
 # O7: an effect that changes nothing (`safe`) runs again after a restart.
-#     An effect whose receiver drops a repeat of its idempotency key
-#     (`keyed`) is sent again under the same key, at most `cap` more
-#     times, then reported interrupted. Two effects never share a key.
+#     Every launch of a `keyed` effect carries its idempotency key. It is
+#     sent again under that key only when its target declares, by a
+#     declaration the principal or the target's operator made (sr170),
+#     that it drops every repeat of the key whenever it comes (`lasting`),
+#     and at most `cap` more times; then it is reported interrupted. With
+#     no such declaration (`undeclared`; a declaration that drops a repeat
+#     only within a window counts as none: only the harness's own clock
+#     could tell that a relaunch falls inside it, sr01, sr33), it is
+#     launched once and, cut, reported interrupted. Elapsed time never sends an effect
+#     again. Two effects never share a key.
 # O8: O1-O7 hold at every crash point: after any prefix of the records of
 #     a journal, and after any list of records at all (also one no run
 #     writes), the restart's answer is the one above for the records read.
@@ -160,6 +167,14 @@ def more_spec(within: Bool) -> O.Verdict:
     case False{}:
       O.Interrupt{}
 
+# a target that drops every repeat of the key, whenever it comes (O7)
+def lasting(d: O.Dedup) -> Bool:
+  match d:
+    case O.Undeclared{}:
+      False{}
+    case O.Lasting{}:
+      True{}
+
 # the answer O1-O7 ask of a restart, as one table
 def verdict_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> O.Verdict:
   match l:
@@ -185,8 +200,8 @@ def verdict_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> O.Verdict:
           O.Interrupt{}
         case O.Dark{} O.Resume{} O.Safe{}:
           O.Launch{}
-        case O.Dark{} O.Resume{} O.Keyed{cap}:
-          more_spec(Nat.is_lt(again, cap))
+        case O.Dark{} O.Resume{} O.Keyed{d, cap}:
+          more_spec(Bool.and(lasting(d), Nat.is_lt(again, cap)))
     case O.Ran{}:
       O.Settled{}
     case O.Unsure{}:

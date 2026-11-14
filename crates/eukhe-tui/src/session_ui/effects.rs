@@ -6,7 +6,7 @@
 //! `/effects ran|not-run <id>` (settle one after looking at the world).
 
 use eukhe_types::effects::{
-    EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
+    EffectKind, EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
 };
 
 use super::{
@@ -16,8 +16,13 @@ use super::{
 use crate::glyphs::WARN;
 
 /// The warning row of one effect that opened: what it is, its id, and how
-/// to settle it.
+/// to settle it. A model request's outcome is settled by its provider's
+/// usage report, which the user cannot see, so its row only says what was
+/// cut and what stays counted (its `what`, a sentence of its own).
 fn opened_row(effect: &UnknownEffect) -> String {
+    if effect.kind == EffectKind::Request {
+        return format!("{WARN} {}", effect.what);
+    }
     format!(
         "{WARN} Interrupted, outcome unknown: {} ({}). Check whether it ran, then /effects ran {} or /effects not-run {}",
         effect.what, effect.id, effect.id, effect.id
@@ -165,8 +170,6 @@ impl SessionUi {
 
 #[cfg(test)]
 mod tests {
-    use eukhe_types::effects::EffectKind;
-
     use super::*;
 
     fn effect(id: &str, resolution: Option<EffectResolution>) -> UnknownEffect {
@@ -205,6 +208,18 @@ mod tests {
         assert_eq!(
             opened_row(&effect("tool:c1", None)),
             "! Interrupted, outcome unknown: bash: tool:c1 (tool:c1). Check whether it ran, then /effects ran tool:c1 or /effects not-run tool:c1"
+        );
+        let request = UnknownEffect {
+            kind: EffectKind::Request,
+            what: "Model request to p/m cut by a crash, not resent (no deduplication declared). \
+                   Up to $0.42 stays counted until its usage is known."
+                .to_owned(),
+            ..effect("request:1:1", None)
+        };
+        assert_eq!(
+            opened_row(&request),
+            "! Model request to p/m cut by a crash, not resent (no deduplication declared). \
+             Up to $0.42 stays counted until its usage is known."
         );
         assert_eq!(
             open_summary_row(1),

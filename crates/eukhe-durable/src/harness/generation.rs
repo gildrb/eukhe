@@ -98,6 +98,7 @@ use crate::types::{
 };
 
 pub use self::force::ForcedToolError;
+pub use self::resend::IDEMPOTENCY_KEY_HEADER;
 
 /// Input of `pi.generation` (TS `Record<string, never>`): `{}` for a run's
 /// first generation; the next ones carry the run's finished rounds.
@@ -671,15 +672,52 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     };
     // Exactly-once (spec O2, O4, O7): a first send launches; after a
     // restart found the request sent and unanswered, the compiled core
-    // says whether it goes out again under the same idempotency key or
-    // ends interrupted (`resend`).
+    // says whether it goes out again under the same idempotency key (only
+    // to a provider that drops every repeat of it) or ends interrupted
+    // (`resend`). An interrupted request leaves the run going on with a
+    // new request, the next attempt, while `retry.maxRetries` allows.
     if sends == 0 {
         kill_point("request", "intended");
     }
-    match resend::decide(sends, runtime.settings().request_resends, Mode::Resume)? {
+    let dedups = runtime
+        .models()
+        .get_provider(&reference.provider)
+        .is_some_and(|provider| provider.dedups_requests);
+    let resends = runtime.settings().request_resends;
+    match resend::decide(sends, dedups, resends, Mode::Resume)? {
         resend::Send::Go => {}
         resend::Send::Interrupted | resend::Send::Unsent => {
-            return resend::fail_interrupted(&runtime, attempt, sends, &cx).await
+            let target = format!("{}/{}", reference.provider, reference.model_id);
+            let cut = resend::Cut::of(Mode::Resume, dedups);
+            if attempt > u64::from(runtime.settings().retry.max_retries) {
+                return resend::fail_interrupted(
+                    &runtime,
+                    attempt,
+                    &target,
+                    key.as_deref(),
+                    cut,
+                    &cx,
+                )
+                .await;
+            }
+            let next = GenerationCheckpoint::Prepare {
+                attempt: attempt + 1,
+                compacted,
+                overflow: None,
+                threshold: false,
+                forced,
+                note: None,
+            };
+            return resend::go_on_interrupted(
+                &runtime,
+                attempt,
+                &target,
+                key.as_deref(),
+                cut,
+                next,
+                &cx,
+            )
+            .await;
         }
     }
     let provider_session = ensure_provider_session_id(&runtime, &cx).await?;
@@ -1001,11 +1039,19 @@ async fn abort(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
     // A request a dead process sent and no reply answered ends unknown
     // when its run is stopped (spec O4): the stop notes it.
     let cut = match &checkpoint {
-        GenerationCheckpoint::Request { attempt, sends, .. }
-            if task.abort_reason == Some(TaskAbortReason::Restart) =>
-        {
-            resend::cut_by_stop(&runtime, *attempt, *sends)?
-        }
+        GenerationCheckpoint::Request {
+            attempt,
+            sends,
+            model,
+            key,
+            ..
+        } if task.abort_reason == Some(TaskAbortReason::Restart) => resend::cut_by_stop(
+            &runtime,
+            *attempt,
+            &format!("{}/{}", model.provider, model.model_id),
+            key.as_deref(),
+            *sends,
+        )?,
         GenerationCheckpoint::Prepare { .. }
         | GenerationCheckpoint::Request { .. }
         | GenerationCheckpoint::Retry { .. }

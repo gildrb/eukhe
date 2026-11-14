@@ -129,6 +129,7 @@ fn catalog_provider(id: String, models: Vec<Model>) -> Provider {
         id,
         base_url: None,
         headers: None,
+        dedups_requests: false,
         get_models,
         refresh_models: None,
         filter_models: None,

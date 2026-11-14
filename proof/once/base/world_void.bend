@@ -118,16 +118,16 @@ def ov.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(ov.inv(S.Wd{O.Running{again}, False{}, hit, n, 0n, d, x})), ov.inv(Once.wd_answer(v, O.Running{again}, n, 0n, d, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(ov.inv(S.Wd{O.Running{again}, False{}, hit, n, 0n, d, x})), ov.inv(Once.wd_answer(v, O.Running{again}, n, 0n, d, x))) == True{} : Bool}, {==}, {==})
                         case 1n+qk:
                           match p:
                             case O.Never{}:
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(ov.inv(S.Wd{O.Running{again}, False{}, hit, n, 1n+qk, d, x})), ov.inv(Once.wd_answer(v, O.Running{again}, n, 1n+qk, d, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(ov.inv(S.Wd{O.Running{again}, False{}, hit, n, 1n+qk, d, x})), ov.inv(Once.wd_answer(v, O.Running{again}, n, 1n+qk, d, x))) == True{} : Bool}, {==}, {==})
                     case O.Ran{}:
                       match k:
                         case 0n:

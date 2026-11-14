@@ -29,7 +29,8 @@ use eukhe_types::budget::{
 
 use crate::amounts::{add, counted, dimension, from_ask, limits_amounts, mask, to_amt, to_ask};
 use crate::record::{
-    Account, ChildCarve, Member, Op, Outcome, ParentRef, Record, RefusalRecord, State, UseRecord,
+    Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord, State,
+    UseRecord,
 };
 
 /// How much of a file's end is read to find its last record before the
@@ -457,6 +458,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 agent,
                 use_,
                 label: _,
+                key,
                 now_ms,
                 keep,
                 step,
@@ -511,7 +513,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                     } => {
                         next.account = Account::from_acct(&acct, |held| {
                             if held == *id {
-                                agent.clone()
+                                (agent.clone(), key.clone())
                             } else {
                                 state.account.holder(held)
                             }
@@ -1196,6 +1198,33 @@ impl Ledger {
             .unwrap_or_default())
     }
 
+    /// The open reservations of `agent`: what it holds now, each with the
+    /// key of the model request it is for. A crashed process's holds read
+    /// before [`Self::recover`] settles them say what each request left
+    /// counted. Empty when the session has no budget.
+    ///
+    /// # Errors
+    ///
+    /// The file's failures.
+    pub fn holds(&self, agent: &str) -> Result<Vec<HoldRecord>, LedgerError> {
+        let Some(owner) = self.owner()? else {
+            return Ok(Vec::new());
+        };
+        Ok(Locked::open(&self.account_path(&owner), false)?
+            .as_ref()
+            .and_then(Locked::state)
+            .map(|state| {
+                state
+                    .account
+                    .holds
+                    .iter()
+                    .filter(|hold| hold.agent == agent)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     /// Reserves for `agent` the first of `offers` (the wanted amount, then
     /// smaller ones) that fits and ends before the deadline, leaving the
     /// final-answer reserves of the agents above it; work and a side
@@ -1224,6 +1253,28 @@ impl Ledger {
         offers: &[BudgetAmounts],
         min_ms: u64,
     ) -> Result<Reserved, LedgerError> {
+        self.reserve_keyed(agent, use_, label, None, keep, step, offers, min_ms)
+    }
+
+    /// [`Self::reserve`] for the model request whose idempotency key is
+    /// `key`: the hold keeps the key, so a crashed process's holds say
+    /// what each request left counted ([`Self::holds`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::reserve`].
+    #[allow(clippy::too_many_arguments)] // As `reserve`, and the request's key.
+    pub fn reserve_keyed(
+        &self,
+        agent: &str,
+        use_: Use,
+        label: &str,
+        key: Option<&str>,
+        keep: BudgetAmounts,
+        step: BudgetAmounts,
+        offers: &[BudgetAmounts],
+        min_ms: u64,
+    ) -> Result<Reserved, LedgerError> {
         let (owner, mut locked) = self.lock()?;
         let now = (self.clock)();
         let empty = State::default();
@@ -1238,6 +1289,7 @@ impl Ledger {
                 agent: agent.to_owned(),
                 use_: use_record(use_),
                 label: label.to_owned(),
+                key: key.map(str::to_owned),
                 now_ms: now,
                 keep,
                 step,
@@ -1302,6 +1354,7 @@ impl Ledger {
             agent: agent.to_owned(),
             use_: use_record(use_),
             label: String::new(),
+            key: None,
             now_ms: now,
             keep,
             // A step only says whether a grant runs low.

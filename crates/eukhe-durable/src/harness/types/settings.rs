@@ -307,8 +307,9 @@ pub struct HarnessSettings {
     /// Default 250; `0` takes the default.
     pub max_tool_rounds: Option<u32>,
     /// The times a model request a restart found sent and unanswered is
-    /// sent again, under the same idempotency key, before its run ends
-    /// with an error (spec O7). Default 2; `0` sends it again never.
+    /// sent again, under the same idempotency key, to a provider that
+    /// declares lasting deduplication; then it is interrupted (spec O7).
+    /// Default 2; `0` sends it again never.
     pub request_resends: Option<u32>,
     /// Scrub outbound request text of a remote provider (harness/privacy).
     /// Default false (opt-in).
@@ -409,6 +410,11 @@ pub type Clock = Arc<dyn Fn() -> f64 + Send + Sync>;
 /// not panic.
 pub type ReportFn = Arc<dyn Fn(SessionError) + Send + Sync>;
 
+/// The money (micro-dollars) the host's budget still counts for the model
+/// request with this idempotency key, which a crash left in flight; `None`
+/// when it counts none for it (no budget, or one that limits no money).
+pub type LostRequestCost = Arc<dyn Fn(&str) -> Option<u64> + Send + Sync>;
+
 /// Options of `Harness::open`.
 #[derive(Clone)]
 pub struct HarnessOptions {
@@ -421,6 +427,9 @@ pub struct HarnessOptions {
     pub conversation_created: Option<ConversationCreated>,
     pub now: Option<Clock>,
     pub on_report: Option<ReportFn>,
+    /// What a model request cut by a crash stays counted at: the notice of
+    /// a request that is not sent again says so.
+    pub lost_request_cost: Option<LostRequestCost>,
 }
 
 impl HarnessOptions {
@@ -435,6 +444,7 @@ impl HarnessOptions {
             conversation_created: None,
             now: None,
             on_report: None,
+            lost_request_cost: None,
         }
     }
 }
@@ -451,6 +461,7 @@ impl fmt::Debug for HarnessOptions {
             .field("conversation_created", &self.conversation_created.is_some())
             .field("now", &self.now.is_some())
             .field("on_report", &self.on_report.is_some())
+            .field("lost_request_cost", &self.lost_request_cost.is_some())
             .finish_non_exhaustive()
     }
 }

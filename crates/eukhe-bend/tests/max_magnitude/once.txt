@@ -4,19 +4,21 @@ call 0,0,
 refuse 2,s1
 refuse {LONG},x
 # the stepper: an effect's records, then the restart's question with
-# every policy (a keyed cap at its largest) and every answer of the world
+# every policy (a keyed cap at its largest, every declaration) and every
+# answer of the world
 open 
 step 1,0,0,0,
 step 0,0,
-step 1,0,2,{MAX},1,
+step 1,0,2,{MAX},1,1,
 step 0,1,
 step 0,1,
-step 1,0,2,{MAX},0,
-step 1,0,2,0,0,
-step 1,0,2,{U32MAX},2,
+step 1,0,2,{MAX},1,0,
+step 1,0,2,0,0,0,
+step 1,0,2,{U32MAX},0,2,
 step 1,1,1,2,
 step 1,0,0,1,
-refuse-step 1,0,2,{LONG},0,
+refuse-step 1,0,2,{LONG},1,0,
+refuse-step 1,0,2,0,2,0,
 refuse-step {LONG},
 refuse-step 0,{MAX},
 step 0,2,

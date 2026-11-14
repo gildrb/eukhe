@@ -19,7 +19,8 @@
 //! surface and the time now (Unix milliseconds).
 
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, BUDGET_AMOUNT_MAX,
+    dollars, BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
+    BUDGET_AMOUNT_MAX,
 };
 use eukhe_types::daemon::BudgetAudit;
 
@@ -221,16 +222,6 @@ pub fn parse_assignments(text: &str) -> Result<BudgetLimits, BudgetTextError> {
         return Err(BudgetTextError::NoAmount);
     }
     Ok(limits)
-}
-
-/// Micro-dollars as dollars and cents; an amount below half a cent keeps
-/// four decimals, rounded up, so it never reads as nothing.
-fn dollars(micros: u64) -> String {
-    if (1..5_000).contains(&micros) {
-        return format!("$0.{:04}", micros.div_ceil(100));
-    }
-    let cents = micros.saturating_add(5_000) / 10_000;
-    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 /// A token count, cut (never rounded up): `999`, `31.0k`, `200k`, `1.5M`.

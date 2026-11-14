@@ -11,13 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::amounts::{add, from_amt, to_amt};
 
-/// An open reservation, as the file holds it: the agent it is for.
+/// An open reservation, as the file holds it: the agent it is for, and
+/// the idempotency key of the model request it holds for, if any.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HoldRecord {
     pub id: u64,
     pub agent: String,
     pub amount: BudgetAmounts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 /// An account, as the file holds it (the core's `Acct`). Its amounts'
@@ -54,9 +57,9 @@ impl Account {
         }
     }
 
-    /// The account the core answered, each hold kept with the agent
-    /// `agent_of` its id.
-    pub(crate) fn from_acct(acct: &Acct, agent_of: impl Fn(u64) -> String) -> Account {
+    /// The account the core answered, each hold kept with the agent and
+    /// the request key `of` its id.
+    pub(crate) fn from_acct(acct: &Acct, of: impl Fn(u64) -> (String, Option<String>)) -> Account {
         Account {
             free: from_amt(acct.free),
             spent: from_amt(acct.spent),
@@ -65,22 +68,27 @@ impl Account {
             holds: acct
                 .holds
                 .iter()
-                .map(|hold| HoldRecord {
-                    id: hold.id,
-                    agent: agent_of(hold.id),
-                    amount: from_amt(hold.amt),
+                .map(|hold| {
+                    let (agent, key) = of(hold.id);
+                    HoldRecord {
+                        id: hold.id,
+                        agent,
+                        amount: from_amt(hold.amt),
+                        key,
+                    }
                 })
                 .collect(),
             until: acct.until,
         }
     }
 
-    /// The agent the hold `id` is for (empty when it is not held).
-    pub(crate) fn holder(&self, id: u64) -> String {
+    /// The agent and the request key of the hold `id` (empty and none
+    /// when it is not held).
+    pub(crate) fn holder(&self, id: u64) -> (String, Option<String>) {
         self.holds
             .iter()
             .find(|hold| hold.id == id)
-            .map(|hold| hold.agent.clone())
+            .map(|hold| (hold.agent.clone(), hold.key.clone()))
             .unwrap_or_default()
     }
 
@@ -188,6 +196,10 @@ pub enum Op {
         /// What the reservation is for (`model:<provider>/<id>`,
         /// `tool:<name>`).
         label: String,
+        /// The idempotency key of the model request it is for; none for
+        /// anything else and in a record written before the field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
         now_ms: u64,
         keep: BudgetAmounts,
         /// The agent's largest recent step as actually spent (`time_ms`:

@@ -513,7 +513,8 @@ fn load(
 /// - `maxToolRounds` -> the tool rounds one run may make (`0`: the
 ///   Harness default).
 /// - `retry.maxResends` -> the times a model request a restart found sent
-///   and unanswered is sent again under its idempotency key.
+///   and unanswered is sent again under its idempotency key, to a provider
+///   that declares lasting deduplication (models.json `requestDedup`).
 ///
 /// eukhe has no tool-execution setting: the Harness default applies (each
 /// tool's own execution mode still serializes `python`).

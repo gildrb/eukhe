@@ -169,6 +169,13 @@ impl TaskRuntimeBackend for InvocationRuntime {
         self.inner.models.clone()
     }
 
+    fn lost_request_cost(&self, key: &str) -> Option<u64> {
+        self.inner
+            .lost_request_cost
+            .as_ref()
+            .and_then(|cost| cost(key))
+    }
+
     fn env(
         &self,
         cx: &Context,

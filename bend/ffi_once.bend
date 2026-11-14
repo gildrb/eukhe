@@ -14,7 +14,8 @@
 #                                                  life is kept)
 #   Rec     0 intended, 1 started, 2 finished, 3 unknown, 4 unstarted
 #   Mode    0 resume, 1 stop
-#   Policy  0 never | 1 safe | 2 keyed: cap (Nat)
+#   Policy  0 never | 1 safe | 2 keyed: cap (Nat), Dedup
+#   Dedup   0 undeclared, 1 lasting
 #   Seen    0 dark, 1 landed, 2 clean
 #   Life    0 absent | 1 pending | 2 running: again (Nat) | 3 ran
 #           | 4 lost | 5 void
@@ -87,10 +88,26 @@ def get_mode.go(r: W.Dec<Nat>) -> W.Dec<O.Mode>:
 def get_mode(s: String) -> W.Dec<O.Mode>:
   get_mode.go(W.get_nat(s))
 
+def get_policy.dedup.tag(cap: Nat, n: Nat, s: String) -> W.Dec<O.Policy>:
+  match n:
+    case 0n:
+      W.Got{O.Keyed{O.Undeclared{}, cap}, s}
+    case 1n:
+      W.Got{O.Keyed{O.Lasting{}, cap}, s}
+    case 2n+p:
+      W.Bad{}
+
+def get_policy.dedup(cap: Nat, r: W.Dec<Nat>) -> W.Dec<O.Policy>:
+  match r:
+    case W.Got{n, s}:
+      get_policy.dedup.tag(cap, n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_policy.cap(r: W.Dec<Nat>) -> W.Dec<O.Policy>:
   match r:
     case W.Got{cap, s}:
-      W.Got{O.Keyed{cap}, s}
+      get_policy.dedup(cap, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
