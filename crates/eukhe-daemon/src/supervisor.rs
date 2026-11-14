@@ -29,6 +29,8 @@ use launch_budget::WORKER_AUTH_FLOOR_MS;
 use signals_shutdown::daemon_closing_shutdown_event;
 mod supervision;
 
+#[cfg(all(test, target_os = "linux"))]
+mod endpoint_holder_tests;
 #[cfg(test)]
 mod handshake_tests;
 #[cfg(test)]

@@ -4,7 +4,7 @@ use super::interrupted_runs::InterruptedRun;
 use super::restart_budget::RestartVerdict;
 use super::routing::{fail_unsent_request, WORKER_REQUEST_TIMEOUT_MS, WORKER_SOCKET_CLOSED};
 use super::{
-    anyhow, connect_transport, create_command_payload, json, mpsc, persist_worker,
+    anyhow, bail, connect_transport, create_command_payload, json, mpsc, persist_worker,
     persist_worker_at, probe_worker_socket, util, write_frame, Arc, Child, ClientRouting, Context,
     DaemonWorkerLifecycle, Duration, Ordering, PathBuf, PrivateFrameReader, ResidentWorker, Result,
     RouteAdmission, Supervisor, TempSync, TypedCreateRejection, Value, WorkerReply, WorkerRequest,
@@ -602,6 +602,59 @@ impl Supervisor {
             );
             (PathBuf::from(&descriptor.socket_path), cwd, launch_env)
         };
+
+        // Never spawn beside a live holder of the worker's endpoint: a
+        // worker whose stop failed and that still runs keeps it (on Linux
+        // an abstract name the kernel frees only when that process exits),
+        // so the new worker could not bind and the probe below would reach
+        // the old process. The client rule names the holder (this uid,
+        // and at an abstract endpoint the pid its record names), which
+        // gets the identity-gated SIGTERM -> SIGKILL escalation; the spawn
+        // goes on only once it is gone, so two workers never serve one
+        // endpoint. A holder that survives becomes the resident's
+        // survivor: the monitor stops it again before its next relaunch.
+        let holder = eukhe_types::platform::transport::listener_pid(
+            &worker_socket,
+            eukhe_bend::rules::server_peer::PEER_RULES,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "the endpoint {} of session worker {} is held; no worker spawns beside its holder",
+                worker_socket.display(),
+                resident.worker_id
+            )
+        })?;
+        if let Some(pid) = holder {
+            let start_id = (pid != 0 && pid != std::process::id())
+                .then(|| crate::lease::get_process_start_id(pid))
+                .flatten();
+            let Some(start_id) = start_id else {
+                bail!(
+                    "the endpoint {} of session worker {} is held by a process this supervisor cannot identify (pid {pid}); no worker spawns beside it",
+                    worker_socket.display(),
+                    resident.worker_id
+                );
+            };
+            match crate::boot_reap::stop_process(pid, Some(start_id.clone())).await {
+                crate::boot_reap::ReapOutcome::Survived => {
+                    *resident.survivor.lock().await = Some((pid, Some(start_id)));
+                    bail!(
+                        "the process {pid} holding the endpoint {} of session worker {} survived its stop; no worker spawns beside it",
+                        worker_socket.display(),
+                        resident.worker_id
+                    );
+                }
+                crate::boot_reap::ReapOutcome::AlreadyGone
+                | crate::boot_reap::ReapOutcome::Term
+                | crate::boot_reap::ReapOutcome::Kill => {
+                    self.log_line(&format!(
+                        "session worker {}: stopped the process {pid} still holding its endpoint before the spawn",
+                        resident.worker_id
+                    ));
+                }
+            }
+        }
 
         let image = crate::platform::worker_image()?;
         let stderr_log_path =

@@ -543,6 +543,40 @@ fn check_listener_blocking(
 /// Returns an error if nothing listens at `path`, the connect fails, the
 /// listener's credentials cannot be read, or `rules` refuse it.
 pub async fn connect_transport(path: &Path, rules: PeerRules) -> Result<Box<dyn TransportStream>> {
+    let (stream, _pid) = connect_checked(path, rules).await?;
+    Ok(Box::new(stream))
+}
+
+/// The pid of the process listening at the endpoint `path`, once `rules`
+/// accept it (0 where the platform does not report a listener's pid);
+/// `None` when nothing listens there.
+///
+/// # Errors
+///
+/// The connect fails other than for want of a listener, the listener's
+/// credentials cannot be read, or `rules` refuse it.
+pub async fn listener_pid(path: &Path, rules: PeerRules) -> std::io::Result<Option<u32>> {
+    match connect_checked(path, rules).await {
+        Ok((_stream, pid)) => Ok(Some(pid)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Connect to the endpoint at `path` and apply `rules` to its listener;
+/// the stream and the listener's pid (0 where the platform does not
+/// report it).
+async fn connect_checked(
+    path: &Path,
+    rules: PeerRules,
+) -> std::io::Result<(tokio::net::UnixStream, u32)> {
     let (stream, is_abstract) = connect_tokio_reached(path).await?;
     let credentials = stream.peer_cred()?;
     let pid = credentials
@@ -550,7 +584,7 @@ pub async fn connect_transport(path: &Path, rules: PeerRules) -> Result<Box<dyn 
         .and_then(|pid| u32::try_from(pid).ok())
         .unwrap_or(0);
     check_listener(path, rules, is_abstract, credentials.uid(), pid).await?;
-    Ok(Box::new(stream))
+    Ok((stream, pid))
 }
 
 /// The uid and pid of the process at the other end of `stream` (the pid
