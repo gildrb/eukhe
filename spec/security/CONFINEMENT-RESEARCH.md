@@ -331,6 +331,17 @@ FSEvents; probes, then timings.
 - A profile without dirhelper and per-user temp dirs broke `/usr/bin/git`
   (an Xcode shim): `confstr` could not get `DARWIN_USER_TEMP_DIR`, `xcrun`
   could not write its cache, and each call took 2.2 s instead of 17 ms.
+- Under `(deny default)` with `file-write*` allowed on two directories and
+  `(allow network-bind (local unix-socket (subpath a)))` on one, a Python
+  `bind` and `listen` of a pathname socket worked in `a` and failed with
+  `EPERM` in the other: Seatbelt checks a Unix socket bind as
+  `network-bind` on its path, apart from the file write.
+- With `xcrun_db` set to a file in another directory, `/usr/bin/git
+  --version` wrote its cache there (a 1,089-byte file).
+- Hard links under `(deny default)` with `file-read*` everywhere but a
+  state directory and `file-write*` on one directory `t`: `ln t/a t/b`
+  worked; `ln` of a file outside `t` into `t` failed with `EPERM`, and so
+  did `ln` of a state file into `t`, with or without `(allow file-link)`.
 
 ### 5.2 Linux (AMD Ryzen 7 5800X, NixOS 26.05, kernel 6.18.50, Landlock ABI 7, bubblewrap 0.11.2)
 
