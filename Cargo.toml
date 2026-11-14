@@ -80,6 +80,10 @@ mimalloc = { version = "0.1", features = ["no_thp"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+unused_lifetimes = "warn"
+redundant_lifetimes = "warn"
+unused_import_braces = "warn"
+trivial_numeric_casts = "warn"
 
 # Cargo's own lints (Rust 1.100). Cargo emits them, so the clippy gate's
 # -D warnings misses them: deny the unused-dependency ones outright.
@@ -155,6 +159,12 @@ unnecessary_join = "warn"
 unnecessary_literal_bound = "warn"
 unnecessary_semicolon = "warn"
 used_underscore_binding = "warn"
+# Restriction lints: opt-in checks beyond pedantic, each with every site fixed.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+rc_mutex = "warn"
+string_to_string = "warn"
 
 # Dev and test builds keep file:line in backtraces and drop the rest of the
 # debug info (variables, types): smaller objects, faster links. A debugger

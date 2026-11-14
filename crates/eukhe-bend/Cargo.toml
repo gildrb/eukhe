@@ -31,6 +31,10 @@ cc = "1.4.6"
 # Keep these tables equal to the root Cargo.toml's [workspace.lints].
 [lints.rust]
 unsafe_code = "deny"
+unused_lifetimes = "warn"
+redundant_lifetimes = "warn"
+unused_import_braces = "warn"
+trivial_numeric_casts = "warn"
 
 [lints.cargo]
 unused_dependencies = "deny"
@@ -98,3 +102,9 @@ unnecessary_join = "warn"
 unnecessary_literal_bound = "warn"
 unnecessary_semicolon = "warn"
 used_underscore_binding = "warn"
+# Restriction lints: opt-in checks beyond pedantic, each with every site fixed.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+rc_mutex = "warn"
+string_to_string = "warn"
