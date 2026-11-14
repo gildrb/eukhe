@@ -4,9 +4,9 @@
 //! detach/exit request helpers.
 use super::{
     attach_data_from_response, create_session, mpsc, reconstruct, resume_hint_from_stats,
-    ActivityUpdates, AgentView, BTreeMap, ChatEntry, CompactionAbortNote, Context, DaemonClient,
-    DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions, LoaderTokenTracker,
-    LoopView, Map, MessageBlock, ModelCatalogUpdate, PromptOrder, PromptSubmitNote,
+    ActivityUpdates, AgentView, BTreeMap, CatalogLanding, ChatEntry, CompactionAbortNote, Context,
+    DaemonClient, DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions,
+    LoaderTokenTracker, LoopView, Map, MessageBlock, PromptOrder, PromptSubmitNote,
     ReattachOutcome, RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi,
     Value, EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
 };
@@ -40,7 +40,7 @@ impl SessionUi {
         compaction_abort_notes: mpsc::UnboundedSender<CompactionAbortNote>,
         prompt_notes: mpsc::UnboundedSender<PromptSubmitNote>,
         reload_notes: mpsc::UnboundedSender<ReloadNote>,
-        catalog_updates: mpsc::UnboundedSender<ModelCatalogUpdate>,
+        catalog_updates: mpsc::UnboundedSender<CatalogLanding>,
         auth_panel_notes: mpsc::UnboundedSender<crate::auth_panel::AuthPanelRequest>,
         activity_updates: ActivityUpdates,
     ) -> Result<SessionUi> {

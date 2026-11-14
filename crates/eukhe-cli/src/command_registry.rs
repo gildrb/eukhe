@@ -271,8 +271,19 @@ kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the on
          SHA256SUMS and run once before the launcher switches to it; the previous version stays \
          on disk for a running daemon. An install of Nix, mise, an app bundle or a cargo build \
          is left as it is: the command prints the command that updates it and exits 1."),
-    CommandSpec::new(&["model"], "model list [search]", "Inspect available models"),
+    CommandSpec::new(&["model"], "model <list|refresh>", "Inspect available models"),
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models"),
+    CommandSpec::new(
+        &["model", "refresh"],
+        "model refresh [<provider>...] [--json]",
+        "Ask providers for their model lists and add the new models",
+    )
+    .description(
+        "Asks each signed-in provider (or each named one) for the models it offers now. Models \
+the built-in catalog lacks are saved locally and become selectable; built-in entries stay as \
+they are. Nothing is fetched except on this command.",
+    )
+    .options(&["--json  Print JSON"]),
     CommandSpec::new(
         &["provider"],
         "provider <caps|models>",

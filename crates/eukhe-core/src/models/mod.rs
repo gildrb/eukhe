@@ -10,6 +10,7 @@ pub(crate) mod custom;
 pub mod image_model_routing;
 pub(crate) mod prime_inference;
 pub(crate) mod reference;
+pub mod refresh;
 pub(crate) mod registry;
 pub(crate) mod resolver;
 pub mod roles;

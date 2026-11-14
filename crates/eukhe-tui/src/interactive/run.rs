@@ -161,7 +161,7 @@ async fn run_interactive_surface(
     // The background model-catalog refresh (`get_model_catalog`) reports
     // here; the loop folds it into the picker catalog and any open picker.
     let (catalog_tx, mut catalog_rx) =
-        mpsc::unbounded_channel::<crate::session_ui::ModelCatalogUpdate>();
+        mpsc::unbounded_channel::<crate::session_ui::CatalogLanding>();
     // Background heartbeat-catalog refreshes (`heartbeats_list` for an
     // open `/heartbeats` view) report here; the loop folds them into the
     // open view.
@@ -1506,7 +1506,7 @@ async fn run_interactive_surface(
             }
             maybe_catalog = catalog_rx.recv() => {
                 if let Some(update) = maybe_catalog {
-                    session.apply_model_catalog(update, &mut view);
+                    session.apply_catalog_landing(update, &mut view);
                 }
             }
             maybe_auth_panel = auth_panel_rx.recv() => {

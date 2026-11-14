@@ -20,6 +20,7 @@ mod keys;
 mod lifecycle;
 mod memory;
 mod model_picker;
+mod models_refresh;
 mod notes;
 mod panels;
 mod prompt;
@@ -47,7 +48,7 @@ pub(crate) use keys::opening_echo_key_claimed;
 pub(crate) use lifecycle::ReattachBy;
 pub(crate) use memory::MemoryTreeUpdate;
 pub(crate) use model_picker::picker_viewport_rows;
-pub(crate) use model_picker::ModelCatalogUpdate;
+pub(crate) use model_picker::{CatalogLanding, ModelCatalogUpdate};
 use panels::pop_superseded_attempt_row;
 pub(crate) use panels::ActivityUpdates;
 use prompt::PromptOrder;
@@ -265,7 +266,7 @@ pub(crate) struct SessionUi {
     reload_notes: mpsc::UnboundedSender<ReloadNote>,
     /// Where the background catalog refresh delivers `get_model_catalog`
     /// responses (the run loop folds them into the picker catalog).
-    catalog_updates: mpsc::UnboundedSender<ModelCatalogUpdate>,
+    catalog_updates: mpsc::UnboundedSender<CatalogLanding>,
     /// Where background heartbeat-catalog refreshes deliver their fetches
     /// (the run loop folds them into an open `/heartbeats` view).
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,

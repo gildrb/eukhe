@@ -26,6 +26,47 @@ pub(crate) struct ModelCatalogUpdate {
     pub configured_providers: std::collections::HashSet<String>,
 }
 
+impl ModelCatalogUpdate {
+    /// The catalog of a `get_model_catalog` (or `refresh_models`) answer;
+    /// a part that does not read is empty.
+    pub(crate) fn of_answer(value: &Value) -> Self {
+        let models: Vec<eukhe_types::ai::CatalogModel> = value
+            .get("models")
+            .cloned()
+            .and_then(|models| serde_json::from_value(models).ok())
+            .unwrap_or_default();
+        let configured_providers: std::collections::HashSet<String> = value
+            .get("configuredProviders")
+            .and_then(Value::as_array)
+            .map(|providers| {
+                providers
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            models,
+            configured_providers,
+        }
+    }
+}
+
+/// What lands on the run loop's catalog channel.
+pub(crate) enum CatalogLanding {
+    /// A `get_model_catalog` answer.
+    Fetched(ModelCatalogUpdate),
+    /// A `refresh_models` answer: the report's lines and the catalog after
+    /// the refresh.
+    Refreshed {
+        lines: Vec<String>,
+        catalog: ModelCatalogUpdate,
+    },
+    /// A `refresh_models` request that failed.
+    RefreshFailed(String),
+}
+
 impl SessionUi {
     /// The catalog entry for the current model (the `/tier` completions
     /// need its served tiers, the image check its input): the
@@ -455,26 +496,9 @@ impl SessionUi {
                 // they are.
                 return;
             };
-            let models: Vec<eukhe_types::ai::CatalogModel> = value
-                .get("models")
-                .cloned()
-                .and_then(|models| serde_json::from_value(models).ok())
-                .unwrap_or_default();
-            let configured_providers: std::collections::HashSet<String> = value
-                .get("configuredProviders")
-                .and_then(Value::as_array)
-                .map(|providers| {
-                    providers
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let _ = updates.send(ModelCatalogUpdate {
-                models,
-                configured_providers,
-            });
+            let _ = updates.send(CatalogLanding::Fetched(ModelCatalogUpdate::of_answer(
+                &value,
+            )));
         });
     }
 

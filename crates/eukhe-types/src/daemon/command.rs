@@ -941,6 +941,19 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Refresh the model lists of the signed-in providers (or the named
+    /// `providers`) into the local overlay; the answer carries the report
+    /// (`models_refresh::ModelsRefreshReport`), its text lines, and the
+    /// catalog after it (the `get_model_catalog` payload).
+    RefreshModels {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        providers: Vec<String>,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetQueue {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

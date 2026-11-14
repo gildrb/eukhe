@@ -123,6 +123,15 @@ const MODEL_SUBCOMMANDS: [Subcommand; ModelRole::ALL.len() + 1] = {
     out
 };
 
+/// `/models refresh`.
+pub const MODELS_REFRESH_SUBCOMMAND: &str = "refresh";
+
+const MODELS_SUBCOMMANDS: &[Subcommand] = &[Subcommand {
+    name: MODELS_REFRESH_SUBCOMMAND,
+    description: "Ask the signed-in providers for their model lists and add the new models",
+    usage: None,
+}];
+
 const WORKFLOWS_SUBCOMMANDS: &[Subcommand] = &[Subcommand {
     name: "size",
     description: "Select the default dynamic workflow size (opens selector UI)",
@@ -170,6 +179,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "settings", description: "Open settings menu", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "model", description: "Set the model of each role (opens the model hub; /model <role> opens it at that role; /model --all <provider/model> sets the model of every role)", execution: SlashCommandExecution::Client, argument_hint: Some("[role|--all]"), aliases: &[], takes_argument: false, subcommands: &MODEL_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "scoped-models", description: "Choose the models Ctrl+P steps through", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "models", description: "Open the model hub; /models refresh adds the models the signed-in providers offer now", execution: SlashCommandExecution::Client, argument_hint: Some("[refresh]"), aliases: &[], takes_argument: false, subcommands: MODELS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "memory", description: "Browse the chat memory as a dated, expandable tree", execution: SlashCommandExecution::Client, argument_hint: Some("[view|model]"), aliases: &[], takes_argument: false, subcommands: MEMORY_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "effort", description: "Select reasoning/thinking level (opens selector UI)", execution: SlashCommandExecution::Client, argument_hint: Some("[level]"), aliases: &["thinking"], takes_argument: false, subcommands: &[], subcommand_optional: true },
     BuiltinSlashCommand { name: "fast", description: "Toggle OpenAI Fast mode", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },

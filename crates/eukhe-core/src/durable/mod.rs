@@ -79,8 +79,8 @@ pub use main_conversation::{
 };
 pub use models::provider::{ProviderRuntime, ProviderWireEvent};
 pub use models::{
-    compose_models_json, create_models, resolve_session_model, ModelsError, ResolvedModel,
-    SavedSetting, SessionModels, Substitution, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+    compose_models_json, create_models, join_refreshed_models, resolve_session_model, ModelsError,
+    ResolvedModel, SavedSetting, SessionModels, Substitution, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
 };
 pub use open::{open_session, session_artifact_dir_for_log, EukheSession, OpenError};
 pub use prompt::{CLOSING_KEYS, PROMPT_EXTENSION, SECTION_KEYS, SHARED_SECTIONS};

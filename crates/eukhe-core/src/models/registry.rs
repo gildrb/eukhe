@@ -138,7 +138,12 @@ impl ModelRegistry {
 
     #[cfg(test)]
     pub(crate) fn in_memory(auth: AuthStorage) -> Self {
-        Self::with_models(auth, ModelsConfig::default(), built_in_models(), Vec::new())
+        Self::with_models(
+            auth,
+            ModelsConfig::default(),
+            built_in_models(Vec::new()),
+            Vec::new(),
+        )
     }
 
     fn with_models(
@@ -360,13 +365,15 @@ impl ModelRegistry {
 }
 
 /// The built-in catalog (bundled snapshot and compiled catalog), borrowed,
+/// then the `refreshed` models (the overlay's models the catalog lacks),
 /// then the bundled private Prime Inference table (listed, but gated out
 /// of `get_available` unless models.json declares the id).
-fn built_in_models() -> Vec<Cow<'static, Model>> {
+fn built_in_models(refreshed: Vec<Model>) -> Vec<Cow<'static, Model>> {
     BUILT_IN_CATALOG
         .models()
         .iter()
         .map(Cow::Borrowed)
+        .chain(refreshed.into_iter().map(Cow::Owned))
         .chain(private_prime_inference_models().into_iter().map(Cow::Owned))
         .collect()
 }
@@ -375,11 +382,12 @@ fn built_in_models() -> Vec<Cow<'static, Model>> {
 /// rewrites (by index) and the models it adds, or why it does not load.
 type ProviderLayer = Result<(Vec<(usize, Model)>, Vec<Model>), ProviderError>;
 
-/// `models_json` composed over [`built_in_models`] (TS `loadModels`): the
-/// provider and model overrides rewrite the catalog's built-in models, then
-/// the custom models land, winning on provider+id conflicts. A provider
-/// entry that does not load or compose is dropped (its built-in models
-/// stay as the catalog has them), and a diagnostic names it. The
+/// `models_json` composed over [`built_in_models`] with the refreshed
+/// models of the overlay beside it (TS `loadModels`): the provider and
+/// model overrides rewrite the catalog's built-in and refreshed models,
+/// then the custom models land, winning on provider+id conflicts. A
+/// provider entry that does not load or compose is dropped (its built-in
+/// models stay as the catalog has them), and a diagnostic names it. The
 /// diagnostics leave rendered: they are the registry's user-facing text.
 fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<String>) {
     let compiled = eukhe_models::transports::compiled_models();
@@ -389,8 +397,14 @@ fn compose(models_json: &Path) -> (ModelsConfig, Vec<Cow<'static, Model>>, Vec<S
     } = ModelsConfig::load(models_json, &|provider| {
         compiled.iter().any(|model| model.provider == provider)
     });
-    let mut models = built_in_models();
-    let built_in_count = BUILT_IN_CATALOG.models().len();
+    let refreshed = models_json
+        .parent()
+        .map(|agent_dir| {
+            super::refresh::overlay_catalog_models(agent_dir, BUILT_IN_CATALOG.models())
+        })
+        .unwrap_or_default();
+    let built_in_count = BUILT_IN_CATALOG.models().len() + refreshed.len();
+    let mut models = built_in_models(refreshed);
     let mut dropped = Vec::new();
     for (provider_id, provider) in &config.providers {
         let layer: ProviderLayer = 'layer: {

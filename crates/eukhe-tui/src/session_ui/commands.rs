@@ -13,7 +13,7 @@ use crate::glyphs::WARN;
 use crate::model_hub::HubTarget;
 use crate::workflow_size_picker;
 use eukhe_types::model_roles::ModelRole;
-use eukhe_types::slash_commands::MODEL_ALL_ROLES_SUBCOMMAND;
+use eukhe_types::slash_commands::{MODELS_REFRESH_SUBCOMMAND, MODEL_ALL_ROLES_SUBCOMMAND};
 use eukhe_types::workflow::WorkflowSize;
 
 impl SessionUi {
@@ -1023,6 +1023,13 @@ impl SessionUi {
             "budget" => {
                 self.handle_budget_command(&resolved.args, text, view).await;
             }
+            // `/models` opens the model hub like `/model`; `/models
+            // refresh` asks the signed-in providers for their model lists
+            // (the command path lists the one subcommand).
+            "models" => match sub.first().map(String::as_str) {
+                Some(MODELS_REFRESH_SUBCOMMAND) => self.start_models_refresh(view),
+                Some(_) | None => self.open_model_hub(view, None).await?,
+            },
             other => {
                 self.note(
                     &format!("/{other} is not available in this client yet"),

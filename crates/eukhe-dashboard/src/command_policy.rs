@@ -54,6 +54,7 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetMcpConnections { .. } => "get_mcp_connections",
         DaemonCommand::GetModelCatalog { .. } => "get_model_catalog",
         DaemonCommand::GetAvailableModels { .. } => "get_available_models",
+        DaemonCommand::RefreshModels { .. } => "refresh_models",
         DaemonCommand::GetQueue { .. } => "get_queue",
         DaemonCommand::MutateQueuedMessage { .. } => "mutate_queued_message",
         DaemonCommand::ClearQueue { .. } => "clear_queue",

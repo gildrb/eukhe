@@ -67,6 +67,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "replace_acp_mcp_servers"
         | "get_model_catalog"
         | "get_available_models"
+        | "refresh_models"
         | "get_queue"
         | "mutate_queued_message"
         | "clear_queue"

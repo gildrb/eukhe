@@ -26,6 +26,7 @@
 pub mod bundled;
 pub mod compat;
 pub mod effective;
+pub mod overlay;
 pub mod pi_ai_model;
 pub mod pinning;
 pub mod prime_inference;

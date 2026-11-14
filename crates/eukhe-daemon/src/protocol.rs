@@ -170,6 +170,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "audit_budget",
     "set_acceptance",
     "get_acceptance",
+    "refresh_models",
 ];
 
 /// Parsed client command envelope.
@@ -770,6 +771,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetAvailableModels {
             active_session_id, ..
         }
+        | DaemonCommand::RefreshModels {
+            active_session_id, ..
+        }
         | DaemonCommand::GetQueue {
             active_session_id, ..
         }
@@ -1086,6 +1090,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::ReplaceAcpMcpServers { .. } => "replace_acp_mcp_servers",
         DaemonCommand::GetModelCatalog { .. } => "get_model_catalog",
         DaemonCommand::GetAvailableModels { .. } => "get_available_models",
+        DaemonCommand::RefreshModels { .. } => "refresh_models",
         DaemonCommand::GetQueue { .. } => "get_queue",
         DaemonCommand::MutateQueuedMessage { .. } => "mutate_queued_message",
         DaemonCommand::ClearQueue { .. } => "clear_queue",

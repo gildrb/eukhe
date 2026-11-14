@@ -239,6 +239,15 @@ pub(crate) async fn resolve_available_model(
     model_id: &str,
 ) -> Result<Model, ModelResolutionError> {
     let models = &hosted.deps().models;
+    // A model another session's refresh added since this session opened
+    // joins from the overlay file.
+    if models.get_model(provider, model_id).is_none() {
+        let refreshed = eukhe_core::models::refresh::overlay_catalog_models(
+            &hosted.deps().agent_dir,
+            eukhe_core::models::ModelRegistry::built_in_catalog_models(),
+        );
+        eukhe_core::durable::join_refreshed_models(models, &refreshed);
+    }
     let available = models
         .get_available(Some(provider), AuthOperationOptions::default())
         .await

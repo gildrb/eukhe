@@ -259,6 +259,14 @@ fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) ->
         (providers, catalog)
     });
     let builtins = catalog::with_catalog_models(providers, catalog);
+    // The refreshed models (`models-refresh.json`) the catalog lacks join
+    // their providers the same way.
+    let refreshed = crate::models::refresh::overlay_catalog_models(agent_dir, catalog);
+    let builtins = if refreshed.is_empty() {
+        builtins
+    } else {
+        catalog::with_catalog_models(builtins, &refreshed)
+    };
     let (providers, diagnostics) =
         compose::compose_providers(builtins, &agent_dir.join("models.json"));
     for provider in providers {
@@ -269,6 +277,26 @@ fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) ->
     SessionModels {
         models,
         diagnostics,
+    }
+}
+
+/// `models` with `refreshed` (the overlay's models the built-in catalog
+/// lacks, `crate::models::refresh`) joined into their providers: a
+/// running session selects the models a refresh added. A model a provider
+/// already serves keeps its entry.
+pub fn join_refreshed_models(models: &Models, refreshed: &[eukhe_types::ai::Model]) {
+    let providers: std::collections::HashSet<&str> = refreshed
+        .iter()
+        .map(|model| model.provider.as_str())
+        .collect();
+    let current = models
+        .get_providers()
+        .iter()
+        .filter(|provider| providers.contains(provider.id.as_str()))
+        .map(|provider| eukhe_ai::models::Provider::clone(provider))
+        .collect();
+    for provider in catalog::with_catalog_models(current, refreshed) {
+        models.set_provider(provider);
     }
 }
 

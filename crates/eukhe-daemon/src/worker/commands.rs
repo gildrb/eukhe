@@ -82,6 +82,7 @@ impl Worker {
             "add_budget" => self.handle_add_budget(payload).await,
             "audit_budget" => self.handle_audit_budget().await,
             "get_model_catalog" => self.handle_get_model_catalog(),
+            "refresh_models" => self.handle_refresh_models(payload).await,
             "get_queue" => self.handle_get_queue(),
             "clear_queue" => self.handle_clear_queue().await,
             "get_last_assistant_text" => self.handle_get_last_assistant_text(),

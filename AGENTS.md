@@ -94,6 +94,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 
 - eukhe is fully local. Only outbound traffic:
   - the model request to the user's configured provider, and its auth (explicit login, cloud credential metadata);
+  - the model lists of the signed-in providers on `eukhe model refresh` and `/models refresh` (each provider's own listing endpoint);
   - user-configured MCP servers;
   - the Signal service, only while `eukhe gateway` runs (through the user's signal-cli);
   - pinned model files from Hugging Face on `eukhe tiny-models download` (each checked against its pinned sha256 before install);
@@ -102,7 +103,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
   - npm and git traffic of `eukhe package install` and `eukhe package update`;
   - the newest release of gildrb/eukhe from github.com on `eukhe update` (`release.json`, `SHA256SUMS`, the platform tarball) and `nix/release.json` from main on raw.githubusercontent.com; the tarball is checked against both before install.
   
-  No telemetry, catalog fetches, uploads, or automatic model downloads. Nothing is fetched on its own but the kernel's pinned toolchain and its locked packages (above): pinned, hash-checked, and only when a kernel needs them.
+  No telemetry, automatic catalog fetches, uploads, or automatic model downloads. Nothing is fetched on its own but the kernel's pinned toolchain and its locked packages (above): pinned, hash-checked, and only when a kernel needs them.
 - Startup work never delays the first paint; slow bookkeeping runs on a background worker. Launch-path changes keep the first frame unblocked.
 
 ## Merge gates

@@ -63,6 +63,7 @@ pub mod mcp_login;
 pub(crate) mod messaging;
 pub mod model_allowlist;
 pub(crate) mod model_catalog;
+pub(crate) mod model_refresh;
 pub(crate) mod model_switch;
 pub mod ownership;
 pub mod paths;

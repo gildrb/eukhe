@@ -19,19 +19,24 @@ impl Worker {
         if let Err(response) = self.require_created("get_model_catalog") {
             return response;
         }
-        let agent_dir = &self.config.agent_dir;
-        let registry = eukhe_core::models::ModelRegistry::create(
-            eukhe_core::auth::AuthStorage::create(agent_dir),
-            agent_dir.join("models.json"),
-        );
-        let available = registry
-            .get_available()
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let served = catalog_payload(&registry, &available);
+        let served = catalog_snapshot(&self.config.agent_dir);
         response_success(None, "get_model_catalog", Some(served))
     }
+}
+
+/// The catalog payload of `agent_dir` as it reads now (registry, models.json
+/// and the refreshed-models overlay).
+pub(crate) fn catalog_snapshot(agent_dir: &std::path::Path) -> Value {
+    let registry = eukhe_core::models::ModelRegistry::create(
+        eukhe_core::auth::AuthStorage::create(agent_dir),
+        agent_dir.join("models.json"),
+    );
+    let available = registry
+        .get_available()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    catalog_payload(&registry, &available)
 }
 
 /// The wire payload of one catalog snapshot (TS `refreshModelCatalog`'s

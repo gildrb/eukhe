@@ -159,7 +159,7 @@ fn handled_failed() -> PublicCommandResult {
 pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
     let public: HashSet<&str> = public_command_names().into_iter().collect();
     let removed: HashSet<&str> = REMOVED_COMMAND_NAMES.iter().copied().collect();
-    let args = rotate_global_flags_before_command(args, &public, &removed);
+    let args = with_models_alias(rotate_global_flags_before_command(args, &public, &removed));
 
     if args.first().map(String::as_str) == Some("help") {
         // A bare `help` shows the top-level help; a path resolves to that
@@ -229,6 +229,9 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "package" => run_package(&rest),
         "mcp" => run_mcp(&rest),
         "update" => run_update(&rest),
+        "model" if rest.first().map(String::as_str) == Some("refresh") => handled_with_exit(
+            crate::models_refresh_command::run_models_refresh_command(&rest[1..]),
+        ),
         "model" => rewrite_nested_command("model", "list", "--list-models", &rest),
         "session" => rewrite_nested_command("session", "export", "--export", &rest),
         "prompt" => handled_with_exit(crate::prompt_command::run_prompt_command(&rest)),
@@ -253,6 +256,15 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         }
         _ => continue_with(args.clone()),
     }
+}
+
+/// `eukhe models ...` (and `eukhe help models ...`) as `eukhe model ...`.
+pub(crate) fn with_models_alias(mut args: Vec<String>) -> Vec<String> {
+    let at = usize::from(args.first().map(String::as_str) == Some("help"));
+    if let Some(word) = args.get_mut(at).filter(|word| word.as_str() == "models") {
+        "model".clone_into(word);
+    }
+    args
 }
 
 fn print_requested_help(path: &[String]) -> PublicCommandResult {

@@ -28,6 +28,7 @@ pub mod job;
 pub mod kernel_notice;
 pub mod loop_mode;
 pub mod model_roles;
+pub mod models_refresh;
 pub mod output;
 pub mod path_policy;
 pub mod pi_ai;
