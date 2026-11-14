@@ -1,11 +1,10 @@
-//! The inline auth panel (TS `LoginDialogComponent` +
-//! `PrimeTeamSelectorComponent`, the surfaces `host.showAuthPanel`
-//! mounts): the ONE TUI surface the interactive login flows render
-//! through. A flow runs in the background and drives the panel through
-//! [`AuthPanelHandle`] -- progress lines, the browser URL block, a paste
-//! prompt, or the Prime team picker -- while the TUI run loop folds each
-//! request into the mounted panel and answers the prompt/picker requests
-//! from the keyboard. No login path ever takes over the plain terminal
+//! The inline auth panel (TS `LoginDialogComponent`, the surface
+//! `host.showAuthPanel` mounts): the ONE TUI surface the interactive
+//! login flows render through. A flow runs in the background and drives
+//! the panel through [`AuthPanelHandle`] -- progress lines, the browser
+//! URL block, or a paste prompt -- while the TUI run loop folds each
+//! request into the mounted panel and answers the prompt requests from
+//! the keyboard. No login path ever takes over the plain terminal
 //! (the TS auth flows never drop out of the TUI either): no
 //! alternate-screen leave, no screen clear, no raw-stdin prompt.
 //!
@@ -20,69 +19,32 @@
 //! cancel flag -- the driving surface marks it when the panel exits and
 //! a running flow checks it between its poll steps and before its
 //! credential writes (a `JoinHandle::abort` cannot reach a started
-//! blocking login body, so the flag is the seam). The paste prompt and
-//! the team picker answer their own cancels; the network steps settle
-//! within their request timeouts; a settled flow always unmounts the
-//! panel.
+//! blocking login body, so the flag is the seam). The paste prompt
+//! answers its own cancel; the network steps settle within their
+//! request timeouts; a settled flow always unmounts the panel.
 
 use crate::style::Modifier;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::fuzzy::fuzzy_filter;
 use crate::keybindings::KeybindingsManager;
 use crate::menu_panel::{
-    hint_row, key_hint, login_field_row, menu_row, no_match_row, scroll_row, scrub_controls,
-    search_field_lines, search_field_plain_row, MenuSegment,
+    hint_row, key_hint, login_field_row, scrub_controls, search_field_plain_row,
 };
 use crate::provider_auth::ProviderAuthOutcome;
 use crate::search_input::SearchInput;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
-// The render surface (the per-surface chrome, the progress block, the
-// URL block, the paste field, the team picker rows, and the row
-// builders) moved to the child module at the same tree position
-// (auth_panel::render); the actions-row re-export keeps the provider
-// selector's external path stable, and the code binding keeps the unit
-// battery's bare calls in scope.
+// The render surface (the chrome, the progress block, the URL block, the
+// paste field, and the row builders) moved to the child module at the
+// same tree position (auth_panel::render); the actions-row re-export
+// keeps the provider selector's external path stable, and the code
+// binding keeps the unit battery's bare calls in scope.
 mod render;
 
 pub(crate) use render::auth_actions_row;
 #[cfg(test)]
 use render::verification_code;
-
-// The team picker (TS `PrimeTeamSelectorComponent`: the search field
-// over the personal-first rows, the fuzzy filter, the row parts,
-// and the pick) moved to the child module at the same tree position
-// (auth_panel::picker); the facade bindings keep the mount and key
-// arms' bare paths in scope.
-mod picker;
-
-use picker::{PickerSegment, PrimeTeamPicker};
-
-/// One Prime team option (TS `PrimeTeam` as the selector renders it).
-/// `created_at` is carry-through metadata the flow stores with the
-/// selection (the picker never renders it).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrimeTeamOption {
-    pub team_id: String,
-    pub name: String,
-    pub slug: Option<String>,
-    pub role: Option<String>,
-    pub created_at: Option<String>,
-}
-
-/// The team picker's answer (TS `PrimeTeamSelectorComponent`'s
-/// `onSelect`/`onCancel`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PrimeTeamPick {
-    /// TS `onSelect(team)`.
-    Team(PrimeTeamOption),
-    /// TS `onSelect(null)`: the personal account.
-    PersonalAccount,
-    /// TS `onCancel`: the stored selection stays untouched.
-    Cancelled,
-}
 
 /// How the paste field renders its value (TS `MenuSearchInput`'s masked
 /// mode: the token paste panel renders bullets, the login dialog
@@ -109,37 +71,16 @@ pub enum PastePromptTone {
     Text,
 }
 
-/// Which surface mounts the panel: TS `loginDialogOptions()` per surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PanelSurface {
-    /// The session's prompt dock (TS the non-onboarding shape):
-    /// `topRule: true, hideTitle: false` -- the borderMuted rule and the
-    /// muted one-space title open the panel.
-    Session,
-    /// The first-run onboarding block (TS the onboarding shape):
-    /// `topRule: false, hideTitle: true` -- the splash names the step, so
-    /// the panel carries no chrome of its own.
-    Onboarding,
-}
-
 /// One request a login flow (or its session wrapper) sends to the inline
-/// auth panel. Fire-and-forget requests render; the prompt and picker
-/// requests await their oneshot replies; the settled requests close the
+/// auth panel. Fire-and-forget requests render; the prompt requests
+/// await their oneshot replies; the settled requests close the
 /// panel and apply the outcome.
 pub enum AuthPanelRequest {
     /// TS `dialog.showProgress`: a muted progress line joins the panel.
-    /// `chatter` marks the line as the `onProgress` callback's step
-    /// chatter (TS `runPrimeInferenceLogin`'s guarded arm): the
-    /// onboarding surface drops it -- "onboarding narrates itself; step
-    /// chatter stays in the chat flows" (TS `if (!this.isOnboarding())`)
-    /// -- while a direct `showProgress` line (the browser-fallback arm,
-    /// the OAuth dialogs' chatter) renders on every surface.
-    Progress { message: String, chatter: bool },
+    Progress { message: String },
     /// TS `dialog.showWaiting`: the polling device flow's waiting line
     /// (the Copilot browser authentication pend) -- the accent row that
-    /// joins above the actions row. It renders on every surface: the
-    /// dialog's own method carries no onboarding guard, unlike the
-    /// `onProgress` chatter arm.
+    /// joins above the actions row.
     Waiting { message: String },
     /// TS `dialog.showAuth`: the browser URL block (the flow launches
     /// the browser itself; the panel only renders).
@@ -167,15 +108,6 @@ pub enum AuthPanelRequest {
         style: PasteStyle,
         allow_empty: bool,
         reply: oneshot::Sender<Option<String>>,
-    },
-    /// TS `PrimeTeamSelectorComponent` mounts over the panel: Esc
-    /// cancels the selection (the stored selection stays).
-    SelectTeam {
-        teams: Vec<PrimeTeamOption>,
-        /// TS `currentTeamId`: the stored selection's team id; `None`
-        /// marks the personal account current.
-        current: Option<String>,
-        reply: oneshot::Sender<PrimeTeamPick>,
     },
     /// A provider login settled (`/login`'s rows): the outcome row
     /// applies and the panel unmounts. `provider` is the row's provider
@@ -299,30 +231,15 @@ impl AuthPanelHandle {
         let _ = self.tx.send(request);
     }
 
-    /// TS the `onProgress` callback's step chatter (TS `dialog.showProgress`
-    /// behind the `if (!this.isOnboarding())` guard): the onboarding
-    /// surface drops the line -- the flow narrates itself there.
+    /// TS `dialog.showProgress`: a progress line joins the panel.
     pub fn progress(&self, message: impl Into<String>) {
         self.send(AuthPanelRequest::Progress {
             message: message.into(),
-            chatter: true,
-        });
-    }
-
-    /// TS a direct `dialog.showProgress` line (the browser-sign-in
-    /// fallback arm, the OAuth dialogs' chatter): renders on every
-    /// surface, onboarding included.
-    pub fn progress_line(&self, message: impl Into<String>) {
-        self.send(AuthPanelRequest::Progress {
-            message: message.into(),
-            chatter: false,
         });
     }
 
     /// TS `dialog.showWaiting`: the polling device flow's waiting line
-    /// -- the accent row above the actions row, rendered on every
-    /// surface (onboarding included; the dialog's own method, never the
-    /// `onProgress` chatter arm the onboarding block drops).
+    /// -- the accent row above the actions row.
     pub fn waiting(&self, message: impl Into<String>) {
         self.send(AuthPanelRequest::Waiting {
             message: message.into(),
@@ -399,31 +316,6 @@ impl AuthPanelHandle {
         }
     }
 
-    /// TS `PrimeTeamSelectorComponent`: the team picker; a cancel
-    /// answers [`PrimeTeamPick::Cancelled`] (the stored selection
-    /// stays).
-    pub async fn select_team(
-        &self,
-        teams: Vec<PrimeTeamOption>,
-        current: Option<&str>,
-    ) -> PrimeTeamPick {
-        // An exited pane can never answer the picker: a cancelled flow
-        // returns the cancelled pick (the stored selection stays).
-        if self.cancelled() {
-            return PrimeTeamPick::Cancelled;
-        }
-        let (reply, answer) = oneshot::channel();
-        self.send(AuthPanelRequest::SelectTeam {
-            teams,
-            current: current.map(str::to_string),
-            reply,
-        });
-        tokio::select! {
-            picked = answer => picked.unwrap_or(PrimeTeamPick::Cancelled),
-            () = self.cancelled_wait() => PrimeTeamPick::Cancelled,
-        }
-    }
-
     /// Wait until the flow's cancel signal fires (the pane exited).
     async fn cancelled_wait(&self) {
         self.cancel.wait().await;
@@ -436,22 +328,9 @@ impl std::fmt::Debug for AuthPanelHandle {
     }
 }
 
-/// TS `PREFERRED_VISIBLE_TEAMS`.
-const PREFERRED_VISIBLE_TEAMS: usize = 8;
-
 /// The token paste panel's placeholder (TS `MenuSearchInput("Paste
 /// token", ..., { masked: true })`).
 const TOKEN_PLACEHOLDER: &str = "Paste token";
-
-/// The team picker's panel title (TS `MenuPanel` title).
-const TEAM_PANEL_TITLE: &str = "Select a Prime Team:";
-
-/// The team picker's subtitle (TS `MenuPanel` subtitle).
-const TEAM_PANEL_SUBTITLE: &str = "Choose which account pays for Prime Inference usage.";
-
-/// The team picker's search placeholder (TS `MenuSearchInput("Search
-/// teams")`).
-const TEAM_SEARCH_PLACEHOLDER: &str = "Search teams";
 
 /// The login dialog's paste field placeholder (TS
 /// `MenuSearchInput("Paste value")` -- the session's API-key prompt uses
@@ -484,18 +363,12 @@ fn is_printable_key(key: &str) -> bool {
 }
 
 /// The mounted panel: the flow's progress lines, the browser URL block,
-/// and the one active input (a paste prompt or the team picker).
+/// and the one active input (a paste prompt).
 #[derive(Debug)]
 pub struct AuthPanel {
     /// TS the dialog's panel title: `Login to {provider}` / `Connect
     /// {service}`.
     title: String,
-    /// TS `loginDialogOptions()`'s per-surface chrome: the session's
-    /// dock frames the panel with the rule and the title, the onboarding
-    /// block mounts it chrome-less (the splash names the step).
-    surface: PanelSurface,
-    /// TS the `MenuPanel` subtitle; the team picker sets its own.
-    subtitle: Option<String>,
     /// TS `showProgress` lines, in arrival order.
     progress: Vec<String>,
     /// Whether the progress block opened the panel (TS `showProgress`'s
@@ -539,22 +412,15 @@ enum PanelInput {
         field: SearchInput,
         reply: Option<oneshot::Sender<Option<String>>>,
     },
-    /// The team picker (TS `PrimeTeamSelectorComponent`).
-    Teams {
-        picker: PrimeTeamPicker,
-        reply: Option<oneshot::Sender<PrimeTeamPick>>,
-    },
 }
 
 impl AuthPanel {
-    /// Mount the panel for one session-surface login run (TS the
-    /// non-onboarding `loginDialogOptions`: the rule and the title open
-    /// the panel; the dialog mounts the moment the flow starts).
+    /// Mount the panel for one session-surface login run (TS
+    /// `loginDialogOptions`: the rule and the title open the panel; the
+    /// dialog mounts the moment the flow starts).
     pub fn new(title: impl Into<String>) -> Self {
         AuthPanel {
             title: scrub_controls(&title.into()),
-            surface: PanelSurface::Session,
-            subtitle: None,
             progress: Vec::new(),
             progress_open: false,
             auth_url: None,
@@ -567,31 +433,12 @@ impl AuthPanel {
         }
     }
 
-    /// Mount the panel inside the first-run onboarding block (TS the
-    /// onboarding `loginDialogOptions`: `topRule: false, hideTitle:
-    /// true` -- the splash renders the step's heading, the panel carries
-    /// no chrome of its own). The title stays for the flow's identity;
-    /// it never renders on this surface.
-    pub fn onboarding(title: impl Into<String>) -> Self {
-        let mut panel = AuthPanel::new(title);
-        panel.surface = PanelSurface::Onboarding;
-        panel
-    }
-
     /// Arm the flow's cooperative cancel signal (TS the dialog's
     /// `abortController`): the mounts pass the driving flow's signal so
     /// the panel's cancel keys end a running login, not just a mounted
     /// input.
     pub fn set_cancel_signal(&mut self, cancel: FlowCancel) {
         self.flow_cancel = Some(cancel);
-    }
-
-    /// Whether the team picker owns the panel (TS the selector is its own
-    /// component: its Esc answers the picker and keeps the dialog
-    /// mounted, so a session cancel unmounts every other state only).
-    #[must_use]
-    pub fn team_picker_mounted(&self) -> bool {
-        matches!(self.input, PanelInput::Teams { .. })
     }
 
     /// TS `showProgress`: the first line lands under the section title
@@ -676,46 +523,8 @@ impl AuthPanel {
         self.copy_status = None;
     }
 
-    /// TS `PrimeTeamSelectorComponent`: the picker mounts as its own
-    /// panel (fresh title, subtitle, and rows; the login dialog's
-    /// progress lines go with it). One request-fold entry (the
-    /// session's channel arm calls it).
-    pub fn mount_teams(
-        &mut self,
-        teams: Vec<PrimeTeamOption>,
-        current: Option<String>,
-        reply: oneshot::Sender<PrimeTeamPick>,
-    ) {
-        self.title = TEAM_PANEL_TITLE.to_string();
-        self.subtitle = Some(TEAM_PANEL_SUBTITLE.to_string());
-        self.progress.clear();
-        // The picker is its own panel (TS `PrimeTeamSelectorComponent`):
-        // the login dialog's whole content state goes with it -- a stale
-        // section title, actions row, or copy status must never bleed
-        // into the frame the pick leaves behind.
-        self.progress_open = false;
-        self.copy_status = None;
-        self.auth_url = None;
-        self.auth_instructions = None;
-        self.copy_status = None;
-        self.notice = None;
-        let mut picker = PrimeTeamPicker {
-            teams,
-            current,
-            search: SearchInput::new(),
-            filtered: Vec::new(),
-            selected: 0,
-        };
-        picker.refilter();
-        self.input = PanelInput::Teams {
-            picker,
-            reply: Some(reply),
-        };
-    }
-
     /// One key press while the panel owns the frame (TS
-    /// `LoginDialogComponent.handleInput` /
-    /// `PrimeTeamSelectorComponent.handleInput`). The arms answer the
+    /// `LoginDialogComponent.handleInput`). The arms answer the
     /// mounted input through its oneshot; the answered flag hands the
     /// panel back to the flow after the match (the arms never hold the
     /// input's reply past its last use).
@@ -793,29 +602,6 @@ impl AuthPanel {
                     field.handle_key(key, kb);
                 }
             }
-            PanelInput::Teams { picker, reply } => {
-                if kb.matches(key, "tui.select.cancel") {
-                    if let Some(reply) = reply.take() {
-                        let _ = reply.send(PrimeTeamPick::Cancelled);
-                    }
-                    answered = true;
-                } else if kb.matches(key, "tui.select.up") && !picker.filtered.is_empty() {
-                    picker.selected = picker.selected.saturating_sub(1);
-                } else if kb.matches(key, "tui.select.down") && !picker.filtered.is_empty() {
-                    picker.selected = (picker.selected + 1).min(picker.filtered.len() - 1);
-                } else if kb.matches(key, "tui.select.confirm") {
-                    if let (Some(pick), Some(reply)) = (picker.pick(), reply.take()) {
-                        let _ = reply.send(pick);
-                        answered = true;
-                    }
-                } else {
-                    let previous = picker.search.value().to_string();
-                    picker.search.handle_key(key, kb);
-                    if picker.search.value() != previous {
-                        picker.refilter();
-                    }
-                }
-            }
         }
         if answered {
             self.input = PanelInput::Working;
@@ -843,17 +629,12 @@ impl AuthPanel {
     }
 
     /// One paste payload while the panel owns the frame (TS the dialog's
-    /// field and the selector's search accept pasted text): the payload
-    /// lands in the mounted input -- the paste field or the picker's
-    /// search -- never in the hidden editor behind the panel.
+    /// field accepts pasted text): the payload lands in the paste field,
+    /// never in the hidden editor behind the panel.
     pub fn handle_paste(&mut self, text: &str) {
         match &mut self.input {
             PanelInput::Working => {}
             PanelInput::Paste { field, .. } => field.paste(text),
-            PanelInput::Teams { picker, .. } => {
-                picker.search.paste(text);
-                picker.refilter();
-            }
         }
     }
 

@@ -1,11 +1,9 @@
 //! The composition root's provider auth flows behind the TUI's `/login`
 //! and `/logout` (TS `ProviderAuthFlows`): the provider catalog rows with
-//! their auth status, the API-key store, the MCP device flow, the Prime
-//! Inference terminal login (`prime_inference_login`), and the four
-//! subscription logins (`subscription_login`: the Codex Subscription,
-//! Anthropic, GitHub Copilot, and xAI pi-ai OAuth flows on the inline auth
-//! panel, and the credential writes). The Prime browser logins (the RSA
-//! `auth_challenge` flow) are not ported yet.
+//! their auth status, the API-key store, the MCP device flow, and the
+//! four subscription logins (`subscription_login`: the Codex
+//! Subscription, Anthropic, GitHub Copilot, and xAI pi-ai OAuth flows on
+//! the inline auth panel, and the credential writes).
 
 use std::path::{Path, PathBuf};
 
@@ -51,7 +49,6 @@ const BUILT_IN_PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
     ("opencode-go", "OpenCode Go"),
     ("openai", "OpenAI"),
     ("openrouter", "OpenRouter"),
-    ("prime-inference", "Prime Inference"),
     ("vercel-ai-gateway", "Vercel AI Gateway"),
     ("xai", "xAI (Grok)"),
     ("zai", "ZAI"),
@@ -66,8 +63,6 @@ const BUILT_IN_PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
         "Xiaomi MiMo Token Plan (Singapore)",
     ),
 ];
-
-const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
 
 /// The display name of a provider id (the TS map, else the id itself).
 fn display_name(provider_id: &str) -> String {
@@ -237,8 +232,8 @@ impl ProviderAuth {
 
 impl ProviderAuthCommands for ProviderAuth {
     /// TS `getLoginProviderOptions`: the subscription rows and the
-    /// API-key model providers, sorted TS-style with prime-inference
-    /// first. The service rows (the MCP OAuth integrations) live on the
+    /// API-key model providers, sorted TS-style. The service rows (the
+    /// MCP OAuth integrations) live on the
     /// `/mcp` view (the operator's 2026-09-24 `/login`-is-providers-only
     /// directive).
     fn login_options(&self) -> ProviderRowsFuture {
@@ -266,8 +261,8 @@ impl ProviderAuthCommands for ProviderAuth {
     }
 
     /// TS `loginProvider`: the API-key store for prompted keys, the MCP
-    /// device flow for integrations; the panel-driven subscription and
-    /// Prime flows route through [`ProviderAuth::login_on_panel`].
+    /// device flow for integrations; the panel-driven subscription flows
+    /// route through [`ProviderAuth::login_on_panel`].
     fn login(&self, provider: &ProviderRow, api_key: Option<&str>) -> ProviderAuthFuture {
         let provider_row = provider.clone();
         let agent_dir = self.agent_dir.clone();
@@ -282,9 +277,9 @@ impl ProviderAuthCommands for ProviderAuth {
     }
 
     /// TS `loginProvider` for the panel-driven flows (the MCP OAuth
-    /// login, the Prime Inference login): the flow drives the inline
-    /// auth panel (progress lines, prompts, the team picker render in
-    /// the TUI; the oneshot replies answer the flow) and never touches
+    /// login, the subscription logins): the flow drives the inline auth
+    /// panel (progress lines and prompts render in the TUI; the oneshot
+    /// replies answer the flow) and never touches
     /// the terminal.
     fn login_on_panel(
         &self,
@@ -392,26 +387,19 @@ impl ProviderAuth {
                     continue;
                 }
                 let (credential, status) = provider.credential_status(&provider_id);
-                // Prime Inference logs in through the Prime flow, not a
-                // pasted key (TS `loginProvider`'s special case).
-                let flow = if provider_id == PRIME_INFERENCE_PROVIDER_ID {
-                    AuthFlow::TerminalFlow
-                } else {
-                    AuthFlow::ApiKeyPrompt
-                };
                 rows.push(ProviderRow {
                     status: status_indicator(credential.as_ref(), &status, AuthType::ApiKey),
                     id: provider_id.clone(),
                     name: display_name(&provider_id),
                     auth_type: AuthType::ApiKey,
-                    flow,
+                    flow: AuthFlow::ApiKeyPrompt,
                     configured: status.configured,
                     available: true,
                 });
             }
 
-            // TS sort: configured first, prime-inference first among them,
-            // then oauth before api key by name.
+            // TS sort: configured first, then oauth before api key by
+            // name.
             rows.sort_by(|a, b| {
                 let configured = |row: &ProviderRow| {
                     matches!(
@@ -421,16 +409,7 @@ impl ProviderAuth {
                 };
                 configured(b).cmp(&configured(a)).then(ts_row_order(a, b))
             });
-            let mut sorted: Vec<ProviderRow> = Vec::with_capacity(rows.len());
-            let mut rest = rows;
-            if let Some(index) = rest
-                .iter()
-                .position(|row| row.id == PRIME_INFERENCE_PROVIDER_ID)
-            {
-                sorted.push(rest.remove(index));
-            }
-            sorted.append(&mut rest);
-            sorted
+            rows
         }
     }
 
@@ -478,7 +457,7 @@ impl ProviderAuth {
 
 /// The login flow body (blocking: the auth store and the MCP manager stay
 /// off the async workers). The panel-driven rows (the MCP OAuth logins,
-/// the Prime Inference login, the subscription logins) route to
+/// the subscription logins) route to
 /// [`login_blocking_on_panel`]; this body serves the panel-prompted key
 /// store, and an OAuth row reaching it answers the silent cancel (the
 /// session routes the panel rows to the panel body).
@@ -488,8 +467,8 @@ fn login_blocking(
     api_key: Option<String>,
 ) -> ProviderAuthOutcome {
     if provider_row.auth_type == AuthType::Oauth {
-        // The panel-driven flows (the MCP logins, the Prime Inference
-        // login) run on the panel. An OAuth row reaching this
+        // The panel-driven flows (the MCP logins, the subscription
+        // logins) run on the panel. An OAuth row reaching this
         // non-panel body answers the silent cancel -- the session
         // routes the panel rows to the panel body, and no row dead-ends
         // in an after-selection error wall.
@@ -519,9 +498,8 @@ fn login_blocking(
 }
 
 /// The login flow body for the panel-driven rows (the MCP OAuth logins,
-/// the Prime Inference login, the four subscription logins): blocking on
-/// the dedicated thread -- the
-/// flow awaits its transport AND the panel's prompt/picker replies (the
+/// the four subscription logins): blocking on the dedicated thread --
+/// the flow awaits its transport AND the panel's prompt replies (the
 /// answers arrive from the TUI loop's thread), and the inline auth panel
 /// carries every surface the plain terminal used to.
 fn login_blocking_on_panel(
@@ -550,38 +528,6 @@ fn login_blocking_on_panel(
         } else {
             ProviderAuthOutcome::Status(outcome)
         };
-    }
-    // TS `loginProvider`'s prime-inference dispatch: the API-key flow
-    // (the browser challenge raced against the paste prompt, the whoami
-    // check, the team selection) rendered through the panel.
-    if provider_row.id == PRIME_INFERENCE_PROVIDER_ID {
-        return tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_or_else(
-                |error| {
-                    ProviderAuthOutcome::Error(format!(
-                        "Failed to login to {}: {error}",
-                        provider_row.name
-                    ))
-                },
-                |runtime| {
-                    runtime.block_on(crate::prime_inference_login::run_prime_inference_login(
-                        crate::prime_inference_login::PrimeLoginInputs {
-                            agent_dir: &agent_dir,
-                            provider_name: &provider_row.name,
-                            config: &eukhe_core::auth::resolve_prime_inference_auth_config(),
-                            http: &eukhe_core::auth::ReqwestPrimeHttp,
-                            prime_cli_config_path:
-                                crate::prime_inference_login::prime_cli_config_path(&agent_dir)
-                                    .as_deref(),
-                            prime_team_id: std::env::var("PRIME_TEAM_ID").ok().as_deref(),
-                            poll_interval_ms: None,
-                        },
-                        &crate::prime_inference_login::PanelPrimeLoginUi::new(panel),
-                    ))
-                },
-            );
     }
     // The four subscription logins (TS `loginProvider`'s dispatch to the
     // AI library's `openaiCodex`, `anthropic`, `githubCopilot`, and `xai`

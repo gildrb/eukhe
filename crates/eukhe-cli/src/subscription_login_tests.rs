@@ -64,7 +64,7 @@ impl ScriptedPane {
                     }
                     AuthPanelRequest::Notice { message } => seen.push(Seen::Notice(message)),
                     AuthPanelRequest::Waiting { message } => seen.push(Seen::Waiting(message)),
-                    AuthPanelRequest::Progress { message, .. } => {
+                    AuthPanelRequest::Progress { message } => {
                         seen.push(Seen::Progress(message));
                     }
                     AuthPanelRequest::PastePrompt {
@@ -82,8 +82,7 @@ impl ScriptedPane {
                         });
                         let _ = reply.send(answers.pop_front().flatten());
                     }
-                    AuthPanelRequest::SelectTeam { .. }
-                    | AuthPanelRequest::ProviderSettled { .. }
+                    AuthPanelRequest::ProviderSettled { .. }
                     | AuthPanelRequest::McpSettled { .. } => {
                         panic!("the subscription logins never send this request");
                     }

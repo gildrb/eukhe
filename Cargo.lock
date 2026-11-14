@@ -646,7 +646,6 @@ dependencies = [
  "mimalloc",
  "nix",
  "reqwest",
- "rsa",
  "rustix 1.1.6",
  "serde",
  "serde_json",

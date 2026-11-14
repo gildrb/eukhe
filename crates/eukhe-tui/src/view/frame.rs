@@ -190,13 +190,8 @@ impl AgentView {
     /// above it a vertical stack (`stack::stack_rows`, model `vstack`) of the unsettled
     /// entries, the transcript tail, and the toasts, in the rows the dock
     /// leaves free. The children are cut from their top, newest first, so
-    /// they fit: the stack then draws each one whole. The onboarding pane
-    /// owns the whole area.
+    /// they fit: the stack then draws each one whole.
     fn compose_live(&mut self, width: usize, height: usize) -> (Vec<Line>, Option<LiveCursor>) {
-        if let Some(screen) = self.onboarding.as_mut() {
-            let kb = self.editor.keybindings();
-            return (screen.render(&self.theme, width, height, kb), None);
-        }
         let (dock, editor_focused) = self.compose_dock(width);
         let budget = height.saturating_sub(dock.len());
         // Bottom-up: the toasts, the worker pane's strip (the inline

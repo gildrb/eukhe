@@ -210,9 +210,9 @@ struct PanelMcpLoginUi {
 
 impl McpLoginUi for PanelMcpLoginUi {
     fn on_progress(&self, message: &str) {
-        // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter --
-        // a direct `dialog.showProgress` line: renders on every surface.
-        self.panel.progress_line(message);
+        // TS `showLoginDialog`'s `onProgress` arm: a `dialog.showProgress`
+        // line.
+        self.panel.progress(message);
     }
 
     fn on_auth(&self, url: &str, instructions: &str) {

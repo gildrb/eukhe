@@ -225,7 +225,6 @@ fn options(
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
-        onboarding: None,
         client_auth: None,
         provider_auth: None,
         keybindings,

@@ -9,11 +9,10 @@ use super::open_failure::finish_failed_open;
 use super::reconnect::{close_expired_recovery, retry_session_attach};
 use super::render::{hand_terminal_to_requests, next_spinner_deadline, SPINNER_INTERVAL_MS};
 use super::{
-    apply_startup_chrome, arm_shutdown_recovery, check_tmux_keyboard_setup, mpsc,
-    run_onboarding_phase, AgentView, DaemonClient, Duration, ExitGuard, HeadlessSettle, Instant,
-    InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect, ReconnectLoop,
-    RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi, SurfaceExit,
-    UiInput, UiMode, VecDeque,
+    apply_startup_chrome, arm_shutdown_recovery, check_tmux_keyboard_setup, mpsc, AgentView,
+    DaemonClient, Duration, ExitGuard, HeadlessSettle, Instant, InteractiveOptions,
+    InteractiveOutcome, ReconnectConnect, ReconnectLoop, RecoveryKind, Renderer, Result,
+    SessionReconnect, SessionSelection, SessionUi, SurfaceExit, UiInput, UiMode, VecDeque,
 };
 use anyhow::Context;
 
@@ -394,15 +393,6 @@ async fn run_interactive_surface(
     let mut last_render_at: Option<Instant> = None;
     let mut render_deadline: Option<Instant> = None;
     let mut opening_dirty = false;
-    // A first-run onboarding task owns the pane BEFORE the chat surface:
-    // the phase below consumes `ui_rx` itself once the open lands (it
-    // needs the session, so it cannot run during the opening phase). The
-    // opening loop must therefore not touch the channel on an onboarding
-    // launch -- the login/trace dialogs' keystrokes stay queued in the
-    // channel for the phase to consume in order, exactly the base
-    // ordering for this flow (the editor-level echo service below is the
-    // chat chrome's surface, the pane a New chat's open actually mounts).
-    let opening_serves_input = options.onboarding.is_none();
     let open_outcome = loop {
         tokio::select! {
             // The open completing is the phase's exit; the failure arms
@@ -421,7 +411,7 @@ async fn run_interactive_surface(
                 } else {
                     ui_rx.recv().await
                 }
-            }, if opening_serves_input => {
+            } => {
                 match maybe_input {
                     None => {
                         // The reader side is gone: park the arm instead of
@@ -628,9 +618,7 @@ async fn run_interactive_surface(
     // switch) returns to the editor when its chat reopens.
     session.restore_prompt_stash_on_open(&mut view);
     // Whether the headless plan completed (the plan's final
-    // `HeadlessDone`; the run loop's idle gate ends the run on it):
-    // declared above the onboarding phase because the pane's drive marks
-    // it when the plan completes while the pane owns the input channel.
+    // `HeadlessDone`; the run loop's idle gate ends the run on it).
     let mut headless_done = false;
     // The settle bound's deadline, armed once the plan completes (the
     // gate below ends the run on a full settle; the bound ends it with a
@@ -641,49 +629,6 @@ async fn run_interactive_surface(
     // tick's wake condition reads it (the gate re-checks each
     // wake -- see the gate below).
     let mut headless_settle_pending = false;
-    // First-run onboarding owns the pane before the session screen (TS
-    // `runStartupOnboarding`): a home whose startup model is ready sees
-    // the trace question alone, and a not-ready home runs the full
-    // sign-in flow. The trace question is the opt-in moment for a fresh
-    // home; a home that already carries a standing choice completes
-    // silently, and the phase's own marker gate keeps it one-shot across
-    // the agents-view loop's sessions.
-    if let Some(task) = options.onboarding.clone() {
-        let mut drive = PaneDrive {
-            ui_rx: &mut ui_rx,
-            renderer: &mut renderer,
-            exit_guard: &exit_guard,
-            keybindings: view.editor.keybindings().clone(),
-            auth_panel_rx: &mut auth_panel_rx,
-            headless_done: &mut headless_done,
-        };
-        let exit_requested =
-            run_onboarding_phase(&task, &mut session, &mut view, &mut drive).await?;
-        if exit_requested {
-            // The exit deadline is armed from the moment the run decides to
-            // leave: no cleanup below may block past it.
-            exit_guard.arm_for_exit();
-            session.detach_for_exit().await;
-            // The user quit at the onboarding screen: still hand the
-            // terminal back (live area left as output, raw mode off)
-            // exactly like a session exit.
-            renderer.finish(SurfaceExit::Process, &view);
-            return Ok(InteractiveOutcome {
-                active_session_id: session.active_session_id.clone(),
-                session_id: session.session_id.clone(),
-                resume_hint: None,
-                last_assistant_text: None,
-                frames: Vec::new(),
-                clipboard_emissions: Vec::new(),
-                agents_view_scope: None,
-                // Onboarding exit leaves no session open; no return-to-view
-                // or pending selection applies.
-                return_to_agents_view: false,
-                selection_request: None,
-                agents_view_notice: None,
-            });
-        }
-    }
     if let Some(initial) = &options.initial_message {
         session
             .submit_prompt(initial, crate::session_ui::SubmitBehavior::Steer, &mut view)

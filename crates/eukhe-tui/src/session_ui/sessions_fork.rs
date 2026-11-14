@@ -362,7 +362,6 @@ impl SessionUi {
             tree_filter_mode: self.tree_filter_mode.wire_name().to_string(),
             branch_summary_skip_prompt: self.branch_summary_skip_prompt,
             version: String::new(),
-            onboarding: None,
             client_auth: self.client_auth.clone(),
             provider_auth: self.provider_auth.clone(),
             keybindings: self.keybindings.clone(),

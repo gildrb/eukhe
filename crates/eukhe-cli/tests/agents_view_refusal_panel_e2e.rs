@@ -141,7 +141,6 @@ async fn the_refused_open_renders_both_ways_out_as_the_notice_panel() {
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
-        onboarding: None,
         client_auth: None,
         provider_auth: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),

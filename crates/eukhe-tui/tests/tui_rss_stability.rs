@@ -387,7 +387,6 @@ fn interactive_session_rss_plateaus_over_long_stream() {
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
-        onboarding: None,
         client_auth: None,
         provider_auth: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),

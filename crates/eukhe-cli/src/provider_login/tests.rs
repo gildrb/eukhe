@@ -98,7 +98,6 @@ fn the_status_indicator_maps_the_ts_labels() {
 fn the_display_names_match_the_ts_map() {
     assert_eq!(display_name("openai"), "OpenAI");
     assert_eq!(display_name("google"), "Google Gemini");
-    assert_eq!(display_name("prime-inference"), "Prime Inference");
     assert_eq!(display_name("a-custom-provider"), "a-custom-provider");
 }
 
@@ -125,7 +124,6 @@ async fn login_options_list_providers_only() {
     let dir = tempfile::tempdir().expect("temp dir");
     let agent = dir.path().join("agent");
     std::fs::create_dir_all(&agent).expect("agent dir");
-    std::env::remove_var("PRIME_API_KEY");
     let auth = ProviderAuth::new(dir.path(), agent.clone());
     let rows = auth.login_options().await;
     // The TS OAuth registry rows render; every subscription flow is
@@ -145,13 +143,6 @@ async fn login_options_list_providers_only() {
     // the MCP OAuth integration rows never appear; the /mcp view owns
     // MCP logins.
     assert!(!rows.iter().any(|row| row.id.starts_with("mcp:")));
-    // Prime Inference sorts first among the api-key rows (TS rule).
-    assert!(
-        rows.iter()
-            .position(|row| row.id == PRIME_INFERENCE_PROVIDER_ID)
-            < rows.iter().position(|row| row.id == "anthropic"),
-        "prime-inference sorts before the other api-key rows"
-    );
 }
 
 /// Port of the TS #2645 warning detection: the ban-risk warning is

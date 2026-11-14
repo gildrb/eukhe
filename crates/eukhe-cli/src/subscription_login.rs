@@ -252,14 +252,13 @@ impl AuthInteraction for PanelAuthInteraction {
             } => {
                 self.show_url(&verification_uri, Some(&format!("Enter code: {user_code}")));
                 if self.provider_id == GITHUB_COPILOT_PROVIDER_ID {
-                    // TS `showWaiting` (the dialog's own method, no
-                    // onboarding guard).
+                    // TS `showWaiting`.
                     self.surface.panel.waiting(COPILOT_WAITING);
                 }
             }
-            // TS `showLoginDialog`'s `onProgress` arm is unguarded chatter:
-            // a direct `dialog.showProgress` line on every surface.
-            AuthEvent::Progress { message } => self.surface.panel.progress_line(message),
+            // TS `showLoginDialog`'s `onProgress` arm: a `dialog.showProgress`
+            // line.
+            AuthEvent::Progress { message } => self.surface.panel.progress(message),
             // Guidance and a failed exchange's retry reason stay readable
             // under the re-mounted paste field.
             AuthEvent::Info { message, .. } => self.surface.panel.notice(message),

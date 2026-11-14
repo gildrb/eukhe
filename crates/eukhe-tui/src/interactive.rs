@@ -25,16 +25,6 @@ use crate::view::AgentView;
 use eukhe_client::daemon_client::DaemonClient;
 use eukhe_client::daemon_client::DaemonClientEvent;
 
-// The first-run onboarding concern (the sink and readiness seams, the flow
-// task, the pane drive, and the phase that runs before the session screen)
-// moved to the child module at the same tree position
-// (interactive::onboarding); the facade re-exports keep the composition
-// root's paths stable, and the phase binding keeps the run loop's bare
-// call in scope.
-mod onboarding;
-
-use onboarding::{run_onboarding_phase, PaneDrive};
-
 // The headless source (the scripted plan's vocabulary and the exit gate's
 // settle) moved to the child module at the same tree position
 // (interactive::headless); the facade re-exports keep the verifier seam's
@@ -47,11 +37,10 @@ use headless::HeadlessSettle;
 // The render sink concern (the inline-terminal/headless renderer, the
 // startup chrome seeding, the tmux keyboard check, the suspend-cycle
 // terminal handoff) lives in interactive::render; the facade bindings keep
-// the run loop's and the onboarding pane's bare paths in scope.
+// the run loop's bare paths in scope.
 mod render;
 
 pub use headless::{HeadlessPlan, HeadlessStep, UiMode};
-pub use onboarding::{ModelReadiness, OnboardingSink, OnboardingTask};
 use render::{apply_startup_chrome, check_tmux_keyboard_setup, Renderer, SurfaceExit};
 
 // The reconnect machinery (the unexpected-loss hiccup loop and the
@@ -184,8 +173,6 @@ pub struct InteractiveOptions {
     pub branch_summary_skip_prompt: bool,
     /// Product version for the brand splash.
     pub version: String,
-    /// Run the first-run onboarding flow before the session screen.
-    pub onboarding: Option<OnboardingTask>,
     /// `/mcp login` / `/mcp logout`: the client-side auth flows the
     /// composition root provides (they drive the inline auth panel).
     /// `None` reports the commands as unavailable.
@@ -257,7 +244,6 @@ impl std::fmt::Debug for InteractiveOptions {
             .field("screen_mode", &self.screen_mode)
             .field("code_block_indent", &self.code_block_indent)
             .field("version", &self.version)
-            .field("onboarding", &self.onboarding)
             .field("client_auth", &self.client_auth)
             .field("keybindings", &self.keybindings.get_effective_config())
             .finish()

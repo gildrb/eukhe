@@ -473,11 +473,12 @@ impl Renderer {
         }
     }
 
-    /// Capture one frame as plain text (headless assertions). Inline:
-    /// every history row composed so far, then the live area.
+    /// Capture one session frame as plain text (headless assertions).
+    /// Inline: every history row composed so far, then the live area.
     /// Fullscreen: the screen-sized frame. A frame that has not changed
     /// does not add a duplicate.
-    pub(super) fn render_headless_pane(&mut self, view: &mut AgentView) {
+    pub(super) fn render_headless(&mut self, session: &mut SessionUi, view: &mut AgentView) {
+        session.dirty = false;
         let Renderer::Headless {
             width,
             height,
@@ -520,12 +521,6 @@ impl Renderer {
             Renderer::Headless { frames, .. } => Some(frames),
             Renderer::Terminal { .. } => None,
         }
-    }
-
-    /// Capture one session frame as plain text (headless assertions).
-    pub(super) fn render_headless(&mut self, session: &mut SessionUi, view: &mut AgentView) {
-        self.render_headless_pane(view);
-        session.dirty = false;
     }
 
     /// Teardown. A `handoff` exit (agents-back, `/resume`) clears the live

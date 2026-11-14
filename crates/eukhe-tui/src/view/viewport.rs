@@ -269,17 +269,6 @@ impl AgentView {
             settled += 1;
         }
         self.viewport.settled.resize_with(settled + 1, || None);
-        if let Some(screen) = self.onboarding.as_mut() {
-            let kb = self.editor.keybindings();
-            let mut live = screen.render(&self.theme, width, height, kb);
-            crate::screen_mode::fill_height(&mut live, height);
-            return ChatFrame {
-                start,
-                history: Vec::new(),
-                live,
-                cursor: None,
-            };
-        }
         let (mut dock, editor_focused) = self.compose_dock(width);
         let clipped = dock.len().saturating_sub(height);
         dock.drain(..clipped);
