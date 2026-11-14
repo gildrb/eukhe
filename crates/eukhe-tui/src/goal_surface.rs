@@ -382,7 +382,7 @@ mod tests {
         assert!(!view.apply_update(paused));
         // Completion announces.
         let mut complete = goal(GoalStatus::Complete);
-        complete.last_reason = Some("Goal achieved".to_string());
+        complete.last_reason = Some("completed by its owner".to_string());
         assert!(view.apply_update(complete));
         // Error re-announces only on a new error.
         let mut error = goal(GoalStatus::Error);
@@ -402,10 +402,10 @@ mod tests {
     #[test]
     fn status_text_matches_ts_shapes() {
         let mut complete = goal(GoalStatus::Complete);
-        complete.last_reason = Some("Goal achieved".to_string());
+        complete.last_reason = Some("completed by its owner".to_string());
         assert_eq!(
             format_goal_status(&complete, 120),
-            "Goal complete: Goal achieved"
+            "Goal complete: completed by its owner"
         );
         let paused = goal(GoalStatus::Paused);
         assert_eq!(

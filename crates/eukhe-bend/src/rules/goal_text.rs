@@ -176,7 +176,7 @@ mod tests {
             Some(HostAnswer {
                 remaining_tokens: Some(0),
                 completion_budget_report: Some(
-                    "Goal achieved. Report final budget usage to the user: tokens used: 250 of 100; time used: 7 seconds."
+                    "Goal complete. Report final budget usage to the user: tokens used: 250 of 100; time used: 7 seconds."
                         .to_string()
                 ),
             })

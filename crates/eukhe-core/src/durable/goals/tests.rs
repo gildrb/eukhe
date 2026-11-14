@@ -415,7 +415,7 @@ async fn a_goal_continues_with_its_context_until_completed() {
     assert_eq!(goal.continuations_used, 2);
     assert_eq!(
         goal.last_reason.as_deref(),
-        Some("Goal achieved (unverified: no acceptance checks)")
+        Some("unverified (no acceptance checks)")
     );
     // The goal counts its own tokens (input and output of its responses);
     // its token budget puts nothing on the session's budget.

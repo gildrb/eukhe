@@ -709,7 +709,7 @@ async fn no_checks_is_unverified_and_a_goal_completed_without_them_says_so() {
         (goal.status, goal.last_reason.as_deref()),
         (
             GoalStatus::Complete,
-            Some("Goal achieved (unverified: no acceptance checks)")
+            Some("unverified (no acceptance checks)")
         )
     );
     assert!(setup.runner.commands().is_empty());

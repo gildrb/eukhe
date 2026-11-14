@@ -260,7 +260,7 @@ def report.of(ps: List<&2, String>) -> Maybe<&2, String>:
     case Nil{}:
       None{}
     case p <> rest:
-      Some{String.concat(["Goal achieved. Report final budget usage to the user: ", String.join(p <> rest, "; "), "."])}
+      Some{String.concat(["Goal complete. Report final budget usage to the user: ", String.join(p <> rest, "; "), "."])}
 
 # the completion budget report: the tokens of the budget and the seconds
 # used (when not 0); none when neither

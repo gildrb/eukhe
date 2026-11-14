@@ -1631,7 +1631,7 @@ fn goal_update_decodes_the_goal_payload() {
             "tokensUsed": 120,
             "timeUsedSeconds": 3,
             "continuationsUsed": 2,
-            "lastReason": "Goal achieved"
+            "lastReason": "completed by its owner"
         }
     })));
     let TurnUpdate::GoalUpdate(goal) = update else {
@@ -1639,7 +1639,7 @@ fn goal_update_decodes_the_goal_payload() {
     };
     assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Complete);
     assert_eq!(goal.objective.as_deref(), Some("ship it"));
-    assert_eq!(goal.last_reason.as_deref(), Some("Goal achieved"));
+    assert_eq!(goal.last_reason.as_deref(), Some("completed by its owner"));
 }
 
 /// A `loop_update` event decodes to the wire loop status (the session

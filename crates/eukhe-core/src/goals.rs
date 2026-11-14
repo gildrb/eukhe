@@ -391,7 +391,7 @@ mod tests {
         );
         assert_eq!(
             done_response.completion_budget_report.as_deref(),
-            Some("Goal achieved. Report final budget usage to the user: tokens used: 900 of 1000; time used: 120 seconds.")
+            Some("Goal complete. Report final budget usage to the user: tokens used: 900 of 1000; time used: 120 seconds.")
         );
         // Idle state yields an empty response.
         let empty = goal_host_response(&empty_goal_state(), tokens(), true);

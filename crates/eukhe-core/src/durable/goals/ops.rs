@@ -468,7 +468,7 @@ pub async fn complete_goal(
 ) -> SessionResult<Option<GoalState>> {
     let (goal, _) = update_goal(
         conversation,
-        |current, _| Ok(completed(current, "Goal achieved").map(|goal| (goal, None))),
+        |current, _| Ok(completed(current, "completed by its owner").map(|goal| (goal, None))),
         cx,
     )
     .await?;
