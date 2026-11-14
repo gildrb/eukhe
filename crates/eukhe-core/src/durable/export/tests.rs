@@ -192,3 +192,51 @@ fn engine_inputs_export_as_hidden_custom_messages() {
     .expect("draft");
     assert!(draft.model.is_some(), "the model reads the imported row");
 }
+
+/// `/autoresearch <goal>`: the user's message is the goal alone; the
+/// mode's instructions are a system prompt section (a `pi.system` entry),
+/// which the export, like every transcript, leaves out.
+#[test]
+fn autoresearch_instructions_stay_out_of_the_export() {
+    let entries: Vec<EntryRecord> = [
+        json!({
+            "kind": "pi.user", "id": 1, "conversationId": 1,
+            "model": [{ "role": "user", "content": [{ "type": "text", "text": "Make fib.py faster" }], "timestamp": 1 }],
+        }),
+        json!({
+            "kind": "pi.system", "id": 2, "conversationId": 1,
+            "model": [{
+                "role": "system", "content": "", "timestamp": 2,
+                "sections": { "autoresearch": "<autoresearch>\nAutoresearch mode is on and this branch has no experiment yet.\n</autoresearch>" },
+            }],
+        }),
+        json!({
+            "kind": "pi.assistant", "id": 3, "conversationId": 1,
+            "model": [{
+                "role": "assistant", "content": [{ "type": "text", "text": "Building the harness." }],
+                "api": "faux", "provider": "faux", "model": "m",
+                "usage": {
+                    "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
+                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+                },
+                "stopReason": "stop", "timestamp": 3,
+            }],
+        }),
+    ]
+    .into_iter()
+    .map(|entry| serde_json::from_value(entry).expect("entry"))
+    .collect();
+    let rows = export_rows(&entries).expect("export");
+    let entries = Value::Array(rows.entries);
+    assert_eq!(
+        message_texts(&entries),
+        [
+            ("user".to_owned(), "Make fib.py faster".to_owned()),
+            ("assistant".to_owned(), "Building the harness.".to_owned()),
+        ]
+    );
+    assert!(
+        !entries.to_string().contains("Autoresearch mode is on"),
+        "{entries}"
+    );
+}

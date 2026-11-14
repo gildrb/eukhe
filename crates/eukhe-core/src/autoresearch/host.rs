@@ -22,7 +22,9 @@ use super::ops::{InitArgs, LogArgs, Reply};
 use super::runner::RunGate;
 use super::Autoresearch;
 use crate::autonomous::AgentAutonomousConfig;
-use crate::durable::goals::{autonomous_state, set_autonomous, AutonomousChange};
+use crate::durable::goals::{
+    autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState,
+};
 use crate::durable::rlm::session_env;
 use crate::durable::shell::{auto_set, SinkApprover};
 use crate::durable::{HostCall, HostDeps};
@@ -169,16 +171,22 @@ pub(crate) async fn follow_mode(
     let cx = BACKGROUND_CONTEXT.clone();
     let harness = deps.harness.require()?;
     let current = autonomous_state(&harness, conversation, &cx).await?;
-    let ours = current.enabled && current.continuation_prompt == CONTINUATION;
+    let running = ours(&current);
     let change = match reply.mode {
         Mode::On if reply.started && !current.enabled => Some(AutonomousChange::On(continuation())),
-        Mode::Off if ours => Some(AutonomousChange::Off),
+        Mode::Off if running => Some(AutonomousChange::Off),
         Mode::On | Mode::Off => None,
     };
     if let Some(change) = change {
         set_autonomous(&harness, &deps.budget, conversation, change, &cx).await?;
     }
     Ok(())
+}
+
+/// Whether `state` is the loop's autonomous run (on, with
+/// [`CONTINUATION`]) and not a user's own.
+pub(crate) fn ours(state: &AutonomousDocState) -> bool {
+    state.enabled && state.continuation_prompt == CONTINUATION
 }
 
 /// The largest integer exact JSON holds (`Number.MAX_SAFE_INTEGER`): the

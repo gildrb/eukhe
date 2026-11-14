@@ -153,6 +153,29 @@ fn parse_events(stdout: &str) -> Vec<Value> {
         .collect()
 }
 
+/// `value` with every assistant message removed, also those nested in
+/// `turn_end` and `agent_end`: what a client shows besides the model's own
+/// replies.
+fn without_assistant_messages(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .filter(|item| item["role"] != "assistant")
+                .map(without_assistant_messages)
+                .collect(),
+        ),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .filter(|(_, field)| field["role"] != "assistant")
+                .map(|(key, field)| (key.clone(), without_assistant_messages(field)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// The verifier-driven session completing: the first turn fails the fixture
 /// verifier, the gate-failure continuation drives a second turn IN-RUN (the
 /// TS shape: no run boundary between continuation turns), the second
@@ -458,4 +481,107 @@ fn plain_print_run_ignores_no_autonomous_flags() {
         "entries: {:?}",
         transcript.entries
     );
+}
+
+/// `/autoresearch <goal>` in json mode on a clean git checkout: the goal
+/// alone is the user's message, in the event stream and in the record; the
+/// mode's setup instructions reach the model in the system prompt (the
+/// scripted model echoes its system prompt, at the start and again at the
+/// loop's continuation), recorded once as the `autoresearch` section of a
+/// `pi.system` entry, and no message a client shows carries them.
+#[test]
+fn autoresearch_sends_the_goal_alone_and_its_instructions_in_the_system_prompt() {
+    let home = isolated_home();
+    let repo = home.path();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(repo)
+            .env("HOME", repo)
+            .output()
+            .expect("git runs");
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    // The session's own files under HOME stay out of the tree.
+    std::fs::write(repo.join(".gitignore"), "/.*\n").unwrap();
+    std::fs::write(repo.join("fib.py"), "def fib(n):\n    return n\n").unwrap();
+    git(&["add", "-A", "-f"]);
+    git(&["commit", "-q", "-m", "fib"]);
+    let goal = "Make fib.py faster";
+    let script = json!({ "responses": [{ "systemPrompt": true }, { "systemPrompt": true }] });
+    let (stdout, stderr, _code) = run(
+        repo,
+        &["--mode", "json", "-p", &format!("/autoresearch {goal}")],
+        &script,
+    );
+    let events = parse_events(&stdout);
+    let setup = "Autoresearch mode is on and this branch has no experiment yet.";
+
+    // The model read the instructions in its system prompt, on the branch,
+    // at the first request and at the loop's continuation.
+    let echoes: Vec<String> = events
+        .iter()
+        .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant")
+        .map(|event| text_of(&event["message"]))
+        .filter(|text| text.contains("<autoresearch>"))
+        .collect();
+    assert_eq!(echoes.len(), 2, "stderr: {stderr}\nevents: {events:?}");
+    for echo in &echoes {
+        assert!(echo.contains(setup), "{echo}");
+        assert!(echo.contains("Branch: `autoresearch/"), "{echo}");
+        assert!(echo.contains("bash autoresearch.sh"), "{echo}");
+    }
+
+    // The event stream: the goal is the only user message, and nothing a
+    // client shows (user rows, custom rows) carries the instructions.
+    let user_texts: Vec<String> = events
+        .iter()
+        .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
+        .map(|event| text_of(&event["message"]))
+        .collect();
+    assert_eq!(user_texts, [goal], "events: {events:?}");
+    // The scripted model's echoes are assistant messages; nothing else may
+    // carry the instructions.
+    for event in &events {
+        let shown = without_assistant_messages(event);
+        assert!(
+            !shown.to_string().contains(setup),
+            "the instructions reached a shown event: {shown}"
+        );
+    }
+
+    // The record: the person's input is the goal; the section is one
+    // `pi.system` entry, the very text the model read.
+    let files = session_files(repo);
+    let transcript = read_transcript(&files[0]);
+    let user_inputs: Vec<String> = transcript
+        .of_kind("pi.user")
+        .into_iter()
+        .filter(|entry| entry["data"]["origin"]["kind"] != "autonomous")
+        .filter_map(|entry| entry["model"].get(0).map(text_of))
+        .collect();
+    assert_eq!(user_inputs, [goal], "entries: {:?}", transcript.entries);
+    let sections: Vec<&str> = transcript
+        .of_kind("pi.system")
+        .into_iter()
+        .filter_map(|entry| entry["model"][0]["sections"]["autoresearch"].as_str())
+        .collect();
+    assert_eq!(sections.len(), 1, "entries: {:?}", transcript.entries);
+    assert!(
+        sections[0].starts_with("<autoresearch>\n"),
+        "{}",
+        sections[0]
+    );
+    for echo in &echoes {
+        assert!(echo.contains(sections[0]), "{echo}");
+    }
 }

@@ -1,7 +1,8 @@
 //! `/autoresearch <goal> | off | status | clear` (port of the omp
 //! command): `<goal>` puts the workspace on an `autoresearch/*` branch,
-//! turns the Lab's mode on, starts the loop's continuation and asks the
-//! model to set up the harness (a new session) or resume (an open one);
+//! turns the Lab's mode on, starts the loop's continuation and sends the
+//! goal alone as the user's message (the mode's instructions are the
+//! system prompt's `autoresearch` section: [`super::prompt`]);
 //! `off` turns the mode and the loop off; `status` (or no argument)
 //! reports; `clear` turns everything off and moves the branch's store
 //! aside.
@@ -67,35 +68,18 @@ pub(crate) async fn execute(
             ))
         }
         goal => {
-            let begun = lab.begin(goal).await.map_err(failed)?;
+            let branch = lab.begin(goal).await.map_err(failed)?.line();
             let reply = Reply {
                 value: Value::Null,
                 mode: Mode::On,
                 started: true,
             };
             follow_mode(deps, id, &reply).await.map_err(failed)?;
-            let branch = begun.branch.line();
-            let text = if begun.configured {
-                format!(
-                    "Resume autoresearch on the open session.\n\n{branch}\n\nAdditional context from \
-the user:\n\n{goal}\n\n- Call `await autoresearch.state()`: it is the source of truth for the goal, \
-scope and run history.\n- Inspect recent git history for context.\n- Continue the most promising \
-unfinished direction.\n- Keep iterating until the user stops you or the iteration cap is reached."
-                )
-            } else {
-                format!(
-                    "Autoresearch mode is on. Goal: {goal}\n\n{branch}\n\nFollow the autoresearch \
-skill. First build the benchmark harness: write `autoresearch.sh` in the repository root (exit 0 on \
-success, a deterministic workload, one `METRIC <name>=<value>` line for the primary metric), \
-validate it with `bash autoresearch.sh`, then call `await autoresearch.init(...)` and run the \
-baseline."
-                )
-            };
             conversation
                 .submit(
                     InputSubmissionDraft {
                         request_id: None,
-                        content: UserContent::Text(text),
+                        content: UserContent::Text(goal.to_owned()),
                         when_busy: Some(WhenBusy::FollowUp),
                         origin: InputOrigin::User,
                         entry: None,

@@ -152,6 +152,36 @@ fn hidden_kinds_map_to_nothing() {
     }
 }
 
+/// `/autoresearch <goal>`: the user's message is the goal alone and the
+/// mode's instructions are a system prompt section (a `pi.system` entry the
+/// model reads): the transcript every client shows (live, attach, resume,
+/// `get_messages`) holds the goal and the answer, never the instructions.
+#[test]
+fn autoresearch_instructions_are_a_section_no_transcript_shows() {
+    let goal = json!({ "role": "user", "content": "Make fib.py faster", "timestamp": 1 });
+    let system = json!({
+        "role": "system", "content": "", "timestamp": 2,
+        "sections": {
+            "autoresearch": "<autoresearch>\nAutoresearch mode is on and this branch has no experiment yet.\n</autoresearch>",
+        },
+    });
+    let entries = [
+        record("pi.user", Some(goal.clone()), None),
+        record("pi.system", Some(system), None),
+        record("pi.assistant", Some(assistant(9, "stop")), None),
+    ];
+    let messages = transcript_messages(&entries);
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert_eq!(messages[0], goal);
+    assert_eq!(messages[1]["role"], "assistant");
+    assert!(
+        !Value::Array(messages)
+            .to_string()
+            .contains("Autoresearch mode is on"),
+        "the instructions reached a transcript"
+    );
+}
+
 #[test]
 fn compaction_summaries_show_the_bare_summary() {
     let entry = compaction("SUMMARY");
