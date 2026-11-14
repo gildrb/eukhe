@@ -221,6 +221,9 @@ pub(crate) struct SendRequest<'a> {
     pub(crate) custom_headers: Option<&'a IndexMap<String, String>>,
     pub(crate) on_response: Option<&'a OnResponse<Model>>,
     pub(crate) signal: Option<&'a AbortSignal>,
+    /// Retries after the first attempt (the request's `max_retries`);
+    /// `None`: the SDK's default, [`MAX_ATTEMPTS`] attempts in all.
+    pub(crate) max_retries: Option<u32>,
 }
 
 /// TS `isReservedHeader`: `host`, `authorization`, and `x-amz-*` participate
@@ -880,13 +883,16 @@ pub(crate) async fn send(request: SendRequest<'_>) -> Result<ConverseStream, Bed
     );
 
     let mut clock = ClockSkew::default();
+    let max_attempts = request
+        .max_retries
+        .map_or(MAX_ATTEMPTS, |retries| retries.saturating_add(1));
     let mut attempts: u32 = 0;
     loop {
         let mut headers = base_headers.clone();
         set_header(
             &mut headers,
             "amz-sdk-request",
-            format!("attempt={}; max={MAX_ATTEMPTS}", attempts + 1),
+            format!("attempt={}; max={max_attempts}", attempts + 1),
         );
         let outcome = attempt(
             &request,
@@ -908,7 +914,7 @@ pub(crate) async fn send(request: SendRequest<'_>) -> Result<ConverseStream, Bed
             error_type,
             RetryErrorType::Throttling | RetryErrorType::Transient
         );
-        if !retryable || attempts + 1 >= MAX_ATTEMPTS {
+        if !retryable || attempts + 1 >= max_attempts {
             return Err(BedrockFailure::Sdk(error));
         }
         let delay = Duration::from_millis(retry_delay_ms(&error, error_type, attempts));

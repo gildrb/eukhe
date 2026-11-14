@@ -548,6 +548,7 @@ impl StreamRun<'_> {
             custom_headers: custom_headers.as_ref(),
             on_response: self.options.stream.request.on_response.as_ref(),
             signal: self.options.stream.request.signal.as_ref(),
+            max_retries: self.options.stream.request.max_retries,
         })
         .await?;
         self.response_request_id = normalize_diagnostic_value(response.request_id.as_deref());
