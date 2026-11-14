@@ -11,11 +11,11 @@ import ../../spec/verified/verify.bend as S
 import ../../laws/verify.bend as Verify
 import ./base/act.bend as LA
 
-def Verify.verify_advance_keeps_verdicts(now, cap, a, j):
+def Verify.verify_advance_keeps_verdicts(conf, now, cap, a, j):
   match a:
     case V.Acc{rev, +slots, claimed, tries}:
       match claimed:
         case True{}:
-          LA.va.go_keeps(V.due(now, slots, 0n), now, cap, rev, slots, tries, j)
+          LA.va.go_keeps(conf, V.due(now, slots, 0n), now, cap, rev, slots, tries, j)
         case False{}:
           (LA.va.undo_refl(S.nth(j, slots)), {==})

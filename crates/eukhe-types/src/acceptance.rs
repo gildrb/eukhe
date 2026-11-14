@@ -31,7 +31,7 @@ pub enum CheckSpec {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         protect: Vec<String>,
     },
-    /// A condition an independent judge decides from evidence the harness
+    /// A condition a judge (a separate model request) decides from evidence the harness
     /// gathers: the output of the other checks of the round and of the
     /// `evidence` commands (the workspace diff when there is neither).
     Judge {
@@ -117,13 +117,19 @@ impl CheckVerdict {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AcceptanceLabel {
-    /// There is a check and every check is confirmed on the final state.
+    /// There is a check, every check is confirmed on the final state and
+    /// the run's programs ran confined. No confinement exists yet, so no
+    /// result carries it.
     Verified,
     /// A check is refuted on the final state.
     Failed,
     /// Neither: no checks, or a check that did not judge the final state,
     /// is broken or unjudged.
     Unverified,
+    /// There is a check and every check is confirmed on the final state,
+    /// while the run's programs ran unconfined: they could reach what the
+    /// checks read.
+    ChecksPassedUnconfined,
 }
 
 impl AcceptanceLabel {
@@ -134,7 +140,26 @@ impl AcceptanceLabel {
             Self::Verified => "verified",
             Self::Failed => "failed",
             Self::Unverified => "unverified",
+            Self::ChecksPassedUnconfined => "checks_passed_unconfined",
         }
+    }
+
+    /// The label as surfaces show it.
+    #[must_use]
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Failed => "failed",
+            Self::Unverified => "unverified",
+            Self::ChecksPassedUnconfined => "checks passed, unconfined",
+        }
+    }
+
+    /// Every check is confirmed on the final state: verified or checks
+    /// passed, unconfined.
+    #[must_use]
+    pub fn passed(self) -> bool {
+        matches!(self, Self::Verified | Self::ChecksPassedUnconfined)
     }
 }
 

@@ -16,7 +16,10 @@
 # verdict of a piece of evidence (grade_command, grade_until, grade_judge),
 # who may change what (act), whether a final answer is a claim (claims),
 # what the verifier does next (advance), the label of the result (label)
-# and the exit code of a headless run (exit).
+# and the exit code of a headless run (exit). Whether programs run
+# confined (confined) decides between the two labels of a result whose
+# every check is confirmed: no confinement exists yet, so no result is
+# labelled verified.
 # Entry: bend/ffi_verify.bend. Laws: laws/verify.bend. Spec:
 # spec/verified/verify.bend. Pure: no IO, no @unsafe.
 
@@ -83,11 +86,14 @@ type Op is Data:
 type Acc is Data:
   Acc{rev: Nat, slots: List<&2, Slot>, claimed: Bool, tries: Nat}
 
-# the label of a result
+# the label of a result: verified (every check confirmed, programs run
+# confined), failed, unverified, or passed (every check confirmed,
+# programs run unconfined: "checks passed, unconfined")
 type Label is Data:
   Verified{}
   Failed{}
   Unverified{}
+  Passed{}
 
 # what the verifier does next: nothing (no claim waits), run the check at
 # `index`, give the evidence back to the worker, end the claim with a label
@@ -235,22 +241,37 @@ def some(slots: List<&2, Slot>) -> Bool:
     case Con{s, t}:
       True{}
 
-def label.of(bad: Bool, good: Bool) -> Label:
+# whether the programs a run starts (its tools, its checks) run confined:
+# no confinement mechanism exists (spec/security C9), so they never do
+def confined() -> Bool:
+  False{}
+
+# the label of a result whose every check is confirmed: verified only
+# when programs run confined
+def label.good(conf: Bool) -> Label:
+  match conf:
+    case True{}:
+      Verified{}
+    case False{}:
+      Passed{}
+
+def label.of(conf: Bool, bad: Bool, good: Bool) -> Label:
   match bad:
     case True{}:
       Failed{}
     case False{}:
       match good:
         case True{}:
-          Verified{}
+          label.good(conf)
         case False{}:
           Unverified{}
 
-# the label of the result on the state `now`: failed when a check is
-# refuted on it; verified when there is a check and every check is
-# confirmed on it; else unverified
-def label(+now: Nat, +slots: List<&2, Slot>) -> Label:
-  label.of(refuted(now, slots), Bool.and(some(slots), holds(now, slots)))
+# the label of the result on the state `now`, programs run confined when
+# `conf`: failed when a check is refuted on it; when there is a check and
+# every check is confirmed on it, verified when `conf` and passed (checks
+# passed, unconfined) when not; else unverified
+def label(+conf: Bool, +now: Nat, +slots: List<&2, Slot>) -> Label:
+  label.of(conf, refuted(now, slots), Bool.and(some(slots), holds(now, slots)))
 
 def exit.code(ok: Bool, base: Nat) -> Nat:
   match ok:
@@ -460,12 +481,12 @@ def settle.open(any: Bool, room: Bool, now: Nat, rev: Nat, slots: List<&2, Slot>
       (End{Unverified{}}, Acc{rev, slots, False{}, 0n})
 
 # the end of a claim whose every check judged the final state `now`: a
-# verified claim ends verified; a refuted one, or one with a broken or
-# unjudged check, goes back to the worker while fewer than `cap` went back
-# in a row (one count for both), then ends failed or unverified; a claim
-# with no checks ends unverified at once. A return for a broken or
-# unjudged check opens those checks again; a return for a refuted one
-# keeps every slot. An end clears the tries.
+# verified claim ends verified, a passed one passed; a refuted one, or one
+# with a broken or unjudged check, goes back to the worker while fewer
+# than `cap` went back in a row (one count for both), then ends failed or
+# unverified; a claim with no checks ends unverified at once. A return for
+# a broken or unjudged check opens those checks again; a return for a
+# refuted one keeps every slot. An end clears the tries.
 def settle(l: Label, now: Nat, cap: Nat, rev: Nat, +slots: List<&2, Slot>, +tries: Nat) -> Action & Acc:
   match l:
     case Verified{}:
@@ -474,25 +495,27 @@ def settle(l: Label, now: Nat, cap: Nat, rev: Nat, +slots: List<&2, Slot>, +trie
       settle.failed(Nat.is_lt(tries, cap), rev, slots, tries)
     case Unverified{}:
       settle.open(some(slots), Nat.is_lt(tries, cap), now, rev, slots, tries)
+    case Passed{}:
+      (End{Passed{}}, Acc{rev, slots, False{}, 0n})
 
-def advance.go(d: Maybe<&2, Nat>, +now: Nat, cap: Nat, rev: Nat, +slots: List<&2, Slot>, tries: Nat) -> Action & Acc:
+def advance.go(conf: Bool, d: Maybe<&2, Nat>, +now: Nat, cap: Nat, rev: Nat, +slots: List<&2, Slot>, tries: Nat) -> Action & Acc:
   match d:
     case Some{i}:
       (Run{i}, Acc{rev, slots, True{}, tries})
     case None{}:
-      settle(label(now, slots), now, cap, rev, slots, tries)
+      settle(label(conf, now, slots), now, cap, rev, slots, tries)
 
-# one step of the verifier on the state `now`: without a claim it rests;
-# with one it runs the first check that did not judge `now`, and once
-# every check did, it settles the claim
-def advance(+now: Nat, cap: Nat, a: Acc) -> Action & Acc:
+# one step of the verifier on the state `now`, programs run confined when
+# `conf`: without a claim it rests; with one it runs the first check that
+# did not judge `now`, and once every check did, it settles the claim
+def advance(conf: Bool, +now: Nat, cap: Nat, a: Acc) -> Action & Acc:
   match a:
     case Acc{rev, +slots, claimed, tries}:
       match claimed:
         case False{}:
           (Rest{}, Acc{rev, slots, False{}, tries})
         case True{}:
-          advance.go(due(now, slots, 0n), now, cap, rev, slots, tries)
+          advance.go(conf, due(now, slots, 0n), now, cap, rev, slots, tries)
 
 # Whether a final answer is a claim
 # ---------------------------------

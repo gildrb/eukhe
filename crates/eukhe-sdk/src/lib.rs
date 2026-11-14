@@ -46,8 +46,10 @@
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
 //! - [`set_budget`] gives a session a [`budget`]: limits on money, tokens,
-//!   tool calls and model requests, and a wall-clock deadline, that
-//!   nothing the session or the agents beneath it spend can pass.
+//!   tool calls and model requests, and a wall-clock deadline, for the
+//!   session and the agents beneath it; each model request and tool call
+//!   reserves its worst case first, and a provider that reports more than
+//!   the reserve leaves an overrun.
 //!   [`add_budget`] adds to it (time moves the deadline; an exhausted
 //!   session works again), [`budget_report`] reads what is free, held,
 //!   spent and lent and the time left, [`watch_budget`] follows every
@@ -56,7 +58,8 @@
 //!   task as its owner (pass [`owner_checks`] of the explicit
 //!   [`CheckSpec`]s to add the intent check);
 //!   [`acceptance_state`] reads its [`AcceptanceState`] (its
-//!   [`AcceptanceLabel`]: verified, failed or unverified), and
+//!   [`AcceptanceLabel`]: checks passed (unconfined), failed or
+//!   unverified; verified is reserved for confined runs), and
 //!   [`watch_acceptance_updates`] streams every change. An
 //!   [`AcceptanceSeed`] is the checks a session starts with.
 //! - [`context`] holds the [`Context`](context::Context) every engine call

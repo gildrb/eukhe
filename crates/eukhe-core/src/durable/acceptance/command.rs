@@ -147,7 +147,7 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> String {
     }
     let mut lines = vec![format!(
         "Acceptance: {} (revision {}, returns {} of {}{}).",
-        state.label.slug(),
+        state.label.text(),
         state.revision,
         state.tries,
         state.max_returns,

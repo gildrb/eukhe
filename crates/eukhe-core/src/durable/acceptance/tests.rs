@@ -495,7 +495,7 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
     assert_eq!(
         timeless(got),
         AcceptanceState {
-            label: AcceptanceLabel::Verified,
+            label: AcceptanceLabel::ChecksPassedUnconfined,
             state: at,
             revision: 1,
             checks: vec![judged(
@@ -509,7 +509,7 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
             tries: 0,
             max_returns: 3,
             last_end: Some(AcceptanceEnd {
-                label: AcceptanceLabel::Verified,
+                label: AcceptanceLabel::ChecksPassedUnconfined,
                 at,
                 ended_at: 0,
             }),
@@ -522,9 +522,9 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
     assert_eq!(
         (rows[0].0.as_str(), rows[0].1, &rows[0].2["outcome"]),
         (
-            "Acceptance verified: 1 acceptance check confirmed.",
+            "Acceptance checks passed, unconfined: 1 acceptance check confirmed.",
             false,
-            &json!("verified")
+            &json!("checks_passed_unconfined")
         )
     );
     assert_eq!(setup.runner.commands(), vec!["cargo test".to_owned()]);
@@ -561,7 +561,7 @@ async fn a_refuted_claim_returns_its_evidence_then_ends_failed() {
     assert_eq!(texts.len(), 3, "{texts:?}");
     assert_eq!(
         texts[1],
-        "[acceptance: not verified] The harness checked your claim that the task is done: an acceptance check failed or could not judge the current state (return 1 of 2).\n\n1. command `cargo test` (expect exit 0): refuted: exited with code 1\n\n<evidence>\n2 tests failed\n</evidence>\n\nFix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. You cannot change or skip a check: all of them run again on the final state."
+        "[acceptance: not verified] The harness checked your claim that the task is done: an acceptance check failed or could not judge the current state (return 1 of 2).\n\n1. command `cargo test` (expect exit 0): refuted: exited with code 1\n\n<evidence>\n2 tests failed\n</evidence>\n\nFix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. Every check runs again on the final state; only the task's owner sets checks."
     );
     assert!(texts[2].contains("(return 2 of 2)"), "{}", texts[2]);
     assert_eq!(
@@ -653,7 +653,7 @@ async fn a_returned_claim_is_verified_once_the_fix_passes_on_the_new_state() {
     run(&harness, &root, "do it").await;
 
     let got = state(&harness, &root).await;
-    assert_eq!(got.label, AcceptanceLabel::Verified);
+    assert_eq!(got.label, AcceptanceLabel::ChecksPassedUnconfined);
     assert_eq!(got.tries, 0);
     assert!(got.checks.iter().all(|check| check
         .result
@@ -754,12 +754,12 @@ async fn a_goal_completes_only_when_its_checks_pass() {
         (goal.status, goal.last_reason.as_deref()),
         (
             GoalStatus::Complete,
-            Some("Goal achieved (verified: 1 acceptance check confirmed)")
+            Some("checks passed, unconfined (1 acceptance check confirmed)")
         )
     );
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::Verified
+        AcceptanceLabel::ChecksPassedUnconfined
     );
     assert_eq!(setup.runner.commands(), vec!["cargo test".to_owned()]);
     harness.close(cx()).await.expect("close");
@@ -835,7 +835,9 @@ async fn the_worker_cannot_change_or_skip_its_checks() {
     let entries = entries(&root).await;
     let refused = serde_json::to_string(&entries).expect("entries encode");
     assert!(
-        refused.contains("error: only the task's owner sets its acceptance checks: the worker cannot change, drop or skip them"),
+        refused.contains(
+            "error: only the task's owner sets its acceptance checks: this change was refused"
+        ),
         "{refused}"
     );
     let got = state(&harness, &root).await;
@@ -937,7 +939,7 @@ async fn a_judge_reads_the_evidence_and_never_the_workers_words() {
     assert_eq!(requests, vec![request.clone()]);
     assert!(!judge_prompt(&request).contains("WORKER-SUMMARY"));
     let got = state(&harness, &root).await;
-    assert_eq!(got.label, AcceptanceLabel::Verified);
+    assert_eq!(got.label, AcceptanceLabel::ChecksPassedUnconfined);
     let result = got.checks[1].result.as_ref().expect("judged");
     assert_eq!(
         (
@@ -1003,7 +1005,7 @@ async fn the_product_judge_sends_one_request_with_the_condition_and_the_evidence
     let seen = seen.lock().expect("seen").clone();
     assert_eq!(seen.len(), 1);
     assert!(
-        seen[0].contains("You are an independent acceptance judge."),
+        seen[0].contains("You are an acceptance judge: a request separate from the worker"),
         "{}",
         seen[0]
     );
@@ -1187,7 +1189,7 @@ async fn the_intent_judge_reads_the_users_messages_and_never_the_workers() {
     assert!(prompt.contains("<user_messages>\n<message n=\"1\">\nadd a --verbose flag\n</message>\n</user_messages>"), "{prompt}");
     assert!(!prompt.contains("WORKER-SUMMARY"), "{prompt}");
     let got = state(&harness, &root).await;
-    assert_eq!(got.label, AcceptanceLabel::Verified);
+    assert_eq!(got.label, AcceptanceLabel::ChecksPassedUnconfined);
     assert_eq!(
         got.checks[1].result.as_ref().map(|result| result.verdict),
         Some(CheckVerdict::Confirmed)
@@ -1217,7 +1219,7 @@ async fn a_requirement_added_later_extends_the_task() {
         .set_responses(vec![call("work", "w1"), answer("hello.txt written")]);
     run(&harness, &root, "write hello.txt").await;
     let first = state(&harness, &root).await;
-    assert_eq!(first.label, AcceptanceLabel::Verified);
+    assert_eq!(first.label, AcceptanceLabel::ChecksPassedUnconfined);
 
     // The worker answers the added requirement without doing it, then
     // does it once the evidence comes back.
@@ -1246,10 +1248,14 @@ async fn a_requirement_added_later_extends_the_task() {
         .collect();
     assert_eq!(
         outcomes,
-        vec![json!("verified"), json!("returned"), json!("verified")]
+        vec![
+            json!("checks_passed_unconfined"),
+            json!("returned"),
+            json!("checks_passed_unconfined")
+        ]
     );
     let last = state(&harness, &root).await;
-    assert_eq!(last.label, AcceptanceLabel::Verified);
+    assert_eq!(last.label, AcceptanceLabel::ChecksPassedUnconfined);
     assert_ne!(last.state, first.state);
     harness.close(cx()).await.expect("close");
 }
@@ -1277,7 +1283,7 @@ async fn a_side_question_neither_ends_nor_fails_the_task() {
     run(&harness, &root, "write the parser").await;
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::Verified
+        AcceptanceLabel::ChecksPassedUnconfined
     );
 
     setup
@@ -1302,9 +1308,9 @@ async fn a_side_question_neither_ends_nor_fails_the_task() {
     assert_eq!(
         (got.label, got.tries, got.last_end.map(|end| end.label)),
         (
-            AcceptanceLabel::Verified,
+            AcceptanceLabel::ChecksPassedUnconfined,
             0,
-            Some(AcceptanceLabel::Verified)
+            Some(AcceptanceLabel::ChecksPassedUnconfined)
         )
     );
     harness.close(cx()).await.expect("close");
@@ -1324,7 +1330,7 @@ async fn an_edit_outside_the_session_makes_the_verdict_stale() {
     setup.faux.set_responses(vec![answer("done")]);
     run(&harness, &root, "do it").await;
     let verified = state(&harness, &root).await;
-    assert_eq!(verified.label, AcceptanceLabel::Verified);
+    assert_eq!(verified.label, AcceptanceLabel::ChecksPassedUnconfined);
     assert_eq!(state(&harness, &root).await.state, verified.state);
 
     // The user edits a file by hand: no tool result, no message.
@@ -1344,7 +1350,7 @@ async fn an_edit_outside_the_session_makes_the_verdict_stale() {
     run(&harness, &root, "is it still done?").await;
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::Verified
+        AcceptanceLabel::ChecksPassedUnconfined
     );
     assert_eq!(
         setup.runner.commands(),
@@ -1368,7 +1374,7 @@ async fn a_later_effect_of_the_worker_makes_the_result_unverified_again() {
     run(&harness, &root, "do it").await;
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::Verified
+        AcceptanceLabel::ChecksPassedUnconfined
     );
 
     // The next run changes something and breaks the check.
@@ -1378,7 +1384,7 @@ async fn a_later_effect_of_the_worker_makes_the_result_unverified_again() {
     let mut updates = watch_acceptance_updates(&harness, root.id(), cx()).expect("watch");
     assert_eq!(
         updates.next().await.map(|state| state.label),
-        Some(AcceptanceLabel::Verified)
+        Some(AcceptanceLabel::ChecksPassedUnconfined)
     );
     setup.faux.set_responses(vec![
         call("work", "w1"),
@@ -1442,7 +1448,7 @@ async fn the_verdict_its_checks_and_evidence_are_recorded_and_watched() {
     }
     assert_eq!(
         heard.last(),
-        Some(&(AcceptanceLabel::Verified, false)),
+        Some(&(AcceptanceLabel::ChecksPassedUnconfined, false)),
         "{heard:?}"
     );
     let verified = timeless(state(&harness, &root).await);
@@ -1536,9 +1542,9 @@ async fn a_crash_before_a_verdict_is_recorded_runs_the_check_again() {
     assert_eq!(
         (got.label, got.claimed, got.last_end.map(|end| end.label)),
         (
-            AcceptanceLabel::Verified,
+            AcceptanceLabel::ChecksPassedUnconfined,
             false,
-            Some(AcceptanceLabel::Verified)
+            Some(AcceptanceLabel::ChecksPassedUnconfined)
         )
     );
     assert_eq!(setup.runner.commands(), vec!["cargo test", "cargo test"]);
@@ -1632,7 +1638,7 @@ async fn a_change_of_the_checks_discards_every_verdict() {
     run(&harness, &root, "do it").await;
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::Verified
+        AcceptanceLabel::ChecksPassedUnconfined
     );
 
     let changed = setup

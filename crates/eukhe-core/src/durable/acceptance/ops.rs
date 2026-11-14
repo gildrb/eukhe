@@ -28,6 +28,7 @@ pub(crate) fn label_of(label: Label) -> AcceptanceLabel {
         Label::Verified => AcceptanceLabel::Verified,
         Label::Failed => AcceptanceLabel::Failed,
         Label::Unverified => AcceptanceLabel::Unverified,
+        Label::Passed => AcceptanceLabel::ChecksPassedUnconfined,
     }
 }
 

@@ -593,6 +593,21 @@ fn verification_segment_shows_the_label() {
         theme.fg_style(ThemeColor::Success).fg
     );
 
+    let passed = AcceptanceState {
+        label: AcceptanceLabel::ChecksPassedUnconfined,
+        checks: vec![check(CheckVerdict::Confirmed, 7); 2],
+        ..failed.clone()
+    };
+    let line = render(&passed);
+    assert_eq!(
+        text(&line),
+        " [M] mock - [D] eukhe - ok checks passed, unconfined 2/2"
+    );
+    assert_eq!(
+        tone(&line, "ok checks passed, unconfined 2/2"),
+        theme.fg_style(ThemeColor::Success).fg
+    );
+
     let unverified = AcceptanceState {
         label: AcceptanceLabel::Unverified,
         ..failed

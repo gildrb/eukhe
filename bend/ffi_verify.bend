@@ -25,9 +25,11 @@
 # An answer: 0 yes, 1 no, 2 unreadable, 3 unavailable, 4 stopped.
 # Reply: act: admitted (Bool), then the acceptance; advance: the action (0
 # rest, 1 run then the index, 2 return, 3 end then the label), then the
-# acceptance; label: 0 verified, 1 failed, 2 unverified; exit: the code
-# (Nat); command, until, judge: the verdict; claims: whether the final
-# answer is a claim (Bool).
+# acceptance; label: 0 verified, 1 failed, 2 unverified, 3 passed (checks
+# passed, unconfined); exit: the code (Nat); command, until, judge: the
+# verdict; claims: whether the final answer is a claim (Bool). The label
+# and the advance answer for programs run as V.confined says (never
+# confined: no request yields verified).
 # Any other input (an unknown tag, a malformed field, input left after the
 # request) answers the error form "verify: malformed request", never a
 # default. laws/verify.bend (section entry) states this file's laws. Pure:
@@ -452,6 +454,8 @@ def put_label(l: V.Label, rest: String) -> String:
       W.put_nat(1n, rest)
     case V.Unverified{}:
       W.put_nat(2n, rest)
+    case V.Passed{}:
+      W.put_nat(3n, rest)
 
 def put_action(x: V.Action, rest: String) -> String:
   match x:
@@ -478,9 +482,9 @@ def answer(q: Req) -> String:
     case QAct{who, op, a}:
       put_acted(V.act(who, op, a))
     case QAdvance{now, cap, a}:
-      put_advanced(V.advance(now, cap, a))
+      put_advanced(V.advance(V.confined(), now, cap, a))
     case QLabel{now, slots}:
-      put_label(V.label(now, slots), "")
+      put_label(V.label(V.confined(), now, slots), "")
     case QExit{base, now, slots}:
       W.put_nat(V.exit(base, now, slots), "")
     case QCommand{expect, intact, ev}:

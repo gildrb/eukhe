@@ -2,13 +2,14 @@
 # verifier's step: a refuted premise proves anything; numbers (a number
 # equals itself and is not below itself, adding 0 and a successor on the
 # right); n open slots; put writes exactly one slot (va.set) or finds
-# none; the first due check is the spec's lead (va.due_lead); a verified
-# spec label leaves no check due; the step by cases of what is due and of
-# the label
+# none; the first due check is the spec's lead (va.due_lead); a spec
+# label that reports every check confirmed leaves no check due; the step
+# by cases of what is due and of the label
 
 import Base
 import ../../../bend/verify.bend as V
 import ../../../spec/verified/verify.bend as S
+import ../../../laws/verify.bend as Verify
 
 # Refuted premises
 # ----------------
@@ -76,16 +77,30 @@ def va.IfVerified(l: V.Label, G: Type) -> Type:
       Unit
     case V.Unverified{}:
       Unit
+    case V.Passed{}:
+      Unit
 
-# a premise Failed == Verified proves anything
-def va.absurd_fv(-G: Type, e: {V.Failed{} == V.Verified{} : V.Label}) -> G:
-  %e : va.IfVerified(_, G)
-  Unit{}
+def va.IfPassed(l: V.Label, G: Type) -> Type:
+  match l:
+    case V.Verified{}:
+      Unit
+    case V.Failed{}:
+      Unit
+    case V.Unverified{}:
+      Unit
+    case V.Passed{}:
+      G
 
-# a premise Unverified == Verified proves anything
-def va.absurd_uv(-G: Type, e: {V.Unverified{} == V.Verified{} : V.Label}) -> G:
-  %e : va.IfVerified(_, G)
-  Unit{}
+def va.IfEnd(x: V.Action, G: Type) -> Type:
+  match x:
+    case V.Rest{}:
+      Unit
+    case V.Run{i}:
+      Unit
+    case V.Return{}:
+      Unit
+    case V.End{l}:
+      G
 
 def va.IfEndVerified(x: V.Action, G: Type) -> Type:
   match x:
@@ -98,30 +113,89 @@ def va.IfEndVerified(x: V.Action, G: Type) -> Type:
     case V.End{l}:
       va.IfVerified(l, G)
 
-# a premise Rest == End{Verified} proves anything
-def va.absurd_rest(-G: Type, e: {V.Rest{} == V.End{V.Verified{}} : V.Action}) -> G:
-  %e : va.IfEndVerified(_, G)
+def va.IfEndPassed(x: V.Action, G: Type) -> Type:
+  match x:
+    case V.Rest{}:
+      Unit
+    case V.Run{i}:
+      Unit
+    case V.Return{}:
+      Unit
+    case V.End{l}:
+      va.IfPassed(l, G)
+
+# a premise Rest == End{l} proves anything
+def va.absurd_rest(-l: V.Label, -G: Type, e: {V.Rest{} == V.End{l} : V.Action}) -> G:
+  %e : va.IfEnd(_, G)
   Unit{}
 
-# a premise Run == End{Verified} proves anything
-def va.absurd_run(-i: Nat, -G: Type, e: {V.Run{i} == V.End{V.Verified{}} : V.Action}) -> G:
-  %e : va.IfEndVerified(_, G)
+# a premise Run == End{l} proves anything
+def va.absurd_run(-i: Nat, -l: V.Label, -G: Type, e: {V.Run{i} == V.End{l} : V.Action}) -> G:
+  %e : va.IfEnd(_, G)
   Unit{}
 
-# a premise Return == End{Verified} proves anything
-def va.absurd_return(-G: Type, e: {V.Return{} == V.End{V.Verified{}} : V.Action}) -> G:
-  %e : va.IfEndVerified(_, G)
+# a premise Return == End{l} proves anything
+def va.absurd_return(-l: V.Label, -G: Type, e: {V.Return{} == V.End{l} : V.Action}) -> G:
+  %e : va.IfEnd(_, G)
   Unit{}
 
-# a premise End{Failed} == End{Verified} proves anything
-def va.absurd_end_f(-G: Type, e: {V.End{V.Failed{}} == V.End{V.Verified{}} : V.Action}) -> G:
-  %e : va.IfEndVerified(_, G)
-  Unit{}
+# an end verified that is an end with a label reporting every check
+# confirmed: that label is verified
+def va.end_v(l: V.Label, ok: {Verify.sp_succeeds(l) == True{} : Bool}, e: {V.End{V.Verified{}} == V.End{l} : V.Action}) -> {V.Verified{} == l : V.Label}:
+  match l:
+    case V.Verified{}:
+      {==}
+    case V.Failed{}:
+      va.absurd_ft({V.Verified{} == V.Failed{} : V.Label}, ok)
+    case V.Unverified{}:
+      va.absurd_ft({V.Verified{} == V.Unverified{} : V.Label}, ok)
+    case V.Passed{}:
+      %e : va.IfEndPassed(_, {V.Verified{} == V.Passed{} : V.Label})
+      Unit{}
 
-# a premise End{Unverified} == End{Verified} proves anything
-def va.absurd_end_u(-G: Type, e: {V.End{V.Unverified{}} == V.End{V.Verified{}} : V.Action}) -> G:
-  %e : va.IfEndVerified(_, G)
-  Unit{}
+# an end passed that is an end with a label reporting every check
+# confirmed: that label is passed
+def va.end_p(l: V.Label, ok: {Verify.sp_succeeds(l) == True{} : Bool}, e: {V.End{V.Passed{}} == V.End{l} : V.Action}) -> {V.Passed{} == l : V.Label}:
+  match l:
+    case V.Verified{}:
+      %e : va.IfEndVerified(_, {V.Passed{} == V.Verified{} : V.Label})
+      Unit{}
+    case V.Failed{}:
+      va.absurd_ft({V.Passed{} == V.Failed{} : V.Label}, ok)
+    case V.Unverified{}:
+      va.absurd_ft({V.Passed{} == V.Unverified{} : V.Label}, ok)
+    case V.Passed{}:
+      {==}
+
+# a premise End{Failed} == End{l}, l reporting every check confirmed,
+# proves anything
+def va.end_f(l: V.Label, -G: Type, ok: {Verify.sp_succeeds(l) == True{} : Bool}, e: {V.End{V.Failed{}} == V.End{l} : V.Action}) -> G:
+  match l:
+    case V.Verified{}:
+      %e : va.IfEndVerified(_, G)
+      Unit{}
+    case V.Failed{}:
+      va.absurd_ft(G, ok)
+    case V.Unverified{}:
+      va.absurd_ft(G, ok)
+    case V.Passed{}:
+      %e : va.IfEndPassed(_, G)
+      Unit{}
+
+# a premise End{Unverified} == End{l}, l reporting every check confirmed,
+# proves anything
+def va.end_u(l: V.Label, -G: Type, ok: {Verify.sp_succeeds(l) == True{} : Bool}, e: {V.End{V.Unverified{}} == V.End{l} : V.Action}) -> G:
+  match l:
+    case V.Verified{}:
+      %e : va.IfEndVerified(_, G)
+      Unit{}
+    case V.Failed{}:
+      va.absurd_ft(G, ok)
+    case V.Unverified{}:
+      va.absurd_ft(G, ok)
+    case V.Passed{}:
+      %e : va.IfEndPassed(_, G)
+      Unit{}
 
 # Numbers
 # -------
@@ -403,80 +477,149 @@ def va.conf_due(+now: Nat, +slots: List<&2, V.Slot>, +i: Nat, +e: {Nat.is_eq(S.c
       %va.confirms_judged(now, s, va.head_true(S.confirms(now, s), S.confirmed(now, t), List.length(&2, V.Slot, t), va.bound(now, t), e)) : {V.due.pick(V.judged(now, s), i, V.due(now, t, 1n+i)) == V.due.pick(_, i, V.due(now, t, 1n+i)) : Maybe<&2, Nat>}
       {==}
 
-def va.all_true(b: Bool, e: {S.label.all(b) == V.Verified{} : V.Label}) -> {b == True{} : Bool}:
+def va.all_ok(conf: Bool, b: Bool, ok: {Verify.sp_succeeds(S.label.all(conf, b)) == True{} : Bool}) -> {b == True{} : Bool}:
   match b:
     case True{}:
       {==}
     case False{}:
-      va.absurd_uv({False{} == True{} : Bool}, e)
+      va.absurd_ft({False{} == True{} : Bool}, ok)
 
-# a verified spec label: every check is confirmed
-def va.verified_all(bad: Nat, good: Nat, n: Nat, e: {S.label.of(bad, good, n) == V.Verified{} : V.Label}) -> {Nat.is_eq(good, n) == True{} : Bool}:
+# a spec label that reports every check confirmed: every check is
+# confirmed
+def va.ok_all(conf: Bool, bad: Nat, good: Nat, n: Nat, ok: {Verify.sp_succeeds(S.label.of(conf, bad, good, n)) == True{} : Bool}) -> {Nat.is_eq(good, n) == True{} : Bool}:
   match bad:
     case 0n:
       match n:
         case 0n:
-          va.absurd_uv({Nat.is_eq(good, 0n) == True{} : Bool}, e)
+          va.absurd_ft({Nat.is_eq(good, 0n) == True{} : Bool}, ok)
         case 1n+m:
-          va.all_true(Nat.is_eq(good, 1n+m), e)
+          va.all_ok(conf, Nat.is_eq(good, 1n+m), ok)
     case 1n+p:
-      va.absurd_fv({Nat.is_eq(good, n) == True{} : Bool}, e)
+      va.absurd_ft({Nat.is_eq(good, n) == True{} : Bool}, ok)
 
-# a verified spec label on the state now: no check is due
-def va.verified_none(+now: Nat, +slots: List<&2, V.Slot>, ok: {S.label(now, slots) == V.Verified{} : V.Label}) -> {V.due(now, slots, 0n) == None{} : Maybe<&2, Nat>}:
-  va.conf_due(now, slots, 0n, va.verified_all(S.refuted(now, slots), S.confirmed(now, slots), List.length(&2, V.Slot, slots), ok))
+# a spec label on the state now that reports every check confirmed: no
+# check is due
+def va.ok_none(conf: Bool, +now: Nat, +slots: List<&2, V.Slot>, ok: {Verify.sp_succeeds(S.label(conf, now, slots)) == True{} : Bool}) -> {V.due(now, slots, 0n) == None{} : Maybe<&2, Nat>}:
+  va.conf_due(now, slots, 0n, va.ok_all(conf, S.refuted(now, slots), S.confirmed(now, slots), List.length(&2, V.Slot, slots), ok))
 
-# a claim whose spec label is verified ends verified (lab: the label is
-# the spec's)
-def va.advance_verified(+now: Nat, -cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, -tries: Nat, +ok: {S.label(now, slots) == V.Verified{} : V.Label}, lab: {V.label(now, slots) == S.label(now, slots) : V.Label}) -> {V.advance(now, cap, V.Acc{rev, slots, True{}, tries}) == (V.End{V.Verified{}}, V.Acc{rev, slots, False{}, 0n}) : V.Action & V.Acc}:
-  %ok : {V.advance(now, cap, V.Acc{rev, slots, True{}, tries}) == V.settle(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
-  %lab : {V.advance(now, cap, V.Acc{rev, slots, True{}, tries}) == V.settle(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
-  %va.verified_none(now, slots, ok) : {V.advance(now, cap, V.Acc{rev, slots, True{}, tries}) == V.advance.go(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
-  {==}
+# a label equal to one that reports every check confirmed reports it too
+def va.ok_of(m: V.Label, l: V.Label, e: {m == l : V.Label}, ok: {Verify.sp_succeeds(l) == True{} : Bool}) -> {Verify.sp_succeeds(m) == True{} : Bool}:
+  %Equal.sym(V.Label, m, l, e) : {Verify.sp_succeeds(_) == True{} : Bool}
+  ok
 
-# A step that says verified
-# -------------------------
-
-def va.failed_said(room: Bool, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, -G: Type, said: {S.action(V.settle.failed(room, rev, slots, tries)) == V.End{V.Verified{}} : V.Action}) -> G:
-  match room:
-    case True{}:
-      va.absurd_return(G, said)
-    case False{}:
-      va.absurd_end_f(G, said)
-
-def va.broken_said(room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, -G: Type, said: {S.action(V.settle.broken(room, now, rev, slots, tries)) == V.End{V.Verified{}} : V.Action}) -> G:
-  match room:
-    case True{}:
-      va.absurd_return(G, said)
-    case False{}:
-      va.absurd_end_u(G, said)
-
-def va.open_said(any: Bool, room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, -G: Type, said: {S.action(V.settle.open(any, room, now, rev, slots, tries)) == V.End{V.Verified{}} : V.Action}) -> G:
-  match any:
-    case True{}:
-      va.broken_said(room, now, rev, slots, tries, G, said)
-    case False{}:
-      va.absurd_end_u(G, said)
-
-# a settled claim that says verified has a verified label
-def va.settle_said(l: V.Label, -now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, said: {S.action(V.settle(l, now, cap, rev, slots, tries)) == V.End{V.Verified{}} : V.Action}) -> {l == V.Verified{} : V.Label}:
+# a label that reports every check confirmed settles the claim with it
+def va.settle_ok(l: V.Label, -now: Nat, -cap: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, ok: {Verify.sp_succeeds(l) == True{} : Bool}) -> {V.settle(l, now, cap, rev, slots, tries) == (V.End{l}, V.Acc{rev, slots, False{}, 0n}) : V.Action & V.Acc}:
   match l:
     case V.Verified{}:
       {==}
     case V.Failed{}:
-      va.failed_said(Nat.is_lt(tries, cap), rev, slots, tries, {V.Failed{} == V.Verified{} : V.Label}, said)
+      va.absurd_ft({V.settle(V.Failed{}, now, cap, rev, slots, tries) == (V.End{V.Failed{}}, V.Acc{rev, slots, False{}, 0n}) : V.Action & V.Acc}, ok)
     case V.Unverified{}:
-      va.open_said(V.some(slots), Nat.is_lt(tries, cap), now, rev, slots, tries, {V.Unverified{} == V.Verified{} : V.Label}, said)
+      va.absurd_ft({V.settle(V.Unverified{}, now, cap, rev, slots, tries) == (V.End{V.Unverified{}}, V.Acc{rev, slots, False{}, 0n}) : V.Action & V.Acc}, ok)
+    case V.Passed{}:
+      {==}
 
-# a step of a waiting claim that says verified, by what is due d: the
-# spec's label is verified (lab: the label is the spec's)
-def va.go_said(d: Maybe<&2, Nat>, now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, said: {S.action(V.advance.go(d, now, cap, rev, slots, tries)) == V.End{V.Verified{}} : V.Action}, lab: {V.label(now, slots) == S.label(now, slots) : V.Label}) -> {S.label(now, slots) == V.Verified{} : V.Label}:
+# a claim whose spec label l reports every check confirmed ends with l
+# (lab: the label is the spec's)
+def va.advance_ok(+conf: Bool, +now: Nat, -cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, -tries: Nat, +l: V.Label, +ok: {Verify.sp_succeeds(l) == True{} : Bool}, +all: {S.label(conf, now, slots) == l : V.Label}, lab: {V.label(conf, now, slots) == S.label(conf, now, slots) : V.Label}) -> {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == (V.End{l}, V.Acc{rev, slots, False{}, 0n}) : V.Action & V.Acc}:
+  %va.settle_ok(l, now, cap, rev, slots, tries, ok) : {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == _ : V.Action & V.Acc}
+  %all : {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == V.settle(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
+  %lab : {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == V.settle(_, now, cap, rev, slots, tries) : V.Action & V.Acc}
+  %va.ok_none(conf, now, slots, va.ok_of(S.label(conf, now, slots), l, all, ok)) : {V.advance(conf, now, cap, V.Acc{rev, slots, True{}, tries}) == V.advance.go(conf, _, now, cap, rev, slots, tries) : V.Action & V.Acc}
+  {==}
+
+# A step that ends a claim with a label
+# -------------------------------------
+
+def va.failed_said(room: Bool, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, l: V.Label, -G: Type, ok: {Verify.sp_succeeds(l) == True{} : Bool}, said: {S.action(V.settle.failed(room, rev, slots, tries)) == V.End{l} : V.Action}) -> G:
+  match room:
+    case True{}:
+      va.absurd_return(l, G, said)
+    case False{}:
+      va.end_f(l, G, ok, said)
+
+def va.broken_said(room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, l: V.Label, -G: Type, ok: {Verify.sp_succeeds(l) == True{} : Bool}, said: {S.action(V.settle.broken(room, now, rev, slots, tries)) == V.End{l} : V.Action}) -> G:
+  match room:
+    case True{}:
+      va.absurd_return(l, G, said)
+    case False{}:
+      va.end_u(l, G, ok, said)
+
+def va.open_said(any: Bool, room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat, l: V.Label, -G: Type, ok: {Verify.sp_succeeds(l) == True{} : Bool}, said: {S.action(V.settle.open(any, room, now, rev, slots, tries)) == V.End{l} : V.Action}) -> G:
+  match any:
+    case True{}:
+      va.broken_said(room, now, rev, slots, tries, l, G, ok, said)
+    case False{}:
+      va.end_u(l, G, ok, said)
+
+# a settled claim that ends with a label l reporting every check
+# confirmed was settled on l
+def va.settle_said(k: V.Label, -now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, l: V.Label, ok: {Verify.sp_succeeds(l) == True{} : Bool}, said: {S.action(V.settle(k, now, cap, rev, slots, tries)) == V.End{l} : V.Action}) -> {k == l : V.Label}:
+  match k:
+    case V.Verified{}:
+      va.end_v(l, ok, said)
+    case V.Failed{}:
+      va.failed_said(Nat.is_lt(tries, cap), rev, slots, tries, l, {V.Failed{} == l : V.Label}, ok, said)
+    case V.Unverified{}:
+      va.open_said(V.some(slots), Nat.is_lt(tries, cap), now, rev, slots, tries, l, {V.Unverified{} == l : V.Label}, ok, said)
+    case V.Passed{}:
+      va.end_p(l, ok, said)
+
+# a step of a waiting claim that ends with a label l reporting every check
+# confirmed, by what is due d: the spec's label is l (lab: the label is
+# the spec's)
+def va.go_said(conf: Bool, d: Maybe<&2, Nat>, now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, l: V.Label, ok: {Verify.sp_succeeds(l) == True{} : Bool}, said: {S.action(V.advance.go(conf, d, now, cap, rev, slots, tries)) == V.End{l} : V.Action}, lab: {V.label(conf, now, slots) == S.label(conf, now, slots) : V.Label}) -> {S.label(conf, now, slots) == l : V.Label}:
   match d:
     case None{}:
-      %lab : {_ == V.Verified{} : V.Label}
-      va.settle_said(V.label(now, slots), now, cap, rev, slots, tries, said)
+      %lab : {_ == l : V.Label}
+      va.settle_said(V.label(conf, now, slots), now, cap, rev, slots, tries, l, ok, said)
     case Some{i}:
-      va.absurd_run(i, {S.label(now, slots) == V.Verified{} : V.Label}, said)
+      va.absurd_run(i, l, {S.label(conf, now, slots) == l : V.Label}, said)
+
+# A step of programs run unconfined never ends verified
+# ----------------------------------------------------
+
+def va.failed_unconf(room: Bool, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat) -> {Verify.sp_ends_verified(S.action(V.settle.failed(room, rev, slots, tries))) == False{} : Bool}:
+  match room:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def va.broken_unconf(room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat) -> {Verify.sp_ends_verified(S.action(V.settle.broken(room, now, rev, slots, tries))) == False{} : Bool}:
+  match room:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def va.open_unconf(any: Bool, room: Bool, -now: Nat, -rev: Nat, -slots: List<&2, V.Slot>, -tries: Nat) -> {Verify.sp_ends_verified(S.action(V.settle.open(any, room, now, rev, slots, tries))) == False{} : Bool}:
+  match any:
+    case True{}:
+      va.broken_unconf(room, now, rev, slots, tries)
+    case False{}:
+      {==}
+
+# a claim settled on a label that is not verified does not end verified
+def va.settle_unconf(l: V.Label, -now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, ok: {Verify.sp_is_verified(l) == False{} : Bool}) -> {Verify.sp_ends_verified(S.action(V.settle(l, now, cap, rev, slots, tries))) == False{} : Bool}:
+  match l:
+    case V.Verified{}:
+      va.absurd_tf({Verify.sp_ends_verified(S.action(V.settle(V.Verified{}, now, cap, rev, slots, tries))) == False{} : Bool}, ok)
+    case V.Failed{}:
+      va.failed_unconf(Nat.is_lt(tries, cap), rev, slots, tries)
+    case V.Unverified{}:
+      va.open_unconf(V.some(slots), Nat.is_lt(tries, cap), now, rev, slots, tries)
+    case V.Passed{}:
+      {==}
+
+# a step of a waiting claim of programs run unconfined, by what is due d,
+# whose label is not verified (ok), does not end verified
+def va.go_unconf(d: Maybe<&2, Nat>, now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, ok: {Verify.sp_is_verified(V.label(False{}, now, slots)) == False{} : Bool}) -> {Verify.sp_ends_verified(S.action(V.advance.go(False{}, d, now, cap, rev, slots, tries))) == False{} : Bool}:
+  match d:
+    case None{}:
+      va.settle_unconf(V.label(False{}, now, slots), now, cap, rev, slots, tries, ok)
+    case Some{i}:
+      {==}
 
 # A return for a broken check opens it again
 # ------------------------------------------
@@ -538,11 +681,11 @@ def va.reopen_nth(+now: Nat, slots: List<&2, V.Slot>, j: Nat) -> {S.nth(j, V.reo
 # a claim with a check, every check judged on the state now and an
 # unverified spec label, with room, returns with the broken checks opened
 # (lab: the label is the spec's)
-def va.broken_is(+now: Nat, cap: Nat, -rev: Nat, +s: V.Slot, +t: List<&2, V.Slot>, +tries: Nat, done: {S.lead(now, s <> t) == List.length(&2, V.Slot, s <> t) : Nat}, un: {S.label(now, s <> t) == V.Unverified{} : V.Label}, room: {Nat.is_lt(tries, cap) == True{} : Bool}, lab: {V.label(now, s <> t) == S.label(now, s <> t) : V.Label}) -> {(V.Return{}, V.Acc{rev, V.reopen(now, s <> t), False{}, 1n+tries}) == V.advance(now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}:
-  %room : {V.settle.broken(_, now, rev, s <> t, tries) == V.advance(now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
-  %un : {V.settle(_, now, cap, rev, s <> t, tries) == V.advance(now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
-  %lab : {V.settle(_, now, cap, rev, s <> t, tries) == V.advance(now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
-  %va.due_none(now, s <> t, done) : {V.advance.go(_, now, cap, rev, s <> t, tries) == V.advance(now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
+def va.broken_is(conf: Bool, +now: Nat, cap: Nat, -rev: Nat, +s: V.Slot, +t: List<&2, V.Slot>, +tries: Nat, done: {S.lead(now, s <> t) == List.length(&2, V.Slot, s <> t) : Nat}, un: {S.label(conf, now, s <> t) == V.Unverified{} : V.Label}, room: {Nat.is_lt(tries, cap) == True{} : Bool}, lab: {V.label(conf, now, s <> t) == S.label(conf, now, s <> t) : V.Label}) -> {(V.Return{}, V.Acc{rev, V.reopen(now, s <> t), False{}, 1n+tries}) == V.advance(conf, now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}:
+  %room : {V.settle.broken(_, now, rev, s <> t, tries) == V.advance(conf, now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
+  %un : {V.settle(_, now, cap, rev, s <> t, tries) == V.advance(conf, now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
+  %lab : {V.settle(_, now, cap, rev, s <> t, tries) == V.advance(conf, now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
+  %va.due_none(now, s <> t, done) : {V.advance.go(conf, _, now, cap, rev, s <> t, tries) == V.advance(conf, now, cap, V.Acc{rev, s <> t, True{}, tries}) : V.Action & V.Acc}
   {==}
 
 # what verify_advance_broken_returns reads of a step r
@@ -620,11 +763,13 @@ def va.settle_keeps(l: V.Label, now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, 
       va.failed_keeps(Nat.is_lt(tries, cap), rev, slots, tries, j)
     case V.Unverified{}:
       va.open_keeps(V.some(slots), Nat.is_lt(tries, cap), now, rev, slots, tries, j)
+    case V.Passed{}:
+      (va.undo_refl(S.nth(j, slots)), {==})
 
 # a step of a waiting claim, by what is due d
-def va.go_keeps(d: Maybe<&2, Nat>, +now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, j: Nat) -> va.Keeps(j, rev, slots, V.advance.go(d, now, cap, rev, slots, tries)):
+def va.go_keeps(conf: Bool, d: Maybe<&2, Nat>, +now: Nat, cap: Nat, -rev: Nat, +slots: List<&2, V.Slot>, tries: Nat, j: Nat) -> va.Keeps(j, rev, slots, V.advance.go(conf, d, now, cap, rev, slots, tries)):
   match d:
     case None{}:
-      va.settle_keeps(V.label(now, slots), now, cap, rev, slots, tries, j)
+      va.settle_keeps(V.label(conf, now, slots), now, cap, rev, slots, tries, j)
     case Some{i}:
       (va.undo_refl(S.nth(j, slots)), {==})

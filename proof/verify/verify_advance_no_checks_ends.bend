@@ -7,5 +7,5 @@ import Base
 import ../../bend/verify.bend as V
 import ../../laws/verify.bend as Verify
 
-def Verify.verify_advance_no_checks_ends(now, cap, rev, tries):
+def Verify.verify_advance_no_checks_ends(conf, now, cap, rev, tries):
   {==}

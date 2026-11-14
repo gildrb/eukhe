@@ -8,6 +8,6 @@ import ../../bend/verify.bend as V
 import ../../laws/verify.bend as Verify
 import ./base/label.bend as LL
 
-def Verify.verify_refuted_check_fails(now, pre, post):
-  %LL.vl.refuted_around(now, pre, post) : {V.label.of(_, Bool.and(V.some(Verify.sp_around(pre, V.Judged{V.Refuted{}, now}, post)), V.holds(now, Verify.sp_around(pre, V.Judged{V.Refuted{}, now}, post)))) == V.Failed{} : V.Label}
+def Verify.verify_refuted_check_fails(conf, now, pre, post):
+  %LL.vl.refuted_around(now, pre, post) : {V.label.of(conf, _, Bool.and(V.some(Verify.sp_around(pre, V.Judged{V.Refuted{}, now}, post)), V.holds(now, Verify.sp_around(pre, V.Judged{V.Refuted{}, now}, post)))) == V.Failed{} : V.Label}
   {==}

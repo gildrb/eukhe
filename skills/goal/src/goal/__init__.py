@@ -61,10 +61,10 @@ async def complete() -> dict[str, Any]:
 async def acceptance() -> dict[str, Any]:
     """Read the acceptance checks of this task and their last verdicts.
 
-    Returns a dict with `label` (`verified`, `failed` or `unverified`),
-    `checks` (each with its `spec` and, once judged, its `result`: `verdict`,
-    `summary`, `evidence`), `claimed`, `tries` and `maxReturns`. The task's
-    owner sets the checks; you cannot change or skip them.
+    Returns a dict with `label` (`checks_passed_unconfined`, `failed` or
+    `unverified`), `checks` (each with its `spec` and, once judged, its
+    `result`: `verdict`, `summary`, `evidence`), `claimed`, `tries` and
+    `maxReturns`. Only the task's owner sets the checks.
     """
     return await host_request("acceptance.get")
 

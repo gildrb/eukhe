@@ -3,7 +3,7 @@
 //! conversation's state now, records each verdict, and lets the compiled
 //! core (`eukhe_bend::rules::verify::advance`) decide the step: run the
 //! next check, give the evidence back to the worker, or end the claim
-//! verified, failed or unverified.
+//! with its label (checks passed, unconfined; failed; unverified).
 //!
 //! - A session without a goal claims at every final answer; an active
 //!   goal claims with `goal.complete()`, and its final answers before that
@@ -345,16 +345,18 @@ impl Verifier {
 
 /// How the verifier ends a goal's claim.
 fn goal_end(doc: &AcceptanceDoc, label: AcceptanceLabel) -> ClaimEnd {
-    match label {
-        AcceptanceLabel::Verified => ClaimEnd::Complete(format!(
-            "Goal achieved (verified: {} confirmed)",
+    if label.passed() {
+        ClaimEnd::Complete(format!(
+            "{} ({} confirmed)",
+            label.text(),
             count_checks(doc.checks.len())
-        )),
-        AcceptanceLabel::Failed | AcceptanceLabel::Unverified => ClaimEnd::Pause(format!(
+        ))
+    } else {
+        ClaimEnd::Pause(format!(
             "Acceptance {}: {}",
-            label.slug(),
+            label.text(),
             outcome_line(doc)
-        )),
+        ))
     }
 }
 
@@ -430,7 +432,7 @@ fn return_text(doc: &AcceptanceDoc) -> String {
         }
     }
     lines.push(
-        "Fix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. You cannot change or skip a check: all of them run again on the final state."
+        "Fix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. Every check runs again on the final state; only the task's owner sets checks."
             .to_owned(),
     );
     lines.join("\n\n")
@@ -447,7 +449,7 @@ fn verdict_row(
     let (outcome, text) = match ended {
         Some(label) => (
             label.slug(),
-            format!("Acceptance {}: {}.", label.slug(), outcome_line(doc)),
+            format!("Acceptance {}: {}.", label.text(), outcome_line(doc)),
         ),
         None => (
             "returned",

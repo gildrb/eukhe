@@ -277,7 +277,8 @@ impl Verification {
     }
 }
 
-/// The verification segment: `ok verified 2/2` green, `x failed 1/2` red,
+/// The verification segment: `ok checks passed, unconfined 2/2` green
+/// (`ok verified 2/2` once programs run confined), `x failed 1/2` red,
 /// `checking... 1/2` while a claim waits for its verdict, else
 /// `unverified 0/2`; the count is the checks confirmed on the state now.
 fn verification_segment(verification: Verification, theme: &Theme) -> Line {
@@ -296,6 +297,14 @@ fn verification_segment(verification: Verification, theme: &Theme) -> Line {
                 (ThemeColor::Error, format!("{} failed", crate::glyphs::FAIL))
             }
             AcceptanceLabel::Unverified => (ThemeColor::Muted, "unverified".to_owned()),
+            AcceptanceLabel::ChecksPassedUnconfined => (
+                ThemeColor::Success,
+                format!(
+                    "{} {}",
+                    crate::glyphs::OK,
+                    AcceptanceLabel::ChecksPassedUnconfined.text()
+                ),
+            ),
         }
     };
     vec![theme.fg(

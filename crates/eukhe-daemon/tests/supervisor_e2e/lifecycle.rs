@@ -31,7 +31,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
         hello["schemaId"]
             .as_str()
             .map(std::string::ToString::to_string),
-        Some("protocol-7-schema-30-8e4b17c2a9f5".to_string())
+        Some("protocol-7-schema-31-556a78d5ef8d".to_string())
     );
     assert!(hello["supervisorOwnerToken"].is_string());
     // The platform's pid-reuse identity (`proc:` on Linux, `ps:` on macOS).

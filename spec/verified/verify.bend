@@ -5,8 +5,13 @@
 # S1: a check counts for a state only by a verdict taken on that state: a
 #     slot never judged, or judged on another state, says nothing of it.
 # S2: the result on a state is failed when at least one check is refuted
-#     on it; verified when there is at least one check and each one is
-#     confirmed on it; else unverified. So no checks is unverified.
+#     on it; when there is at least one check and each one is confirmed
+#     on it, verified when the programs of the run (its tools, its checks)
+#     run confined and passed ("checks passed, unconfined") when they run
+#     unconfined; else unverified. So no checks is unverified, and a label
+#     says verified only of a confined run.
+# S6: no confinement mechanism exists, so programs never run confined and
+#     no answer of the entry (bend/ffi_verify.bend) says verified.
 # S3: a headless run keeps its own exit code when every check is confirmed
 #     on the final state (also with no checks); else it exits nonzero: 1
 #     when its own code is 0, its own code otherwise.
@@ -97,28 +102,38 @@ def refuted(+now: Nat, slots: List<&2, V.Slot>) -> Nat:
     case Con{s, t}:
       Nat.add(bit(refutes(now, s)), refuted(now, t))
 
-def label.all(all: Bool) -> V.Label:
-  match all:
+# S2: every check confirmed: verified only when programs run confined
+def label.ok(conf: Bool) -> V.Label:
+  match conf:
     case True{}:
       V.Verified{}
     case False{}:
+      V.Passed{}
+
+def label.all(conf: Bool, all: Bool) -> V.Label:
+  match all:
+    case True{}:
+      label.ok(conf)
+    case False{}:
       V.Unverified{}
 
-# S2: the label of `bad` refuted and `good` confirmed checks out of n
-def label.of(bad: Nat, good: Nat, n: Nat) -> V.Label:
+# S2: the label of `bad` refuted and `good` confirmed checks out of n,
+# programs run confined when `conf`
+def label.of(conf: Bool, bad: Nat, good: Nat, n: Nat) -> V.Label:
   match bad:
     case 0n:
       match n:
         case 0n:
           V.Unverified{}
         case 1n+m:
-          label.all(Nat.is_eq(good, 1n+m))
+          label.all(conf, Nat.is_eq(good, 1n+m))
     case 1n+p:
       V.Failed{}
 
-# S2: the label of the result on the state now
-def label(+now: Nat, +slots: List<&2, V.Slot>) -> V.Label:
-  label.of(refuted(now, slots), confirmed(now, slots), List.length(&2, V.Slot, slots))
+# S2: the label of the result on the state now, programs run confined
+# when `conf`
+def label(conf: Bool, +now: Nat, +slots: List<&2, V.Slot>) -> V.Label:
+  label.of(conf, refuted(now, slots), confirmed(now, slots), List.length(&2, V.Slot, slots))
 
 # S3: every check is confirmed on the state now
 def all_confirmed(+now: Nat, +slots: List<&2, V.Slot>) -> Bool:
