@@ -30,8 +30,10 @@ import ./base.bend as LawsBase
 #     changed or the command exited with another code; broken when the
 #     command gave no exit code (no status, a timeout, it could not
 #     start); unjudged when it was cancelled. A loop's until-condition is
-#     confirmed by exit 0, refuted by exit 1, broken by any other end,
-#     unjudged when cancelled. A judge confirms only by an explicit yes
+#     confirmed by exit 0; refuted by any other exit code except 126 and
+#     127; broken by exit 126 or 127 (the shell could not run it), no
+#     status (a signal), a timeout or a failed start; unjudged when
+#     cancelled. A judge confirms only by an explicit yes
 #     and refutes only by an explicit no; an unreadable or missing answer
 #     is broken, a stopped request unjudged.
 # R2 (V3, V4): the label of a result on a state, the programs of the run
@@ -208,14 +210,19 @@ law verify_command_no_exit_table:
 
 # LAW verify_until_table (R1): the rows of a loop's until-condition; each
 # row cites spec/README.md V2
-# EXCLUDES: exit 2 (a broken condition) read as "not yet", a timeout read
-#   as satisfied, a cancelled condition read as an answer
+# EXCLUDES: a failing test run (exit 1, exit 2, exit 101) read as broken
+#   instead of "not yet", exit 126 or 127 (the command could not run) read
+#   as "not yet", a timeout read as satisfied, a cancelled condition read
+#   as an answer
 law verify_until_table:
   for p: Nat
+  for h126: {Nat.is_eq(1n+p, 126n) == False{} : Bool}
+  for h127: {Nat.is_eq(1n+p, 127n) == False{} : Bool}
   {V.grade_until(V.Exited{0n}) == V.Confirmed{} : V.Verdict} &   # V2: exit 0: the condition holds
-  {V.grade_until(V.Exited{1n}) == V.Refuted{} : V.Verdict} &     # V2: exit 1: not yet, the loop goes on
-  {V.grade_until(V.Exited{2n+p}) == V.Broken{} : V.Verdict} &    # V2: exit above 1: the condition broke
-  {V.grade_until(V.NoStatus{}) == V.Broken{} : V.Verdict} &      # V2: no exit status: broken
+  {V.grade_until(V.Exited{1n+p}) == V.Refuted{} : V.Verdict} &   # V2: any other exit but 126, 127: not yet, the loop goes on
+  {V.grade_until(V.Exited{126n}) == V.Broken{} : V.Verdict} &    # V2: exit 126: could not run: broken
+  {V.grade_until(V.Exited{127n}) == V.Broken{} : V.Verdict} &    # V2: exit 127: not found: broken
+  {V.grade_until(V.NoStatus{}) == V.Broken{} : V.Verdict} &      # V2: no exit status (a signal): broken
   {V.grade_until(V.TimedOut{}) == V.Broken{} : V.Verdict} &      # V2: a timeout: broken
   {V.grade_until(V.SpawnFailed{}) == V.Broken{} : V.Verdict} &   # V2: could not start: broken
   {V.grade_until(V.Cancelled{}) == V.Unjudged{} : V.Verdict}     # V2: cancelled: unjudged
@@ -853,8 +860,9 @@ law verify_entry_unknown_tag_refused:
 # replies it reads: the owner's and the worker's Assign, a claim, a
 # record, the verifier's steps (run, end passed, return, end failed at
 # the cap, end unverified with no checks), a stale label, a passed label,
-# the exit codes, the verdicts of evidence, whether an answer is a claim;
-# an unknown tag and input left over
+# the exit codes, the verdicts of evidence (a loop's until-condition: exit
+# 1 and exit 2 not yet, exit 127 broken), whether an answer is a claim; an
+# unknown tag and input left over
 # EXCLUDES: another spelling of a request or a reply
 law verify_entry_example:
-  {[FV.ffi("0,0,0,2,0,0,F0,"), FV.ffi("0,1,0,2,0,0,F0,"), FV.ffi("0,1,1,1,2,0,0,F0,"), FV.ffi("0,2,2,1,0,0,7,1,2,0,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,0,7,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,1,7,T0,"), FV.ffi("1,7,1,1,2,1,0,7,1,1,7,T1,"), FV.ffi("1,7,3,1,0,T2,"), FV.ffi("2,7,2,1,0,7,1,0,6,"), FV.ffi("2,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,6,"), FV.ffi("3,0,7,0,"), FV.ffi("4,0,T0,0,"), FV.ffi("4,0,T0,101,"), FV.ffi("4,0,F0,0,"), FV.ffi("4,0,T2,"), FV.ffi("4,0,T4,"), FV.ffi("5,0,1,"), FV.ffi("5,0,2,"), FV.ffi("6,0,"), FV.ffi("6,3,"), FV.ffi("7,FTFFF"), FV.ffi("7,FTTFF"), FV.ffi("7,FTTTF"), FV.ffi("7,TTFTF"), FV.ffi("8,"), FV.ffi("6,0,x")] == ["T1,2,0,0,F0,", "F0,0,F0,", "T1,2,0,0,T0,", "T1,2,1,0,7,0,T0,", "1,1,1,2,1,0,7,0,T0,", "3,3,1,2,1,0,7,1,0,7,F0,", "2,1,2,1,0,7,1,1,7,F1,", "3,1,1,2,1,0,7,1,1,7,F0,", "3,2,1,0,F0,", "2,", "3,", "0,", "1,", "0,", "0,", "1,", "1,", "2,", "3,", "1,", "2,", "0,", "2,", "T", "F", "T", "F", Wr.err("verify: malformed request"), Wr.err("verify: malformed request")] : List<&2, String>}
+  {[FV.ffi("0,0,0,2,0,0,F0,"), FV.ffi("0,1,0,2,0,0,F0,"), FV.ffi("0,1,1,1,2,0,0,F0,"), FV.ffi("0,2,2,1,0,0,7,1,2,0,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,0,7,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,1,7,T0,"), FV.ffi("1,7,1,1,2,1,0,7,1,1,7,T1,"), FV.ffi("1,7,3,1,0,T2,"), FV.ffi("2,7,2,1,0,7,1,0,6,"), FV.ffi("2,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,6,"), FV.ffi("3,0,7,0,"), FV.ffi("4,0,T0,0,"), FV.ffi("4,0,T0,101,"), FV.ffi("4,0,F0,0,"), FV.ffi("4,0,T2,"), FV.ffi("4,0,T4,"), FV.ffi("5,0,1,"), FV.ffi("5,0,2,"), FV.ffi("5,0,127,"), FV.ffi("6,0,"), FV.ffi("6,3,"), FV.ffi("7,FTFFF"), FV.ffi("7,FTTFF"), FV.ffi("7,FTTTF"), FV.ffi("7,TTFTF"), FV.ffi("8,"), FV.ffi("6,0,x")] == ["T1,2,0,0,F0,", "F0,0,F0,", "T1,2,0,0,T0,", "T1,2,1,0,7,0,T0,", "1,1,1,2,1,0,7,0,T0,", "3,3,1,2,1,0,7,1,0,7,F0,", "2,1,2,1,0,7,1,1,7,F1,", "3,1,1,2,1,0,7,1,1,7,F0,", "3,2,1,0,F0,", "2,", "3,", "0,", "1,", "0,", "0,", "1,", "1,", "2,", "3,", "1,", "1,", "2,", "0,", "2,", "T", "F", "T", "F", Wr.err("verify: malformed request"), Wr.err("verify: malformed request")] : List<&2, String>}

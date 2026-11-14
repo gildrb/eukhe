@@ -357,10 +357,11 @@ law loop_ffi_st_reads_spelled:
 # clock 5 starts iteration 1 and submits "fix"; exit status 0 after
 # iteration 1 ends that loop satisfied; a settled turn of a loop with no
 # condition and 2 iterations left submits iteration 2; exit status 0
-# confirms an until and refutes a while; a cancelled check is unjudged; an
-# empty input, event tag 7 and request tag 2 are malformed; a char after a
-# request is left over
+# confirms an until and refutes a while; a cancelled check is unjudged;
+# exit status 2 refutes an until and confirms a while; exit status 127 is
+# a broken check; an empty input, event tag 7 and request tag 2 are
+# malformed; a char after a request is left over
 # EXCLUDES: a request or a reply in another order, tag or spelling than
 #   the documented texts
 law loop_ffi_example:
-  {[FLp.ffi("0,0,0,0,0,0,0,0,0,0,1,3,1,3,abc1,3,fix5,"), FLp.ffi("0,3,1,1,3,0,1,3,abc3,fix0,0,5,1,0,0,F9,T"), FLp.ffi("0,2,1,1,2,0,0,3,fix0,0,4,1,0,F7,T"), FLp.ffi("1,T0,0,"), FLp.ffi("1,F0,0,"), FLp.ffi("1,T4,"), FLp.ffi(""), FLp.ffi("0,0,0,0,0,0,0,0,0,7,"), FLp.ffi("2,"), FLp.ffi("1,T0,0,x")] == ["2,1,1,3,0,1,3,abc3,fix0,0,1,1,3,fix", "5,0,1,1,3,0,1,3,abc3,fix0,1,1,0,0,5,0,", "2,2,1,1,0,0,3,fix0,0,1,2,3,fix", "0,", "1,", "3,", "E loop: malformed request", "E loop: malformed request", "E loop: malformed request", "E loop: input left over"] : List<&2, String>}
+  {[FLp.ffi("0,0,0,0,0,0,0,0,0,0,1,3,1,3,abc1,3,fix5,"), FLp.ffi("0,3,1,1,3,0,1,3,abc3,fix0,0,5,1,0,0,F9,T"), FLp.ffi("0,2,1,1,2,0,0,3,fix0,0,4,1,0,F7,T"), FLp.ffi("1,T0,0,"), FLp.ffi("1,F0,0,"), FLp.ffi("1,T4,"), FLp.ffi("1,T0,2,"), FLp.ffi("1,F0,2,"), FLp.ffi("1,T0,127,"), FLp.ffi(""), FLp.ffi("0,0,0,0,0,0,0,0,0,7,"), FLp.ffi("2,"), FLp.ffi("1,T0,0,x")] == ["2,1,1,3,0,1,3,abc3,fix0,0,1,1,3,fix", "5,0,1,1,3,0,1,3,abc3,fix0,1,1,0,0,5,0,", "2,2,1,1,0,0,3,fix0,0,1,2,3,fix", "0,", "1,", "3,", "1,", "0,", "2,", "E loop: malformed request", "E loop: malformed request", "E loop: malformed request", "E loop: input left over"] : List<&2, String>}

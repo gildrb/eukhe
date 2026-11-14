@@ -510,19 +510,19 @@ async fn an_armed_loop_repeats_the_next_prompt_of_the_user() {
     lab.close().await;
 }
 
-/// L3: a condition command that breaks (a status above 1) ends the loop
-/// as a broken check, with the broken-check line; it is never read as
-/// "not yet".
+/// L3: a condition command the shell cannot run (exit 127: not found)
+/// ends the loop as a broken check, with the broken-check line; it is
+/// never read as "not yet".
 #[tokio::test]
 async fn a_broken_condition_ends_the_loop() {
     let lab = open(vec![answer("1"), answer("no")]).await;
-    lab.run("/loop --until 'echo boom; exit 3' go").await;
+    lab.run("/loop --until 'echo boom; exit 127' go").await;
     lab.idle().await;
     assert_eq!(lab.sent().await, sends("go", &[1]));
     assert_eq!(
         lab.notices().await,
         vec![
-            "Loop condition `echo boom; exit 3` failed (exit 3): boom. Loop mode disabled."
+            "Loop condition `echo boom; exit 127` failed (exit 127): boom. Loop mode disabled."
                 .to_owned()
         ]
     );
@@ -535,6 +535,26 @@ async fn a_broken_condition_ends_the_loop() {
             },
             Some(LoopVerdict::Broken)
         )
+    );
+    lab.close().await;
+}
+
+/// L3: a failing command (any nonzero exit but 126 and 127, here exit 3)
+/// shows an `--until` condition does not hold yet: the loop goes on until
+/// the command exits 0.
+#[tokio::test]
+async fn a_failing_condition_is_not_yet() {
+    let lab = open(vec![answer("1"), answer("2"), answer("no")]).await;
+    // Exits 3 at its first run, 0 from the second.
+    let check =
+        "r=$(cat runs 2>/dev/null || echo 0); r=$((r+1)); echo $r > runs; test $r -ge 2 || exit 3";
+    lab.run(&format!("/loop --until '{check}' go")).await;
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1, 2]));
+    let notices = lab.notices().await;
+    assert!(
+        notices.len() == 1 && notices[0].ends_with("` is now satisfied. Loop mode disabled."),
+        "{notices:?}"
     );
     lab.close().await;
 }

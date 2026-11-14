@@ -17,7 +17,7 @@ import Base
 
 # The condition: a shell command whose exit status is the evidence.
 # Until: the loop stops once the command succeeds. While: the loop stops
-# once the command fails.
+# once the command fails (exits nonzero, other than 126 or 127).
 type Cond is Data:
   NoCond{}
   Until{cmd: String}
@@ -128,23 +128,33 @@ type Act is Data:
 # The verdict
 # -----------
 
+# exit 126 (found, not executable) or 127 (not found): the shell could not
+# run the command
+def cannot_run(+code: Nat) -> Bool:
+  Bool.or(Nat.is_eq(code, 126n), Nat.is_eq(code, 127n))
+
+# the verdict of a nonzero exit: broken when the shell could not run the
+# command, else v
+def judge.nonzero(broke: Bool, v: Verdict) -> Verdict:
+  match broke:
+    case True{}:
+      Broken{}
+    case False{}:
+      v
+
 def judge.until(code: Nat) -> Verdict:
   match code:
     case 0n:
       Confirmed{}
-    case 1n:
-      Refuted{}
-    case 2n+k:
-      Broken{}
+    case 1n+k:
+      judge.nonzero(cannot_run(1n+k), Refuted{})
 
 def judge.while(code: Nat) -> Verdict:
   match code:
     case 0n:
       Refuted{}
-    case 1n:
-      Confirmed{}
-    case 2n+k:
-      Broken{}
+    case 1n+k:
+      judge.nonzero(cannot_run(1n+k), Confirmed{})
 
 def judge.exit(until: Bool, code: Nat) -> Verdict:
   match until:

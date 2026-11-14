@@ -153,24 +153,32 @@ def lb.exit0(ev: Lp.Evid, h: {S.exited_with(ev, 0n) == True{} : Bool}) -> {Lp.Ex
     case Lp.Cancelled{}:
       lb.absurd_ft({Lp.Exited{0n} == Lp.Cancelled{} : Lp.Evid}, h)
 
-def lb.exit1(ev: Lp.Evid, h: {S.exited_with(ev, 1n) == True{} : Bool}) -> {Lp.Exited{1n} == ev : Lp.Evid}:
+# a nonzero exit, neither 126 nor 127 (b, the test of those two, False),
+# refutes an `--until` condition
+def lb.nz_refuted(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {Lp.Refuted{} == Lp.judge.nonzero(b, Lp.Refuted{}) : Lp.Verdict}:
+  match b:
+    case True{}:
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
+    case False{}:
+      {==}
+
+# evidence that shows an `--until` condition does not hold yet refutes it
+def lb.until_go(ev: Lp.Evid, h: {S.exited_failing(ev) == True{} : Bool}) -> {Lp.Refuted{} == Lp.judge(True{}, ev) : Lp.Verdict}:
   match ev:
     case Lp.Exited{code}:
       match code:
         case 0n:
-          lb.absurd_ft({Lp.Exited{1n} == Lp.Exited{0n} : Lp.Evid}, h)
-        case 1n:
-          {==}
-        case 2n+q:
-          lb.absurd_ft({Lp.Exited{1n} == Lp.Exited{2n+q} : Lp.Evid}, h)
+          lb.absurd_ft({Lp.Refuted{} == Lp.Confirmed{} : Lp.Verdict}, h)
+        case 1n+q:
+          lb.nz_refuted(Lp.cannot_run(1n+q), h)
     case Lp.NoStatus{}:
-      lb.absurd_ft({Lp.Exited{1n} == Lp.NoStatus{} : Lp.Evid}, h)
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
     case Lp.TimedOut{}:
-      lb.absurd_ft({Lp.Exited{1n} == Lp.TimedOut{} : Lp.Evid}, h)
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
     case Lp.SpawnFailed{}:
-      lb.absurd_ft({Lp.Exited{1n} == Lp.SpawnFailed{} : Lp.Evid}, h)
+      lb.absurd_ft({Lp.Refuted{} == Lp.Broken{} : Lp.Verdict}, h)
     case Lp.Cancelled{}:
-      lb.absurd_ft({Lp.Exited{1n} == Lp.Cancelled{} : Lp.Evid}, h)
+      lb.absurd_ft({Lp.Refuted{} == Lp.Unjudged{} : Lp.Verdict}, h)
 
 # evidence that shows the stop condition does not hold yet is refuted: the
 # check advances the loop and keeps the evidence
@@ -179,7 +187,7 @@ def lb.go_cond(c: Lp.Cond, ev: Lp.Evid, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&
     case Lp.NoCond{}:
       lb.absurd_ft({Lp.advance(i, l, d, Lp.NoCond{}, b, f, Lp.Check{i, ev}, now, fu) == Lp.judged.cond(Lp.NoCond{}, i, l, d, b, f, x, ev, now, fu) : Lp.St & Lp.Act}, hg)
     case Lp.Until{cmd}:
-      %lb.exit1(ev, hg) : {Lp.advance(i, l, d, Lp.Until{cmd}, b, f, Lp.Check{i, _}, now, fu) == Lp.judged.cond(Lp.Until{cmd}, i, l, d, b, f, x, _, now, fu) : Lp.St & Lp.Act}
+      %lb.until_go(ev, hg) : {Lp.advance(i, l, d, Lp.Until{cmd}, b, f, Lp.Check{i, ev}, now, fu) == Lp.judged.verdict(_, i, l, d, Lp.Until{cmd}, b, f, x, ev, now, fu) : Lp.St & Lp.Act}
       {==}
     case Lp.While{cmd}:
       %lb.exit0(ev, hg) : {Lp.advance(i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, _}, now, fu) == Lp.judged.cond(Lp.While{cmd}, i, l, d, b, f, x, _, now, fu) : Lp.St & Lp.Act}
@@ -717,6 +725,23 @@ def lb.noop_adv_j(h: Maybe<&2, Lp.End>, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&
     case None{}:
       {==}
 
+# a nonzero exit judged again: a broken check (b: 126 or 127) ended the
+# loop; "not yet" moved it on
+def lb.noop_until(b: Bool, -cmd: String, -q: Nat, -k: Nat, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -bb: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Noop(Lp.judged.verdict(Lp.judge.nonzero(b, Lp.Refuted{}), i, l, d, Lp.Until{cmd}, bb, f, x, Lp.Exited{1n+q}, now, fu), Lp.Judged{k, Lp.Exited{1n+q}, False{}, now, fu}):
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      lb.noop_adv_j(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Until{cmd}, bb, f, Lp.Check{i, Lp.Exited{1n+q}}, k, Lp.Exited{1n+q}, now, fu)
+
+# ... of a `--while` condition: it ended the loop either way
+def lb.noop_while(b: Bool, -cmd: String, -q: Nat, -k: Nat, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -bb: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lb.Noop(Lp.judged.verdict(Lp.judge.nonzero(b, Lp.Confirmed{}), i, l, d, Lp.While{cmd}, bb, f, x, Lp.Exited{1n+q}, now, fu), Lp.Judged{k, Lp.Exited{1n+q}, False{}, now, fu}):
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 # a judged check of an idle session, delivered again to a loop that was
 # judging: not its own (m False); its own and the loop ended or moved on;
 # or cancelled, which changed nothing the first time either
@@ -732,10 +757,8 @@ def lb.noop_judged(m: Bool, c: Lp.Cond, ev: Lp.Evid, -k: Nat, -i: Nat, l: Maybe<
               match code:
                 case 0n:
                   {==}
-                case 1n:
-                  lb.noop_adv_j(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Until{cmd}, b, f, Lp.Check{i, Lp.Exited{1n}}, k, Lp.Exited{1n}, now, fu)
-                case 2n+q:
-                  {==}
+                case 1n++q:
+                  lb.noop_until(Lp.cannot_run(1n+q), cmd, q, k, i, l, d, b, f, x, now, fu)
             case Lp.NoStatus{}:
               {==}
             case Lp.TimedOut{}:
@@ -751,10 +774,8 @@ def lb.noop_judged(m: Bool, c: Lp.Cond, ev: Lp.Evid, -k: Nat, -i: Nat, l: Maybe<
               match code:
                 case 0n:
                   lb.noop_adv_j(Lp.halt(f, fu, l, d, now), i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, Lp.Exited{0n}}, k, Lp.Exited{0n}, now, fu)
-                case 1n:
-                  {==}
-                case 2n+q:
-                  {==}
+                case 1n++q:
+                  lb.noop_while(Lp.cannot_run(1n+q), cmd, q, k, i, l, d, b, f, x, now, fu)
             case Lp.NoStatus{}:
               {==}
             case Lp.TimedOut{}:
@@ -934,6 +955,22 @@ def lb.blocked(e: Lp.Ev, p: Lp.Phase, i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, 
 # The evidence kept
 # -----------------
 
+# the evidence of a nonzero exit is kept: a broken check (b: 126 or 127)
+# keeps it at the end; "not yet" keeps it through the advance
+def lb.records_until(b: Bool, -cmd: String, -q: Nat, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -bb: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> {S.last(S.state(Lp.judged.verdict(Lp.judge.nonzero(b, Lp.Refuted{}), i, l, d, Lp.Until{cmd}, bb, f, x, Lp.Exited{1n+q}, now, fu))) == Lp.Check{i, Lp.Exited{1n+q}} : Lp.Last}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      lb.adv_last(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Until{cmd}, bb, f, Lp.Check{i, Lp.Exited{1n+q}})
+
+def lb.records_while(b: Bool, -cmd: String, -q: Nat, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -bb: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> {S.last(S.state(Lp.judged.verdict(Lp.judge.nonzero(b, Lp.Confirmed{}), i, l, d, Lp.While{cmd}, bb, f, x, Lp.Exited{1n+q}, now, fu))) == Lp.Check{i, Lp.Exited{1n+q}} : Lp.Last}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 # LAW loop_records_evidence, at the check: every verdict but Unjudged
 # keeps the evidence with the iteration
 def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.When(S.has_cond(c), lb.When(S.decides(ev), {S.last(S.state(Lp.judged.cond(c, i, l, d, b, f, x, ev, now, fu))) == Lp.Check{i, ev} : Lp.Last})):
@@ -946,10 +983,8 @@ def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2,
           match code:
             case 0n:
               {==}
-            case 1n:
-              lb.adv_last(Lp.halt(f, fu, l, d, now), i, l, d, Lp.Until{cmd}, b, f, Lp.Check{i, Lp.Exited{1n}})
-            case 2n+q:
-              {==}
+            case 1n++q:
+              lb.records_until(Lp.cannot_run(1n+q), cmd, q, i, l, d, b, f, x, now, fu)
         case Lp.NoStatus{}:
           {==}
         case Lp.TimedOut{}:
@@ -964,10 +999,8 @@ def lb.records(c: Lp.Cond, ev: Lp.Evid, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2,
           match code:
             case 0n:
               lb.adv_last(Lp.halt(f, fu, l, d, now), i, l, d, Lp.While{cmd}, b, f, Lp.Check{i, Lp.Exited{0n}})
-            case 1n:
-              {==}
-            case 2n+q:
-              {==}
+            case 1n++q:
+              lb.records_while(Lp.cannot_run(1n+q), cmd, q, i, l, d, b, f, x, now, fu)
         case Lp.NoStatus{}:
           {==}
         case Lp.TimedOut{}:

@@ -104,8 +104,8 @@ impl<'de> Deserialize<'de> for LoopVerdict {
 pub enum LoopEnd {
     /// Its stop condition was confirmed by the condition command.
     Satisfied,
-    /// The condition command broke (a status above 1, no status, a
-    /// timeout, a failed start).
+    /// The condition command broke (exit 126 or 127: it cannot run or is
+    /// not found; no status, a timeout, a failed start).
     CheckBroke,
     /// The iteration count is used up.
     OutOfTurns,

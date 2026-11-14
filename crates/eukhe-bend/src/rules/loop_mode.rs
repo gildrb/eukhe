@@ -549,6 +549,7 @@ mod tests {
                     LoopEvidence::Exited { code: 0 },
                     LoopEvidence::Exited { code: 1 },
                     LoopEvidence::Exited { code: 2 },
+                    LoopEvidence::Exited { code: 126 },
                     LoopEvidence::Exited { code: 127 },
                     LoopEvidence::NoStatus,
                     LoopEvidence::TimedOut,
@@ -561,8 +562,8 @@ mod tests {
         assert_eq!(
             table,
             vec![
-                Confirmed, Refuted, Broken, Broken, Broken, Broken, Broken, Unjudged, Refuted,
-                Confirmed, Broken, Broken, Broken, Broken, Broken, Unjudged,
+                Confirmed, Refuted, Refuted, Broken, Broken, Broken, Broken, Broken, Unjudged,
+                Refuted, Confirmed, Confirmed, Broken, Broken, Broken, Broken, Broken, Unjudged,
             ]
         );
     }
