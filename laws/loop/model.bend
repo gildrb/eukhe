@@ -80,19 +80,26 @@ import ../../spec/loop/loop.bend as S
 # ----------------------
 
 # LAW loop_verdict_table (L3): the verdict of each piece of evidence, for
-# `--until` (True) and `--while` (False): exit 1 is the only "condition is
-# false" status, so any exit status of 2 or more (k free) is a broken check.
-# EXCLUDES: exit 1 read as a broken check, a status above 1 or a timeout
-#   read as "false" (a typo'd condition ending the loop like finished
-#   work, or running it forever), stdout consulted, the polarity swapped
+# `--until` (True) and `--while` (False): exit 0 is the only "condition is
+# true" status; every other exit status (1+k, k free, but neither 126 nor
+# 127) is "condition is false"; exit 126 and 127 (the shell could not run
+# the command) are a broken check.
+# EXCLUDES: a failing command (exit 1, exit 2, exit 101) read as a broken
+#   check, exit 126 or 127, no status or a timeout read as "false" (a
+#   typo'd condition ending the loop like finished work, or running it
+#   forever), stdout consulted, the polarity swapped
 law loop_verdict_table:
   for k: Nat
+  for h126: {Nat.is_eq(1n+k, 126n) == False{} : Bool}
+  for h127: {Nat.is_eq(1n+k, 127n) == False{} : Bool}
   {Lp.judge(True{}, Lp.Exited{0n}) == Lp.Confirmed{} : Lp.Verdict} &      # exit 0, --until: halt, "is now satisfied"
-  {Lp.judge(True{}, Lp.Exited{1n}) == Lp.Refuted{} : Lp.Verdict} &        # exit 1, --until: continue
+  {Lp.judge(True{}, Lp.Exited{1n+k}) == Lp.Refuted{} : Lp.Verdict} &      # other exit, --until: continue
   {Lp.judge(False{}, Lp.Exited{0n}) == Lp.Refuted{} : Lp.Verdict} &       # exit 0, --while: continue
-  {Lp.judge(False{}, Lp.Exited{1n}) == Lp.Confirmed{} : Lp.Verdict} &     # exit 1, --while: halt, "no longer holds"
-  {Lp.judge(True{}, Lp.Exited{2n+k}) == Lp.Broken{} : Lp.Verdict} &       # exit > 1: error, "failed (exit N)"
-  {Lp.judge(False{}, Lp.Exited{2n+k}) == Lp.Broken{} : Lp.Verdict} &      # either polarity
+  {Lp.judge(False{}, Lp.Exited{1n+k}) == Lp.Confirmed{} : Lp.Verdict} &   # other exit, --while: halt, "no longer holds"
+  {Lp.judge(True{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &      # exit 126: error, "failed (exit 126)"
+  {Lp.judge(False{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &     # either polarity
+  {Lp.judge(True{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &      # exit 127: error, "failed (exit 127)"
+  {Lp.judge(False{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &     # either polarity
   {Lp.judge(True{}, Lp.NoStatus{}) == Lp.Broken{} : Lp.Verdict} &         # "no exit status": error
   {Lp.judge(False{}, Lp.NoStatus{}) == Lp.Broken{} : Lp.Verdict} &        # either polarity
   {Lp.judge(True{}, Lp.TimedOut{}) == Lp.Broken{} : Lp.Verdict} &         # timed out: error, before the abort check

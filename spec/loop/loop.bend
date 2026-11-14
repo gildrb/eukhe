@@ -11,10 +11,10 @@
 #     history with neither is unattended.
 # S3: the evidence of a condition is the exit status of its command, read
 #     after the last turn. For `--until`, exit 0 shows the stop condition
-#     and exit 1 shows it does not hold yet; for `--while` the reverse.
-#     Nothing else shows either (exit 1 is the only "condition is false"
-#     status; anything higher, no status, a timeout or a failed start is
-#     the check breaking).
+#     and any other exit status but 126 and 127 shows it does not hold
+#     yet; for `--while` the reverse. Nothing else shows either (exit 126
+#     and 127, where the shell could not run the command, no status, a
+#     timeout or a failed start is the check breaking).
 # S4: the bounds of an automatic iteration: the count of the start (one
 #     fewer after each), the deadline of the start (the clock must be
 #     before it), three failed turns in a row, the budget.
@@ -379,6 +379,21 @@ def exited_with(ev: Lp.Evid, n: Nat) -> Bool:
     case Lp.Cancelled{}:
       False{}
 
+# the command exited nonzero with a status other than 126 (found, not
+# executable) and 127 (not found): it ran and said no
+def exited_failing(ev: Lp.Evid) -> Bool:
+  match ev:
+    case Lp.Exited{+code}:
+      Bool.not(Bool.or(Nat.is_eq(code, 0n), Bool.or(Nat.is_eq(code, 126n), Nat.is_eq(code, 127n))))
+    case Lp.NoStatus{}:
+      False{}
+    case Lp.TimedOut{}:
+      False{}
+    case Lp.SpawnFailed{}:
+      False{}
+    case Lp.Cancelled{}:
+      False{}
+
 # the evidence shows the stop condition of c
 def shows_stop(c: Lp.Cond, ev: Lp.Evid) -> Bool:
   match c:
@@ -387,7 +402,7 @@ def shows_stop(c: Lp.Cond, ev: Lp.Evid) -> Bool:
     case Lp.Until{cmd}:
       exited_with(ev, 0n)
     case Lp.While{cmd}:
-      exited_with(ev, 1n)
+      exited_failing(ev)
 
 # the evidence shows the stop condition of c does not hold yet
 def shows_go(c: Lp.Cond, ev: Lp.Evid) -> Bool:
@@ -395,7 +410,7 @@ def shows_go(c: Lp.Cond, ev: Lp.Evid) -> Bool:
     case Lp.NoCond{}:
       False{}
     case Lp.Until{cmd}:
-      exited_with(ev, 1n)
+      exited_failing(ev)
     case Lp.While{cmd}:
       exited_with(ev, 0n)
 

@@ -75,7 +75,7 @@ describe("the session's loop", () => {
       endNote(
         status(
           { state: "ended", end: "check_broke" },
-          { lastCheck: { iteration: 3, evidence: { kind: "exited", code: 3 } } },
+          { lastCheck: { iteration: 3, evidence: { kind: "exited", code: 127 } } },
         ),
       ),
       endNote(status({ state: "ended", end: "out_of_turns" })),
@@ -85,7 +85,7 @@ describe("the session's loop", () => {
       endNote(status({ state: "ended", end: "stopped" }, { iteration: 0 })),
     ]).toEqual([
       { kind: "note", text: "Loop ended after iteration 3: its condition no longer holds." },
-      { kind: "error", text: "Loop ended after iteration 3: the condition check broke (exit 3)." },
+      { kind: "error", text: "Loop ended after iteration 3: the condition check broke (exit 127)." },
       { kind: "note", text: "Loop ended after iteration 3: its iterations are used up." },
       { kind: "note", text: "Loop ended after iteration 3: its time is up." },
       { kind: "error", text: "Loop ended after iteration 3: 3 turns failed in a row." },

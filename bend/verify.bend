@@ -138,17 +138,29 @@ def grade_command(expect: Nat, intact: Bool, ev: Evidence) -> Verdict:
     case False{}:
       Refuted{}
 
+# exit 126 (found, not executable) or 127 (not found): the shell could not
+# run the command
+def cannot_run(+code: Nat) -> Bool:
+  Bool.or(Nat.is_eq(code, 126n), Nat.is_eq(code, 127n))
+
+def grade_until.nonzero(broke: Bool) -> Verdict:
+  match broke:
+    case True{}:
+      Broken{}
+    case False{}:
+      Refuted{}
+
 def grade_until.code(code: Nat) -> Verdict:
   match code:
     case 0n:
       Confirmed{}
-    case 1n:
-      Refuted{}
-    case 2n+p:
-      Broken{}
+    case 1n+p:
+      grade_until.nonzero(cannot_run(1n+p))
 
 # the verdict of a loop's until-condition (a shell command): exit 0 holds,
-# exit 1 does not hold yet, anything else is the condition breaking
+# any other exit does not hold yet, except 126 and 127 (the shell could
+# not run it), which, like no status, a timeout or a failed start, are
+# the condition breaking
 def grade_until(ev: Evidence) -> Verdict:
   match ev:
     case Exited{code}:
