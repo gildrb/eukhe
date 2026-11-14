@@ -17,17 +17,16 @@
     clippy::cast_precision_loss
 )]
 
-//! Real-terminal e2e for the inline auth panel (the `/login` Prime
-//! Inference team picker): the product's terminal renderer runs on a
-//! pty, and the harness proves the login flow NEVER takes the terminal
-//! over -- no screen clear, no bracketed-paste release (the old suspend
-//! bracket) -- while the panel and the team picker render in the live
-//! area (the TS `LoginDialogComponent` + `PrimeTeamSelectorComponent`
-//! surfaces).
+//! Real-terminal e2e for the inline auth panel (the `/login`
+//! subscription login's paste prompt): the product's terminal renderer
+//! runs on a pty, and the harness proves the login flow NEVER takes the
+//! terminal over -- no screen clear, no bracketed-paste release (the old
+//! suspend bracket) -- while the panel and its paste field render in the
+//! live area (the TS `LoginDialogComponent` surface).
 //!
 //! The child halves re-execute this binary in terminal mode against a
-//! mock supervisor: the `/login` Prime Inference child (a scripted
-//! provider-auth hook that drives the panel through the team picker) and
+//! mock supervisor: the `/login` subscription child (a scripted
+//! provider-auth hook that drives the panel through a paste prompt) and
 //! the `/mcp`-view child (a scripted client-auth hook + the roster whose
 //! Enter runs the login). The byte stream the pty collects is the
 //! product's own rendering path. A plain `cargo test` run (no
@@ -44,14 +43,14 @@ use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
 use nix::pty::{openpty, Winsize};
 use serde_json::{json, Value};
 
-use eukhe_tui::auth_panel::{AuthPanelHandle, PrimeTeamOption, PrimeTeamPick};
+use eukhe_tui::auth_panel::{AuthPanelHandle, PastePromptTone, PasteStyle};
 use eukhe_tui::interactive::{
     run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
 use eukhe_tui::provider_auth::{
     AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAuthCommands,
     ProviderAuthCommandsHandle, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
-    ProviderWarningFuture, PRIME_INFERENCE_PROVIDER_ID,
+    ProviderWarningFuture, OPENAI_CODEX_PROVIDER_ID,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -117,17 +116,17 @@ fn model_sign_in_child_mode() {
     let _ = runtime.block_on(run_interactive(options, UiMode::Terminal));
 }
 
-/// The scripted provider-auth hook: the Prime Inference row and the
-/// panel-driven login (a progress line, then the team picker, then the
+/// The scripted provider-auth hook: the Codex Subscription row and the
+/// panel-driven login (a progress line, then the paste prompt, then the
 /// TS status row).
 struct ScriptedProviderAuth;
 
 impl ProviderAuthCommands for ScriptedProviderAuth {
     fn login_options(&self) -> ProviderRowsFuture {
         let row = ProviderRow {
-            id: PRIME_INFERENCE_PROVIDER_ID.to_string(),
-            name: "Prime Inference".to_string(),
-            auth_type: AuthType::ApiKey,
+            id: OPENAI_CODEX_PROVIDER_ID.to_string(),
+            name: "Codex Subscription".to_string(),
+            auth_type: AuthType::Oauth,
             status: Some(AuthStatusIndicator {
                 style: AuthStatusStyle::Success,
                 label: "configured".to_string(),
@@ -161,31 +160,17 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
     ) -> Pin<Box<dyn std::future::Future<Output = ProviderAuthOutcome> + Send>> {
         let name = provider.name.clone();
         Box::pin(async move {
-            panel.progress("Loading Prime teams...");
-            let teams = vec![
-                PrimeTeamOption {
-                    team_id: "team-acme".to_string(),
-                    name: "Acme Corp".to_string(),
-                    slug: Some("acme".to_string()),
-                    role: Some("Owner".to_string()),
-                    created_at: None,
-                },
-                PrimeTeamOption {
-                    team_id: "team-beta".to_string(),
-                    name: "Beta Team".to_string(),
-                    slug: None,
-                    role: None,
-                    created_at: None,
-                },
-            ];
-            match panel.select_team(teams, None).await {
-                PrimeTeamPick::Team(team) => ProviderAuthOutcome::Status(format!(
-                    "Saved API key for {name}. Using team \"{}\".",
-                    team.name
-                )),
-                _ => ProviderAuthOutcome::Status(format!(
-                    "Saved API key for {name}. Using personal account."
-                )),
+            panel.progress("Opening the browser...");
+            match panel
+                .paste_prompt(
+                    "Paste the authorization code:",
+                    PastePromptTone::Muted,
+                    PasteStyle::Visible,
+                )
+                .await
+            {
+                Some(_) => ProviderAuthOutcome::Status(format!("Logged in to {name}.")),
+                None => ProviderAuthOutcome::Cancelled,
             }
         })
     }
@@ -226,7 +211,6 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
-        onboarding: None,
         client_auth: None,
         provider_auth: Some(ProviderAuthCommandsHandle(Arc::new(ScriptedProviderAuth))),
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
@@ -399,13 +383,13 @@ const PASTE_ENABLE: &str = "\x1b[?2004h";
 const SCREEN_CLEAR: &str = "\x1b[2J";
 const PASTE_DISABLE: &str = "\x1b[?2004l";
 
-/// The terminal-sequence e2e: `/login` selects the Prime Inference row,
-/// the login drives the inline auth panel, and the pty's byte stream
-/// shows the panel and the team picker rendering WITHOUT any terminal
-/// takeover -- the old flow's screen clear + raw stdin prompt never
-/// happen.
+/// The terminal-sequence e2e: `/login` selects the Codex Subscription
+/// row, the login drives the inline auth panel, and the pty's byte
+/// stream shows the panel and its paste field rendering WITHOUT any
+/// terminal takeover -- the old flow's screen clear + raw stdin prompt
+/// never happen.
 #[test]
-fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
+fn panel_login_renders_the_paste_prompt_without_a_terminal_takeover() {
     let mut harness = LoginPanelHarness::start();
 
     harness.wait_from_start(PASTE_ENABLE, "the startup bracketed-paste enable");
@@ -414,26 +398,23 @@ fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
     harness.write(b"/login\r");
     harness.wait_from_start("Search providers", "the provider selector panel");
 
-    // Enter selects the Prime Inference row: the login flow starts. The
-    // window from here to the settled status is the takeover-free proof.
+    // Enter selects the Codex Subscription row: the login flow starts.
+    // The window from here to the settled status is the takeover-free
+    // proof.
     let mark = harness.mark();
     harness.write(b"\r");
-    // The picker's mount needle is its subtitle line.
+    harness.wait_from(mark, "Opening the browser...", "the progress line");
     harness.wait_from(
         mark,
-        "Choose which account pays for Prime Inference usage.",
-        "the inline team picker",
+        "Paste the authorization code:",
+        "the inline paste prompt",
     );
 
-    // The picker's rows render inline (the TS selector rows).
-    harness.wait_from(mark, "Acme Corp", "the team row");
-    harness.wait_from(mark, "personal account", "the personal row");
-
-    // Enter picks the personal account; the settled status lands.
-    harness.write(b"\r");
+    // The typed code submits; the settled status lands.
+    harness.write(b"code-1\r");
     harness.wait_from(
         mark,
-        "Saved API key for Prime Inference. Using personal account.",
+        "Logged in to Codex Subscription.",
         "the settled login status",
     );
 
@@ -447,12 +428,6 @@ fn prime_login_renders_the_team_picker_without_a_terminal_takeover() {
     assert!(
         find_subsequence(window, PASTE_DISABLE.as_bytes()).is_none(),
         "the login never releases bracketed paste (the old suspend bracket)"
-    );
-    // The numbered stdin prompt is gone too: the flow renders through
-    // the panel, not the plain terminal.
-    assert!(
-        find_subsequence(window, "Enter a team number".as_bytes()).is_none(),
-        "the numbered stdin prompt never prints"
     );
 
     harness.finish();

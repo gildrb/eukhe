@@ -622,35 +622,6 @@ impl SessionUi {
         }
     }
 
-    /// The onboarding default-model apply (TS
-    /// `prepareForModelSelectionAfterLogin`): the switch runs through the
-    /// same `try_set_model` path the model picker uses. A refusal after
-    /// the just-completed sign-in keeps the flow moving (TS's post-login
-    /// "still unavailable" row -- never a second sign-in route inside the
-    /// onboarding pane), and every other failure already rendered its
-    /// error row, so the caller never branches.
-    pub(crate) async fn apply_model_selection(
-        &mut self,
-        provider: &str,
-        model_id: &str,
-        view: &mut AgentView,
-    ) {
-        match self
-            .try_set_model(provider, model_id, SwitchScope::Session, view)
-            .await
-        {
-            // The switch recorded its own `Model: <id>` row; every other
-            // failure already rendered the error row.
-            SetModelOutcome::Switched | SetModelOutcome::Failed => {}
-            SetModelOutcome::NeedsSignIn => {
-                self.error_row(
-                    &format!("Authentication completed, but {provider} is still unavailable."),
-                    view,
-                );
-            }
-        }
-    }
-
     /// TS `handleModelCycle` (the `app.model.cycleForward`/`cycleBackward`
     /// actions, defaults alt+m / shift+alt+m): cycle within the session's
     /// scoped list when one is set, else the available catalog. A `null`

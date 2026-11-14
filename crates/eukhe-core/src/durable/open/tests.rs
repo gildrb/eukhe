@@ -596,7 +596,7 @@ async fn a_saved_default_missing_from_the_catalog_shows_a_notice_row() {
         vec![crate::durable::entries::CustomEntryData {
             custom_type: DEFAULT_MODEL_NOTICE_CUSTOM_TYPE.to_owned(),
             content: Some(UserContent::Text(format!(
-                "The saved default model {provider}/gone did not run: the model catalog does not have it. The session runs on {provider}/{id}.",
+                "The saved default model {provider}/gone is unavailable: the model catalog does not have it. The session runs on {provider}/{id}; /model changes it.",
                 provider = model.provider,
                 id = model.model_id
             ))),

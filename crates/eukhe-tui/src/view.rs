@@ -80,11 +80,8 @@ pub struct AgentView {
     /// `terminal.stuckAfterSecs`: a running agent quiet this long shows
     /// `no activity for ...`; `0` is off.
     pub stuck_after_secs: u64,
-    /// The first-run onboarding pane (TS `runStartupOnboarding`): while
-    /// set, it owns the whole frame.
-    pub onboarding: Option<crate::onboarding::OnboardingScreen>,
     /// The `/model` hub (the roles, then a role's models): while set, it
-    /// owns the whole frame like the onboarding pane.
+    /// owns the whole frame.
     pub model_hub: Option<crate::model_hub::ModelHub>,
     /// The `/tree` selector (owns the frame while open).
     pub tree_selector: Option<crate::tree_selector::TreeSelector>,
@@ -93,9 +90,8 @@ pub struct AgentView {
     /// The `/login` / `/logout` provider selector (TS
     /// `OAuthSelectorComponent` inline): owns the frame while open.
     pub provider_auth: Option<crate::provider_auth::ProviderAuthSelector>,
-    /// The inline auth panel (TS `LoginDialogComponent` +
-    /// `PrimeTeamSelectorComponent`): owns the frame while a login flow
-    /// drives it through the panel channel.
+    /// The inline auth panel (TS `LoginDialogComponent`): owns the frame
+    /// while a login flow drives it through the panel channel.
     pub auth_panel: Option<crate::auth_panel::AuthPanel>,
     /// The `/fork` user-message selector.
     pub fork_selector: Option<crate::user_message_selector::UserMessageSelector>,
@@ -164,8 +160,8 @@ pub struct AgentView {
     /// rebinds directly into a non-empty transcript suppresses it (TS
     /// mounts the chat over an already-attached connection, so its first
     /// visible frame is the content). Every empty chat keeps it (TS
-    /// `BrandSplashHeader` is the new chat's header, `quietStartup` and
-    /// the onboarding `getHidden` are TS's own suppression gates).
+    /// `BrandSplashHeader` is the new chat's header, and `quietStartup`
+    /// is TS's own suppression gate).
     pub splash_suppressed: bool,
     /// The `quietStartup` setting: the brand splash never renders.
     pub quiet_startup: bool,
@@ -346,7 +342,6 @@ impl AgentView {
             agents_panel: crate::agents_panel::AgentsPanel::default(),
             pinned_agents: crate::agents_panel::PinnedAgents::default(),
             stuck_after_secs: crate::agents_panel::DEFAULT_STUCK_AFTER_SECS,
-            onboarding: None,
             model_hub: None,
             tree_selector: None,
             confirm: None,

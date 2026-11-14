@@ -224,26 +224,52 @@ async fn a_missing_saved_model_names_its_setting_and_writes_nothing() {
         notices.push(home.open().await.notice());
         unchanged.push(home.files() == before);
     }
-    let runs_on = "the model catalog does not have it. The session runs on battery/mock-reason.";
+    let runs_on = "the model catalog does not have it. The session runs on battery/mock-reason; /model changes it.";
     assert_eq!(
         (notices, unchanged),
         (
             vec![
                 Some(format!(
-                    "The saved default model battery/gone did not run: {runs_on}"
+                    "The saved default model battery/gone is unavailable: {runs_on}"
                 )),
                 Some(format!(
-                    "The all-roles model battery/gone (modelRoles.all) did not run: {runs_on}"
+                    "The all-roles model battery/gone (modelRoles.all) is unavailable: {runs_on}"
                 )),
                 Some(format!(
-                    "The all-roles model gone (modelRoles.all) did not run: {runs_on}"
+                    "The all-roles model gone (modelRoles.all) is unavailable: {runs_on}"
                 )),
                 Some(format!(
-                    "The all-roles model anthropic/{} (modelRoles.all) did not run: its provider has no credentials. eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change modelRoles.all. The session has no model.",
+                    "The all-roles model anthropic/{} (modelRoles.all) is unavailable: its provider has no credentials. eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change modelRoles.all. The session has no model.",
                     anthropic.id
                 )),
             ],
             vec![true; 4]
         )
+    );
+}
+
+/// A home with no usable model opens without one and points at `/login`
+/// and `/model`: with nothing saved, and with a saved default whose
+/// provider this build no longer carries (an earlier release's default).
+#[tokio::test]
+async fn a_home_without_a_usable_model_points_at_login_and_model() {
+    let empty = Home::new(r#"{ "providers": {} }"#);
+    let retired = Home::new(r#"{ "providers": {} }"#);
+    assert_eq!(
+        retired
+            .settings()
+            .set_default_model_and_provider("retired", "model-1")
+            .unwrap(),
+        Persisted::Applies
+    );
+    assert_eq!(
+        [empty.open().await.notice(), retired.open().await.notice()],
+        [
+            Some("No model selected. /login adds a provider; /model picks a model.".to_owned()),
+            Some(
+                "The saved default model retired/model-1 is unavailable: the model catalog does not have it. Use /login to add a provider, or pick a model with /model. The session has no model."
+                    .to_owned()
+            ),
+        ]
     );
 }

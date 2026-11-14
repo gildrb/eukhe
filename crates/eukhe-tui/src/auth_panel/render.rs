@@ -1,27 +1,24 @@
-//! The render surface (moved with its concern): the per-surface chrome,
-//! the progress block, the URL block with the OSC 8 wrap, the paste
-//! field, the team picker rows, and the auth-actions row the provider
-//! selector's API-key prompt reuses.
+//! The render surface (moved with its concern): the panel chrome, the
+//! progress block, the URL block with the OSC 8 wrap, the paste field,
+//! and the auth-actions row the provider selector's API-key prompt
+//! reuses.
 
 use super::{
-    hint_row, key_hint, login_field_row, menu_row, no_match_row, scroll_row, scrub_controls,
-    search_field_lines, search_field_plain_row, AuthPanel, CopyStatus, KeybindingsManager, Line,
-    MenuSegment, Modifier, PanelInput, PanelSurface, PastePromptTone, PasteStyle, PickerSegment,
-    Span, Theme, ThemeColor, BROWSER_DEFAULT_INSTRUCTIONS, PASTE_PLACEHOLDER,
-    PREFERRED_VISIBLE_TEAMS, TEAM_SEARCH_PLACEHOLDER, TOKEN_PLACEHOLDER,
+    hint_row, key_hint, login_field_row, scrub_controls, search_field_plain_row, AuthPanel,
+    CopyStatus, KeybindingsManager, Line, Modifier, PanelInput, PastePromptTone, PasteStyle, Span,
+    Theme, ThemeColor, BROWSER_DEFAULT_INSTRUCTIONS, PASTE_PLACEHOLDER, TOKEN_PLACEHOLDER,
 };
 
 impl AuthPanel {
-    /// The panel's rendered rows (TS `MenuPanel`'s per-surface chrome over
-    /// the `LoginDialogComponent` content: the session's dock opens with
-    /// the borderMuted rule and the muted one-space title, the onboarding
-    /// block mounts the content chrome-less; the content is the blank
-    /// `startContent` row, the progress block, the URL block, the paste
-    /// field, and the auth-actions row last -- no bottom rule on either
-    /// surface). A panel taller than `height` drops its least needed rows
-    /// first -- spacer blanks, then the chrome, then the instructions from
-    /// their end -- so the sign-in URL, the field, and the actions stay
-    /// whole on a short or narrow screen.
+    /// The panel's rendered rows (TS `MenuPanel`'s chrome over the
+    /// `LoginDialogComponent` content: the borderMuted rule and the muted
+    /// one-space title open it; the content is the blank `startContent`
+    /// row, the progress block, the URL block, the paste field, and the
+    /// auth-actions row last -- no bottom rule). A panel taller than
+    /// `height` drops its least needed rows first -- spacer blanks, then
+    /// the chrome, then the instructions from their end -- so the sign-in
+    /// URL, the field, and the actions stay whole on a short or narrow
+    /// screen.
     pub fn render(
         &mut self,
         theme: &Theme,
@@ -30,74 +27,15 @@ impl AuthPanel {
         kb: &KeybindingsManager,
     ) -> Vec<Line> {
         let width = width.max(1);
-        let mut lines: Vec<Line> = Vec::new();
-        // TS `MenuPanel` inline's per-surface chrome: the session dock
-        // opens with the borderMuted rule and the muted one-space title
-        // (TS `loginDialogOptions`'s non-onboarding shape); the
-        // onboarding block mounts the panel chrome-less (`topRule:
-        // false, hideTitle: true` -- the splash renders the heading).
-        if self.surface == PanelSurface::Session {
-            lines.push(vec![theme.fg_span(
-                ThemeColor::BorderMuted,
-                crate::glyphs::RULE.repeat(width),
-            )]);
-            lines.push(content_row(theme, width, ThemeColor::Muted, &self.title));
-            if let Some(subtitle) = &self.subtitle {
-                lines.push(content_row(theme, width, ThemeColor::Muted, subtitle));
-            }
-        }
-        // The team picker is TS `PrimeTeamSelectorComponent` -- its own
-        // panel: the rule, the title, the subtitle, the bordered field,
-        // the rows (no leading content blank, no auth-actions row, no nav
-        // hint).
-        if let PanelInput::Teams { picker, .. } = &mut self.input {
-            lines.append(&mut search_field_lines(
-                theme,
-                width,
-                picker.search.value(),
-                picker.search.cursor(),
-                false,
-                TEAM_SEARCH_PLACEHOLDER,
-            ));
-            let count = picker.filtered.len();
-            let visible = PREFERRED_VISIBLE_TEAMS.min(count.max(1));
-            let start = if count > visible {
-                picker
-                    .selected
-                    .saturating_sub(visible / 2)
-                    .min(count - visible)
-            } else {
-                0
-            };
-            let end = (start + visible).min(count);
-            for index in start..end {
-                let Some(row) = picker.filtered.get(index) else {
-                    continue;
-                };
-                let selected = index == picker.selected;
-                let (primary, trailing) = picker.row_parts(*row);
-                let segments: Vec<MenuSegment> = trailing
-                    .iter()
-                    .map(|segment| match segment {
-                        PickerSegment::Muted(text) => MenuSegment::muted(text),
-                        PickerSegment::Current => {
-                            MenuSegment::themed(ThemeColor::Success, "current")
-                        }
-                    })
-                    .collect();
-                lines.push(menu_row(theme, width, primary, &segments, selected));
-            }
-            if start > 0 || end < count {
-                lines.push(scroll_row(theme, width, picker.selected + 1, count));
-            }
-            if count == 0 {
-                lines.push(no_match_row(theme, width, "No matching teams"));
-            }
-            return lines;
-        }
+        // TS `MenuPanel` inline's chrome: the borderMuted rule and the
+        // muted one-space title.
+        let mut lines: Vec<Line> = vec![
+            vec![theme.fg_span(ThemeColor::BorderMuted, crate::glyphs::RULE.repeat(width))],
+            content_row(theme, width, ThemeColor::Muted, &self.title),
+        ];
         if !self.content_open() {
-            // TS renders the empty dialog as zero rows: only the
-            // surface's chrome (nothing, on the onboarding block) shows.
+            // TS renders the empty dialog as zero rows: only the chrome
+            // shows.
             return lines;
         }
         let chrome_end = lines.len();
@@ -257,7 +195,6 @@ impl AuthPanel {
                     lines.push(hint_row(theme, width, &hints));
                 }
             }
-            PanelInput::Teams { .. } => unreachable!("the team picker returned above"),
         }
         // TS `showWaiting`: the waiting line joins above the actions row
         // in the accent colour -- its `addSectionSpacer` blank rides only

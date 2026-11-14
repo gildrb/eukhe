@@ -256,7 +256,7 @@ impl SessionUi {
             return self.handle_provider_auth_key(key, view).await;
         }
         // The inline auth panel owns the frame the same way (TS the login
-        // dialog / team selector mounts over the prompt).
+        // dialog mounts over the prompt).
         if view.auth_panel.is_some() {
             return self.handle_auth_panel_key(key, view);
         }

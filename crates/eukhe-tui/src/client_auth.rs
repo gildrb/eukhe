@@ -30,8 +30,8 @@ pub trait ClientAuthCommands: Send + Sync {
     fn logout(&self, server: &str) -> AuthFuture;
 }
 
-/// The handle the interactive options carry (a manual `Debug`, like the
-/// onboarding sink: the hook is opaque to the options printer).
+/// The handle the interactive options carry (a manual `Debug`: the hook
+/// is opaque to the options printer).
 #[derive(Clone)]
 pub struct ClientAuthCommandsHandle(pub Arc<dyn ClientAuthCommands>);
 

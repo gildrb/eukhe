@@ -320,13 +320,6 @@ async fn interactive_fork_launch_copies_and_the_daemon_opens_the_fork() {
     // The cwd as the launched process sees it: canonical (`/var` reads
     // `/private/var` on macOS).
     let cwd = cwd.canonicalize().expect("canonical project dir");
-    // The home has onboarding behind it: a completed first run is the
-    // only thing that skips the flow (the marker alone gates it — a
-    // fork user has one), and the launch must open the fork, not the
-    // welcome.
-    eukhe_core::settings::SettingsManager::create(&cwd, &agent_dir)
-        .set_onboarding_shown(true)
-        .expect("onboarding flag");
     let socket = dir.path().join("daemon.sock");
     let supervisor = spawn_supervisor(&socket, &agent_dir, &session_dir);
 

@@ -448,9 +448,9 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         }
         return Err(error.into());
     }
-    // The saved default model that did not run shows as one row of the
-    // main conversation (the root and the main conversation resolve the
-    // same default: one row).
+    // The startup model notice (a saved default that is unavailable, or
+    // no model at all) shows as one row of the main conversation (the
+    // root and the main conversation resolve the same default: one row).
     let mut notices = root_notice
         .into_iter()
         .chain(main_notice)
@@ -689,8 +689,8 @@ async fn loaded_resources(
 /// imported without a `model_change`) takes the startup model, like the TS
 /// `createAgentSession` falls back to `findInitialModel` when the session
 /// restores none; its thinking level (the imported one, else the default)
-/// is kept, clamped to that model. Also the notice text of a saved default
-/// model that did not run ([`super::models::OpenModel::notice`]).
+/// is kept, clamped to that model. Also the startup model notice text
+/// ([`super::models::OpenModel::notice`]).
 async fn open_root(
     harness: &Harness,
     config: &SessionConfig,

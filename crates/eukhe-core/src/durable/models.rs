@@ -72,7 +72,8 @@
 //! provider has no credentials is the typed error
 //! [`ModelsError::DefaultUnusable`]: the session never moves to another
 //! provider. A session opens on [`resolve_open_model`] and shows the
-//! notice row [`DEFAULT_MODEL_NOTICE_CUSTOM_TYPE`]. The resolution never
+//! notice row [`DEFAULT_MODEL_NOTICE_CUSTOM_TYPE`]; a session with no
+//! model and nothing saved shows where to get one. The resolution never
 //! writes settings. The Bend models are `bend/default_model.bend` and
 //! `bend/model_roles.bend`.
 
@@ -176,10 +177,10 @@ impl Substitution {
         let (wanted, reason) = (&self.wanted, self.reason);
         match self.setting {
             SavedSetting::DefaultModel => {
-                format!("The saved default model {wanted} did not run: {reason}.")
+                format!("The saved default model {wanted} is unavailable: {reason}.")
             }
             SavedSetting::AllRoles => {
-                format!("The all-roles model {wanted} (modelRoles.all) did not run: {reason}.")
+                format!("The all-roles model {wanted} (modelRoles.all) is unavailable: {reason}.")
             }
         }
     }
@@ -196,9 +197,9 @@ impl Substitution {
             DefaultMiss::NoCredentials => format!(
                 "eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change {setting}."
             ),
-            DefaultMiss::NotInCatalog => format!(
-                "No other model has credentials. Run \"eukhe model list\", fix models.json, or change {setting}."
-            ),
+            DefaultMiss::NotInCatalog => {
+                "Use /login to add a provider, or pick a model with /model.".to_string()
+            }
             DefaultMiss::NotInScope => {
                 format!("No other model is in the scope. Change enabledModels or {setting}.")
             }
@@ -450,14 +451,14 @@ pub(crate) struct OpenModel {
 
 impl OpenModel {
     /// The text of the session's notice row: the saved default, why it
-    /// did not run, and the model in its place (or none). `None` when
-    /// the session runs on the saved default, nothing is saved, or the
-    /// caller requested the model.
+    /// is unavailable, and the model in its place (or none); with nothing
+    /// saved and no model, where to get one. `None` when the session runs
+    /// on the saved default or on the chain's pick with nothing saved.
     pub(crate) fn notice(&self) -> Option<String> {
         match (&self.resolved, &self.refused) {
             (Some(resolved), _) => resolved.substituted.as_ref().map(|substitution| {
                 format!(
-                    "{} The session runs on {}/{}.",
+                    "{} The session runs on {}/{}; /model changes it.",
                     substitution.missed(),
                     resolved.model.provider,
                     resolved.model.model_id
@@ -467,7 +468,9 @@ impl OpenModel {
                 "{} The session has no model.",
                 substitution.refusal()
             )),
-            (None, None) => None,
+            (None, None) => {
+                Some("No model selected. /login adds a provider; /model picks a model.".to_string())
+            }
         }
     }
 }
@@ -1092,7 +1095,7 @@ mod tests {
             (opened.notice(), opened),
             (
                 Some(format!(
-                    "The saved default model anthropic/{} did not run: its provider has no credentials. eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change defaultProvider/defaultModel. The session has no model.",
+                    "The saved default model anthropic/{} is unavailable: its provider has no credentials. eukhe does not move to another provider. Sign in with /login, set the provider's API key, or change defaultProvider/defaultModel. The session has no model.",
                     anthropic.id
                 )),
                 OpenModel {

@@ -135,7 +135,7 @@ struct GuardState {
     /// Ctrl+C presses observed by the reader thread.
     observed_ctrl_c: AtomicU64,
     /// Ctrl+C presses handled by the UI loop (every consumer surface
-    /// reports: session editor, model picker, onboarding).
+    /// reports: session editor, model picker, auth panel).
     handled_ctrl_c: AtomicU64,
     /// The run handed the terminal to a follow-on surface (the agents
     /// view): the process may legitimately continue; no force quit.
@@ -201,7 +201,7 @@ impl ExitGuard {
     }
 
     /// The UI loop handled one Ctrl+C key (session editor, model picker, or
-    /// onboarding -- every consumer reports). Once every observed press has
+    /// auth panel -- every consumer reports). Once every observed press has
     /// been handled and the loop did not exit, the pair was consumed with
     /// TS semantics (abort, autocomplete cancel): the force-quit deadline
     /// clears. A press still queued behind this one keeps its deadline, so

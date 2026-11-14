@@ -184,7 +184,6 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
         version: "0.0.0".to_string(),
-        onboarding: None,
         client_auth: None,
         provider_auth: None,
         keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),

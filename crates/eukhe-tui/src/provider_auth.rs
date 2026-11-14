@@ -42,13 +42,13 @@ impl AuthType {
 /// How the login runs: the TUI prompts for the key in the panel, or the
 /// composition root runs the provider's flow against the inline auth
 /// panel (TS splits the same way: `showApiKeyLoginDialog` vs the
-/// OAuth/Prime/Bedrock login dialogs).
+/// OAuth/Bedrock login dialogs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthFlow {
     /// Prompt for the key in the panel (TS `showPrompt("Enter API key:")`).
     ApiKeyPrompt,
     /// Run the flow through the inline auth panel (browser OAuth, the
-    /// Prime login, the MCP device flow).
+    /// MCP device flow).
     TerminalFlow,
 }
 
@@ -81,8 +81,8 @@ pub struct ProviderRow {
     /// The login flow the row runs.
     pub flow: AuthFlow,
     /// Whether a usable credential exists (TS
-    /// `getProviderAuthStatus(id).configured`): the onboarding picker's
-    /// connected check, distinct from the display indicator.
+    /// `getProviderAuthStatus(id).configured`), distinct from the
+    /// display indicator.
     pub configured: bool,
     /// Whether this build carries the row's login flow (the codex
     /// subscription row does; the not-yet-ported subscription providers
@@ -113,8 +113,7 @@ pub type ProviderAuthFuture =
 /// above this crate).
 pub trait ProviderAuthCommands: Send + Sync {
     /// TS `getLoginProviderOptions`: the provider rows sorted TS-style
-    /// (configured first, prime-inference first among them, oauth before
-    /// api key, then by name).
+    /// (configured first, oauth before api key, then by name).
     fn login_options(&self) -> ProviderRowsFuture;
     /// TS `getLogoutProviderOptions`: one row per stored credential,
     /// sorted by name.
@@ -125,7 +124,7 @@ pub trait ProviderAuthCommands: Send + Sync {
     /// cancel, never an error wall.
     fn login(&self, provider: &ProviderRow, api_key: Option<&str>) -> ProviderAuthFuture;
     /// TS `loginProvider` for the panel-driven flows (the MCP OAuth
-    /// login, the Prime Inference login): the TUI mounts the inline auth
+    /// login, the subscription logins): the TUI mounts the inline auth
     /// panel ([`crate::auth_panel`]) and services the flow's requests
     /// while it runs in the background; the future settles the flow's
     /// outcome (the session sends it back through the panel channel).
@@ -156,11 +155,6 @@ impl std::fmt::Debug for ProviderAuthCommandsHandle {
         f.debug_struct("ProviderAuthCommandsHandle").finish()
     }
 }
-
-/// The Prime Inference provider's id (eukhe-core's
-/// `PRIME_INFERENCE_PROVIDER_ID`: the row the panel-driven login
-/// serves).
-pub const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
 
 /// The Codex Subscription provider's id (the wire identifier eukhe-core's
 /// auth exports; carried here too because the TUI does not link the

@@ -10,7 +10,7 @@ mod render;
 
 use std::collections::{HashMap, HashSet};
 
-use eukhe_types::ai::{CatalogModel, Model, ModelThinkingLevel, PRIME_INFERENCE_PROVIDER_ID};
+use eukhe_types::ai::{CatalogModel, Model, ModelThinkingLevel};
 
 use crate::keybindings::KeybindingsManager;
 use crate::search_input::SearchInput;
@@ -417,10 +417,9 @@ impl ModelPicker {
     }
 
     /// The provider-sorted catalog (TS `sortModels`): configured providers
-    /// first, signed-in Prime Inference pinned, the current model leading,
-    /// then the recent-use rank, the provider name, `featured`, and the
-    /// numeric id compare. The served levels of each model go to
-    /// `thinking_levels`.
+    /// first, the current model leading, then the recent-use rank, the
+    /// provider name, `featured`, and the numeric id compare. The served
+    /// levels of each model go to `thinking_levels`.
     fn load_models(&mut self, entries: Vec<CatalogModel>) {
         self.thinking_levels.clear();
         let mut models = Vec::with_capacity(entries.len());
@@ -467,14 +466,6 @@ impl ModelPicker {
             (false, true) => return Ordering::Less,
             _ => {}
         }
-        // Signed-in Prime Inference pinned above the rest.
-        let pinned =
-            |model: &Model| model.provider == PRIME_INFERENCE_PROVIDER_ID && configured(model);
-        match (pinned(b), pinned(a)) {
-            (true, false) => return Ordering::Greater,
-            (false, true) => return Ordering::Less,
-            _ => {}
-        }
         // The current model leads.
         let is_current = |model: &Model| self.is_current(model);
         match (is_current(a), is_current(b)) {
@@ -510,7 +501,7 @@ impl ModelPicker {
 
     /// Rebuild the filtered view (TS `filterModels`): a non-empty query
     /// scores every model and orders the matches by configured provider,
-    /// pin, match quality, score, version descending, currency, recent
+    /// match quality, score, version descending, currency, recent
     /// rank, and key. The selection resets to the top only when the query
     /// changed.
     fn filter_models(&mut self, query: &str) {
@@ -536,19 +527,12 @@ impl ModelPicker {
                 })
                 .unwrap_or_default();
             let configured = |model: &Model| self.configured_providers.contains(&model.provider);
-            let pinned =
-                |model: &Model| model.provider == PRIME_INFERENCE_PROVIDER_ID && configured(model);
             matches.sort_by(
                 |(a_index, a_match, a_rank, a_key), (b_index, b_match, b_rank, b_key)| {
                     use std::cmp::Ordering;
                     let a = &self.all_models[*a_index];
                     let b = &self.all_models[*b_index];
                     match (configured(b), configured(a)) {
-                        (true, false) => return Ordering::Greater,
-                        (false, true) => return Ordering::Less,
-                        _ => {}
-                    }
-                    match (pinned(b), pinned(a)) {
                         (true, false) => return Ordering::Greater,
                         (false, true) => return Ordering::Less,
                         _ => {}

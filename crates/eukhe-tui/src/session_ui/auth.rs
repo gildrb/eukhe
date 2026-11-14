@@ -139,7 +139,6 @@ impl SessionUi {
                 } else {
                     let auth = self.provider_auth.clone().expect("the selector was open");
                     if provider.id.starts_with("mcp:")
-                        || provider.id == crate::provider_auth::PRIME_INFERENCE_PROVIDER_ID
                         || crate::provider_auth::SUBSCRIPTION_PROVIDER_IDS
                             .contains(&provider.id.as_str())
                     {
@@ -168,15 +167,8 @@ impl SessionUi {
         Ok(())
     }
 
-    /// The auth panel's request channel (TS the login dialog's surface
-    /// seam): the onboarding phase drives its flows against the same
-    /// channel the run loop services after the pane ends.
-    pub(crate) fn auth_panel_handle(&self) -> crate::auth_panel::AuthPanelHandle {
-        crate::auth_panel::AuthPanelHandle::new(self.auth_panel_notes.clone())
-    }
-
-    /// Enter on a panel-driven login row (the MCP OAuth logins, the Prime
-    /// Inference login, the Codex Subscription login): mount the inline
+    /// Enter on a panel-driven login row (the MCP OAuth logins, the
+    /// Codex Subscription login): mount the inline
     /// auth panel (TS `showAuthPanel` mounts the login dialog as the
     /// flow starts) and spawn the flow against it. The flow's requests
     /// fold into the panel through the run loop's channel arm; the
@@ -223,8 +215,8 @@ impl SessionUi {
     }
 
     /// One key press while the inline auth panel owns the frame (TS the
-    /// login dialog's / team selector's `handleInput`): the panel answers
-    /// its mounted input through the request's oneshot.
+    /// login dialog's `handleInput`): the panel answers its mounted
+    /// input through the request's oneshot.
     pub(crate) fn handle_auth_panel_key(
         &mut self,
         key: KeyEvent,
@@ -248,20 +240,13 @@ impl SessionUi {
         // credential write after the exit), every flow reads its own
         // dropped oneshot or cooperative flag as the silent cancel, and
         // the panel unmounts immediately so a cancelled login never
-        // strands the frame. The team picker's Esc answers the picker and
-        // keeps the dialog mounted (TS the selector is its own component
-        // whose cancel keeps the login going).
+        // strands the frame.
         // Only the binding match unmounts (the same check
         // `AuthPanel::handle_key` marks cancellation by): a raw
         // ctrl+c with the binding remapped away is an unhandled
         // key, not a cancel -- unmounting without marking leaves a
         // live flow that can persist credentials (#2845 review).
-        let cancel_key = kb.matches(&id, "tui.select.cancel");
-        let team_picker = view
-            .auth_panel
-            .as_ref()
-            .is_some_and(crate::auth_panel::AuthPanel::team_picker_mounted);
-        if cancel_key && !team_picker {
+        if kb.matches(&id, "tui.select.cancel") {
             if let Some(cancel) = self.auth_panel_cancel.take() {
                 cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             }
@@ -313,9 +298,9 @@ impl SessionUi {
     }
 
     /// One paste payload while the inline auth panel owns the frame: the
-    /// payload lands in the panel's mounted input (the paste field or
-    /// the picker's search) -- never in the hidden editor behind the
-    /// panel, where a later Enter could submit the secret as a prompt.
+    /// payload lands in the panel's mounted paste field -- never in the
+    /// hidden editor behind the panel, where a later Enter could submit
+    /// the secret as a prompt.
     pub(crate) fn paste_to_auth_panel(&mut self, text: &str, view: &mut AgentView) {
         if let Some(panel) = view.auth_panel.as_mut() {
             panel.handle_paste(text);
@@ -337,7 +322,7 @@ impl SessionUi {
     ) {
         use crate::auth_panel::AuthPanelRequest;
         match request {
-            AuthPanelRequest::Progress { message, .. } => {
+            AuthPanelRequest::Progress { message } => {
                 if let Some(panel) = view.auth_panel.as_mut() {
                     panel.push_progress(&message);
                 }
@@ -366,15 +351,6 @@ impl SessionUi {
             } => {
                 if let Some(panel) = view.auth_panel.as_mut() {
                     panel.mount_paste(&prompt, tone, style, allow_empty, reply);
-                }
-            }
-            AuthPanelRequest::SelectTeam {
-                teams,
-                current,
-                reply,
-            } => {
-                if let Some(panel) = view.auth_panel.as_mut() {
-                    panel.mount_teams(teams, current, reply);
                 }
             }
             AuthPanelRequest::ProviderSettled { provider, outcome } => {

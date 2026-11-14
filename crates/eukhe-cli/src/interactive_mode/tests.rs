@@ -1,11 +1,8 @@
 //! The interactive-mode unit battery (moved with its concern): the session
-//! flag mapping, the continue-recent startup session, the onboarding gate and
-//! settings sink, and the startup fork/select contracts.
+//! flag mapping, the continue-recent startup session, and the startup
+//! fork/select contracts.
 
 use super::*;
-// The sink's answers flow through the eukhe-tui trait; the tests call the
-// trait methods directly (the impl header alone does not import them).
-use eukhe_tui::interactive::OnboardingSink;
 
 #[test]
 fn session_flags_map_to_selections() {
@@ -178,130 +175,6 @@ fn continue_falls_back_and_defers_to_resume_and_no_session() {
         continue_startup_selection(&options).expect("continue resolves"),
         None,
         "no --continue: nothing to continue"
-    );
-}
-
-#[test]
-fn onboarding_gate_follows_settings_and_auth() {
-    use crate::mode::{AppMode, RuntimeConfig};
-
-    fn run_options(dir: &std::path::Path) -> RunOptions {
-        RunOptions {
-            app_mode: AppMode::Interactive,
-            config: RuntimeConfig {
-                cwd: dir.to_path_buf(),
-                agent_dir: dir.join("agent"),
-                ..Default::default()
-            },
-            session: crate::mode::SessionOptions::default(),
-            messages: Vec::new(),
-            file_args: Vec::new(),
-            daemon_socket: None,
-            list_models: None,
-            initial_message: None,
-            initial_images: Vec::new(),
-            verbose: false,
-            offline: false,
-            agents_view_requested: false,
-            attach_agent: None,
-        }
-    }
-
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent = dir.path().join("agent");
-    std::fs::create_dir_all(&agent).expect("agent dir");
-
-    // A completed onboarding never reopens, regardless of model state.
-    let mut settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent);
-    settings.set_onboarding_shown(true).expect("set flag");
-    let options = run_options(dir.path());
-    assert!(onboarding_task(&options, None).is_none());
-    // Back to a first run for the readiness checks below.
-    settings.set_onboarding_shown(false).expect("reset flag");
-
-    // Flagless launch: a models.json provider key + saved default model
-    // resolve the startup model, so the onboarding task mounts (TS
-    // `isOnboardingModelReady` over the `findInitialModel` chain); on a
-    // fresh home it completes silently.
-    std::fs::write(
-        agent.join("models.json"),
-        r#"{ "providers": {
-                "onboard-test": {
-                    "baseUrl": "https://onboard.test", "apiKey": "sk-onboard",
-                    "api": "openai-completions",
-                    "models": [ { "id": "m1", "name": "M1" } ]
-                },
-                "onboard-naked": {
-                    "baseUrl": "https://naked.test",
-                    // Present (custom models require "apiKey", same as TS)
-                    // but the `!command` resolves to no credential, so the
-                    // provider stays unauthorized.
-                    "apiKey": "!exit 1",
-                    "api": "openai-completions",
-                    "models": [ { "id": "m2", "name": "M2" } ]
-                }
-            } }"#,
-    )
-    .expect("models.json");
-    let mut settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent);
-    settings
-        .set_default_model_and_provider("onboard-test", "m1")
-        .expect("saved default")
-        .applied()
-        .expect("the value applies");
-    let options = run_options(dir.path());
-    let task = onboarding_task(&options, None).expect("the ready home mounts the flow");
-    assert!(
-        (task.model_ready)(),
-        "the configured default model is ready (the question flow)"
-    );
-
-    // Explicit flags that resolve to a provider without configured
-    // auth mount the task too (TS `shouldRunOnboarding`: the flag
-    // alone), carrying the not-ready branch -- the full sign-in flow,
-    // not the question. TS `validateConfig` requires an "apiKey" for
-    // custom providers, but a `!command` key that fails resolves to
-    // nothing (TS `resolveConfigValue`), so the provider stays
-    // unauthenticated.
-    let mut options = run_options(dir.path());
-    options.config.provider = Some("onboard-naked".into());
-    options.config.model = Some("m2".into());
-    let task = onboarding_task(&options, None).expect("the flag alone mounts the flow");
-    assert!(
-        !(task.model_ready)(),
-        "the naked provider leaves the model not ready (the full flow)"
-    );
-    assert!(
-        task.current_model
-            .as_ref()
-            .is_some_and(|model| model.id == "m2"),
-        "the resolved startup model rides the task (TS getCurrentModel)"
-    );
-}
-
-/// The product sink's persistence over the real settings files: a fresh
-/// home reads its missing flag through a fresh manager, and the
-/// completion persists the flag the next launch's gate reads.
-#[test]
-fn settings_sink_persists_the_completion_flag() {
-    let dir = tempfile::TempDir::new().expect("temp dir");
-    let agent_dir = dir.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    let sink = SettingsOnboardingSink {
-        cwd: dir.path().to_path_buf(),
-        agent_dir: agent_dir.clone(),
-    };
-    assert!(
-        !sink.onboarding_shown(),
-        "a fresh home has no completion flag yet"
-    );
-    sink.mark_onboarding_complete()
-        .expect("complete onboarding");
-
-    let settings = eukhe_core::settings::SettingsManager::create(dir.path(), &agent_dir);
-    assert!(
-        settings.get_onboarding_shown(),
-        "the flow marked onboarding shown"
     );
 }
 
@@ -665,25 +538,25 @@ fn a_fork_launch_never_opens_the_agents_view() {
     let mut options = run_options_for_continue(std::path::Path::new("/does/not/matter"));
     options.agents_view_requested = true;
     assert!(
-        should_open_agents_view(&options, /*onboarding_pending*/ false),
+        should_open_agents_view(&options),
         "an explicit agents request still opens the view"
     );
     options.session.resume_bare = true;
     assert!(
-        should_open_agents_view(&options, /*onboarding_pending*/ false),
+        should_open_agents_view(&options),
         "a bare --resume still opens the view"
     );
     options.session.resume_bare = false;
     options.session.fork = Some("source".to_string());
     assert!(
-        !should_open_agents_view(&options, /*onboarding_pending*/ false),
+        !should_open_agents_view(&options),
         "a fork opens its target, never the agents view"
     );
     options.session.fork = None;
     options.agents_view_requested = false;
     options.session.continue_recent = true;
     assert!(
-        !should_open_agents_view(&options, /*onboarding_pending*/ false),
+        !should_open_agents_view(&options),
         "--continue opens its session, never the agents view"
     );
 }

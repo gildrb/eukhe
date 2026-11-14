@@ -23,18 +23,6 @@ mod daemon;
 pub(crate) use daemon::{ensure_daemon, own_launcher, Launch, SupervisorLife};
 pub use daemon::{ensure_daemon_running, ensure_daemon_running_with};
 
-// The first-run onboarding concern (the startup-model probe, the
-// settings sink over the eukhe-tui trait, and the startup task assembly)
-// moved to the child module at the same tree position
-// (interactive_mode::onboarding); the task binding keeps the startup
-// assembly's bare call in scope, and the cfg(test) binding keeps the
-// unit battery's struct literals in scope.
-mod onboarding;
-
-use onboarding::onboarding_task;
-#[cfg(test)]
-use onboarding::SettingsOnboardingSink;
-
 // The inline unit battery moved to the child module at the same tree
 // position (interactive_mode::tests); its use-super glob keeps resolving
 // through the facade's bindings and the pub contract.
@@ -68,11 +56,8 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         .notice();
         // `eukhe agents` and bare `--resume` open the agents view
         // (TS `agentsViewRequested`); the view then opens sessions, and a
-        // session exits back into the view until the user exits it. TS gates
-        // the explicit `agents` request on completed onboarding (a fresh
-        // install shows the first-run notice first); bare `--resume` opens
-        // the view regardless.
-        if should_open_agents_view(options, tui_options.onboarding.is_some()) {
+        // session exits back into the view until the user exits it.
+        if should_open_agents_view(options) {
             // The launch opens the view, not a session: the budget flags
             // are for the sessions created from it, and the view says so.
             let notice = match (daemon_notice, tui_options.budget) {
@@ -475,13 +460,11 @@ fn build_tui_options(
         .get_default_thinking_level()
         .map(|level| level.model_level().wire_name().to_string());
     // `/login` + `/logout`: the provider auth flows (the API-key store,
-    // the MCP device flow, the Prime Inference login, the provider
-    // catalog) -- one handle serves the commands and the onboarding flow's
-    // sign-in steps.
+    // the MCP device flow, the subscription logins, the provider
+    // catalog).
     let provider_auth = eukhe_tui::provider_auth::ProviderAuthCommandsHandle(std::sync::Arc::new(
         crate::provider_login::ProviderAuth::new(config.cwd.clone(), config.agent_dir.clone()),
     ));
-    let onboarding = onboarding_task(options, Some(provider_auth.clone()));
     // A lost daemon relaunches through the background launcher: it starts a
     // daemon when none listens and never replaces one.
     let daemon_launcher = own_launcher(&socket_path, &config.cwd)?;
@@ -533,11 +516,6 @@ fn build_tui_options(
             },
         )),
         version: crate::config::version().to_string(),
-        // TS `shouldRunOnboarding`: the settings flag alone mounts the
-        // task; the carried startup-model state decides the branch and
-        // gates the completion marker, and the auth handle serves the
-        // not-ready branch's sign-in steps.
-        onboarding,
         // `/mcp login` / `/mcp logout`: the client-side auth flows run in
         // this process (the TS interactive client's placement) and persist
         // through the shared auth store the daemon's sessions read.
@@ -666,9 +644,8 @@ fn fork_startup_selection(options: &RunOptions, selector: &str) -> Result<Sessio
 /// view with `--fork` anyway (the shared flag validation refuses the
 /// combination at startup), so only the explicit `agents` request needs the
 /// guard; bare `--resume` still opens the view.
-fn should_open_agents_view(options: &RunOptions, onboarding_pending: bool) -> bool {
-    options.session.resume_bare
-        || (options.agents_view_requested && !onboarding_pending && options.session.fork.is_none())
+fn should_open_agents_view(options: &RunOptions) -> bool {
+    options.session.resume_bare || (options.agents_view_requested && options.session.fork.is_none())
 }
 
 /// `--resume <selector>`: an existing session file path, a `<id>.jsonl` under
