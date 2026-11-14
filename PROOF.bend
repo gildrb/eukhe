@@ -4288,6 +4288,7 @@ import ./proof/loop/base/judged.bend as LALoopJudged
 import ./proof/loop/base/reads.bend as LALoopReads
 import ./proof/loop/loop_verdict_table.bend as PLoopVerdictTable
 import ./proof/loop/loop_settled_turn_is_judged.bend as PLoopSettledTurnIsJudged
+import ./proof/loop/loop_settled_turn_awaits_its_check.bend as PLoopSettledTurnAwaitsItsCheck
 import ./proof/loop/loop_satisfied_needs_confirmation.bend as PLoopSatisfiedNeedsConfirmation
 import ./proof/loop/loop_auto_needs_refutation.bend as PLoopAutoNeedsRefutation
 import ./proof/loop/loop_confirmed_ends.bend as PLoopConfirmedEnds
@@ -4306,6 +4307,7 @@ import ./proof/loop/loop_stop_ends.bend as PLoopStopEnds
 import ./proof/loop/loop_stop_never_starts.bend as PLoopStopNeverStarts
 import ./proof/loop/loop_resends_body.bend as PLoopResendsBody
 import ./proof/loop/loop_prompt_adopted.bend as PLoopPromptAdopted
+import ./proof/loop/loop_prompt_takes_turn.bend as PLoopPromptTakesTurn
 import ./proof/loop/loop_prompt_clears_failures.bend as PLoopPromptClearsFailures
 import ./proof/loop/loop_deadline_bounds.bend as PLoopDeadlineBounds
 import ./proof/loop/loop_good_turn_forgives.bend as PLoopGoodTurnForgives
@@ -4319,6 +4321,7 @@ import ./proof/loop/loop_spent_stops.bend as PLoopSpentStops
 import ./proof/loop/loop_late_stops.bend as PLoopLateStops
 import ./proof/loop/loop_inside_continues.bend as PLoopInsideContinues
 import ./proof/loop/loop_halted_turn_pauses.bend as PLoopHaltedTurnPauses
+import ./proof/loop/loop_halted_turn_keeps.bend as PLoopHaltedTurnKeeps
 import ./proof/loop/loop_abort_pauses.bend as PLoopAbortPauses
 import ./proof/loop/loop_paused_waits.bend as PLoopPausedWaits
 import ./proof/loop/loop_report_names_the_end.bend as PLoopReportNamesTheEnd

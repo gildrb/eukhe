@@ -28,7 +28,7 @@ import ../../spec/loop/loop.bend as S
 #      a prompt the user sends while the loop is on becomes the prompt
 #      from then on and spends nothing of the count.
 #                     loop_resends_body, loop_prompt_adopted,
-#                     loop_unattended_resends_same
+#                     loop_unattended_resends_same, loop_prompt_takes_turn
 #   L3 a loop with a condition judges after every settled turn: a command
 #      on its exit status only (the verdict table), a stated condition on
 #      a model judge's ruling only (a judge that could not rule is a broken
@@ -37,6 +37,7 @@ import ../../spec/loop/loop.bend as S
 #      automatic iteration only on fresh evidence that shows it does not
 #      hold yet.
 #                     loop_verdict_table, loop_settled_turn_is_judged,
+#                     loop_settled_turn_awaits_its_check,
 #                     loop_satisfied_needs_confirmation,
 #                     loop_auto_needs_refutation, loop_confirmed_ends,
 #                     loop_broken_check_ends, loop_cancelled_check_waits,
@@ -59,6 +60,7 @@ import ../../spec/loop/loop.bend as S
 #   L5 after the user's interrupt no turn and no check starts until the
 #      user acts again; a turn that did not run to its end pauses the loop.
 #                     loop_abort_holds, loop_halted_turn_pauses,
+#                     loop_halted_turn_keeps,
 #                     loop_abort_pauses, loop_paused_waits,
 #                     loop_stale_turn_ignored, loop_stale_check_ignored
 #   L6 a loop ends once: it reports its end once, and after the end (or
@@ -74,7 +76,9 @@ import ../../spec/loop/loop.bend as S
 #                     loop_restart_resumes_adopted, loop_restart_rejudges,
 #                     loop_restart_idle_rests, loop_redelivery_is_noop,
 #                     loop_keeps_condition, loop_keeps_deadline,
-#                     loop_stale_turn_ignored, loop_stale_check_ignored
+#                     loop_stale_turn_ignored, loop_stale_check_ignored,
+#                     loop_settled_turn_awaits_its_check,
+#                     loop_prompt_takes_turn
 #   L8 while user input is queued or work is unsettled the loop waits: it
 #      starts nothing, judges nothing and changes nothing, and asks again.
 #                     loop_blocked_waits, loop_blocked_defers
@@ -217,6 +221,30 @@ law loop_settled_turn_is_judged:
   for hc: {S.has_cond(c) == True{} : Bool}
   for ho: {S.out_halted(o) == False{} : Bool}
   {(S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, o, False{}, now, fu}), S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, o, False{}, now, fu}))) == (Lp.Judge{i}, Lp.Judging{}) : Lp.Act & Lp.Phase}
+
+# LAW loop_settled_turn_awaits_its_check (L3, L7): when the turn of a loop
+# with a condition settles in an idle session, having run to its end or
+# failed, the loop waits for the check of that same iteration: it is
+# stored judging iteration i with its count, deadline, condition, prompt
+# and evidence unchanged and its failed turns cleared (the turn ran) or
+# one more (the turn failed), and asks that check
+# EXCLUDES: a judging loop stored at another iteration than the check it
+#   asked (its own answer then reads as stale and the loop hangs judging),
+#   a settled turn that spends the count, moves the deadline, changes the
+#   prompt or the evidence, or miscounts the failed turns
+law loop_settled_turn_awaits_its_check:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for +c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for fu: Bool
+  for hc: {S.has_cond(c) == True{} : Bool}
+  {Lp.step(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Ran{}, False{}, now, fu}) == (Lp.St{Lp.Judging{}, i, l, d, c, b, 0n, x}, Lp.Judge{i}) : Lp.St & Lp.Act} &
+  {Lp.step(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, fu}) == (Lp.St{Lp.Judging{}, i, l, d, c, b, 1n+f, x}, Lp.Judge{i}) : Lp.St & Lp.Act}
 
 # LAW loop_satisfied_needs_confirmation (L3): a loop becomes ended
 # satisfied only at a judged check that is fresh (the loop is judging,
@@ -423,6 +451,27 @@ law loop_prompt_adopted:
   for t: String
   for on: {S.is_on(S.phase(s)) == True{} : Bool}
   {(S.does(s, Lp.Prompt{t}), (S.phase(S.next(s, Lp.Prompt{t})), (S.body(S.next(s, Lp.Prompt{t})), (S.left(S.next(s, Lp.Prompt{t})), S.cond(S.next(s, Lp.Prompt{t})))))) == (Lp.Adopt{1n+S.iter(s)}, (Lp.Turn{}, (t, (S.left(s), S.cond(s))))) : Lp.Act & (Lp.Phase & (String & (Maybe<&2, Nat> & Lp.Cond)))}
+
+# LAW loop_prompt_takes_turn (L2, L7): a prompt t the user sends while a
+# loop is on (armed, in a turn, judging, paused) is stored as the loop's
+# turn of iteration 1 + i, the number its act gives, with t as the
+# prompt, the count left, the deadline, the condition and the evidence
+# kept and no failed turn counted
+# EXCLUDES: an adopted turn stored at another iteration than the one Rust
+#   runs (its settled turn then reads as stale and the loop hangs), a
+#   prompt that moves the deadline or drops the evidence
+law loop_prompt_takes_turn:
+  for +p: Lp.Phase
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for t: String
+  for on: {S.is_on(p) == True{} : Bool}
+  {Lp.step(Lp.St{p, i, l, d, c, b, f, x}, Lp.Prompt{t}) == (Lp.St{Lp.Turn{}, 1n+i, l, d, c, t, 0n, x}, Lp.Adopt{1n+i}) : Lp.St & Lp.Act}
 
 # LAW loop_prompt_clears_failures (L4): a prompt the user sends while the
 # loop is on clears its failed turns: the loop gives up only after three
@@ -697,6 +746,25 @@ law loop_halted_turn_pauses:
   for now: Nat
   for fu: Bool
   {(S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}), S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}))) == (Lp.Rest{}, Lp.Paused{}) : Lp.Act & Lp.Phase}
+
+# LAW loop_halted_turn_keeps (L5): the loop that a turn which did not run
+# to its end paused keeps its iteration, its count left, its deadline,
+# its condition, its failed turns and its evidence, so the next prompt
+# resumes it as the next iteration
+# EXCLUDES: a halted turn that skips or spends an iteration, refills or
+#   drops the count or the deadline, forgets the condition or the
+#   evidence, or counts a failure
+law loop_halted_turn_keeps:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for fu: Bool
+  {(S.iter(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.left(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.deadline(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.cond(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.fails(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), S.last(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}))))))) == (i, (l, (d, (c, (f, x))))) : Nat & (Maybe<&2, Nat> & (Maybe<&2, Nat> & (Lp.Cond & (Nat & Lp.Last))))}
 
 # LAW loop_abort_pauses (L5): the user's interrupt of a loop that is on
 # pauses it and starts nothing; the loop stays on at the same iteration
