@@ -81,10 +81,20 @@ confirmed in the text); <https://landlock.io/talks/2026-10-08_landlock-lss.pdf>.
 - Allow-only: a rule adds access beneath a path; no rule can remove access
   inside an allowed tree. Rules are bound to the inode the path resolves
   to when the rule is added, links followed.
-- Not covered (kernel doc, "Current limitations"): socket creation by
-  family; `chroot`; descriptors opened before enforcement (inherited
-  terminals); at most 16 stacked layers. Ptrace is limited to the same or
-  a nested domain in every ABI.
+- Not covered (kernel doc, "Current limitations" and "Filesystem flags"):
+  socket creation by family; `chroot`; descriptors opened before
+  enforcement (inherited terminals); at most 16 stacked layers; path
+  lookup; `chdir`, `stat`, `flock`, `chmod`, `chown`, `setxattr`, `utime`,
+  `fcntl` and `access` ("It is currently not possible to restrict some
+  file-related actions accessible through these syscall families"), so
+  a program changes the mode, times and extended attributes of any file it
+  owns and can name. Ptrace is limited to the same or a nested domain in
+  every ABI; the ABI 6 signal scope covers sending signals, not
+  `prlimit64`, `setpriority`, `sched_setaffinity`, `sched_setscheduler` or
+  `ioprio_set` on another process of the same user.
+- The TCP connect right is checked only in the `connect` hook: TCP Fast
+  Open (`sendto` with `MSG_FASTOPEN` on a fresh stream socket) connects
+  without it (§4).
 - Errata are queryable (`LANDLOCK_CREATE_RULESET_ERRATA`). Erratum 1: TCP
   rights used to restrict other IPv4 and IPv6 stream protocols (SMC, MPTCP,
   SCTP); since the fix only TCP sockets are subject to them, so a sandbox
@@ -227,8 +237,10 @@ are kept with the design's working notes, outside this repository.
 - Copy-on-write work copies for subagents: APFS `clonefile(2)`, btrfs and
   ZFS snapshots, `FICLONE` reflinks, overlayfs with a fuse-overlayfs
   fallback, and a copy or `git worktree` fallback; changes return as a
-  patch or a branch. A copy, not a security boundary. Used here for check
-  copies (C20).
+  patch or a branch. A copy, not a security boundary. Its `clonefile`,
+  `FICLONE` and plain copy are used here for check copies (C20); its
+  `git worktree` fallback is not, since `git` runs hooks and configured
+  commands from a tree an agent can write.
 - Expects an embedding host to impose Seatbelt or an LSM, and routes a
   denied write to that host.
 
@@ -263,6 +275,7 @@ are kept with the design's working notes, outside this repository.
 |bubblewrap|CVE-2017-5226: `TIOCSTI` into the parent's terminal|terminal|`setsid`; kernel 6.2 `legacy_tiocsti`|<https://nvd.nist.gov/vuln/detail/CVE-2017-5226>|
 |bubblewrap|CVE-2026-41163: setuid mode, ptrace during set-up|set-up|0.11.2|<https://cveawg.mitre.org/api/cve/CVE-2026-41163>|
 |bubblewrap|CVE-2026-87766: set-up follows a parent symlink onto the host via `/oldroot`|set-up|0.12.0|<https://cveawg.mitre.org/api/cve/CVE-2026-87766>|
+|Landlock|TCP Fast Open: `sendto` with `MSG_FASTOPEN` on a fresh stream socket connects without the `socket_connect` hook, every port, ABI ≥ 4 (reproduced by the reporter on 7.0.11; MPTCP fast open alike by source reading)|logic, network|denied by a seccomp rule on the flag in the shipped profile; kernel fix versions to record from the stable tree|<https://lkml.iu.edu/2606.2/01737.html>|
 |seccomp filters|x32 numbers pass an x86-64 deny list|construction|filter rule|seccomp(2)|
 
 - Apple's notes for macOS 15.4 list 8 entries describing an app able to
@@ -355,4 +368,7 @@ abstract sockets scoped.
   <https://www.rfc-editor.org/rfc/rfc9849>) mean a grant to a host covers
   whatever that host relays.
 - DNS rebinding: resolve once in the proxy, check the address, dial it.
+  The refused set names `0.0.0.0/8`, `::` and IPv4-mapped addresses as
+  well as loopback and private ranges, since dialling `0.0.0.0` or
+  `::ffff:127.0.0.1` reaches this machine's services.
 - Programs that ignore proxy variables get no network: they fail closed.

@@ -29,7 +29,11 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
   a law check's proof run, and a model request to a provider that declares
   provider-side execution (sr73). Eukhe's own processes (supervisor,
   workers, tiny workers) are not program runs; they are the trusted base
-  (df6).
+  (df6). They create copies and snapshots only with `clonefile`, `FICLONE`
+  or a plain copy, and run no external tool (`git` included) on a tree an
+  agent's program can write except through the launcher under a profile
+  that writes only that tree and reaches no state, so no deferred
+  execution file runs with the trusted base's access.
 - **grant** (program grants, a subset of the capability vocabulary of
   `SPEC.md` §1):
   - `Read{tree}`, `Write{tree}`: a real path tree. A readable file is
@@ -47,20 +51,27 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
   machine (table in §4).
 - **mark of a program run**: the highest of the agent's context label (its
   argv, environment and stdin carry the context) and the marks of the paths
-  its profile reads. Every path in a run's write trees takes the run's mark
-  from the run's start (C6), so a later run that reads it counts it. A
-  long-lived program's mark is fixed at start; an input above it is refused
-  (C7).
+  its profile reads; an `Unconfined` run has the highest mark (its output
+  carries the highest mark). Every path in a run's write trees takes the
+  run's mark from the run's start (C6), so a later run that reads it counts
+  it; an `Unconfined` run's write reach is every path the user can write.
+  When a run starts, every live program whose read trees overlap its write
+  reach takes its mark if higher: the proxy decides that program's later
+  sends at the raised mark (C22), and one whose profile allows a direct
+  send or `AnyBind` with a ceiling below the raised mark is stopped before
+  the new run starts (C21). A live program refuses an input above its
+  current mark (C7).
 - **profile**: what the mechanism allows one program run: read trees, write
   trees; network (`NoNet`, `Proxy{hosts}`, `AnyNet`); Unix socket paths;
-  bind (`NoBind`, `Loopback`, `AnyBind`); signals and process access
-  limited to the run's own processes.
+  bind (`NoBind`, `Loopback`, `AnyBind`); signals, tracing, limits and
+  scheduling limited to the run's own processes.
 - **mechanism**: one of the kinds of sr161 with its version: Seatbelt on a
   macOS build; Landlock at an ABI with a seccomp filter on a kernel
   release; user, mount, network and PID namespaces with a seccomp filter; a
   provider sandbox with an attestation on the trusted base list; a proof
-  under a listed closure (df10). **listed**: on the release's escape list
-  (§9) with its escape classes.
+  under a listed closure (df10). The version of the first three includes
+  the Eukhe build whose launcher and renderer apply them. **listed**: on
+  the release's escape list (§9) with its escape classes.
 - **escape list in force** at a position: the release's list plus every
   disclosure recorded in the run up to that position.
 - **platform facts**: what the host reports before each program run: OS and
@@ -77,26 +88,27 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
   report (§8), and its later run is the principal's program run, outside
   Eukhe.
 - **cache grant**: the shipped write grant on the package cache trees of
-  the default tools (§11; decision 5), held only by program runs whose mark
-  is at most the contract's default mark; a run above it reads the caches
-  only.
+  the default tools (§11; decision 5), held only by interactive program
+  runs whose mark is at most the contract's default mark; a run above it,
+  and every program run of a scheduled, loop or autoresearch run, reads the
+  caches only.
 
 ## 2. Requirements
 
 |Id|Requirement|Rows|
 |---|---|---|
-|C9|A program holds its grants. Every program run is started under a listed mechanism with the profile the core computed from the run's grants: it reads and writes a real path only when a grant covers it and the path is not state, and every such path except those §5 names as narrowed; it reaches a host only under a `Send` or `SendAny` grant whose ceiling is at least the run's mark, through Eukhe's proxy wherever the platform can force it (§5), and directly only under `SendAny` with sr54's admission; it accepts connections from other hosts only under `Serve{Any, c}` with `c` at least that mark; it connects to a Unix socket only under a `Socket` grant; it signals, traces and inspects only processes of its own run. When the platform cannot enforce a part of the profile, the run is started only under `Unconfined` and counted (tm8, sr113), else refused naming the grant needed.|ds10, df9, sr161, sr54|
-|C11|The policy and the state protect themselves. While isolation holds, nothing an agent does and nothing a program it runs does changes the store or any other state part: no effect, message, daemon or CLI command, file write, rename, link, socket connection or signal. A write to the store's files asks a user whatever the set holds. The project's `.eukhe/` is not state: its keys apply only at a digest the principal accepted (§4).|df9, T11|
-|C15|Isolation is a fact per position. Every program run shares the user's OS identity; it breaks isolation only when it is not confined, or confined yet able to reach Eukhe's state (sr179 as reworded, decision 1). A run is isolated up to the first of: an `Unconfined` program run; a confined run on a platform where signals or sockets of Eukhe are reachable (§5, tier L3); a confined run under a mechanism version with a disclosed, unfixed instance on the escape list in force; a call of an in-process host tool that executes agent-supplied content or declares nothing (C23). Before it, the harness delivers on the principal channel, stored out of agents' reach, the head digest and a notice naming the position (sr179); from it on the run is not isolated, its facts are unprotected (sr91), and a software delegate's decision is judged from that notice (sr151).|sr179, sr91, sr151, sr98, df8|
+|C9|A program holds its grants. Every program run is started under a listed mechanism with the profile the core computed from the run's grants: it reads and writes a real path (content, directory entries, and mode, owner, times and extended attributes) only when a grant covers it and the path is not state, and every such path except those §5 names as narrowed; beyond its grants it changes only the metadata §5 names as widened, never of a state part or a directory on a path to one; it reaches a host only under a `Send` or `SendAny` grant whose ceiling is at least the run's mark, through Eukhe's proxy wherever the platform can force it (§5), and directly only under `SendAny` with sr54's admission; it accepts connections from other hosts only under `Serve{Any, c}` with `c` at least that mark; it connects to a Unix socket only under a `Socket` grant naming a path on the release's list of agent sockets, services that open no file their caller names (ssh and gpg agents), any other socket (a container engine, the Nix daemon) needing `Unconfined`; it signals, traces, and changes the limits or scheduling of only processes of its own run (on Linux without a PID namespace it can read other processes' `cmdline` and `status`, §4). When the platform cannot enforce a part of the profile, the run is started only under `Unconfined` and counted (tm8, sr113), else refused naming the grant needed.|ds10, df9, sr161, sr54|
+|C11|The policy and the state protect themselves. While isolation holds, nothing an agent does and nothing a program it runs does changes the store or any other state part: no effect, message, daemon or CLI command, file write, rename, link, change of mode, owner, times or extended attributes (of a state part or a directory on a path to one), socket connection, signal, or change of an Eukhe process's limits or scheduling. A write to the store's files asks a user whatever the set holds. The project's `.eukhe/` is not state: its keys apply only at a digest the principal accepted (§4).|df9, T11|
+|C15|Isolation is a fact per position. Every program run shares the user's OS identity; it breaks isolation only when it is not confined, or confined yet able to reach Eukhe's state (sr179 as reworded, decision 1). A run is isolated up to the first of: an `Unconfined` program run; a confined run on a platform where signals or sockets of Eukhe are reachable (§5, tier L3); a confined run with a direct `AnyNet` on a platform without per-host rules (§5: it reaches every loopback service, and some act with the user's access); a confined run under a mechanism version with a disclosed, unfixed instance on the escape list in force; a disclosure recorded while a program run under a version it leaves unfixed is live (at the disclosure's position); a program run started while a state file has more than one link (§4); a call of an in-process host tool that executes agent-supplied content or declares nothing (C23). Before it, the harness delivers on the principal channel, stored out of agents' reach, the head digest and a notice naming the position (sr179); a loss placed by a disclosure cannot precede its ingestion, so that notice is delivered at ingestion, before the next decided effect, and the report says the notice followed the loss. From the loss on the run is not isolated, its facts are unprotected (sr91), and a software delegate's decision is judged from that notice (sr151).|sr179, sr91, sr151, sr98, df8|
 |C16|Platforms without a mechanism. A platform that cannot enforce the profile reports so before the run; its program runs need `Unconfined`. The shipped interactive default holds `Unconfined` (sr51, sr73), and every agent of an interactive run holds it exactly when the root does (decision 9); no shipped default of a scheduled, loop or autoresearch run holds it (sr113, sr133), and no spawn passes it to an agent of such a run.|sr73, sr113, ds10|
-|C17|Report facts (sr18). The record entry of each program run names its outcome, mechanism and version, profile digest, mark, whether it held the cache grant, and the digest of the escape list in force. The report states as witnessed facts: its issue date; the core builds, trusted base list versions and placements in force and when they changed; which mechanism and version each program ran under; for each escape-list instance whose fixed version the host meets, the probe result (C19); which model requests were unconfined; the count and causes of unconfined runs; the program runs that held the cache grant and its trees; the deferred execution files the run wrote (§8); whether a breach was detected (§8); the escape list's digest and date, with a qualifier when it is older than the stated age; the position isolation was lost, if it was; and, when it relies on confinement, a reference to C25's figures for each mechanism used. Denials observed are reported as measured.|sr18, sr41|
+|C17|Report facts (sr18). The record entry of each program run names its outcome, mechanism and version, profile digest, mark, whether it held the cache grant, and the digest of the escape list in force. The report states as witnessed facts: its issue date; the core builds, trusted base list versions and placements in force and when they changed; which mechanism and version each program ran under; for each escape-list instance whose fixed version the host meets, the probe result (C19); which model requests were unconfined; the count and causes of unconfined runs; the count of interactive confined runs whose write trees leave the project scope (the temp dir, the cache trees), each counted as one irreversible effect (tm8, sr51); the program runs that held the cache grant and its trees; the metadata changes a profile allowed as widened (§5); the deferred execution files the run wrote (§8); whether a breach was detected (§8); the escape list's digest and date, with a qualifier when it is older than the stated age; the position isolation was lost, if it was; and, when it relies on confinement, a reference to C25's figures for each mechanism used. Denials observed are reported as measured.|sr18, sr41, tm8|
 |C18|Label. The label carries "unconfined" exactly when some program run of the run (check and proof runs included) ended `Unconfined`, or ran while the escape list in force held a disclosed, unfixed instance for its mechanism version (a long-lived program counts from the disclosure on); it carries "not isolated" exactly when C15 places a loss.|df8, sr80, sr119|
-|C19|Escape list and disclosures. Each release ships an escape list: per mechanism, its escape classes, each with the date it was listed, and disclosed instances with the version that introduced them, the fixed version and a probe. An escape class counts only if listed before any disclosure within it. A disclosed instance voids confinement, whether or not its class is listed, on every host at or above its introducing version that is not fixed for it; a host is fixed for it only when its version is at or above the fixed version and the instance's probe passes on that host before the program run, and both facts are reported (decision 7). An instance with no probe yet leaves every host at or above its introducing version unfixed. A disclosure recorded during the run qualifies the label from that position on. A disclosure after the report's date is appended as a relayed fact (source, date, content) with the witnessed fact of which mechanism versions the report's program runs used; no label changes.|sr119, df9|
-|C20|Checks are confined to their copy. A check's command and a law check's proof run start under a profile that writes only inside the check's copy of the judged work state, reads nothing else the worker can write, and sends nothing unless the check holds a send grant. Judgings that run check code unconfined draw on their own irreversible allowance, a count and a value cap per run and per account, zero by default for non-interactive runs; the report states their effects are uncounted beyond that count (sr112). A recorded stop voids every grant to run check code unconfined: no such program starts after it, a running one is stopped, and the judging is undecided with cause "stopped".|tm4, sr112, sr172, sr136|
-|C21|Long-lived programs. A kernel, MCP server or language server keeps the profile it started with. A grant widened later reaches it only at a restart; a revocation that covers an effect its profile allows stops it before the next effect of the subtree is decided (C5).|C5, C9|
-|C22|Network through the core. Every connection a confined program opens through the proxy is an effect submitted to the core: a send to the host at the run's mark (C7), metered or refused on a billing host (sr54), recorded with author and cause. The proxy resolves each name once and dials the checked address; it refuses loopback, link-local and private ranges and IP literals unless a grant names them.|C7, sr54|
+|C19|Escape list and disclosures. Each release ships an escape list: per mechanism, its escape classes, each with the date it was listed, and disclosed instances with the version that introduced them, the fixed version on each release branch that has one (a macOS release line, a stable kernel series, a distribution's kernel package) and a probe. An escape class counts only if listed before any disclosure within it. A disclosed instance voids confinement, whether or not its class is listed, on every host at or above its introducing version that is not fixed for it; a host is fixed for it only when its version is at or above its branch's fixed version and the instance's probe passes on that host before the program run, and both facts are reported (decision 7); a host on a branch with no fix is unfixed. An instance the shipped profile blocks (a seccomp rule, a Seatbelt deny) is listed with that rule, and its probe runs against the shipped profile; it voids nothing while the probe passes. An instance with no probe yet leaves every host at or above its introducing version unfixed. A disclosure recorded during the run qualifies the label from that position on. A disclosure after the report's date is appended as a relayed fact (source, date, content) with the witnessed fact of which mechanism versions the report's program runs used; no label changes.|sr119, df9|
+|C20|Checks are confined to their copy. A check's command and a law check's proof run start under a profile that writes only inside the check's copy of the judged work state and sends nothing unless the check holds a send grant. It reads a path in the worker's write reach outside its copy (the write trees of the worker's program runs, the cache trees, and, once a program of the worker ran `Unconfined`, every path the user can write) only as an input reported unprotected (tm4). Judgings that run check code unconfined draw on their own irreversible allowance, a count and a value cap per run and per account, zero by default for non-interactive runs; the report states their effects are uncounted beyond that count (sr112). A recorded stop voids every grant to run check code unconfined: no such program starts after it, a running one is stopped, and the judging is undecided with cause "stopped".|tm4, sr112, sr172, sr136|
+|C21|Long-lived programs. A kernel, MCP server or language server keeps the profile it started with. A grant widened later reaches it only at a restart; a revocation that covers an effect its profile allows stops it before the next effect of the subtree is decided (C5). Its mark rises as §1 states; when its profile allows a direct send or `AnyBind` with a ceiling below the raised mark, it is stopped before the run that raises the mark starts.|C5, C9, C7|
+|C22|Network through the core. Every connection a confined program opens through the proxy is an effect submitted to the core: a send to the host at the program's current mark (C7, §1), metered or refused on a billing host (sr54), recorded with author and cause. The proxy resolves each name once and dials the checked address; unless a grant names the address, it refuses IP literals and every address of this machine or a private network: 0.0.0.0/8, 127.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, `::`, `::1`, fe80::/10, fc00::/7, and IPv4-mapped (`::ffff:0:0/96`) or NAT64 (`64:ff9b::/96`) addresses judged as their IPv4 address.|C7, sr54|
 |C23|In-process placement. Every host tool or callback of the in-process placement declares whether it executes agent-supplied content; one that does, or that declares nothing, makes the run not isolated (sr98). A program it starts through Eukhe's launcher is confined like any other.|sr98, sr19|
-|C24|Non-interactive runs. Scheduled, loop and autoresearch runs write only to a harness-owned copy of the scope, handed over at acceptance; they run no unconfined program, and their report's first line says so (sr113); a model request to a provider that declares provider-side execution outside a listed mechanism is an unconfined program run and refused for them, the report's first line naming the grant needed. For interactive runs the report's first line states that billed cost of unconfined program runs outside the core's rulings is unbounded.|sr73, sr113|
+|C24|Non-interactive runs. Scheduled, loop and autoresearch runs write only to a harness-owned copy of the scope, handed over at acceptance: their temp dir lies inside that copy and they hold no cache grant, so a tool that must write a cache uses one inside the copy, set through the tool's variable on the release's cache list. They run no unconfined program, and their report's first line says so (sr113); a model request to a provider that declares provider-side execution outside a listed mechanism is an unconfined program run and refused for them, the report's first line naming the grant needed. For interactive runs the report's first line states that billed cost of unconfined program runs outside the core's rulings is unbounded.|sr73, sr113, sr51|
 |C25|Measured. Per listed mechanism and release, Eukhe publishes, with method, sample and date: the escape rate red-teaming finds with the strongest available model, as a lower bound with recall on seeded known escapes; the time from disclosure to a fixed release; per law-check closure, the rate of proofs accepted for a term other than the delivered one; the side-channel rate (side channels are not on the escape list, sr18); the denial rate and the start-up and run-time cost of confinement on recorded sessions.|sr41, sr96, sr136|
 
 ## 3. What exists in eukhe
@@ -126,16 +138,16 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
 
 |Part|Location today|Rule|
 |---|---|---|
-|store, record, anchors, spend ledgers, settings, cron jobs, agent profiles|`~/.eukhe/` (`sessions/`, `config.cfg`, `settings.json`, `rlm-ledger/`, `cron-jobs.json`)|state tree: no content read, write, create, remove, rename or link|
+|store, record, anchors, spend ledgers, settings, cron jobs, agent profiles|`~/.eukhe/` (`sessions/`, `config.cfg`, `settings.json`, `rlm-ledger/`, `cron-jobs.json`)|state tree: no content read, write, create, remove, rename or link, and no change of mode, owner, times or extended attributes|
 |credentials|`~/.eukhe/auth.json`, `dashboard-token`; provider CLI config files and AWS files when Eukhe uses them for a provider|state: no read|
 |daemon and worker sockets|`$TMPDIR/eukhe-<uid>/`|macOS: pathname sockets moved to `~/.eukhe/run/` (phase 0), denied by the profile. Linux: abstract sockets (decision 3), unreachable from confined programs (`unix_scoped`, §5); since a process of any user on the host can connect to or squat an abstract name, both ends check peer credentials (`SO_PEERCRED`): the daemon and workers serve only a peer of their own uid, and a client accepts only a server of its uid whose pid equals the one recorded under `~/.eukhe/run/` (phase 0). The uid check keeps other users out; confined programs of the same uid are kept out by the scope, not by the check|
-|snapshots, child copies, check copies|`~/.eukhe/workspaces/`, snapshot dirs|moved to a work root outside `~/.eukhe` (phase 0); a run's own copy is its scope, every other copy is state|
+|snapshots, child copies, check copies|`~/.eukhe/workspaces/`, snapshot dirs|moved to one work root outside `~/.eukhe` and outside every tree a shipped profile writes, the temp dir included (phase 0). The whole work root is state, with only a run's own copy, its scope, allowed back; so a copy Eukhe creates after a long-lived program started is out of that program's reach|
 |check definitions and held-out content|contract paths (V5)|state for the worker's programs; read-only input for the check's own command|
 |project policy|`<project>/.eukhe/`|not state: every key applies only while the directory's digest equals one the principal accepted; a changed digest drops the project settings until the principal accepts them again|
 |Eukhe's executables and its launcher|the running binary's directory; the launcher is Eukhe's own binary, no helper from `PATH`|no write|
 |auto-start locations|`~/Library/LaunchAgents`, `~/.config/systemd/user`, `~/.config/autostart`, the user's crontab (through `crontab`, a setuid or daemon path)|state: no write; they run code later with the user's full access, Eukhe's state included|
-|Eukhe's processes|supervisor, workers, tiny workers, dashboard|no signal or trace; loopback services answer only to a token that is state|
-|aliases of state|hard links to a state file; bind mounts and firmlinks of a state directory|classed state by device and inode (files and directories) and by the mount table when the listing is built|
+|Eukhe's processes|supervisor, workers, tiny workers, dashboard|no signal, trace, or change of limits or scheduling; loopback services answer only to a token that is state|
+|aliases of state|hard links to a state file; bind mounts and firmlinks of a state directory|classed state by device and inode (files and directories) and by the mount table when the listing is built. A hard link outside the listed paths escapes any rule by path, so Eukhe creates each state file with one link, replaces files by rename, and before each program run Rust checks every state file's link count: a count above one is an alias, and that program run breaks isolation (C15)|
 
 Linux without a PID namespace leaves `/proc/<pid>/cmdline` and `status` of
 Eukhe's processes readable; C8 keeps credentials out of argv and
@@ -143,7 +155,11 @@ environment, and `environ`, `mem` and descriptors need the ptrace access
 Landlock scopes.
 
 The core takes the state list as input (Rust gathers the real paths and
-inodes), so a law ranges over every list.
+inodes), so a law ranges over every list. State is a fixed set of roots
+that exist before the first program run (`~/.eukhe`, the work root, the
+listed credential files, the auto-start locations); every part created
+later lies beneath one, so a rule on a root, taken at a program's start,
+covers what Eukhe creates under it during that program's life.
 
 ## 5. Grant-to-mechanism mapping
 
@@ -163,15 +179,15 @@ its own user namespace lets it change.
 
 |Profile part|macOS (Seatbelt)|Linux Landlock (by ABI)|Linux seccomp|Linux namespaces|Platform lacking it|
 |---|---|---|---|---|---|
-|base|`process-exec`, `process-fork`; `sysctl-read` list; `mach-lookup` only libinfo, dirhelper, FSEvents; `(deny mach-lookup (xpc-service-name-prefix ""))`; `(deny system-fcntl (fcntl-command 80 110))` (R§3.1)|handled rights = every right of the ABI; ptrace limited to the domain|kill on foreign arch; every rule also with the x32 bit; deny `io_uring_*`, `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `kexec_*`, `unshare` and `clone` with `CLONE_NEWUSER`; `clone3` returns `ENOSYS` (its flags are out of the filter's reach); `socket` only for the families and protocols the profile needs (`AF_UNIX` when allowed; `AF_INET*` with protocol 0, TCP or UDP), so MPTCP, SCTP and SMC, which Landlock's TCP rights do not cover (R§2.1), are denied; `socket(AF_VSOCK)` denied; ioctl `TIOCSTI`, `TIOCLINUX` denied|new PID and IPC namespaces; killed with the launcher|—|
-|`Read{t}` minus state|`(allow file-read* (subpath t))`, then `(deny file-read* …)` per state part|`READ_FILE`, `READ_DIR`, `EXECUTE` on the real paths of the siblings along each path from `t` to a state part; `READ_DIR` alone on the directories of that path (state names listable, content not)|—|read-only bind; state parts covered by an empty tmpfs|no Landlock and no namespaces: needs `Unconfined`|
-|`Write{t}` minus state|`(allow file-write* (subpath t))`; `(deny file-write* …)` per state part; `(deny file-write-unlink …)` on every ancestor of a state part inside `t`|write, make, remove, `TRUNCATE` (ABI 3), `REFER` (ABI 2) on the siblings along each path to a state part; none on the directories of that path: entries directly in them cannot be created, removed or renamed (**narrowed**, reported)|—|bind; every state part under a bind covered by an empty read-only tmpfs|as above|
+|base|`process-exec`, `process-fork`; `sysctl-read` list; `mach-lookup` only libinfo, dirhelper, FSEvents; `(deny mach-lookup (xpc-service-name-prefix ""))`; `(deny system-fcntl (fcntl-command 80 110))` (R§3.1)|handled rights = every right of the ABI; ptrace limited to the domain|kill on foreign arch; every rule also with the x32 bit; deny `io_uring_*`, `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `kexec_*`, `unshare` and `clone` with `CLONE_NEWUSER`; `clone3` returns `ENOSYS` (its flags are out of the filter's reach); `socket` only for the families, types and protocols the profile needs (`AF_UNIX` when allowed; `AF_INET*` only as `SOCK_STREAM` with protocol 0 or TCP and `SOCK_DGRAM` with protocol 0 or UDP, the type masked of `SOCK_NONBLOCK` and `SOCK_CLOEXEC`), so MPTCP, SCTP (which `SOCK_SEQPACKET` with protocol 0 selects) and SMC, which Landlock's TCP rights do not cover (R§2.1), are denied; `socket(AF_VSOCK)` denied; `sendto`, `sendmsg` and `sendmmsg` with `MSG_FASTOPEN` in their flags denied (TCP Fast Open connects without Landlock's connect check, R§4); `prlimit64`, `sched_setaffinity`, `sched_setscheduler`, `sched_setparam` and `sched_setattr` only with pid 0, `setpriority` only with `PRIO_PROCESS` and 0, `ioprio_set` only with `IOPRIO_WHO_PROCESS` and 0 (Landlock scopes signals and ptrace, not limits or scheduling, R§2.1); ioctl `TIOCSTI`, `TIOCLINUX` denied. Without a mount namespace, the path forms of metadata changes, which Landlock does not restrict (R§2.1), are denied: `chmod`, `fchmodat`, `fchmodat2`, `chown`, `lchown`, `fchownat`, `utime`, `utimes`, `futimesat`, `utimensat` with a non-NULL path, `setxattr`, `lsetxattr`, `removexattr`, `lremovexattr`, `setxattrat`, `removexattrat` (**narrowed**: `chmod +x`, `touch -d`, `cp -p` fail); the descriptor forms (`fchmod`, `fchown`, `utimensat` with a NULL path, `fsetxattr`, `fremovexattr`) stay, and they refuse an `O_PATH` descriptor|new PID and IPC namespaces; killed with the launcher|—|
+|`Read{t}` minus state|`(allow file-read* (subpath t))`, then `(deny file-read* …)` per state part|`READ_FILE`, `READ_DIR`, `EXECUTE` on the real paths of the siblings along each path from `t` to a state part; no right on the directories of that path, so no descriptor to them opens and their metadata cannot change (**narrowed**: they cannot be listed). A program can change the mode, group, times and extended attributes of a file it owns in `t` through a descriptor it opened for reading (**widened**, reported)|—|read-only bind (metadata changes fail with `EROFS`); state parts covered by an empty tmpfs|no Landlock and no namespaces: needs `Unconfined`|
+|`Write{t}` minus state|`(allow file-write* (subpath t))`; `(deny file-write* …)` per state part; `(deny file-write* (literal a))` on every ancestor `a` of a state part inside `t`, which denies its removal, rename and metadata changes|write, make, remove, `TRUNCATE` (ABI 3), `REFER` (ABI 2) on the siblings along each path to a state part; none on the directories of that path: entries directly in them cannot be created, removed or renamed (**narrowed**, reported)|—|bind; every state part under a bind covered by an empty read-only tmpfs; the directories on a path to a state part bound read-only with their other entries bound writable (**narrowed** as on Landlock)|as above|
 |deferred execution files in a write tree (§8's deny set; decision 10)|`(deny file-write* (literal p) (subpath p))` per deny-set path after every grant, whether or not `p` exists; `(deny file-write-unlink …)` on its ancestors inside `t`|— (allow-only: a rule cannot remove them from a write tree without narrowing the project root and `.git`); listed in the report|—|each one existing at start bound read-only; an absent one is listed in the report|listed in the report|
-|`Socket{p}`|`(allow network-outbound (remote unix-socket (path-literal p)))`; state sockets denied after every grant|`RESOLVE_UNIX` (ABI 9) on `p`|ABI < 9 without a mount namespace: `socket(AF_UNIX)` denied, `socketpair` kept; `Socket` grants unavailable|state sockets not mounted; a new network namespace for abstract sockets|as for ABI < 9|
-|signals and process access|`(allow signal (target same-sandbox))`, `process-info*` same sandbox|`SCOPE_SIGNAL`, `SCOPE_ABSTRACT_UNIX_SOCKET` (ABI 6)|—|PID namespace|ABI < 6 without namespaces: tier L3|
-|`NoNet`|no `network-outbound` rule|TCP connect and bind handled, no rule (ABI 4); UDP handled (ABI 10)|ABI < 10: `socket(AF_INET*)` with type `SOCK_DGRAM` (type masked of `SOCK_NONBLOCK`, `SOCK_CLOEXEC`) denied; ABI < 4: `socket(AF_INET*)` denied|empty network namespace|—|
+|`Socket{p}`, `p` on the release's agent-socket list (C9)|`(allow network-outbound (remote unix-socket (path-literal p)))`; state sockets denied after every grant|`RESOLVE_UNIX` (ABI 9) on `p`|ABI < 9 without a mount namespace: `socket(AF_UNIX)` denied, `socketpair` kept; `Socket` grants unavailable|state sockets not mounted; a new network namespace for abstract sockets|as for ABI < 9|
+|signals and process access|`(allow signal (target same-sandbox))`, `process-info*` same sandbox|`SCOPE_SIGNAL`, `SCOPE_ABSTRACT_UNIX_SOCKET` (ABI 6)|limits and scheduling of pid 0 only (base)|PID namespace|ABI < 6 without namespaces: tier L3|
+|`NoNet`|no `network-outbound` rule|TCP connect and bind handled, no rule (ABI 4); UDP handled (ABI 10)|ABI < 10: `socket(AF_INET*)` with type `SOCK_DGRAM` (type masked as above) denied|empty network namespace|—|
 |`Proxy{hosts}`|`(allow network-outbound (remote ip "localhost:<port>"))` for the run's own proxy port; `mach-lookup` of the TLS trust services; the proxy URL carries a per-run token|— (port-only rules name no host, R§2.1)|as `NoNet`|empty namespace, loopback bridge to the run's proxy port (R§3.2)|no user namespaces: per-host grants need `SendAny` or `Unconfined`|
-|`AnyNet` (`SendAny`)|through the run's proxy, as `Proxy{*}`|TCP connect on all ports, direct; needs sr54's admission|`AF_INET*` with protocol 0, TCP or UDP|through the proxy, as `Proxy{*}`|—|
+|`AnyNet` (`SendAny`)|through the run's proxy, as `Proxy{*}`|TCP connect on all ports and addresses, direct, loopback included, so the run is not isolated (C15); needs sr54's admission|`AF_INET*` stream and datagram sockets as in base|through the proxy, as `Proxy{*}`|—|
 |`Serve{Loopback}`|`(allow network-bind network-inbound (local ip "localhost:*"))`|— (port-only: a bind takes every address)|—|own namespace's loopback|no namespaces: `Serve{Any, c}` needed|
 |resource limits|`setrlimit` per process|—|—|cgroup v2 where delegated to the user|measured, never a guarantee|
 
@@ -183,8 +199,11 @@ network namespace, or seccomp denying `socket(AF_UNIX)`. Other services'
 pathname sockets (a container engine, the Nix daemon, the desktop bus) can
 act with the whole machine's or user's access, Eukhe's state included, so
 they are scoped too: by Landlock ABI 9, by seccomp denying
-`socket(AF_UNIX)`, or by a mount namespace. `signal_scoped` holds with
-Landlock ABI 6 or a PID namespace.
+`socket(AF_UNIX)`, or by a mount namespace; and a `Socket` grant yields a
+confined outcome only for a path on the release's agent-socket list (C9).
+Loopback TCP services are not scoped by a port-only mechanism, so a direct
+`AnyNet` breaks isolation (C15). `signal_scoped` holds with Landlock ABI 6
+or a PID namespace.
 
 Linux tiers (R§2; ABI-to-kernel mapping confirmed, distribution kernels
 unconfirmed, R§2.2). Confined and isolated on Linux needs kernel 6.12 or
@@ -193,11 +212,11 @@ reported "confined, not isolated" (decision 2):
 
 |Tier|Needs|Confinement|Isolation|
 |---|---|---|---|
-|L1|Landlock ABI ≥ 9 (7.1)|files, sockets, TCP ports; UDP by Landlock from ABI 10, by seccomp before|yes|
-|L2|ABI 6–8 (6.12–7.0), seccomp denying `socket(AF_UNIX)`|files, TCP ports, UDP by seccomp; `Socket` grants unavailable|yes|
+|L1|Landlock ABI ≥ 9 (7.1)|files, sockets, TCP ports; UDP by Landlock from ABI 10, by seccomp before|yes, but not with a direct `AnyNet` (C15)|
+|L2|ABI 6–8 (6.12–7.0), seccomp denying `socket(AF_UNIX)`|files, TCP ports, UDP by seccomp; `Socket` grants unavailable|as L1|
 |L3|ABI 4–5 (6.7–6.11), e.g. Ubuntu 24.04 GA with user namespaces restricted (R§2.3)|as L2|no: signals reach Eukhe's processes|
 |N|user namespaces allowed (any ABI or none)|files by mounts, network by namespace, per-host through the proxy; with Landlock when present|yes|
-|none|ABI 1–3 without user namespaces (no truncate or network rules); neither Landlock nor user namespaces (WSL1; containers whose policy blocks both)|needs `Unconfined`|no|
+|none|ABI 1–3 without user namespaces (no network rules; ABI 1–2 also no truncate right); neither Landlock nor user namespaces (WSL1; containers whose policy blocks both)|needs `Unconfined`|no|
 
 On macOS every profile part is enforceable; nesting inside another sandbox
 makes the platform "none".
@@ -210,62 +229,76 @@ Files: `bend/confine.bend` (rules), `bend/ffi_confine.bend` (entry),
 decision of `SPEC.md` §5 for marks and sends.
 
 ```
-type Mech:    Seatbelt{build} | Landlock{abi, kernel} | Userns{kernel}
+type Mech:    Seatbelt{build, eukhe} | Landlock{abi, kernel, eukhe} | Userns{kernel, eukhe}
             | ProviderSandbox{attestation} | ProofClosure{closure} | NoMech
 type Plat:    Plat{mech, unix_scoped, signal_scoped, per_host, loop_bind, allow_only,
                    deny_absent}
 type PGrant:  Read{t} | Write{t} | Send{host, ceil} | SendAny{ceil} | Socket{p}
             | ServeLoop | ServeAny{ceil} | Unconfined{digest}
 type Net:     NoNet | Proxy{hosts} | AnyNet
-type Profile: Profile{read, write, narrowed, deferred_denied, deferred_listed,
+type Profile: Profile{read, write, narrowed, widened, deferred_denied, deferred_listed,
                       cache, net, sockets, bind}
 type Outcome: Confined{profile, mech} | Unconfined{cause} | Refused{need}
 
-profile(grants, mark, default_mark, state, listing, deferred, caches, plat) -> Profile
-decide(grants, ask_unconfined, mark, default_mark, state, listing, deferred,
-       caches, plat, escapes) -> Outcome
-isolated(outcomes, plats, escapes, host_tools) -> Maybe<Position>   # first loss
-label_bits(outcomes, escapes, host_tools) -> {unconfined, not_isolated}
+profile(grants, kind, mark, default_mark, state, listing, deferred, caches,
+        agent_sockets, plat) -> Profile
+decide(grants, kind, ask_unconfined, mark, default_mark, state, listing, deferred,
+       caches, agent_sockets, plat, escapes) -> Outcome
+mark_at(runs, path_marks, position) -> marks          # each live program's mark
+isolated(outcomes, plats, escapes, links, host_tools) -> Maybe<Position>   # first loss
+label_bits(outcomes, escapes, links, host_tools) -> {unconfined, not_isolated}
 ```
 
+`eukhe` in `Mech` is the Eukhe build whose launcher and renderer applied the
+mechanism, so an escape instance in Eukhe's own set-up matches by it.
+`kind` is the run's kind (interactive, scheduled, loop, autoresearch).
 `listing` is the directory listing along each path from a granted tree to a
-state part, with links and inodes, gathered by Rust at start. `deferred` is
-§8's deny set with, per path, whether it exists at start; `caches` is the
-release's cache tree list. `escapes` is the escape list in force at each
-position with each instance's probe result on the host; an instance is
-unfixed on the host per C19. `plat.allow_only` holds on Landlock without a
+state part, with links and inodes, gathered by Rust at start; state is
+the fixed roots of §4, so a profile taken at a program's start excludes
+every state part Eukhe creates during that program's life (the laws range
+over every position of it). `deferred` is §8's deny set with, per path, whether it
+exists at start; `caches` is the release's cache tree list;
+`agent_sockets` the release's agent-socket list (C9). `escapes` is the
+escape list in force at each position with each instance's probe result on
+the host; an instance is unfixed on the host per C19. `links` is the
+result of §4's link-count check before each program run. `outcomes` carry
+each program's start and end positions, so a disclosure is matched against
+every program live at it. `plat.allow_only` holds on Landlock without a
 mount namespace; `plat.deny_absent` holds on Seatbelt, which denies a path
-whether or not it exists.
+whether or not it exists. `widened` lists the read trees in which a
+descriptor can change a file's metadata (`plat.allow_only`, §5).
 
 Requirement laws:
 
 |Req|Law|States|Rejects|
 |---|---|---|---|
-|C9|`profile_fs_within`|For every real path in the listing and each access (content read, content write, create, remove, rename, link), the profile allows the access only when a grant of that access covers the path and the path is not state; a link child is judged at its target.|A profile that opens the home directory for convenience; a rule on a link child that follows it to its target (a `~/.home -> ~` link opened the state tree in the Linux probe, R§5.2); a hard link to `auth.json` inside the project left readable.|
-|C9|`profile_fs_covers`|Every access a grant covers on a non-state path is allowed, except the entry operations in directories on a path to a state part when `plat.allow_only`, which are exactly `narrowed`, and the writes to `deferred_denied` (`deferred_denied_or_listed`).|An empty profile; one that drops a granted tree; one that narrows more than the path to the state part; one that narrows on Seatbelt.|
+|C9|`profile_fs_within`|For every real path in the listing, at every position of the program's life, and each access (content read, content write, create, remove, rename, link, and a change of mode, owner, times or extended attributes), the profile allows the access only when a grant of that access covers the path and the path is not state, except a metadata change through a descriptor on a file in `widened`; no access of any kind, `widened` included, reaches a state part or a directory on a path to one; a link child is judged at its target.|A profile that opens the home directory for convenience; a rule on a link child that follows it to its target (a `~/.home -> ~` link opened the state tree in the Linux probe, R§5.2); a Landlock profile that leaves `chmod 000 ~/.eukhe` or `touch -d` on a canary allowed; a Landlock profile that lets the home directory open, so `fchmod` changes it; a Seatbelt profile that denies each copy present at start rather than the work root, so a check copy made later is readable.|
+|C9|`profile_fs_covers`|Every access a grant covers on a non-state path is allowed, except, when `plat.allow_only`, the entry operations in and listing of directories on a path to a state part and the path forms of metadata changes, which are exactly `narrowed`, and the writes to `deferred_denied` (`deferred_denied_or_listed`).|An empty profile; one that drops a granted tree; one that narrows more than the path to the state part; one that narrows on Seatbelt.|
 |C9|`profile_net_exact`|For every confined outcome: the profile reaches host `h` exactly when `Send{h,c}` or `SendAny{c}` is held with `c` at least the run's mark; `Proxy` appears only when `plat.per_host`; a direct `AnyNet` only under `SendAny` with sr54's admission; `AnyBind` only under `ServeAny{c}` with `c` at least the mark. A `Send{h}` grant on a platform without `per_host` yields no confined outcome.|A public host open to a program that reads a secret path; a per-host grant rendered as open network on a port-only platform; a server open to every host for a program that read private data; a direct `SendAny` on a billing host without admission.|
-|C9|`profile_sockets_exact`|A Unix socket path is reachable exactly when a `Socket` grant names it, it is not state, and the platform scopes pathname sockets by path (Landlock ABI 9, Seatbelt, or a mount namespace); otherwise the outcome needs `Unconfined`.|A socket rule that reaches the daemon socket; a `Socket` grant on Landlock ABI 7 reported confined.|
+|C9|`profile_sockets_exact`|A Unix socket path is reachable exactly when a `Socket` grant names it, it is on `agent_sockets`, it is not state, and the platform scopes pathname sockets by path (Landlock ABI 9, Seatbelt, or a mount namespace); otherwise the outcome needs `Unconfined`.|A socket rule that reaches the daemon socket; a `Socket` grant on Landlock ABI 7 reported confined; a `Socket` grant on the Docker socket reported confined.|
 |C9, C16|`unconfined_only_by_grant`|The outcome is `Unconfined` exactly when the set holds `Unconfined` and either the step asked for it or the platform cannot enforce the profile; it is `Refused`, naming the missing grant, when the platform cannot enforce and the set lacks it; otherwise `Confined`.|An unsupported system that runs the program anyway; a run sent unconfined though its grants were enforceable and it did not ask.|
 |C16|`unconfined_not_unattended_not_passed`|No shipped default of a scheduled, loop or autoresearch run holds `Unconfined`, and no spawn passes it to an agent of such a run; an agent of an interactive run holds it exactly when the run's root holds it (decision 9).|An autoresearch run whose default allows it; a loop run started from an interactive session that inherits its `Unconfined`; a subagent holding `Unconfined` its root lacks.|
-|C11|`state_unreachable_when_confined`|On every platform with `unix_scoped` and `signal_scoped`, for every grant set (a grant on `/` or on the home directory included), every confined outcome, and every sequence of file operations its profile allows (renames and links included), no state content becomes readable or writable, no state socket is reachable, and no Eukhe process can be signalled.|A write grant on `$TMPDIR` covering the daemon socket; a rename of the directory above a state part followed by a write at the old name; a read grant on `~` covering `auth.json`.|
-|C9, C6|`written_paths_take_mark`|Every path in a confined run's write trees carries at least the run's mark from the run's start, so any later run whose profile reads it has at least that mark; a long-lived program accepts no input above the mark it started with.|A secret-mark run writing into the project and a public-mark run then sending the file out; a kernel fed a secret on stdin after starting with a public network grant.|
+|C11|`state_unreachable_when_confined`|On every platform with `unix_scoped` and `signal_scoped`, for every grant set (a grant on `/` or on the home directory included), every confined outcome without a direct `AnyNet`, every position of the program's life (state parts Eukhe creates meanwhile included), and every sequence of file and process operations its profile allows (renames, links, and metadata changes by path or descriptor included), no state content becomes readable or writable, no state part or directory on a path to one changes mode, owner, times or extended attributes, no state socket is reachable, and no Eukhe process can be signalled or have its limits or scheduling changed.|A write grant on `$TMPDIR` covering the daemon socket; a rename of the directory above a state part followed by a write at the old name; a read grant on `~` covering `auth.json`; `prlimit --pid <daemon> --fsize=0` on tier L1; `chmod 000 ~/.eukhe` on tier L2; a check copy created under the work root after a language server started, then read by it.|
+|C9, C6|`written_paths_take_mark`|Every path in a run's write reach (its write trees; for an `Unconfined` run, every path the user can write) carries at least the run's mark from the run's start, so any later run whose profile reads it has at least that mark; at every position, a live program whose read trees overlap the write reach of a run started since has at least that run's mark; a live program accepts no input above its current mark, and one whose profile allows a direct send or `AnyBind` with a ceiling below its current mark is stopped before the run that raised the mark starts.|A secret-mark run writing into the project and a public-mark run then sending the file out; a kernel fed a secret on stdin after starting with a public network grant; a public-mark kernel, already running, that reads a file a later secret-mark command wrote into the shared temp dir and sends it; a confined run that reads a file an `Unconfined` run wrote, at a mark below the highest.|
 |C9, C17|`deferred_denied_or_listed`|For each deny-set path inside a write tree of the profile: its writes, creation, removal and rename are denied when `plat.deny_absent`, or when the path exists at start and `not plat.allow_only`; every other such path is in `deferred_listed`; no deny-set path lies in both sets and none outside a write tree is in either.|A macOS profile leaving `.git/hooks/pre-commit` writable; a Landlock run whose written hook is not listed; an absent `.envrc` in tier N reported as denied.|
-|C9, C6|`cache_grant_within_mark`|A profile writes a cache tree only when the run's mark is at most the contract's default mark, and only trees on the release's cache list, none of which holds a directory on the default `PATH` or a tool's configuration file.|A secret-mark run filling `~/.cargo/registry`; a cache grant covering `~/.cargo/bin` or `~/.npmrc`.|
-|C15|`isolation_lost_at_first_reach`|`isolated` returns the position of the first event that is a program run whose outcome is `Unconfined`, a program run whose platform lacks `unix_scoped` or `signal_scoped`, a program run whose mechanism version has an instance in the escape list in force that is unfixed on its host (C19), or a call of a host tool declared to execute agent-supplied content or undeclared; none when no such event exists.|A run reported isolated after an unconfined `npm install`; one reported isolated on tier L3; one reported isolated after an undeclared host tool ran; one reported isolated on a kernel at an instance's fixed version whose probe failed; one reported not isolated though every program ran on tier L1 with no disclosure.|
-|C15|`notice_before_loss`|In the host model, the event at the loss position happens only after the notice naming that position and the head digest is delivered on the principal channel and stored where no agent effect writes.|A notice written after the launch; a notice kept only in the record; no notice before an undeclared host tool's call.|
+|C9, C6|`cache_grant_within_mark`|A profile writes a cache tree only for an interactive run whose mark is at most the contract's default mark, and only trees on the release's cache list, none of which holds a directory on the default `PATH` or a tool's configuration file.|A secret-mark run filling `~/.cargo/registry`; an autoresearch run holding the cache grant; a cache grant covering `~/.cargo/bin` or `~/.npmrc`.|
+|C15|`isolation_lost_at_first_reach`|`isolated` returns the position of the first event that is a program run whose outcome is `Unconfined`, a program run whose platform lacks `unix_scoped` or `signal_scoped`, a confined program run with a direct `AnyNet` on a platform without `per_host`, a program run whose mechanism version has an instance in the escape list in force that is unfixed on its host (C19), a disclosure at whose position a program run under a version it leaves unfixed is live, a program run started while `links` shows a state file with more than one link, or a call of a host tool declared to execute agent-supplied content or undeclared; none when no such event exists.|A run reported isolated after an unconfined `npm install`; one reported isolated on tier L3; one reported isolated after a direct `SendAny` on tier L1; one reported isolated after an undeclared host tool ran; one reported isolated on a kernel at an instance's fixed version whose probe failed; a kernel live when a disclosure for its kernel arrived, the run still isolated; one reported isolated while a hard link to `auth.json` sat in the project; one reported not isolated though every program ran on tier L1 with no disclosure.|
+|C15|`notice_before_loss`|In the host model, the event at the loss position happens only after the notice naming that position and the head digest is delivered on the principal channel and stored where no agent effect writes; at a loss placed by a disclosure, the notice is delivered at the disclosure's ingestion, before the next decided effect, and the report says it followed the loss.|A notice written after the launch; a notice kept only in the record; no notice before an undeclared host tool's call; a disclosure's notice held back until the next program start.|
 |C18|`label_unconfined_exact`|`unconfined` is set exactly when some program run, check and proof runs included, ended `Unconfined`, or was live at a position where the escape list in force held an instance unfixed on its host for its mechanism version (C19).|A qualifier kept after every run was confined; one dropped though a check ran unconfined; a long-lived kernel started before a disclosure left unqualified; a fixed version taken as fixed without its probe.|
 |C19|`disclosure_qualifies_forward`|A disclosure recorded at position `i` changes no label bit of a program run that ended before `i`; a class listed after a disclosure within it does not count as listed; a disclosure after the report's date changes no label.|A disclosure that rewrites past labels; a class added to the list after its first disclosure and then treated as covering it.|
-|C20|`check_profile_within_copy`|A check's profile writes only inside its copy, reads no path the worker can write other than the copy, and has `NoNet` unless the check holds a send grant.|A check running in the live session directory (today's `evidence.rs:295`); a check reaching the network to fetch its oracle.|
+|C20|`check_profile_within_copy`|A check's profile writes only inside its copy and has `NoNet` unless the check holds a send grant; every path it reads in the worker's write reach outside its copy (the write trees of the worker's program runs, the cache trees, and, after an `Unconfined` program of the worker, every path the user can write) is listed as an unprotected input.|A check running in the live session directory (today's `evidence.rs:295`); a check reaching the network to fetch its oracle; a check that runs a build script from a worker-written `~/.cargo/registry` while its inputs are reported protected.|
 |C20|`stop_ends_unconfined_checks`|After a recorded stop no check program starts `Unconfined`, each running one is stopped before the next decided effect, and its judging is undecided with cause "stopped"; an unconfined check grant allows a run only on the digest it names.|A check judged unconfined after the stop; an unconfined check left running; a grant reused on a new work state.|
 |C21|`profile_never_widens`|Over any run of the host model, the profile of a live long-lived program is never wider than at its start; a revocation that covers an effect it allows stops it before the next decided effect.|A kernel keeping network after its grant was revoked.|
-|C22|`proxy_connect_is_send`|Each proxy connection is decided as a send to its host at the run's mark; a name resolving to loopback, link-local or a private range, or an IP literal, is refused unless a grant names it.|A proxy that forwards to `169.254.169.254`; one that allows a host by suffix.|
-|C24|`unattended_writes_in_copy`|For scheduled, loop and autoresearch runs, every write tree of every profile lies inside the harness-owned copy, and a provider request declaring execution is a program run decided like any other.|An autoresearch run writing the live project; a provider-side execution request let through as a model request.|
+|C22|`proxy_connect_is_send`|Each proxy connection is decided as a send to its host at the program's current mark; a name resolving to an address on C22's list (IPv4-mapped and NAT64 addresses judged as their IPv4 address), or an IP literal, is refused unless a grant names it.|A proxy that forwards to `169.254.169.254`; one that dials a name resolving to `0.0.0.0` or `::ffff:127.0.0.1`; one that allows a host by suffix.|
+|C24|`unattended_writes_in_copy`|For scheduled, loop and autoresearch runs, every write tree of every profile lies inside the harness-owned copy (their temp dir included, no cache grant), and a provider request declaring execution is a program run decided like any other.|An autoresearch run writing the live project; a loop run writing the shared temp dir or `~/.cargo/registry`; a provider-side execution request let through as a model request.|
 
 Each law gets the bend skill's process at the commit `scripts/toolchain.env`
 pins: mutation before and after, fresh blind adversaries until two in a row
 find no gap, two blind triviality reviewers.
 
 Rust keeps IO: platform facts, real paths, inodes and the listing; the
+link count of every state file before each program run (§4); each
+program's start and end positions; the
 deny set's existence at start and the digests of its listed paths at start
 and end; each escape-list instance's probe at session start; rendering
 the profile (SBPL text with paths passed as `-D` parameters, Landlock rules,
@@ -286,6 +319,14 @@ ABI 7; Seatbelt's log stream); writing each outcome to the record.
   (decision 6). Subagents of an interactive run hold it exactly when the
   root does (decision 9). Scheduled, loop and autoresearch defaults: never;
   their program runs are confined or refused (C24).
+- An interactive confined run whose write trees leave the project scope
+  (the temp dir, the cache trees) counts one irreversible effect under tm8,
+  drawn from the default tools' allowance (sr51) and reported as a lower
+  bound (C17).
+- An `Unconfined` run's output carries the highest mark: every path the
+  user can write takes it (§1). Every later program run of the run reads
+  some such path, so it runs at the highest mark: it reads the caches only
+  (decision 5), and its sends need a ceiling at the highest mark.
 - A platform without a mechanism (tier "none", macOS inside another
   sandbox) reports it at session start; every program run there is
   `Unconfined` under the interactive default and refused otherwise.
@@ -338,23 +379,32 @@ with the date it was listed. Seed classes (R§4):
   of bubblewrap's CVE-2026-87766 and CVE-2026-41163, to which Eukhe's own
   launcher is exposed alike); terminal injection; inherited
   descriptors; pathname sockets below ABI 9; stream protocols other than
-  TCP, outside Landlock's TCP rights (erratum 1, R§2.1); mounts a program
-  can change inside its own user namespace.
+  TCP, outside Landlock's TCP rights (erratum 1, R§2.1); connects that
+  bypass Landlock's connect check (TCP Fast Open through `MSG_FASTOPEN`,
+  disclosed June 2026, blocked by §5's seccomp rule, R§4); calls Landlock
+  does not restrict (metadata changes, limits and scheduling of other
+  processes; §5's seccomp rules); mounts a program can change inside its
+  own user namespace.
 - Both: auto-start locations and other files the system runs later with
   the user's full access; aliases of state (hard links, bind mounts,
   firmlinks).
 
 A disclosed instance voids confinement on every host at or above its
 introducing version that is not fixed for it. A host is fixed for it only
-when both hold: its kernel or build is at or above the fixed version (for
-a distribution kernel, the distribution's fixed package version, recorded
-in the list), and the instance's probe passes on that host at session
-start; both facts are reported (decision 7). An instance counts when it
-bypasses the mechanism from the shipped profile per an advisory or a
-reproducer. Each instance enters the list with a probe: its reproducer
+when both hold: its kernel or build is at or above the fixed version of its
+release branch (a macOS release line, such as 15.4, 14.7.5 and 13.7.5 for
+one fix; a stable kernel series; for a distribution kernel, the
+distribution's fixed package version), all recorded in the list, and the
+instance's probe passes on that host at session start; a host on a branch
+with no fix is unfixed; both facts are reported (decision 7). An instance
+counts when it bypasses the mechanism from the shipped profile per an
+advisory or a reproducer; one that a rule of the shipped profile blocks is
+listed with that rule and voids nothing while its probe passes against the
+shipped profile. Each instance enters the list with a probe: its reproducer
 against the shipped profile, or, for an advisory without one, a test of
 the fixed behaviour Eukhe writes; until it ships, every host at or above
-the introducing version is unfixed.
+the introducing version is unfixed. An instance in Eukhe's own launcher or
+renderer is matched by the Eukhe build in the mechanism's version (§6).
 
 Measurements (C25), each with method, sample and date:
 
@@ -388,7 +438,8 @@ isolation positions, label bits, over the host model. Tested: the rendering
 into SBPL, Landlock rules, seccomp and namespaces (a probe suite per
 platform in the nightly gate, R§5); that every program start passes through
 the launcher (a permit type only `decide` makes, and a test over every
-spawn site of §3). Trusted: the kernel and its mechanisms, the escape
+spawn site of §3), Eukhe's own calls of external tools on agent-writable
+trees included. Trusted: the kernel and its mechanisms, the escape
 list's content, the real-path, inode and listing code in Rust, the proxy's
 forwarding (it sees the name a program presents, never the content; a grant
 to a host covers whatever that host relays, R§6).
@@ -405,15 +456,17 @@ cache trees; no network):
 |---|---|---|
 |editing, build, test, search, local `git`|works (R§5)|—|
 |package installs, `git push` and `fetch`, downloads|no network|`Send` grants per registry host (phase 2), or `Unconfined`|
-|package caches (`~/.cargo/registry`, `~/.cargo/git`, `~/.npm/_cacache`, `~/.cache`, `~/Library/Caches`, `~/go/pkg/mod`; the list ships per release, lock files included)|written under the cache grant for runs at or below the contract's default mark, reported (decision 5); read-only above it, where tools that lock or fill a cache fail; never a tool's `bin` directory or configuration file|a run above the default mark: an `Unconfined` step|
+|package caches (`~/.cargo/registry`, `~/.cargo/git`, `~/.npm/_cacache`, `~/.cache`, `~/Library/Caches`, `~/go/pkg/mod`; the list ships per release, lock files included)|written under the cache grant for interactive runs at or below the contract's default mark, reported (decision 5); read-only above it, and for every program run after an `Unconfined` run of the same run (§7), where tools that lock or fill a cache fail; never a tool's `bin` directory or configuration file|an `Unconfined` step|
 |`git config`, `git remote add`, `git submodule init`, writing hooks in a repository present at start|denied on macOS and tier N (decision 10); listed elsewhere|an `Unconfined` step (`git push -u` already runs unconfined as a network step)|
 |Xcode tool shims (`/usr/bin/git` and others)|need per-user temp and cache dirs and `dirhelper` (R§5.1)|in the base profile|
-|new entries directly in a directory above a state part (Landlock tiers, broad write grants on the home directory)|narrowed|tier N or macOS|
+|new entries directly in, and listings of, a directory above a state part (`ls ~` on Landlock tiers; broad write grants on the home directory)|narrowed|tier N or macOS|
+|`chmod +x`, `touch -d`, `cp -p`, `tar x` restoring modes and times (Landlock tiers without namespaces)|path forms of metadata changes denied (narrowed, reported); the descriptor forms work|tier N, macOS, or an `Unconfined` step|
 |ssh, gpg signing, Docker, Podman, Nix daemon, desktop bus|sockets denied; Docker and Nix daemon sockets reach the whole machine|`Socket` grant (ssh and gpg agents); brokers only `Unconfined`|
 |GUI apps, `open`, browsers, AppleScript, clipboard, Keychain|denied (R§5.1 probes)|`Unconfined`|
 |local servers and tests binding ports|loopback works on macOS and tier N; L1-L3 need `Serve{Any, c}`|tier N|
-|debuggers attaching to other processes|denied outside the run|`Unconfined`|
+|debuggers attaching to other processes; `renice`, `taskset`, `prlimit` on processes outside the run|denied outside the run|`Unconfined`|
 |a long-lived kernel after a grant change|keeps its start profile|restart (C21)|
+|a long-lived program whose read trees a later run writes at a higher mark|its mark rises; stopped if its direct send or `AnyBind` ceiling is below the new mark (C21)|restart|
 
 Migration:
 
@@ -436,8 +489,8 @@ and Rust in this repository, not measured].
 
 |Phase|Content|Removes the qualifier for|Effort|
 |---|---|---|---|
-|0|State relocation: macOS sockets to `~/.eukhe/run/`, Linux daemon and worker IPC to abstract sockets with peer-credential checks on both ends; copies and snapshots to a work root; the state list in one place; project trust bound to a digest; checks on a copy (copy-on-write clone, R§3.4)|nothing yet|2|
-|1|Core and laws of §6 but `proxy_connect_is_send`; Eukhe's launcher; Seatbelt and Landlock+seccomp renderers; `NoNet` and direct `SendAny` only; cache grant; deferred execution file denies (macOS) and listing; record, report and pre-loss notice; escape list v1 with probes and disclosure ingestion (C19); probe suite; cost figures; a first escape-rate and recall measurement per mechanism (C25), referenced by every report that relies on confinement|runs whose programs need no network, on macOS and on Linux 6.12 or later (tiers L1, L2): checks, autoresearch and loop runs, interactive edit-build-test sessions|9|
+|0|State relocation: macOS sockets to `~/.eukhe/run/`, Linux daemon and worker IPC to abstract sockets with peer-credential checks on both ends; copies and snapshots to one work root outside `~/.eukhe` and the temp dir, made with `clonefile`, `FICLONE` or a plain copy (R§3.4), never `git worktree`; state files kept at one link; the state list in one place; project trust bound to a digest; checks on a copy|nothing yet|2|
+|1|Core and laws of §6 but `proxy_connect_is_send`; Eukhe's launcher, through which Eukhe's own external tool calls on agent-writable trees also go; Seatbelt and Landlock+seccomp renderers (the `MSG_FASTOPEN`, metadata, limits and scheduling rules included); `NoNet` and direct `SendAny` only; cache grant; deferred execution file denies (macOS) and listing; link-count check; record, report and pre-loss notice; escape list v1 with probes and disclosure ingestion (C19); probe suite; cost figures; a first escape-rate and recall measurement per mechanism (C25), referenced by every report that relies on confinement|runs whose programs need no network, on macOS and on Linux 6.12 or later (tiers L1, L2): checks, autoresearch and loop runs, interactive edit-build-test sessions|9|
 |2|Proxy with per-run port and token; per-host `Send`; `SendAny` through the proxy; tier N in Eukhe's own launcher (user, mount, network and PID namespaces; no bubblewrap) with its deferred execution file binds; `Socket` grants|runs that fetch only from granted hosts|5|
 |3|Interactive network steps confined once denial rates are measured and the owner set the threshold; long-lived program restart on grant change; cgroup limits where delegated|interactive sessions with package installs from granted registries|3|
 |4|Red-team harness at full size, closure seeds, side-channel measurement, publication per release (C25)|— (measures)|2, then per release|
@@ -460,7 +513,9 @@ and Rust in this repository, not measured].
    the system allows them, for per-host network and PID isolation; no
    bubblewrap dependency.
 5. Package caches: a shipped write grant on the release's cache trees, for
-   runs at or below the contract's default mark, reported (§8, §11).
+   runs at or below the contract's default mark, reported (§8, §11). It
+   applies to interactive runs: scheduled, loop and autoresearch runs
+   write only their copy (sr51, C24).
 6. Interactive network steps run unconfined and counted until denial
    rates are measured; the threshold for confining them is set then.
 7. An instance counts as fixed on a host only with the fixed version and a
