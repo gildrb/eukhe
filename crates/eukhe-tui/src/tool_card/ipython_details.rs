@@ -5,6 +5,8 @@
 //! agent-message-receipt suppressions that keep already-summarized output
 //! off the cell rows.
 
+use eukhe_types::daemon::{WaitingJob, WaitingJobKind};
+use eukhe_types::job::JobId;
 use serde_json::Value;
 
 /// Parsed `details` of one ipython execution result.
@@ -15,6 +17,9 @@ pub(crate) struct IpythonDetails {
     pub(crate) error: Option<IpythonError>,
     pub(crate) sent_agent_messages: Vec<Value>,
     pub(crate) bash_commands: Option<BashCommands>,
+    /// The job the call names: the cell's own job once it detached, the
+    /// job a `waiting` call waits on, the job a `busy` kernel runs.
+    pub(crate) job: Option<WaitingJob>,
 }
 
 pub(crate) struct IpythonError {
@@ -58,6 +63,26 @@ pub(crate) fn read_error_details(value: &Value) -> Option<IpythonError> {
     })
 }
 
+/// The `job` details field: `{ id, kind?, label?, startedAtMs? }` (a
+/// job without `kind` is a cell: only a cell holds the kernel).
+fn read_job(value: &Value) -> Option<WaitingJob> {
+    let record = value.as_object()?;
+    Some(WaitingJob {
+        id: JobId::new(record.get("id")?.as_str()?).ok()?,
+        kind: match record.get("kind").and_then(Value::as_str) {
+            Some("cell") | None => WaitingJobKind::Cell,
+            Some("shell") => WaitingJobKind::Shell,
+            Some(_) => WaitingJobKind::Unknown,
+        },
+        label: record
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        started_at_ms: record.get("startedAtMs").and_then(Value::as_u64),
+    })
+}
+
 impl IpythonDetails {
     pub(crate) fn parse(details: &Value) -> IpythonDetails {
         let empty = IpythonDetails {
@@ -67,6 +92,7 @@ impl IpythonDetails {
             error: None,
             sent_agent_messages: Vec::new(),
             bash_commands: None,
+            job: None,
         };
         let Some(record) = details.as_object() else {
             return empty;
@@ -91,6 +117,7 @@ impl IpythonDetails {
                 .cloned()
                 .unwrap_or_default(),
             bash_commands: record.get("bashCommands").and_then(read_bash_commands),
+            job: record.get("job").and_then(read_job),
         }
     }
 }

@@ -160,6 +160,9 @@ fn collapsed_line(
     if let Some(counts) = line_counts(card, details, code) {
         part(counts, ThemeColor::Dim);
     }
+    if let Some(job) = job_part(card, details) {
+        part(job, ThemeColor::Muted);
+    }
     if let Some(duration) = details.duration_ms {
         let label = if background.is_some() {
             format!("cell {}", format_duration(duration))
@@ -186,6 +189,30 @@ fn collapsed_line(
     Element::Inset {
         left: 1,
         child: Box::new(Element::text(Fit::Keep, parts)),
+    }
+}
+
+/// The job the cell's call names on its summary line: `job <id>` once the
+/// cell detached into it, `waiting on <id>` while the call waits on
+/// another cell's job.
+fn job_part(card: &ToolCallCard, details: &IpythonDetails) -> Option<String> {
+    let job = details.job.as_ref()?;
+    match (details.status.as_deref(), card.result_partial) {
+        (Some("detached"), false) => Some(format!("job {}", job.id)),
+        (Some("waiting"), true) => Some(format!("waiting on {}", job.id)),
+        (Some(_) | None, true | false) => None,
+    }
+}
+
+/// The job a running `python` call waits on (its live details' `waiting`
+/// status: the kernel is held by that detached cell).
+#[must_use]
+pub fn waited_job(card: &ToolCallCard) -> Option<eukhe_types::daemon::WaitingJob> {
+    let result = card.result.as_ref().filter(|_| card.result_partial)?;
+    let details = IpythonDetails::parse(&result.details);
+    match (card.name.as_str(), details.status.as_deref()) {
+        ("python" | "ipython", Some("waiting")) => details.job,
+        _ => None,
     }
 }
 

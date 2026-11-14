@@ -321,6 +321,57 @@ fn partial_cell_shows_waiting_for_output() {
     );
 }
 
+/// A cell that detached names its job on the summary line; a call that
+/// waits on another cell's job names that job while it waits; the job a
+/// waiting call names is the one the turn's loader row shows.
+#[test]
+fn the_summary_line_names_the_cells_job() {
+    let summary = |details: Value, partial: bool| {
+        let card = cell_card("train()", details, false, partial);
+        text_of(&render(&card, 0, Detail::Overview, &theme(), 100, true)[0])
+            .trim_end()
+            .to_string()
+    };
+    let job = json!({ "id": "cell-1", "label": "train model", "startedAtMs": 5_000 });
+    assert_eq!(
+        summary(
+            json!({ "status": "detached", "job": { "id": "cell-1", "kind": "cell" } }),
+            false
+        ),
+        format!(
+            "{} - job cell-1",
+            summary(json!({ "status": "detached" }), false)
+        )
+    );
+    assert_eq!(
+        summary(json!({ "status": "waiting", "job": job }), true),
+        format!(
+            "{} - waiting on cell-1",
+            summary(json!({ "status": "waiting" }), true)
+        )
+    );
+    let waiting = cell_card(
+        "jobs.wait()",
+        json!({ "status": "waiting", "job": job }),
+        false,
+        true,
+    );
+    assert_eq!(
+        waited_job(&waiting),
+        Some(eukhe_types::daemon::WaitingJob {
+            id: eukhe_types::job::JobId::new("cell-1").expect("a job id"),
+            kind: eukhe_types::daemon::WaitingJobKind::Cell,
+            label: "train model".to_string(),
+            started_at_ms: Some(5_000),
+        })
+    );
+    let settled = ToolCallCard {
+        result_partial: false,
+        ..waiting
+    };
+    assert_eq!(waited_job(&settled), None);
+}
+
 fn image_cell_card() -> ToolCallCard {
     use base64::Engine;
     let mut bytes = vec![0x89, b'P', b'N', b'G'];

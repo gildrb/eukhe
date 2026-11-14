@@ -154,7 +154,8 @@ pub use session_event::{
 };
 pub use session_state::{
     AgentConnectionState, CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionActionActive,
-    SessionActionSnapshot, SessionSummary, SessionWorker, WaitingJob, WaitingOn, WorkerRunState,
+    SessionActionSnapshot, SessionSummary, SessionWorker, WaitingJob, WaitingJobKind, WaitingOn,
+    WorkerRunState,
 };
 pub use state_tree::{
     StateRewindPlanReply, StateTreeEffect, StateTreeKind, StateTreeNode, StateTreeNodeRef,

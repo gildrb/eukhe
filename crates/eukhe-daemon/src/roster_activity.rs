@@ -226,6 +226,29 @@ pub(crate) fn spawn_roster_activity_watch(events: &Arc<EventPump>, queue: Roster
     });
 }
 
+/// The job-table watcher: the session's `waitingOn` moves when a job
+/// starts, detaches, or ends, mid-turn as well, and no session event marks
+/// those edges, so every move of the job table's pulse enqueues a flush
+/// request. The watcher ends with the table (its session closed or
+/// replaced).
+pub(crate) fn spawn_job_pulse_watch(
+    pulse: tokio::sync::watch::Receiver<u64>,
+    queue: RosterPushQueue,
+) {
+    if queue.inner.is_none() {
+        return;
+    }
+    tokio::spawn(forward_pulses(pulse, move || queue.push()));
+}
+
+/// Calls `push` once per observed move of `pulse` (moves that land
+/// between two observations coalesce) until its sender is gone.
+async fn forward_pulses(mut pulse: tokio::sync::watch::Receiver<u64>, push: impl Fn()) {
+    while pulse.changed().await.is_ok() {
+        push();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,6 +341,24 @@ mod tests {
     fn the_disabled_queue_never_pushes() {
         let queue = RosterPushQueue::disabled();
         queue.push();
+    }
+
+    /// Each move of the job table's pulse asks for one flush, and the
+    /// watcher ends once the table is gone.
+    #[tokio::test]
+    async fn a_job_pulse_move_asks_for_a_flush() {
+        let (pulse, receiver) = tokio::sync::watch::channel(0u64);
+        let (sender, mut flushes) = tokio::sync::mpsc::unbounded_channel();
+        let watcher = tokio::spawn(forward_pulses(receiver, move || {
+            let _ = sender.send(());
+        }));
+        pulse.send_replace(1);
+        assert_eq!(flushes.recv().await, Some(()));
+        pulse.send_replace(2);
+        assert_eq!(flushes.recv().await, Some(()));
+        drop(pulse);
+        watcher.await.expect("the watcher ends with the table");
+        assert_eq!(flushes.recv().await, None);
     }
 
     /// One pending flag bounds the backlog: a burst of requests behind a

@@ -16,7 +16,10 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use eukhe_types::daemon::agent_roster::{summary_admission, AgentRosterStatus, ModelAdmission};
-use eukhe_types::daemon::{CurrentTool, RetryWait, SessionWorker, WorkerRunState};
+use eukhe_types::daemon::{
+    CurrentTool, RetryWait, SessionWorker, WaitingJob, WaitingJobKind, WorkerRunState,
+};
+use eukhe_types::job::JobId;
 use eukhe_types::workflow::{WorkflowPhaseState, WorkflowRunSnapshot, WorkflowRunState};
 
 use crate::activity::{AgentActivity, QuotaPark, TurnPhase};
@@ -116,6 +119,14 @@ pub enum JobRow {
     /// A kernel shell.
     Bash {
         command: String,
+        started_ms: Option<u64>,
+    },
+    /// A session job of the agent's own work (a detached `python` cell,
+    /// a detached `bash` tool script), from the session's `waitingOn`.
+    Session {
+        kind: WaitingJobKind,
+        id: JobId,
+        label: String,
         started_ms: Option<u64>,
     },
     /// A dynamic workflow run.
@@ -245,9 +256,15 @@ impl AgentsPanel {
                 failed: run.failed,
                 spawned: run.spawned,
             });
+        let session_jobs = sources.session_jobs.iter().map(|job| JobRow::Session {
+            kind: job.kind,
+            id: job.id.clone(),
+            label: job.label.clone(),
+            started_ms: job.started_at_ms,
+        });
         Self {
             agents,
-            jobs: shells.chain(runs).collect(),
+            jobs: shells.chain(session_jobs).chain(runs).collect(),
         }
     }
 
@@ -271,6 +288,9 @@ pub(crate) struct PanelSources<'a> {
     pub(crate) workflows: &'a [WorkflowRunSnapshot],
     /// Main's workers (`summary.workers` of its roster row).
     pub(crate) workers: &'a [SessionWorker],
+    /// The session's running jobs (its summary's `waitingOn`): detached
+    /// cells and `bash` tool scripts, apart from the kernel shells above.
+    pub(crate) session_jobs: &'a [WaitingJob],
 }
 
 /// A running family member, or a child run admitted but not started.
@@ -462,15 +482,15 @@ pub(crate) fn render_agents_panel(
         .collect()
 }
 
-/// `Agents  2 running - 1 job`, the quiet count in the warning color, and
-/// the keys while focused.
+/// `agents 2, jobs 1` (the agents part bold, the focus anchor), the paused
+/// and idle agents, the quiet count in the warning color, and the keys
+/// while focused.
 fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line {
     let quiet = panel
         .agents
         .iter()
         .filter(|row| row.quiet_secs(view.stuck_after_secs, view.now_ms).is_some())
         .count();
-    let mut counts = Vec::new();
     let in_state = |state: WorkerRunState| {
         panel
             .agents
@@ -478,41 +498,33 @@ fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line 
             .filter(|row| row.worker == Some(state))
             .count()
     };
-    let (paused, idle) = (
-        in_state(WorkerRunState::Paused),
-        in_state(WorkerRunState::Idle),
-    );
-    let running = panel.agents.len() - paused - idle;
-    if running > 0 {
-        counts.push(format!("{running} running"));
-    }
-    if paused > 0 {
-        counts.push(format!("{paused} paused"));
-    }
-    if idle > 0 {
-        counts.push(format!("{idle} idle"));
-    }
-    if !panel.jobs.is_empty() {
-        let jobs = panel.jobs.len();
-        counts.push(format!("{jobs} {}", if jobs == 1 { "job" } else { "jobs" }));
-    }
+    let resting: Vec<String> = [
+        (in_state(WorkerRunState::Paused), "paused"),
+        (in_state(WorkerRunState::Idle), "idle"),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, state)| format!("{count} {state}"))
+    .collect();
+    let jobs = if resting.is_empty() {
+        format!(", jobs {}", panel.jobs.len())
+    } else {
+        format!(" ({}), jobs {}", resting.join(", "), panel.jobs.len())
+    };
     let title = theme
         .fg_style(ThemeColor::Accent)
         .add_modifier(Modifier::BOLD);
     let mut line = vec![
         Span::raw(" "),
         Span::styled(
-            "Agents",
+            format!("agents {}", panel.agents.len()),
             if view.focused {
                 title.add_modifier(Modifier::REVERSED)
             } else {
                 title
             },
         ),
-        Span::styled(
-            format!("  {}", counts.join(" - ")),
-            theme.fg_style(ThemeColor::Muted),
-        ),
+        Span::styled(jobs, theme.fg_style(ThemeColor::Muted)),
     ];
     if quiet > 0 {
         line.push(Span::styled(
@@ -684,6 +696,31 @@ fn job_line(job: &JobRow, view: &PanelView<'_>, theme: &Theme) -> Line {
                 format!("  {done}/{spawned} done")
             };
             line.push(Span::styled(progress, muted));
+        }
+        JobRow::Session {
+            kind,
+            id,
+            label,
+            started_ms,
+        } => {
+            let (name, color) = match kind {
+                WaitingJobKind::Cell => ("cell", ThemeColor::Accent),
+                WaitingJobKind::Shell => ("shell", ThemeColor::BashMode),
+                WaitingJobKind::Unknown => ("job", ThemeColor::Accent),
+            };
+            line.push(Span::styled(format!("{name} {id}"), theme.fg_style(color)));
+            if !label.is_empty() {
+                line.push(Span::styled(format!("  {label}"), muted));
+            }
+            if let Some(start) = started_ms {
+                line.push(Span::styled(
+                    format!(
+                        "  {}",
+                        format_working_elapsed(since_secs(*start, view.now_ms))
+                    ),
+                    muted,
+                ));
+            }
         }
     }
     line

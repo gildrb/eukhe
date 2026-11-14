@@ -525,13 +525,30 @@ fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
                 }
                 (dock.heartbeats > 0, spans)
             }
-            ActivityGroup::Bash => (
-                dock.bash_running > 0,
-                vec![theme.fg(
-                    color(dock.bash_running),
-                    plural(dock.bash_running, "shell", "shells"),
-                )],
-            ),
+            // The session's running jobs ride the shells group: a long
+            // detached cell reads `1 job`, never `0 shells`.
+            ActivityGroup::Bash => {
+                let shells = (dock.bash_running > 0 || dock.jobs_running == 0).then(|| {
+                    theme.fg(
+                        color(dock.bash_running),
+                        plural(dock.bash_running, "shell", "shells"),
+                    )
+                });
+                let jobs = (dock.jobs_running > 0).then(|| {
+                    theme.fg(
+                        ThemeColor::Success,
+                        plural(dock.jobs_running, "job", "jobs"),
+                    )
+                });
+                let spans = match (shells, jobs) {
+                    (Some(shells), Some(jobs)) => {
+                        vec![shells, theme.fg(ThemeColor::Dim, crate::glyphs::SEP), jobs]
+                    }
+                    (Some(only), None) | (None, Some(only)) => vec![only],
+                    (None, None) => Vec::new(),
+                };
+                (dock.bash_running + dock.jobs_running > 0, spans)
+            }
             ActivityGroup::Factory => (
                 dock.factory_runs > 0,
                 vec![theme.fg(

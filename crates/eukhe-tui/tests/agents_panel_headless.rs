@@ -240,7 +240,7 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
         steps: vec![
             wait("settled answer"),
             // The block heads the dock with the worker's live row.
-            wait("Agents  1 running"),
+            wait("agents 1, jobs 0"),
             wait("`- worker-1  qwen3.8-27b:high  Executing - "),
             wait("-> bash  ctx 64k/128k 50%  $0.25"),
             // The message ends the worker's run: the roster push says it
@@ -248,7 +248,7 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
             HeadlessStep::Submit("@worker-1 wrap up".to_string()),
             wait("you -> worker-1: wrap up"),
             HeadlessStep::WaitGone {
-                needle: "Agents  1 running".to_string(),
+                needle: "agents 1, jobs 0".to_string(),
                 timeout_ms: 10_000,
             },
         ],
@@ -306,7 +306,7 @@ fn the_collapsed_block_names_keys_that_expand_it() {
     let collapsed_from_editor = format!("... 2 more ({ALT_LABEL}+A, Space: expand)");
     let plan = HeadlessPlan {
         steps: vec![
-            wait("Agents  5 running"),
+            wait("agents 5, jobs 0"),
             wait(&collapsed_from_editor),
             key(KeyCode::Char('h'), KeyModifiers::NONE),
             key(KeyCode::Char(' '), KeyModifiers::NONE),

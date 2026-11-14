@@ -13,11 +13,13 @@ use super::{
 };
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::jobs::JobKind;
 use eukhe_core::durable::pending::{pending_work, PendingWorkError};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
 use eukhe_types::daemon::{
-    CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent, WaitingJob, WaitingOn,
+    CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent, WaitingJob, WaitingJobKind,
+    WaitingOn,
 };
 use eukhe_types::pi_ai::Model;
 use serde_json::json;
@@ -416,7 +418,9 @@ pub(crate) async fn read_waiting_on(
             .into_iter()
             .map(|job| WaitingJob {
                 id: job.id,
+                kind: waiting_job_kind(job.kind),
                 label: job.label,
+                started_at_ms: Some(job.started_at_ms),
             })
             .collect(),
         kernel_jobs: count(pending.kernel_jobs),
@@ -424,6 +428,16 @@ pub(crate) async fn read_waiting_on(
         workflow_runs: count(pending.workflow_runs),
     };
     Ok((waiting != WaitingOn::default()).then_some(waiting))
+}
+
+/// The wire kind of a pending job (the user's bash never waits a session,
+/// [`pending_work`] leaves it out).
+fn waiting_job_kind(kind: JobKind) -> WaitingJobKind {
+    match kind {
+        JobKind::Cell => WaitingJobKind::Cell,
+        JobKind::Shell => WaitingJobKind::Shell,
+        JobKind::UserBash => WaitingJobKind::Unknown,
+    }
 }
 
 /// The worker's roster-delta push: the fresh session summary rides the

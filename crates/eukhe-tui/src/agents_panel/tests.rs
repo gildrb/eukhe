@@ -140,6 +140,7 @@ fn sources(workers: &[SessionWorker]) -> PanelSources<'_> {
         bash: &[],
         workflows: &[],
         workers,
+        session_jobs: &[],
     }
 }
 
@@ -194,7 +195,7 @@ fn the_worker_row_shows_running_paused_or_idle() {
         states,
         vec![None, None, None, None, Some(WorkerRunState::Idle), None]
     );
-    assert!(rows[0].contains("5 running - 1 idle"), "{rows:?}");
+    assert!(rows[0].contains("agents 6 (1 idle), jobs 0"), "{rows:?}");
     assert!(
         rows[5].contains("worker-5") && rows[5].contains("  idle"),
         "{rows:?}"
@@ -204,7 +205,7 @@ fn the_worker_row_shows_running_paused_or_idle() {
         states,
         vec![None, None, Some(WorkerRunState::Paused), None, None]
     );
-    assert!(rows[0].contains("4 running - 1 paused"), "{rows:?}");
+    assert!(rows[0].contains("agents 5 (1 paused), jobs 0"), "{rows:?}");
     assert!(
         rows[3].contains("worker-3") && rows[3].contains("  paused"),
         "{rows:?}"
@@ -382,10 +383,10 @@ fn workflow(name: &str, state: WorkflowRunState) -> WorkflowRunSnapshot {
     }
 }
 
-/// Running shells and running workflow runs are jobs; finished ones are
-/// not.
+/// Running shells, the session's running jobs, and running workflow runs
+/// are jobs; finished ones are not.
 #[test]
-fn running_shells_and_workflow_runs_are_jobs() {
+fn running_shells_session_jobs_and_workflow_runs_are_jobs() {
     let shells = [
         bash("b1", "cargo build", "running", Some(&at("09:59:30"))),
         bash("b2", "ls", "exited", Some(&at("09:00:00"))),
@@ -394,6 +395,7 @@ fn running_shells_and_workflow_runs_are_jobs() {
         workflow("crates", WorkflowRunState::Running),
         workflow("old", WorkflowRunState::Done),
     ];
+    let session_jobs = [session_job("cell-1", WaitingJobKind::Cell, "train model")];
     let panel = AgentsPanel::build(
         &[],
         &root(),
@@ -401,6 +403,7 @@ fn running_shells_and_workflow_runs_are_jobs() {
             bash: &shells,
             workflows: &runs,
             workers: &[],
+            session_jobs: &session_jobs,
         },
         Instant::now(),
         ms(NOW),
@@ -414,6 +417,12 @@ fn running_shells_and_workflow_runs_are_jobs() {
                     command: "cargo build".to_string(),
                     started_ms: Some(ms(&at("09:59:30"))),
                 },
+                JobRow::Session {
+                    kind: WaitingJobKind::Cell,
+                    id: JobId::new("cell-1").expect("a job id"),
+                    label: "train model".to_string(),
+                    started_ms: Some(ms(&at("09:47:57"))),
+                },
                 JobRow::Workflow {
                     name: "crates".to_string(),
                     phase: Some("list".to_string()),
@@ -423,6 +432,48 @@ fn running_shells_and_workflow_runs_are_jobs() {
                 },
             ],
         }
+    );
+}
+
+/// A running session job started at 09:47:57, 12m 03s before [`NOW`].
+fn session_job(id: &str, kind: WaitingJobKind, label: &str) -> WaitingJob {
+    WaitingJob {
+        id: JobId::new(id).expect("a job id"),
+        kind,
+        label: label.to_string(),
+        started_at_ms: Some(ms(&at("09:47:57"))),
+    }
+}
+
+/// A turn waiting on a detached cell shows the block: the title counts
+/// the job and its row names the cell, its label and its running time
+/// (it once showed nothing: `0 agents`, and only `Executing` above).
+#[test]
+fn a_running_session_job_shows_the_block() {
+    let session_jobs = [
+        session_job("cell-1", WaitingJobKind::Cell, "train model"),
+        session_job("shell-2", WaitingJobKind::Shell, "cargo test"),
+    ];
+    let panel = AgentsPanel::build(
+        &[],
+        &root(),
+        &PanelSources {
+            bash: &[],
+            workflows: &[],
+            workers: &[],
+            session_jobs: &session_jobs,
+        },
+        Instant::now(),
+        ms(NOW),
+    );
+    assert_eq!(
+        texts(&panel, PinnedAgents::Collapsed, Instant::now()),
+        [
+            " agents 0, jobs 2",
+            " . cell cell-1  train model  12m 03s",
+            " . shell shell-2  cargo test  12m 03s",
+        ]
+        .map(str::to_string)
     );
 }
 
@@ -508,7 +559,7 @@ fn the_rows_render_and_collapse() {
         ms(NOW),
     );
     let full = vec![
-        " Agents  5 running  ! 1 quiet".to_string(),
+        " agents 5, jobs 0  ! 1 quiet".to_string(),
         format!(
             " . |- worker-1  qwen3.8-27b:high  Executing - {}  -> bash {}  ctx 12k/128k 9%  $0.03  list crates/eukhe-tui",
             elapsed(120),
