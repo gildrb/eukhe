@@ -40,14 +40,14 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 
 ## Style
 
-Functional programming. Reference: Bend1's compiler (github.com/HigherOrderCO/Bend1, `src/fun/transform/`: one pass per file, each a pure function from data to new data). The Bend core is already this; the Rust around it follows.
+Functional: data types first, then small pure passes from data to new data. The Bend core already works this way; the Rust around it follows.
 
-- Pure core, thin shell: decisions and transformations are pure functions, data in, data out; IO, time, randomness and processes live only in thin edge modules.
-- Data types first: model state as enums with exhaustive matches; no boolean flag sets, no stringly types.
-- One transformation per function, named for what it computes; one concept per module; short functions.
-- Return new values; mutation only local and visible (a local builder); never a shared mutable reference threaded through calls.
-- Iterators and combinators where they read better, plain loops where they do.
-- Speed through data layout and fewer allocations, measured before and after; never through cleverness.
+- States: enum variants with only their own fields; no boolean, string or int states.
+- Matches on own types list every variant; no `_`.
+- Short functions named for what they compute; only a central dispatch match runs long.
+- Return new values; mutate only locals; no `&mut` context, RefCell, global or mutable field shared across calls; IO, time, randomness only at the edges.
+- Errors: enums in Result; no unwrap/expect/panic on input.
+- Speed through data layout and fewer allocations, measured before and after.
 
 ## Writing
 
