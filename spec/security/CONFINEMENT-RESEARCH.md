@@ -95,6 +95,10 @@ confirmed in the text); <https://landlock.io/talks/2026-10-08_landlock-lss.pdf>.
 - The TCP connect right is checked only in the `connect` hook: TCP Fast
   Open (`sendto` with `MSG_FASTOPEN` on a fresh stream socket) connects
   without it (§4).
+- `file_getattr` and `file_setattr` (Linux 6.17) read and set inode flags
+  (`FS_XFLAG_NOATIME` among them) by path, and `inotify_add_watch`
+  reports entry names in a watched directory; Landlock has no right for
+  either, so they follow the "not covered" list above.
 - Errata are queryable (`LANDLOCK_CREATE_RULESET_ERRATA`). Erratum 1: TCP
   rights used to restrict other IPv4 and IPv6 stream protocols (SMC, MPTCP,
   SCTP); since the fix only TCP sockets are subject to them, so a sandbox
