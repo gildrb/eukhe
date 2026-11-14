@@ -3,8 +3,9 @@
 //! (`POST /v1/responses`) streams. A prompt gets the dialect's reasoning
 //! (a signed thinking block, an encrypted reasoning item) and one `bash`
 //! tool call; the request that carries the tool's result gets reasoning
-//! and a text answer. Every request body is logged with its dialect, and
-//! the checks below hold a body to its dialect's rules.
+//! and a text answer; a request without tools (the title) gets a text
+//! answer and stays out of the log. Every logged request body carries its
+//! dialect, and the checks below hold a body to its dialect's rules.
 
 #![allow(dead_code)] // each including test binary uses its own subset
 
@@ -151,7 +152,12 @@ fn serve(log: &Mutex<Vec<Logged>>, mut stream: TcpStream) {
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         return;
     };
-    let index = {
+    // A request without tools is a side request (the conversation's title):
+    // answered with text, kept out of the log and the request count.
+    let side = body["tools"].as_array().is_none_or(Vec::is_empty);
+    let index = if side {
+        0
+    } else {
         let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
         log.push(Logged {
             dialect,
@@ -159,17 +165,18 @@ fn serve(log: &Mutex<Vec<Logged>>, mut stream: TcpStream) {
         });
         log.len()
     };
-    let after_tool = match dialect {
-        Dialect::AnthropicMessages => body["messages"]
-            .as_array()
-            .and_then(|messages| messages.last())
-            .and_then(|last| last["content"].as_array())
-            .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "tool_result")),
-        Dialect::OpenAiResponses => body["input"]
-            .as_array()
-            .and_then(|input| input.last())
-            .is_some_and(|last| last["type"] == "function_call_output"),
-    };
+    let after_tool = side
+        || match dialect {
+            Dialect::AnthropicMessages => body["messages"]
+                .as_array()
+                .and_then(|messages| messages.last())
+                .and_then(|last| last["content"].as_array())
+                .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "tool_result")),
+            Dialect::OpenAiResponses => body["input"]
+                .as_array()
+                .and_then(|input| input.last())
+                .is_some_and(|last| last["type"] == "function_call_output"),
+        };
     let events = match dialect {
         Dialect::AnthropicMessages => anthropic_events(index, after_tool),
         Dialect::OpenAiResponses => responses_events(index, after_tool),
@@ -304,7 +311,7 @@ fn replayed(dialect: Dialect, tool_ids: &[&str], reasoning: &[String], thinking:
 /// API takes, only its own model's reasoning natively, at `low`.
 pub fn switched_session_replays() -> Vec<Replay> {
     let anthropic_low = json!({
-        "thinking": { "type": "enabled", "budget_tokens": 2048 },
+        "thinking": { "type": "enabled", "budget_tokens": 2048, "display": "summarized" },
         "output_config": null,
     });
     let openai_low = json!({ "reasoning": { "effort": "low", "summary": "auto" } });
