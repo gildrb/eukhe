@@ -321,9 +321,20 @@ impl SessionUi {
             // reaches here). `/model --all <provider/model>` switches the
             // session to the model and saves it as the all-roles model;
             // `/model --all` alone opens the hub at the all-roles picker.
-            "model" => {
-                let selector = resolved.args.trim();
+            // `/models` opens the hub too, and `/models refresh` asks the
+            // signed-in providers for their model lists (the command path
+            // lists the one subcommand). One arm: a second hub await
+            // would grow this function's debug stack frame.
+            "model" | "models" => {
+                let models = resolved.name == "models";
+                if models && sub.first().map(String::as_str) == Some(MODELS_REFRESH_SUBCOMMAND) {
+                    self.start_models_refresh(view);
+                    return Ok(());
+                }
+                // `/models` takes no role and no text: the hub at its roles.
+                let selector = if models { "" } else { resolved.args.trim() };
                 let target = match sub.first().map(String::as_str) {
+                    _ if models => None,
                     Some(MODEL_ALL_ROLES_SUBCOMMAND) => Some(HubTarget::AllRoles),
                     Some(id) => ModelRole::from_id(id).map(HubTarget::Role),
                     None => None,
@@ -1023,13 +1034,6 @@ impl SessionUi {
             "budget" => {
                 self.handle_budget_command(&resolved.args, text, view).await;
             }
-            // `/models` opens the model hub like `/model`; `/models
-            // refresh` asks the signed-in providers for their model lists
-            // (the command path lists the one subcommand).
-            "models" => match sub.first().map(String::as_str) {
-                Some(MODELS_REFRESH_SUBCOMMAND) => self.start_models_refresh(view),
-                Some(_) | None => self.open_model_hub(view, None).await?,
-            },
             other => {
                 self.note(
                     &format!("/{other} is not available in this client yet"),

@@ -4,6 +4,8 @@
 //! through), and save the scope to the `enabledModels` setting on the
 //! save key.
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use super::model_picker::picker_viewport_rows;
 use super::UI_REQUEST_TIMEOUT_MS;
@@ -97,20 +99,28 @@ fn setting_patterns(scope: &Scope, levels: &HashMap<String, String>) -> Vec<Stri
 impl SessionUi {
     /// Open `/scoped-models` on the session's scope. A stale catalog
     /// refreshes from the daemon in the background and lands in the open
-    /// selector.
-    pub(super) async fn open_scoped_models(&mut self, view: &mut AgentView) {
-        if self.model_refresh_due(false) {
-            self.spawn_model_catalog_refresh();
-        }
-        let state = self.connection_state(view).await;
-        let (scope, levels) = session_scope(state.as_ref());
-        view.scoped_models = Some(ScopedModelsSelector::new(
-            available_models(&self.model_catalog, &self.model_configured_providers),
-            scope,
-            levels,
-            picker_viewport_rows(view.terminal_rows()),
-        ));
-        self.dirty = true;
+    /// selector. The future is boxed here, like the key handler's: the
+    /// slash dispatch and key handler that await it keep one pointer in
+    /// their stack frames, which a 2 MiB thread stack holds in a debug
+    /// build.
+    pub(super) fn open_scoped_models<'a>(
+        &'a mut self,
+        view: &'a mut AgentView,
+    ) -> Pin<Box<impl Future<Output = ()> + 'a>> {
+        Box::pin(async move {
+            if self.model_refresh_due(false) {
+                self.spawn_model_catalog_refresh();
+            }
+            let state = self.connection_state(view).await;
+            let (scope, levels) = session_scope(state.as_ref());
+            view.scoped_models = Some(ScopedModelsSelector::new(
+                available_models(&self.model_catalog, &self.model_configured_providers),
+                scope,
+                levels,
+                picker_viewport_rows(view.terminal_rows()),
+            ));
+            self.dirty = true;
+        })
     }
 
     /// A landed catalog refresh reaches an open selector.
@@ -123,30 +133,33 @@ impl SessionUi {
         }
     }
 
-    /// One key press while `/scoped-models` is open.
-    pub(super) async fn handle_scoped_models_key(
-        &mut self,
+    /// One key press while `/scoped-models` is open (boxed like
+    /// [`Self::open_scoped_models`]).
+    pub(super) fn handle_scoped_models_key<'a>(
+        &'a mut self,
         key: KeyEvent,
-        view: &mut AgentView,
-    ) -> Result<()> {
-        let Some(id) = key_event_to_id(&key) else {
-            return Ok(());
-        };
-        if id == "ctrl+c" {
-            self.exit_guard.note_ctrl_c_handled();
-        }
-        let action = view
-            .scoped_models
-            .as_mut()
-            .map(|selector| selector.handle_key(&id, view.editor.keybindings()));
-        match action {
-            Some(ScopedModelsAction::None) | None => {}
-            Some(ScopedModelsAction::Close) => view.scoped_models = None,
-            Some(ScopedModelsAction::Changed(scope)) => self.apply_scope(&scope, view).await,
-            Some(ScopedModelsAction::Save(scope)) => self.save_scope(&scope, view),
-        }
-        self.dirty = true;
-        Ok(())
+        view: &'a mut AgentView,
+    ) -> Pin<Box<impl Future<Output = Result<()>> + 'a>> {
+        Box::pin(async move {
+            let Some(id) = key_event_to_id(&key) else {
+                return Ok(());
+            };
+            if id == "ctrl+c" {
+                self.exit_guard.note_ctrl_c_handled();
+            }
+            let action = view
+                .scoped_models
+                .as_mut()
+                .map(|selector| selector.handle_key(&id, view.editor.keybindings()));
+            match action {
+                Some(ScopedModelsAction::None) | None => {}
+                Some(ScopedModelsAction::Close) => view.scoped_models = None,
+                Some(ScopedModelsAction::Changed(scope)) => self.apply_scope(&scope, view).await,
+                Some(ScopedModelsAction::Save(scope)) => self.save_scope(&scope, view),
+            }
+            self.dirty = true;
+            Ok(())
+        })
     }
 
     /// Apply `scope` to the session: the cycle keys step through it now.
