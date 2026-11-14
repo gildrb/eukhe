@@ -1275,6 +1275,30 @@ mod tests {
         assert_eq!(manager.get_chat_detail(), "details");
     }
 
+    /// The `/scoped-models` save persists `enabledModels` (pinned levels
+    /// included) across a reload; an empty list clears the scope.
+    #[test]
+    fn enabled_models_persist_and_clear() {
+        let mut manager = SettingsManager::in_memory(&Settings::default());
+        let patterns = vec![
+            "anthropic/claude-haiku-5-5:low".to_string(),
+            "openai-codex/gpt-6-sol".to_string(),
+        ];
+        manager
+            .set_enabled_models(&patterns)
+            .unwrap()
+            .applied()
+            .expect("the value applies");
+        manager.reload().unwrap();
+        assert_eq!(manager.get_enabled_models(), Some(patterns));
+        manager
+            .set_enabled_models(&[])
+            .unwrap()
+            .applied()
+            .expect("the value applies");
+        assert_eq!(manager.get_enabled_models(), None);
+    }
+
     /// The steering default is "all" (every queued steer co-delivers as
     /// ONE turn at the next tool-call boundary) with "one-at-a-time"
     /// selectable; the follow-up default stays "one-at-a-time".

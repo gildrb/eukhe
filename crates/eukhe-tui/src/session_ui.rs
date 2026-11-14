@@ -24,6 +24,7 @@ mod notes;
 mod panels;
 mod prompt;
 mod queue;
+mod scoped_models;
 mod sessions_fork;
 mod settings;
 mod stream;

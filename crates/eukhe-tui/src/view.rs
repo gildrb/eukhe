@@ -86,6 +86,9 @@ pub struct AgentView {
     /// The `/model` hub (the roles, then a role's models): while set, it
     /// owns the whole frame like the onboarding pane.
     pub model_hub: Option<crate::model_hub::ModelHub>,
+    /// The `/scoped-models` selector: while set, it owns the frame like
+    /// the `/model` hub.
+    pub scoped_models: Option<crate::scoped_models::ScopedModelsSelector>,
     /// The `/tree` selector (owns the frame while open).
     pub tree_selector: Option<crate::tree_selector::TreeSelector>,
     /// A pending confirm: the Yes/No selector over the editor dock.
@@ -273,6 +276,10 @@ impl AgentView {
             hub.paste(text);
             return true;
         }
+        if let Some(selector) = self.scoped_models.as_mut() {
+            selector.paste(text);
+            return true;
+        }
         if let Some(picker) = self.effort_picker.as_mut() {
             picker.paste(text);
             return true;
@@ -348,6 +355,7 @@ impl AgentView {
             stuck_after_secs: crate::agents_panel::DEFAULT_STUCK_AFTER_SECS,
             onboarding: None,
             model_hub: None,
+            scoped_models: None,
             tree_selector: None,
             confirm: None,
             provider_auth: None,

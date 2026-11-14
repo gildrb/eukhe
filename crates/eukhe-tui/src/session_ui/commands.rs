@@ -367,6 +367,9 @@ impl SessionUi {
                     );
                 }
             }
+            // `/scoped-models`: the models the model-cycle keys step
+            // through.
+            "scoped-models" => self.open_scoped_models(view).await,
             // `/effort [level]` (TS `handleEffortCommand`): the
             // session's thinking levels drive the outcome -- a model
             // without reasoning reports the TS note, a missing argument

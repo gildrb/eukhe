@@ -367,4 +367,15 @@ impl SettingsManager {
         let patterns = self.cvars().list(&table::ENABLED_MODELS);
         (!patterns.is_empty()).then_some(patterns)
     }
+
+    /// `enabledModels` setter (TS `setEnabledModels`, the
+    /// `/scoped-models` save): writes the global scope; an empty list is
+    /// no filter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_enabled_models(&mut self, patterns: &[String]) -> Result<Persisted> {
+        self.set_global_cvar(&table::ENABLED_MODELS, &Value::from(patterns.to_vec()))
+    }
 }

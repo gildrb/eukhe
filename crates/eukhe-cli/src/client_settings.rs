@@ -486,6 +486,10 @@ impl ClientSettings for CliClientSettings {
         self.manager().set_workflow_size(size)?.applied()
     }
 
+    fn set_enabled_models(&self, patterns: &[String]) -> Result<()> {
+        self.manager().set_enabled_models(patterns)?.applied()
+    }
+
     str_setting!(
         tree_filter_mode,
         set_tree_filter_mode,

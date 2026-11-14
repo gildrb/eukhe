@@ -130,6 +130,8 @@ pub const KEYBINDING_NAME_MIGRATIONS: &[(&str, &str)] = &[
     ("exit", "app.exit"),
     ("suspend", "app.suspend"),
     ("selectModel", "app.model.select"),
+    ("cycleModelForward", "app.model.cycleForward"),
+    ("cycleModelBackward", "app.model.cycleBackward"),
     ("expandTools", "app.tools.expand"),
     ("focusSubagents", "app.subagents.focus"),
     ("externalEditor", "app.editor.external"),

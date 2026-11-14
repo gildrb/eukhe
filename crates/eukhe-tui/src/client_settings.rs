@@ -258,6 +258,16 @@ pub trait ClientSettings: Send + Sync {
     fn local_role_choices(&self, _role: ModelRole) -> LocalRoleChoices {
         LocalRoleChoices::default()
     }
+    /// Persists `enabledModels` (the `/scoped-models` save: the patterns
+    /// the model-cycle keys step through; empty is no scope) to the
+    /// global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when opening or persisting the settings store fails.
+    fn set_enabled_models(&self, _patterns: &[String]) -> Result<()> {
+        anyhow::bail!("Model scope settings are unavailable")
+    }
     /// `enableSkillCommands` (TS default true).
     fn enable_skill_commands(&self) -> bool;
     /// Persists `enableSkillCommands` to the global scope.
