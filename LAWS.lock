@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "ef65c3d1dce08f6b1b498dcfe0f31ffee4581e3e1905f15423cd275f8dcffde1",
+      "spec/README.md": "75c291fc8d6c087dd282d8472cc42f0a5c3102ceb8763c5abe173a73566b0171",
       "spec/agents/agent_tree.bend": "a1382c421dbfe7380567d3ad5d4855b81f6663ac0038e9639bf9e3963834d129",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
       "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
@@ -149,6 +149,8 @@
     "laws/agent_tree.bend::agent_tree_overlay_applies": "629d1ca9aeeba6b96703fe4f84bc6ced126afc5ed73db256f7a098345cfb9b14",
     "laws/agent_tree.bend::agent_tree_parallel_is_sequential": "41d82a24abbf28593da566f737fd93157d506ce9aebc070535f2402cdb330edb",
     "laws/agent_tree.bend::agent_tree_redo_is_spec": "932072852c2c1e881418b5a1f4c9fa5d95f70fcd2afaaceccb8ee509668f9c7b",
+    "laws/agent_tree.bend::agent_tree_run_last": "00b1baa14a348d390fa0adfbe981402f29c8090bdc23abe1685f447ebad22ece",
+    "laws/agent_tree.bend::agent_tree_run_none": "c54560c635b5cd22f452fc769205f43adc2d8984b6ab72b5af6879d0de27a8b7",
     "laws/agent_tree.bend::agent_tree_spend_is_spec": "cb2d2c85e3576884aaa36565382463b784847f414bd73af64e02550bf1a3adba",
     "laws/agent_tree.bend::agent_tree_split_is_spec": "a6adcc7d5dc56a1dc92eff6291e9a97b418d54da07c51e2c4b323cbbc22513ab",
     "laws/agent_tree.bend::agent_tree_tick_cancels_only_late": "001aa8c1fc47ebd10d2f3c8f9401c773ef10c40346ba14c75b6e50be8ceb317b",

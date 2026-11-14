@@ -354,6 +354,27 @@ law agent_tree_halves_fair:
 law agent_tree_halves_unlimited:
   {Bool.and(is_unlimited(T.half_hi(T.Unlimited{})), is_unlimited(T.half_lo(T.Unlimited{}))) == True{} : Bool}
 
+# Laws: run (T2, T6, T8, T9: "reachable")
+# ---------------------------------------
+
+# LAW agent_tree_run_none: running no event leaves the tree as it is
+# EXCLUDES: a run that resets the tree to a fresh root
+law agent_tree_run_none:
+  for +b: T.Bounds
+  for +t: T.Node
+  {T.run([], b, t) == t : T.Node}
+
+# LAW agent_tree_run_last: running evs then one more event e is the step
+# of e on the tree evs reached (the old tree kept when e is refused)
+# EXCLUDES: a run that ignores its events; one that drops the last event;
+#   one that applies a refused event's partial work
+law agent_tree_run_last:
+  for evs: List<&2, T.Ev>
+  for +e: T.Ev
+  for +b: T.Bounds
+  for +t: T.Node
+  {T.run(List.append(&2, T.Ev, evs, [e]), b, t) == landed(T.step(b, T.run(evs, b, t), e), T.run(evs, b, t)) : T.Node}
+
 # Laws: partition (T2)
 # --------------------
 
