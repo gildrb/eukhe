@@ -1,7 +1,8 @@
 # security (spec): confinement and isolation
 
-Status: design; the owner decisions of §13 are applied. Nothing below is
-built; no law named here exists.
+Status: design; the owner decisions of §13 are applied, those marked
+"default, owner may change" as conservative defaults pending the owner.
+Nothing below is built; no law named here exists.
 Ids `C9`, `C11` are rewrites of `spec/security/SPEC.md`; `C15..C25` are
 new and provisional. Research, sources and measurements:
 `spec/security/CONFINEMENT-RESEARCH.md` (cited as R§n).
@@ -42,14 +43,24 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
   from its start until its last process exits. On Linux the launcher stays
   the program's parent as a child subreaper (`PR_SET_CHILD_SUBREAPER`), so
   every orphaned descendant is reparented to it; it knows when the last
-  one exits and kills every one at a stop. On macOS each run's profile
-  allows one per-run marker (`mach-lookup` of `eukhe.run.<id>`, a name no
-  service registers), and Eukhe counts a process of the user as the run's
-  when `sandbox_check` reports it sandboxed (`SANDBOX_FILTER_NONE`) and its
-  profile allows that marker; an unsandboxed process, for which every
-  lookup reads as allowed, never counts [INFERENCE: a libsystem interface
-  outside the public SDK headers; the probe suite confirms it before phase
-  1, an unsandboxed process and another run's process as negative cases].
+  one exits and kills every one at a stop. On macOS no public interface
+  follows a process's descendants once they are reparented, so the end of
+  a program run there is not established. Each run's profile allows one
+  per-run marker (`mach-lookup` of `eukhe.run.<id>`, a name no service
+  registers), and `sandbox_check` (a libsystem interface outside the
+  public SDK headers) serves only as a probe that can lower a claim: a
+  process it reports sandboxed (`SANDBOX_FILTER_NONE`) with that marker
+  allowed is taken as the run's, Eukhe kills every such process at a stop
+  and when the launched process exits, and one found after that is
+  recorded as a survivor. Confinement never rests on the probe: Seatbelt
+  holds every descendant to the profile it inherits, found or not. So on
+  macOS every program run counts as live, for disclosures (C15, C18) and
+  marks, from its start until the principal's next re-establishment of
+  isolation (C15), or until the principal states on the principal
+  channel, recorded, that none of its processes survives. A run whose
+  start would raise the mark of such a live program above the ceiling of
+  a direct send or `AnyBind` its profile allows is refused, naming that
+  statement (decision 15).
 - **grant** (program grants, a subset of the capability vocabulary of
   `SPEC.md` §1):
   - `Read{tree}`, `Write{tree}`: a real path tree. A readable file is
@@ -82,7 +93,10 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
   input above its current mark (C7). Path marks are kept per account and
   machine with the store and read by every run's core, so a mark set in
   one session binds the next; only the principal lowers a path's mark, on
-  the principal channel, recorded. Channels between runs that no path rule
+  the principal channel, recorded, and the highest mark an `Unconfined`
+  run gives every path the user can write is lowered only by the
+  principal's explicit re-establishment of isolation (C15, decision 13).
+  Channels between runs that no path rule
   covers count as trees every program that reaches them both reads and
   writes: on Linux without a PID namespace, the argv of live programs
   (`/proc/<pid>/cmdline`), which every live program reaches; the POSIX
@@ -142,10 +156,10 @@ sr91, sr98, sr119, sr136, sr161, sr172, sr179; record T11.
 |---|---|---|
 |C9|A program holds its grants. Every program run is started under a listed mechanism with the profile the core computed from the run's grants: it reads and writes a real path (content, directory entries, and mode, owner, times and extended attributes) only when a grant covers the access and §4 does not forbid that access for a state part the path lies in (each part has its own forbidden set: no access at all to the store, no read of credentials, no write to `/proc` and Eukhe's executables), and every such access except those §5 names as narrowed; beyond its grants it changes only the mode, group and times §5 names as widened, never of a state part or a directory on a path to one. On Landlock tiers without a mount namespace the existence, size, times and mode of every path, and through file notifications the entry names in every directory, state included, stay readable without a grant, never content; extended attributes can hold content, so there every form of reading or writing them is refused (§5). That metadata is a channel between runs that §1's marks do not count; it is measured with the side channels (C25) and reported. It reaches a host only under a `Send` or `SendAny` grant whose ceiling is at least the run's mark, through Eukhe's proxy wherever the platform can force it (§5), and directly only under `SendAny` with sr54's admission; it accepts connections from other hosts only under `Serve{Any, c}` with `c` at least that mark (on Landlock tiers `listen` is denied without it, since a `listen` on an unbound socket binds without Landlock's bind check); it creates a pathname socket only in its run's private temp dir, and connects to one there (§5); it connects to any other Unix socket only under a `Socket` grant naming a path on the release's list of agent sockets, services that open no file and load no code their caller names (gpg-agent; an ssh-agent only when a probe shows it refuses to load a provider library the caller names through `ssh-add -s`), any other socket (a container engine, the Nix daemon) needing `Unconfined`; it signals, traces, and changes the limits or scheduling of only processes of its own run (on Linux without a PID namespace it can read other processes' `cmdline` and `status`, §4). When the platform cannot enforce a part of the profile, the run is started only under `Unconfined` and counted (tm8, sr113), else refused naming the grant needed.|ds10, df9, sr161, sr54|
 |C11|The policy and the state protect themselves. While isolation holds, nothing an agent does and nothing a program it runs does changes the store or any other state part: no effect, message, daemon or CLI command, file write, rename, link, change of mode, owner, times or extended attributes (of a state part or a directory on a path to one), socket connection, signal, or change of an Eukhe process's limits or scheduling. A write to the store's files asks a user whatever the set holds. The project's `.eukhe/` is not state: its keys apply only at a digest the principal accepted (§4).|df9, T11|
-|C15|Isolation is a fact per position. Every program run shares the user's OS identity; it breaks isolation only when it is not confined, or confined yet able to reach Eukhe's state (sr179 as reworded, decision 1). A run is isolated up to the first of: an `Unconfined` program run (an in-process host tool call that executes agent-supplied content or declares nothing counts as one, C23); a confined run on a platform where signals or sockets of Eukhe are reachable (§5, tier L3); a confined run with a direct `AnyNet`, on any platform (it reaches every loopback service and every address of this machine, and some services there act with the user's access); a confined run under a mechanism version with a disclosed, unfixed instance on the escape list in force; a disclosure recorded while a program run under a version it leaves unfixed is live (at the disclosure's position); a program run started while a state file has more than one link (§4); a loss of another run on the same account and machine (below). State is shared by every run on the account and machine, so a loss in one run is a loss, at its position, for every run live then and every run started after it, until the principal re-establishes isolation on the principal channel, recorded. Re-establishment: Eukhe compares every state part outside the anchored record (settings, agent profiles, cron jobs, credentials, path marks, ingested disclosures, the loss list, its executables, the auto-start locations, the deny set's files) with digests it kept at the last isolated position and shows the principal every difference, each of which the principal restores or accepts; it lists the user's processes and user service units (systemd user units, launchd agents) that do not descend from Eukhe; the principal states that no process an unconfined program run started survives, recorded as the principal's statement on every platform; then Eukhe delivers a new anchor of the head digest. Before a loss, the harness delivers to the principal of every run it reaches, on the principal channel, stored out of agents' reach, the head digest and a notice naming the position (sr179); a loss placed by a disclosure cannot precede its ingestion, so that notice is delivered at ingestion, before the next decided effect, and the report says the notice followed the loss. From the loss on the run is not isolated, its facts are unprotected (sr91), and a software delegate's decision is judged from that notice (sr151).|sr179, sr91, sr151, sr98, df8|
+|C15|Isolation is a fact per position. Every program run shares the user's OS identity; it breaks isolation only when it is not confined, or confined yet able to reach Eukhe's state (sr179 as reworded, decision 1). A run is isolated up to the first of: an `Unconfined` program run (an in-process host tool call that executes agent-supplied content or declares nothing counts as one, C23); a confined run on a platform where signals or sockets of Eukhe are reachable (§5, tier L3); a confined run with a direct `AnyNet`, on any platform (it reaches every loopback service and every address of this machine, and some services there act with the user's access); a confined run under a mechanism version with a disclosed, unfixed instance on the escape list in force; a disclosure recorded while a program run under a version it leaves unfixed is live (at the disclosure's position); a program run started while a state file has more than one link (§4); a loss of another run on the same account and machine (below). State is shared by every run on the account and machine, so a loss in one run is a loss, at its position, for every run live then and every run started after it, until the principal re-establishes isolation on the principal channel with an explicit command, recorded. Re-establishment: Eukhe compares every state part outside the anchored record (settings, agent profiles, cron jobs, credentials, path marks, ingested disclosures, the loss list, its executables, the auto-start locations, the deny set's files) with digests it kept at the last isolated position and shows the principal every difference, each of which the principal restores or accepts; it lists the user's processes and user service units (systemd user units, launchd agents) that do not descend from Eukhe; the principal states that no process an unconfined program run started survives, nor, on macOS, any process of a program run since the last re-establishment (§1), recorded as the principal's statement on every platform; Eukhe sets each path's mark to the highest of its mark at the last isolated position and the marks confined runs gave it since, which drops the highest mark `Unconfined` runs set (decision 13); then Eukhe delivers a new anchor of the head digest. Before a loss, the harness delivers to the principal of every run it reaches, on the principal channel, stored out of agents' reach, the head digest and a notice naming the position (sr179); a loss placed by a disclosure cannot precede its ingestion, so that notice is delivered at ingestion, before the next decided effect, and the report says the notice followed the loss. From the loss on the run is not isolated, its facts are unprotected (sr91), and a software delegate's decision is judged from that notice (sr151).|sr179, sr91, sr151, sr98, df8|
 |C16|Platforms without a mechanism. A platform that cannot enforce the profile reports so before the run; its program runs need `Unconfined`. The shipped interactive default holds `Unconfined` (sr51, sr73), and every agent of an interactive run holds it exactly when the root does (decision 9); no shipped default of a scheduled, loop or autoresearch run holds it (sr113, sr133), and no spawn passes it to an agent of such a run.|sr73, sr113, ds10|
 |C17|Report facts (sr18). The record entry of each program run names its outcome, mechanism and version, profile digest, mark, whether it held the cache grant, and the digest of the escape list in force. The report states as witnessed facts: its issue date; the core builds, trusted base list versions and placements in force and when they changed; which mechanism and version each program ran under; for each escape-list instance whose fixed version the host meets, the probe result (C19); which model requests were unconfined; the count and causes of unconfined runs; the count of interactive confined runs whose write trees leave the project scope (the temp dir, the cache trees), each counted as one irreversible effect (tm8, sr51); the program runs that held the cache grant and its trees; the metadata changes a profile allowed as widened (§5); the deferred execution files the run wrote (§8); whether a breach was detected (§8); the escape list's digest and date, with a qualifier when it is older than the stated age; the position isolation was lost, if it was; and, when it relies on confinement, a reference to C25's figures for each mechanism used. Denials observed are reported as measured.|sr18, sr41, tm8|
-|C18|Label. The label carries "unconfined" exactly when some program run of the run (check and proof runs and in-process host tool calls that count as program runs, C23, included) ended `Unconfined`, or ran while the escape list in force held a disclosed, unfixed instance for its mechanism version (a long-lived program counts from the disclosure on); it carries "not isolated" exactly when C15 places a loss.|df8, sr80, sr119|
+|C18|Label. The label carries "unconfined" exactly when some program run of the run (check and proof runs and in-process host tool calls that count as program runs, C23, included) ended `Unconfined`, or ran while the escape list in force held a disclosed, unfixed instance for its mechanism version (a long-lived program counts from the disclosure on); it carries "not isolated" exactly when C15 places a loss; it carries "highest mark" exactly when some program run of the run started after an `Unconfined` program run on the account and machine with no re-establishment between them, so that the paths it read held the highest mark (decision 13).|df8, sr80, sr119|
 |C19|Escape list and disclosures. Each release ships an escape list: per mechanism, its escape classes, each with the date it was listed, and disclosed instances with the version that introduced them, the fixed version on each release branch that has one (a macOS release line, a stable kernel series, a distribution's kernel package) and a probe. An escape class counts only if listed before any disclosure within it. A disclosed instance voids confinement, whether or not its class is listed, on every host at or above its introducing version that is not fixed for it; a host is fixed for it only when its version is at or above its branch's fixed version and the instance's probe passes on that host, run at session start and again when a disclosure is ingested, before the program run, and both facts are reported (decision 7); a host on a branch with no fix is unfixed. An instance the shipped profile blocks (a seccomp rule, a Seatbelt deny) is listed with that rule, and its probe runs against the shipped profile; it voids nothing while the probe passes. An instance with no probe yet leaves every host at or above its introducing version unfixed. A disclosure ingested on the account qualifies the label from that position on in every run live at it and every later run (§1, escape list in force). A disclosure after the report's date is appended as a relayed fact (source, date, content) with the witnessed fact of which mechanism versions the report's program runs used; no label changes.|sr119, df9|
 |C20|Checks are confined to their copy. A check's command and a law check's proof run start under a profile that writes only inside the check's copy of the judged work state (no shared temp, cache or per-user directory, no POSIX IPC) and sends nothing unless the check holds a send grant. It reads a path in the worker's write reach outside its copy (the write trees of the worker's program runs, the cache trees, and, once a program of the worker ran `Unconfined`, every path the user can write) only as an input reported unprotected (tm4). On Linux without a PID namespace, live program runs can pass data through each other's `/proc/<pid>/cmdline` and metadata (§1, C9), so a check that reads held-out content runs only while no other confined program on the account and machine is live, and none starts while it runs. The copy of a check that read held-out content is deleted when its judging ends, before any program of the worker starts. Judgings that run check code unconfined draw on their own irreversible allowance, a count and a value cap per run and per account, zero by default for non-interactive runs; the report states their effects are uncounted beyond that count (sr112). A recorded stop voids every grant to run check code unconfined: no such program starts after it, a running one is stopped, and the judging is undecided with cause "stopped".|tm4, sr112, sr172, sr136|
 |C21|Long-lived programs. A kernel, MCP server or language server keeps the profile it started with and holds no cache grant (it reads the caches only), so a raised mark never stops it for the cache. A grant widened later reaches it only at a restart; a revocation that covers an effect its profile allows stops it before the next effect of the subtree is decided (C5). Its mark rises as §1 states; when its profile allows a direct send or `AnyBind` with a ceiling below the raised mark, it is stopped before the run that raises the mark starts.|C5, C9, C7|
@@ -304,7 +318,7 @@ mark_at(runs, path_marks, position) -> marks          # each live program's mark
 isolated(outcomes, plats, escapes, links, host_tools, account_losses)
         -> Maybe<Position>                            # first loss
 label_bits(outcomes, escapes, links, host_tools, account_losses)
-        -> {unconfined, not_isolated}
+        -> {unconfined, not_isolated, highest_mark}
 ```
 
 `eukhe` in `Mech` is the Eukhe build whose launcher and renderer applied the
@@ -345,7 +359,7 @@ Requirement laws:
 |C9, C6|`cache_grant_within_mark`|A profile writes a cache tree only for an interactive run whose mark is at most the contract's default mark, and only trees on the release's cache list, none of which holds a directory on the default `PATH` or a tool's configuration file.|A secret-mark run filling `~/.cargo/registry`; an autoresearch run holding the cache grant; a cache grant covering `~/.cargo/bin` or `~/.npmrc`.|
 |C15|`isolation_lost_at_first_reach`|`isolated` returns the position of the first event that is a program run whose outcome is `Unconfined` (an in-process host tool call declared to execute agent-supplied content, or undeclared, included), a program run whose platform lacks `unix_scoped` or `signal_scoped`, a confined program run with a direct `AnyNet`, a program run whose mechanism version has an instance in the escape list in force that is unfixed on its host (C19), a disclosure at whose position a program run under a version it leaves unfixed is live, a program run started while `links` shows a state file with more than one link, or a loss in `account_losses` (any run on the account and machine) at or after this run's start, or before it with no recorded re-establishment between it and this run's start; none when no such event exists.|A run reported isolated after an unconfined `npm install`; one reported isolated on tier L3; one reported isolated after a direct `SendAny` on tier L1 or on macOS in phase 1; one reported isolated after an undeclared host tool ran; one reported isolated on a kernel at an instance's fixed version whose probe failed; a kernel live when a disclosure for its kernel arrived, the run still isolated; one reported isolated while a hard link to `auth.json` sat in the project; a scheduled run reported isolated while an interactive run's unconfined `npm install` ran, or after it with no re-establishment; one reported not isolated though every program ran on tier L1 with no disclosure and no loss on the account.|
 |C15|`notice_before_loss`|In the host model, the event at the loss position happens only after the notice naming that position and the head digest is delivered on the principal channel and stored where no agent effect writes; at a loss placed by a disclosure, the notice is delivered at the disclosure's ingestion, before the next decided effect, and the report says it followed the loss.|A notice written after the launch; a notice kept only in the record; no notice before an undeclared host tool's call; a disclosure's notice held back until the next program start.|
-|C18|`label_unconfined_exact`|`unconfined` is set exactly when some program run, check and proof runs and counted host tool calls (C23) included, ended `Unconfined`, or was live at a position where the escape list in force held an instance unfixed on its host for its mechanism version (C19).|A qualifier kept after every run was confined; one dropped though a check ran unconfined; one dropped though an undeclared host tool ran agent content; a long-lived kernel started before a disclosure left unqualified; a fixed version taken as fixed without its probe.|
+|C18|`label_unconfined_exact`|`unconfined` is set exactly when some program run, check and proof runs and counted host tool calls (C23) included, ended `Unconfined`, or was live at a position where the escape list in force held an instance unfixed on its host for its mechanism version (C19); `highest_mark` is set exactly when some program run of the run started after an `Unconfined` program run in `account_losses` with no recorded re-establishment between them.|A qualifier kept after every run was confined; one dropped though a check ran unconfined; one dropped though an undeclared host tool ran agent content; a long-lived kernel started before a disclosure left unqualified; a fixed version taken as fixed without its probe; a scheduled run started after an interactive run's unconfined `npm install`, with no re-establishment, whose label lacks "highest mark"; "highest mark" kept on a run started after the re-establishment.|
 |C19|`disclosure_qualifies_forward`|A disclosure recorded at position `i` changes no label bit of a program run that ended before `i`; a class listed after a disclosure within it does not count as listed; a disclosure after the report's date changes no label.|A disclosure that rewrites past labels; a class added to the list after its first disclosure and then treated as covering it.|
 |C20|`check_profile_within_copy`|A check's profile writes only inside its copy (no shared temp, cache or per-user directory, no POSIX IPC) and has `NoNet` unless the check holds a send grant; every path it reads in the worker's write reach outside its copy (the write trees of the worker's program runs, the cache trees, and, after an `Unconfined` program of the worker, every path the user can write) is listed as an unprotected input; on Linux without a PID namespace, a check that reads held-out content is never live together with another confined program on the account and machine; the copy of a check that read held-out content is deleted when its judging ends, before any program of the worker starts.|A check running in the live session directory (today's `evidence.rs:295`); a check reaching the network to fetch its oracle; a check that runs a build script from a worker-written `~/.cargo/registry` while its inputs are reported protected; a held-out check on tier L1 whose content a live worker kernel, or a sibling agent's, reads from the check's argv; a held-out check whose code leaves the tests in `/dev/shm` or `$DARWIN_USER_TEMP_DIR` for a later worker program; a held-out check whose code writes the tests into `user.*` attributes of a file in its copy for a worker's later `getxattr`, or leaves them in a copy kept after judging.|
 |C20|`stop_ends_unconfined_checks`|After a recorded stop no check program starts `Unconfined`, each running one is stopped before the next decided effect, and its judging is undecided with cause "stopped"; an unconfined check grant allows a run only on the digest it names.|A check judged unconfined after the stop; an unconfined check left running; a grant reused on a new work state.|
@@ -393,12 +407,18 @@ ABI 7; Seatbelt's log stream); writing each outcome to the record.
   so a scheduled, loop or autoresearch run live during it, or started
   after it, is not isolated until the principal re-establishes isolation
   on the principal channel; the notice of C15 reaches the principal of
-  each such run before the step launches.
+  each such run before the step launches. This is a limit of the design
+  (decision 14): an interactive unconfined network step can read and
+  send the credentials that concurrent and later unattended runs use
+  (provider keys, `~/.ssh`, cloud credentials), and nothing confines that
+  exposure until the principal re-establishes isolation.
 - An `Unconfined` run's output carries the highest mark: every path the
   user can write takes it (§1), and path marks persist per account and
   machine. Every later program run, of this run or a later one, that reads
   such a path (the shipped base read set holds the home directory) runs at
-  the highest mark until the principal lowers the marks: it reads the
+  the highest mark until the principal re-establishes isolation with its
+  explicit command, the only act that lowers those marks, and the label of
+  each such run carries "highest mark" (C18, decision 13): it reads the
   caches only (decision 5), and its sends need a ceiling at the highest
   mark.
 - A platform without a mechanism (tier "none", macOS inside another
@@ -543,7 +563,7 @@ cache trees; no network):
 |---|---|---|
 |editing, build, search, local `git`, tests that need none of the rows below|works (R§5 measured `true`, `git ls-files` and a file walk)|—|
 |package installs, `git push` and `fetch`, downloads|no network|`Send` grants per registry host (phase 2), or `Unconfined`|
-|package caches (`~/.cargo/registry`, `~/.cargo/git`, `~/.npm/_cacache`, `~/.cache`, `~/Library/Caches`, `~/go/pkg/mod`; the list ships per release, lock files included)|written under the cache grant for interactive runs at or below the contract's default mark, reported (decision 5); read-only above it, and for every program run after an `Unconfined` run until the principal lowers the marks (§7), where tools that lock or fill a cache fail; never a tool's `bin` directory or configuration file|an `Unconfined` step|
+|package caches (`~/.cargo/registry`, `~/.cargo/git`, `~/.npm/_cacache`, `~/.cache`, `~/Library/Caches`, `~/go/pkg/mod`; the list ships per release, lock files included)|written under the cache grant for interactive runs at or below the contract's default mark, reported (decision 5); read-only above it, and for every program run after an `Unconfined` run until the principal re-establishes isolation (§7, decision 13), where tools that lock or fill a cache fail; never a tool's `bin` directory or configuration file|an `Unconfined` step|
 |`git config`, `git remote add`, `git submodule init`, writing hooks in a repository present at start; `git init`, `git clone`, `cargo new` creating a `.git`|denied on macOS (decision 10), the first group in tier N too; listed elsewhere|an `Unconfined` step (`git push -u` and `git clone` already run unconfined as network steps)|
 |Xcode tool shims (`/usr/bin/git` and others)|need per-user temp and cache dirs and `dirhelper` (R§5.1); their `xcrun_db` cache lives in the run's private temp dir (§5), the shared one denied|in the interactive base profile, as shared write trees (§1); narrowed in check and unattended profiles, where the tool's real path (`xcrun --find`) works|
 |new entries directly in, and listings of, a directory above a state part (`ls ~` on Landlock tiers; broad write grants on the home directory)|narrowed|tier N or macOS|
@@ -588,6 +608,9 @@ and Rust in this repository, not measured].
 
 ## 13. Owner decisions (applied)
 
+Items marked "default, owner may change" are conservative defaults applied
+while the owner's answer is pending.
+
 1. Same OS user: no separate uid. sr179 is reworded so that a program run
    keeps isolation only when it is confined and unable to reach Eukhe's
    state; it breaks isolation when it is unconfined, or confined yet able
@@ -596,8 +619,13 @@ and Rust in this repository, not measured].
    ("confined, not isolated" on L3), df9's "confinement in force" is read
    the same way: a listed mechanism version with no disclosed, unfixed
    escape, without "isolation held", which the separate "not isolated"
-   qualifier carries (C18); df9's text in the philosophy changes
-   accordingly.
+   qualifier carries (C18). The proposed df9 sentence: "Confinement in
+   force for a program run (check code and provider-side execution
+   included): it ran under a listed mechanism version with no disclosed,
+   unfixed escape on the list in force at that program run (sr119);
+   whether isolation held is a separate fact; undisclosed escapes in
+   listed classes are measured, outside the guarantee (sr41)." (df9
+   reading: default, owner may change.)
 2. Linux floor for "confined and isolated": kernel 6.12 or later (Landlock
    ABI 6, which scopes abstract sockets and signals; tiers L1, L2) or user
    namespaces (tier N). On 6.7 to 6.11 (L3) runs are reported "confined,
@@ -610,8 +638,10 @@ and Rust in this repository, not measured].
    bubblewrap dependency.
 5. Package caches: a shipped write grant on the release's cache trees, for
    runs at or below the contract's default mark, reported (§8, §11). It
-   applies to interactive runs: scheduled, loop and autoresearch runs
-   write only their copy (sr51, C24).
+   applies to interactive sessions only: scheduled, loop and autoresearch
+   runs write only their copy (sr51, C24), and they never get an
+   unconfined network step (C16) (interactive-only scope: default, owner
+   may change).
 6. Interactive network steps run unconfined and counted until denial
    rates are measured; the threshold for confining them is set then.
 7. An instance counts as fixed on a host only with the fixed version and a
@@ -632,3 +662,18 @@ and Rust in this repository, not measured].
     `/usr/bin/sandbox-exec` on macOS (marked deprecated in its man page,
     no replacement for command-line programs, R§1.1).
 12. Windows: unsupported.
+13. After an unconfined interactive network step, the highest mark it gave
+    every path the user can write persists per account and machine until
+    the principal re-establishes isolation with the explicit command
+    (C15); until then every run's label carries "highest mark" (C18), and
+    its program runs read the caches only and send only under a ceiling
+    at the highest mark (§7). Default, owner may change.
+14. Stated limit: an interactive unconfined network step can expose the
+    credentials that concurrent and later unattended runs use, until the
+    principal re-establishes isolation (§7, C15). Default, owner may
+    change.
+15. macOS `sandbox_check` is used only as a probe that can lower a claim
+    (it finds survivors to kill and record), never as the basis for
+    claiming confinement or a run's end; a macOS program run counts as
+    live until re-establishment or the principal's statement that none of
+    its processes survives (§1). Default, owner may change.
