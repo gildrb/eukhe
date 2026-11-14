@@ -144,7 +144,6 @@ async fn every_creation_path_makes_the_core_modes() {
             "faux",
             eukhe_core::auth::AuthCredential::ApiKey {
                 key: "sk-local".to_string(),
-                prime_team: None,
             },
         )
         .expect("the auth store writes");

@@ -414,8 +414,8 @@ pub struct AuxiliaryResolution {
 /// (`None` when unknown).
 ///
 /// The session fallback resolves its merged headers through the same
-/// registry the session's own requests use, so it ships the stored team
-/// header exactly like them.
+/// registry the session's own requests use, so it ships the configured
+/// headers exactly like them.
 #[must_use]
 pub fn resolve_auxiliary_model(
     context: &AuxiliaryModelContext,

@@ -1,6 +1,6 @@
 //! The user-facing text of a failed auth HTTP exchange: the bounded
 //! response text an endpoint answered (trimmed to one line a login panel
-//! can show) and a transport failure with its cause chain.
+//! can show).
 
 /// The longest body excerpt an error carries (characters).
 const MAX_SNIPPET_CHARS: usize = 300;
@@ -23,22 +23,6 @@ pub fn response_snippet(body: &str) -> String {
         Some((cut, _)) => format!("{}...", &line[..cut]),
         None => line,
     }
-}
-
-/// A transport failure with its cause chain (TS `formatErrorDetails`
-/// appends `cause=`): reqwest's own message names only the URL, the
-/// chain carries the reason (DNS, TLS, proxy, refused connect).
-#[must_use]
-pub fn transport_failure(error: &reqwest::Error) -> String {
-    use std::fmt::Write as _;
-    let mut message = error.to_string();
-    let mut source = std::error::Error::source(error);
-    while let Some(cause) = source {
-        // Writing into a String cannot fail.
-        let _ = write!(message, "; cause={cause}");
-        source = cause.source();
-    }
-    message
 }
 
 #[cfg(test)]

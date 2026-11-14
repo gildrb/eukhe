@@ -1,9 +1,9 @@
 //! The pi-ai model collection of a durable eukhe session and the model of a
 //! new root conversation.
 //!
-//! [`create_models`] registers every built-in pi-ai provider (the eukhe
-//! `prime-inference` provider included) serving the built-in catalog
-//! `eukhe model list` lists (`catalog`), composes the user's
+//! [`create_models`] registers every built-in pi-ai provider serving the
+//! built-in catalog `eukhe model list` lists (`catalog`), composes the
+//! user's
 //! `<agent_dir>/models.json` over them (`compose`), and wires the
 //! credential store (`stores`): a pi-ai `CredentialStore` over eukhe's
 //! `<agent_dir>/auth.json`, through eukhe's own `FileAuthStorageBackend`
@@ -21,7 +21,6 @@
 //!
 //! | eukhe entry | pi-ai credential |
 //! |---|---|
-//! | `{type:"api_key", key, primeTeam?:{teamId,…}}` | `ApiKeyCredential { key, env: { PRIME_TEAM_ID: teamId } }` |
 //! | `{type:"api_key", key, env?}` | `ApiKeyCredential { key, env }` (`env` is pi-ai's field) |
 //! | `{type:"oauth", access, refresh, expires, accountId?, enterpriseUrl?, …}` | `OAuthCredential { access, refresh, expires, extra: {accountId, enterpriseUrl, …} }` |
 //! | `{type:"mcp_static_token", …}` and other eukhe-only types | not a pi-ai credential: `read` gives `None`, `list` skips it |
@@ -34,15 +33,12 @@
 //!
 //! Reads apply eukhe's resolution rules: a stored key goes through
 //! `resolve_config_value` (`!command`, env var name, or literal; the TS
-//! `AuthStorage.read`), and for `prime-inference` a non-empty `PRIME_API_KEY`
-//! hides the stored key (eukhe resolves the Prime environment key before the
-//! stored one) while the stored team survives, and a non-empty
-//! `PRIME_TEAM_ID` hides the stored team (the env pin owns the team).
+//! `AuthStorage.read`). Fields an entry carries that this build does not
+//! read are ignored.
 //!
 //! Writes (OAuth refresh, login, logout) rewrite only the provider's entry:
 //! OAuth credentials in the pi-ai shape (a superset of eukhe's own),
-//! api-key credentials as `{type, key, primeTeam?, env?}`, keeping the
-//! stored `primeTeam` when the key is unchanged. The OAuth refresh runs
+//! api-key credentials as `{type, key, env?}`. The OAuth refresh runs
 //! outside the document lock (eukhe's load-then-lock shape: a token fetch
 //! never holds the file lock); the write re-reads under the lock and, when
 //! another writer changed the entry meanwhile, keeps that writer's newer
@@ -244,10 +240,8 @@ pub struct SessionModels {
 }
 
 /// `eukhe_ai::models::Models` with every built-in provider serving
-/// the built-in catalog, credentials from eukhe's auth storage, custom
-/// providers/models from eukhe `models.json`, and Prime Inference through
-/// the built-in `prime-inference` provider's compiled catalog. See the module
-/// docs.
+/// the built-in catalog, credentials from eukhe's auth storage, and custom
+/// providers/models from eukhe `models.json`. See the module docs.
 #[must_use]
 pub fn create_models(agent_dir: &Path) -> SessionModels {
     build_models(agent_dir, None)

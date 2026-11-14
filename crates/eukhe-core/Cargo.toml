@@ -39,10 +39,6 @@ eukhe-budget.workspace = true
 eukhe-tiny = { path = "../eukhe-tiny" }
 base64 = "0.22"
 fancy-regex = "0.14"
-# The traces browser login's auth challenge (RSA-2048 keypair, OAEP-SHA256
-# result decrypt; sha2 matches the workspace's version, pem for the SPKI
-# wire form).
-rsa = { version = "0.9", features = ["sha2", "pem"] }
 libc = "0.2"
 # platform: signals, sessions, rlimits, pidfd polling, lock-dir mtimes and
 # the macOS kqueue exit watch through safe wrappers. MIT.

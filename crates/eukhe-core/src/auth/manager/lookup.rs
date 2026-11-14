@@ -1,15 +1,15 @@
 //! The API-key lookup + OAuth refresh arm (moved with its concern): the
-//! resolution walk over the candidate sources (runtime override, prime
-//! inference env-before-stored, stored, environment, fallback) with the
-//! staleness gate, the OAuth expiry refresh through the document's
-//! refresh flights, and the passthrough `get_api_key` (TS getApiKey).
+//! resolution walk over the candidate sources (runtime override, stored,
+//! environment, fallback) with the staleness gate, the OAuth expiry
+//! refresh through the document's refresh flights, and the passthrough
+//! `get_api_key` (TS getApiKey).
 
 use std::sync::Arc;
 
 use super::{
     config, edit_storage_data, now_epoch_ms, parse_storage_data, resolve_config_value,
     resolve_config_value_uncached, AuthApiKeyResult, AuthCredential, AuthStorage,
-    AuthStorageBackend, AuthStorageData, OAuthIntegration, PRIME_INFERENCE_PROVIDER_ID,
+    AuthStorageBackend, AuthStorageData, OAuthIntegration,
 };
 use crate::auth::flight::{fresh, Read, RefreshIo, Stored};
 use crate::auth::refresh_error::{AuthFileError, RefreshError, RefreshFailed};
@@ -37,21 +37,7 @@ impl AuthStorage {
         let env_key = self.env_credentials.api_key(provider_id);
         let env_candidate = self.environment_candidate(provider_id);
 
-        // 2. Prime-inference: environment before stored.
-        if provider_id == PRIME_INFERENCE_PROVIDER_ID {
-            if let (Some(api_key), Some(candidate)) = (env_key.clone(), env_candidate.clone()) {
-                if !self.is_stale(provider_id, &candidate) {
-                    return AuthApiKeyResult {
-                        api_key: Some(api_key),
-                        source_token: Self::token_for(provider_id, &candidate),
-                        credential_type: Some("api_key"),
-                        refresh_error: None,
-                    };
-                }
-            }
-        }
-
-        // 3. Stored credential.
+        // 2. Stored credential.
         if let Some(credential) = self.data.credential(provider_id) {
             if let Some(candidate) = self.stored_candidate(provider_id) {
                 if !self.is_stale(provider_id, &candidate) {
@@ -138,21 +124,19 @@ impl AuthStorage {
             }
         }
 
-        // 4. Environment for non-prime-inference providers.
-        if provider_id != PRIME_INFERENCE_PROVIDER_ID {
-            if let (Some(api_key), Some(candidate)) = (env_key, env_candidate) {
-                if !self.is_stale(provider_id, &candidate) {
-                    return AuthApiKeyResult {
-                        api_key: Some(api_key),
-                        source_token: Self::token_for(provider_id, &candidate),
-                        credential_type: None,
-                        refresh_error: None,
-                    };
-                }
+        // 3. Environment.
+        if let (Some(api_key), Some(candidate)) = (env_key, env_candidate) {
+            if !self.is_stale(provider_id, &candidate) {
+                return AuthApiKeyResult {
+                    api_key: Some(api_key),
+                    source_token: Self::token_for(provider_id, &candidate),
+                    credential_type: None,
+                    refresh_error: None,
+                };
             }
         }
 
-        // 5. Fallback resolver.
+        // 4. Fallback resolver.
         if include_fallback {
             if let Some(candidate) = self.fallback_candidate(provider_id) {
                 if !self.is_stale(provider_id, &candidate) {

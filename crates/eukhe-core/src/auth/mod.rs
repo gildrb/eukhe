@@ -3,10 +3,6 @@
 pub(crate) mod failure_text;
 pub(crate) mod flight;
 pub(crate) mod manager;
-pub(crate) mod prime_browser_login;
-pub(crate) mod prime_error;
-pub(crate) mod prime_inference;
-pub(crate) mod prime_inference_login;
 pub(crate) mod provider_oauth;
 pub(crate) mod redirect_input;
 pub(crate) mod refresh_error;
@@ -18,19 +14,6 @@ pub use flight::RefreshFlights;
 pub use manager::{
     AuthApiKeyResult, AuthLoadError, AuthStorage, AuthStorageError, AuthWriteCause, AuthWriteError,
     NoOAuth, OAuthIntegration,
-};
-pub use prime_browser_login::PrimeAuthInfo;
-pub use prime_error::{PrimeCheckError, PrimeHttpError, PrimeLoginError, PrimeTeamsError};
-pub use prime_inference::{
-    check_prime_inference_access, default_prime_cli_config_path, fetch_prime_teams,
-    read_prime_cli_config, resolve_prime_inference_auth_config, PrimeAccessError,
-    PrimeAccessFailure, PrimeCliConfig, PrimeHttp, PrimeHttpResponse, PrimeInferenceAuthConfig,
-    ReqwestPrimeHttp, DEFAULT_PRIME_API_BASE_URL, DEFAULT_PRIME_FRONTEND_URL,
-    DEFAULT_REQUEST_TIMEOUT_MS,
-};
-pub use prime_inference_login::{
-    login_prime_inference, PrimeInferenceLoginCallbacks, PrimeInferenceLoginOptions,
-    PrimeInferenceLoginResult, PrimeInferenceLoginSource,
 };
 pub use provider_oauth::{
     stored_oauth_credential, subscription_oauth_flow, ProviderOAuth, ANTHROPIC_PROVIDER_ID,
@@ -45,7 +28,4 @@ pub use storage::{
     edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
     InMemoryAuthStorageBackend, AUTH_FILE_NAME,
 };
-pub use types::{
-    AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData, PrimeTeamAssignment,
-    PrimeTeamCredential, StoredPrimeTeam, PRIME_INFERENCE_PROVIDER_ID,
-};
+pub use types::{AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData};

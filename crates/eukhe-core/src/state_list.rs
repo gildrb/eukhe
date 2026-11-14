@@ -34,7 +34,7 @@ pub enum StateKind {
     /// dir>/run`).
     RunDir,
     /// A credentials file or store Eukhe reads: `auth.json`, the dashboard
-    /// token, the Prime CLI config, the AWS shared files (Bedrock).
+    /// token, the AWS shared files (Bedrock).
     Credentials,
     /// The copies and snapshots of agents' work (`<agent dir>-work`): child
     /// workspaces, check copies, kernel snapshots. A run's own copy is its
@@ -91,10 +91,6 @@ pub fn state_list(install: &Install<'_>) -> Vec<StatePart> {
         part(StateKind::RunDir, agent_dir.join(RUN_DIR_NAME)),
         part(StateKind::Credentials, agent_dir.join(AUTH_FILE_NAME)),
         part(StateKind::Credentials, agent_dir.join(DASHBOARD_TOKEN_FILE)),
-        part(
-            StateKind::Credentials,
-            crate::auth::default_prime_cli_config_path(),
-        ),
     ];
     if let Some(home) = install.home {
         parts.push(part(StateKind::Credentials, home.join(".aws")));

@@ -1,57 +1,12 @@
-//! Auth credential types (auth-storage.ts + prime-inference-auth.ts).
+//! Auth credential types (auth-storage.ts).
 
 use serde::{Deserialize, Serialize};
-
-pub const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrimeTeamCredential {
-    pub team_id: String,
-    pub name: String,
-    pub slug: Option<String>,
-    pub role: Option<String>,
-    pub created_at: Option<String>,
-}
-
-/// The team half of a Prime Inference key write (TS `setPrimeInferenceApiKey`'s
-/// `primeTeam?: PrimeTeam | null`): an absent argument preserves the stored
-/// team when the key is unchanged, `null` is the personal account.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PrimeTeamAssignment {
-    /// TS `undefined`: keep the stored team, but only on the same key.
-    PreserveWhenKeyMatches,
-    /// TS `null`: the personal account.
-    PersonalAccount,
-    /// TS `PrimeTeam`: this team.
-    Team(PrimeTeamCredential),
-}
-
-/// The stored Prime team selection (TS `getPrimeInferenceTeamSelection`'s
-/// `PrimeTeamCredential | null | undefined`): `undefined` means no stored
-/// selection applies (`PRIME_TEAM_ID` is set, or no api-key credential is
-/// stored). Fleet divergence (P5): a runtime or environment API-key
-/// override does not hide the stored team — it survives, so daemons on
-/// boxes with ambient `PRIME_API_KEY` need no `PRIME_TEAM_ID` pin.
-#[derive(Debug, Clone, PartialEq)]
-pub enum StoredPrimeTeam {
-    /// TS `undefined`.
-    NotSelected,
-    /// TS `null`: the personal account.
-    PersonalAccount,
-    /// TS `PrimeTeamCredential`.
-    Team(PrimeTeamCredential),
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthCredential {
     #[serde(rename = "api_key")]
-    ApiKey {
-        key: String,
-        #[serde(rename = "primeTeam", default, skip_serializing_if = "Option::is_none")]
-        prime_team: Option<PrimeTeamCredential>,
-    },
+    ApiKey { key: String },
     /// A pasted MCP static token (the inline paste flow for
     /// `requires-setup` token services): the literal bearer value plus the
     /// endpoint it is bound to. No expiry — usable until removed or replaced.
@@ -160,7 +115,6 @@ pub enum AuthSource {
     Stored,
     Runtime,
     Environment,
-    PrimeCli,
     Fallback,
     ModelsJsonKey,
     ModelsJsonCommand,
@@ -213,5 +167,22 @@ mod tests {
         ));
         let emitted = serde_json::to_value(&codex).unwrap();
         assert_eq!(emitted["accountId"], "acct-1");
+    }
+
+    /// An `api_key` credential with a field this build does not read (an
+    /// earlier release's team selection) still loads; the field is dropped.
+    #[test]
+    fn an_api_key_with_an_unread_field_loads() {
+        let stored: AuthCredential = serde_json::from_value(serde_json::json!({
+            "type": "api_key", "key": "sk",
+            "team": { "teamId": "t-1", "name": "Team" }
+        }))
+        .unwrap();
+        assert_eq!(
+            stored,
+            AuthCredential::ApiKey {
+                key: "sk".to_string()
+            }
+        );
     }
 }

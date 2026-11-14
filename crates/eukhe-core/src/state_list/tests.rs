@@ -38,16 +38,10 @@ fn the_list_names_every_part_of_a_default_install() {
         (StateKind::RunDir, "/home/u/.eukhe/run"),
         (StateKind::Credentials, "/home/u/.eukhe/auth.json"),
         (StateKind::Credentials, "/home/u/.eukhe/dashboard-token"),
-    ]);
-    expected.push(StatePart {
-        kind: StateKind::Credentials,
-        path: crate::auth::default_prime_cli_config_path(),
-    });
-    expected.extend(parts(&[
         (StateKind::Credentials, "/home/u/.aws"),
         (StateKind::WorkRoot, "/home/u/.eukhe-work"),
         (StateKind::Executables, "/opt/eukhe/bin"),
-    ]));
+    ]);
     expected.extend(auto_start("/home/u/.config"));
     assert_eq!(list, expected);
 }
@@ -76,17 +70,12 @@ fn overrides_move_their_parts() {
         (StateKind::RunDir, "/state/agent/run"),
         (StateKind::Credentials, "/state/agent/auth.json"),
         (StateKind::Credentials, "/state/agent/dashboard-token"),
-    ]);
-    expected.push(StatePart {
-        kind: StateKind::Credentials,
-        path: crate::auth::default_prime_cli_config_path(),
-    });
-    expected.extend(parts(&[
         (StateKind::Credentials, "/keys/aws"),
         (StateKind::Credentials, "/work/aws.cfg"),
         (StateKind::WorkRoot, "/state/agent-work"),
-    ]));
-    #[cfg(not(target_os = "macos"))]
-    expected.extend(auto_start("/xdg"));
+    ]);
+    if cfg!(not(target_os = "macos")) {
+        expected.extend(auto_start("/xdg"));
+    }
     assert_eq!(list, expected);
 }

@@ -338,12 +338,7 @@ impl ModelRegistry {
                 "{refresh_error}\n\nRun /login to update credentials."
             ));
         }
-        let mut headers: BTreeMap<String, String> = self
-            .auth
-            .get_provider_headers(&model.provider)
-            .into_iter()
-            .flatten()
-            .collect();
+        let mut headers: BTreeMap<String, String> = BTreeMap::new();
         if let Some(config) = config {
             let configured = config.headers.iter().chain(config.model_headers(&model.id));
             headers.extend(configured.flatten().map(|(k, v)| (k.clone(), v.clone())));

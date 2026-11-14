@@ -10,9 +10,6 @@ use eukhe_ai::auth::{
     ApiKeyCredential, ApiKeyType, AuthOperationOptions, AuthType, Credential, CredentialInfo,
     CredentialStore, ModifyFn, OAuthCredential,
 };
-use eukhe_ai::providers::prime_inference::{
-    PRIME_API_KEY_ENV, PRIME_INFERENCE_PROVIDER_ID, PRIME_TEAM_ID_ENV,
-};
 use eukhe_ai::utils::abort::{operation_signal, race_with_abort_signal};
 use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
 use eukhe_bend::rules::config;
@@ -23,7 +20,6 @@ use serde_json::{Map, Value};
 use crate::auth::resolve_config_value::resolve_config_value;
 use crate::auth::{
     edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
-    PrimeTeamCredential,
 };
 
 pub(super) fn thrown(message: String) -> Thrown {
@@ -165,10 +161,6 @@ fn invalid_credential(provider_id: &str) -> AuthJsonError {
     }
 }
 
-fn non_empty_env(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|value| !value.trim().is_empty())
-}
-
 /// An auth.json entry as a pi-ai credential (format mapping only). `None`
 /// for eukhe-only credential types.
 fn stored_credential(
@@ -185,7 +177,7 @@ fn stored_credential(
                 Some(Value::String(key)) => Some(key.clone()),
                 Some(_) => return Err(invalid_credential(provider_id)),
             };
-            let mut env: Option<ProviderEnv> = match object.get("env") {
+            let env: Option<ProviderEnv> = match object.get("env") {
                 None => None,
                 Some(Value::Object(entries)) => Some(
                     entries
@@ -200,20 +192,6 @@ fn stored_credential(
                 ),
                 Some(_) => return Err(invalid_credential(provider_id)),
             };
-            match object.get("primeTeam") {
-                None | Some(Value::Null) => {}
-                Some(team) => {
-                    let team: PrimeTeamCredential =
-                        serde_json::from_value(team.clone()).map_err(|source| {
-                            AuthJsonError::InvalidCredentialField {
-                                provider: provider_id.to_owned(),
-                                source,
-                            }
-                        })?;
-                    env.get_or_insert_with(ProviderEnv::new)
-                        .insert(PRIME_TEAM_ID_ENV.to_owned(), team.team_id);
-                }
-            }
             Ok(Some(Credential::ApiKey(ApiKeyCredential {
                 kind: ApiKeyType::ApiKey,
                 key,
@@ -230,34 +208,18 @@ fn stored_credential(
     }
 }
 
-/// eukhe's read-time resolution of a stored credential: the Prime
-/// environment precedence, then the configured-value resolution of the key.
-fn resolve_stored_credential(provider_id: &str, credential: Credential) -> Credential {
+/// eukhe's read-time resolution of a stored credential: the
+/// configured-value resolution of the key.
+fn resolve_stored_credential(credential: Credential) -> Credential {
     let Credential::ApiKey(mut credential) = credential else {
         return credential;
     };
-    if provider_id == PRIME_INFERENCE_PROVIDER_ID {
-        if non_empty_env(PRIME_API_KEY_ENV) {
-            credential.key = None;
-        }
-        if non_empty_env(PRIME_TEAM_ID_ENV) {
-            if let Some(env) = &mut credential.env {
-                env.shift_remove(PRIME_TEAM_ID_ENV);
-            }
-            if credential.env.as_ref().is_some_and(ProviderEnv::is_empty) {
-                credential.env = None;
-            }
-        }
-    }
     credential.key = credential.key.as_deref().and_then(resolve_config_value);
     Credential::ApiKey(credential)
 }
 
-/// A pi-ai credential as the auth.json entry replacing `previous`.
-fn credential_entry(
-    credential: &Credential,
-    previous: Option<&Value>,
-) -> Result<Value, AuthJsonError> {
+/// A pi-ai credential as its auth.json entry.
+fn credential_entry(credential: &Credential) -> Result<Value, AuthJsonError> {
     match credential {
         Credential::OAuth(credential) => {
             serde_json::to_value(credential).map_err(AuthJsonError::Serialize)
@@ -268,26 +230,10 @@ fn credential_entry(
             if let Some(key) = &credential.key {
                 entry.insert("key".to_owned(), Value::String(key.clone()));
             }
-            let kept_team = previous
-                .and_then(Value::as_object)
-                .filter(|previous| {
-                    previous.get("type").and_then(Value::as_str) == Some("api_key")
-                        && previous.get("key").and_then(Value::as_str) == credential.key.as_deref()
-                })
-                .and_then(|previous| previous.get("primeTeam"))
-                .filter(|team| !team.is_null());
-            let mut env = credential.env.clone().unwrap_or_default();
-            if let Some(team) = kept_team {
-                let team_id = team.get("teamId").and_then(Value::as_str);
-                if env.get(PRIME_TEAM_ID_ENV).map(String::as_str) == team_id {
-                    env.shift_remove(PRIME_TEAM_ID_ENV);
-                }
-                entry.insert("primeTeam".to_owned(), team.clone());
-            }
-            if !env.is_empty() {
+            if let Some(env) = credential.env.as_ref().filter(|env| !env.is_empty()) {
                 entry.insert(
                     "env".to_owned(),
-                    serde_json::to_value(&env).map_err(AuthJsonError::Serialize)?,
+                    serde_json::to_value(env).map_err(AuthJsonError::Serialize)?,
                 );
             }
             Ok(Value::Object(entry))
@@ -315,9 +261,8 @@ impl CredentialStore for AuthJsonCredentialStore {
             let Some(credential) = stored_credential(provider_id, entry)? else {
                 return Ok(None);
             };
-            let provider_id = provider_id.to_owned();
             // A `!command` key runs a process: off the async workers.
-            blocking(move || Ok(Some(resolve_stored_credential(&provider_id, credential)))).await
+            blocking(move || Ok(Some(resolve_stored_credential(credential)))).await
         })
     }
 
@@ -377,7 +322,7 @@ impl CredentialStore for AuthJsonCredentialStore {
                 return Ok(current);
             };
             task_signal.throw_if_aborted()?;
-            let entry = credential_entry(&next, previous.as_ref())?;
+            let entry = credential_entry(&next)?;
             let write_id = id.clone();
             let concurrent = blocking(move || {
                 Ok(update_document(&backend, |document| {
@@ -453,12 +398,11 @@ mod tests {
                 "expires": 4_102_444_800_000_u64, "accountId": "acct-1"
             },
             "openai": { "type": "api_key", "key": "sk-openai" },
-            "prime-inference": {
+            // An earlier release's entry with a field this build does not
+            // read.
+            "retired": {
                 "type": "api_key", "key": "pit-key",
-                "primeTeam": {
-                    "teamId": "team-1", "name": "Team One", "slug": "team-one",
-                    "role": "admin", "createdAt": null
-                }
+                "team": { "teamId": "team-1", "name": "Team One" }
             },
             "mcp:linear": {
                 "type": "mcp_static_token", "bearer": "lin-token",
@@ -520,14 +464,8 @@ mod tests {
             Some(Credential::ApiKey(ApiKeyCredential::with_key("sk-openai")))
         );
         assert_eq!(
-            read("prime-inference").await.unwrap(),
-            Some(Credential::ApiKey(ApiKeyCredential {
-                env: Some(ProviderEnv::from([(
-                    PRIME_TEAM_ID_ENV.to_owned(),
-                    "team-1".to_owned()
-                )])),
-                ..ApiKeyCredential::with_key("pit-key")
-            }))
+            read("retired").await.unwrap(),
+            Some(Credential::ApiKey(ApiKeyCredential::with_key("pit-key")))
         );
         assert_eq!(read("mcp:linear").await.unwrap(), None);
         assert_eq!(read("missing").await.unwrap(), None);
@@ -538,7 +476,7 @@ mod tests {
                 ("github-copilot", AuthType::OAuth),
                 ("openai-codex", AuthType::OAuth),
                 ("openai", AuthType::ApiKey),
-                ("prime-inference", AuthType::ApiKey),
+                ("retired", AuthType::ApiKey),
                 ("zai", AuthType::ApiKey),
             ]
             .map(|(provider_id, kind)| CredentialInfo {
@@ -586,15 +524,15 @@ mod tests {
             })
         );
 
-        // Re-saving the Prime key keeps the stored team in eukhe's field.
-        let prime = store.read("prime-inference", options()).await.unwrap();
+        // Re-saving that key drops the field this build does not read.
+        let retired = store.read("retired", options()).await.unwrap();
         store
-            .modify("prime-inference", replace_with(prime), options())
+            .modify("retired", replace_with(retired), options())
             .await
             .unwrap();
         assert_eq!(
-            read_json(&path)["prime-inference"],
-            fixture["prime-inference"]
+            read_json(&path)["retired"],
+            json!({ "type": "api_key", "key": "pit-key" })
         );
 
         // `None` leaves the entry and resolves the current credential.

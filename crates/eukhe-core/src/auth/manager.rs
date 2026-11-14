@@ -11,10 +11,7 @@ use eukhe_bend::rules::config;
 use super::refresh_error::{OAuthRefreshError, RefreshFailed};
 use super::resolve_config_value::{resolve_config_value, resolve_config_value_uncached};
 use super::storage::{edit_storage_data, parse_storage_data, AuthStorageBackend};
-use super::types::{
-    AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData, PrimeTeamAssignment,
-    PrimeTeamCredential, StoredPrimeTeam, PRIME_INFERENCE_PROVIDER_ID,
-};
+use super::types::{AuthCredential, AuthSource, AuthSourceToken, AuthStatus, AuthStorageData};
 
 // The inline unit battery moved to the child module at the same tree
 // position (auth::manager::tests); its use-super glob keeps resolving
@@ -33,17 +30,6 @@ mod tests;
 // child's bare calls into the facade's candidate/staleness machinery
 // resolve through the use-super glob (the descendant visibility rule).
 mod lookup;
-
-// The Prime Inference credential writes (update_prime_inference_credential,
-// set_prime_inference_api_key, set_prime_inference_team_selection,
-// get_prime_inference_team_selection) moved to the child module at the
-// same tree position (auth::manager::prime_inference) as its own impl
-// AuthStorage block; the pub methods stay on the facade-resident type and
-// update_prime_inference_credential keeps its private level (the child is
-// its only caller - ZERO pub(super) bumps, verified by the caller map);
-// the child wraps the facade's private lock + reload machinery through the
-// use-super glob.
-mod prime_inference;
 
 /// SHA-256 fingerprint of an auth-source material, `source:hex` form.
 fn fingerprint(source: AuthSource, material: &str) -> String {
@@ -145,8 +131,8 @@ impl OAuthIntegration for NoOAuth {
 }
 
 /// Environment credential source: the seam through which auth resolution
-/// reads ambient credentials (provider API-key variables, the prime team
-/// variable, and multi-variable ambient identity material such as AWS
+/// reads ambient credentials (provider API-key variables and
+/// multi-variable ambient identity material such as AWS
 /// profiles). The production implementation reads the real process
 /// environment via the shared env-var table in `eukhe-ai`; tests inject a fixed
 /// mapping so resolution order is deterministic and hermetic against
@@ -157,8 +143,6 @@ pub(crate) trait EnvCredentialSource: Send + Sync {
     fn key_names(&self, provider: &str) -> Option<Vec<String>>;
     /// The provider's API key from the environment, if any.
     fn api_key(&self, provider: &str) -> Option<String>;
-    /// Raw `PRIME_TEAM_ID` value if set; the caller trims and rejects empty.
-    fn prime_team_id(&self) -> Option<String>;
     /// Identity material for ambient multi-variable credential sources
     /// (AWS profiles, container credentials, Google ADC projects).
     fn ambient_identity_material(&self, provider: &str) -> String;
@@ -168,7 +152,7 @@ pub(crate) trait EnvCredentialSource: Send + Sync {
 struct ProcessEnvCredentials;
 
 /// No-op environment credential source: no ambient variable can supply a
-/// provider key or team id. The hermetic seam behind
+/// provider key. The hermetic seam behind
 /// [`AuthStorage::in_memory_without_env`].
 struct NoEnvCredentials;
 
@@ -178,10 +162,6 @@ impl EnvCredentialSource for NoEnvCredentials {
     }
 
     fn api_key(&self, _provider: &str) -> Option<String> {
-        None
-    }
-
-    fn prime_team_id(&self) -> Option<String> {
         None
     }
 
@@ -197,10 +177,6 @@ impl EnvCredentialSource for ProcessEnvCredentials {
 
     fn api_key(&self, provider: &str) -> Option<String> {
         eukhe_ai::env_api_keys::get_env_api_key(provider, None)
-    }
-
-    fn prime_team_id(&self) -> Option<String> {
-        std::env::var("PRIME_TEAM_ID").ok()
     }
 
     fn ambient_identity_material(&self, provider: &str) -> String {
@@ -289,20 +265,11 @@ pub enum AuthWriteCause {
 }
 
 /// A failure the storage reports on its errors channel
-/// ([`AuthStorage::drain_errors`]): a failed load or a refused Prime
-/// credential write.
+/// ([`AuthStorage::drain_errors`]): a failed load.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthStorageError {
     #[error(transparent)]
     Load(AuthLoadError),
-    /// The Prime Inference credential write failed.
-    #[error("{0}")]
-    PrimeWrite(#[source] anyhow::Error),
-    /// The Prime API key is not a literal token.
-    #[error(
-        "Refusing to store the Prime API key: it must be a non-empty token without a leading '!', whitespace, or control characters"
-    )]
-    InvalidPrimeKey,
 }
 
 pub struct AuthStorage {
@@ -376,9 +343,9 @@ impl AuthStorage {
 
     /// In-memory storage with no ambient environment source: hermetic
     /// resolution for embedded hosts and test harnesses that must pin the
-    /// model catalog scope (an ambient provider credential variable such
-    /// as `PRIME_API_KEY` cannot make models available through this
-    /// storage). Otherwise behaves like [`AuthStorage::in_memory`].
+    /// model catalog scope (an ambient provider credential variable cannot
+    /// make models available through this storage). Otherwise behaves
+    /// like [`AuthStorage::in_memory`].
     pub fn in_memory_without_env(data: &AuthStorageData, oauth: Arc<dyn OAuthIntegration>) -> Self {
         Self::in_memory_with_env_source(data, oauth, Arc::new(NoEnvCredentials))
     }
@@ -640,9 +607,7 @@ impl AuthStorage {
         ))
     }
 
-    /// Candidate priority: runtime first; prime-inference prefers environment
-    /// over stored; everyone else prefers stored over environment; fallback
-    /// last.
+    /// Candidate priority: runtime, stored, environment, fallback last.
     fn auth_source_candidates(
         &self,
         provider: &str,
@@ -651,21 +616,12 @@ impl AuthStorage {
         let fallback = include_fallback
             .then(|| self.fallback_candidate(provider))
             .flatten();
-        if provider == PRIME_INFERENCE_PROVIDER_ID {
-            vec![
-                self.runtime_candidate(provider),
-                self.environment_candidate(provider),
-                self.stored_candidate(provider),
-                fallback,
-            ]
-        } else {
-            vec![
-                self.runtime_candidate(provider),
-                self.stored_candidate(provider),
-                self.environment_candidate(provider),
-                fallback,
-            ]
-        }
+        [
+            self.runtime_candidate(provider),
+            self.stored_candidate(provider),
+            self.environment_candidate(provider),
+            fallback,
+        ]
         .into_iter()
         .flatten()
         .collect()
@@ -880,42 +836,5 @@ impl AuthStorage {
         // Reload from what we wrote.
         self.reload();
         Ok(())
-    }
-
-    /// API-key resolution: runtime > (prime-inference: env) > stored (`api_key`
-    /// resolved, oauth refreshed on expiry) > env > fallback. Stale sources
-    /// are skipped.
-    /// Provider-scoped request headers (prime-inference team header only).
-    pub fn get_provider_headers(
-        &self,
-        provider_id: &str,
-    ) -> Option<std::collections::HashMap<String, String>> {
-        if provider_id != PRIME_INFERENCE_PROVIDER_ID {
-            return None;
-        }
-        let team_id = self
-            .env_credentials
-            .prime_team_id()
-            .and_then(|value| {
-                let trimmed = value.trim().to_string();
-                (!trimmed.is_empty()).then_some(trimmed)
-            })
-            .or_else(|| {
-                // Stored team selection: the stored primeTeam survives runtime
-                // and environment API-key overrides (fleet P5) — an ambient
-                // `PRIME_API_KEY` supplies the key, never the team, so the
-                // stored login's team still scopes the header.
-                match self.data.credential(provider_id) {
-                    Some(AuthCredential::ApiKey { prime_team, .. }) => {
-                        prime_team.as_ref().map(|team| team.team_id.clone())
-                    }
-                    _ => None,
-                }
-            });
-        team_id.map(|team_id| {
-            let mut headers = std::collections::HashMap::new();
-            headers.insert("X-Prime-Team-ID".to_string(), team_id);
-            headers
-        })
     }
 }

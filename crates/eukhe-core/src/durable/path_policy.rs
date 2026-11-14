@@ -124,6 +124,7 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .flat_map(std::env::split_paths)
             .map(|dir| PathRule::Dir(workspace.join(dir))),
     );
+
     secret.extend(
         layout
             .home

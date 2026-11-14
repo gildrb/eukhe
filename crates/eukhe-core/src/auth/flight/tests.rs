@@ -526,7 +526,6 @@ fn a_load_that_finds_no_oauth_credential_refuses_to_refresh() {
         Fixed(|| {
             Stored::Credential(AuthCredential::ApiKey {
                 key: "k".to_owned(),
-                prime_team: None,
             })
         }),
         Fixed(|| {
@@ -565,7 +564,6 @@ fn a_credential_is_fresh_strictly_before_its_expiry_on_every_clock() {
     let oauth = |expires| credential(0, expires);
     let api_key = AuthCredential::ApiKey {
         key: "k".to_owned(),
-        prime_team: None,
     };
     let judged = [
         fresh(&oauth(10), 9),

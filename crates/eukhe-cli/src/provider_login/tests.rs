@@ -7,7 +7,6 @@ use super::*;
 fn the_status_indicator_maps_the_ts_labels() {
     let stored_api_key = AuthCredential::ApiKey {
         key: "k".to_string(),
-        prime_team: None,
     };
     // A matching stored credential is configured.
     assert_eq!(
@@ -167,7 +166,6 @@ async fn the_anthropic_subscription_warning_matches_the_active_credential() {
             "anthropic",
             AuthCredential::ApiKey {
                 key: "sk-ant-api03-plain".to_string(),
-                prime_team: None,
             },
         )
         .unwrap();
@@ -179,7 +177,6 @@ async fn the_anthropic_subscription_warning_matches_the_active_credential() {
             "anthropic",
             AuthCredential::ApiKey {
                 key: "sk-ant-oat-subscription".to_string(),
-                prime_team: None,
             },
         )
         .unwrap();

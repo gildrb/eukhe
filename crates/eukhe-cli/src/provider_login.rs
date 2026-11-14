@@ -159,7 +159,6 @@ fn api_key_source_label(source: AuthSource, label: Option<&str>) -> String {
         AuthSource::Environment => {
             format!("env: {}", label.unwrap_or("API key"))
         }
-        AuthSource::PrimeCli => label.unwrap_or("Prime CLI").to_string(),
         AuthSource::Runtime => "runtime API key".to_string(),
         AuthSource::Fallback => "custom API key".to_string(),
         AuthSource::ModelsJsonKey => "key in models.json".to_string(),
@@ -481,13 +480,7 @@ fn login_blocking(
         ));
     };
     let mut auth = eukhe_core::auth::AuthStorage::create(agent_dir);
-    if let Err(error) = auth.set(
-        &provider_row.id,
-        AuthCredential::ApiKey {
-            key: api_key,
-            prime_team: None,
-        },
-    ) {
+    if let Err(error) = auth.set(&provider_row.id, AuthCredential::ApiKey { key: api_key }) {
         return ProviderAuthOutcome::Error(format!("could not save the API key: {error}"));
     }
     ProviderAuthOutcome::Status(format!(

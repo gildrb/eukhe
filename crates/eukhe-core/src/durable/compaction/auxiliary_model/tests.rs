@@ -77,19 +77,22 @@ fn summary(resolution: &AuxiliaryResolution) -> (&str, Option<&str>, Option<&str
 }
 
 /// The session fallback resolves its MERGED headers through the same
-/// registry the session's own requests use (Cursor PR #2755: with the
-/// provider-side team-header fallback deleted, the fallback summarizer
-/// call is the only other path that must carry the stored team).
+/// registry the session's own requests use: the models.json provider
+/// headers ship on the fallback summarizer call.
 #[test]
 fn the_session_fallback_keeps_the_merged_headers() {
     let setup = Setup::new(&serde_json::json!({}));
     std::fs::write(
-        setup.context.agent_dir.join("auth.json"),
+        setup.context.agent_dir.join("models.json"),
         serde_json::json!({
-            "prime-inference": {
-                "type": "api_key",
-                "key": "test-key",
-                "primeTeam": { "teamId": "team-1", "name": "Test Team" }
+            "providers": {
+                "local-inference": {
+                    "baseUrl": "http://localhost:9",
+                    "apiKey": "test-key",
+                    "api": "openai-completions",
+                    "headers": { "X-Team-ID": "team-1" },
+                    "models": [ { "id": "session-model", "name": "Session Model", "contextWindow": 8000 } ]
+                }
             }
         })
         .to_string(),
@@ -100,15 +103,17 @@ fn the_session_fallback_keeps_the_merged_headers() {
         &setup.models,
         &setup.notices,
         "compaction summary",
-        &model("session-model", "prime-inference", 8_000),
+        &model("session-model", "local-inference", 8_000),
         |_| None,
     );
     assert_eq!(summary(&routed), ("session-model", None, None));
-    let headers = routed.headers.expect("the fallback keeps merged headers");
     assert_eq!(
-        headers.get("X-Prime-Team-ID").map(String::as_str),
-        Some("team-1"),
-        "the stored team ships on the fallback summarizer call"
+        routed.headers,
+        Some(std::collections::BTreeMap::from([(
+            "X-Team-ID".to_string(),
+            "team-1".to_string()
+        )])),
+        "the provider headers ship on the fallback summarizer call"
     );
 }
 
