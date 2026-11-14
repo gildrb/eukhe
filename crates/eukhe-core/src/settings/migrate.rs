@@ -1,7 +1,8 @@
 //! Migration of the values earlier releases wrote: each legacy shape maps
 //! to the value of the current schema with the same behaviour, on every
-//! read. The load after it never reports a value an earlier release
-//! wrote.
+//! read; a setting with no meaning left is retired (dropped, and named
+//! once: `settings::retired`). The load after it never reports a value an
+//! earlier release wrote.
 //!
 //! The settings release fixtures (`tests/settings_releases.rs`) hold every
 //! value each release accepted; a schema change without its migration here
@@ -11,12 +12,57 @@ use serde_json::{Map, Value};
 
 use super::cvar::registry;
 
+/// Settings earlier releases (or the releases eukhe descends from) wrote
+/// that no longer have a meaning: the migration drops each, whatever its
+/// value. A top-level id drops the whole section.
+const RETIRED: &[&str] = &[
+    // Removed in 0.10.42: the bounded usage wait (a quota failure parks
+    // instead: `retry.provider.waitForUsage.pauseUntilReset`).
+    "retry.provider.waitForUsage.enabled",
+    "retry.provider.waitForUsage.baseDelayMs",
+    "retry.provider.waitForUsage.maxDelayMs",
+    "retry.provider.waitForUsage.maxAttempts",
+    "retry.provider.waitForUsage.maxWaitMs",
+    // Removed by 0.10.13.
+    "telemetry",
+    "agentTraces",
+    "bundledSkills",
+    "terminal.fullscreenMouse",
+    // Never in eukhe: settings of the releases it descends from.
+    "compaction.thresholdPercent",
+    "emojiShortcodes",
+    "harnessRefinements",
+    "pythonCellTimeoutMs",
+    "updateChannel",
+    "webSearchProvider",
+];
+
+/// The ids of the retired settings.
+pub(crate) fn retired_ids() -> &'static [&'static str] {
+    RETIRED
+}
+
+/// A migrated settings document.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Migrated {
+    /// The document in the current schema.
+    pub(crate) document: Map<String, Value>,
+    /// The retired settings it held (their dotted ids, in [`RETIRED`]
+    /// order), dropped from `document`.
+    pub(crate) retired: Vec<&'static str>,
+}
+
 /// `document` in the current schema.
-pub(crate) fn migrate(document: &Map<String, Value>) -> Map<String, Value> {
+pub(crate) fn migrate(document: &Map<String, Value>) -> Migrated {
     let mut document = document.clone();
     legacy_shapes(&mut document);
     flag_sections(&mut document);
-    document
+    let retired = RETIRED
+        .iter()
+        .copied()
+        .filter(|id| remove(&mut document, id))
+        .collect();
+    Migrated { document, retired }
 }
 
 /// The shapes of the first releases (queueMode, websockets, skills
@@ -106,12 +152,28 @@ fn lookup_mut<'a>(document: &'a mut Map<String, Value>, path: &[&str]) -> Option
     at.get_mut(*last)
 }
 
-/// The text to save for the settings file `text` holds: its migration,
-/// when the file is eukhe's own (`text` is exactly the text eukhe writes
-/// for its document) and the migration changes it. `None` for a file a
-/// person edited (any other text: the migration applies on each read),
-/// and for a file with nothing to migrate.
-pub(crate) fn rewrite(text: &str) -> Option<String> {
+/// Drop the value at the dotted `id` of `document`; `true` when one was
+/// there.
+fn remove(document: &mut Map<String, Value>, id: &str) -> bool {
+    let path: Vec<&str> = id.split('.').collect();
+    let Some((last, parents)) = path.split_last() else {
+        return false;
+    };
+    let parent = if parents.is_empty() {
+        Some(document)
+    } else {
+        lookup_mut(document, parents).and_then(Value::as_object_mut)
+    };
+    parent.is_some_and(|parent| parent.shift_remove(*last).is_some())
+}
+
+/// The text to save for the settings file `text` holds, and the retired
+/// settings it drops: its migration, when the file is eukhe's own (`text`
+/// is exactly the text eukhe writes for its document) and the migration
+/// changes it. `None` for a file a person edited (any other text: the
+/// migration applies on each read), and for a file with nothing to
+/// migrate.
+pub(crate) fn rewrite(text: &str) -> Option<(String, Vec<&'static str>)> {
     let document = match serde_json::from_str::<Value>(text).ok()? {
         Value::Object(document) => document,
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
@@ -120,9 +182,10 @@ pub(crate) fn rewrite(text: &str) -> Option<String> {
     };
     let own = serde_json::to_string_pretty(&document).ok()? == text;
     let migrated = migrate(&document);
-    (own && migrated != document)
-        .then(|| serde_json::to_string_pretty(&migrated).ok())
+    (own && migrated.document != document)
+        .then(|| serde_json::to_string_pretty(&migrated.document).ok())
         .flatten()
+        .map(|text| (text, migrated.retired))
 }
 
 #[cfg(test)]
@@ -159,13 +222,16 @@ mod tests {
         })));
         assert_eq!(
             migrated,
-            object(json!({
-                "steeringMode": "all",
-                "transport": "web-socket",
-                "enableSkillCommands": false,
-                "skills": ["/x"],
-                "retry": { "provider": { "maxRetryDelayMs": 5 } }
-            }))
+            Migrated {
+                document: object(json!({
+                    "steeringMode": "all",
+                    "transport": "web-socket",
+                    "enableSkillCommands": false,
+                    "skills": ["/x"],
+                    "retry": { "provider": { "maxRetryDelayMs": 5 } }
+                })),
+                retired: Vec::new(),
+            }
         );
     }
 
@@ -180,13 +246,37 @@ mod tests {
             "retry": { "enabled": true }
         })));
         assert_eq!(
-            migrated,
+            migrated.document,
             object(json!({
                 "theme": "dark",
                 "autoRefine": { "enabled": true },
                 "compaction": { "enabled": false },
                 "retry": { "enabled": true }
             }))
+        );
+    }
+
+    #[test]
+    fn retired_settings_are_dropped_and_named() {
+        let migrated = migrate(&object(json!({
+            "telemetry": { "enabled": true, "noticeShown": true },
+            "retry": { "provider": { "waitForUsage": { "enabled": true, "maxParks": 3 } } },
+            "updateChannel": "nightly",
+            "theme": "dark"
+        })));
+        assert_eq!(
+            migrated,
+            Migrated {
+                document: object(json!({
+                    "retry": { "provider": { "waitForUsage": { "maxParks": 3 } } },
+                    "theme": "dark"
+                })),
+                retired: vec![
+                    "retry.provider.waitForUsage.enabled",
+                    "telemetry",
+                    "updateChannel"
+                ],
+            }
         );
     }
 
@@ -216,12 +306,12 @@ mod tests {
 
     #[test]
     fn only_eukhes_own_text_is_rewritten() {
-        let own = pretty(&json!({ "theme": "dark", "autoRefine": true }));
+        let own = pretty(&json!({ "theme": "dark", "autoRefine": true, "telemetry": {} }));
         let edited = "{\n  \"theme\": \"dark\",\n\n  \"autoRefine\": true\n}\n";
         let current = pretty(&json!({ "theme": "dark", "autoRefine": { "enabled": true } }));
         assert_eq!(
             (rewrite(&own), rewrite(edited), rewrite(&current)),
-            (Some(current.clone()), None, None)
+            (Some((current.clone(), vec!["telemetry"])), None, None)
         );
     }
 

@@ -10,6 +10,7 @@ pub(crate) mod manager;
 pub(crate) mod merge;
 pub(crate) mod migrate;
 pub(crate) mod persist;
+pub(crate) mod retired;
 pub(crate) mod storage;
 pub(crate) mod trust;
 pub(crate) mod types;
@@ -23,6 +24,7 @@ pub use getters::{
 };
 pub use manager::{IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager};
 pub use persist::{Persisted, Shadow};
+pub use retired::RetiredSetting;
 pub use storage::{
     FileSettingsStorage, Holding, InMemorySettingsStorage, SettingsScope, SettingsStorage,
     CONFIG_DIR_NAME, PROFILE_DIR,
