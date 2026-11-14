@@ -167,6 +167,10 @@ pub struct ActivityDock {
     /// kernel registry only): finished runs never inflate the indicator
     /// -- they stay as rows inside the bash view.
     pub bash_running: usize,
+    /// The session's own running jobs (detached `python` cells and `bash`
+    /// tool scripts, its summary's `waitingOn`): counted beside the
+    /// shells, so a long cell never reads as nothing running.
+    pub jobs_running: usize,
     /// Factory runs actively live right now (a live state -- running,
     /// stopping, or paused -- or a terminal run whose children are still
     /// in flight, the residents teardown; the current session's kernel

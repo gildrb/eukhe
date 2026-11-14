@@ -225,10 +225,34 @@ pub struct WaitingOn {
 
 /// One running session job a session waits on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WaitingJob {
     pub id: JobId,
-    /// What runs (the cell's code or the script, as the job names it).
+    /// What runs: a detached `python` cell or a `bash` tool script
+    /// (unknown from a daemon that predates the field).
+    #[serde(default)]
+    pub kind: WaitingJobKind,
+    /// What runs (the cell's call intent, or the script, as the job names
+    /// it).
     pub label: String,
+    /// When the job started (Unix milliseconds); absent from a daemon that
+    /// predates the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<u64>,
+}
+
+/// What a [`WaitingJob`] runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WaitingJobKind {
+    /// A detached `python` cell.
+    Cell,
+    /// A detached `bash` tool script.
+    Shell,
+    /// A kind this build does not know, or none sent.
+    #[default]
+    #[serde(other)]
+    Unknown,
 }
 
 impl WaitingOn {
@@ -238,6 +262,18 @@ impl WaitingOn {
     /// one kind of work; a kind with nothing running is left out.
     #[must_use]
     pub fn label(&self, separator: &str) -> String {
+        self.compose_label(separator, None)
+    }
+
+    /// [`WaitingOn::label`] with `job_detail` after the job part, in
+    /// parentheses: `waiting on job <id> (<job_detail>)`, then the other
+    /// parts.
+    #[must_use]
+    pub fn label_with_job_detail(&self, separator: &str, job_detail: &str) -> String {
+        self.compose_label(separator, Some(job_detail))
+    }
+
+    fn compose_label(&self, separator: &str, job_detail: Option<&str>) -> String {
         let plural = |count: u32, one: &str, many: &str| {
             format!("{count} {}", if count == 1 { one } else { many })
         };
@@ -247,11 +283,12 @@ impl WaitingOn {
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>()
             .join(", ");
+        let detail = job_detail.map_or_else(String::new, |detail| format!(" ({detail})"));
         let parts = [
             match self.jobs.len() {
                 0 => None,
-                1 => Some(format!("job {ids}")),
-                _ => Some(format!("jobs {ids}")),
+                1 => Some(format!("job {ids}{detail}")),
+                _ => Some(format!("jobs {ids}{detail}")),
             },
             (self.kernel_jobs > 0)
                 .then(|| plural(self.kernel_jobs, "bash command", "bash commands")),
@@ -261,6 +298,15 @@ impl WaitingOn {
         ];
         let parts: Vec<String> = parts.into_iter().flatten().collect();
         format!("waiting on {}", parts.join(separator))
+    }
+
+    /// The job that runs longest: the earliest start, the first (oldest)
+    /// job when no start is known.
+    #[must_use]
+    pub fn longest_running_job(&self) -> Option<&WaitingJob> {
+        self.jobs
+            .iter()
+            .min_by_key(|job| job.started_at_ms.unwrap_or(u64::MAX))
     }
 }
 
@@ -479,7 +525,9 @@ mod tests {
     fn waiting_on_names_each_running_kind_of_work() {
         let job = |id: &str| WaitingJob {
             id: JobId::new(id).expect("a job id"),
+            kind: WaitingJobKind::Shell,
             label: "sleep 45".to_string(),
+            started_at_ms: None,
         };
         let cases = [
             (
@@ -517,18 +565,83 @@ mod tests {
         for (waiting, expected) in cases {
             assert_eq!(waiting.to_string(), expected, "{waiting:?}");
         }
+        assert_eq!(
+            WaitingOn {
+                jobs: vec![job("j1"), job("j2")],
+                subagents: 1,
+                ..WaitingOn::default()
+            }
+            .label_with_job_detail(" - ", "sleep 45, 12m 03s"),
+            "waiting on jobs j1, j2 (sleep 45, 12m 03s) - 1 subagent"
+        );
     }
 
-    /// `waitingOn` reads from and writes back its camelCase wire form.
+    /// The longest-running job: the earliest start; the oldest job when
+    /// no start is known.
+    #[test]
+    fn the_longest_running_job_started_first() {
+        let job = |id: &str, started_at_ms: Option<u64>| WaitingJob {
+            id: JobId::new(id).expect("a job id"),
+            kind: WaitingJobKind::Cell,
+            label: id.to_string(),
+            started_at_ms,
+        };
+        let cases = [
+            (vec![], None),
+            (
+                vec![job("j1", Some(9)), job("j2", Some(5))],
+                Some(job("j2", Some(5))),
+            ),
+            (
+                vec![job("j1", None), job("j2", None)],
+                Some(job("j1", None)),
+            ),
+            (
+                vec![job("j1", None), job("j2", Some(5))],
+                Some(job("j2", Some(5))),
+            ),
+        ];
+        for (jobs, expected) in cases {
+            let waiting = WaitingOn {
+                jobs,
+                ..WaitingOn::default()
+            };
+            assert_eq!(
+                waiting.longest_running_job(),
+                expected.as_ref(),
+                "{waiting:?}"
+            );
+        }
+    }
+
+    /// `waitingOn` reads from and writes back its camelCase wire form; a
+    /// job from a daemon that predates `kind` and `startedAtMs` still
+    /// parses.
     #[test]
     fn waiting_on_round_trips_on_the_wire() {
         let wire = serde_json::json!({
-            "jobs": [{ "id": "j1", "label": "sleep 45" }],
+            "jobs": [{ "id": "j1", "kind": "cell", "label": "train", "startedAtMs": 1_000 }],
             "kernelJobs": 0,
             "subagents": 2,
             "workflowRuns": 0,
         });
         let waiting: WaitingOn = serde_json::from_value(wire.clone()).expect("parses");
         assert_eq!(serde_json::to_value(&waiting).expect("serializes"), wire);
+        let old: WaitingOn = serde_json::from_value(serde_json::json!({
+            "jobs": [{ "id": "j1", "label": "sleep 45" }],
+        }))
+        .expect("parses");
+        assert_eq!(
+            old,
+            WaitingOn {
+                jobs: vec![WaitingJob {
+                    id: JobId::new("j1").expect("a job id"),
+                    kind: WaitingJobKind::Unknown,
+                    label: "sleep 45".to_string(),
+                    started_at_ms: None,
+                }],
+                ..WaitingOn::default()
+            }
+        );
     }
 }

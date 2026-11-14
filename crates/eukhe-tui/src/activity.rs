@@ -66,7 +66,7 @@ pub use eukhe_types::daemon::QuotaPark;
 
 /// The work a session waits on between turns (the session summary's
 /// `waitingOn`): each one's end wakes the session into another turn.
-pub use eukhe_types::daemon::WaitingOn;
+pub use eukhe_types::daemon::{WaitingJob, WaitingOn};
 
 /// What one agent is doing at a glance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +114,7 @@ impl AgentActivity {
                 busy: false,
             }),
             Self::Waiting(waiting) => Some(Indicator {
-                text: waiting.label(SEP),
+                text: waiting_label(waiting, now_ms),
                 busy: true,
             }),
             Self::Background { tasks } => Some(Indicator {
@@ -141,6 +141,60 @@ pub fn park_label(park: &QuotaPark, now_ms: u64) -> String {
     format!(
         "Parked until {until} UTC ({countdown}): {limit} {DASH} resumes automatically; /model switches models now"
     )
+}
+
+/// What a job runs and for how long: `<label>, <elapsed>` (each part only
+/// when known); `None` when neither is.
+#[must_use]
+pub fn job_detail(job: &WaitingJob, now_ms: u64) -> Option<String> {
+    let elapsed = job
+        .started_at_ms
+        .map(|start| format_working_elapsed(now_ms.saturating_sub(start) / 1_000));
+    let parts: Vec<String> = [(!job.label.is_empty()).then(|| job.label.clone()), elapsed]
+        .into_iter()
+        .flatten()
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+/// ` (<detail>)` of [`job_detail`], or nothing.
+fn job_suffix(job: &WaitingJob, now_ms: u64) -> String {
+    job_detail(job, now_ms).map_or_else(String::new, |detail| format!(" ({detail})"))
+}
+
+/// The between-turns wording of what a session waits on: the agreed
+/// [`WaitingOn::label`], its job part naming the longest-running job's
+/// label and elapsed time.
+#[must_use]
+pub fn waiting_label(waiting: &WaitingOn, now_ms: u64) -> String {
+    match waiting
+        .longest_running_job()
+        .and_then(|job| job_detail(job, now_ms))
+    {
+        Some(detail) => waiting.label_with_job_detail(SEP, &detail),
+        None => waiting.label(SEP),
+    }
+}
+
+/// The row under a running turn's loader while its tool call waits on a
+/// job: `Waiting on job <id> (<label>, <elapsed>)`.
+#[must_use]
+pub fn waited_job_label(job: &WaitingJob, now_ms: u64) -> String {
+    format!("Waiting on job {}{}", job.id, job_suffix(job, now_ms))
+}
+
+/// The row under a running turn's loader while the session's jobs run:
+/// `<n> jobs running (<label>, <elapsed>)` of the longest-running job;
+/// `None` when none runs.
+#[must_use]
+pub fn running_jobs_label(waiting: &WaitingOn, now_ms: u64) -> Option<String> {
+    let longest = waiting.longest_running_job()?;
+    let count = waiting.jobs.len();
+    Some(format!(
+        "{count} {} running{}",
+        if count == 1 { "job" } else { "jobs" },
+        job_suffix(longest, now_ms)
+    ))
 }
 
 #[cfg(test)]
@@ -219,15 +273,22 @@ mod tests {
             ),
             (
                 AgentActivity::Waiting(WaitingOn {
-                    jobs: vec![eukhe_types::daemon::WaitingJob {
-                        id: eukhe_types::job::JobId::new("j1").expect("a job id"),
-                        label: "sleep 45".to_string(),
-                    }],
+                    jobs: vec![job("j1", "sleep 45", Some(now_ms - 723_000))],
                     subagents: 2,
                     ..WaitingOn::default()
                 }),
                 Some(Indicator {
-                    text: "waiting on job j1 - 2 subagents".to_string(),
+                    text: "waiting on job j1 (sleep 45, 12m 03s) - 2 subagents".to_string(),
+                    busy: true,
+                }),
+            ),
+            (
+                AgentActivity::Waiting(WaitingOn {
+                    jobs: vec![job("j1", "sleep 45", None)],
+                    ..WaitingOn::default()
+                }),
+                Some(Indicator {
+                    text: "waiting on job j1 (sleep 45)".to_string(),
                     busy: true,
                 }),
             ),
@@ -256,6 +317,56 @@ mod tests {
                 | AgentActivity::Idle => {}
             }
             assert_eq!(activity.indicator(now, now_ms), expected, "{activity:?}");
+        }
+    }
+
+    fn job(id: &str, label: &str, started_at_ms: Option<u64>) -> WaitingJob {
+        WaitingJob {
+            id: eukhe_types::job::JobId::new(id).expect("a job id"),
+            kind: eukhe_types::daemon::WaitingJobKind::Cell,
+            label: label.to_string(),
+            started_at_ms,
+        }
+    }
+
+    /// The rows under a running turn's loader: the job its tool call
+    /// waits on, else the count of running jobs with the longest-running
+    /// one's label and elapsed time; nothing when no job runs.
+    #[test]
+    fn a_running_turn_names_its_jobs() {
+        let now_ms = 10_000_000;
+        assert_eq!(
+            waited_job_label(&job("cell-7", "train model", Some(now_ms - 42_000)), now_ms),
+            "Waiting on job cell-7 (train model, 42s)"
+        );
+        assert_eq!(
+            waited_job_label(&job("cell-7", "", None), now_ms),
+            "Waiting on job cell-7"
+        );
+        let cases = [
+            (vec![], None),
+            (
+                vec![job("cell-1", "train model", Some(now_ms - 723_000))],
+                Some("1 job running (train model, 12m 03s)"),
+            ),
+            (
+                vec![
+                    job("cell-1", "fetch", Some(now_ms - 5_000)),
+                    job("shell-2", "cargo test", Some(now_ms - 65_000)),
+                ],
+                Some("2 jobs running (cargo test, 1m 05s)"),
+            ),
+        ];
+        for (jobs, expected) in cases {
+            let waiting = WaitingOn {
+                jobs,
+                ..WaitingOn::default()
+            };
+            assert_eq!(
+                running_jobs_label(&waiting, now_ms).as_deref(),
+                expected,
+                "{waiting:?}"
+            );
         }
     }
 }

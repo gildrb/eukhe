@@ -207,6 +207,17 @@ impl AgentView {
                 } else if let Some(working) = self.loader_row() {
                     tail.extend(render_loader(working, self.pulse_frame, &self.theme, width));
                 }
+                // The jobs the turn runs or waits on: a long wait on a
+                // detached cell never reads as a bare `Executing`. The
+                // rows' own one-space margin plus two puts it under the
+                // loader's label.
+                if let Some(jobs) = self.turn_jobs_label(crate::agents_view_state::now_ms()) {
+                    tail.extend(crate::chat::render_text_rows(
+                        &format!("  {jobs}"),
+                        self.theme.fg_style(crate::theme::ThemeColor::Muted),
+                        width,
+                    ));
+                }
             }
             AgentActivity::Parked(park) => {
                 tail.push(Vec::new());
@@ -228,7 +239,10 @@ impl AgentView {
                     &format!(
                         "{} {}",
                         crate::glyphs::DOT_HALF,
-                        waiting.label(crate::glyphs::SEP)
+                        crate::activity::waiting_label(
+                            &waiting,
+                            crate::agents_view_state::now_ms()
+                        )
                     ),
                     self.theme.fg_style(crate::theme::ThemeColor::Muted),
                     width,
@@ -254,6 +268,24 @@ impl AgentView {
             ));
         }
         tail
+    }
+
+    /// The row under a running turn's loader: the job its `python` call
+    /// waits on, else the session's running jobs (its `waitingOn`); `None`
+    /// when no job runs.
+    fn turn_jobs_label(&self, now_ms: u64) -> Option<String> {
+        let waited = self.chat.iter().rev().find_map(|entry| {
+            if let crate::chat::ChatEntry::Tool(card) = entry {
+                crate::tool_card::ipython::waited_job(card)
+            } else {
+                None
+            }
+        });
+        match (waited, &self.waiting_on) {
+            (Some(job), _) => Some(crate::activity::waited_job_label(&job, now_ms)),
+            (None, Some(waiting)) => crate::activity::running_jobs_label(waiting, now_ms),
+            (None, None) => None,
+        }
     }
 
     /// This session at a glance, the input of the [`crate::activity`]
@@ -286,6 +318,7 @@ impl AgentView {
             dock.subagents_running_direct
                 + dock.subagents_running_nested
                 + dock.bash_running
+                + dock.jobs_running
                 + dock.factory_runs
                 + dock.workflow_runs
         });

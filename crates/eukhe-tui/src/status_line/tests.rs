@@ -289,6 +289,30 @@ fn the_loop_label_leads_the_activity_segments() {
     );
 }
 
+/// The session's running jobs ride the shells group: a lone detached
+/// cell reads `1 job` (it once left the group out: nothing ran), beside
+/// running shells both counts.
+#[test]
+fn running_jobs_count_in_the_shells_group() {
+    let theme = theme();
+    let texts = |dock: &ActivityDock| -> Vec<String> {
+        activity_segments(dock, &theme).iter().map(text).collect()
+    };
+    let cases = [
+        (0, 1, vec!["1 job"]),
+        (2, 3, vec!["2 shells - 3 jobs"]),
+        (1, 0, vec!["1 shell"]),
+    ];
+    for (bash_running, jobs_running, expected) in cases {
+        let dock = ActivityDock {
+            bash_running,
+            jobs_running,
+            ..ActivityDock::default()
+        };
+        assert_eq!(texts(&dock), expected, "{dock:?}");
+    }
+}
+
 #[test]
 fn activity_segments_show_live_counts_only_until_focused() {
     let theme = theme();

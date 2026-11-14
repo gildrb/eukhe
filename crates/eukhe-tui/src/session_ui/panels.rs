@@ -106,24 +106,13 @@ impl SessionUi {
         // The session's own roster row carries its quota park and what it
         // waits on: the row above the composer names the wake time, or
         // the work, while it lasts.
-        let own = self
-            .roster
-            .iter()
-            .filter_map(|row| row.get("summary"))
-            .find(|summary| {
-                summary.get("activeSessionId").and_then(Value::as_str)
-                    == Some(self.active_session_id.as_str())
-            });
-        view.quota_park = own
+        view.quota_park = self
+            .own_summary()
             .and_then(|summary| summary.get("quotaPark"))
             .and_then(|park| {
                 <crate::activity::QuotaPark as serde::Deserialize>::deserialize(park).ok()
             });
-        view.waiting_on = own
-            .and_then(|summary| summary.get("waitingOn"))
-            .and_then(|waiting| {
-                <crate::activity::WaitingOn as serde::Deserialize>::deserialize(waiting).ok()
-            });
+        view.waiting_on = self.own_waiting_on();
         // The pinned agents block reads the same feeds the dock counts;
         // it is rebuilt here, on the update, so a frame only renders it.
         // The fixed clock anchor makes a rebuild over the same feeds equal
@@ -137,6 +126,10 @@ impl SessionUi {
                 bash: &bash,
                 workflows: &self.workflow_lane.runs,
                 workers: &self.workers,
+                session_jobs: view
+                    .waiting_on
+                    .as_ref()
+                    .map_or(&[], |waiting| waiting.jobs.as_slice()),
             },
             anchor,
             anchor_ms,
@@ -160,6 +153,26 @@ impl SessionUi {
             ));
         }
         self.refresh_agent_mentions(view);
+    }
+
+    /// The session's own roster row's summary.
+    fn own_summary(&self) -> Option<&Value> {
+        self.roster
+            .iter()
+            .filter_map(|row| row.get("summary"))
+            .find(|summary| {
+                summary.get("activeSessionId").and_then(Value::as_str)
+                    == Some(self.active_session_id.as_str())
+            })
+    }
+
+    /// What the session waits on, from its own roster row (`waitingOn`).
+    fn own_waiting_on(&self) -> Option<crate::activity::WaitingOn> {
+        self.own_summary()
+            .and_then(|summary| summary.get("waitingOn"))
+            .and_then(|waiting| {
+                <crate::activity::WaitingOn as serde::Deserialize>::deserialize(waiting).ok()
+            })
     }
 
     /// The dock's feed state: the live counts, the goal row's label, and
@@ -212,6 +225,9 @@ impl SessionUi {
             heartbeats: self.heartbeat_catalog.len(),
             heartbeats_paused: paused_heartbeat_count(&self.heartbeat_catalog),
             bash_running,
+            jobs_running: self
+                .own_waiting_on()
+                .map_or(0, |waiting| waiting.jobs.len()),
             factory_runs,
             // The group renders exactly while the daemon advertises the
             // lane: the factory's opt-in gate (a daemon without the

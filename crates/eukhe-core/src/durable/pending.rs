@@ -24,6 +24,8 @@ pub struct PendingJob {
     pub id: JobId,
     pub kind: JobKind,
     pub label: String,
+    /// When the job started, in Unix milliseconds.
+    pub started_at_ms: u64,
 }
 
 /// What a conversation still waits on.
@@ -85,6 +87,7 @@ pub async fn pending_work(
             id: job.id().clone(),
             kind: job.kind(),
             label: job.label().to_owned(),
+            started_at_ms: job.started_at_ms(),
         })
         .collect();
     let held_results = deps.jobs.pending_work();

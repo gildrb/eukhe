@@ -1010,6 +1010,10 @@ impl Worker {
         self.follow_memory_updates(hosted.deps().memory.as_ref());
         self.follow_state_tree(Some(&hosted));
         self.follow_budget(Some(&hosted));
+        crate::roster_activity::spawn_job_pulse_watch(
+            hosted.deps().jobs.pulse(),
+            self.roster_pushes.clone(),
+        );
         self.watch_harness_end(&hosted);
         if let Some(previous) = self.session.replace(hosted) {
             if let Err(error) = previous.close(cx).await {

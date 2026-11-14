@@ -1464,7 +1464,9 @@ fn an_idle_session_waiting_on_work_names_it_above_the_composer() {
     view.waiting_on = Some(crate::activity::WaitingOn {
         jobs: vec![eukhe_types::daemon::WaitingJob {
             id: eukhe_types::job::JobId::new("j1").expect("a job id"),
+            kind: eukhe_types::daemon::WaitingJobKind::Shell,
             label: "sleep 45".to_string(),
+            started_at_ms: None,
         }],
         subagents: 2,
         ..crate::activity::WaitingOn::default()
@@ -1476,8 +1478,73 @@ fn an_idle_session_waiting_on_work_names_it_above_the_composer() {
         .collect();
     assert_eq!(
         rows,
-        ["", " ~ waiting on job j1 - 2 subagents"].map(str::to_string)
+        ["", " ~ waiting on job j1 (sleep 45) - 2 subagents"].map(str::to_string)
     );
     view.waiting_on = None;
     assert_eq!(view.render_transcript_tail(80), Vec::<Line>::new());
+}
+
+/// A running turn names the jobs it runs under its loader: the session's
+/// running jobs, else the job its `python` call waits on. A turn waiting
+/// on a detached cell once showed only `Executing` and its time.
+#[test]
+fn a_running_turn_names_the_jobs_it_runs_or_waits_on() {
+    let started_at_ms = crate::agents_view_state::now_ms() - 723_000;
+    let mut view = view();
+    view.working = Some(WorkingState {
+        phase: crate::activity::TurnPhase::RunningTool,
+        message: None,
+        download: false,
+        tokens: 0,
+        elapsed_secs: 0,
+    });
+    let rows = |view: &AgentView| -> Vec<String> {
+        view.render_transcript_tail(80)
+            .iter()
+            .map(|line| text_of(line).trim_end().to_string())
+            .collect()
+    };
+    let loader = format!(" {} Executing - 0s", crate::glyphs::SPINNER[0]);
+    assert_eq!(rows(&view), [String::new(), loader.clone()]);
+    view.waiting_on = Some(crate::activity::WaitingOn {
+        jobs: vec![eukhe_types::daemon::WaitingJob {
+            id: eukhe_types::job::JobId::new("cell-1").expect("a job id"),
+            kind: eukhe_types::daemon::WaitingJobKind::Cell,
+            label: "train model".to_string(),
+            started_at_ms: Some(started_at_ms),
+        }],
+        ..crate::activity::WaitingOn::default()
+    });
+    assert_eq!(
+        rows(&view),
+        [
+            String::new(),
+            loader.clone(),
+            "   1 job running (train model, 12m 03s)".to_string(),
+        ]
+    );
+    view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
+        id: "call-1".to_string(),
+        name: "python".to_string(),
+        args: serde_json::json!({ "code": "jobs.wait()" }),
+        started: true,
+        result: Some(ToolResultView {
+            content: Vec::new(),
+            details: serde_json::json!({
+                "status": "waiting",
+                "job": { "id": "cell-1", "label": "train model", "startedAtMs": started_at_ms },
+            }),
+            is_error: false,
+        }),
+        result_partial: true,
+        ..ToolCallCard::default()
+    })));
+    assert_eq!(
+        rows(&view),
+        [
+            String::new(),
+            loader,
+            "   Waiting on job cell-1 (train model, 12m 03s)".to_string(),
+        ]
+    );
 }
