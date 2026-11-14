@@ -21,7 +21,7 @@ description: Manage the persistent thread goal the harness keeps you working on 
 
 1. Check that the objective is achieved and no required work remains.
 2. `await goal.complete()`. Saying "done" is not enough: the harness continues the goal until this call.
-3. If the result has `acceptance` with `status` `pending`, the goal is claimed, not complete: end your turn. The harness then runs the task's acceptance checks on the final state; the goal completes only if every check passes. One check may be the intent judge: it reads the user's messages (a later requirement extends the task, a side question adds none) and judges the final state, never your summary. A failed check, or one that could not judge (a timeout), comes back as your next input with its evidence: fix the work and call `goal.complete()` again. `await goal.acceptance()` shows the checks; you cannot change or skip them.
+3. If the result has `acceptance` with `status` `pending`, the goal is claimed, not complete: end your turn. The harness then runs the task's acceptance checks on the final state; the goal completes only if every check passes. One check may be the intent judge: it reads the user's messages (a later requirement extends the task, a side question adds none) and judges the final state, never your summary. A failed check, or one that could not judge (a timeout), comes back as your next input with its evidence: fix the work and call `goal.complete()` again. `await goal.acceptance()` shows the checks; only the task's owner sets them.
 4. If the result has a `completion_budget_report`, report that usage to the user.
 
 Never complete a goal because the budget is low or you are stopping. Pause, resume and clear belong to the user and the host.

@@ -222,15 +222,9 @@ esac
 if other="$(command -v eukhe 2>/dev/null)" && [ "$other" != "$wrapper" ]; then
   warn "another eukhe is first on PATH: ${other} (this install: ${wrapper})"
 fi
-for dep in uv git; do
-  command -v "$dep" >/dev/null 2>&1 && continue
-  [ "$dep" = "uv" ] && [ -x "${HOME}/.local/bin/uv" ] && continue
-  if [ "$dep" = "uv" ]; then
-    warn "uv not found: the Python kernel needs it (macOS: brew install uv; Linux: https://docs.astral.sh/uv/)"
-  else
-    warn "git not found: chat memory commits need it (macOS: brew install git)"
-  fi
-done
+if ! command -v git >/dev/null 2>&1; then
+  warn "git not found: chat memory commits need it (macOS: brew install git)"
+fi
 
 log ""
 log "installed eukhe ${version}"

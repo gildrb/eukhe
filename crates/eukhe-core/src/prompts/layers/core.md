@@ -1,6 +1,6 @@
 # eukhe harness
 
-Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell whose steps that write files, run programs, or use the network wait for the user's approval). Every other tool is a programmatic tool: an async function in the REPL.
+Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell; its steps run unasked unless the user's `shell.autoEffects` leaves their effect out, then they wait for approval). Every other tool is a programmatic tool: an async function in the REPL.
 
 Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the harness, not the user.
 
@@ -34,7 +34,7 @@ Skills and subagent specs persist across sessions. They are tools, not memory: t
 <!-- /eukhe:chat-memory -->
 They change through `await refine.run()` (the `refine` skill says when), the user's `/refine`, or your own `rlm.harness.*` calls (the `refine` skill's `references/api.md`).
 
-Compaction runs near the context limit or on request (the `compact` skill); REPL state survives it.
+Compaction runs near the context limit or on request (the `compact` skill); REPL variables up to 16 MiB each survive it.
 
 ## Skills
 

@@ -4,8 +4,8 @@
 //!
 //! The acceptance of a conversation lives in its `eukhe.acceptance`
 //! document: the checks its owner set (a command with an expected exit
-//! code, a condition an independent judge decides on evidence, a loop's
-//! until-condition, the task's intent an independent judge decides from
+//! code, a condition a judge (a separate model request) decides on
+//! evidence, a loop's until-condition, the task's intent a judge decides from
 //! the user's own messages), each check's last verdict with what the
 //! harness observed, the pending claim and the returns in a row. A
 //! verdict judges one state: the newest effect, the newest user message
