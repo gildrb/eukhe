@@ -70,7 +70,6 @@ async fn a_default_root_request_stays_within_the_prompt_budget() {
 /// kernel's package list, and says it has no Python REPL.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unavailable_kernel_does_not_grow_the_prompt() {
-    let _env_lock = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
     let (available, available_report) = default_root_request(Kernel::Available).await;
     let (unavailable, unavailable_report) = default_root_request(Kernel::Unavailable).await;
     eprintln!("available: {available_report}\nunavailable: {unavailable_report}");
@@ -116,6 +115,12 @@ impl Drop for EnvVar {
 /// The bytes of eukhe's own system prompt and tool schemas in the first
 /// request of a default root session, and their breakdown.
 async fn default_root_request(kernel: Kernel) -> (usize, String) {
+    let _env_lock = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
+    // eukhe's bundled skills and kernel runtime, from this checkout: the
+    // test binary finds them beside itself only when it is built in the
+    // checkout's `target`, and `CARGO_TARGET_DIR` may build it elsewhere.
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let _package_dir = EnvVar::set("EUKHE_PACKAGE_DIR", Some(checkout.as_os_str()));
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
     let cwd = dir.path().join("project");
@@ -161,11 +166,9 @@ async fn default_root_request(kernel: Kernel) -> (usize, String) {
     let _env = (kernel == Kernel::Unavailable).then(|| {
         config.kernel_python = None;
         let kernel_dir = dir.path().join("no-kernel");
-        let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         [
             EnvVar::set("EUKHE_KERNEL_DIR", Some(kernel_dir.as_os_str())),
             EnvVar::set("EUKHE_OFFLINE", Some(std::ffi::OsStr::new("1"))),
-            EnvVar::set("EUKHE_PACKAGE_DIR", Some(checkout.as_os_str())),
             EnvVar::set("EUKHE_KERNEL_PYTHON", None),
         ]
     });
