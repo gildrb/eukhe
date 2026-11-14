@@ -2,12 +2,14 @@
 //! the gate the document tools pass every path access through.
 //!
 //! [`session_policy`] builds the one [`PathPolicy`] the `bash` tool and
-//! the document tools judge paths by. Its protected set comes from the
-//! settings loaders, not from a hand list:
+//! the document tools judge paths by. Its protected and secret sets come
+//! from the state list ([`crate::state_list`]) and the settings loaders:
 //!
-//! - the agent dir and every entry directly in it: the global scope's
-//!   files live there (`settings.json`, `config.cfg`, `subagent.cfg`,
-//!   `models.json`, `auth.json`, `binds.cfg`);
+//! - the agent dir, the work root and the executables' dir, each with
+//!   every entry directly in it: the global scope's files live in the agent
+//!   dir (`settings.json`, `config.cfg`, `subagent.cfg`, `models.json`,
+//!   `auth.json`, `binds.cfg`);
+//! - the run dir and the auto-start dirs, with everything under them;
 //! - the profile dir ([`PROFILE_DIR`], `agents/<agent>.cfg`);
 //! - the project config dir of the session (`<cwd>/.eukhe`) and every
 //!   `.eukhe` dir below the workspace root ([`CONFIG_DIR_NAME`]);
@@ -17,8 +19,8 @@
 //!   programs git runs), and every directory on `PATH` (a file put there
 //!   replaces a command).
 //!
-//! The secret set holds `auth.json`, the Prime CLI config and the
-//! credential stores other programs keep in the home dir.
+//! The secret set holds the state list's credentials and the credential
+//! stores other programs keep in the home dir.
 //!
 //! [`DocumentsGate`] is the gate of one document tool call: every access
 //! the user's auto set (`shell.autoEffects`) does not allow asks the user
@@ -39,12 +41,13 @@ use super::deps::ShellApprovalSink;
 use super::settings::EukheSettings;
 use super::shell::RefusalText;
 use crate::settings::{CONFIG_DIR_NAME, PROFILE_DIR};
+use crate::state_list::{state_list, Install, StateKind, StatePart};
 
 /// The credential stores other programs keep in the home dir: ssh keys,
-/// cloud and registry credentials, password stores.
+/// cloud and registry credentials, password stores (the AWS files are
+/// Eukhe's credentials: the state list names them).
 const HOME_SECRETS: &[&str] = &[
     ".ssh",
-    ".aws",
     ".azure",
     ".config/gcloud",
     ".config/gh",
@@ -62,12 +65,8 @@ const HOME_SECRETS: &[&str] = &[
 ];
 
 /// The environment variables that move a credential store away from its
-/// home-dir place (the AWS shared files, the gcloud config dir).
-const SECRET_ENV: &[&str] = &[
-    "AWS_SHARED_CREDENTIALS_FILE",
-    "AWS_CONFIG_FILE",
-    "CLOUDSDK_CONFIG",
-];
+/// home-dir place (the gcloud config dir).
+const SECRET_ENV: &[&str] = &["CLOUDSDK_CONFIG"];
 
 /// Where a session's files are: what [`policy`] reads besides the
 /// workspace.
@@ -75,21 +74,41 @@ pub(crate) struct Layout<'a> {
     pub(crate) agent_dir: &'a Path,
     pub(crate) settings: &'a EukheSettings,
     pub(crate) home: Option<&'a Path>,
+    /// The running executable's path; `None` when it does not resolve.
+    pub(crate) executable: Option<&'a Path>,
     /// The `PATH` value; `None` when unset.
     pub(crate) path: Option<&'a OsStr>,
-    /// The value of a [`SECRET_ENV`] variable; `None` when unset.
+    /// The value of an environment variable; `None` when unset.
     pub(crate) env: &'a dyn Fn(&str) -> Option<OsString>,
 }
 
 /// The policy of `workspace` (its one root) over `layout`.
 pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
     let mut protected = vec![
-        PathRule::Dir(layout.agent_dir.to_path_buf()),
         PathRule::Tree(layout.agent_dir.join(PROFILE_DIR)),
         PathRule::Tree(layout.settings.cwd().join(CONFIG_DIR_NAME)),
         PathRule::Named(OsString::from(CONFIG_DIR_NAME)),
         PathRule::Named(OsString::from(".git")),
     ];
+    let mut secret = Vec::new();
+    let state = state_list(&Install {
+        agent_dir: layout.agent_dir,
+        home: layout.home,
+        executable: layout.executable,
+        cwd: workspace,
+        env: layout.env,
+    });
+    for StatePart { kind, path } in state {
+        match kind {
+            // The dir and its entries: a write deeper (a session's
+            // artifacts, another run's copy) asks as any write outside.
+            StateKind::AgentDir | StateKind::WorkRoot | StateKind::Executables => {
+                protected.push(PathRule::Dir(path));
+            }
+            StateKind::RunDir | StateKind::AutoStart => protected.push(PathRule::Tree(path)),
+            StateKind::Credentials => secret.push(path),
+        }
+    }
     protected.extend(
         layout
             .settings
@@ -105,10 +124,6 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .flat_map(std::env::split_paths)
             .map(|dir| PathRule::Dir(workspace.join(dir))),
     );
-    let mut secret = vec![
-        layout.agent_dir.join(crate::auth::AUTH_FILE_NAME),
-        crate::auth::default_prime_cli_config_path(),
-    ];
     secret.extend(
         layout
             .home
@@ -142,12 +157,14 @@ pub(crate) fn session_policy(
     workspace: &Path,
 ) -> PathPolicy {
     let home = eukhe_types::platform::home_dir();
+    let executable = std::env::current_exe().ok();
     let path = std::env::var_os("PATH");
     policy(
         &Layout {
             agent_dir,
             settings,
             home: home.as_deref(),
+            executable: executable.as_deref(),
             path: path.as_deref(),
             env: &|name| std::env::var_os(name),
         },

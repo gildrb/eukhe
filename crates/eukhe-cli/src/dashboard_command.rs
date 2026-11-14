@@ -214,7 +214,7 @@ fn dashboard_config(
         new_session_cwd: home,
         create_config,
         allowed_hosts,
-        token_path: agent_dir.join("dashboard-token"),
+        token_path: agent_dir.join(eukhe_core::state_list::DASHBOARD_TOKEN_FILE),
     })
 }
 

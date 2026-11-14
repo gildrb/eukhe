@@ -24,6 +24,7 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
             agent_dir: &agent_dir,
             settings: &settings,
             home: Some(&home),
+            executable: None,
             path: None,
             env: &|_| None,
         },
@@ -79,6 +80,48 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
             PathClass::Inside,
             PathClass::Inside,
             PathClass::Outside
+        ]
+    );
+}
+
+/// Every part of the state list is Protected or Secret: the run dir and
+/// the auto-start dirs with everything under them, the work root and its
+/// entries, the credentials.
+#[test]
+fn every_state_part_is_protected_or_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let top = dir.path().canonicalize().unwrap();
+    let (home, agent_dir, cwd) = (top.join("home"), top.join("home/.eukhe"), top.join("work"));
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let settings = EukheSettings::new(&cwd, &agent_dir);
+    let executable = top.join("bin/eukhe");
+    let policy = policy(
+        &Layout {
+            agent_dir: &agent_dir,
+            settings: &settings,
+            home: Some(&home),
+            executable: Some(&executable),
+            path: None,
+            env: &|_| None,
+        },
+        &cwd,
+    );
+    let class = |path: &Path| eukhe_shell::paths::judge_path(&policy, path).class;
+    let work_root = top.join("home/.eukhe-work");
+    assert_eq!(
+        [
+            class(&agent_dir.join("run/daemon.sock")),
+            class(&agent_dir.join("dashboard-token")),
+            class(&home.join(".aws/credentials")),
+            class(&work_root.join("workspaces")),
+            class(&top.join("bin/eukhe")),
+        ],
+        [
+            PathClass::Protected,
+            PathClass::Secret,
+            PathClass::Secret,
+            PathClass::Protected,
+            PathClass::Protected,
         ]
     );
 }
