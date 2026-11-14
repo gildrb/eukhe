@@ -66,7 +66,7 @@ import ../../spec/loop/loop.bend as S
 #   L6 a loop ends once: it reports its end once, and after the end (or
 #      with no loop) nothing changes and nothing starts until a new `/loop`.
 #                     loop_off_stays_off, loop_reports_once,
-#                     loop_report_names_the_end
+#                     loop_report_names_the_end, loop_end_keeps_iteration
 #   L7 a restart resumes the same loop at the same iteration: it changes
 #      nothing and takes up the work that was pending (the turn in flight,
 #      never sent twice; the check); an event delivered twice is a no-op
@@ -78,7 +78,7 @@ import ../../spec/loop/loop.bend as S
 #                     loop_keeps_condition, loop_keeps_deadline,
 #                     loop_stale_turn_ignored, loop_stale_check_ignored,
 #                     loop_settled_turn_awaits_its_check,
-#                     loop_prompt_takes_turn
+#                     loop_prompt_takes_turn, loop_end_keeps_iteration
 #   L8 while user input is queued or work is unsettled the loop waits: it
 #      starts nothing, judges nothing and changes nothing, and asks again.
 #                     loop_blocked_waits, loop_blocked_defers
@@ -86,7 +86,7 @@ import ../../spec/loop/loop.bend as S
 #      read after (why it is still running), and only a check or a new
 #      `/loop` changes it.
 #                     loop_records_evidence, loop_evidence_only_from_checks,
-#                     loop_report_names_the_end
+#                     loop_report_names_the_end, loop_end_keeps_iteration
 #
 # Every law is about Lp.step, Lp.judge, Lp.said or Lp.classify, the defs
 # the entry (bend/ffi_loop.bend) calls. Inputs are free unless a premise says
@@ -822,6 +822,21 @@ law loop_report_names_the_end:
   for w: Lp.End
   for h: {S.does(s, e) == Lp.Report{w} : Lp.Act}
   {S.phase(S.next(s, e)) == Lp.Ended{w} : Lp.Phase}
+
+# LAW loop_end_keeps_iteration (L6, L7, L9): whenever the loop reports an
+# end, at any event from any state (a stop, a new `/loop` over a running
+# loop, a confirmed or broken check, a bound), the state it stores keeps
+# the iteration of the state it ended from: the end starts no iteration,
+# so the status after the end names the iterations that ran
+# EXCLUDES: an end stored one iteration on (a bound that halts the loop
+#   after counting the iteration it did not start), or at any other
+#   iteration than the last one started
+law loop_end_keeps_iteration:
+  for +s: Lp.St
+  for +e: Lp.Ev
+  for w: Lp.End
+  for h: {S.does(s, e) == Lp.Report{w} : Lp.Act}
+  {S.iter(S.next(s, e)) == S.iter(s) : Nat}
 
 # Laws: the restart (L7)
 # ----------------------

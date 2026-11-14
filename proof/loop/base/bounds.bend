@@ -672,6 +672,169 @@ def lb.tied_report(-a: Lp.Act, -s: Lp.St, -w: Lp.End, x: lb.TiedTo(a, s), h: {a 
   %h : lb.TiedTo(_, s)
   x
 
+# The iteration an end keeps
+# --------------------------
+
+# a state left by Report{w} is at iteration i, the iteration of the state
+# the step started from
+def lb.EndAt(a: Lp.Act, -s: Lp.St, -i: Nat) -> Type:
+  match a:
+    case Lp.Rest{}:
+      Unit
+    case Lp.Submit{k, t}:
+      Unit
+    case Lp.Adopt{k}:
+      Unit
+    case Lp.Judge{k}:
+      Unit
+    case Lp.Resume{k, t}:
+      Unit
+    case Lp.Report{w}:
+      {S.iter(s) == i : Nat}
+    case Lp.Defer{}:
+      Unit
+
+def lb.Ends(r: Lp.St & Lp.Act, -i: Nat) -> Type:
+  lb.EndAt(S.act(r), S.state(r), i)
+
+def lb.ends_adv(h: Maybe<&2, Lp.End>, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last) -> lb.Ends(Lp.advance.on(h, i, l, d, c, b, f, x), i):
+  match h:
+    case Some{w}:
+      {==}
+    case None{}:
+      Unit{}
+
+def lb.ends_gate(c: Lp.Cond, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Ends(Lp.gate(c, i, l, d, b, f, x, now, fu), i):
+  match c:
+    case Lp.NoCond{}:
+      lb.ends_adv(Lp.halt(f, fu, l, d, now), i, l, d, Lp.NoCond{}, b, f, x)
+    case Lp.Until{cmd}:
+      Unit{}
+    case Lp.While{cmd}:
+      Unit{}
+    case Lp.Stated{u, t}:
+      Unit{}
+
+def lb.ends_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, now: Nat, fu: Bool) -> lb.Ends(Lp.settled(m, p, i, l, d, c, b, f, x, o, bl, now, fu), i):
+  match m:
+    case True{}:
+      match bl:
+        case True{}:
+          Unit{}
+        case False{}:
+          match o:
+            case Lp.Ran{}:
+              lb.ends_gate(c, i, l, d, b, 0n, x, now, fu)
+            case Lp.Errored{}:
+              lb.ends_gate(c, i, l, d, b, 1n+f, x, now, fu)
+            case Lp.Halted{}:
+              Unit{}
+    case False{}:
+      Unit{}
+
+def lb.ends_verdict(v: Lp.Verdict, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, f: Nat, -x: Lp.Last, -ev: Lp.Evid, now: Nat, fu: Bool) -> lb.Ends(Lp.judged.verdict(v, i, l, d, c, b, f, x, ev, now, fu), i):
+  match v:
+    case Lp.Confirmed{}:
+      {==}
+    case Lp.Refuted{}:
+      lb.ends_adv(Lp.halt(f, fu, l, d, now), i, l, d, c, b, f, Lp.Check{i, ev})
+    case Lp.Broken{}:
+      {==}
+    case Lp.Unjudged{}:
+      Unit{}
+
+def lb.ends_judged(m: Bool, bl: Bool, c: Lp.Cond, -p: Lp.Phase, -i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, -b: String, f: Nat, -x: Lp.Last, ev: Lp.Evid, now: Nat, fu: Bool) -> lb.Ends(Lp.judged(m, p, i, l, d, c, b, f, x, ev, bl, now, fu), i):
+  match m:
+    case True{}:
+      match bl:
+        case True{}:
+          Unit{}
+        case False{}:
+          match c:
+            case Lp.NoCond{}:
+              lb.ends_adv(Lp.halt(f, fu, l, d, now), i, l, d, Lp.NoCond{}, b, f, x)
+            case Lp.Until{cmd}:
+              lb.ends_verdict(Lp.judge(True{}, ev), i, l, d, Lp.Until{cmd}, b, f, x, ev, now, fu)
+            case Lp.While{cmd}:
+              lb.ends_verdict(Lp.judge(False{}, ev), i, l, d, Lp.While{cmd}, b, f, x, ev, now, fu)
+            case Lp.Stated{u, t}:
+              lb.ends_verdict(Lp.said(u, ev), i, l, d, Lp.Stated{u, t}, b, f, x, ev, now, fu)
+    case False{}:
+      Unit{}
+
+def lb.ends_enter(live: Bool, pr: Maybe<&2, String>, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last, -lim: Lp.Limit, -c2: Lp.Cond, -now: Nat) -> lb.Ends(Lp.enter(live, i, l, d, c, b, f, x, lim, c2, pr, now), i):
+  match live:
+    case True{}:
+      {==}
+    case False{}:
+      match pr:
+        case None{}:
+          Unit{}
+        case Some{t}:
+          Unit{}
+
+def lb.ends_stop(live: Bool, -p: Lp.Phase, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last) -> lb.Ends(Lp.stop(live, p, i, l, d, c, b, f, x), i):
+  match live:
+    case True{}:
+      {==}
+    case False{}:
+      Unit{}
+
+def lb.ends_abort(live: Bool, -p: Lp.Phase, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last) -> lb.Ends(Lp.abort(live, p, i, l, d, c, b, f, x), i):
+  match live:
+    case True{}:
+      Unit{}
+    case False{}:
+      Unit{}
+
+def lb.ends_prompt(live: Bool, -p: Lp.Phase, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last, -t: String) -> lb.Ends(Lp.prompt(live, p, i, l, d, c, b, f, x, t), i):
+  match live:
+    case True{}:
+      Unit{}
+    case False{}:
+      Unit{}
+
+def lb.ends_restart(p: Lp.Phase, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -b: String, -f: Nat, -x: Lp.Last) -> lb.Ends(Lp.restart(p, i, l, d, c, b, f, x), i):
+  match p:
+    case Lp.Off{}:
+      Unit{}
+    case Lp.Armed{}:
+      Unit{}
+    case Lp.Turn{}:
+      Unit{}
+    case Lp.Judging{}:
+      Unit{}
+    case Lp.Paused{}:
+      Unit{}
+    case Lp.Ended{w}:
+      Unit{}
+
+# every step that reports an end leaves the state at the iteration it
+# started from
+def lb.ends(s: Lp.St, e: Lp.Ev) -> lb.Ends(Lp.step(s, e), S.iter(s)):
+  match s:
+    case Lp.St{p, i, l, d, c, b, f, x}:
+      match e:
+        case Lp.Enter{lim, c2, pr, now}:
+          lb.ends_enter(Lp.on(p), pr, i, l, d, c, b, f, x, lim, c2, now)
+        case Lp.Stop{}:
+          lb.ends_stop(Lp.on(p), p, i, l, d, c, b, f, x)
+        case Lp.Abort{}:
+          lb.ends_abort(Lp.on(p), p, i, l, d, c, b, f, x)
+        case Lp.Prompt{t}:
+          lb.ends_prompt(Lp.on(p), p, i, l, d, c, b, f, x, t)
+        case Lp.Settled{k, o, bl, now, fu}:
+          lb.ends_settled(Bool.and(Lp.in_turn(p), Nat.is_eq(k, i)), bl, o, c, p, i, l, d, b, f, x, now, fu)
+        case Lp.Judged{k, ev, bl, now, fu}:
+          lb.ends_judged(Bool.and(Lp.in_judging(p), Nat.is_eq(k, i)), bl, c, p, i, l, d, b, f, x, ev, now, fu)
+        case Lp.Restart{}:
+          lb.ends_restart(p, i, l, d, c, b, f, x)
+
+# an act that is Report{w}: the state it leaves is at iteration i
+def lb.ends_report(-a: Lp.Act, -s: Lp.St, -i: Nat, -w: Lp.End, x: lb.EndAt(a, s, i), h: {a == Lp.Report{w} : Lp.Act}) -> {S.iter(s) == i : Nat}:
+  %h : lb.EndAt(_, s, i)
+  x
+
 # The bounds of a new loop
 # ------------------------
 

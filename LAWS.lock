@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "4865b87ce4586e8d9cba903ec8cb820265726a817e22e2fc1fdc6656d49709c3",
+      "spec/README.md": "d7a064ba2feeb2a89256264183e35f2b1d6623d2dd4687d7e0804d84b23bbda2",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
       "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
       "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
@@ -2158,6 +2158,7 @@
     "laws/loop/model.bend::loop_command_needs_quote_or_lookup": "5c14360c23e5dd34ef7ef2a9a9ee5f018b89f0be8ebba60dbaed9f9649daf861",
     "laws/loop/model.bend::loop_confirmed_ends": "29dc8ef7e04fe0148be69d1cbca900267867bc0c6664f0f967c0b82e07376e4d",
     "laws/loop/model.bend::loop_deadline_bounds": "93a2888e7a3ada190a843c74e9d8b30d02894a6c6955c72f61d8389570022b8d",
+    "laws/loop/model.bend::loop_end_keeps_iteration": "9b45785b7f8dcb149635dc3c0714019510f273c241dd4a6cb2333ea71c10b5a0",
     "laws/loop/model.bend::loop_enter_arms": "d5d40619bdd012bc556d52b7bc3ee26fe935471829d990b2505b4fd8e24c925d",
     "laws/loop/model.bend::loop_enter_ends_running": "5f02aa9e86c3d96da65ac175183b11efe03760f3bc8cfade294915638564be36",
     "laws/loop/model.bend::loop_enter_first_turn": "28f6fb100573e5e07e969795323206c4787b80597c71dc25c05437da104880fa",

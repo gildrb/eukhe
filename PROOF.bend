@@ -4325,6 +4325,7 @@ import ./proof/loop/loop_halted_turn_keeps.bend as PLoopHaltedTurnKeeps
 import ./proof/loop/loop_abort_pauses.bend as PLoopAbortPauses
 import ./proof/loop/loop_paused_waits.bend as PLoopPausedWaits
 import ./proof/loop/loop_report_names_the_end.bend as PLoopReportNamesTheEnd
+import ./proof/loop/loop_end_keeps_iteration.bend as PLoopEndKeepsIteration
 import ./proof/loop/loop_restart_changes_nothing.bend as PLoopRestartChangesNothing
 import ./proof/loop/loop_restart_resumes_submit.bend as PLoopRestartResumesSubmit
 import ./proof/loop/loop_restart_resumes_adopted.bend as PLoopRestartResumesAdopted
