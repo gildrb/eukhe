@@ -342,6 +342,9 @@ FSEvents; probes, then timings.
   state directory and `file-write*` on one directory `t`: `ln t/a t/b`
   worked; `ln` of a file outside `t` into `t` failed with `EPERM`, and so
   did `ln` of a state file into `t`, with or without `(allow file-link)`.
+- A symlink inside a write tree `w` pointing at a directory outside it:
+  under `(allow file-write* (subpath w))`, writing `w/link/f` failed with
+  `EPERM`; Seatbelt matched the path the access resolved to.
 
 ### 5.2 Linux (AMD Ryzen 7 5800X, NixOS 26.05, kernel 6.18.50, Landlock ABI 7, bubblewrap 0.11.2)
 
