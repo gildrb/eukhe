@@ -614,6 +614,7 @@ fn a_session_persisted_a_png(session_dir: &Path) -> bool {
 }
 
 mod commands;
+mod model_switch;
 mod onboarding;
 mod panes;
 mod rendering;
