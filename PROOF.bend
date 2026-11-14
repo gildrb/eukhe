@@ -4311,6 +4311,7 @@ import ./proof/loop/loop_deadline_bounds.bend as PLoopDeadlineBounds
 import ./proof/loop/loop_good_turn_forgives.bend as PLoopGoodTurnForgives
 import ./proof/loop/loop_failed_turn_counts.bend as PLoopFailedTurnCounts
 import ./proof/loop/loop_failed_turn_goes_on.bend as PLoopFailedTurnGoesOn
+import ./proof/loop/loop_failed_turn_stops.bend as PLoopFailedTurnStops
 import ./proof/loop/loop_unfunded_never_starts.bend as PLoopUnfundedNeverStarts
 import ./proof/loop/loop_tired_gives_up.bend as PLoopTiredGivesUp
 import ./proof/loop/loop_unfunded_stops.bend as PLoopUnfundedStops

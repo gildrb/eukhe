@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "a47f55ae56b60f9a2316f1bdaa5a9450302778b80ac661189f4ae8c8cd8b944c",
+      "spec/README.md": "4bdfe59156f725d70559da9e965363f155298cd3a3573d965f452669d87df262",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
       "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
       "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
@@ -2166,6 +2166,7 @@
     "laws/loop/model.bend::loop_evidence_only_from_checks": "1e0e52803cbb7f5d8cca6445552495a02b32ea7dc58bd8427265c6f4ac3352b6",
     "laws/loop/model.bend::loop_failed_turn_counts": "63f7419f57ccfeac99aba83213331962061823e2bfc26abd61da1b93e022aafd",
     "laws/loop/model.bend::loop_failed_turn_goes_on": "08eb8e2f2cc677dca4b3dd1827048637cfc8ff0a2863d2b4e4e855b882d2c698",
+    "laws/loop/model.bend::loop_failed_turn_stops": "de8f838e823430a08e57ae32d8da4b739afea834ce446b35e7812f4cf0d83b44",
     "laws/loop/model.bend::loop_good_turn_forgives": "493ffd1b0a68141f29172f96455fe44d5443ff3a8013e604d2a950e9afe53ba9",
     "laws/loop/model.bend::loop_halted_turn_pauses": "d6ce23816e14b530c0fd2bf19c121f198f015e2c38e4d40d593678a642624fd2",
     "laws/loop/model.bend::loop_inside_continues": "d3e0fc5c28eb6153525402a7ae03a353d2ae1298f15937f056cc1d3feb523101",

@@ -49,6 +49,7 @@ import ../../spec/loop/loop.bend as S
 #                     loop_count_bounds, loop_deadline_bounds,
 #                     loop_failing_run_ends, loop_good_turn_forgives,
 #                     loop_failed_turn_counts, loop_failed_turn_goes_on,
+#                     loop_failed_turn_stops,
 #                     loop_unfunded_never_starts, loop_tired_gives_up,
 #                     loop_unfunded_stops, loop_spent_stops,
 #                     loop_late_stops, loop_inside_continues,
@@ -511,6 +512,34 @@ law loop_failed_turn_goes_on:
   {Lp.step(Lp.St{Lp.Turn{}, i, Some{1n+n}, None{}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}) == (Lp.St{Lp.Turn{}, 1n+i, Some{n}, None{}, Lp.NoCond{}, b, 1n+f, x}, Lp.Submit{1n+i, b}) : Lp.St & Lp.Act} &
   {Lp.step(Lp.St{Lp.Turn{}, i, None{}, Some{dl}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}) == (Lp.St{Lp.Turn{}, 1n+i, None{}, Some{dl}, Lp.NoCond{}, b, 1n+f, x}, Lp.Submit{1n+i, b}) : Lp.St & Lp.Act} &
   {Lp.step(Lp.St{Lp.Turn{}, i, None{}, None{}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}) == (Lp.St{Lp.Turn{}, 1n+i, None{}, None{}, Lp.NoCond{}, b, 1n+f, x}, Lp.Submit{1n+i, b}) : Lp.St & Lp.Act}
+
+# LAW loop_failed_turn_stops (L4): when a turn of a loop with no condition
+# fails as the first or the second in a row (f < 2 before it), so the
+# failed turns are not the bound, the loop that a bound stops reports the
+# end of that bound and is stored as ended with it: out-of-budget when the
+# budget funds no further turn, whatever the count and the time;
+# out-of-turns when funded with no automatic iteration left, whatever the
+# time; out-of-time when funded, with iterations left (1 + n of them, or
+# no count) and a clock at or past the deadline dl
+# EXCLUDES: one failed turn reported as too many failed turns in a row
+#   when the count, the budget or the time stopped the loop; a failed
+#   turn's end stored or reported as another bound's
+law loop_failed_turn_stops:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for n: Nat
+  for +dl: Nat
+  for b: String
+  for +f: Nat
+  for x: Lp.Last
+  for +now: Nat
+  for hf: {Nat.is_lt(f, 2n) == True{} : Bool}
+  for hl: {Nat.is_le(dl, now) == True{} : Bool}
+  {(S.does(Lp.St{Lp.Turn{}, i, l, d, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, False{}}), S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, False{}}))) == (Lp.Report{Lp.OutOfBudget{}}, Lp.Ended{Lp.OutOfBudget{}}) : Lp.Act & Lp.Phase} &
+  {(S.does(Lp.St{Lp.Turn{}, i, Some{0n}, d, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}), S.phase(S.next(Lp.St{Lp.Turn{}, i, Some{0n}, d, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}))) == (Lp.Report{Lp.OutOfTurns{}}, Lp.Ended{Lp.OutOfTurns{}}) : Lp.Act & Lp.Phase} &
+  {(S.does(Lp.St{Lp.Turn{}, i, Some{1n+n}, Some{dl}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}), S.phase(S.next(Lp.St{Lp.Turn{}, i, Some{1n+n}, Some{dl}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}))) == (Lp.Report{Lp.OutOfTime{}}, Lp.Ended{Lp.OutOfTime{}}) : Lp.Act & Lp.Phase} &
+  {(S.does(Lp.St{Lp.Turn{}, i, None{}, Some{dl}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}), S.phase(S.next(Lp.St{Lp.Turn{}, i, None{}, Some{dl}, Lp.NoCond{}, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}))) == (Lp.Report{Lp.OutOfTime{}}, Lp.Ended{Lp.OutOfTime{}}) : Lp.Act & Lp.Phase}
 
 # LAW loop_unfunded_never_starts (L4): at an event that says the budget
 # funds no further turn, the loop starts no automatic iteration
