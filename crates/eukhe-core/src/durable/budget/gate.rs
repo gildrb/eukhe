@@ -44,6 +44,7 @@ use eukhe_budget::{
     actual_spend, worst_case_cost_micros, RequestBound, Reserved, Use, FINAL_MIN_MS, REQUEST_MIN_MS,
 };
 use eukhe_chord::context::{AbortController, AbortSignal};
+use eukhe_durable::harness::generation::IDEMPOTENCY_KEY_HEADER;
 use eukhe_tokens::Tokenizer;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
 use eukhe_types::pi_ai::{
@@ -323,6 +324,20 @@ impl GatedOptions for ProviderStreamOptions {
         self.extra
             .insert("toolChoice".to_owned(), JsonValue::from("none"));
     }
+}
+
+/// The idempotency key the harness gave the request (its
+/// [`IDEMPOTENCY_KEY_HEADER`]): the reservation keeps it, so the session
+/// opened after a crash knows what the request it lost left counted.
+fn request_key(options: &impl GatedOptions) -> Option<String> {
+    options
+        .stream()
+        .request
+        .headers
+        .as_ref()?
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(IDEMPOTENCY_KEY_HEADER))
+        .and_then(|(_, value)| value.clone())
 }
 
 /// A provider row's stream function over the options type `O`.
@@ -838,6 +853,7 @@ impl<O: GatedOptions> Request<O> {
             .reserve(
                 use_,
                 format!("model:{target}"),
+                request_key(&options),
                 keep,
                 offered,
                 REQUEST_MIN_MS,
@@ -941,6 +957,7 @@ impl<O: GatedOptions> Request<O> {
             .reserve(
                 Use::Work,
                 format!("model:{target}"),
+                None,
                 keep,
                 offers,
                 REQUEST_MIN_MS,
@@ -1019,6 +1036,7 @@ impl<O: GatedOptions> Request<O> {
             .reserve(
                 Use::Final,
                 format!("final:{target}"),
+                request_key(&options),
                 BudgetAmounts::default(),
                 answers,
                 FINAL_MIN_MS,

@@ -21,6 +21,7 @@ use futures::future::BoxFuture;
 use super::stores::{blocking, thrown};
 use crate::models::custom::{
     ModelBuildError, ModelsConfig, ModelsJsonError, ModelsJsonLoad, ProviderConfig, ProviderError,
+    RequestDedupConfig,
 };
 
 /// The built-in providers with `models_json` composed over them, plus the
@@ -228,6 +229,8 @@ fn compose_provider(
             .clone()
             .or_else(|| base.as_ref().and_then(|base| base.base_url.clone())),
         headers: base.as_ref().and_then(|base| base.headers.clone()),
+        dedups_requests: config.request_dedup == Some(RequestDedupConfig::Lasting)
+            || base.as_ref().is_some_and(|base| base.dedups_requests),
         auth: ProviderAuth {
             api_key: Some(api_key),
             oauth,

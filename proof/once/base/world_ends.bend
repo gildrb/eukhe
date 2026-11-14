@@ -205,24 +205,24 @@ def on.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, d: Nat, k: Nat, n: Nat, x
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 0n, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 0n, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 0n, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 0n, x))) == True{} : Bool}, {==}, {==})
                         case 1n:
                           match p:
                             case O.Never{}:
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 1n, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 1n, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 1n, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 1n, x))) == True{} : Bool}, {==}, {==})
                         case 2n+qd:
                           match p:
                             case O.Never{}:
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 2n+qd, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 2n+qd, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(on.inv(S.Wd{O.Running{again}, False{}, hit, n, k, 2n+qd, x})), on.inv(Once.wd_answer(v, O.Running{again}, n, k, 2n+qd, x))) == True{} : Bool}, {==}, {==})
                     case O.Ran{}:
                       match d:
                         case 0n:

@@ -50,6 +50,13 @@ pub struct Provider {
     pub name: String,
     pub base_url: Option<String>,
     pub headers: Option<ProviderHeaders>,
+    /// The declaration that the provider drops every repeat of a model
+    /// request's `Idempotency-Key`, whenever it comes. Only the principal
+    /// (models.json `"requestDedup": "lasting"`) or the provider's
+    /// operator makes it; no shipped provider has it, since none documents
+    /// that it deduplicates model requests by that key. `false`: a repeat
+    /// may run again, so a request cut by a crash is never sent again.
+    pub dedups_requests: bool,
     /// Every provider has auth semantics: even providers with only ambient
     /// credentials and keyless local servers provide api-key auth whose
     /// `resolve()` reports whether the provider is configured.
@@ -87,6 +94,7 @@ impl fmt::Debug for Provider {
             .field("name", &self.name)
             .field("base_url", &self.base_url)
             .field("headers", &self.headers)
+            .field("dedups_requests", &self.dedups_requests)
             .field("auth", &self.auth)
             .field("refresh_models", &self.refresh_models.is_some())
             .field("fetch_deferred", &self.fetch_deferred.is_some())

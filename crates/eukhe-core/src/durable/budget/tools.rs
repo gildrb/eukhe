@@ -64,7 +64,14 @@ impl BudgetGate {
             ..offer
         };
         let reserved = self
-            .reserve(Use::Work, label, self.keep(), vec![offer], TOOL_MIN_MS)
+            .reserve(
+                Use::Work,
+                label,
+                None,
+                self.keep(),
+                vec![offer],
+                TOOL_MIN_MS,
+            )
             .await;
         let (reservation, report) = match reserved {
             Ok(None) => return ToolOutcome::Ran(run(cx).await),

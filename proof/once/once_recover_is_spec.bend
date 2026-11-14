@@ -1,8 +1,8 @@
 # eukhe: the proof of LAW once_recover_is_spec
 #
 # PROOF: every case of the life, the world's answer, the mode and the
-# policy computes on both sides; a keyed effect's count against its cap
-# is LA.ob.keyed.
+# policy computes on both sides; a keyed effect's target declaration
+# decides first, then its count against its cap is LA.ob.keyed.
 
 import Base
 import ../../bend/once.bend as O
@@ -29,15 +29,19 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
-                  LA.ob.keyed(cap, again)
+                case O.Keyed{d, cap}:
+                  match d:
+                    case O.Undeclared{}:
+                      {==}
+                    case O.Lasting{}:
+                      LA.ob.keyed(cap, again)
             case O.Stop{}:
               match p:
                 case O.Never{}:
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
+                case O.Keyed{d, cap}:
                   {==}
         case O.Landed{}:
           match m:
@@ -47,7 +51,7 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
+                case O.Keyed{d, cap}:
                   {==}
             case O.Stop{}:
               match p:
@@ -55,7 +59,7 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
+                case O.Keyed{d, cap}:
                   {==}
         case O.Clean{}:
           match m:
@@ -65,7 +69,7 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
+                case O.Keyed{d, cap}:
                   {==}
             case O.Stop{}:
               match p:
@@ -73,7 +77,7 @@ def Once.once_recover_is_spec(l, s, m, p):
                   {==}
                 case O.Safe{}:
                   {==}
-                case O.Keyed{cap}:
+                case O.Keyed{d, cap}:
                   {==}
     case O.Ran{}:
       {==}

@@ -141,6 +141,7 @@ impl Fixture {
                 told: Mutex::default(),
                 notices: OnceLock::new(),
                 deferred: Mutex::default(),
+                lost: Mutex::default(),
                 steps: Mutex::default(),
                 turn: Mutex::new(FIRST_TURN),
                 final_answered: std::sync::atomic::AtomicBool::new(false),

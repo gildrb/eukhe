@@ -11,5 +11,5 @@ import ../../spec/once/life.bend as S
 import ./base.bend as LA
 import ./base/world_sends.bend as LW
 
-def Once.once_keyed_sends_capped(cap, es):
-  LA.ob.mp(LW.oc.inv(cap, Once.wd_run(S.dim(es), S.w0(), O.Keyed{cap})), Nat.is_le(S.launches(Once.wd_run(S.dim(es), S.w0(), O.Keyed{cap})), 1n+cap), LW.oc.run(es, S.w0(), cap, {==}), LW.oc.outw(cap, Once.wd_run(S.dim(es), S.w0(), O.Keyed{cap})))
+def Once.once_keyed_sends_capped(d, cap, es):
+  LA.ob.mp(LW.oc.inv(cap, Once.wd_run(S.dim(es), S.w0(), O.Keyed{d, cap})), Nat.is_le(S.launches(Once.wd_run(S.dim(es), S.w0(), O.Keyed{d, cap})), 1n+cap), LW.oc.run(es, S.w0(), d, cap, {==}), LW.oc.outw(cap, Once.wd_run(S.dim(es), S.w0(), O.Keyed{d, cap})))

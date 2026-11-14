@@ -514,7 +514,8 @@ impl SettingsManager {
     }
 
     /// `retry.maxResends`: the times a model request a restart found sent
-    /// and unanswered is sent again before its run ends with an error.
+    /// and unanswered is sent again, to a provider that declares lasting
+    /// deduplication (models.json `requestDedup`); then it is interrupted.
     #[must_use]
     pub fn get_retry_max_resends(&self) -> u32 {
         saturating_u32(self.cvars().nat(&table::RETRY_MAX_RESENDS))

@@ -249,6 +249,10 @@ pub(crate) fn build_provider(input: CreateProviderOptions) -> Provider {
         name: name.unwrap_or_else(|| id.clone()),
         base_url,
         headers,
+        // No shipped provider documents that it drops a repeat of a model
+        // request's `Idempotency-Key`; only the principal declares it
+        // (models.json `requestDedup`).
+        dedups_requests: false,
         auth,
         get_models: Arc::new(move || Ok(models_catalog.current())),
         refresh_models: fetch_models

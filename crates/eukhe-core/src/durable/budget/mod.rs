@@ -79,6 +79,10 @@ pub struct BudgetGate {
     /// The open reservation of each deferred response (by
     /// `<provider>/<handle id>`): it settles when its fetch ends.
     deferred: Mutex<HashMap<String, Held>>,
+    /// The money held for each model request a crash left in flight, by
+    /// its idempotency key, as the recovery at open charged it: what a
+    /// request the restart does not send again leaves counted.
+    lost: Mutex<HashMap<String, u64>>,
     /// The agent's steps as actually spent: what a grant's `low` (the Low
     /// notice) is judged against, and its longest model request, which
     /// its final answer's time reserve follows.
@@ -145,6 +149,20 @@ impl BudgetGate {
             }
         }
         if gate.ledger.exists() {
+            match gate.ledger.holds(session_id) {
+                Ok(holds) => {
+                    let mut lost = gate.lost.lock().unwrap_or_else(PoisonError::into_inner);
+                    for hold in holds {
+                        if let Some(key) = hold.key {
+                            let held = lost.entry(key).or_default();
+                            *held = held.saturating_add(hold.amount.cost_micros);
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(session_id, %error, "the budget's open holds were not read");
+                }
+            }
             match gate.ledger.recover(session_id) {
                 Ok(report) => gate.publish(&report),
                 // A file without a record, or an account this session left.
@@ -192,6 +210,7 @@ impl BudgetGate {
             told: Mutex::new(notices::Told::default()),
             notices: OnceLock::new(),
             deferred: Mutex::new(HashMap::new()),
+            lost: Mutex::new(HashMap::new()),
             steps: Mutex::default(),
             turn: Mutex::new(FIRST_TURN),
             final_answered: AtomicBool::new(false),
@@ -208,6 +227,20 @@ impl BudgetGate {
     #[must_use]
     pub fn agent(&self) -> &str {
         self.ledger.session_id()
+    }
+
+    /// The money (micro-dollars) the budget charged at open for the model
+    /// request with the idempotency key `key` that a crash left in flight:
+    /// what it stays counted at until its usage is known. `None` when no
+    /// such request held money (no budget, or one that limits no money).
+    #[must_use]
+    pub fn lost_request_cost(&self, key: &str) -> Option<u64> {
+        self.lost
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(key)
+            .copied()
+            .filter(|cost| *cost > 0)
     }
 
     /// The budget's state as this agent sees it, read from the ledger;
@@ -569,13 +602,15 @@ impl BudgetGate {
         }
     }
 
-    /// [`Ledger::reserve`] for this agent on a blocking thread, its report
-    /// published. `None`: the session has no budget (its ledger holds no
+    /// [`Ledger::reserve_keyed`] for this agent on a blocking thread, its
+    /// report published; `key` is the idempotency key of the model request
+    /// it is for. `None`: the session has no budget (its ledger holds no
     /// record), so the caller passes its request or tool call through.
     async fn reserve(
         self: &Arc<Self>,
         use_: Use,
         label: String,
+        key: Option<String>,
         keep: BudgetAmounts,
         offers: Vec<BudgetAmounts>,
         min_ms: u64,
@@ -586,8 +621,16 @@ impl BudgetGate {
         };
         let gate = Arc::clone(self);
         let reserved = tokio::task::spawn_blocking(move || {
-            gate.ledger
-                .reserve(gate.agent(), use_, &label, keep, step, &offers, min_ms)
+            gate.ledger.reserve_keyed(
+                gate.agent(),
+                use_,
+                &label,
+                key.as_deref(),
+                keep,
+                step,
+                &offers,
+                min_ms,
+            )
         })
         .await
         .map_err(|error| self.task_failed(error))?;

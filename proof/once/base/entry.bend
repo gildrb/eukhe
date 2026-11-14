@@ -1,7 +1,8 @@
 # eukhe: lemmas the proofs of area once share: the entry
 #
 # A spelled event is read whole: the stepper runs the event on the life
-# (oe.spelled; a keyed policy's cap reads back by the wire's round trip).
+# (oe.spelled; a keyed policy's cap reads back by the wire's round trip,
+# then its declaration).
 # The replies are spelled as Rust reads them (oe.put_life,
 # oe.put_verdict). From the life a journal tells, every reply is the
 # spec's for the records read so far (oe.model). The entry reads every
@@ -26,31 +27,62 @@ import ../once_recover_is_spec.bend as POnceRecoverIsSpec
 # A spelled event
 # ---------------
 
-# a question with a keyed policy: its cap reads back
-def oe.keyed(-l: O.Life, m: O.Mode, s: O.Seen, +cap: Nat, fit: {LawsBase.wire_fits(cap) == True{} : Bool}) -> {FO.step(FO.Eff{l}, Once.on_spell(FO.Ask{m, O.Keyed{cap}, s})) == FO.step.ev(FO.Ask{m, O.Keyed{cap}, s}, l) : FO.St & String}:
+# a question with a keyed policy: its cap reads back, then its
+# declaration
+def oe.keyed(-l: O.Life, m: O.Mode, s: O.Seen, d: O.Dedup, +cap: Nat, fit: {LawsBase.wire_fits(cap) == True{} : Bool}) -> {FO.step(FO.Eff{l}, Once.on_spell(FO.Ask{m, O.Keyed{d, cap}, s})) == FO.step.ev(FO.Ask{m, O.Keyed{d, cap}, s}, l) : FO.St & String}:
   match m:
     case O.Resume{}:
       match s:
         case O.Dark{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,")), Wr.Got{cap, "0,"}, Wire.wire_nat_round_trip(cap, "0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{cap}, O.Dark{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,0,")), Wr.Got{cap, "0,0,"}, Wire.wire_nat_round_trip(cap, "0,0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Undeclared{}, cap}, O.Dark{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,0,")), Wr.Got{cap, "1,0,"}, Wire.wire_nat_round_trip(cap, "1,0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Lasting{}, cap}, O.Dark{}}, l) : FO.St & String}
+              {==}
         case O.Landed{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,")), Wr.Got{cap, "1,"}, Wire.wire_nat_round_trip(cap, "1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{cap}, O.Landed{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,1,")), Wr.Got{cap, "0,1,"}, Wire.wire_nat_round_trip(cap, "0,1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Undeclared{}, cap}, O.Landed{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,1,")), Wr.Got{cap, "1,1,"}, Wire.wire_nat_round_trip(cap, "1,1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Lasting{}, cap}, O.Landed{}}, l) : FO.St & String}
+              {==}
         case O.Clean{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "2,")), Wr.Got{cap, "2,"}, Wire.wire_nat_round_trip(cap, "2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{cap}, O.Clean{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,2,")), Wr.Got{cap, "0,2,"}, Wire.wire_nat_round_trip(cap, "0,2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Undeclared{}, cap}, O.Clean{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,2,")), Wr.Got{cap, "1,2,"}, Wire.wire_nat_round_trip(cap, "1,2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Resume{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Resume{}, O.Keyed{O.Lasting{}, cap}, O.Clean{}}, l) : FO.St & String}
+              {==}
     case O.Stop{}:
       match s:
         case O.Dark{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,")), Wr.Got{cap, "0,"}, Wire.wire_nat_round_trip(cap, "0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{cap}, O.Dark{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,0,")), Wr.Got{cap, "0,0,"}, Wire.wire_nat_round_trip(cap, "0,0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Undeclared{}, cap}, O.Dark{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,0,")), Wr.Got{cap, "1,0,"}, Wire.wire_nat_round_trip(cap, "1,0,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Lasting{}, cap}, O.Dark{}}, l) : FO.St & String}
+              {==}
         case O.Landed{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,")), Wr.Got{cap, "1,"}, Wire.wire_nat_round_trip(cap, "1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{cap}, O.Landed{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,1,")), Wr.Got{cap, "0,1,"}, Wire.wire_nat_round_trip(cap, "0,1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Undeclared{}, cap}, O.Landed{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,1,")), Wr.Got{cap, "1,1,"}, Wire.wire_nat_round_trip(cap, "1,1,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Lasting{}, cap}, O.Landed{}}, l) : FO.St & String}
+              {==}
         case O.Clean{}:
-          %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "2,")), Wr.Got{cap, "2,"}, Wire.wire_nat_round_trip(cap, "2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{cap}, O.Clean{}}, l) : FO.St & String}
-          {==}
+          match d:
+            case O.Undeclared{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "0,2,")), Wr.Got{cap, "0,2,"}, Wire.wire_nat_round_trip(cap, "0,2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Undeclared{}, cap}, O.Clean{}}, l) : FO.St & String}
+              {==}
+            case O.Lasting{}:
+              %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(cap, "1,2,")), Wr.Got{cap, "1,2,"}, Wire.wire_nat_round_trip(cap, "1,2,", fit)) : {FO.step.got(FO.get_ev.policy(O.Stop{}, FO.get_policy.cap(_)), l) == FO.step.ev(FO.Ask{O.Stop{}, O.Keyed{O.Lasting{}, cap}, O.Clean{}}, l) : FO.St & String}
+              {==}
 
 # a question with the policy never: no number to read
 def oe.never(-l: O.Life, m: O.Mode, s: O.Seen) -> {FO.step(FO.Eff{l}, Once.on_spell(FO.Ask{m, O.Never{}, s})) == FO.step.ev(FO.Ask{m, O.Never{}, s}, l) : FO.St & String}:
@@ -113,8 +145,8 @@ def oe.spelled(-l: O.Life, e: FO.Ev, fit: {Once.on_fit.ev(e) == True{} : Bool}) 
           oe.never(l, m, s)
         case O.Safe{}:
           oe.safe(l, m, s)
-        case O.Keyed{cap}:
-          oe.keyed(l, m, s, cap, fit)
+        case O.Keyed{d, cap}:
+          oe.keyed(l, m, s, d, cap, fit)
 
 # The replies
 # -----------
@@ -225,10 +257,26 @@ def oe.rd_mode(r: Wr.Dec<Nat>) -> {Once.on_read_mode(r) == FO.get_mode.go(r) : W
     case Wr.Bad{}:
       {==}
 
+def oe.rd_dedup_tag(cap: Nat, n: Nat, s: String) -> {Once.on_read_dedup.tag(cap, n, s) == FO.get_policy.dedup.tag(cap, n, s) : Wr.Dec<O.Policy>}:
+  match n:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n+p:
+      {==}
+
+def oe.rd_dedup(cap: Nat, r: Wr.Dec<Nat>) -> {Once.on_read_dedup(cap, r) == FO.get_policy.dedup(cap, r) : Wr.Dec<O.Policy>}:
+  match r:
+    case Wr.Got{n, s}:
+      oe.rd_dedup_tag(cap, n, s)
+    case Wr.Bad{}:
+      {==}
+
 def oe.rd_policy_cap(r: Wr.Dec<Nat>) -> {Once.on_read_policy.cap(r) == FO.get_policy.cap(r) : Wr.Dec<O.Policy>}:
   match r:
     case Wr.Got{n, s}:
-      {==}
+      oe.rd_dedup(n, Wr.get_nat(s))
     case Wr.Bad{}:
       {==}
 
@@ -334,10 +382,26 @@ def oe.FitD(d: Wr.Dec<FO.Ev>) -> Type:
     case Wr.Bad{}:
       Unit
 
+def oe.fit_dedup_tag(cap: Nat, n: Nat, s: String, fits: {LawsBase.wire_fits(cap) == True{} : Bool}) -> oe.FitP(Once.on_read_dedup.tag(cap, n, s)):
+  match n:
+    case 0n:
+      fits
+    case 1n:
+      fits
+    case 2n+p:
+      Unit{}
+
+def oe.fit_dedup(cap: Nat, r: Wr.Dec<Nat>, fits: {LawsBase.wire_fits(cap) == True{} : Bool}) -> oe.FitP(Once.on_read_dedup(cap, r)):
+  match r:
+    case Wr.Got{n, s}:
+      oe.fit_dedup_tag(cap, n, s, fits)
+    case Wr.Bad{}:
+      Unit{}
+
 def oe.fit_cap(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> oe.FitP(Once.on_read_policy.cap(d)):
   match d:
     case Wr.Got{+cap, +r}:
-      Wire.wire_nat_decoded_fits(s, cap, r, ed)
+      oe.fit_dedup(cap, Wr.get_nat(r), Wire.wire_nat_decoded_fits(s, cap, r, ed))
     case Wr.Bad{}:
       Unit{}
 

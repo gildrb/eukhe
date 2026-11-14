@@ -47,7 +47,8 @@ pub const DEFAULT_MAX_TOOL_ROUNDS: NonZeroU32 = match NonZeroU32::new(250) {
 };
 
 /// Default `settings.request_resends`: the times a model request a restart
-/// found sent and unanswered is sent again before its run ends.
+/// found sent and unanswered is sent again to a provider that declares
+/// lasting deduplication; then it is interrupted.
 pub const DEFAULT_REQUEST_RESENDS: u32 = 2;
 
 /// The reserved section key of the agent's `instructions`.

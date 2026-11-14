@@ -4,7 +4,7 @@
 # launched once more than it was sent again, and sent again at most cap
 # times; an ended one was launched at most 1 + cap times. Every event of
 # a history in which the world is never asked keeps it (oc.step: a keyed
-# effect is sent again only while fewer than cap, LA.ob.keyed_within; a
+# effect is sent again only while fewer than cap, LA.ob.dedup_within; a
 # running effect that ends is within the bound, oc.bound), so it holds
 # after every such history (oc.run); a world it holds of made at most 1
 # + cap launches (oc.outw).
@@ -95,7 +95,7 @@ def oc.launch(cap: Nat, +again: Nat, n: Nat, hl: {Nat.is_le(1n+again, cap) == Tr
   %Equal.sym(Bool, Nat.is_le(1n+again, cap), True{}, hl) : {Bool.or(Bool.not(Bool.and(Nat.is_le(again, cap), Nat.is_eq(n, 1n+again))), Bool.and(_, Nat.is_eq(n, 1n+again))) == True{} : Bool}
   oc.keep(Nat.is_le(again, cap), Nat.is_eq(n, 1n+again))
 
-def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Nat, d: Nat, x: Nat) -> {Bool.or(Bool.not(oc.inv(cap, S.Wd{l, live, hit, n, k, d, x})), oc.inv(cap, Once.wd_step(S.Wd{l, live, hit, n, k, d, x}, S.dim.ev(e), O.Keyed{cap}))) == True{} : Bool}:
+def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, dd: O.Dedup, +cap: Nat, k: Nat, d: Nat, x: Nat) -> {Bool.or(Bool.not(oc.inv(cap, S.Wd{l, live, hit, n, k, d, x})), oc.inv(cap, Once.wd_step(S.Wd{l, live, hit, n, k, d, x}, S.dim.ev(e), O.Keyed{dd, cap}))) == True{} : Bool}:
   match e:
     case S.Mean{}:
       match l:
@@ -132,7 +132,7 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
                     case 1n+q:
                       {==}
                 case O.Running{+again}:
-                  LA.ob.keyed_within(cap, again, v => {Bool.or(Bool.not(oc.inv(cap, S.Wd{O.Running{again}, False{}, hit, n, k, d, x})), oc.inv(cap, Once.wd_answer(v, O.Running{again}, n, k, d, x))) == True{} : Bool}, hl => oc.launch(cap, again, n, hl), oc.bound(n, again, cap))
+                  LA.ob.dedup_within(dd, cap, again, v => {Bool.or(Bool.not(oc.inv(cap, S.Wd{O.Running{again}, False{}, hit, n, k, d, x})), oc.inv(cap, Once.wd_answer(v, O.Running{again}, n, k, d, x))) == True{} : Bool}, hl => oc.launch(cap, again, n, hl), oc.bound(n, again, cap))
                 case O.Ran{}:
                   LA.ob.self(oc.inv(cap, S.Wd{O.Ran{}, False{}, hit, n, k, d, x}))
                 case O.Unsure{}:
@@ -232,18 +232,18 @@ def oc.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, +n: Nat, +cap: Nat, k: Na
             case O.Void{}:
               LA.ob.self(oc.inv(cap, S.Wd{O.Void{}, False{}, hit, n, k, d, x}))
 
-def oc.stepw(+cap: Nat, w: S.World, e: S.Ev) -> {Bool.or(Bool.not(oc.inv(cap, w)), oc.inv(cap, Once.wd_step(w, S.dim.ev(e), O.Keyed{cap}))) == True{} : Bool}:
+def oc.stepw(dd: O.Dedup, +cap: Nat, w: S.World, e: S.Ev) -> {Bool.or(Bool.not(oc.inv(cap, w)), oc.inv(cap, Once.wd_step(w, S.dim.ev(e), O.Keyed{dd, cap}))) == True{} : Bool}:
   match w:
     case S.Wd{l, live, hit, n, k, d, x}:
-      oc.step(e, live, hit, l, n, cap, k, d, x)
+      oc.step(e, live, hit, l, n, dd, cap, k, d, x)
 
 # the invariant holds after every history from a world it holds of
-def oc.run(es: List<&2, S.Ev>, +w: S.World, +cap: Nat, h: {oc.inv(cap, w) == True{} : Bool}) -> {oc.inv(cap, Once.wd_run(S.dim(es), w, O.Keyed{cap})) == True{} : Bool}:
+def oc.run(es: List<&2, S.Ev>, +w: S.World, +dd: O.Dedup, +cap: Nat, h: {oc.inv(cap, w) == True{} : Bool}) -> {oc.inv(cap, Once.wd_run(S.dim(es), w, O.Keyed{dd, cap})) == True{} : Bool}:
   match es:
     case Nil{}:
       h
     case +e <> rest:
-      oc.run(rest, Once.wd_step(w, S.dim.ev(e), O.Keyed{cap}), cap, LA.ob.mp(oc.inv(cap, w), oc.inv(cap, Once.wd_step(w, S.dim.ev(e), O.Keyed{cap})), h, oc.stepw(cap, w, e)))
+      oc.run(rest, Once.wd_step(w, S.dim.ev(e), O.Keyed{dd, cap}), dd, cap, LA.ob.mp(oc.inv(cap, w), oc.inv(cap, Once.wd_step(w, S.dim.ev(e), O.Keyed{dd, cap})), h, oc.stepw(dd, cap, w, e)))
 
 # a world the invariant holds of made at most 1 + cap launches
 def oc.outw(+cap: Nat, w: S.World) -> {Bool.or(Bool.not(oc.inv(cap, w)), Nat.is_le(S.launches(w), 1n+cap)) == True{} : Bool}:

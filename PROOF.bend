@@ -4229,6 +4229,7 @@ import ./proof/once/once_step_is_spec.bend as POnceStepIsSpec
 import ./proof/once/once_never_takes_hold_twice.bend as POnceNeverTakesHoldTwice
 import ./proof/once/once_never_launches_twice.bend as POnceNeverLaunchesTwice
 import ./proof/once/once_keyed_sends_capped.bend as POnceKeyedSendsCapped
+import ./proof/once/once_undeduped_sends_once.bend as POnceUndedupedSendsOnce
 import ./proof/once/once_done_ran.bend as POnceDoneRan
 import ./proof/once/once_unstarted_never_ran.bend as POnceUnstartedNeverRan
 import ./proof/once/once_ends_once.bend as POnceEndsOnce

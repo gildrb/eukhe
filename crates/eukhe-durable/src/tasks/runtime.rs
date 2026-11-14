@@ -366,6 +366,8 @@ pub trait TaskRuntimeBackend: DocumentReader + DocumentObserver {
     fn settings(&self) -> Settings;
     /// pi-ai model access.
     fn models(&self) -> Models;
+    /// `HarnessOptions.lost_request_cost` for the request key `key`.
+    fn lost_request_cost(&self, key: &str) -> Option<u64>;
     /// Calls `HarnessOptions.env` for the task's conversation; rejects with
     /// its error.
     fn env(&self, cx: &Context)
@@ -558,6 +560,14 @@ where
     #[must_use]
     pub fn models(&self) -> Models {
         self.backend.models()
+    }
+
+    /// What the host's budget still counts for the model request with the
+    /// idempotency key `key`, which a crash left in flight
+    /// (`HarnessOptions.lost_request_cost`); `None` when nothing.
+    #[must_use]
+    pub fn lost_request_cost(&self, key: &str) -> Option<u64> {
+        self.backend.lost_request_cost(key)
     }
 
     /// Calls `HarnessOptions.env` for the task's conversation; rejects with

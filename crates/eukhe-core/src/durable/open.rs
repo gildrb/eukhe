@@ -352,6 +352,10 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     options.env = Some(env_factory(&config.cwd));
     options.now.clone_from(&config.now);
     options.on_report = Some(on_report);
+    // A model request a crash cut stays counted at what its reservation
+    // held; the notice of one that is not sent again says how much.
+    let budget = Arc::clone(&deps.budget);
+    options.lost_request_cost = Some(Arc::new(move |key: &str| budget.lost_request_cost(key)));
     let harness = Harness::open(storage, options, cx).await?;
     // Follow the commits before the first one after open; the storage
     // keeps its history until the state tree takes it.

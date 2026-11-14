@@ -137,6 +137,7 @@ pub fn prime_inference_provider() -> Provider {
         name: "Prime Inference".to_owned(),
         base_url: Some(PRIME_INFERENCE_BASE_URL.to_owned()),
         headers: None,
+        dedups_requests: false,
         auth: ProviderAuth {
             api_key: Some(Arc::new(PrimeInferenceAuth)),
             oauth: None,

@@ -224,6 +224,7 @@ async fn reserve_other(
         .reserve(
             Use::Side,
             label,
+            None,
             gate.keep(),
             vec![BudgetAmounts {
                 time_ms: DEFAULT_DEADLINE_MS,

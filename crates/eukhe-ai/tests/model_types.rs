@@ -81,6 +81,7 @@ async fn work_through_a_handwritten_provider() {
         name: "Handwritten".to_owned(),
         base_url: None,
         headers: None,
+        dedups_requests: false,
         auth: faux.provider.auth.clone(),
         get_models: Arc::new(move || Ok(Arc::clone(&listed))),
         refresh_models: None,

@@ -2,7 +2,7 @@
 #
 # The invariant od.inv holds of the first world, every event keeps it
 # for every policy (od.step; a keyed effect's verdict is a launch or an
-# interrupt, LA.ob.keyed_cases), so it holds after every history
+# interrupt, LA.ob.dedup_cases), so it holds after every history
 # (od.run); a world it holds of has a finished effect only when it took
 # hold (od.out).
 
@@ -147,24 +147,24 @@ def od.step(e: S.Ev, live: Bool, hit: Bool, l: O.Life, k: Nat, n: Nat, d: Nat, x
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 0n, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 0n, d, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 0n, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 0n, d, x))) == True{} : Bool}, {==}, {==})
                         case 1n:
                           match p:
                             case O.Never{}:
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 1n, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 1n, d, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 1n, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 1n, d, x))) == True{} : Bool}, {==}, {==})
                         case 2n+qk:
                           match p:
                             case O.Never{}:
                               {==}
                             case O.Safe{}:
                               {==}
-                            case O.Keyed{cap}:
-                              LA.ob.keyed_cases(cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 2n+qk, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 2n+qk, d, x))) == True{} : Bool}, {==}, {==})
+                            case O.Keyed{dd, cap}:
+                              LA.ob.dedup_cases(dd, cap, again, v => {Bool.or(Bool.not(od.inv(S.Wd{O.Running{again}, False{}, hit, n, 2n+qk, d, x})), od.inv(Once.wd_answer(v, O.Running{again}, n, 2n+qk, d, x))) == True{} : Bool}, {==}, {==})
                     case O.Ran{}:
                       match k:
                         case 0n:
