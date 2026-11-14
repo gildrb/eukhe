@@ -1259,6 +1259,19 @@ law agent_tree_tick_cancels_only_late:
   for o: {on_time_path(p, t, now) == True{} : Bool}
   {runs_at(S.node_at(p, landed(T.step(b, t, T.EvTick{now}), t))) == True{} : Bool}
 
+# LAW agent_tree_tick_shape (T8, T7, T11): for every tree t and time now,
+# a tick changes statuses only: the same leaves and splits, each split's
+# own scope, and every node's scope, limit, spend, deadline and patch, so
+# a node stopped by its deadline keeps its partial patch for a redo, as a
+# cancelled one does
+# EXCLUDES: a tick that drops or rewrites the patch, spend, limit, deadline
+#   or scope of a late node or of any node below it
+law agent_tree_tick_shape:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +now: Nat
+  {unstatus(landed(T.step(b, t, T.EvTick{now}), t)) == unstatus(t) : T.Node}
+
 # Laws: bounds (T9)
 # -----------------
 
