@@ -215,3 +215,32 @@ that costs against a wider split, as information:
 |T9|`agent_tree_depth_bound`, `agent_tree_nodes_bound`|reachable trees stay within both bounds|
 |T10|`agent_tree_next_waits_iff_idle`, `agent_tree_next_message_first`, `agent_tree_next_integrates_first`, `agent_tree_next_works_own`|the next action's order; a wait only with nothing to do|
 |T11|`agent_tree_redo_is_spec`|a redo is decided exactly as the spec|
+
+## 11. Decisions
+
+1. `max_depth` 3, `max_nodes` 15; margin per level 2 min under a
+   deadline, 0 when Unlimited. R1's spawn reasons and family cap retire
+   with the old spawn path.
+2. A unit is a file. Shared files (lockfiles, `mod.rs`, generated code)
+   are the parent's own scope; a child that needs one reports a conflict.
+3. A child's checkout is the existing `isolated` copy-on-write workspace:
+   a snapshot of the live tree, uncommitted edits included; its patch is
+   the diff against its own start.
+4. The harness overlays each result; the parent resolves conflicts and
+   runs the project's configured check command, else the narrowest check
+   detected for the touched files (the tests of the touched crates or
+   packages).
+5. Each child runs its own check in its checkout before it reports; the
+   parent checks again after integration.
+6. One spawn path: every subagent is a tree node; a tool-less or
+   read-only child is a leaf with an empty write scope.
+7. Split only with two halves on disjoint files, each worth a planning
+   turn.
+8. Hold: max(two worst-case requests, 10% of room); one automatic redo
+   per child.
+9. A failed child's partial patch is applied only when the parent absorbs
+   it.
+10. Experiment: 3 tasks, 2, 4, 8 slices, binary against wide, 3 runs each
+    on a small model at low effort; the two best arms once more each on a
+    large model; $25 cap.
+11. The tree view replaces the agents panel's nesting.

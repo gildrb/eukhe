@@ -3724,6 +3724,8 @@ import ./proof/agent_tree/agent_tree_tick_cancels_only_late.bend as PAgentTreeTi
 import ./proof/agent_tree/agent_tree_tick_keeps_on_time.bend as PAgentTreeTickKeepsOnTime
 import ./proof/agent_tree/agent_tree_tick_none_late.bend as PAgentTreeTickNoneLate
 import ./proof/agent_tree/agent_tree_tiles_root.bend as PAgentTreeTilesRoot
+import ./proof/agent_tree/agent_tree_run_none.bend as PAgentTreeRunNone
+import ./proof/agent_tree/agent_tree_run_last.bend as PAgentTreeRunLast
 import ./proof/task_life/base.bend as LTaskLife
 import ./proof/task_life/base/entry.bend as LTaskLifeEntry
 import ./proof/task_life/base/join.bend as LTaskLifeJoin
