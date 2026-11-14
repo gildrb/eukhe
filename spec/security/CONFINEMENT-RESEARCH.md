@@ -107,6 +107,10 @@ confirmed in the text); <https://landlock.io/talks/2026-10-08_landlock-lss.pdf>.
   point only in another namespace can be renamed or unlinked, and the
   mount disappears there (mount_namespaces(7)); a file-level bind over a
   path the host replaces by rename stops covering it.
+- `listen` on a socket that was never bound picks an ephemeral port
+  without the bind hook, so a TCP bind rule does not stop a program from
+  accepting connections (<https://wiki.gnoack.org/LandlockTcpPortControl>,
+  "Known issues": "listen(2) without bind(2) also works").
 - Errata are queryable (`LANDLOCK_CREATE_RULESET_ERRATA`). Erratum 1: TCP
   rights used to restrict other IPv4 and IPv6 stream protocols (SMC, MPTCP,
   SCTP); since the fix only TCP sockets are subject to them, so a sandbox
