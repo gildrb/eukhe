@@ -532,3 +532,10 @@ the design claims something false about them (G6). Each round's reviewer
 is fresh and sees only the design, its appendix and the cited philosophy.
 The reviews stop after two rounds in a row report no gap under this
 rubric.
+
+### 7.4 Rounds under the rubric
+
+|Round|Gaps|Guarantees|Closed by|
+|---|---|---|---|
+|15|3|G4, G1, G4|auto-start locations defined as files run with no principal command, D-Bus session services and user-tmpfiles.d listed; an audited `ioctl` list on tiers without a mount namespace (btrfs subvolume and fscrypt commands); helpers and delegate executables in any past write reach need the principal's digest acceptance|
+|16|3|G3, G5, G4|no profile reaches `trustd`, whose AIA, OCSP and CRL fetches leave the proxy; G5 narrowed to Eukhe, the trusted base and delegates, with the principal's own loopback ports and abstract names a stated exposure (owner decision); acceptance binds every file under a helper's load directories|
