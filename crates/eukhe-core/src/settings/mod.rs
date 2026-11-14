@@ -8,6 +8,7 @@ pub(crate) mod interactive_settings;
 pub(crate) mod load;
 pub(crate) mod manager;
 pub(crate) mod merge;
+pub(crate) mod migrate;
 pub(crate) mod persist;
 pub(crate) mod storage;
 pub(crate) mod trust;
@@ -23,8 +24,8 @@ pub use getters::{
 pub use manager::{IdleEviction, SessionArchivePolicy, SettingsError, SettingsManager};
 pub use persist::{Persisted, Shadow};
 pub use storage::{
-    FileSettingsStorage, InMemorySettingsStorage, SettingsScope, SettingsStorage, CONFIG_DIR_NAME,
-    PROFILE_DIR,
+    FileSettingsStorage, Holding, InMemorySettingsStorage, SettingsScope, SettingsStorage,
+    CONFIG_DIR_NAME, PROFILE_DIR,
 };
 pub use trust::{ProjectTrust, TrustLevel};
 pub use types::{

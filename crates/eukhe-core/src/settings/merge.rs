@@ -1,4 +1,4 @@
-//! Deep-merge and migration (settings-manager.ts).
+//! Deep-merge of settings documents (settings-manager.ts).
 
 use eukhe_bend::rules::config;
 use serde_json::{Map, Value};
@@ -95,67 +95,6 @@ fn merge_values(base: &mut Value, overrides: &Value) {
     }
 }
 
-/// Migrate legacy settings shapes (queueMode, websockets, skills object,
-/// retry.maxDelayMs, onboardingCompleted) - port of `migrateSettings`. A
-/// `markdown` that is not an object stays: the load names it.
-pub fn migrate(document: &mut serde_json::Map<String, Value>) {
-    // queueMode -> steeringMode
-    if let Some(queue_mode) = document.remove("queueMode") {
-        document.entry("steeringMode").or_insert(queue_mode);
-    }
-    // onboardingCompleted (the legacy first-run flag) -> onboardingShown,
-    // which the first-run check reads alone.
-    if let Some(completed) = document.get("onboardingCompleted").cloned() {
-        document.entry("onboardingShown").or_insert(completed);
-    }
-    // websockets bool -> transport
-    if !document.contains_key("transport") {
-        if let Some(websockets) = document.remove("websockets") {
-            if websockets.is_boolean() {
-                let transport = if websockets == Value::Bool(true) {
-                    "web-socket"
-                } else {
-                    "sse"
-                };
-                document.insert("transport".into(), Value::String(transport.into()));
-            }
-        }
-    }
-    // skills object -> enableSkillCommands + customDirectories
-    if let Some(skills) = document.remove("skills") {
-        if let Value::Object(mut skills_obj) = skills {
-            if let Some(flag) = skills_obj.remove("enableSkillCommands") {
-                if document.get("enableSkillCommands").is_none() {
-                    document.insert("enableSkillCommands".into(), flag);
-                }
-            }
-            match skills_obj.remove("customDirectories") {
-                Some(Value::Array(dirs)) if !dirs.is_empty() => {
-                    document.insert("skills".into(), Value::Array(dirs));
-                }
-                _ => {}
-            }
-        } else {
-            // Already a directory list: put it back untouched.
-            document.insert("skills".into(), skills);
-        }
-    }
-    // retry.maxDelayMs -> retry.provider.maxRetryDelayMs
-    if let Some(Value::Object(retry)) = document.get_mut("retry") {
-        let max_delay = retry.remove("maxDelayMs");
-        if let Some(Value::Number(delay)) = max_delay {
-            let provider = retry
-                .entry("provider")
-                .or_insert_with(|| Value::Object(serde_json::Map::new()));
-            if let Some(provider_obj) = provider.as_object_mut() {
-                provider_obj
-                    .entry("maxRetryDelayMs")
-                    .or_insert(Value::Number(delay));
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,25 +153,6 @@ mod tests {
                 }),
                 &json!({ "type": "local" })
             )
-        );
-    }
-
-    #[test]
-    fn migration_rewrites_legacy_shapes() {
-        let mut doc = json!({
-            "queueMode": "all",
-            "websockets": true,
-            "skills": { "enableSkillCommands": false, "customDirectories": ["/x"] },
-            "retry": { "maxDelayMs": 5 }
-        });
-        let mut map = doc.as_object_mut().unwrap().clone();
-        migrate(&mut map);
-        assert_eq!(map.get("steeringMode"), Some(&json!("all")));
-        assert_eq!(map.get("transport"), Some(&json!("web-socket")));
-        assert_eq!(map.get("skills"), Some(&json!(["/x"])));
-        assert_eq!(
-            map.get("retry"),
-            Some(&json!({ "provider": { "maxRetryDelayMs": 5 } }))
         );
     }
 }
