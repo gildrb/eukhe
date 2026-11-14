@@ -11,7 +11,9 @@
 //! attach/submit/stream/render path without a TTY.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -75,7 +77,40 @@ mod run;
 // fatal return).
 mod open_failure;
 
-pub use run::run_interactive;
+pub use run::run_interactive_with;
+
+/// The daemon a run attaches to.
+pub enum DaemonLink {
+    /// Listening: the run connects before its surface mounts, so a connect
+    /// failure leaves the caller's terminal as it was.
+    Up,
+    /// Still starting: the surface paints and serves typing at once, and
+    /// the open connects once this resolves. Its error, or the connect's,
+    /// shows in the painted frame and ends the run.
+    Starting(Pin<Box<dyn Future<Output = Result<()>> + Send>>),
+}
+
+/// [`run_interactive_with`] on a daemon that is up.
+///
+/// # Errors
+///
+/// See [`run_interactive_with`].
+pub async fn run_interactive(
+    options: InteractiveOptions,
+    ui: UiMode,
+) -> Result<InteractiveOutcome> {
+    run_interactive_with(options, ui, DaemonLink::Up).await
+}
+
+/// The UI's daemon connection (connect, hello, bounded retries).
+async fn connect_ui(
+    socket_path: &Path,
+) -> Result<(DaemonClient, mpsc::UnboundedReceiver<DaemonClientEvent>)> {
+    use anyhow::Context as _;
+    DaemonClient::connect_with_retry(socket_path)
+        .await
+        .context("the interactive UI could not attach to the daemon")
+}
 
 use crossterm::event::KeyEvent;
 use crossterm::terminal;

@@ -1,11 +1,78 @@
 //! The startup open's failure routes: a refused or slow open hands the
 //! pane to the agents view with the failure as its status line (the
-//! session-picker fallback); every other failure ends the surface and
-//! returns the error.
+//! session-picker fallback); a daemon that never came up shows its error
+//! in the frame; every other failure ends the surface and returns the
+//! error.
 
 use super::{
-    AgentView, ExitGuard, InteractiveOutcome, Renderer, Result, SessionSelection, SurfaceExit,
+    mpsc, AgentView, ExitGuard, InteractiveOutcome, Renderer, Result, SessionSelection,
+    SurfaceExit, UiInput,
 };
+use crate::chat::{ChatEntry, StatusKind};
+use crate::glyphs::WARN;
+
+/// Why the startup open failed.
+pub(super) enum OpenFailure {
+    /// The daemon did not start, or the UI could not attach to it.
+    Connect(anyhow::Error),
+    /// The attached daemon's open failed.
+    Open(anyhow::Error),
+}
+
+/// End the surface whose daemon never came up or never took the UI's
+/// connection: the error shows in the frame until the next key, then the
+/// terminal goes back and the error returns (the CLI prints it on the
+/// plain screen as well).
+///
+/// # Errors
+///
+/// Returns `error`, or a draw failure.
+pub(super) async fn finish_failed_connect(
+    error: anyhow::Error,
+    exit_guard: &ExitGuard,
+    mut renderer: Renderer,
+    view: &mut AgentView,
+    ui_rx: &mut mpsc::UnboundedReceiver<UiInput>,
+) -> Result<InteractiveOutcome> {
+    if renderer.is_terminal() {
+        // Keys typed before the error showed do not acknowledge it.
+        while ui_rx.try_recv().is_ok() {}
+        view.push_entry(ChatEntry::Status {
+            text: format!("{WARN} Error: {error:#}"),
+            kind: StatusKind::Error,
+        });
+        view.push_entry(ChatEntry::Status {
+            text: "Press any key to exit.".to_string(),
+            kind: StatusKind::Info,
+        });
+        renderer.draw(view)?;
+        while let Some(input) = ui_rx.recv().await {
+            match input {
+                UiInput::Key(_) => break,
+                UiInput::Resize => {
+                    if let Ok((_width, height)) = crossterm::terminal::size() {
+                        view.set_terminal_rows(height);
+                    }
+                    view.note_resize();
+                    renderer.draw(view)?;
+                }
+                UiInput::Paste(_)
+                | UiInput::Submit(_)
+                | UiInput::SubmitAndSettle { .. }
+                | UiInput::SettleIdle
+                | UiInput::WaitIdle { .. }
+                | UiInput::WaitRender { .. }
+                | UiInput::WaitGone { .. }
+                | UiInput::Scroll(_)
+                | UiInput::Mouse(_)
+                | UiInput::HeadlessDone => {}
+            }
+        }
+        exit_guard.arm_for_exit();
+    }
+    renderer.finish(SurfaceExit::Process, view);
+    Err(error)
+}
 
 /// End the surface whose startup open failed with `error`.
 ///

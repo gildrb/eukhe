@@ -12,7 +12,9 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::config;
 use crate::mode::RunOptions;
-use eukhe_tui::interactive::{InteractiveOptions, ModelSelection, SessionSelection, UiMode};
+use eukhe_tui::interactive::{
+    DaemonLink, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
+};
 
 // The daemon-ensure concern (the CLI's supervisor command and socket
 // takeover over eukhe-client's launcher) lives in the child module
@@ -56,16 +58,19 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         .build()
         .context("build the interactive runtime")?;
     runtime.block_on(async {
-        // A kept daemon of another build is announced by the session view
-        // itself (from its hello); the agents view gets it as its status
-        // line. Only this interactive start may replace an older daemon.
-        let daemon_notice = ensure_daemon_running(
-            &tui_options.socket_path,
-            &tui_options.cwd,
-            eukhe_client::daemon_build::Caller::Interactive,
-        )
-        .await?
-        .notice();
+        // Only this interactive start may replace an older daemon.
+        let ensure_daemon = {
+            let socket_path = tui_options.socket_path.clone();
+            let cwd = tui_options.cwd.clone();
+            async move {
+                ensure_daemon_running(
+                    &socket_path,
+                    &cwd,
+                    eukhe_client::daemon_build::Caller::Interactive,
+                )
+                .await
+            }
+        };
         // `eukhe agents` and bare `--resume` open the agents view
         // (TS `agentsViewRequested`); the view then opens sessions, and a
         // session exits back into the view until the user exits it. TS gates
@@ -73,6 +78,8 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         // install shows the first-run notice first); bare `--resume` opens
         // the view regardless.
         if should_open_agents_view(options, tui_options.onboarding.is_some()) {
+            // A kept daemon of another build is the view's status line.
+            let daemon_notice = ensure_daemon.await?.notice();
             // The launch opens the view, not a session: the budget flags
             // are for the sessions created from it, and the view says so.
             let notice = match (daemon_notice, tui_options.budget) {
@@ -82,9 +89,17 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             };
             run_agents_view_flow(tui_options, None, None, notice).await
         } else {
-            let mut outcome =
-                eukhe_tui::interactive::run_interactive(tui_options.clone(), UiMode::Terminal)
-                    .await?;
+            // The session view paints and takes typing while the daemon
+            // starts; it announces a kept daemon of another build itself
+            // (from its hello).
+            let starting =
+                DaemonLink::Starting(Box::pin(async move { ensure_daemon.await.map(drop) }));
+            let mut outcome = eukhe_tui::interactive::run_interactive_with(
+                tui_options.clone(),
+                UiMode::Terminal,
+                starting,
+            )
+            .await?;
             // TS `main.ts`: a direct session run closes into the agents view
             // when the exit came through agents-back or `/resume`
             // (`launchAgentsView` anchored on the session just left), and

@@ -5,17 +5,18 @@
 //! attempts live in their own modules.
 
 use super::headless::{settled_sequence, wait_idle_holds};
-use super::open_failure::finish_failed_open;
+use super::open_failure::{finish_failed_connect, finish_failed_open, OpenFailure};
 use super::reconnect::{close_expired_recovery, retry_session_attach};
 use super::render::{hand_terminal_to_requests, next_spinner_deadline, SPINNER_INTERVAL_MS};
 use super::{
-    apply_startup_chrome, arm_shutdown_recovery, check_tmux_keyboard_setup, mpsc,
-    run_onboarding_phase, AgentView, DaemonClient, Duration, ExitGuard, HeadlessSettle, Instant,
-    InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect, ReconnectLoop,
+    apply_startup_chrome, arm_shutdown_recovery, check_tmux_keyboard_setup, connect_ui, mpsc,
+    run_onboarding_phase, AgentView, DaemonClient, DaemonLink, Duration, ExitGuard, HeadlessSettle,
+    Instant, InteractiveOptions, InteractiveOutcome, PaneDrive, ReconnectConnect, ReconnectLoop,
     RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi, SurfaceExit,
     UiInput, UiMode, VecDeque,
 };
-use anyhow::Context;
+use std::future::Future;
+use std::pin::Pin;
 
 /// The headless exit gate's settle bound: after the plan completes
 /// ([`UiInput::HeadlessDone`]), the run must end within this much wall
@@ -58,9 +59,10 @@ const QUIET_TICK_INTERVAL: Duration = Duration::from_millis(50);
 /// connection, a transport error in a key handler, a draw failure, a
 /// suspend/resume failure); the restore runs first whenever this run
 /// owned or adopted the terminal.
-pub async fn run_interactive(
+pub async fn run_interactive_with(
     options: InteractiveOptions,
     ui: UiMode,
+    link: DaemonLink,
 ) -> Result<InteractiveOutcome> {
     // The headless harness drives the same dispatch on plain pipes: it
     // never owned the terminal, so its error returns must not run a
@@ -73,7 +75,7 @@ pub async fn run_interactive(
     // actually mounted.
     let surface_mounted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mounted = std::sync::Arc::clone(&surface_mounted);
-    match run_interactive_surface(options, ui, mounted).await {
+    match run_interactive_surface(options, ui, link, mounted).await {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
             // Restore when THIS run changed the terminal state (the flag
@@ -123,18 +125,29 @@ fn surface_request_error(
 async fn run_interactive_surface(
     options: InteractiveOptions,
     ui: UiMode,
+    link: DaemonLink,
     surface_mounted: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<InteractiveOutcome> {
     // The TS theme emits raw ANSI color codes regardless of NO_COLOR; match
     // that so the same terminal renders the same frames either way.
     crossterm::style::force_color_output(true);
-    // The startup open's connection: the first open attempt below uses
-    // this one (a fresh-pane connect failure must stay a pre-mount
-    // failure, so the CLI open keeps its no-restore teardown), while a
-    // wait retry reconnects against the successor daemon.
-    let (client, events) = DaemonClient::connect_with_retry(&options.socket_path)
-        .await
-        .with_context(|| "the interactive UI could not attach to the daemon")?;
+    // The startup open's connection: a daemon that is up connects here,
+    // before the surface mounts (a connect failure leaves the caller's
+    // terminal as it was); a daemon still starting connects inside the
+    // open task, behind the painted frame. A wait retry reconnects
+    // against the successor daemon.
+    let connection: Pin<Box<dyn Future<Output = Result<_>> + Send>> = match link {
+        DaemonLink::Up => Box::pin(std::future::ready(Ok(
+            connect_ui(&options.socket_path).await?
+        ))),
+        DaemonLink::Starting(started) => {
+            let socket_path = options.socket_path.clone();
+            Box::pin(async move {
+                started.await?;
+                connect_ui(&socket_path).await
+            })
+        }
+    };
     // Background notes (a failed abort request, the parked messages an
     // Escape withdrew) fold into the transcript and the editor through
     // the same loop that renders daemon events.
@@ -331,6 +344,7 @@ async fn run_interactive_surface(
         let agent_messages_tx = agent_messages_tx.clone();
         let dictation_tx = dictation_tx.clone();
         tokio::spawn(async move {
+            let (client, events) = connection.await.map_err(OpenFailure::Connect)?;
             let session = SessionUi::open(
                 client,
                 &options,
@@ -352,8 +366,9 @@ async fn run_interactive_surface(
                     dictation: dictation_tx,
                 },
             )
-            .await?;
-            anyhow::Ok((events, session))
+            .await
+            .map_err(OpenFailure::Open)?;
+            Ok::<_, OpenFailure>((events, session))
         })
     };
     // The opening phase: the input surface serves keystrokes while the
@@ -410,9 +425,9 @@ async fn run_interactive_surface(
             open_result = &mut open_task => {
                 break match open_result {
                     Ok(outcome) => outcome,
-                    Err(join_error) => Err(anyhow::anyhow!(
+                    Err(join_error) => Err(OpenFailure::Open(anyhow::anyhow!(
                         "the session open task failed: {join_error}"
-                    )),
+                    ))),
                 };
             }
             maybe_input = async {
@@ -564,8 +579,12 @@ async fn run_interactive_surface(
     };
     let (mut events, mut session) = match open_outcome {
         Ok(opened) => opened,
-        Err(error) => {
+        Err(OpenFailure::Open(error)) => {
             return finish_failed_open(error, &options.session, &exit_guard, renderer, &view);
+        }
+        Err(OpenFailure::Connect(error)) => {
+            return finish_failed_connect(error, &exit_guard, renderer, &mut view, &mut ui_rx)
+                .await;
         }
     };
     session.exit_guard = exit_guard.clone();
