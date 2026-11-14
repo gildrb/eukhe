@@ -8,7 +8,7 @@
 //! so the decision stays visible at the point of use instead of a shared
 //! silent default.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The user's home directory, Node `os.homedir()` semantics.
 /// `HOME` when set and non-empty (matching the TS
@@ -41,6 +41,20 @@ pub fn agent_dir() -> Option<PathBuf> {
         return Some(expand_tilde(&dir.to_string_lossy()));
     }
     home_dir().map(|home| home.join(AGENT_DIR_NAME))
+}
+
+/// The work root of `agent_dir`: copies and snapshots of agents' work (child workspaces, check copies, kernel snapshots), beside the agent state directory and outside it (`<agent dir>-work`, `~/.eukhe-work` by default). `None` when `agent_dir` has no file name.
+#[must_use]
+pub fn work_root_of(agent_dir: &Path) -> Option<PathBuf> {
+    let mut name = agent_dir.file_name()?.to_os_string();
+    name.push("-work");
+    Some(agent_dir.with_file_name(name))
+}
+
+/// [`work_root_of`] the [`agent_dir`]. `None` when [`agent_dir`] is `None` or has no file name.
+#[must_use]
+pub fn work_root() -> Option<PathBuf> {
+    work_root_of(&agent_dir()?)
 }
 
 /// Expand a leading `~`/`~/` against [`home_dir`]; other values pass
@@ -112,6 +126,35 @@ mod tests {
             ],
             || {
                 assert_eq!(agent_dir(), Some(PathBuf::from("/opt/state")));
+            },
+        );
+    }
+
+    #[test]
+    fn work_root_is_the_agent_dir_sibling() {
+        assert_eq!(
+            [
+                work_root_of(Path::new("/home/tester/.eukhe")),
+                work_root_of(Path::new("/opt/state/")),
+                work_root_of(Path::new("/")),
+            ],
+            [
+                Some(PathBuf::from("/home/tester/.eukhe-work")),
+                Some(PathBuf::from("/opt/state-work")),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn work_root_follows_the_agent_dir_override() {
+        with_env(
+            &[
+                ("HOME", Some("/home/tester")),
+                ("EUKHE_CODING_AGENT_DIR", Some("~/state")),
+            ],
+            || {
+                assert_eq!(work_root(), Some(PathBuf::from("/home/tester/state-work")));
             },
         );
     }

@@ -345,8 +345,9 @@ const LEGACY_SIDECAR_EXTENSIONS: [&str; 2] = ["info-cache.json", "window-cache.j
 /// durable storage's import twin too), and its storage directory, the
 /// file and the directory each through the `trash` CLI first with a
 /// removal fallback; then the after-removal hook runs and the session's
-/// artifact partition goes. The hook runs once the session is gone but
-/// BEFORE the artifact partition's removal (the daemon's
+/// artifact partition and its kernel snapshots in the work root go. The
+/// hook runs once the session is gone but BEFORE the artifact partition's
+/// removal (the daemon's
 /// `cancelScheduledJobsForSessionFile`, which needs the partition
 /// registered on the store). Answers the TS `DeleteSessionFileResult`
 /// wire object.
@@ -371,6 +372,8 @@ pub(crate) async fn delete_saved_session_storage(
     }
     let location = SessionLocation::from_path(path.to_path_buf());
     let storage_dir = location.storage_dir();
+    let kernel_snapshots =
+        eukhe_core::kernel::state_snapshot::session_snapshots_dir(agent_dir, &storage_dir);
     let lease = match acquire_offline_lease(&storage_dir, agent_dir).await {
         Ok(lease) => lease,
         Err(error) => return json!({ "ok": false, "error": error.to_string() }),
@@ -404,6 +407,16 @@ pub(crate) async fn delete_saved_session_storage(
         Ok(Ok(method)) => {
             after_removed(path);
             remove_session_artifacts(path);
+            if let Some(dir) = kernel_snapshots {
+                match std::fs::remove_dir_all(&dir) {
+                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => tracing::warn!(
+                        %error,
+                        dir = %dir.display(),
+                        "the deleted session's kernel snapshots stay"
+                    ),
+                    Ok(()) | Err(_) => {}
+                }
+            }
             json!({ "ok": true, "method": method })
         }
         Ok(Err(error)) => json!({ "ok": false, "error": error.to_string() }),

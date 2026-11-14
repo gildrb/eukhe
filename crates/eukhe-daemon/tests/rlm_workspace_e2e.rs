@@ -228,6 +228,8 @@ fn tool_call(code: &str) -> Value {
 /// An isolated child edits its copy while the parent edits the original;
 /// the child's end takes its changes back and reports the conflict.
 #[test]
+// One scenario, read top to bottom.
+#[allow(clippy::too_many_lines)]
 fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
     let lane = Lane::new();
     for (name, body) in [("a.txt", "a0"), ("b.txt", "b0"), ("c.txt", "c0")] {
@@ -289,8 +291,12 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
 
     let receipt = lane.receipt("parent");
     let child_id = receipt["id"].as_str().expect("child id").to_owned();
-    // `<agent dir>/workspaces/<parent session id>/<child id>`.
-    let parents: Vec<PathBuf> = std::fs::read_dir(lane.agent_dir().join("workspaces"))
+    // `<work root>/workspaces/<parent session id>/<child id>`; nothing in
+    // the agent dir.
+    assert!(!lane.agent_dir().join("workspaces").exists());
+    let work_root =
+        eukhe_types::platform::dirs::work_root_of(&lane.agent_dir()).expect("a work root");
+    let parents: Vec<PathBuf> = std::fs::read_dir(work_root.join("workspaces"))
         .expect("workspaces dir")
         .map(|entry| entry.expect("workspaces entry").path())
         .collect();

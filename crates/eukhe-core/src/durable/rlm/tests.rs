@@ -111,9 +111,12 @@ impl Fixture {
     /// after its payload).
     fn manifest_file(&self, conversation: ConversationId) -> PathBuf {
         manifest_path_in(
-            self.storage()
-                .join("kernels")
-                .join(conversation.to_string()),
+            crate::kernel::state_snapshot::session_snapshots_dir(
+                &self.dir.path().join("agent"),
+                &self.storage(),
+            )
+            .expect("a work root")
+            .join(conversation.to_string()),
         )
     }
 }

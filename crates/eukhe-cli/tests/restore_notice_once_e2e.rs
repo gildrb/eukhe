@@ -70,12 +70,19 @@ fn stored_restores(session_dir: &Path) -> usize {
     })
 }
 
-/// Whether a kernel snapshot of the session under `session_dir` saved `x`.
+/// Whether a kernel snapshot of the session under `session_dir` (in the
+/// work root of its agent dir, `session_dir`'s parent) saved `x`.
 fn snapshot_holds_x(session_dir: &Path) -> bool {
     let Some(storage) = session_dirs(session_dir).into_iter().next() else {
         return false;
     };
-    let Ok(kernels) = std::fs::read_dir(storage.join("kernels")) else {
+    let agent_dir = session_dir.parent().expect("the agent dir");
+    let Some(kernels) =
+        eukhe_core::kernel::state_snapshot::session_snapshots_dir(agent_dir, &storage)
+    else {
+        return false;
+    };
+    let Ok(kernels) = std::fs::read_dir(kernels) else {
         return false;
     };
     kernels.flatten().any(|kernel| {

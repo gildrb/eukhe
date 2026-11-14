@@ -374,7 +374,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     // the child already works in.
                     WorkspaceMode::Isolated => {
                         let workspace = ChildWorkspace::at(
-                            this.workspace_root(&request.child.rlm_child_id, &identity),
+                            this.workspace_root(&request.child.rlm_child_id, &identity)?,
                         );
                         workspace
                             .create(Path::new(&parent_cwd))
@@ -827,7 +827,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             // conflicting versions) stays for the parent to read.
             let root = {
                 let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
-                this.workspace_root(&request.rlm_child_id, &identity)
+                this.workspace_root(&request.rlm_child_id, &identity)?
             };
             let workspace = ChildWorkspace::at(root);
             if workspace.is_created() {
@@ -1036,7 +1036,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         Box::pin(async move {
             let root = {
                 let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
-                this.workspace_root(&request.rlm_child_id, &identity)
+                this.workspace_root(&request.rlm_child_id, &identity)?
             };
             let workspace = ChildWorkspace::at(root);
             if !workspace.is_created() {

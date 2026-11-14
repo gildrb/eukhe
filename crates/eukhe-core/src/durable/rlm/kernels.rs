@@ -1,5 +1,6 @@
 //! One Python kernel per conversation: the provisioner pool, its namespace
-//! snapshot directories under the session storage, the boot notices
+//! snapshot directories in the work root
+//! ([`crate::kernel::state_snapshot::session_snapshots_dir`]), the boot notices
 //! (`ipython_state_restored`, `python_skills_unavailable`) a boot owes the
 //! model, and the per-request host dispatch with the durable call context.
 //! A tree move hands the main conversation's kernel to the conversation it
@@ -27,17 +28,16 @@ use crate::kernel::shared::{
     host_request_unavailable, HostHandlerFuture, HostRequestHandlers, HostRequestPayload,
     KeptCredentials, KernelHostDispatch, KernelHostRequest, KernelShutdownOptions,
 };
-use crate::kernel::state_snapshot::{manifest_path_in, snapshot_path_in, RestoreResult};
+use crate::kernel::state_snapshot::{
+    manifest_path_in, move_storage_snapshots, session_snapshots_dir, snapshot_path_in,
+    RestoreResult,
+};
 use crate::kernel::transport::KernelTransport;
 use crate::mcp::McpServerConfig;
 
 /// Bound on the background MCP settle after a prewarm boot (one wedged
 /// server must not keep the settle task alive forever).
 const MCP_SETTLE_PER_SERVER_TIMEOUT_MS: u64 = 10_000;
-
-/// Directory under the session storage holding each conversation's kernel
-/// snapshot (`kernel-state.dill` + manifest) and stderr log.
-const KERNELS_DIR: &str = "kernels";
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -110,22 +110,34 @@ pub(crate) struct KernelPool {
 }
 
 impl KernelPool {
+    /// The pool of the session `deps`; snapshot directories an older Eukhe
+    /// kept in the storage move to the work root first.
     pub(crate) fn new(deps: &Arc<HostDeps>) -> Self {
+        if let Some(storage) = &deps.storage_dir {
+            if let Err(error) = move_storage_snapshots(&deps.agent_dir, storage) {
+                tracing::warn!(
+                    %error,
+                    storage = %storage.display(),
+                    "kernel snapshots stay in the storage: the move to the work root failed"
+                );
+            }
+        }
         Self {
             deps: Arc::downgrade(deps),
             kernels: Mutex::new(HashMap::new()),
         }
     }
 
-    /// The snapshot directory of `conversation_id`'s kernel; `None` for
-    /// memory storage (nothing to revive from).
+    /// The snapshot directory of `conversation_id`'s kernel (its
+    /// `kernel-state.dill`, manifest and stderr log), in the work root;
+    /// `None` for memory storage (nothing to revive from).
     pub(crate) fn snapshot_dir(
         deps: &HostDeps,
         conversation_id: ConversationId,
     ) -> Option<PathBuf> {
-        deps.storage_dir
-            .as_ref()
-            .map(|dir| dir.join(KERNELS_DIR).join(conversation_id.to_string()))
+        let storage = deps.storage_dir.as_ref()?;
+        session_snapshots_dir(&deps.agent_dir, storage)
+            .map(|dir| dir.join(conversation_id.to_string()))
     }
 
     /// The kernel of `conversation_id` when one was created (never creates

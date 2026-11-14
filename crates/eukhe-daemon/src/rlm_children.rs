@@ -462,21 +462,82 @@ impl SupervisorChildSessionsInner {
 
     /// The root of child `child_id`'s isolated workspace (its copies of
     /// the parent's workspace and the hand-back record), beside the
-    /// parent's other children's.
-    fn workspace_root(&self, child_id: &str, identity: &ParentIdentity) -> PathBuf {
-        match &identity.session_id {
-            Some(session_id) => self
-                .agent_dir
-                .join("workspaces")
-                .join(session_id)
-                .join(child_id),
-            // No persistent parent: the ephemeral temp-dir fallback of
-            // [`Self::child_session_path`].
-            None => std::env::temp_dir()
-                .join("eukhe-rlm-workspaces")
-                .join(child_id),
-        }
+    /// parent's other children's, in the work root:
+    /// `<work root>/workspaces/<parent session id>/<child id>`, or
+    /// `<work root>/workspaces/ephemeral/<child id>` for a parent without a
+    /// session. Its missing parents are created private. A root an older
+    /// Eukhe made (in the agent dir, or the temp dir for a parent without
+    /// a session) moves here first ([`move_legacy_workspace`]).
+    fn workspace_root(&self, child_id: &str, identity: &ParentIdentity) -> Result<PathBuf> {
+        let work_root =
+            eukhe_types::platform::dirs::work_root_of(&self.agent_dir).with_context(|| {
+                format!(
+                    "the agent dir {} has no work root",
+                    self.agent_dir.display()
+                )
+            })?;
+        let (parent, legacy) = match &identity.session_id {
+            Some(session_id) => (
+                work_root.join(WORKSPACES_DIR).join(session_id),
+                self.agent_dir.join(WORKSPACES_DIR).join(session_id),
+            ),
+            None => (
+                work_root.join(WORKSPACES_DIR).join(EPHEMERAL_PARENT),
+                std::env::temp_dir().join("eukhe-rlm-workspaces"),
+            ),
+        };
+        eukhe_core::platform::perms::create_dir_all_private(&parent)
+            .with_context(|| format!("create the workspaces dir {}", parent.display()))?;
+        let root = parent.join(child_id);
+        move_legacy_workspace(&legacy.join(child_id), &root).with_context(|| {
+            format!(
+                "move child {child_id}'s workspace to the work root {}",
+                root.display()
+            )
+        })?;
+        Ok(root)
     }
+}
+
+/// The directory under the work root holding the child workspaces.
+const WORKSPACES_DIR: &str = "workspaces";
+
+/// The workspaces dir of the children of a parent without a session.
+const EPHEMERAL_PARENT: &str = "ephemeral";
+
+/// Move the child workspace an older Eukhe made at `old` to `new`, leaving
+/// at `old` a symlink to `new`: the child's session keeps its cwd under
+/// `old`, and the parent's records name paths under it. Nothing to move
+/// when nothing or a symlink is at `old`. The symlink is made first as
+/// `<old>.link` and renamed to `old` once the move ends, so a move a crash
+/// cut ends on the next call. A partial copy an interrupted spawn left
+/// (`<old>.staging`) goes: the spawn makes its copy again at `new`.
+fn move_legacy_workspace(old: &Path, new: &Path) -> std::io::Result<()> {
+    let mut link = old.as_os_str().to_os_string();
+    link.push(".link");
+    let link = PathBuf::from(link);
+    let is_link = |path: &Path| match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta.file_type().is_symlink())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    };
+    match is_link(old)? {
+        // The move ended before the crash: only the link's rename is left.
+        None if is_link(&link)? == Some(true) => return std::fs::rename(&link, old),
+        Some(true) | None => return Ok(()),
+        Some(false) => {}
+    }
+    let mut staging = old.as_os_str().to_os_string();
+    staging.push(".staging");
+    match std::fs::remove_dir_all(PathBuf::from(staging)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        Ok(()) | Err(_) => {}
+    }
+    if is_link(&link)?.is_none() {
+        std::os::unix::fs::symlink(new, &link)?;
+    }
+    eukhe_core::platform::move_dir(old, new)?;
+    std::fs::rename(&link, old)
 }
 
 /// The `abort` field of a parent's cancel of its RLM child: the child's

@@ -9,7 +9,7 @@
 //! its end.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use eukhe_core::child_workspace::{Handback, WorkspaceMode};
@@ -843,8 +843,8 @@ fn file_map(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
 /// Spawn `sub-0192a000` isolated in a parent whose workspace (`parent`)
 /// holds `a.txt`, `b.txt`, `c.txt`, a `.gitignore` and an ignored
 /// `target/x`; assert the child's create names its copy as its cwd and
-/// the copy holds the files not ignored. Returns the host and the
-/// workspace root.
+/// the copy holds the files not ignored, in the work root beside
+/// `agent_dir` (created here). Returns the host and the workspace root.
 async fn spawn_isolated(
     agent_dir: &Path,
     parent: &Path,
@@ -856,6 +856,7 @@ async fn spawn_isolated(
         ("c.txt", "c0"),
         ("target/x", "build output"),
     ]);
+    std::fs::create_dir_all(agent_dir).unwrap();
     for (path, body) in &parent_files {
         let path = parent.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -877,6 +878,7 @@ async fn spawn_isolated(
         .await
         .unwrap();
     let root = agent_dir
+        .with_file_name("agent-work")
         .join("workspaces")
         .join("parent-session")
         .join("sub-0192a000");
@@ -914,7 +916,7 @@ fn handback_request() -> RlmChildHandbackRequest {
 async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
     let dir = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();
-    let (sessions, root) = spawn_isolated(dir.path(), parent.path()).await;
+    let (sessions, root) = spawn_isolated(&dir.path().join("agent"), parent.path()).await;
     let tree = root.join("tree");
     std::fs::write(tree.join("a.txt"), "a-child").unwrap();
     std::fs::write(tree.join("c.txt"), "c-child").unwrap();
@@ -964,7 +966,7 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
 async fn deleting_an_isolated_child_hands_its_workspace_back_first() {
     let dir = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();
-    let (sessions, root) = spawn_isolated(dir.path(), parent.path()).await;
+    let (sessions, root) = spawn_isolated(&dir.path().join("agent"), parent.path()).await;
     std::fs::write(root.join("tree").join("a.txt"), "a-child").unwrap();
     sessions
         .delete(RlmChildDeleteRequest {
@@ -992,5 +994,76 @@ async fn deleting_an_isolated_child_hands_its_workspace_back_first() {
             ("c.txt", "c0"),
             ("target/x", "build output"),
         ])
+    );
+}
+
+/// Migration: a child an older Eukhe spawned works in `<agent
+/// dir>/workspaces/<parent session>/<child>`. On first use the upgraded
+/// host moves the copy to the work root and leaves a symlink at the old
+/// place (the child's session keeps its cwd there); the hand-back loses
+/// none of the child's changes.
+#[tokio::test]
+async fn a_workspace_in_the_agent_dir_moves_to_the_work_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let agent_dir = dir.path().join("agent");
+    let (sessions, root) = spawn_isolated(&agent_dir, parent.path()).await;
+    let old = agent_dir.join("workspaces/parent-session/sub-0192a000");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    std::fs::rename(&root, &old).unwrap();
+    std::fs::write(old.join("tree/a.txt"), "a-child").unwrap();
+    let handback = sessions.hand_back(handback_request()).await.unwrap();
+    assert_eq!(
+        (
+            handback,
+            files_under(parent.path()),
+            std::fs::read_link(&old).ok()
+        ),
+        (
+            Some(Handback {
+                taken: vec!["a.txt".to_owned()],
+                conflicts: Vec::new(),
+                kept: None,
+            }),
+            file_map(&[
+                (".gitignore", "target/\n"),
+                ("a.txt", "a-child"),
+                ("b.txt", "b0"),
+                ("c.txt", "c0"),
+                ("target/x", "build output"),
+            ]),
+            Some(root),
+        )
+    );
+}
+
+/// A move a crash cut once the copy was in the work root, before its
+/// symlink (made first as `<old>.link`) took the old place: the next use
+/// renames the symlink there.
+#[tokio::test]
+async fn a_workspace_move_cut_before_its_link_ends_on_next_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let agent_dir = dir.path().join("agent");
+    let (sessions, root) = spawn_isolated(&agent_dir, parent.path()).await;
+    let old = agent_dir.join("workspaces/parent-session/sub-0192a000");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&root, old.with_file_name("sub-0192a000.link")).unwrap();
+    let handback = sessions.hand_back(handback_request()).await.unwrap();
+    assert_eq!(
+        (
+            handback,
+            std::fs::read_link(&old).ok(),
+            old.with_file_name("sub-0192a000.link").exists(),
+        ),
+        (
+            Some(Handback {
+                taken: Vec::new(),
+                conflicts: Vec::new(),
+                kept: None,
+            }),
+            Some::<PathBuf>(root),
+            false
+        )
     );
 }
