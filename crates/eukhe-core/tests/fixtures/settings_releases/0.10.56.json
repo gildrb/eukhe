@@ -1,0 +1,5605 @@
+{
+  "releases": [
+    "0.10.56",
+    "0.10.57",
+    "0.10.58"
+  ],
+  "documents": [
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "off",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": 0,
+          "maxTurns": 0,
+          "maxTokens": 0,
+          "timeoutMs": 0
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "off",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "default",
+        "chatDetail": "overview",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "off"
+        },
+        "workflow": {
+          "size": "small"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": {
+          "type": "local"
+        },
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "off",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": 0.0,
+        "autonomous.maxTurns": 0.0,
+        "autonomous.maxTokens": 0.0,
+        "autonomous.timeoutMs": 0.0,
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "off",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "default",
+        "chatDetail": "overview",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "off",
+        "workflow.size": "small",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": {
+          "type": "local"
+        },
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "minimal",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "minimal",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": 7,
+          "maxTurns": 7,
+          "maxTokens": 7,
+          "timeoutMs": 7
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "collapsed",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "details",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "final"
+        },
+        "workflow": {
+          "size": "medium"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": {
+          "type": "ssh",
+          "host": "fixture-host"
+        },
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "minimal",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "minimal",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": 7.0,
+        "autonomous.maxTurns": 7.0,
+        "autonomous.maxTokens": 7.0,
+        "autonomous.timeoutMs": 7.0,
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "collapsed",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "details",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "final",
+        "workflow.size": "medium",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": {
+          "type": "ssh",
+          "host": "fixture-host"
+        },
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "low",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "low",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": 2.5,
+          "maxTurns": 2.5,
+          "maxTokens": 2.5,
+          "timeoutMs": 2.5
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "full",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "user-only",
+        "chatDetail": "all",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "streaming"
+        },
+        "workflow": {
+          "size": "large"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": {
+          "type": "ssh",
+          "host": "fixture-host",
+          "identity": "~/.ssh/fixture",
+          "user": "fixture",
+          "port": 22
+        },
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "low",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "low",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": 2.5,
+        "autonomous.maxTurns": 2.5,
+        "autonomous.maxTokens": 2.5,
+        "autonomous.timeoutMs": 2.5,
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "full",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "user-only",
+        "chatDetail": "all",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "streaming",
+        "workflow.size": "large",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": {
+          "type": "ssh",
+          "host": "fixture-host",
+          "identity": "~/.ssh/fixture",
+          "user": "fixture",
+          "port": 22
+        },
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "medium",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "medium",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": -1,
+          "maxTurns": -1,
+          "maxTokens": -1,
+          "timeoutMs": -1
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-sse": {
+            "type": "sse",
+            "url": "https://example.invalid/sse"
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "off",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "overview",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "off"
+        },
+        "workflow": {
+          "size": "small"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": 0,
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "medium",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "medium",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": -1.0,
+        "autonomous.maxTurns": -1.0,
+        "autonomous.maxTokens": -1.0,
+        "autonomous.timeoutMs": -1.0,
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-sse": {
+            "type": "sse",
+            "url": "https://example.invalid/sse"
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "off",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "overview",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "off",
+        "workflow.size": "small",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": 0,
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "high",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "high",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": "off",
+          "maxTurns": "off",
+          "maxTokens": "off",
+          "timeoutMs": "off"
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-plain": {
+            "command": "fixture-mcp"
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "collapsed",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "all",
+        "chatDetail": "details",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "final"
+        },
+        "workflow": {
+          "size": "medium"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": 7,
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "high",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "high",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": "off",
+        "autonomous.maxTurns": "off",
+        "autonomous.maxTokens": "off",
+        "autonomous.timeoutMs": "off",
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-plain": {
+            "command": "fixture-mcp"
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "collapsed",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "all",
+        "chatDetail": "details",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "final",
+        "workflow.size": "medium",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": 7,
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "xhigh",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "xhigh",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": "none",
+          "maxTurns": "none",
+          "maxTokens": "none",
+          "timeoutMs": "none"
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {},
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "full",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "default",
+        "chatDetail": "all",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "streaming"
+        },
+        "workflow": {
+          "size": "large"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": 2.5,
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "xhigh",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "xhigh",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": "none",
+        "autonomous.maxTurns": "none",
+        "autonomous.maxTokens": "none",
+        "autonomous.timeoutMs": "none",
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {},
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "full",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "default",
+        "chatDetail": "all",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "streaming",
+        "workflow.size": "large",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": 2.5,
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "max",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "max",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": "unlimited",
+          "maxTurns": "unlimited",
+          "maxTokens": "unlimited",
+          "timeoutMs": "unlimited"
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "off",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "overview",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "off"
+        },
+        "workflow": {
+          "size": "small"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": -1,
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "max",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "max",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": "unlimited",
+        "autonomous.maxTurns": "unlimited",
+        "autonomous.maxTokens": "unlimited",
+        "autonomous.timeoutMs": "unlimited",
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "off",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "overview",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "off",
+        "workflow.size": "small",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": -1,
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "off",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": "fixture",
+          "maxTurns": "fixture",
+          "maxTokens": "fixture",
+          "timeoutMs": "fixture"
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "collapsed",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "user-only",
+        "chatDetail": "details",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "final"
+        },
+        "workflow": {
+          "size": "medium"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": "off",
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "off",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": "fixture",
+        "autonomous.maxTurns": "fixture",
+        "autonomous.maxTokens": "fixture",
+        "autonomous.timeoutMs": "fixture",
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "collapsed",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "user-only",
+        "chatDetail": "details",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "final",
+        "workflow.size": "medium",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": "off",
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "minimal",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "minimal",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": 0,
+          "maxTurns": 0,
+          "maxTokens": 0,
+          "timeoutMs": 0
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "full",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "all",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "streaming"
+        },
+        "workflow": {
+          "size": "large"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": "none",
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "minimal",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "minimal",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": 0.0,
+        "autonomous.maxTurns": 0.0,
+        "autonomous.maxTokens": 0.0,
+        "autonomous.timeoutMs": 0.0,
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "full",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "all",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "streaming",
+        "workflow.size": "large",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": "none",
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "low",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "low",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": 7,
+          "maxTurns": 7,
+          "maxTokens": 7,
+          "timeoutMs": 7
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-sse": {
+            "type": "sse",
+            "url": "https://example.invalid/sse"
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "off",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "all",
+        "chatDetail": "overview",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "off"
+        },
+        "workflow": {
+          "size": "small"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": "unlimited",
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "low",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "low",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": 7.0,
+        "autonomous.maxTurns": 7.0,
+        "autonomous.maxTokens": 7.0,
+        "autonomous.timeoutMs": 7.0,
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-sse": {
+            "type": "sse",
+            "url": "https://example.invalid/sse"
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "off",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "all",
+        "chatDetail": "overview",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "off",
+        "workflow.size": "small",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": "unlimited",
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "medium",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "medium",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": 2.5,
+          "maxTurns": 2.5,
+          "maxTokens": 2.5,
+          "timeoutMs": 2.5
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-plain": {
+            "command": "fixture-mcp"
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "collapsed",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "default",
+        "chatDetail": "details",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "final"
+        },
+        "workflow": {
+          "size": "medium"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": true,
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "medium",
+        "defaultServiceTier": "auto",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "medium",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": 2.5,
+        "autonomous.maxTurns": 2.5,
+        "autonomous.maxTokens": 2.5,
+        "autonomous.timeoutMs": 2.5,
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-plain": {
+            "command": "fixture-mcp"
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "collapsed",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "default",
+        "chatDetail": "details",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "final",
+        "workflow.size": "medium",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": true,
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "high",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "high",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": -1,
+          "maxTurns": -1,
+          "maxTokens": -1,
+          "timeoutMs": -1
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {},
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "full",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "all",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "streaming"
+        },
+        "workflow": {
+          "size": "large"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": false,
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "high",
+        "defaultServiceTier": "default",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": "none",
+        "sessionArchiveMaxAgeDays": "none",
+        "sessionArchiveMaxSessions": "none",
+        "transport": "websocket-cached",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "high",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": -1.0,
+        "autonomous.maxTurns": -1.0,
+        "autonomous.maxTokens": -1.0,
+        "autonomous.timeoutMs": -1.0,
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {},
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "full",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "no-tools",
+        "chatDetail": "all",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "streaming",
+        "workflow.size": "large",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": false,
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "xhigh",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "xhigh",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": "off",
+          "maxTurns": "off",
+          "maxTokens": "off",
+          "timeoutMs": "off"
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "off",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "user-only",
+        "chatDetail": "overview",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "off"
+        },
+        "workflow": {
+          "size": "small"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": "fixture",
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "xhigh",
+        "defaultServiceTier": "flex",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": 7,
+        "sessionArchiveMaxAgeDays": 7,
+        "sessionArchiveMaxSessions": 7,
+        "transport": "auto",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "xhigh",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": "off",
+        "autonomous.maxTurns": "off",
+        "autonomous.maxTokens": "off",
+        "autonomous.timeoutMs": "off",
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {},
+        "mcpCatalogSources": [],
+        "packages": [],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "off",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "user-only",
+        "chatDetail": "overview",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "off",
+        "workflow.size": "small",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": "fixture",
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "max",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction": {
+          "enabled": false,
+          "reserveTokens": 7,
+          "keepRecentTokens": 7,
+          "agentCallable": false,
+          "providerTokenCount": false
+        },
+        "memory": {
+          "model": "",
+          "thinking": "max",
+          "settleTimeoutMs": 7
+        },
+        "autoRefine": {
+          "enabled": false,
+          "turnInterval": 7,
+          "compact": false,
+          "cooldownMs": 7
+        },
+        "factory": {
+          "enabled": false
+        },
+        "branchSummary": {
+          "reserveTokens": 7,
+          "skipPrompt": false
+        },
+        "retry": {
+          "enabled": false,
+          "maxRetries": 7,
+          "baseDelayMs": 7,
+          "failover": {
+            "enabled": false,
+            "maxRetries": 7,
+            "baseDelayMs": 7,
+            "maxDelayMs": 7
+          },
+          "provider": {
+            "timeoutMs": 7,
+            "maxRetryDelayMs": 7,
+            "streamIdleTimeoutMs": 7,
+            "streamRepeatLimit": 7,
+            "waitForUsage": {
+              "pauseUntilReset": false,
+              "maxPauseMs": 7,
+              "maxParks": 7
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous": {
+          "maxContinuations": "none",
+          "maxTurns": "none",
+          "maxTokens": "none",
+          "timeoutMs": "none"
+        },
+        "directors": {
+          "stackCap": 7,
+          "maxSteps": 7,
+          "stallSteps": 7
+        },
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false,
+          "showTerminalProgress": false,
+          "showSpeed": false,
+          "fullscreen": false,
+          "pinnedAgents": "collapsed",
+          "stuckAfterSecs": 7,
+          "streamPace": {
+            "minChars": 7,
+            "lag": 7
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": false,
+          "terms": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": false
+        },
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "details",
+        "thinkingBudgets": {
+          "minimal": 7,
+          "low": 7,
+          "medium": 7,
+          "high": 7
+        },
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown": {
+          "codeBlockIndent": "",
+          "mermaid": "final"
+        },
+        "workflow": {
+          "size": "medium"
+        },
+        "warnings": {
+          "anthropicExtraUsage": false
+        },
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "",
+            "allow": [
+              "fixture-a",
+              "fixture-b"
+            ],
+            "cliPath": "",
+            "cwd": "",
+            "model": ""
+          }
+        },
+        "kernelTransport": {},
+        "shell": {
+          "autoEffects": [
+            "read",
+            "write",
+            "exec",
+            "net",
+            "outside",
+            "protected",
+            "secret"
+          ]
+        },
+        "ssh": {
+          "hosts": [
+            "fixture-a",
+            "fixture-b"
+          ]
+        },
+        "modelRoles": {
+          "tiny": "",
+          "judge": "",
+          "translate": "",
+          "speech": "",
+          "dictation": ""
+        },
+        "providers": {
+          "tinyModelDevice": "",
+          "tinyModelDtype": "",
+          "tinyRuntimeLibrary": ""
+        },
+        "titles": {
+          "generate": false
+        },
+        "tts": {
+          "localVoice": ""
+        },
+        "stt": {
+          "enabled": false
+        }
+      },
+      "effective": {
+        "onboardingShown": false,
+        "onboardingCompleted": false,
+        "defaultProvider": "",
+        "defaultModel": "",
+        "subagentDefaultModel": "",
+        "recentModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "auxiliaryModel": "",
+        "defaultThinkingLevel": "max",
+        "defaultServiceTier": "scale",
+        "rlmMaxDepth": 7,
+        "providerMaxInFlight": {
+          "fixture": 4
+        },
+        "providerMaxQueued": 7,
+        "subagentMaxConcurrency": 7,
+        "subagentStallMs": 7,
+        "toolBlockingBudgetMs": 7,
+        "maxToolRounds": 7,
+        "idleEvictionMinutes": 0,
+        "sessionArchiveMaxAgeDays": 0,
+        "sessionArchiveMaxSessions": 0,
+        "transport": "sse",
+        "steeringMode": "one-at-a-time",
+        "followUpMode": "one-at-a-time",
+        "theme": "",
+        "compaction.enabled": false,
+        "compaction.reserveTokens": 7,
+        "compaction.keepRecentTokens": 7,
+        "compaction.agentCallable": false,
+        "compaction.providerTokenCount": false,
+        "memory.model": "",
+        "memory.thinking": "max",
+        "memory.settleTimeoutMs": 7,
+        "autoRefine.enabled": false,
+        "autoRefine.turnInterval": 7,
+        "autoRefine.compact": false,
+        "autoRefine.cooldownMs": 7,
+        "factory.enabled": false,
+        "branchSummary.reserveTokens": 7,
+        "branchSummary.skipPrompt": false,
+        "retry.enabled": false,
+        "retry.maxRetries": 7,
+        "retry.baseDelayMs": 7,
+        "retry.failover.enabled": false,
+        "retry.failover.maxRetries": 7,
+        "retry.failover.baseDelayMs": 7,
+        "retry.failover.maxDelayMs": 7,
+        "retry.provider.timeoutMs": 7,
+        "retry.provider.maxRetryDelayMs": 7,
+        "retry.provider.streamIdleTimeoutMs": 7,
+        "retry.provider.streamRepeatLimit": 7,
+        "retry.provider.waitForUsage.pauseUntilReset": false,
+        "retry.provider.waitForUsage.maxPauseMs": 7,
+        "retry.provider.waitForUsage.maxParks": 7,
+        "providerBackupModel": "",
+        "imageModel": "",
+        "autonomous.maxContinuations": "none",
+        "autonomous.maxTurns": "none",
+        "autonomous.maxTokens": "none",
+        "autonomous.timeoutMs": "none",
+        "directors.stackCap": 7,
+        "directors.maxSteps": 7,
+        "directors.stallSteps": 7,
+        "shellPath": "",
+        "quietStartup": false,
+        "shellCommandPrefix": "",
+        "npmCommand": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "mcpServers": {
+          "fixture-stdio": {
+            "type": "stdio",
+            "command": "fixture-mcp",
+            "args": [
+              "--x"
+            ]
+          }
+        },
+        "mcpCatalogSources": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "packages": [
+          "npm:fixture-package"
+        ],
+        "skills": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "prompts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "themes": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "enableSkillCommands": false,
+        "enableBuiltinSkills": false,
+        "terminal.showImages": false,
+        "terminal.clearOnShrink": false,
+        "terminal.showTerminalProgress": false,
+        "terminal.showSpeed": false,
+        "privacy.anonymizeRemote": false,
+        "privacy.terms": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "terminal.fullscreen": false,
+        "terminal.pinnedAgents": "collapsed",
+        "terminal.stuckAfterSecs": 7,
+        "terminal.streamPace.minChars": 7,
+        "terminal.streamPace.lag": 7,
+        "images.autoResize": false,
+        "images.blockImages": false,
+        "enabledModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "allowedModels": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "treeFilterMode": "labeled-only",
+        "chatDetail": "details",
+        "thinkingBudgets.minimal": 7,
+        "thinkingBudgets.low": 7,
+        "thinkingBudgets.medium": 7,
+        "thinkingBudgets.high": 7,
+        "editorPaddingX": 7,
+        "autocompleteMaxVisible": 7,
+        "showHardwareCursor": false,
+        "markdown.codeBlockIndent": "",
+        "markdown.mermaid": "final",
+        "workflow.size": "medium",
+        "warnings.anthropicExtraUsage": false,
+        "sessionDir": "",
+        "requestTiming": false,
+        "trustedProjects": [],
+        "gateway.signal.account": "",
+        "gateway.signal.allow": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "gateway.signal.cliPath": "",
+        "gateway.signal.cwd": "",
+        "gateway.signal.model": "",
+        "kernelTransport": {},
+        "shell.autoEffects": [
+          "read",
+          "write",
+          "exec",
+          "net",
+          "outside",
+          "protected",
+          "secret"
+        ],
+        "ssh.hosts": [
+          "fixture-a",
+          "fixture-b"
+        ],
+        "modelRoles.tiny": "",
+        "modelRoles.judge": "",
+        "modelRoles.translate": "",
+        "modelRoles.speech": "",
+        "modelRoles.dictation": "",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "",
+        "providers.tinyModelDtype": "",
+        "providers.tinyRuntimeLibrary": "",
+        "titles.generate": false,
+        "tts.localVoice": "",
+        "stt.enabled": false
+      }
+    },
+    {
+      "settings": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction": {
+          "enabled": true,
+          "reserveTokens": 0,
+          "keepRecentTokens": 0,
+          "agentCallable": true,
+          "providerTokenCount": true
+        },
+        "memory": {
+          "model": "fixture",
+          "thinking": "off",
+          "settleTimeoutMs": 0
+        },
+        "autoRefine": {
+          "enabled": true,
+          "turnInterval": 0,
+          "compact": true,
+          "cooldownMs": 0
+        },
+        "factory": {
+          "enabled": true
+        },
+        "branchSummary": {
+          "reserveTokens": 0,
+          "skipPrompt": true
+        },
+        "retry": {
+          "enabled": true,
+          "maxRetries": 0,
+          "baseDelayMs": 0,
+          "failover": {
+            "enabled": true,
+            "maxRetries": 0,
+            "baseDelayMs": 0,
+            "maxDelayMs": 0
+          },
+          "provider": {
+            "timeoutMs": 0,
+            "maxRetryDelayMs": 0,
+            "streamIdleTimeoutMs": 0,
+            "streamRepeatLimit": 0,
+            "waitForUsage": {
+              "pauseUntilReset": true,
+              "maxPauseMs": 0,
+              "maxParks": 0
+            }
+          },
+          "fallbackChains": {
+            "tiny": [],
+            "judge": [],
+            "translate": [],
+            "speech": [],
+            "dictation": []
+          }
+        },
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous": {
+          "maxContinuations": "unlimited",
+          "maxTurns": "unlimited",
+          "maxTokens": "unlimited",
+          "timeoutMs": "unlimited"
+        },
+        "directors": {
+          "stackCap": 0,
+          "maxSteps": 0,
+          "stallSteps": 0
+        },
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal": {
+          "showImages": true,
+          "clearOnShrink": true,
+          "showTerminalProgress": true,
+          "showSpeed": true,
+          "fullscreen": true,
+          "pinnedAgents": "full",
+          "stuckAfterSecs": 0,
+          "streamPace": {
+            "minChars": 0,
+            "lag": 0
+          }
+        },
+        "privacy": {
+          "anonymizeRemote": true,
+          "terms": []
+        },
+        "images": {
+          "autoResize": true,
+          "blockImages": true
+        },
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "all",
+        "chatDetail": "all",
+        "thinkingBudgets": {
+          "minimal": 0,
+          "low": 0,
+          "medium": 0,
+          "high": 0
+        },
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown": {
+          "codeBlockIndent": "fixture",
+          "mermaid": "streaming"
+        },
+        "workflow": {
+          "size": "large"
+        },
+        "warnings": {
+          "anthropicExtraUsage": true
+        },
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway": {
+          "signal": {
+            "account": "fixture",
+            "allow": [],
+            "cliPath": "fixture",
+            "cwd": "fixture",
+            "model": "fixture"
+          }
+        },
+        "kernelTransport": [],
+        "shell": {
+          "autoEffects": []
+        },
+        "ssh": {
+          "hosts": []
+        },
+        "modelRoles": {
+          "tiny": "fixture",
+          "judge": "fixture",
+          "translate": "fixture",
+          "speech": "fixture",
+          "dictation": "fixture"
+        },
+        "providers": {
+          "tinyModelDevice": "fixture",
+          "tinyModelDtype": "fixture",
+          "tinyRuntimeLibrary": "fixture"
+        },
+        "titles": {
+          "generate": true
+        },
+        "tts": {
+          "localVoice": "fixture"
+        },
+        "stt": {
+          "enabled": true
+        }
+      },
+      "effective": {
+        "onboardingShown": true,
+        "onboardingCompleted": true,
+        "defaultProvider": "fixture",
+        "defaultModel": "fixture",
+        "subagentDefaultModel": "fixture",
+        "recentModels": [],
+        "auxiliaryModel": "fixture",
+        "defaultThinkingLevel": "off",
+        "defaultServiceTier": "priority",
+        "rlmMaxDepth": 0,
+        "providerMaxInFlight": {},
+        "providerMaxQueued": 0,
+        "subagentMaxConcurrency": 0,
+        "subagentStallMs": 0,
+        "toolBlockingBudgetMs": 0,
+        "maxToolRounds": 0,
+        "idleEvictionMinutes": "off",
+        "sessionArchiveMaxAgeDays": "off",
+        "sessionArchiveMaxSessions": "off",
+        "transport": "web-socket",
+        "steeringMode": "all",
+        "followUpMode": "all",
+        "theme": "fixture",
+        "compaction.enabled": true,
+        "compaction.reserveTokens": 0,
+        "compaction.keepRecentTokens": 0,
+        "compaction.agentCallable": true,
+        "compaction.providerTokenCount": true,
+        "memory.model": "fixture",
+        "memory.thinking": "off",
+        "memory.settleTimeoutMs": 0,
+        "autoRefine.enabled": true,
+        "autoRefine.turnInterval": 0,
+        "autoRefine.compact": true,
+        "autoRefine.cooldownMs": 0,
+        "factory.enabled": true,
+        "branchSummary.reserveTokens": 0,
+        "branchSummary.skipPrompt": true,
+        "retry.enabled": true,
+        "retry.maxRetries": 0,
+        "retry.baseDelayMs": 0,
+        "retry.failover.enabled": true,
+        "retry.failover.maxRetries": 0,
+        "retry.failover.baseDelayMs": 0,
+        "retry.failover.maxDelayMs": 0,
+        "retry.provider.timeoutMs": 0,
+        "retry.provider.maxRetryDelayMs": 0,
+        "retry.provider.streamIdleTimeoutMs": 0,
+        "retry.provider.streamRepeatLimit": 0,
+        "retry.provider.waitForUsage.pauseUntilReset": true,
+        "retry.provider.waitForUsage.maxPauseMs": 0,
+        "retry.provider.waitForUsage.maxParks": 0,
+        "providerBackupModel": "fixture",
+        "imageModel": "fixture",
+        "autonomous.maxContinuations": "unlimited",
+        "autonomous.maxTurns": "unlimited",
+        "autonomous.maxTokens": "unlimited",
+        "autonomous.timeoutMs": "unlimited",
+        "directors.stackCap": 0,
+        "directors.maxSteps": 0,
+        "directors.stallSteps": 0,
+        "shellPath": "fixture",
+        "quietStartup": true,
+        "shellCommandPrefix": "fixture",
+        "npmCommand": [],
+        "mcpServers": {
+          "fixture-http": {
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "headers": {
+              "X-Fixture": "1"
+            }
+          }
+        },
+        "mcpCatalogSources": [],
+        "packages": [
+          {
+            "source": "npm:fixture-package"
+          }
+        ],
+        "skills": [],
+        "prompts": [],
+        "themes": [],
+        "enableSkillCommands": true,
+        "enableBuiltinSkills": true,
+        "terminal.showImages": true,
+        "terminal.clearOnShrink": true,
+        "terminal.showTerminalProgress": true,
+        "terminal.showSpeed": true,
+        "privacy.anonymizeRemote": true,
+        "privacy.terms": [],
+        "terminal.fullscreen": true,
+        "terminal.pinnedAgents": "full",
+        "terminal.stuckAfterSecs": 0,
+        "terminal.streamPace.minChars": 0,
+        "terminal.streamPace.lag": 0,
+        "images.autoResize": true,
+        "images.blockImages": true,
+        "enabledModels": [],
+        "allowedModels": [],
+        "treeFilterMode": "all",
+        "chatDetail": "all",
+        "thinkingBudgets.minimal": 0,
+        "thinkingBudgets.low": 0,
+        "thinkingBudgets.medium": 0,
+        "thinkingBudgets.high": 0,
+        "editorPaddingX": 0,
+        "autocompleteMaxVisible": 0,
+        "showHardwareCursor": true,
+        "markdown.codeBlockIndent": "fixture",
+        "markdown.mermaid": "streaming",
+        "workflow.size": "large",
+        "warnings.anthropicExtraUsage": true,
+        "sessionDir": "fixture",
+        "requestTiming": true,
+        "trustedProjects": [],
+        "gateway.signal.account": "fixture",
+        "gateway.signal.allow": [],
+        "gateway.signal.cliPath": "fixture",
+        "gateway.signal.cwd": "fixture",
+        "gateway.signal.model": "fixture",
+        "kernelTransport": [],
+        "shell.autoEffects": [],
+        "ssh.hosts": [],
+        "modelRoles.tiny": "fixture",
+        "modelRoles.judge": "fixture",
+        "modelRoles.translate": "fixture",
+        "modelRoles.speech": "fixture",
+        "modelRoles.dictation": "fixture",
+        "retry.fallbackChains.tiny": [],
+        "retry.fallbackChains.judge": [],
+        "retry.fallbackChains.translate": [],
+        "retry.fallbackChains.speech": [],
+        "retry.fallbackChains.dictation": [],
+        "providers.tinyModelDevice": "fixture",
+        "providers.tinyModelDtype": "fixture",
+        "providers.tinyRuntimeLibrary": "fixture",
+        "titles.generate": true,
+        "tts.localVoice": "fixture",
+        "stt.enabled": true
+      }
+    }
+  ]
+}
