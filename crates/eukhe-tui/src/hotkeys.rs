@@ -58,6 +58,8 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
     let interrupt = key_display(kb, "app.interrupt");
     let exit = key_display(kb, "app.exit");
     let select_model = key_display(kb, "app.model.select");
+    let cycle_model = key_display(kb, "app.model.cycleForward");
+    let cycle_model_back = key_display(kb, "app.model.cycleBackward");
     let cycle_thinking = key_display(kb, "app.thinking.cycleForward");
     let cycle_thinking_back = key_display(kb, "app.thinking.cycleBackward");
     let expand_tools = key_display(kb, "app.tools.expand");
@@ -141,6 +143,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
         r"| `{exit}` | Exit (when editor is empty) |
 | `{suspend}` | Suspend to background |
 | `{select_model}` | Open model selector |
+| `{cycle_model}` / `{cycle_model_back}` | Next / previous scoped model (/scoped-models) |
 | `{cycle_thinking}` / `{cycle_thinking_back}` | Next / previous thinking level |
 | `{expand_tools}` | Cycle overview -> thinking + diffs -> all output |"
     );

@@ -273,6 +273,8 @@ impl AgentView {
         let kb = self.editor.keybindings();
         let picker_dock: Option<Vec<Line>> = if let Some(hub) = self.model_hub.as_mut() {
             Some(hub.render(&self.theme, width, kb))
+        } else if let Some(selector) = &self.scoped_models {
+            Some(selector.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.effort_picker {
             Some(picker.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.workflow_size_picker {

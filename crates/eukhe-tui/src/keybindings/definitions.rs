@@ -224,8 +224,21 @@ pub const APP_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
     ("app.suspend", def!(&["ctrl+z"])),
     ("app.model.select", def!(&["ctrl+l"])),
     ("app.model.toggleScope", def!(&["alt+s"])),
-    ("app.model.cycleForward", def!(&["alt+m"])),
-    ("app.model.cycleBackward", def!(&["shift+alt+m"])),
+    // The scoped-model cycle: Ctrl+P, plus the Alt+M keys earlier
+    // releases bound (terminals without the enhanced keyboard protocol
+    // cannot send Shift+Ctrl+P).
+    ("app.model.cycleForward", def!(&["ctrl+p", "alt+m"])),
+    (
+        "app.model.cycleBackward",
+        def!(&["shift+ctrl+p", "shift+alt+m"]),
+    ),
+    // The `/scoped-models` selector's keys.
+    ("app.models.save", def!(&["ctrl+s"])),
+    ("app.models.enableAll", def!(&["ctrl+a"])),
+    ("app.models.clearAll", def!(&["ctrl+x"])),
+    ("app.models.toggleProvider", def!(&["ctrl+p"])),
+    ("app.models.reorderUp", def!(&["alt+up"])),
+    ("app.models.reorderDown", def!(&["alt+down"])),
     (
         "app.thinking.cycleForward",
         def!(&["shift+tab"], scope "editor"),

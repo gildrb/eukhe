@@ -197,6 +197,10 @@ impl SessionUi {
         if view.model_hub.is_some() {
             return self.handle_model_hub_key(key, view).await;
         }
+        // `/scoped-models` owns the frame the same way.
+        if view.scoped_models.is_some() {
+            return self.handle_scoped_models_key(key, view).await;
+        }
         // The `/effort` picker owns the frame the same way.
         if view.effort_picker.is_some() {
             return self.handle_effort_picker_key(key, view).await;
@@ -637,7 +641,7 @@ impl SessionUi {
             return Ok(());
         }
         // TS `app.model.cycleForward`/`app.model.cycleBackward` (defaults
-        // alt+m / shift+alt+m, registered right after the selector): cycle
+        // ctrl+p / shift+ctrl+p and alt+m / shift+alt+m): cycle
         // within the session's scoped list when one is set, else the
         // available catalog.
         if view
@@ -1218,6 +1222,7 @@ mod opening_echo_claim_tests {
             "ctrl+z",
             "ctrl+l",
             "alt+m",
+            "ctrl+p",
             "shift+tab",
             "shift+alt+tab",
             "ctrl+o",

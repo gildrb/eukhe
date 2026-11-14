@@ -515,6 +515,7 @@ impl SessionUi {
                 picker.update_state(current, models, self.model_configured_providers.clone());
             }
         }
+        self.update_scoped_models_catalog(view);
         self.update_model_eligibility_filters(view);
         self.dirty = true;
     }
@@ -652,7 +653,7 @@ impl SessionUi {
     }
 
     /// TS `handleModelCycle` (the `app.model.cycleForward`/`cycleBackward`
-    /// actions, defaults alt+m / shift+alt+m): cycle within the session's
+    /// actions, defaults ctrl+p / shift+ctrl+p and alt+m / shift+alt+m): cycle within the session's
     /// scoped list when one is set, else the available catalog. A `null`
     /// answer is TS's "no other model"; the switch status names the
     /// provider (`Model: provider/id`, unlike the picker's `Model: <id>`),
