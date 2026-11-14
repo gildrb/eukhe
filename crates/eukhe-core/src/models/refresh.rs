@@ -316,7 +316,7 @@ pub fn report_lines(report: &ModelsRefreshReport, clock: &str) -> Vec<String> {
                 let reason = match reason {
                     SkipReason::NoListingEndpoint => "no model-listing endpoint",
                     SkipReason::NotSignedIn => "not signed in",
-                    SkipReason::NotInCatalog => "not in the catalog",
+                    SkipReason::NotInCatalog => "unknown provider",
                 };
                 vec![format!("{provider}: skipped: {reason}")]
             }

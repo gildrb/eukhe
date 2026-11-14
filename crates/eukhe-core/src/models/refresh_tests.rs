@@ -247,6 +247,12 @@ fn the_report_reads_as_lines() {
                 },
             },
             ProviderRefresh {
+                provider: "nope".to_owned(),
+                outcome: RefreshOutcome::Skipped {
+                    reason: SkipReason::NotInCatalog,
+                },
+            },
+            ProviderRefresh {
                 provider: "google".to_owned(),
                 outcome: RefreshOutcome::Failed {
                     error: "Google returned 403".to_owned(),
@@ -271,6 +277,7 @@ fn the_report_reads_as_lines() {
                 "openai-codex: 1 new, 9 already known".to_owned(),
                 "  openai-codex/gpt-6.2  GPT-6.2".to_owned(),
                 "xai: skipped: no model-listing endpoint".to_owned(),
+                "nope: skipped: unknown provider".to_owned(),
                 "google: failed: Google returned 403".to_owned(),
             ],
             vec!["No signed-in provider has a model-listing endpoint.".to_owned()]
