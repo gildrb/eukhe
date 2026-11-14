@@ -531,7 +531,12 @@ fn managed_installs_are_refused_with_their_update_command() {
     };
     let mise = place("mise/installs/github-gildrb-eukhe/0.10.1/eukhe");
     let app = place("Eukhe.app/Contents/MacOS/eukhe");
-    let results = [&mise, &app].map(|exe| install.run(exe, &[], &stub.url()));
+    // A cargo build in the `target` of a checkout. Not this test's own
+    // binary: `CARGO_TARGET_DIR` may build it outside the checkout.
+    let workspace = install.base().join("checkout");
+    let dev = place("checkout/target/release/eukhe");
+    std::fs::write(workspace.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let results = [&mise, &app, &dev].map(|exe| install.run(exe, &[], &stub.url()));
     assert_eq!(
         results,
         [
@@ -551,24 +556,14 @@ fn managed_installs_are_refused_with_their_update_command() {
                     install.base().join("Eukhe.app").display()
                 )
             ),
+            (
+                1,
+                String::new(),
+                format!(
+                    "Error: this eukhe is a cargo build of {ws}. Update it with:\n  git -C {ws} pull && cargo build --release --manifest-path {ws}/Cargo.toml\n",
+                    ws = workspace.display()
+                )
+            ),
         ]
-    );
-    // The test binary itself is a cargo build in this checkout's target.
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let (code, stdout, stderr) =
-        install.run(Path::new(env!("CARGO_BIN_EXE_eukhe")), &[], &stub.url());
-    assert_eq!(
-        (code, stdout, stderr),
-        (
-            1,
-            String::new(),
-            format!(
-                "Error: this eukhe is a cargo build of {ws}. Update it with:\n  git -C {ws} pull && cargo build --release --manifest-path {ws}/Cargo.toml\n",
-                ws = workspace.display()
-            )
-        )
     );
 }
