@@ -801,6 +801,12 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .headers
         .get_or_insert_with(ProviderHeaders::new)
         .insert(resend::IDEMPOTENCY_KEY_HEADER.to_owned(), Some(key));
+    // One transmission per launch (sr165): the transport sends the request
+    // again on its own only to a provider that drops every repeat of its
+    // key; to any other, a failed send is the request's outcome.
+    if !dedups {
+        options.stream.request.max_retries = Some(0);
+    }
     options.stream.session_id = Some(provider_session);
     options.reasoning = reasoning(thinking_level);
     // Thinking off is the caller turning reasoning off.

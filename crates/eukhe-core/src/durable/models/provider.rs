@@ -366,7 +366,17 @@ async fn run_request(
         clock.request_sent();
     }
     let primary = serving.clone();
-    let failover = failover_policy(&settings);
+    let mut failover = failover_policy(&settings);
+    // A request to a provider that drops every repeat of its key may go
+    // out again after a crash (spec O7): every send of it must reach that
+    // provider, so it never fails over to another.
+    if inner
+        .models
+        .get_provider(&primary.provider)
+        .is_some_and(|provider| provider.dedups_requests)
+    {
+        failover.enabled = false;
+    }
     let primary_dispatch = Arc::clone(&original);
     let mut dispatch = original;
     // The request's chain (the primary, then its failover candidates),
