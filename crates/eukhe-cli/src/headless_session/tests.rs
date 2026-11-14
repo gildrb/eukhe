@@ -88,3 +88,51 @@ async fn the_started_session_gets_the_budget_of_the_flags() {
         Some((limits, eukhe_types::budget::BudgetPhase::Working))
     );
 }
+
+/// `--continue --model` without `--thinking`: the continued session's
+/// level carries to the new model, as a model switch in a live session
+/// does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flagged_model_keeps_the_continued_sessions_thinking_level() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let mut options = run_options(dir.path());
+    std::fs::create_dir_all(&options.config.agent_dir).expect("agent dir");
+    std::fs::write(
+        options.config.agent_dir.join("models.json"),
+        r#"{ "providers": { "battery": {
+            "baseUrl": "http://127.0.0.1:9/v1", "apiKey": "battery-key", "api": "openai-completions",
+            "models": [ { "id": "think-a", "reasoning": true }, { "id": "think-b", "reasoning": true } ]
+        } } }"#,
+    )
+    .expect("write models.json");
+    options.session.no_session = true;
+    options.config.provider = Some("battery".to_owned());
+    options.config.model = Some("think-a".to_owned());
+    options.config.thinking = Some(eukhe_types::ai::ModelThinkingLevel::Low);
+    let opened = open_headless_session(&options, HeadlessTarget::Selected, &BACKGROUND_CONTEXT)
+        .await
+        .expect("the session opens");
+
+    options.config.model = Some("think-b".to_owned());
+    options.config.thinking = None;
+    apply_flag_model(&options, &opened.session, &BACKGROUND_CONTEXT)
+        .await
+        .expect("the flags apply");
+
+    let agent = opened
+        .session
+        .main()
+        .agent(&BACKGROUND_CONTEXT)
+        .await
+        .expect("the main agent");
+    assert_eq!(
+        (agent.model, agent.thinking_level),
+        (
+            Some(eukhe_durable::harness::types::ModelRef {
+                provider: "battery".to_owned(),
+                model_id: "think-b".to_owned(),
+            }),
+            eukhe_types::pi_ai::ModelThinkingLevel::Low
+        )
+    );
+}

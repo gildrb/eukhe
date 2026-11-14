@@ -72,18 +72,30 @@ impl Home {
 
     async fn open(&self) -> OpenModel {
         let models = offline_models(&self.agent).models;
-        resolve_open_model(&models, &self.settings(), None, None, &BACKGROUND_CONTEXT)
-            .await
-            .unwrap()
+        resolve_open_model(
+            &models,
+            &self.settings(),
+            None,
+            ThinkingRequest::Default,
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .unwrap()
     }
 
     /// The resolved model and every role's model of these settings.
     async fn resolved_roles(&self) -> (Option<ResolvedModel>, Vec<RoleModel>) {
         let models = offline_models(&self.agent).models;
         let settings = self.settings();
-        let resolved = resolve_session_model(&models, &settings, None, None, &BACKGROUND_CONTEXT)
-            .await
-            .unwrap();
+        let resolved = resolve_session_model(
+            &models,
+            &settings,
+            None,
+            ThinkingRequest::Default,
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .unwrap();
         (resolved, role_table(settings.cvars()))
     }
 }
@@ -128,7 +140,7 @@ async fn saved_choices_survive_an_update_and_a_settings_json_rewrite() {
         &models,
         &SettingsManager::create(&home.cwd, home.agent.join("empty")),
         None,
-        None,
+        ThinkingRequest::Default,
         &BACKGROUND_CONTEXT,
     )
     .await

@@ -13,7 +13,7 @@ use eukhe_ai::auth::AuthOperationOptions;
 use eukhe_ai::models::clamp_thinking_level;
 use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::{default_thinking_level, HostDeps};
+use eukhe_core::durable::{carried_thinking_level, default_thinking_level, HostDeps};
 use eukhe_core::models::roles::{all_roles_reach, own_decl};
 use eukhe_core::models::SetModelSelectionError;
 use eukhe_core::settings::{
@@ -281,14 +281,11 @@ pub(crate) async fn resolve_available_model(
 }
 
 /// Switch the main conversation to `model` in one `configure` commit: the
-/// model and the thinking level, clamped to what the model supports (TS
-/// `_getThinkingLevelForModelSwitch`: `thinking` when given; else, leaving
-/// a model that cannot think, the settings default level (else `medium`),
-/// so switching back restores the level saved while a reasoning model was
-/// active; else the current level). Then the model is saved where `save`
-/// says (the chat default: TS `session.setModel` persists it so the next
-/// session starts here). Returns the applied level once the event mirror
-/// shows the switch.
+/// model and the thinking level, clamped to what the model supports
+/// (`thinking` when given, else [`carried_thinking_level`]). Then the
+/// model is saved where `save` says (the chat default: TS
+/// `session.setModel` persists it so the next session starts here).
+/// Returns the applied level once the event mirror shows the switch.
 pub(crate) async fn apply_model(
     hosted: &HostedSession,
     model: &Model,
@@ -302,16 +299,13 @@ pub(crate) async fn apply_model(
         level
     } else {
         let agent = main.agent(cx).await?;
-        let current_thinks = agent
+        let current = agent
             .model
             .as_ref()
-            .and_then(|current| deps.models.get_model(&current.provider, &current.model_id))
-            .is_some_and(|current| current.reasoning);
-        if current_thinks {
-            agent.thinking_level
-        } else {
+            .and_then(|current| deps.models.get_model(&current.provider, &current.model_id));
+        carried_thinking_level(current.as_ref(), agent.thinking_level, || {
             default_thinking_level(&SettingsManager::create(&deps.cwd, &deps.agent_dir))
-        }
+        })
     };
     let level = clamp_thinking_level(model, current);
     main.configure(

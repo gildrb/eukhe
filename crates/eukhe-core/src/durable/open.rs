@@ -36,7 +36,8 @@ use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
 use super::models::provider::ProviderRuntime;
 use super::models::{
-    create_models, resolve_open_model, ModelsError, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+    create_models, resolve_open_model, ModelsError, ThinkingRequest,
+    DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
 };
 use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
@@ -708,8 +709,14 @@ async fn open_root(
             return Ok((root, None));
         }
         let thinking = config.thinking.unwrap_or(agent.thinking_level);
-        let opened =
-            resolve_open_model(models, manager, config.model.as_ref(), Some(thinking), cx).await?;
+        let opened = resolve_open_model(
+            models,
+            manager,
+            config.model.as_ref(),
+            ThinkingRequest::Explicit(thinking),
+            cx,
+        )
+        .await?;
         let notice = opened.notice();
         if let Some(resolved) = opened.resolved {
             root.configure(
@@ -724,8 +731,10 @@ async fn open_root(
         }
         return Ok((root, notice));
     }
-    let opened =
-        resolve_open_model(models, manager, config.model.as_ref(), config.thinking, cx).await?;
+    let thinking = config
+        .thinking
+        .map_or(ThinkingRequest::Default, ThinkingRequest::Explicit);
+    let opened = resolve_open_model(models, manager, config.model.as_ref(), thinking, cx).await?;
     let notice = opened.notice();
     let mut agent = AgentChange {
         cwd: FieldChange::Set(config.cwd.to_string_lossy().into_owned()),
@@ -790,7 +799,15 @@ async fn settle_main_agent(
     let mut notice = None;
     let model = match state.and_then(|state| state.model) {
         Some(model) => models.get_model(&model.provider, &model.model_id),
-        None => match resolve_open_model(models, manager, config.model.as_ref(), None, cx).await {
+        None => match resolve_open_model(
+            models,
+            manager,
+            config.model.as_ref(),
+            ThinkingRequest::Default,
+            cx,
+        )
+        .await
+        {
             Ok(opened) => {
                 notice = opened.notice();
                 match opened.resolved {

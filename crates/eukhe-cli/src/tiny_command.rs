@@ -251,7 +251,7 @@ async fn default_model(
         &models,
         &context.settings,
         None,
-        None,
+        eukhe_core::durable::ThinkingRequest::Default,
         &BACKGROUND_CONTEXT,
     )
     .await

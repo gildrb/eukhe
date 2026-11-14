@@ -22,7 +22,7 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::cvar::{Aliases, Binds, Command};
-use eukhe_types::pi_ai::{ModelThinkingLevel, Transport};
+use eukhe_types::pi_ai::{Model, ModelThinkingLevel, Transport};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
@@ -673,6 +673,24 @@ pub fn default_thinking_level(manager: &SettingsManager) -> ModelThinkingLevel {
     manager
         .get_default_thinking_level()
         .map_or(ModelThinkingLevel::Medium, thinking_level)
+}
+
+/// The level a model switch carries to the next model when the switch
+/// names none: the session's `level` while its current model can think,
+/// else the `default` (a model that cannot think runs at `off`, which
+/// records no choice of the user's), so leaving such a model restores the
+/// default. Callers clamp it to the next model's ladder.
+#[must_use]
+pub fn carried_thinking_level(
+    current: Option<&Model>,
+    level: ModelThinkingLevel,
+    default: impl FnOnce() -> ModelThinkingLevel,
+) -> ModelThinkingLevel {
+    if current.is_some_and(|model| model.reasoning) {
+        level
+    } else {
+        default()
+    }
 }
 
 #[cfg(test)]

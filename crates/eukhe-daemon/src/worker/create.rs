@@ -1139,7 +1139,10 @@ async fn reconfigure_main(
             &hosted.deps().models,
             &settings,
             Some(request),
-            thinking,
+            thinking.map_or(
+                eukhe_core::durable::ThinkingRequest::Default,
+                eukhe_core::durable::ThinkingRequest::Explicit,
+            ),
             cx,
         )
         .await?

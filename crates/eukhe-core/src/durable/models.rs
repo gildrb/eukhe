@@ -218,6 +218,21 @@ pub struct ResolvedModel {
     pub substituted: Option<Substitution>,
 }
 
+/// The thinking level a conversation asks for when its model resolves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThinkingRequest {
+    /// A level the caller names (`--thinking`): it wins over the model
+    /// pattern's `:level`.
+    Explicit(ModelThinkingLevel),
+    /// The level a continued session carries to its next model
+    /// ([`carried_thinking_level`](super::carried_thinking_level)): the
+    /// model pattern's `:level` wins over it.
+    Carried(ModelThinkingLevel),
+    /// The model pattern's or scoped entry's `:level`, else the settings
+    /// default.
+    Default,
+}
+
 /// The model collection of a session and the models.json diagnostics.
 pub struct SessionModels {
     pub models: Models,
@@ -337,9 +352,10 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Vec<String> {
 /// 3. the result must pass the settings `allowedModels` allowlist (no
 ///    fallback on refusal; an unreadable global settings document fails
 ///    closed);
-/// 4. thinking: `requested_thinking`, else the model pattern's `:level`,
-///    else the scoped entry's `:level`, else `defaultThinkingLevel`, else
-///    `medium` — clamped to the model's supported levels.
+/// 4. thinking ([`ThinkingRequest`]): an explicit level, else the model
+///    pattern's `:level`, else the scoped entry's `:level`, else a carried
+///    level, else `defaultThinkingLevel`, else `medium` — clamped to the
+///    model's supported levels.
 ///
 /// `Ok(None)` when nothing was requested, nothing is saved, and no model
 /// has credentials.
@@ -355,7 +371,7 @@ pub async fn resolve_session_model(
     models: &Models,
     settings: &SettingsManager,
     requested: Option<&ModelRequest>,
-    requested_thinking: Option<ModelThinkingLevel>,
+    thinking: ThinkingRequest,
     cx: &Context,
 ) -> Result<Option<ResolvedModel>, ModelsError> {
     let signal = operation_signal(cx.abort_signal());
@@ -453,9 +469,12 @@ pub async fn resolve_session_model(
     };
 
     enforce_allowlist(settings, &format!("{}/{}", model.provider, model.id))?;
-    let thinking = requested_thinking
-        .or(pattern_thinking)
-        .unwrap_or_else(|| super::default_thinking_level(settings));
+    let thinking = match (thinking, pattern_thinking) {
+        (ThinkingRequest::Explicit(level), _)
+        | (ThinkingRequest::Carried(_) | ThinkingRequest::Default, Some(level))
+        | (ThinkingRequest::Carried(level), None) => level,
+        (ThinkingRequest::Default, None) => super::default_thinking_level(settings),
+    };
     Ok(Some(ResolvedModel {
         thinking: clamp_thinking_level(&model, thinking),
         model: ModelRef {
@@ -512,10 +531,10 @@ pub(crate) async fn resolve_open_model(
     models: &Models,
     settings: &SettingsManager,
     requested: Option<&ModelRequest>,
-    requested_thinking: Option<ModelThinkingLevel>,
+    thinking: ThinkingRequest,
     cx: &Context,
 ) -> Result<OpenModel, ModelsError> {
-    match resolve_session_model(models, settings, requested, requested_thinking, cx).await {
+    match resolve_session_model(models, settings, requested, thinking, cx).await {
         Ok(resolved) => Ok(OpenModel {
             resolved,
             refused: None,
@@ -775,7 +794,7 @@ mod tests {
             models,
             settings,
             requested.as_ref(),
-            thinking,
+            thinking.map_or(ThinkingRequest::Default, ThinkingRequest::Explicit),
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -1113,9 +1132,15 @@ mod tests {
             Err(ModelsError::DefaultUnusable(refused)) => assert_eq!(refused, wanted),
             other => panic!("expected the typed error, got {other:?}"),
         }
-        let opened = resolve_open_model(&models, &unkeyed, None, None, &BACKGROUND_CONTEXT)
-            .await
-            .unwrap();
+        let opened = resolve_open_model(
+            &models,
+            &unkeyed,
+            None,
+            ThinkingRequest::Default,
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             (opened.notice(), opened),
             (

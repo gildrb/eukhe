@@ -11,7 +11,9 @@ use std::collections::HashSet;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::auth::AuthStorage;
-use eukhe_core::durable::{create_models, resolve_session_model, ModelRequest, ModelsError};
+use eukhe_core::durable::{
+    create_models, resolve_session_model, ModelRequest, ModelsError, ThinkingRequest,
+};
 use eukhe_core::models::{resolve_cli_model, ModelRegistry};
 use eukhe_core::settings::{Settings, SettingsManager};
 
@@ -143,7 +145,7 @@ async fn every_listed_model_resolves_in_a_session() {
             &session.models,
             &settings,
             Some(&request),
-            None,
+            ThinkingRequest::Default,
             &BACKGROUND_CONTEXT,
         )
         .await
@@ -185,11 +187,17 @@ async fn requested_models_resolve_exactly_or_are_not_found() {
         let models = &session.models;
         let settings = &settings;
         async move {
-            resolve_session_model(models, settings, Some(&request), None, &BACKGROUND_CONTEXT)
-                .await
-                .map(|resolved| {
-                    resolved.map(|resolved| (resolved.model.provider, resolved.model.model_id))
-                })
+            resolve_session_model(
+                models,
+                settings,
+                Some(&request),
+                ThinkingRequest::Default,
+                &BACKGROUND_CONTEXT,
+            )
+            .await
+            .map(|resolved| {
+                resolved.map(|resolved| (resolved.model.provider, resolved.model.model_id))
+            })
         }
     };
 

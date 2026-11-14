@@ -14,9 +14,10 @@ use eukhe_ai::providers::faux_script::{
 };
 use eukhe_chord::context::Context;
 use eukhe_core::durable::{
-    fork_session, most_recent_session_for_cwd, open_session, read_session_cwd, resolve_session,
-    EukheSession, ForkError, ForkPoint, ImportError, ModelRequest, OpenError, PromptConfig,
-    ResolvedListing, SessionConfig, SessionLocation, SessionRole, SessionStorage,
+    carried_thinking_level, default_thinking_level, fork_session, most_recent_session_for_cwd,
+    open_session, read_session_cwd, resolve_session, EukheSession, ForkError, ForkPoint,
+    ImportError, ModelRequest, OpenError, PromptConfig, ResolvedListing, SessionConfig,
+    SessionLocation, SessionRole, SessionStorage, ThinkingRequest,
 };
 use eukhe_core::session::discovery::SessionSelectorError;
 use eukhe_daemon::hold_refusal::{refusal_message, HoldIdentity};
@@ -642,24 +643,35 @@ fn flag_model(options: &RunOptions) -> Option<ModelRequest> {
 /// `--model` / `--thinking` reconfigure the main conversation, and a main
 /// conversation without a model (an imported legacy session that never
 /// recorded one) gets the run's model (the faux script's, the flags', or
-/// the settings default).
+/// the settings default). `--model` without `--thinking` carries the
+/// session's level to the new model ([`carried_thinking_level`]), as a
+/// model switch in a live session does.
 async fn apply_flag_model(
     options: &RunOptions,
     session: &EukheSession,
     cx: &Context,
 ) -> Result<(), HeadlessSessionError> {
     let main = session.main();
-    let current = main
-        .agent(cx)
-        .await
-        .map_err(HeadlessSessionError::Agent)?
-        .model;
+    let agent = main.agent(cx).await.map_err(HeadlessSessionError::Agent)?;
     let flagged = options.config.model.is_some() || options.config.thinking.is_some();
-    if !flagged && current.is_some() {
+    if !flagged && agent.model.is_some() {
         return Ok(());
     }
+    let deps = session.deps();
+    let settings = deps.settings.manager();
+    let thinking = match (options.config.thinking, &agent.model) {
+        (Some(level), _) => ThinkingRequest::Explicit(thinking_level(level)),
+        (None, Some(current)) => ThinkingRequest::Carried(carried_thinking_level(
+            deps.models
+                .get_model(&current.provider, &current.model_id)
+                .as_ref(),
+            agent.thinking_level,
+            || default_thinking_level(&settings),
+        )),
+        (None, None) => ThinkingRequest::Default,
+    };
     // `--thinking` alone keeps the session's model.
-    let requested = match current {
+    let requested = match agent.model {
         Some(model) if options.config.model.is_none() => Some(ModelRequest::from(model)),
         _ => match std::env::var("EUKHE_FAUX_SCRIPT") {
             Ok(script) => parse_faux_script(&script).ok().map(|script| ModelRequest {
@@ -669,12 +681,11 @@ async fn apply_flag_model(
             Err(_) => flag_model(options),
         },
     };
-    let deps = session.deps();
     let resolved = eukhe_core::durable::resolve_session_model(
         &deps.models,
-        &deps.settings.manager(),
+        &settings,
         requested.as_ref(),
-        options.config.thinking.map(thinking_level),
+        thinking,
         cx,
     )
     .await
