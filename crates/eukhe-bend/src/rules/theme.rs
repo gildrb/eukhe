@@ -10,6 +10,9 @@ use crate::rules::color::get_rgb;
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, expect_core, Entry, Error};
 
+mod theme_rules;
+pub use theme_rules::THEME_RULES;
+
 /// A JSON value of a theme file, as the rules read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Json<'a> {
