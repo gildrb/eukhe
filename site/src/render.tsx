@@ -332,8 +332,10 @@ own process.
 ## Wish
 
 - Eukhe reads \`AGENTS.md\` in the project and puts it in the system prompt.
-- \`eukhe --goal "objective"\` keeps running turns until the agent marks
-  the goal complete or \`--goal-token-budget\` tokens are used.
+- \`eukhe --goal "objective"\` keeps running turns until the goal completes
+  (with acceptance checks: when they all pass) or its responses reach
+  \`--goal-token-budget\` tokens; the agent then wraps up and the run ends at
+  its next final answer.
 - \`eukhe --autonomous --autonomous-gate "cargo test"\` runs \`cargo test\`
   after each turn and runs another turn while it fails, up to the
   limits that \`eukhe --help\` lists.
@@ -363,9 +365,9 @@ crates are not on crates.io. Their API may change with any release.
 have requirements and laws. Loop, the code behind \`--autonomous\` and
 \`--goal\`, has no requirements, spec files or laws yet.
 
-Planned and not built: hard budgets, verified completion, exactly-once
-effects, capability security, replayable record, orchestration at
-scale, stable SDK contract.
+Planned and not built: confinement of the programs the agent runs, checks
+the agent never sees, review of the process for gaming, capability
+security, replayable record, orchestration at scale, stable SDK contract.
 
 ## Install
 

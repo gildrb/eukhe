@@ -31,16 +31,15 @@ The `eukhe` command runs a coding agent on this core in your
 terminal. The `eukhe-sdk` Rust crate runs sessions on it inside your
 own process.
 
-That's Eukhe - and you need nothing else.
-
 ## WISH
 
 Eukhe reads `AGENTS.md` in your project and puts it in the system
 prompt.
 
-`eukhe --goal "objective"` starts a session that keeps running turns
-until the agent marks the goal complete or `--goal-token-budget`
-tokens are used.
+`eukhe --goal "objective"` keeps running turns until the goal
+completes (with acceptance checks: when they all pass) or its
+responses reach `--goal-token-budget` tokens; the agent then wraps
+up and the run ends at its next final answer.
 
 `eukhe --autonomous --autonomous-gate "cargo test"` runs `cargo test`
 after each turn. If it fails, Eukhe gives the agent its output and
@@ -57,8 +56,8 @@ compares two separately written definitions.
 
 A law is a theorem that the core does what a spec file says, and
 `PROOF.bend` holds a proof of every law. `LAWS.lock` holds a hash of
-each law and spec file, and the repository's pre-push hook rejects a
-push that changes one without the lock. Rust does the IO and calls
+each law and spec file; the pre-push hook and the nightly gate check
+the laws against it. Rust does the IO and calls
 the compiled core wherever a requirement has a law.
 
 The proofs cover the Bend core and say nothing about what the model
@@ -87,26 +86,28 @@ change with any release.
 before acknowledging it. A resumed session keeps every checkpoint and
 has no task left running.
 
-[Memory](spec/memory/) never deletes a message. Each request to the
-model contains the newest messages in full and a one-line summary of
-each older one, and the agent can read the full text of any
-summarized message.
+[Memory](spec/memory/) never deletes a message. In a root session,
+each request to the model holds the newest messages in full and
+one-line summaries of older blocks of messages; the agent can read
+the full text of any summarized message.
 
 [RLM](spec/rlm/) (recursive language model) gives the agent a Python
 REPL in which the conversation so far is a variable. The agent starts
 a subagent there with a function call, and Eukhe refuses a call that
 gives no reason.
 
-[Autoresearch](spec/autoresearch/) improves a number you can measure
-on your code, such as its speed or size. It runs the benchmark after
-each change and keeps the change only if the number improved.
+[Autoresearch](spec/autoresearch/) improves a metric of the code,
+such as its speed or size. The agent writes the benchmark script;
+Eukhe runs it for each experiment, commits a change only when its
+metric beats the best kept run, and resets the others.
 
 Loop is the code behind `--autonomous` and `--goal`. It has no
 requirements, spec files or laws yet.
 
-Planned and not built: hard budgets, verified completion,
-exactly-once effects, capability security, replayable record,
-orchestration at scale, stable SDK contract.
+Planned and not built: confinement of the programs the agent runs,
+checks the agent never sees, review of the process for gaming,
+capability security, replayable record, orchestration at scale,
+stable SDK contract.
 
 [spec/README.md](spec/README.md) also lists requirements and laws for
 tool calls, the tree of agents and subagents, settings and themes.

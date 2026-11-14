@@ -188,7 +188,7 @@ fn shown(limits: &BudgetLimits, amounts: BudgetAmounts) -> String {
 /// The notice of a budget that was set or added to.
 pub(super) fn set_text(report: &BudgetReport) -> String {
     format!(
-        "[budget] This task has a budget: {}. Nothing can be spent past it: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.",
+        "[budget] This task has a budget: {}. Every model request and tool call reserves its worst case before it runs: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.",
         remaining(report)
     )
 }

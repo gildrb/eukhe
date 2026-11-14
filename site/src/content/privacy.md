@@ -20,13 +20,18 @@ The install command downloads the installer from GitHub, under
 ## THE EUKHE PROGRAM
 
 Eukhe runs on your machine. Its chat logs and memory stay in
-`~/.eukhe/` on your disk. Your prompts and the files it reads for them
-go to the model provider you sign in to, under that provider's terms.
-An optional scrubber, `privacy.anonymizeRemote` (off by default),
-gives a remote provider tokens in place of your terms, email
-addresses, phone numbers and IP addresses. Nothing downloads on its
-own: only `eukhe kernel install` and `eukhe tiny-models download`
-fetch files. The source on GitHub shows every connection it makes.
+`~/.eukhe/` on your disk. Prompts, and the files the agent reads, go
+to the providers of the models a session uses (the session's model,
+failover models, the memory model, and any model a check or the agent
+names), under each provider's terms. An optional scrubber,
+`privacy.anonymizeRemote` (off by default), replaces the listed terms
+and the email addresses, phone numbers and IP addresses it detects
+with tokens before a request goes to a remote provider. Eukhe fetches
+its pinned uv and Python the first time the Python kernel starts, and
+a locked package the first time the kernel imports it, each checked
+against its pinned sha256. `eukhe kernel install` fetches them ahead
+of time; `eukhe tiny-models download` fetches local models; `eukhe
+update` fetches a release.
 
 Questions? Write to [mail@gildrb.com](mailto:mail@gildrb.com).
 

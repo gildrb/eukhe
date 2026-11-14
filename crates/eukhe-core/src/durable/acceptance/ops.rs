@@ -181,7 +181,7 @@ pub(crate) async fn assign(
                             "the acceptance checks were refused: a task carries at most 64 checks"
                         }
                         Actor::Worker | Actor::Verifier => {
-                            "only the task's owner sets its acceptance checks: the worker cannot change, drop or skip them"
+                            "only the task's owner sets its acceptance checks: this change was refused"
                         }
                     }));
                 }

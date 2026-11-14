@@ -532,7 +532,7 @@ second run fetches nothing. --check prints `ready: <python> (Python <version>)` 
 the packages of Eukhe's lock (eukhe-runtime/requirements-kernel.txt: exact versions with hashes) \
 install on first import. `kernel lock <requirement>...` adds other packages to the project's lock \
 (.eukhe/requirements-kernel.txt): it resolves them once, with the locked versions as constraints, \
-and records exact versions and hashes; the kernel installs nothing that no lock names.",
+and records exact versions and hashes; the kernel's automatic installs take only packages a lock names.",
     )
     .examples(&[
         "kernel install",
@@ -649,7 +649,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--accept-judge <CONDITION>",
-                "Acceptance check: an independent judge decides this condition from evidence (repeatable)",
+                "Acceptance check: a separate model request, with no tools and no transcript, decides this condition from evidence (repeatable)",
             ),
             (
                 "--accept-evidence <COMMAND>",
@@ -661,11 +661,11 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--accept-intent",
-                "Verify the run by the intent judge: it reads your messages and decides whether the final state meets what they ask for (on with any --accept-* check)",
+                "Check the run with the intent judge: it reads your messages and decides whether the final state meets what they ask for (on with any --accept-* check)",
             ),
             (
                 "--accept-no-intent",
-                "Verify by the --accept-cmd/--accept-judge checks only, without the intent judge",
+                "Use the --accept-cmd/--accept-judge checks only, without the intent judge",
             ),
         ],
     },
