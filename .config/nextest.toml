@@ -88,6 +88,12 @@ test-group = "packaged-layout"
 filter = 'package(eukhe-cli) & binary(/^(chat_open_first_frame_pty|input_live_open_pty|kitty_early_typing|kitty_exit_routes|kitty_verdict_time|suspend_signal|terminal_state_differential|anthropic_remote_login_pty)_e2e$/)'
 test-group = "pty"
 
+# Compiles two release builds of eukhe before its run (the first run
+# compiles the workspace twice): stopped after 30 minutes, not 10.
+[[profile.default.overrides]]
+filter = 'binary_id(eukhe-cli::restart_daemon_e2e)'
+slow-timeout = { period = "60s", terminate-after = 30 }
+
 [[profile.default.overrides]]
 filter = 'binary(/_e2e$/)'
 test-group = "e2e"

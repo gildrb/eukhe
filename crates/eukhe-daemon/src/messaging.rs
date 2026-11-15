@@ -367,13 +367,22 @@ impl Supervisor {
         // copies into the DURABLE create command's rest, where the
         // supervisor's parent-owned passivation fence reads it (a root's
         // header depth of 0 restates its rootness).
+        let mut config = json!({ "cwd": info.cwd, "rlmDepth": info.rlm_depth });
+        // Verification seam: a supervisor started with `EUKHE_FAUX_SCRIPT`
+        // (the scripted faux provider of the e2es; the product never sets
+        // it) wakes a saved session on that script file, as the client's
+        // create would name it, so a session reopened on another daemon
+        // (`/restart`) still has its scripted model.
+        if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
+            config["script"] = json!(script.to_string_lossy());
+        }
         let create = DaemonCommand::Create {
             id: None,
             session_path: Some(session_path.clone()),
             continue_recent: Some(false),
             no_session: None,
             name: None,
-            config: Some(json!({ "cwd": info.cwd, "rlmDepth": info.rlm_depth })),
+            config: Some(config),
             runtime_metadata: None,
             lifecycle: None,
             env: None,
