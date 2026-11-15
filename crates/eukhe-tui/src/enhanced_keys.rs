@@ -557,10 +557,13 @@ fn spawn_kitty_probe() {
         .name("tui-kitty-probe".to_string())
         .spawn(|| {
             let (answer_tx, answer_rx) = mpsc::channel();
-            // crossterm's support check sends the query and blocks on the
-            // answer for at most 250ms (the crossterm fork's patch). It
-            // reads the tty through the shared internal reader, so the
-            // skipped user keys stay queued for the app reader.
+            // crossterm's support check sends the query and waits on the
+            // answer for 250ms (the crossterm fork's patch), then looks once
+            // more: past the window it waits out the app reader's bounded
+            // poll for the reader lock (the input reader polls bounded while
+            // `QUERY_IN_FLIGHT` holds, which lasts until this check
+            // returns). It reads the tty through the shared internal reader,
+            // so the skipped user keys stay queued for the app reader.
             let reader = std::thread::Builder::new()
                 .name("tui-kitty-probe-read".to_string())
                 .spawn(move || {

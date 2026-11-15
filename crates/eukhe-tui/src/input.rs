@@ -57,9 +57,11 @@ static PREVIOUS_READER: Mutex<Option<Reader>> = Mutex::new(None);
 /// The bounded-poll cadence for the windows where the reader must share
 /// crossterm's process-global event-reader lock with another bounded
 /// poller: the kitty probe looks for its reply every 1ms through its
-/// 250ms answer window (the crossterm fork's patch), so the reader
-/// keeps a bounded poll while that window is open -- an indefinite park
-/// would hold the lock and starve the probe's looks. Also the fallback
+/// 250ms answer window and closes it with one look that waits for the
+/// lock without a time limit (the crossterm fork's patch), so the reader
+/// keeps a bounded poll while the query is in flight -- an indefinite
+/// park would hold the lock, starve the probe's looks and stall its
+/// closing look until the next keystroke. Also the fallback
 /// cadence when no wake handle exists (a source that failed to open the
 /// tty).
 const POLL_TIMEOUT_MS: u64 = 10;
