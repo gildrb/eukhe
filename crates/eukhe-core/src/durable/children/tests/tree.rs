@@ -270,21 +270,23 @@ async fn an_abort_of_the_turn_cancels_every_child_of_the_subtree() {
             .await
             .unwrap();
     }
-    let cancelled: Vec<String> = lock(&host.state)
+    // Each child's task reacts to its abort on its own, so the host hears
+    // the two cancels in either order.
+    let mut cancelled: Vec<String> = lock(&host.state)
         .cancels
         .iter()
         .map(|cancel| cancel.session_id.clone())
         .collect();
+    cancelled.sort();
+    let mut expected = vec![left.session_id.clone(), right.session_id.clone()];
+    expected.sort();
     let statuses = [
         row_of(&opened.harness, left.task_id).await.unwrap().status,
         row_of(&opened.harness, right.task_id).await.unwrap().status,
     ];
     assert_eq!(
         (cancelled, statuses),
-        (
-            vec![left.session_id.clone(), right.session_id.clone()],
-            [ChildStatus::Cancelled, ChildStatus::Cancelled]
-        )
+        (expected, [ChildStatus::Cancelled, ChildStatus::Cancelled])
     );
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
