@@ -1,0 +1,9 @@
+# the four verdicts with uids and pids at their largest
+call {MAX},{MAX},{MAX},{MAX},
+call {MAX},99999999999998,{MAX},{MAX},
+call {MAX},{MAX},{MAX},0,
+call {MAX},{MAX},{MAX},99999999999998,
+call {U32MAX},{U32MAX},{U32MAX},{U32MAX},
+refuse {LONG},0,0,0,
+refuse 0,0,0,{LONG},
+refuse 0,0,0,0,0,
