@@ -212,7 +212,13 @@ that costs against a wider split, as information:
 2. `rlm.split` for a node (`crates/eukhe-core/src/durable/children/spawn.rs`):
    own scope, two (scope, task) pairs, hold. Scope paths resolve to units
    (`child_workspace/units.rs`); the core admits or refuses. A help leaf is
-   `rlm.spawn` without a write scope.
+   `rlm.spawn` without a write scope. Every node reads the split rule in
+   its own system prompt (`prompts/layers/core.md`) and, in its
+   `session-role` section, its place: its scope, and whether it may split
+   with the levels and agents left below it (`tree::split_room`). A child
+   splits again by its own prompt, never by text its parent relays: in the
+   first Haiku grid, children that knew neither their scope nor their room
+   never split again.
 3. Each writing child works in a copy-on-write checkout of the parent's
    live tree (the `isolated` workspace), its patch computed against its own
    start; a failed child's partial patch is measured too.

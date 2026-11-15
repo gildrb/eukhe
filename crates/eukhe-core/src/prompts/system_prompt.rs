@@ -7,6 +7,9 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use eukhe_types::daemon::agent_tree::{TreePlace, TreeRole};
+
+use crate::durable::children::split_room;
 use crate::skills::{format_skills_for_prompt, Skill};
 
 use super::layers;
@@ -134,6 +137,10 @@ pub struct BuildSystemPromptOptions<'a> {
     pub rlm_depth: Option<u32>,
     /// Human-readable parent name or id for child communication doctrine.
     pub rlm_parent_agent: Option<&'a str>,
+    /// The session's place in the agent tree: the prompt states its scope
+    /// and whether it may split, so each node splits by the split rule of
+    /// its own prompt, never by text its parent relays.
+    pub tree: Option<&'a TreePlace>,
     /// Whether the session has no RLM child runtime (no daemon to spawn through).
     pub daemonless: bool,
     /// Enabled user-configured generic MCP servers.
@@ -438,6 +445,12 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_python: bool) ->
     if options.allow_recursion == Some(false) {
         lines.push("Subagent spawning is disabled in this session.".to_string());
     }
+    if let Some(place) = options
+        .tree
+        .filter(|_| has_python && !options.daemonless && options.allow_recursion != Some(false))
+    {
+        lines.push(tree_line(place));
+    }
     if depth > 0 {
         lines.push(format!(
             "You are a child agent spawned by {}. Task prompts are labeled `[task from parent]`.",
@@ -453,6 +466,33 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_python: bool) ->
         }
     }
     lines.join("\n")
+}
+
+/// The session's node of the agent tree: its scope, and whether it may
+/// split and how much room is left below it.
+fn tree_line(place: &TreePlace) -> String {
+    if place.role == TreeRole::Help {
+        return "Agent tree: you are a read-only help leaf: never write files or split."
+            .to_string();
+    }
+    let node = if place.role == TreeRole::Root {
+        "the root".to_string()
+    } else {
+        format!("node {}", place.path)
+    };
+    let scope = if place.scope.iter().any(String::is_empty) {
+        "whole workspace".to_string()
+    } else {
+        let paths: Vec<String> = place.scope.iter().map(|path| format!("`{path}`")).collect();
+        format!("{}; write only there", paths.join(", "))
+    };
+    let room = match split_room(place) {
+        Some((levels, agents)) => {
+            format!("You may split: {levels} levels, {agents} agents below.")
+        }
+        None => "You may not split: do your scope yourself.".to_string(),
+    };
+    format!("Agent tree: you are {node} ({scope}). {room}")
 }
 
 pub(crate) fn today() -> String {
@@ -782,6 +822,65 @@ mod tests {
         let breakdown = system_prompt_breakdown(&options);
         let tail = &breakdown.assembled[breakdown.cached_prefix_len..];
         assert!(tail.contains(notice));
+    }
+
+    /// Every tree node's own prompt states its scope and its room to
+    /// split, from its place; a session that cannot spawn states none.
+    #[test]
+    fn a_tree_node_is_told_its_scope_and_whether_it_may_split() {
+        let place = |role, scope: &[&str], path: &str, allowance| TreePlace {
+            role,
+            scope: scope.iter().map(ToString::to_string).collect(),
+            path: path.to_string(),
+            allowance,
+            deadline: None,
+        };
+        let line = |place: &TreePlace| {
+            let mut options = base_options();
+            options.tree = Some(place);
+            let breakdown = system_prompt_breakdown(&options);
+            let tail = &breakdown.assembled[breakdown.cached_prefix_len..];
+            tail.lines()
+                .find(|line| line.starts_with("Agent tree: "))
+                .map(str::to_string)
+        };
+        assert_eq!(
+            line(&crate::durable::children::root_place()).as_deref(),
+            Some(
+                "Agent tree: you are the root (whole workspace). You may split: 3 levels, \
+                 14 agents below."
+            )
+        );
+        assert_eq!(
+            line(&place(TreeRole::Left, &["pkg/a.py", "tests"], "L", 7)).as_deref(),
+            Some(
+                "Agent tree: you are node L (`pkg/a.py`, `tests`; write only there). \
+                 You may split: 2 levels, 6 agents below."
+            )
+        );
+        // Depth 3 is the last level; an allowance of 2 leaves no room
+        // for a split's two children.
+        for (path, allowance) in [("LRL", 3), ("R", 2)] {
+            assert_eq!(
+                line(&place(TreeRole::Right, &["src"], path, allowance)).as_deref(),
+                Some(format!(
+                    "Agent tree: you are node {path} (`src`; write only there). \
+                     You may not split: do your scope yourself."
+                ))
+                .as_deref()
+            );
+        }
+        assert_eq!(
+            line(&place(TreeRole::Help, &[], "L", 1)).as_deref(),
+            Some("Agent tree: you are a read-only help leaf: never write files or split.")
+        );
+        let root = crate::durable::children::root_place();
+        let mut options = base_options();
+        options.tree = Some(&root);
+        options.daemonless = true;
+        assert!(!system_prompt_breakdown(&options)
+            .assembled
+            .contains("Agent tree: "));
     }
 
     /// The persistence rules close the install-stable part of a layered

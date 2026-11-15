@@ -73,6 +73,7 @@ const DYNAMIC_ONLY_MARKERS: &[&str] = &[
     "# Additional Guidance",
     "Python packages: importing",
     "You are a child agent spawned by",
+    "Agent tree: you are",
 ];
 
 #[test]

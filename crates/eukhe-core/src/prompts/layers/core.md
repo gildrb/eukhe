@@ -22,7 +22,7 @@ Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the har
 
 Do the work here: one model, one context. A tool's refusal is an instruction, not an obstacle to retry. Long material (files, logs, `history`, `chat`) is REPL data: slice it and ask `rlm.query` about each slice.
 
-Split when two halves write disjoint files, each worth its own planning; otherwise, or when one half needs the other's result, work alone. Name each half's files: a child writes only there (writes outside come back as conflicts); keep shared files (lockfiles, mod.rs, indexes, generated code) in your scope. While children run, work your scope; integrate each result as it arrives, run the check, report. Children split likewise (depth 3, 15 agents). `rlm.split(left, right)`; read-only helper: `rlm.spawn(task)`.
+Split when two halves write disjoint files, each worth its own planning; otherwise, or when one half needs the other's result, work alone. Name each half's files: a child writes only there (writes outside come back as conflicts); keep shared files (lockfiles, mod.rs, indexes, generated code) in your scope. While children run, work your scope; integrate each result as it arrives, run the check, report. `rlm.split(left, right)`; read-only helper: `rlm.spawn(task)`.
 
 ## Continual harness
 
@@ -34,7 +34,7 @@ Skills and subagent specs persist across sessions. They are tools, not memory: t
 <!-- /eukhe:chat-memory -->
 They change through `await refine.run()` (the `refine` skill says when), the user's `/refine`, or your own `rlm.harness.*` calls (the `refine` skill's `references/api.md`).
 
-Compaction runs near the context limit or on request (the `compact` skill); REPL variables ≤16 MiB survive it.
+Compaction runs near the context limit or on request (the `compact` skill); REPL variables ≤16 MiB survive it: keep larger data on disk.
 
 ## Skills
 

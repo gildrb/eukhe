@@ -32,6 +32,7 @@ use eukhe_durable::harness::define::{define_extension, section, shared_section};
 use eukhe_durable::harness::types::{
     Extension, PromptInput, SubmissionDraft, WriteSubmissionDraft,
 };
+use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::pi_ai::Modality;
 use futures::FutureExt;
 
@@ -92,6 +93,8 @@ struct SessionPrompt {
     allow_recursion: Option<bool>,
     rlm_depth: u32,
     parent_agent: Option<String>,
+    /// The session's place in the agent tree.
+    tree: Option<TreePlace>,
     /// No child host: `rlm.spawn` errors.
     daemonless: bool,
     generic_mcp_servers: Vec<String>,
@@ -179,6 +182,7 @@ impl PromptBuilder {
             allow_recursion: session.allow_recursion,
             rlm_depth: Some(session.rlm_depth),
             rlm_parent_agent: session.parent_agent.as_deref(),
+            tree: session.tree.as_ref(),
             daemonless: session.daemonless,
             generic_mcp_servers: session.generic_mcp_servers.clone(),
             memory: session.memory,
@@ -225,6 +229,7 @@ pub fn extensions(deps: &Arc<HostDeps>) -> [Arc<Extension>; 2] {
                 .parent
                 .as_ref()
                 .and_then(|parent| parent.agent_name.clone()),
+            tree: super::children::place_of(&deps.role, deps.shape),
             daemonless: deps.children.is_none(),
             generic_mcp_servers: deps.generic_mcp_servers.clone(),
             memory: deps.memory.as_ref().map(|_| deps.role.memory_role()),

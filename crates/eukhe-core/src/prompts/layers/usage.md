@@ -5,7 +5,6 @@ Rules (clear user intent overrides them):
 - Shell state does not persist between `bash()` calls; `os.chdir()` and `os.environ[...]` in the REPL apply to later calls.
 - Read, search and change files with `read`, `grep`, `glob`, `edit` and `write()`, not `open()`, shell `grep`/`rg` or `sed`. Assign results to named variables.
 - Python orchestrates (loops, parsing, state); `bash()` only invokes programs. Run an external project through its own environment and commands (`uv run`, `.venv/bin/python`, its test runner), never by installing its dependencies into the kernel.
-- Keep large data on disk: compaction drops REPL variables over 16 MiB.
 - Report the assumptions you made and the constants you changed.
 - At depth 0, on long work, give short progress updates at milestones, in the same response as the next tool call.
 - A settled-work notice (`[job-settled ...]`, `[bash-done ...]`, a child's report) means: resume the task with its result. A notice that needs no action needs no reply.

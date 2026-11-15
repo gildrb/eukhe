@@ -966,6 +966,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
         allow_recursion: Some(false),
         rlm_depth: Some(0),
         rlm_parent_agent: None,
+        tree: None,
         // No daemon child host in this fixture.
         daemonless: true,
         generic_mcp_servers: deps.generic_mcp_servers.clone(),
@@ -1122,6 +1123,7 @@ fn section_keys_follow_the_breakdown_order() {
                 allow_recursion: None,
                 rlm_depth: Some(1),
                 rlm_parent_agent: Some("parent"),
+                tree: None,
                 daemonless: true,
                 generic_mcp_servers: vec!["docs".to_owned()],
                 memory,

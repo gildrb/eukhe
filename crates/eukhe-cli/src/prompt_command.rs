@@ -114,6 +114,7 @@ fn assemble_breakdown(
         system_prompt: None,
         ..ResourceLoaderOptions::new(cwd.to_path_buf(), agent_dir)
     })?;
+    let root = eukhe_core::durable::children::root_place();
     let breakdown = eukhe_core::prompts::system_prompt::system_prompt_breakdown(
         &eukhe_core::prompts::BuildSystemPromptOptions {
             cwd: cwd.display().to_string(),
@@ -133,6 +134,8 @@ fn assemble_breakdown(
             allow_recursion: Some(true),
             generic_mcp_servers: generic_servers,
             rlm_depth: Some(0),
+            // A fresh root session is the agent tree's root.
+            tree: Some(&root),
             // A fresh root session reads the chat memory's view.
             memory: Some(eukhe_core::memory::MemoryRole::Root),
             ..Default::default()

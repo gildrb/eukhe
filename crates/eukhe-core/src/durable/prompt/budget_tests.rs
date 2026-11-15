@@ -33,9 +33,13 @@ use crate::packages::get_bundled_skills_dir;
 /// 9,712, tool schemas 12,514): the split rule (when to split, scopes,
 /// shared files, integrate and check) and the workflow's writing `scope`
 /// replace the spawn `why` rule, and what remained after trimming the
-/// replaced subagent guidance is that rule's own text. No headroom: the
-/// prompt does not grow further unless a change decides it.
-const PROMPT_BUDGET_BYTES: usize = 22_226;
+/// replaced subagent guidance is that rule's own text. Each tree node's
+/// own place (its scope and room to split, a `session-role` line of 90
+/// bytes on a root that can spawn; this test's root has no child host and
+/// sends the no-subagents line instead) is paid for by trimming 92 bytes
+/// of the layers: 22,113 (system prompt 9,704, tool schemas 12,409). No
+/// headroom: the prompt does not grow further unless a change decides it.
+const PROMPT_BUDGET_BYTES: usize = 22_113;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT

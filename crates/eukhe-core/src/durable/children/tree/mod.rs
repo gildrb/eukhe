@@ -46,7 +46,7 @@ pub(crate) const OUTSIDE_TREE: &str =
 
 /// The place of the tree's root: the whole workspace, the full allowance.
 #[must_use]
-pub(crate) fn root_place() -> TreePlace {
+pub fn root_place() -> TreePlace {
     TreePlace {
         role: TreeRole::Root,
         scope: vec![String::new()],
@@ -66,6 +66,20 @@ pub(crate) fn place_of(role: &SessionRole, shape: SessionShape) -> Option<TreePl
         (None, SessionShape::Single) if role.is_root() => Some(root_place()),
         (None, SessionShape::Single | SessionShape::Main) => None,
     }
+}
+
+/// What a node may still add below itself before its first split, from
+/// its place: the levels and the agents (help leaves included). `None`:
+/// a help leaf, or a node whose split the core refuses for depth or
+/// nodes. A session's prompt states it ([`crate::prompts`]).
+#[must_use]
+pub(crate) fn split_room(place: &TreePlace) -> Option<(u64, u64)> {
+    let depth = u64::try_from(place.path.len()).unwrap_or(u64::MAX);
+    let bounds = plan::bounds(depth, place.allowance, 0, Lim::Unlimited);
+    // A split adds two nodes below the node itself.
+    let agents = bounds.max_nodes.saturating_sub(1);
+    (place.role != TreeRole::Help && bounds.max_depth > 0 && agents >= 2)
+        .then_some((bounds.max_depth, agents))
 }
 
 /// Where a spawned child sits in its parent's local crown.
