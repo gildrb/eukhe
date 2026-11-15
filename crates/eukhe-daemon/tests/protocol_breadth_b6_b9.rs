@@ -170,6 +170,32 @@ impl Client {
             }
         }
     }
+
+    /// Poll `get_queue` until either lane holds `text`.
+    fn wait_until_queued(&mut self, session_id: &str, text: &str) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        for poll in 0.. {
+            let id = format!("queued-{poll}");
+            self.send_command(
+                &id,
+                &json!({ "type": "get_queue", "activeSessionId": session_id }),
+            );
+            let response = self.read_response(&id);
+            let queued = ["steering", "followUp"].iter().any(|lane| {
+                response["data"][lane]
+                    .as_array()
+                    .is_some_and(|items| items.iter().any(|item| item == text))
+            });
+            if queued {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{text:?} never queued: {response}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
 }
 
 /// The wave tests spawn real supervisor + worker process trees; the box
@@ -190,15 +216,21 @@ fn scripted_session(
     dir: &std::path::Path,
     agent_dir: &std::path::Path,
 ) -> (Daemon, Client, String, std::path::PathBuf) {
+    scripted_session_with(dir, agent_dir, &json!([ { "text": "ack", "delayMs": 10 } ]))
+}
+
+/// [`scripted_session`] answering with the scripted `responses`.
+fn scripted_session_with(
+    dir: &std::path::Path,
+    agent_dir: &std::path::Path,
+    responses: &Value,
+) -> (Daemon, Client, String, std::path::PathBuf) {
     let socket = dir.join("daemon.sock");
     let daemon = spawn_daemon(&socket, agent_dir);
     let (mut client, _hello) = Client::connect(&socket);
     let script_path = dir.join("script.json");
-    std::fs::write(
-        &script_path,
-        json!({ "responses": [ { "text": "ack", "delayMs": 10 } ] }).to_string(),
-    )
-    .expect("write script");
+    std::fs::write(&script_path, json!({ "responses": responses }).to_string())
+        .expect("write script");
     client.send_command(
         "create-1",
         &json!({
@@ -608,39 +640,21 @@ fn wave_b9_prompt_admission_wire_shapes() {
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
 
-    // A slow scripted session: the first turn stays busy so an admitted
-    // prompt queues behind it (the deterministic cancel window).
-    let socket = dir.path().join("adm.sock");
-    let _daemon = spawn_daemon(&socket, &agent_dir);
-    let (mut client, _hello) = Client::connect(&socket);
-    let script_path = dir.path().join("slow.json");
-    std::fs::write(
-        &script_path,
-        json!({ "responses": [
-            { "text": "slow", "delayMs": 400 },
+    // A held scripted session: the first turn's request waits at a hold
+    // gate this test releases only after the cancel, so an admitted prompt
+    // queues behind it and stays queued however slow the box is (a clock
+    // window here lost the race under load: the slow turn ended first and
+    // the queued prompt ran before the cancel reached it).
+    let gate = dir.path().join("hold.sock");
+    let gate_listener = std::os::unix::net::UnixListener::bind(&gate).expect("bind the hold gate");
+    let (_daemon, mut client, session_id, _socket) = scripted_session_with(
+        dir.path(),
+        &agent_dir,
+        &json!([
+            { "text": "slow", "holdUntilReleased": gate },
             { "text": "second", "delayMs": 10 },
-        ] })
-        .to_string(),
-    )
-    .expect("write script");
-    client.send_command(
-        "create-1",
-        &json!({
-            "type": "create",
-            "config": {
-                "cwd": dir.path().to_string_lossy(),
-                "sessionDir": agent_dir.join("sessions").to_string_lossy(),
-                "script": script_path.to_string_lossy(),
-            },
-        }),
+        ]),
     );
-    let created = client.read_response("create-1");
-    assert_eq!(created["success"], true, "create failed: {created}");
-    let session_id = created["data"]["id"]
-        .as_str()
-        .or_else(|| created["data"]["sessionId"].as_str())
-        .expect("session id")
-        .to_string();
 
     // An unregistered admission answers the TS `unknown` status.
     client.send_command(
@@ -660,24 +674,28 @@ fn wave_b9_prompt_admission_wire_shapes() {
     assert_eq!(response["command"], "parse");
     assert_eq!(response["error"], "admissionId must not be empty");
 
-    // Start the slow turn, then queue an admitted prompt behind it.
+    // Start the slow turn and wait until its request holds at the gate,
+    // then queue an admitted prompt behind it.
     client.send_command(
         "p-1",
         &json!({ "type": "prompt", "activeSessionId": session_id, "message": "go" }),
     );
     let _ = client.read_response("p-1");
+    let (held, _) = gate_listener
+        .accept()
+        .expect("the slow turn's request reaches the gate");
     // prompt_and_wait keeps its admission open for the whole turn (the
     // supervisor route deletes it when the route settles), so the queued
-    // admitted prompt is in its cancel window here.
+    // admitted prompt is in its cancel window while the gate holds.
     client.send_command(
         "p-2",
         &json!({ "type": "prompt_and_wait", "activeSessionId": session_id, "message": "queued behind", "admissionId": "adm-1" }),
     );
-    // Give the admitted prompt's route its start (the TS single-loop
-    // daemon registers an admission synchronously at parse time; this
-    // port registers in the command's dispatch task, so the cancel must
-    // not race the registration).
-    std::thread::sleep(Duration::from_millis(100));
+    // The cancel must not race the admission: this port registers it in
+    // the command's dispatch task (the TS single-loop daemon at parse
+    // time). The worker commits the admission before it queues the
+    // input, so the prompt in the queue proves the admission is owned.
+    client.wait_until_queued(&session_id, "queued behind");
 
     // The queued prompt committed at admission: cancelOwned withdraws
     // that item without aborting the unrelated slow turn.
@@ -702,6 +720,8 @@ fn wave_b9_prompt_admission_wire_shapes() {
         None => client.read_response("p-2"),
     };
     assert_eq!(response["success"], false, "{response}");
+    // The slow turn may end now.
+    drop(held);
 
     // The slow turn settles with no second turn: the cancelled prompt
     // never ran.
