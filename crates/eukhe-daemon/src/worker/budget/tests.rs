@@ -393,19 +393,33 @@ async fn a_fork_draws_from_the_budget_of_the_session_it_forks() {
 }
 
 /// A message sent while the session is idle starts a fresh interactive
-/// run: its `/b` prefix (`runLimits`) fills that run only, and the next
-/// message's run goes until finished again with limits off (B15, B20).
+/// run: its `/b` prefix fills that run only, and the next message's run
+/// goes until finished again with limits off (B15, B20). A prefix that
+/// does not read is refused by its word, and nothing is sent.
 #[tokio::test]
 async fn each_idle_message_starts_its_own_run() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created(dir.path()).await;
+    let refused = worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({ "activeSessionId": "budget-session", "message": "/b cost=abc first" }),
+        )
+        .await;
+    assert_eq!(
+        (refused.success, refused.error.as_deref()),
+        (
+            false,
+            Some("cost \"abc\": expected dollars, like 1.50 or $1.50")
+        ),
+        "{refused:?}"
+    );
     let prompted = worker
         .dispatch(
             "prompt_and_wait",
             &json!({
                 "activeSessionId": "budget-session",
-                "message": "first",
-                "runLimits": { "presets": ["quick"], "set": { "toolCalls": 9 } },
+                "message": "/b quick calls=9 first",
             }),
         )
         .await;

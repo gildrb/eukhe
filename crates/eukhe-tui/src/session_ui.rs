@@ -240,9 +240,6 @@ pub(crate) struct SessionUi {
     /// The client-process settings seam (`/settings`);
     /// the composition root supplies it.
     client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
-    /// The preset names a message's `/b` prefix takes: the shipped
-    /// presets, then the principal's `budget.presets`.
-    budget_presets: Vec<String>,
     /// The ban-risk warning's view-local dedup (TS
     /// `anthropicSubscriptionWarningShown`): this VIEW's own
     /// once-per-instance gate. The once-per-SESSION-lifecycle gate (the

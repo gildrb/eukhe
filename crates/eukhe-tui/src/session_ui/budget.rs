@@ -7,6 +7,7 @@
 use super::{AgentView, DaemonCommand, Duration, Map, SessionUi, Value, UI_REQUEST_TIMEOUT_MS};
 use crate::budget_text;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
+use eukhe_types::budget_input;
 use eukhe_types::daemon::{BudgetAudit, BudgetLimitsReply};
 use serde::Deserialize;
 
@@ -46,7 +47,7 @@ impl SessionUi {
                 self.set_limits(verb == "on", view).await;
                 return;
             }
-            "set" => match budget_text::parse_limits(words) {
+            "set" => match budget_input::parse_limits(words) {
                 Ok(limits) => DaemonCommand::SetBudget {
                     id: None,
                     active_session_id,
@@ -59,7 +60,7 @@ impl SessionUi {
                     return;
                 }
             },
-            "add" => match budget_text::parse_assignments(words) {
+            "add" => match budget_input::parse_assignments(words) {
                 Ok(limits) => DaemonCommand::AddBudget {
                     id: None,
                     active_session_id,

@@ -15,13 +15,14 @@ use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::Conversation;
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::TaskOutcome;
+use eukhe_types::budget::RunKind;
 use eukhe_types::input_origin::InputOrigin;
 use serde_json::Value;
 
 use super::commands::RpcState;
 use super::error::RpcCommandError;
 use super::protocol::{self, ResponseData};
-use super::reads::rpc_context;
+use super::reads::{is_busy, rpc_context};
 
 /// `prompt` (TS `connection.prompt(message, {images, streamingBehavior,
 /// source: "rpc"})`): admission-level success — the response fires once
@@ -57,9 +58,16 @@ pub(crate) async fn prompt(
         run_session_command(state, session, &main, &command, &cx).await?;
         return Ok(ResponseData::Absent);
     }
+    // A prompt without a `streamingBehavior` that reaches a busy
+    // conversation is refused below: its prefix asks nothing of the run.
+    let message = if behavior.is_none() && is_busy(session.harness(), main.id(), &cx).await? {
+        message.to_owned()
+    } else {
+        begin_message(session, &main, message, &cx).await?
+    };
     let draft = InputSubmissionDraft {
         request_id: None,
-        content: protocol::command_content(message, images),
+        content: protocol::command_content(&message, images),
         when_busy: Some(behavior.unwrap_or(WhenBusy::Reject)),
         origin: InputOrigin::User,
         entry: None,
@@ -144,15 +152,39 @@ pub(crate) async fn steer_or_follow_up(
         WhenBusy::FollowUp
     };
     let handle = state.session.handle().await;
+    let session = &handle.session;
+    let main = session.main();
+    let cx = rpc_context();
+    let message = begin_message(session, &main, message, &cx).await?;
     let draft = InputSubmissionDraft {
         request_id: None,
-        content: protocol::command_content(message, images),
+        content: protocol::command_content(&message, images),
         when_busy: Some(when_busy),
         origin: InputOrigin::User,
         entry: None,
     };
-    handle.session.main().submit(draft, &rpc_context()).await?;
+    main.submit(draft, &cx).await?;
     Ok(ResponseData::Absent)
+}
+
+/// Begin the principal's message `text` on `session`'s budget
+/// (`BudgetGate::begin_message`): sent while `main` runs nothing it starts
+/// a run of the session's kind, else the running run takes what its `/b`
+/// prefix asks. Returns what follows the prefix.
+async fn begin_message(
+    session: &EukheSession,
+    main: &Conversation,
+    text: &str,
+    cx: &Context,
+) -> Result<String, RpcCommandError> {
+    let joins = is_busy(session.harness(), main.id(), cx).await?;
+    let gate = session.budget();
+    let text = text.to_owned();
+    Ok(tokio::task::spawn_blocking(move || {
+        let kind = gate.run_kind().unwrap_or(RunKind::Interactive);
+        gate.begin_message(kind, joins, &text)
+    })
+    .await??)
 }
 
 #[cfg(test)]

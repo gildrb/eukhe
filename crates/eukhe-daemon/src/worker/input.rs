@@ -395,26 +395,24 @@ impl Worker {
             }
         }
         // A message sent while the session is idle starts a fresh run with
-        // the limits its `/b` prefix asks (`runLimits`); one that joins the
-        // running run sets them on it. Nothing is sent when the run's
-        // limits do not fill.
-        let ask = match payload.get("runLimits").filter(|ask| !ask.is_null()) {
-            None => None,
-            Some(ask) => match serde_json::from_value::<super::budget::RunAsk>(ask.clone()) {
-                Ok(ask) => Some(ask),
-                Err(error) => {
-                    return response_failure(
-                        None,
-                        command,
-                        &format!("invalid runLimits: {error}"),
-                        None,
-                    )
-                }
-            },
+        // the limits its `/b` prefix asks; one that joins the running run
+        // sets them on it; the model gets what follows the prefix. A custom
+        // row is no message of the principal's: it has no prefix. Nothing
+        // is sent when the prefix does not read or the run's limits do not
+        // fill.
+        let message = match self
+            .begin_message_run(
+                &hosted,
+                command,
+                if custom_row.is_none() { message } else { "" },
+            )
+            .await
+        {
+            Ok(rest) if custom_row.is_none() => rest,
+            Ok(_) => message.to_owned(),
+            Err(response) => return response,
         };
-        if let Err(response) = self.begin_message_run(&hosted, command, ask).await {
-            return response;
-        }
+        let message = message.as_str();
         if admission_cancelled() {
             return cancelled();
         }

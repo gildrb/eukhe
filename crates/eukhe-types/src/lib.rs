@@ -16,6 +16,7 @@
 pub mod acceptance;
 pub mod ai;
 pub mod budget;
+pub mod budget_input;
 pub mod custom_type;
 pub mod cvar;
 pub mod daemon;

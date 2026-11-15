@@ -452,6 +452,76 @@ fn acp_daemon_attached_image_only_prompt_reaches_the_session() {
     );
 }
 
+/// B20 over ACP: a `/b` prompt runs under the limits its prefix asks (the
+/// daemon reads it, as for every client), the model gets what follows the
+/// prefix, and a prefix that does not read is refused by its word with
+/// nothing sent.
+#[test]
+fn acp_b_prefix_sets_the_runs_limits_and_sends_the_rest() {
+    let mut client = AcpChild::spawn(
+        &["--mode", "acp", "--no-session"],
+        &json!({ "engine": "faux", "responses": ["B-OK"] }),
+    );
+    let socket = client.socket.clone();
+    let session_id = initialize_and_new_session(&mut client);
+    let refused = client.request(
+        "session/prompt",
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/b cost=abc reply" }] }),
+    );
+    let (refused, _) = client.wait_response(refused, TIMEOUT);
+    // A failed ACP turn is an internal error whose details carry the
+    // failure.
+    assert!(
+        refused["error"]["data"]["details"]
+            .as_str()
+            .is_some_and(|details| details.contains("cost \"abc\": expected dollars")),
+        "the prefix is refused by its word: {refused}"
+    );
+    assert_prompt_ends_turn(
+        &mut client,
+        &session_id,
+        "/b quick calls=9 reply with exactly: B-OK",
+    );
+    let list = daemon_request(&socket, "b-list", &json!({ "type": "list" }));
+    let active_session_id = &list["data"]["sessions"][0]["activeSessionId"];
+    let messages = daemon_request(
+        &socket,
+        "b-msgs",
+        &json!({ "type": "get_messages", "activeSessionId": active_session_id }),
+    );
+    let users: Vec<Value> = messages["data"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .map(|message| message["content"].clone())
+        .collect();
+    assert_eq!(
+        users,
+        [json!([{ "type": "text", "text": "reply with exactly: B-OK" }])],
+        "{messages}"
+    );
+    let budget = daemon_request(
+        &socket,
+        "b-budget",
+        &json!({ "type": "get_budget", "activeSessionId": active_session_id }),
+    );
+    let budget = &budget["data"]["budget"];
+    assert_eq!(
+        (
+            budget["limits"]["toolCalls"].clone(),
+            budget["sources"]["toolCalls"].clone(),
+            budget["sources"]["requests"].clone(),
+        ),
+        (
+            json!(9),
+            json!({ "source": "set" }),
+            json!({ "source": "preset", "name": "quick" }),
+        ),
+        "{budget}"
+    );
+}
+
 #[test]
 fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
     // The faux session is short, so `/compact` skips (TS

@@ -278,7 +278,7 @@ fn parse_budget_limit(
     dimension: BudgetDimension,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<LimitValue> {
-    match eukhe_tui::budget_text::parse_limit(dimension, flag, value) {
+    match eukhe_types::budget_input::parse_limit(dimension, flag, value) {
         Ok(limit) => Some(limit),
         Err(error) => {
             diagnostics.push(Diagnostic::error(error.to_string()));

@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use eukhe_ai::utils::retry::is_budget_refusal;
 use eukhe_bend::rules::headless::Primary;
 use eukhe_chord::context::Context;
+use eukhe_core::durable::budget::{BUDGET_NOTICE_CUSTOM_TYPE, BUDGET_STATUS_CUSTOM_TYPE};
 use eukhe_core::durable::messages::{
     COMPACTION_OUTCOME_CUSTOM_TYPE, HARNESS_DIGEST_CUSTOM_TYPE, PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE,
     REFINEMENT_NOTICE_CUSTOM_TYPE, REFINEMENT_OUTCOME_CUSTOM_TYPE,
@@ -257,9 +258,16 @@ fn step(entry: EntryRecord) -> Step {
             // The row after an answer that hit the output limit and was
             // kept as it is: the answer is the primary.
             OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Step::Warning(content),
+            // A budget notice is told while a request is in flight (the
+            // budget at the run's first request, a low budget at a grant,
+            // the wrap-up in the final answer's request) and written as a
+            // passive row at the conversation's next boundary: after that
+            // request's answer, so it trails a final answer it never ends.
             REFINEMENT_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_NOTICE_CUSTOM_TYPE
-            | HARNESS_DIGEST_CUSTOM_TYPE => Step::Skip,
+            | HARNESS_DIGEST_CUSTOM_TYPE
+            | BUDGET_STATUS_CUSTOM_TYPE
+            | BUDGET_NOTICE_CUSTOM_TYPE => Step::Skip,
             // A recovered retry episode's disclosure row trails the answer
             // that settled it: the answer is the primary (TS print mode
             // prints the last assistant message). A failed episode's row
@@ -335,6 +343,40 @@ mod tests {
     #[test]
     fn a_failed_retry_row_ends_the_walk() {
         assert!(matches!(step(retry_outcome_row(false)), Step::Stop(None)));
+    }
+
+    /// The budget's notices are written after the request they were told
+    /// in (the set and low rows the model reads, the display-only
+    /// wrap-up): the walk passes over them to the answer they trail.
+    #[test]
+    fn a_budget_notice_does_not_hide_the_answer() {
+        let entries: Vec<EntryRecord> = serde_json::from_value(serde_json::json!([
+            { "kind": "eukhe.custom", "id": 4, "conversationId": 1,
+              "data": { "customType": "eukhe.budget", "display": true,
+                "content": "[budget] The tokens budget of this task is used up for work." } },
+            { "kind": "eukhe.custom", "id": 3, "conversationId": 1,
+              "model": [{ "role": "user",
+                "content": [{ "type": "text", "text": "[budget] This task has a budget: 3 requests." }],
+                "timestamp": 3 }],
+              "data": { "customType": "eukhe.budget.status", "display": true } },
+            { "kind": "pi.assistant", "id": 2, "conversationId": 1,
+              "model": [{ "role": "assistant",
+                "content": [{ "type": "text", "text": "ok" }],
+                "api": "faux", "provider": "faux", "model": "faux-1",
+                "usage": { "input": 0, "output": 1, "cacheRead": 0, "cacheWrite": 0,
+                  "totalTokens": 1,
+                  "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
+                "stopReason": "stop", "timestamp": 2 }] },
+        ]))
+        .expect("entry records");
+        let mut walk = Walk::default();
+        let ended: Vec<bool> = entries.into_iter().map(|entry| walk.take(entry)).collect();
+        assert_eq!(ended, vec![false, false, true]);
+        let primary = walk.result.primary.expect("the answer");
+        assert_eq!(
+            (primary.kind(), primary.stdout_text()),
+            (Primary::Answer, "ok".to_owned())
+        );
     }
 
     /// The warning row of a truncated answer trails the answer the run

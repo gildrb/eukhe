@@ -22,6 +22,7 @@
 
 mod gate;
 mod notices;
+mod prefix;
 mod rows;
 mod runs;
 mod tools;
@@ -45,7 +46,8 @@ use tokio::sync::watch;
 
 use super::deps::{HostCall, HostCallHandler, HostDeps};
 
-pub use notices::BUDGET_NOTICE_CUSTOM_TYPE;
+pub use notices::{BUDGET_NOTICE_CUSTOM_TYPE, BUDGET_STATUS_CUSTOM_TYPE};
+pub use prefix::MessageError;
 pub use rows::wrap_models_with_budget;
 pub use runs::{active_profile, RunError, RunFacts, RunFactsFn, RunStart};
 

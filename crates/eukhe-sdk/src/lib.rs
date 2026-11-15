@@ -128,15 +128,18 @@ pub async fn open_session(
 }
 
 /// Submit `text` to `conversation` of `session` as the user's input, as a
-/// new run of the session (its limits renewed: [`set_budget`]), wait until
-/// its run settles, then until the conversation is idle (continuations,
-/// queued input and compaction included).
+/// new run of the session (its limits renewed: [`set_budget`]; a `/b`
+/// prefix of `text` fills it with the presets and limits it asks, and the
+/// model gets what follows the prefix), wait until its run settles, then
+/// until the conversation is idle (continuations, queued input and
+/// compaction included).
 ///
 /// # Errors
 ///
-/// The run's limits do not fill (a `budget.*` setting that is no limit,
-/// a ledger that cannot be written), the submission is refused (the
-/// session closed, `cx` cancelled), or a wait fails.
+/// A `/b` prefix that does not read, the run's limits do not fill (a
+/// `budget.*` setting that is no limit, a ledger that cannot be written),
+/// the submission is refused (the session closed, `cx` cancelled), or a
+/// wait fails.
 pub async fn prompt(
     session: &EukheSession,
     conversation: &Conversation,
@@ -144,15 +147,12 @@ pub async fn prompt(
     cx: &Context,
 ) -> anyhow::Result<()> {
     let gate = session.budget();
-    tokio::task::spawn_blocking(move || {
-        gate.start_run(RunStart {
-            kind: RunKind::Sdk,
-            ..RunStart::default()
-        })
-    })
-    .await??;
+    let message = text.to_owned();
+    let text =
+        tokio::task::spawn_blocking(move || gate.begin_message(RunKind::Sdk, false, &message))
+            .await??;
     let submission = conversation
-        .submit(InputSubmissionDraft::new(text.to_owned()), cx)
+        .submit(InputSubmissionDraft::new(text), cx)
         .await?;
     submission.wait(cx).await?;
     conversation.wait_for_idle(cx).await?;

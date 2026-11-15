@@ -77,10 +77,11 @@ enum HeadlessModeError {
     /// finish.
     #[error("the session's budget could not be read: {0}")]
     BudgetReport(#[source] tokio::task::JoinError),
-    /// The `-p` run did not start: its limits did not fill (a
-    /// `budget.profile` that is no limit, the ledger's failure).
+    /// The `-p` run did not start: its message's `/b` prefix does not read
+    /// or its limits did not fill (a `budget.profile` that is no limit,
+    /// the ledger's failure).
     #[error("the run's budget could not be set: {0}")]
-    RunStart(#[source] eukhe_core::durable::budget::RunError),
+    RunStart(#[source] eukhe_core::durable::budget::MessageError),
     /// The session resolved no model: a run with prompts must fail loudly.
     #[error(
         "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
@@ -730,18 +731,12 @@ async fn drive_prompts(
     let harness = session.harness();
     let config = &options.config;
     let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
-    // The `-p` invocation is one headless run: its limits fill now (the
-    // `--budget-*` flags were set as the session's standing limits).
-    let gate = session.budget();
-    tokio::task::spawn_blocking(move || {
-        gate.start_run(eukhe_core::durable::budget::RunStart {
-            kind: eukhe_types::budget::RunKind::Headless,
-            ..eukhe_core::durable::budget::RunStart::default()
-        })
-    })
-    .await
-    .map_err(HeadlessModeError::BudgetReport)?
-    .map_err(HeadlessModeError::RunStart)?;
+    // The `-p` invocation is one headless run: its first message starts
+    // it, filled with what its `/b` prefix asks (the `--budget-*` flags
+    // were set as the session's standing limits); a later message sets
+    // what its prefix asks on that run.
+    let first = prompts(options).next().map_or("", |(prompt, _)| prompt);
+    let mut first = Some(begin_message(session.budget(), false, first).await?);
     // With limits off, a plan window past the reserve line is told once on
     // stderr; the run continues.
     let mut notices = session.budget().plan_notices();
@@ -799,10 +794,14 @@ async fn drive_prompts(
     }
     let resources = &session.deps().resources;
     for (prompt, images) in prompts(options) {
+        let prompt = match first.take() {
+            Some(rest) => rest,
+            None => begin_message(session.budget(), true, prompt).await?,
+        };
         // TS `_finishSubmissionNormalization` order: skill commands expand
         // first (`/skill:<name>` into its `<skill>` block), prompt
         // templates second.
-        let (prompt, _) = eukhe_core::skills::expand_skill_command(prompt, &resources.skills);
+        let (prompt, _) = eukhe_core::skills::expand_skill_command(&prompt, &resources.skills);
         let prompt = eukhe_core::skills::expand_prompt_template(&prompt, &resources.prompts);
         // Session commands never reach the model loop.
         if let Some(command) = classify_session_command(&prompt) {
@@ -833,6 +832,22 @@ async fn drive_prompts(
         }
     }
     Ok(PromptsEnd::Completed)
+}
+
+/// Begin the `-p` run's message `text` on its session's budget `gate`
+/// (`joins`: a later message of the run): what follows its `/b` prefix.
+async fn begin_message(
+    gate: std::sync::Arc<eukhe_core::durable::budget::BudgetGate>,
+    joins: bool,
+    text: &str,
+) -> Result<String, HeadlessModeError> {
+    let text = text.to_owned();
+    tokio::task::spawn_blocking(move || {
+        gate.begin_message(eukhe_types::budget::RunKind::Headless, joins, &text)
+    })
+    .await
+    .map_err(HeadlessModeError::BudgetReport)?
+    .map_err(HeadlessModeError::RunStart)
 }
 
 /// The json stream's leading identity line (the TS session header shape and

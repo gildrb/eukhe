@@ -367,7 +367,7 @@ impl BudgetGate {
     }
 
     /// The facts of the session now.
-    fn facts(&self) -> RunFacts {
+    pub(super) fn facts(&self) -> RunFacts {
         match self.runs.fill.get() {
             None => RunFacts::side(),
             Some(fill) => {

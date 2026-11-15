@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eukhe_core::durable::budget::{BudgetError, BudgetGate, RunStart};
+use eukhe_core::durable::budget::{BudgetError, BudgetGate};
 use eukhe_core::durable::cvar_agent::CvarLineScope;
 use eukhe_core::settings::cvar::table;
 use eukhe_core::settings::BudgetLimitsMode;
@@ -73,15 +73,6 @@ pub(crate) async fn apply_create_budget(
     .map_err(|error| error.to_string())?
 }
 
-/// What the `/b` prefix of a prompt asks of its run (the prompt's
-/// `runLimits`): presets in order and the limits its pairs set.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub(crate) struct RunAsk {
-    pub(crate) presets: Vec<String>,
-    pub(crate) set: RunLimits,
-}
-
 impl Worker {
     /// Follow the budget of `hosted` (the installed session; `None` for
     /// none): the previous forwarder stops, and a new one sends the
@@ -118,24 +109,27 @@ impl Worker {
         }
     }
 
-    /// A message of the principal: sent while the session is idle it
+    /// A message of the principal (`text`; empty for one that carries no
+    /// prefix of the principal's): sent while the session is idle it
     /// starts a fresh interactive run, its limits filled with what its
-    /// `/b` prefix asks (`ask`); one that joins the running run (queued or
-    /// steering) sets what its prefix asks on that run. Ledger file IO, on
-    /// the blocking pool.
+    /// `/b` prefix asks; one that joins the running run (queued or
+    /// steering) sets what its prefix asks on that run
+    /// ([`BudgetGate::begin_message`]). Returns the text after the prefix.
+    /// Ledger file IO, on the blocking pool.
     ///
     /// # Errors
     ///
-    /// The response that names why the run did not start (a profile or
-    /// preset that is no limit, the ledger's failure): nothing is sent.
+    /// The response that names why the run did not start (a prefix that
+    /// does not read, a profile or preset that is no limit, the ledger's
+    /// failure): nothing is sent.
     #[allow(clippy::result_large_err)] // the error is the wire response itself
     pub(crate) async fn begin_message_run(
         &self,
         hosted: &HostedSession,
         command: &str,
-        ask: Option<RunAsk>,
-    ) -> Result<(), DaemonResponse> {
-        let busy = self
+        text: &str,
+    ) -> Result<String, DaemonResponse> {
+        let joins = self
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -144,23 +138,13 @@ impl Worker {
             .session()
             .map_err(|error| response_failure(None, command, &error.to_string(), None))?;
         let gate = session.budget();
-        let started = tokio::task::spawn_blocking(move || match (busy, ask) {
-            (false, ask) => {
-                let ask = ask.unwrap_or_default();
-                gate.start_run(RunStart {
-                    kind: RunKind::Interactive,
-                    set: ask.set,
-                    presets: ask.presets,
-                    standing: None,
-                })
-                .map(|_| ())
-            }
-            (true, Some(ask)) => gate.set_asked(ask.set, ask.presets).map(|_| ()),
-            (true, None) => Ok(()),
+        let text = text.to_owned();
+        let begun = tokio::task::spawn_blocking(move || {
+            gate.begin_message(RunKind::Interactive, joins, &text)
         })
         .await;
-        match started {
-            Ok(Ok(())) => Ok(()),
+        match begun {
+            Ok(Ok(rest)) => Ok(rest),
             Ok(Err(error)) => Err(response_failure(None, command, &error.to_string(), None)),
             Err(error) => Err(response_failure(
                 None,

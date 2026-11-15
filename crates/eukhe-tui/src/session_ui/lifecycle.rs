@@ -95,16 +95,6 @@ impl SessionUi {
             speed_stats: None,
             speed_clock: crate::gen_speed::SpeedClock::default(),
             client_settings: options.client_settings.clone(),
-            budget_presets: crate::budget_text::SHIPPED_PRESETS
-                .iter()
-                .map(|name| (*name).to_owned())
-                .chain(
-                    options
-                        .client_settings
-                        .iter()
-                        .flat_map(|settings| settings.budget_preset_names()),
-                )
-                .collect(),
             anthropic_subscription_warning_shown: false,
             anthropic_warning_mark_pending: std::sync::Arc::default(),
             active_side_question_id: None,

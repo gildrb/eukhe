@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result};
 use eukhe_client::daemon_client::DaemonClient;
 use eukhe_core::durable::budget::{BudgetGate, DAEMON_ACCOUNT};
-use eukhe_tui::budget_text::{self, BudgetTextError};
+use eukhe_tui::budget_text;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
+use eukhe_types::budget_input::{self, BudgetTextError};
 use eukhe_types::daemon::{BudgetAudit, DaemonCommand};
 use serde_json::{json, Map, Value};
 
@@ -139,7 +140,7 @@ fn parse_budget_command(args: &[String]) -> Result<BudgetCommand, BudgetUsageErr
             "--daemon-socket" => daemon_socket = Some(value()?),
             _ => match amount_option(option) {
                 Some(dimension) => {
-                    let amount = budget_text::parse_amount(dimension, option, &value()?)?;
+                    let amount = budget_input::parse_amount(dimension, option, &value()?)?;
                     if amounts.get(dimension).is_some() {
                         return Err(BudgetUsageError::Repeated(option.to_owned()));
                     }

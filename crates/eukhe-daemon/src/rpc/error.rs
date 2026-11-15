@@ -167,6 +167,9 @@ pub(crate) enum RpcCommandError {
     /// The session's run did not start or its limits did not change.
     #[error(transparent)]
     Run(#[from] eukhe_core::durable::budget::RunError),
+    /// A message's `/b` prefix did not read or its run did not begin.
+    #[error(transparent)]
+    Message(#[from] eukhe_core::durable::budget::MessageError),
     /// A budget ledger call on the blocking pool did not finish.
     #[error("the budget ledger call did not finish: {0}")]
     BudgetTask(#[from] tokio::task::JoinError),
