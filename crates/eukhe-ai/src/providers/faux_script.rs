@@ -18,6 +18,7 @@
 //!     "plain text",
 //!     { "text": "text entry" },
 //!     { "systemPrompt": true },
+//!     { "userText": true },
 //!     {
 //!       "content": [
 //!         { "type": "thinking", "thinking": "..." },
@@ -56,7 +57,7 @@ use super::faux::{
     FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use crate::models::{create_models, CreateModelsOptions, Models, Provider};
-use crate::utils::text::get_system_message_text;
+use crate::utils::text::{content_text, get_system_message_text, DEFAULT_CONTENT_SEPARATOR};
 
 /// The api and provider id every scripted faux provider registers under.
 const FAUX_SCRIPT_ID: &str = "faux";
@@ -124,7 +125,8 @@ pub fn parse_faux_script(script: &str) -> Result<FauxScript, FauxScriptError> {
 /// "repeatLastResponse": ...}` script value.
 ///
 /// Entry forms: a plain string, `{"text": "..."}`, `{"systemPrompt": true}`
-/// (answers with the request's system prompt), or
+/// (answers with the request's system prompt), `{"userText": true}`
+/// (answers with the text of the request's user messages), or
 /// `{"content": [{"type": "thinking"|"text"|"toolCall", ...}]}`. Object
 /// entries may carry `stopReason` (default `toolUse` when the entry has a
 /// tool call, else `stop`), `errorMessage`, `delayMs` (holds the request
@@ -210,6 +212,8 @@ enum ScriptedContent {
     Blocks(Vec<FauxContentBlock>),
     /// `{"systemPrompt": true}`: the request's system prompt as text.
     SystemPromptEcho,
+    /// `{"userText": true}`: the text of the request's user messages.
+    UserTextEcho,
 }
 
 impl ScriptedContent {
@@ -218,7 +222,7 @@ impl ScriptedContent {
             Self::Blocks(blocks) => blocks
                 .iter()
                 .any(|block| matches!(block, AssistantContentBlock::ToolCall(_))),
-            Self::SystemPromptEcho => false,
+            Self::SystemPromptEcho | Self::UserTextEcho => false,
         }
     }
 
@@ -226,6 +230,7 @@ impl ScriptedContent {
         match self {
             Self::Blocks(blocks) => blocks.clone(),
             Self::SystemPromptEcho => vec![faux_text(system_prompt_text(context))],
+            Self::UserTextEcho => vec![faux_text(user_text(context))],
         }
     }
 }
@@ -243,6 +248,20 @@ fn system_prompt_text(context: &TranscriptContext) -> String {
         .join("\n\n")
 }
 
+/// The text of the transcript's user messages, in order, joined by blank
+/// lines.
+fn user_text(context: &TranscriptContext) -> String {
+    context
+        .messages()
+        .iter()
+        .filter_map(|message| match message {
+            Message::User(user) => Some(content_text(&user.content, DEFAULT_CONTENT_SEPARATOR)),
+            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// Parse one scripted response entry into a queued faux step.
 fn parse_script_step(entry: &JsonValue) -> Result<FauxResponseStep, FauxScriptError> {
     let content = match entry {
@@ -250,6 +269,8 @@ fn parse_script_step(entry: &JsonValue) -> Result<FauxResponseStep, FauxScriptEr
         JsonValue::Object(map) => {
             if map.get("systemPrompt").and_then(JsonValue::as_bool) == Some(true) {
                 ScriptedContent::SystemPromptEcho
+            } else if map.get("userText").and_then(JsonValue::as_bool) == Some(true) {
+                ScriptedContent::UserTextEcho
             } else if let Some(blocks) = map.get("content").and_then(JsonValue::as_array) {
                 ScriptedContent::Blocks(
                     blocks

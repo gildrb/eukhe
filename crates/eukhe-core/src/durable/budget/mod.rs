@@ -14,7 +14,8 @@
 //! charged at what it held when the session opens again
 //! ([`BudgetGate::open`]). A provider request that belongs to no task
 //! passes the daemon's account ([`BudgetGate::daemon`]). What the agent
-//! and the user are told is in `notices`.
+//! and the user are told, and the extension that writes the notices a
+//! request is due before it reads its context, is in `notices`.
 //!
 //! Every ledger operation is blocking file IO of a few milliseconds: the
 //! public methods of [`BudgetGate`] run it on the calling thread, so async
@@ -27,6 +28,8 @@ mod rows;
 mod runs;
 mod tools;
 
+#[cfg(test)]
+mod notices_tests;
 #[cfg(test)]
 mod paths_tests;
 #[cfg(test)]
@@ -46,6 +49,7 @@ use tokio::sync::watch;
 
 use super::deps::{HostCall, HostCallHandler, HostDeps};
 
+pub(crate) use notices::extension;
 pub use notices::{BUDGET_NOTICE_CUSTOM_TYPE, BUDGET_STATUS_CUSTOM_TYPE};
 pub use prefix::MessageError;
 pub use rows::wrap_models_with_budget;
@@ -760,8 +764,8 @@ impl Drop for Held {
 /// Connects a session to its budget once its deps exist: its runs fill
 /// (`kind`: the run its first effect starts), registers the
 /// `budget.status` kernel host request (the budget's report as JSON, `null`
-/// without a budget) and delivers the gate's notices to the session's main
-/// conversation.
+/// without a budget) and delivers the gate's wrap-up notices to the
+/// session's main conversation (its other notices: [`extension`]).
 pub(crate) fn install(deps: &Arc<HostDeps>, kind: RunKind) {
     deps.budget.fill_runs(
         kind,

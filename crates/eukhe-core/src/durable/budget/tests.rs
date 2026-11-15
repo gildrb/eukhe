@@ -215,8 +215,13 @@ impl Fixture {
         self.send(context).await
     }
 
-    /// Send `context` through the gated collection as it stands.
+    /// Send `context` through the gated collection as it stands; an agent
+    /// turn is first told the notices due, as the budget's extension writes
+    /// them before the request reads its context.
     async fn send(&self, context: PiContext) -> AssistantMessage {
+        if context.tools.is_some() {
+            self.deliver_due();
+        }
         self.models
             .complete_simple(
                 &self.faux.get_model(),
@@ -224,6 +229,12 @@ impl Fixture {
                 ModelsSimpleStreamOptions::from(SimpleStreamOptions::default()),
             )
             .await
+    }
+
+    /// Tell the notices due before the agent's next request.
+    fn deliver_due(&self) {
+        let due = self.gate.due();
+        self.notices.lock().unwrap().extend(due);
     }
 
     /// The input tokens a request of `context` reserves, counted here with
@@ -1552,11 +1563,18 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
                 last: Some(notice.to_owned()),
             }],
             Some(BudgetPhase::WrapUp),
-            vec![Notice {
-                kind: NoticeKind::WrapUp,
-                request_id: format!("budget:session:wrap-up:-:{limit}:-:-:-:-"),
-                text: notice.to_owned(),
-            }]
+            vec![
+                Notice {
+                    kind: NoticeKind::Set,
+                    request_id: format!("budget:session:set:-:{limit}:-:-:-:-"),
+                    text: "[budget] This task has a budget: 4.0k tokens. Every model request and tool call reserves its worst case before it runs: plan your work to fit. In the Python kernel (the python tool) `await budget.status()` returns what is left.".to_owned(),
+                },
+                Notice {
+                    kind: NoticeKind::WrapUp,
+                    request_id: format!("budget:session:wrap-up:-:{limit}:-:-:-:-"),
+                    text: notice.to_owned(),
+                },
+            ]
         )
     );
 }
@@ -1664,8 +1682,9 @@ async fn a_hold_that_fills_what_is_free_does_not_make_the_budget_run_low() {
 
 /// B7: the agent learns that its budget runs low, once, when two steps of
 /// the largest it actually spent (3250 tokens) and its final-answer
-/// reserve no longer fit what is left; the notice shows what it can still
-/// spend and what its final answer keeps of it.
+/// reserve no longer fit what is left, in its request after the grant that
+/// found it; the notice shows what it can still spend and what its final
+/// answer keeps of it.
 #[tokio::test]
 async fn the_budget_runs_low_once_two_steps_of_the_largest_spend_no_longer_fit() {
     let row = scripted(|| {
@@ -1703,12 +1722,14 @@ async fn the_budget_runs_low_once_two_steps_of_the_largest_spend_no_longer_fit()
         .iter()
         .map(|notice| notice.text.clone())
         .collect();
+    // The grant of the third request finds the budget low; the fourth
+    // request is the next one, which reads it.
     assert_eq!(
         told,
         vec![
             vec![set.clone()],
             vec![set.clone()],
-            vec![set.clone(), low.clone()],
+            vec![set.clone()],
             vec![set, low],
         ]
     );
@@ -1744,6 +1765,8 @@ async fn the_budget_runs_low_before_work_is_refused_when_a_hold_is_larger_than_a
     fixture.gate.set(tokens(20_000)).unwrap();
     let mut low_before_refusal = None;
     for _ in 0..200 {
+        // What the budget's extension writes before the request.
+        fixture.deliver_due();
         let low = fixture
             .told()
             .iter()

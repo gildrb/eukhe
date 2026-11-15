@@ -2,28 +2,36 @@
 //! the texts, what is left as they show it, and their delivery to the
 //! session's main conversation.
 //!
-//! The agent learns of its budget at its first request after the budget
-//! was set or added to, learns that it runs low when a grant says two
-//! steps of its largest actual spend no longer fit (once until budget is
-//! added), and is told to wrap up in the request that is its final
-//! answer. The first two are written into the
-//! conversation as rows the model reads (a busy conversation places them
-//! at its next boundary, an idle one at once); a notice never starts a run
-//! nor continues one. The wrap-up also shows as a display-only row. Each
-//! has a request id made of its kind and the budget's limits, so a rerun
-//! or a restart under the same budget does not repeat it.
+//! The agent learns of its budget in the first request after the budget
+//! was set or added to, learns that it runs low in the request after a
+//! grant said two steps of its largest actual spend no longer fit (once
+//! until budget is added), and is told to wrap up in the request that is
+//! its final answer. The first two are rows the model reads, written into
+//! the main conversation before the request they are due in reads its
+//! context ([`notice_hook`]): they come before the request's answer, and
+//! a low budget a final answer found is never written after it. The
+//! wrap-up is the last message of the final answer's request and shows as
+//! a display-only row. A notice never starts a run nor continues one.
+//! Each has a request id made of its kind and the budget's limits, so a
+//! rerun or a restart under the same budget does not repeat it.
 
-use std::sync::{Arc, PoisonError};
+use std::sync::{Arc, PoisonError, Weak};
 
 use eukhe_budget::Refusal;
-use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
+use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_durable::harness::define::{define_extension, hook};
+use eukhe_durable::harness::types::{
+    Extension, GenerationHooks, HookApi, PlaceQueued, SubmissionDraft, WriteSubmissionDraft,
+};
+use eukhe_durable::harness::GENERATION_TASK;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, PlanShare};
+use futures::FutureExt as _;
 
 use super::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
-use crate::durable::main_conversation::main_conversation;
+use crate::durable::main_conversation::{main_conversation, main_conversation_id};
 use crate::durable::rlm::CustomNotice;
+use crate::durable::HostDeps;
 
 /// The custom type of the row that shows the wrap-up of a budget
 /// (display-only: the user sees it, the model reads the notice in its
@@ -65,29 +73,31 @@ pub(super) struct Notice {
 /// call that caused the notice; it must not block.
 pub(super) type NoticeSink = Arc<dyn Fn(Notice) + Send + Sync>;
 
-/// The notices a gate gave since its budget was last set or added to.
+/// The notices a gate gave since its budget was last set or added to, and
+/// those of them the agent's next request is still to carry.
 #[derive(Debug, Default)]
 pub(super) struct Told {
     set: bool,
     low: bool,
     wrap_up: bool,
+    due: Vec<Notice>,
 }
 
 impl BudgetGate {
-    /// Send the gate's notices to `sink` (the first sink stays).
+    /// Send the gate's wrap-up notices to `sink` (the first sink stays).
     pub(super) fn deliver_notices(&self, sink: NoticeSink) {
         // A second sink is dropped: the first one delivers.
         let _ = self.notices.set(sink);
     }
 
-    /// Give the notice of `kind` under the budget `report` shows, unless
-    /// it was given since the budget was last set or added to.
-    pub(super) fn tell(
+    /// The notice of `kind` under the budget `report` shows, unless it was
+    /// given since the budget was last set or added to; it is given now.
+    fn give(
         &self,
         kind: NoticeKind,
         report: &BudgetReport,
         text: impl FnOnce() -> String,
-    ) {
+    ) -> Option<Notice> {
         {
             let mut told = self.told.lock().unwrap_or_else(PoisonError::into_inner);
             let given = match kind {
@@ -96,12 +106,9 @@ impl BudgetGate {
                 NoticeKind::WrapUp => &mut told.wrap_up,
             };
             if std::mem::replace(given, true) {
-                return;
+                return None;
             }
         }
-        let Some(sink) = self.notices.get() else {
-            return;
-        };
         let slug = match kind {
             NoticeKind::Set => "set",
             NoticeKind::Low => "low",
@@ -121,11 +128,78 @@ impl BudgetGate {
                 .deadline_ms
                 .map_or_else(|| "-".to_owned(), |deadline| deadline.to_string()),
         );
-        sink(Notice {
+        Some(Notice {
             kind,
             request_id: format!("budget:{}:{slug}:{}", self.agent(), budget.join(":")),
             text: text(),
-        });
+        })
+    }
+
+    /// Give the notice of `kind` (see [`Self::give`]) to the sink now: the
+    /// wrap-up, which its own request carries.
+    pub(super) fn tell(
+        &self,
+        kind: NoticeKind,
+        report: &BudgetReport,
+        text: impl FnOnce() -> String,
+    ) {
+        let Some(sink) = self.notices.get() else {
+            return;
+        };
+        if let Some(notice) = self.give(kind, report, text) {
+            sink(notice);
+        }
+    }
+
+    /// Give the notice of `kind` (see [`Self::give`]) to the agent's next
+    /// request ([`Self::due`]): a low budget, found by a grant whose
+    /// request is already built.
+    pub(super) fn tell_next(
+        &self,
+        kind: NoticeKind,
+        report: &BudgetReport,
+        text: impl FnOnce() -> String,
+    ) {
+        if let Some(notice) = self.give(kind, report, text) {
+            self.told
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .due
+                .push(notice);
+        }
+    }
+
+    /// Whether the agent's next request may have notices due: the budget
+    /// was not yet looked at since it was last set or added to, or a grant
+    /// gave a notice since.
+    pub(super) fn may_have_due(&self) -> bool {
+        let told = self.told.lock().unwrap_or_else(PoisonError::into_inner);
+        !told.set || !told.due.is_empty()
+    }
+
+    /// The notices the agent's next request carries, oldest first: the
+    /// budget, once the run's limits are known (its first effect starts the
+    /// session's first run; a run without limits is told nothing), and
+    /// what grants gave since. Blocking file IO.
+    pub(super) fn due(&self) -> Vec<Notice> {
+        let mut due = Vec::new();
+        let set = self.told.lock().unwrap_or_else(PoisonError::into_inner).set;
+        if !set {
+            match self.ensure_run() {
+                Err(error) => tracing::warn!(%error, "the budget notice waits: no run started"),
+                Ok(()) => match self.report() {
+                    Some(report) if !report.limits.is_unlimited() => {
+                        due.extend(self.give(NoticeKind::Set, &report, || set_text(&report)));
+                    }
+                    // Nothing to tell until the budget is set or added to.
+                    Some(_) | None => {
+                        self.told.lock().unwrap_or_else(PoisonError::into_inner).set = true;
+                    }
+                },
+            }
+        }
+        due.append(&mut self.told.lock().unwrap_or_else(PoisonError::into_inner).due);
+        due
     }
 }
 
@@ -295,33 +369,39 @@ pub(super) fn plan_wrap_text(plan: &PlanShare, cap: u64) -> String {
     )
 }
 
-/// Deliver `notice` to the session's main conversation as a passive write:
-/// the set and low notices as rows the model reads, the wrap-up as a
-/// display-only row. A write never starts or continues a run: a busy
-/// conversation places it at its next boundary, an idle one at once. A
-/// closing session takes none; a notice that cannot be delivered is
-/// logged.
+/// The write of `notice`'s row: the set and low notices as rows the model
+/// reads, the wrap-up as a display-only row; `None` (logged) when the row
+/// cannot be built.
+fn row(notice: Notice) -> Option<SubmissionDraft> {
+    let custom_type = match notice.kind {
+        NoticeKind::Set | NoticeKind::Low => BUDGET_STATUS_CUSTOM_TYPE,
+        NoticeKind::WrapUp => BUDGET_NOTICE_CUSTOM_TYPE,
+    };
+    match CustomNotice::new(custom_type, notice.text, true, None).draft() {
+        Ok(entry) => Some(SubmissionDraft::Write(WriteSubmissionDraft {
+            request_id: Some(notice.request_id),
+            entry,
+        })),
+        Err(error) => {
+            tracing::warn!(%error, "budget notice row not built");
+            None
+        }
+    }
+}
+
+/// Deliver the wrap-up `notice` to the session's main conversation as a
+/// passive write: a busy conversation places it at its next boundary, an
+/// idle one at once. A closing session takes none; a notice that cannot be
+/// delivered is logged.
 #[tracing::instrument(skip_all, fields(kind = ?notice.kind, request_id = %notice.request_id))]
 pub(super) async fn deliver(harness: HarnessCell, closing: SessionClosing, notice: Notice) {
     let Some(harness) = harness.get() else {
         tracing::warn!("budget notice dropped: the session's Harness is not open");
         return;
     };
-    let custom_type = match notice.kind {
-        NoticeKind::Set | NoticeKind::Low => BUDGET_STATUS_CUSTOM_TYPE,
-        NoticeKind::WrapUp => BUDGET_NOTICE_CUSTOM_TYPE,
+    let Some(draft) = row(notice) else {
+        return;
     };
-    let entry = match CustomNotice::new(custom_type, notice.text, true, None).draft() {
-        Ok(entry) => entry,
-        Err(error) => {
-            tracing::warn!(%error, "budget notice row not built");
-            return;
-        }
-    };
-    let draft = SubmissionDraft::Write(WriteSubmissionDraft {
-        request_id: Some(notice.request_id),
-        entry,
-    });
     let submitted = closing
         .admit(|| async {
             let conversation = main_conversation(&harness, &BACKGROUND_CONTEXT).await?;
@@ -335,4 +415,66 @@ pub(super) async fn deliver(harness: HarnessCell, closing: SessionClosing, notic
         Some(Ok(())) | None => {}
         Some(Err(error)) => tracing::warn!(%error, "budget notice not delivered"),
     }
+}
+
+/// The name of the budget's extension.
+const BUDGET_EXTENSION: &str = "eukhe.budget.notices";
+
+/// The budget's extension: a `before_prepare` hook of `pi.generation` that
+/// writes the notices due ([`BudgetGate::due`]) into the session's main
+/// conversation and places them before its request reads the context. The
+/// model reads the budget in the run's first request and a low budget in
+/// the request after the grant that found it. Other conversations are told
+/// nothing. The deps are held weakly (they hold the Harness that holds
+/// this hook); a notice that cannot be written is logged and the request
+/// goes on.
+pub(crate) fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let deps: Weak<HostDeps> = Arc::downgrade(deps);
+    let notices = hook(
+        &*GENERATION_TASK,
+        GenerationHooks {
+            before_prepare: Some(Arc::new(move |api: &HookApi, cx: &Context| {
+                let (deps, conversation_id, cx) = (deps.clone(), api.conversation_id(), cx.clone());
+                async move {
+                    let Some(deps) = deps.upgrade() else {
+                        return Ok(None);
+                    };
+                    if !deps.budget.may_have_due() {
+                        return Ok(None);
+                    }
+                    let harness = deps.harness.require()?;
+                    if main_conversation_id(&harness, &cx).await? != conversation_id {
+                        return Ok(None);
+                    }
+                    let gate = Arc::clone(&deps.budget);
+                    let due = match tokio::task::spawn_blocking(move || gate.due()).await {
+                        Ok(due) => due,
+                        Err(error) => {
+                            tracing::warn!(%error, "budget notices not read");
+                            return Ok(None);
+                        }
+                    };
+                    let Some(conversation) = harness.conversation(conversation_id, &cx).await?
+                    else {
+                        return Ok(None);
+                    };
+                    let mut written = false;
+                    for draft in due.into_iter().filter_map(row) {
+                        match conversation.submit(draft, &cx).await {
+                            Ok(_) => written = true,
+                            Err(error) => tracing::warn!(%error, "budget notice not written"),
+                        }
+                    }
+                    Ok(written.then_some(PlaceQueued))
+                }
+                .boxed()
+            })),
+            ..GenerationHooks::default()
+        },
+    );
+    define_extension(Extension {
+        name: BUDGET_EXTENSION.to_owned(),
+        hooks: vec![notices],
+        ..Extension::default()
+    })
 }

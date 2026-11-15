@@ -907,18 +907,13 @@ impl<O: GatedOptions> Request<O> {
                 report,
             })) => {
                 options.stream_mut().max_tokens = Some(caps[reservation.index]);
-                if agent_turn {
-                    // A run without limits tells the agent nothing.
-                    if !report.limits.is_unlimited() {
-                        self.gate
-                            .tell(NoticeKind::Set, &report, || notices::set_text(&report));
-                    }
-                    if reservation.low {
-                        let keep = self.gate.keep();
-                        self.gate.tell(NoticeKind::Low, &report, || {
-                            notices::low_text(&report, keep)
-                        });
-                    }
+                // The agent reads that it runs low in its next request: this
+                // one is built.
+                if agent_turn && reservation.low {
+                    let keep = self.gate.keep();
+                    self.gate.tell_next(NoticeKind::Low, &report, || {
+                        notices::low_text(&report, keep)
+                    });
                 }
                 let again = asked
                     .filter(|offers| reservation.amount.time_ms < offers[reservation.index].time_ms)

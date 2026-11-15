@@ -221,45 +221,50 @@ fn a_tool_call_past_the_budget_is_not_run_and_the_agent_still_answers() {
     assert_balanced(&state, "toolCalls");
 }
 
-/// B6, B15: with limits on, the budget notice the run's first request was
-/// told is written after that request's answer; `-p` still prints the
-/// answer (text mode: on stdout; JSON mode: the last assistant message)
-/// and exits 0.
+/// B6, B8, B15: with limits on, the run's first request carries the
+/// notice of its limits (written before the request reads its context, so
+/// before the answer); with limits off it carries none. The faux model
+/// answers with the request's user text; `-p` prints that answer (text
+/// mode: on stdout; JSON mode: the last assistant message) and exits 0.
 #[test]
-fn with_limits_on_print_mode_prints_the_answer_the_budget_notice_trails() {
-    for mode in ["text", "json"] {
-        let home = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(home.path().join(".eukhe")).unwrap();
-        std::fs::write(
-            home.path().join(".eukhe/settings.json"),
-            json!({ "budget": { "limits": "on" } }).to_string(),
-        )
-        .unwrap();
-        let script = json!({ "responses": ["the answer"] });
-        let (stdout, stderr, code) =
-            run(home.path(), &["--mode", mode, "-p", "answer me"], &script);
-        assert_eq!(code, 0, "{mode}: stdout: {stdout}\nstderr: {stderr}");
-        assert!(stderr.contains("(limits on)"), "{mode}: {stderr}");
-        if mode == "text" {
-            assert_eq!(stdout, "the answer\n", "stderr: {stderr}");
-            continue;
+fn the_first_request_carries_the_limits_notice_only_with_limits_on() {
+    const NOTICE: &str = "[budget] This task has a budget: ";
+    for limits in ["on", "off"] {
+        for mode in ["text", "json"] {
+            let home = tempfile::TempDir::new().unwrap();
+            std::fs::create_dir_all(home.path().join(".eukhe")).unwrap();
+            std::fs::write(
+                home.path().join(".eukhe/settings.json"),
+                json!({ "budget": { "limits": limits } }).to_string(),
+            )
+            .unwrap();
+            let script = json!({ "responses": [{ "userText": true }] });
+            let (stdout, stderr, code) =
+                run(home.path(), &["--mode", mode, "-p", "answer me"], &script);
+            assert_eq!(
+                code, 0,
+                "{limits} {mode}: stdout: {stdout}\nstderr: {stderr}"
+            );
+            assert_eq!(
+                stderr.contains("(limits on)"),
+                limits == "on",
+                "{limits} {mode}: {stderr}"
+            );
+            let answer = if mode == "text" {
+                stdout.clone()
+            } else {
+                final_answer(&events(&stdout))
+                    .as_str()
+                    .expect("a text answer")
+                    .to_owned()
+            };
+            assert!(answer.contains("answer me"), "{limits} {mode}: {stdout}");
+            assert_eq!(
+                answer.contains(NOTICE),
+                limits == "on",
+                "{limits} {mode}: the first request's user text: {answer}"
+            );
         }
-        let events = events(&stdout);
-        assert_eq!(final_answer(&events), "the answer", "{stdout}");
-        let answer = events
-            .iter()
-            .position(|event| {
-                event["type"] == "message_end" && event["message"]["role"] == "assistant"
-            })
-            .expect("an answer");
-        assert!(
-            events[answer..].iter().any(|event| {
-                event
-                    .to_string()
-                    .contains("[budget] This task has a budget")
-            }),
-            "the notice trails the answer: {stdout}"
-        );
     }
 }
 

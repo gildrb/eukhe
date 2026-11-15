@@ -258,11 +258,10 @@ fn step(entry: EntryRecord) -> Step {
             // The row after an answer that hit the output limit and was
             // kept as it is: the answer is the primary.
             OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Step::Warning(content),
-            // A budget notice is told while a request is in flight (the
-            // budget at the run's first request, a low budget at a grant,
-            // the wrap-up in the final answer's request) and written as a
-            // passive row at the conversation's next boundary: after that
-            // request's answer, so it trails a final answer it never ends.
+            // A budget notice is never the answer: the budget and a low
+            // budget are written before the request that reads them (last
+            // only when that request never answered), the wrap-up's
+            // display row after the final answer whose request carried it.
             REFINEMENT_OUTCOME_CUSTOM_TYPE
             | REFINEMENT_NOTICE_CUSTOM_TYPE
             | HARNESS_DIGEST_CUSTOM_TYPE
@@ -345,9 +344,9 @@ mod tests {
         assert!(matches!(step(retry_outcome_row(false)), Step::Stop(None)));
     }
 
-    /// The budget's notices are written after the request they were told
-    /// in (the set and low rows the model reads, the display-only
-    /// wrap-up): the walk passes over them to the answer they trail.
+    /// A budget notice is never the answer (the wrap-up's display row
+    /// trails the final answer whose request carried it; a set or low row
+    /// is last when its request never answered): the walk passes over them.
     #[test]
     fn a_budget_notice_does_not_hide_the_answer() {
         let entries: Vec<EntryRecord> = serde_json::from_value(serde_json::json!([
