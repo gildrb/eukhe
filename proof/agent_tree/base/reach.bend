@@ -11,6 +11,7 @@
 import Base
 import ../../../bend/agent_tree.bend as T
 import ../../../spec/agents/agent_tree.bend as S
+import ./patch.bend as LP
 
 # Logic
 # -----
@@ -246,19 +247,8 @@ def at_reach.sub_add(h: Nat, c: Nat, e: {Nat.is_le(h, c) == True{} : Bool}) -> {
       %at_reach.sub_add(p, q, e) : {1n+Nat.add(p, Nat.sub(q, p)) == 1n+_ : Nat}
       {==}
 
-def at_reach.half_le(+c: Nat) -> {Nat.is_le(T.half(c), c) == True{} : Bool}:
-  match c:
-    case 0n:
-      {==}
-    case 1n+p:
-      match p:
-        case 0n:
-          {==}
-        case 1n+q:
-          at_reach.le_succ_r(T.half(q), q, at_reach.half_le(q))
-
 def at_reach.halves_sum(+c: Nat) -> {Nat.add(Nat.sub(c, T.half(c)), T.half(c)) == c : Nat}:
-  Equal.trans(Nat, Nat.add(Nat.sub(c, T.half(c)), T.half(c)), Nat.add(T.half(c), Nat.sub(c, T.half(c))), c, at_reach.add_comm(Nat.sub(c, T.half(c)), T.half(c)), at_reach.sub_add(T.half(c), c, at_reach.half_le(c)))
+  Equal.trans(Nat, Nat.add(Nat.sub(c, T.half(c)), T.half(c)), Nat.add(T.half(c), Nat.sub(c, T.half(c))), c, at_reach.add_comm(Nat.sub(c, T.half(c)), T.half(c)), at_reach.sub_add(T.half(c), c, LP.at_patch.half_le(c)))
 
 # a spend that fits the free budget keeps the sum within m
 def at_reach.spend_arith(+m: Nat, +s: Nat, +a: Nat, +b: Nat, +n: Nat, inv: {Nat.is_le(Nat.add(s, Nat.add(a, b)), m) == True{} : Bool}, fit: {Nat.is_le(n, Nat.sub(Nat.sub(Nat.sub(m, s), a), b)) == True{} : Bool}) -> {Nat.is_le(Nat.add(Nat.add(s, n), Nat.add(a, b)), m) == True{} : Bool}:

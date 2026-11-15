@@ -42,7 +42,31 @@ def at_patch.and_intro(-a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == T
 # Halves
 # ------
 
-# the larger half: n less half(n)
+# the smaller half of n, by structure (T.half is Nat.div(n, 2n): at_patch.div2)
+def at_patch.h(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      0n
+    case 1n+p:
+      match p:
+        case 0n:
+          0n
+        case 1n+q:
+          1n+at_patch.h(q)
+
+# n mod 2, by structure
+def at_patch.par(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      0n
+    case 1n+p:
+      match p:
+        case 0n:
+          1n
+        case 1n+q:
+          at_patch.par(q)
+
+# the larger half: n less h(n)
 def at_patch.hi(n: Nat) -> Nat:
   match n:
     case 0n:
@@ -62,6 +86,56 @@ def at_patch.add_succ_r(x: Nat, -y: Nat) -> {1n+Nat.add(x, y) == Nat.add(x, 1n+y
       %at_patch.add_succ_r(p, y) : {2n+Nat.add(p, y) == 1n+_ : Nat}
       {==}
 
+def at_patch.add0(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      Equal.cong(Nat, Nat, x => 1n+x, Nat.add(p, 0n), p, at_patch.add0(p))
+
+# Nat.divmod by 2 counts down two at a time: the half and the parity
+def at_patch.dm(n: Nat, +d: Nat) -> {Nat.divmod.go(n, 1n, d, 0n) == (Nat.add(at_patch.h(n), d), at_patch.par(n)) : Nat & Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      match p:
+        case 0n:
+          {==}
+        case 1n++q:
+          Equal.trans(Nat & Nat, Nat.divmod.go(q, 1n, 1n+d, 0n), (Nat.add(at_patch.h(q), 1n+d), at_patch.par(q)), (1n+Nat.add(at_patch.h(q), d), at_patch.par(q)), at_patch.dm(q, 1n+d), Equal.cong(Nat, Nat & Nat, x => (x, at_patch.par(q)), Nat.add(at_patch.h(q), 1n+d), 1n+Nat.add(at_patch.h(q), d), Equal.sym(Nat, 1n+Nat.add(at_patch.h(q), d), Nat.add(at_patch.h(q), 1n+d), at_patch.add_succ_r(at_patch.h(q), d))))
+
+# the code's half is the structural one
+def at_patch.div2(+m: Nat) -> {T.half(m) == at_patch.h(m) : Nat}:
+  %Equal.sym(Nat & Nat, Nat.divmod.go(m, 1n, 0n, 0n), (Nat.add(at_patch.h(m), 0n), at_patch.par(m)), at_patch.dm(m, 0n)) : {Pair.fst(Nat, Nat, _) == at_patch.h(m) : Nat}
+  at_patch.add0(at_patch.h(m))
+
+def at_patch.le_succ_r(a: Nat, b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_le(a, 1n+b) == True{} : Bool}:
+  match a b:
+    case 0n y:
+      {==}
+    case 1n+x 0n:
+      at_patch.absurd({Nat.is_le(1n+x, 1n) == True{} : Bool}, h)
+    case 1n+x 1n+y:
+      at_patch.le_succ_r(x, y, h)
+
+# the smaller half is at most n
+def at_patch.h_le(+c: Nat) -> {Nat.is_le(at_patch.h(c), c) == True{} : Bool}:
+  match c:
+    case 0n:
+      {==}
+    case 1n+p:
+      match p:
+        case 0n:
+          {==}
+        case 1n+q:
+          at_patch.le_succ_r(at_patch.h(q), q, at_patch.h_le(q))
+
+# T.half is at most n
+def at_patch.half_le(+c: Nat) -> {Nat.is_le(T.half(c), c) == True{} : Bool}:
+  %Equal.sym(Nat, T.half(c), at_patch.h(c), at_patch.div2(c)) : {Nat.is_le(_, c) == True{} : Bool}
+  at_patch.h_le(c)
+
 def at_patch.sub_add(h: Nat, x: Nat) -> {x == Nat.sub(Nat.add(h, x), h) : Nat}:
   match h:
     case 0n:
@@ -73,7 +147,7 @@ def at_patch.sub_add(h: Nat, x: Nat) -> {x == Nat.sub(Nat.add(h, x), h) : Nat}:
     case 1n+p:
       at_patch.sub_add(p, x)
 
-def at_patch.half_hi(+c: Nat) -> {Nat.add(T.half(c), at_patch.hi(c)) == c : Nat}:
+def at_patch.half_hi(+c: Nat) -> {Nat.add(at_patch.h(c), at_patch.hi(c)) == c : Nat}:
   match c:
     case 0n:
       {==}
@@ -82,11 +156,11 @@ def at_patch.half_hi(+c: Nat) -> {Nat.add(T.half(c), at_patch.hi(c)) == c : Nat}
         case 0n:
           {==}
         case 1n+q:
-          %at_patch.add_succ_r(T.half(q), at_patch.hi(q)) : {1n+_ == 2n+q : Nat}
-          %at_patch.half_hi(q) : {2n+Nat.add(T.half(q), at_patch.hi(q)) == 2n+_ : Nat}
+          %at_patch.add_succ_r(at_patch.h(q), at_patch.hi(q)) : {1n+_ == 2n+q : Nat}
+          %at_patch.half_hi(q) : {2n+Nat.add(at_patch.h(q), at_patch.hi(q)) == 2n+_ : Nat}
           {==}
 
-def at_patch.hi_half(+c: Nat) -> {c == Nat.add(at_patch.hi(c), T.half(c)) : Nat}:
+def at_patch.hi_half(+c: Nat) -> {c == Nat.add(at_patch.hi(c), at_patch.h(c)) : Nat}:
   match c:
     case 0n:
       {==}
@@ -95,14 +169,14 @@ def at_patch.hi_half(+c: Nat) -> {c == Nat.add(at_patch.hi(c), T.half(c)) : Nat}
         case 0n:
           {==}
         case 1n+q:
-          %at_patch.add_succ_r(at_patch.hi(q), T.half(q)) : {2n+q == 1n+_ : Nat}
+          %at_patch.add_succ_r(at_patch.hi(q), at_patch.h(q)) : {2n+q == 1n+_ : Nat}
           %at_patch.hi_half(q) : {2n+q == 2n+_ : Nat}
           {==}
 
 # hi(c) is c less its smaller half
-def at_patch.hi_sub(+c: Nat) -> {at_patch.hi(c) == Nat.sub(c, T.half(c)) : Nat}:
-  %at_patch.half_hi(c) : {at_patch.hi(c) == Nat.sub(_, T.half(c)) : Nat}
-  at_patch.sub_add(T.half(c), at_patch.hi(c))
+def at_patch.hi_sub(+c: Nat) -> {at_patch.hi(c) == Nat.sub(c, at_patch.h(c)) : Nat}:
+  %at_patch.half_hi(c) : {at_patch.hi(c) == Nat.sub(_, at_patch.h(c)) : Nat}
+  at_patch.sub_add(at_patch.h(c), at_patch.hi(c))
 
 def at_patch.eq_refl(n: Nat) -> {True{} == Nat.is_eq(n, n) : Bool}:
   match n:
@@ -112,7 +186,7 @@ def at_patch.eq_refl(n: Nat) -> {True{} == Nat.is_eq(n, n) : Bool}:
       at_patch.eq_refl(p)
 
 # the larger half is the smaller one or one more
-def at_patch.hi_close(c: Nat) -> {Bool.or(Nat.is_eq(at_patch.hi(c), T.half(c)), Nat.is_eq(at_patch.hi(c), 1n+T.half(c))) == True{} : Bool}:
+def at_patch.hi_close(c: Nat) -> {Bool.or(Nat.is_eq(at_patch.hi(c), at_patch.h(c)), Nat.is_eq(at_patch.hi(c), 1n+at_patch.h(c))) == True{} : Bool}:
   match c:
     case 0n:
       {==}
@@ -125,9 +199,10 @@ def at_patch.hi_close(c: Nat) -> {Bool.or(Nat.is_eq(at_patch.hi(c), T.half(c)), 
 
 # the halves of a value are fair
 def at_patch.fair(+c: Nat) -> {Bool.and(Nat.is_eq(Nat.add(Nat.sub(c, T.half(c)), T.half(c)), c), Bool.or(Nat.is_eq(Nat.sub(c, T.half(c)), T.half(c)), Nat.is_eq(Nat.sub(c, T.half(c)), 1n+T.half(c)))) == True{} : Bool}:
-  %at_patch.hi_sub(c) : {Bool.and(Nat.is_eq(Nat.add(_, T.half(c)), c), Bool.or(Nat.is_eq(_, T.half(c)), Nat.is_eq(_, 1n+T.half(c)))) == True{} : Bool}
-  %at_patch.hi_half(c) : {Bool.and(Nat.is_eq(_, c), Bool.or(Nat.is_eq(at_patch.hi(c), T.half(c)), Nat.is_eq(at_patch.hi(c), 1n+T.half(c)))) == True{} : Bool}
-  %at_patch.eq_refl(c) : {Bool.and(_, Bool.or(Nat.is_eq(at_patch.hi(c), T.half(c)), Nat.is_eq(at_patch.hi(c), 1n+T.half(c)))) == True{} : Bool}
+  %Equal.sym(Nat, T.half(c), at_patch.h(c), at_patch.div2(c)) : {Bool.and(Nat.is_eq(Nat.add(Nat.sub(c, _), _), c), Bool.or(Nat.is_eq(Nat.sub(c, _), _), Nat.is_eq(Nat.sub(c, _), 1n+_))) == True{} : Bool}
+  %at_patch.hi_sub(c) : {Bool.and(Nat.is_eq(Nat.add(_, at_patch.h(c)), c), Bool.or(Nat.is_eq(_, at_patch.h(c)), Nat.is_eq(_, 1n+at_patch.h(c)))) == True{} : Bool}
+  %at_patch.hi_half(c) : {Bool.and(Nat.is_eq(_, c), Bool.or(Nat.is_eq(at_patch.hi(c), at_patch.h(c)), Nat.is_eq(at_patch.hi(c), 1n+at_patch.h(c)))) == True{} : Bool}
+  %at_patch.eq_refl(c) : {Bool.and(_, Bool.or(Nat.is_eq(at_patch.hi(c), at_patch.h(c)), Nat.is_eq(at_patch.hi(c), 1n+at_patch.h(c)))) == True{} : Bool}
   at_patch.hi_close(c)
 
 # Apply

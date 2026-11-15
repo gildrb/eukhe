@@ -789,6 +789,27 @@ law agent_tree_init_deadline:
   for +now: Nat
   {S.is_running(landed(T.step(b, T.init(s, lim, dl), T.EvTick{now}), T.init(s, lim, dl))) == Bool.not(S.up(dl, now)) : Bool}
 
+# LAW agent_tree_init_unspent (T8, T1): the run a root starts has spent
+# nothing, whatever its limit (Unlimited, the default run, included)
+# EXCLUDES: a root that starts with a spend charged (an unlimited run's
+#   cost overstated from its start)
+law agent_tree_init_unspent:
+  for s: List<&2, Bool>
+  for lim: T.Lim
+  for dl: T.Lim
+  {S.spent_all(T.init(s, lim, dl)) == 0n : Nat}
+
+# LAW agent_tree_init_blank (T8, T3): the root a run starts from has
+# written nothing: on any files f, its integrated patch leaves f as it is
+# EXCLUDES: a root that starts with a write nobody made, landing in the
+#   run's result over the agents' work
+law agent_tree_init_blank:
+  for s: List<&2, Bool>
+  for lim: T.Lim
+  for dl: T.Lim
+  for +f: List<&2, Nat>
+  {T.apply(f, T.result(T.init(s, lim, dl))) == f : List<&2, Nat>}
+
 # Laws: partition (T2)
 # --------------------
 

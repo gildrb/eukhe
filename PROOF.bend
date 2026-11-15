@@ -3716,6 +3716,8 @@ import ./proof/agent_tree/agent_tree_run_none.bend as PAgentTreeRunNone
 import ./proof/agent_tree/agent_tree_run_last.bend as PAgentTreeRunLast
 import ./proof/agent_tree/agent_tree_init_admits.bend as PAgentTreeInitAdmits
 import ./proof/agent_tree/agent_tree_init_deadline.bend as PAgentTreeInitDeadline
+import ./proof/agent_tree/agent_tree_init_unspent.bend as PAgentTreeInitUnspent
+import ./proof/agent_tree/agent_tree_init_blank.bend as PAgentTreeInitBlank
 import ./proof/agent_tree/agent_tree_cancel_marks.bend as PAgentTreeCancelMarks
 import ./proof/agent_tree/agent_tree_cancel_keeps.bend as PAgentTreeCancelKeeps
 import ./proof/agent_tree/agent_tree_cancel_shape.bend as PAgentTreeCancelShape

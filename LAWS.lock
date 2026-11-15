@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "4934f4e5e72953a199c1445653f2fbaf094bf5c0fbee332982a0bd1c196fdbdb",
+      "spec/README.md": "1dcf7ddf6eed6e0624cf8f476c80fd9aed29d128cc1a40c392facc3ebb04300c",
       "spec/agents/agent_crown.bend": "1cc476d997332d375c83fc07922be20617635d4fbd7f95e80ddb5d5561b376f4",
       "spec/agents/agent_tree.bend": "a1382c421dbfe7380567d3ad5d4855b81f6663ac0038e9639bf9e3963834d129",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -172,7 +172,9 @@
     "laws/agent_tree.bend::agent_tree_halves_fair": "03b6d9fdcec28910a674fdb3d92b5e003412620ec8e53f651d4f01222b798831",
     "laws/agent_tree.bend::agent_tree_halves_unlimited": "cb2c869ec4e9b11a47957c56291dda886b5362503bc09029ed53f728c0c1cc3f",
     "laws/agent_tree.bend::agent_tree_init_admits": "27bb35a2d3758fefe8ea3beb7fde8db953672f4e277e6ad3481e5c8cbe86ccf7",
+    "laws/agent_tree.bend::agent_tree_init_blank": "1f2d6abe31d2a5ccdc66dd3251273f5eb0621350f701de748bc6f14a42329b2e",
     "laws/agent_tree.bend::agent_tree_init_deadline": "1b68da89a44a8b7c5fadd111c5675ee64e550dae1327666f46c86df732b5191f",
+    "laws/agent_tree.bend::agent_tree_init_unspent": "d4a834ca97c2ccd5d325e9caca86978cd2f2041465298d2c4faea3d962222a67",
     "laws/agent_tree.bend::agent_tree_margin_reads_config": "432a3d4f19c5928cb04e42cf7c6593105f4da73bd47a8df8948dadbe737122bf",
     "laws/agent_tree.bend::agent_tree_next_integrates_first": "024daebc230960223696460a23ad74f846c4819bd8cd1b643e231bf19a3e8eb2",
     "laws/agent_tree.bend::agent_tree_next_message_first": "cb15b6bfe4a0c7b773b9acedd03256d09593d3ef70c94d8f79c193dbb6d57255",

@@ -203,23 +203,31 @@ that costs against a wider split, as information:
 5. Report: median and spread per slice count and arm, and the crossover
    slice count where a wider split wins on wall time or tokens.
 
-## 9. Rust work (not built)
+## 9. Rust
 
 1. Core entry `bend/ffi_agent_tree.bend`, id 460 `agent_tree` in
-   `bend/core_entries.txt` (built and proven, T13): the crown's `hstep`,
+   `bend/core_entries.txt` (T13), called through
+   `crates/eukhe-bend/src/rules/agent_tree.rs`: the crown's `hstep`,
    `overlay` and `conflicts`, `next`, `cfree`.
-2. The `split` tool for a node: own scope, two (scope, task) pairs, hold.
-   Scope paths resolved to units; the core admits or refuses.
-3. Each child in a copy-on-write checkout of the parent's live tree
-   (the `isolated` workspace), its patch computed against its own start.
-4. Results delivered as inputs; integration by `overlay`, conflicts to the
-   parent; the parent's check.
+2. `rlm.split` for a node (`crates/eukhe-core/src/durable/children/spawn.rs`):
+   own scope, two (scope, task) pairs, hold. Scope paths resolve to units
+   (`child_workspace/units.rs`); the core admits or refuses. A help leaf is
+   `rlm.spawn` without a write scope.
+3. Each writing child works in a copy-on-write checkout of the parent's
+   live tree (the `isolated` workspace), its patch computed against its own
+   start; a failed child's partial patch is measured too.
+4. Results arrive as inputs; integration by `overlay` (a scoped hand-back),
+   conflicts to the parent; the project's check runs in the child's
+   checkout and after integration (`agentTree.checkCommand`,
+   `agentTree.checkTimeoutSecs`; `child_workspace/check.rs`).
 5. Budget: each child's limit from the split; room, holds and the return
-   of unspent limits through the existing ledger (B4, B13).
-6. Cancel and tick wired to session close and the time budget (B10).
-7. TUI: the tree live, one row per node: status, scope, elapsed, cost
-   (T12).
-8. The experiment of section 8.
+   of unspent limits through the existing ledger (B4, B13). The session's
+   crown (`durable/children/tree/`) records each child's spend and end.
+6. Cancel on abort (`cancel_tree`), tick on the child task's clock.
+7. `jobs.wait` and `rlm.collect` end on the tree's next action (T10).
+8. TUI: the agents panel and the swarm block draw one row per node: role,
+   status, scope, elapsed, cost (T12).
+9. The experiment of section 8.
 
 ## 10. Laws
 
@@ -236,7 +244,7 @@ that costs against a wider split, as information:
 |T5|`agent_tree_parallel_is_sequential`|the tree's integrated patch gives the files of every patch applied in post-order|
 |T6|`agent_tree_finish_is_spec`, `agent_tree_no_orphan`, `agent_tree_done_settled`|a split finishes only after both children settled; no running node under a settled one|
 |T7|`agent_tree_cancel_quiets`, `agent_tree_cancel_marks`, `agent_tree_cancel_keeps`, `agent_tree_cancel_shape`, `agent_tree_cancel_needs_node`, `agent_tree_cancel_frame`, `agent_tree_fail_quiets`, `agent_tree_fail_marks`, `agent_tree_fail_shape`, `agent_tree_fail_frame`, `agent_tree_fail_needs_running`, `agent_tree_fail_needs_node`|cancel and fail stop the whole subtree and nothing else; a cancel, and a fail below the failed node, marks running nodes Cancelled, keeps settled ones and changes nothing in the subtree but statuses (shape, own scopes, every info); a failed node keeps its partial patch and its spend; a cancel or a fail at a missing path is refused NoNode|
-|T8|`agent_tree_spend_is_spec`, `agent_tree_init_admits`, `agent_tree_init_deadline`, `agent_tree_budget_holds`, `agent_tree_deadlines_down`, `agent_tree_tick_none_late`, `agent_tree_tick_keeps_on_time`, `agent_tree_tick_cancels_only_late`, `agent_tree_tick_shape`, `agent_tree_tick_marks`|spends within room; the root starts with the configured limit and deadline; the tree's spend fits the root's limit; deadlines never rise going down; a tick cancels the late nodes and their subtrees (marked Cancelled, never Finished or Failed) and changes nothing but statuses, and no node on an on-time path|
+|T8|`agent_tree_spend_is_spec`, `agent_tree_init_admits`, `agent_tree_init_deadline`, `agent_tree_init_unspent`, `agent_tree_init_blank`, `agent_tree_budget_holds`, `agent_tree_deadlines_down`, `agent_tree_tick_none_late`, `agent_tree_tick_keeps_on_time`, `agent_tree_tick_cancels_only_late`, `agent_tree_tick_shape`, `agent_tree_tick_marks`|spends within room; the root starts as a running leaf with the configured scope, limit and deadline, nothing spent and nothing written; the tree's spend fits the root's limit; deadlines never rise going down; a tick cancels the late nodes and their subtrees (marked Cancelled, never Finished or Failed) and changes nothing but statuses, and no node on an on-time path|
 |T9|`agent_tree_depth_bound`, `agent_tree_nodes_bound`, `agent_tree_depth_configured`, `agent_tree_nodes_configured`, `agent_tree_split_reads_bounds`, `agent_tree_split_margin_both`, `agent_tree_depth_reads_config`, `agent_tree_nodes_reads_config`, `agent_tree_margin_reads_config`|reachable trees stay within both bounds as configured; the configured bounds and margin apply to both children; every split check reads the bounds as configured, so deeper splits the configuration allows are admitted|
 |T10|`agent_tree_next_waits_iff_idle`, `agent_tree_next_message_first`, `agent_tree_next_integrates_first`, `agent_tree_next_works_own`|the next action's order; a wait only with nothing to do|
 |T11|`agent_tree_redo_is_spec`|a redo is decided exactly as the spec|

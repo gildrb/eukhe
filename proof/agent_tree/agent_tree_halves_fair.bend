@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW agent_tree_halves_fair
 #
-# PROOF: c - half(c) is hi(c) with half(c) + hi(c) == c, and hi(c) is half(c) or one more, by two-step induction (LP.at_patch.fair).
+# PROOF: half(c) is Nat.div(c, 2n), the two-step h(c) (LP.at_patch.div2, by Nat.divmod.go); c - h(c) is hi(c) with h(c) + hi(c) == c, and hi(c) is h(c) or one more, by two-step induction (LP.at_patch.fair).
 
 import Base
 import ../../bend/agent_tree.bend as T

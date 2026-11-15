@@ -34,15 +34,7 @@ def pred(n: Nat) -> Nat:
 
 # n halved, rounded down
 def half(n: Nat) -> Nat:
-  match n:
-    case 0n:
-      0n
-    case 1n+p:
-      match p:
-        case 0n:
-          0n
-        case 1n+q:
-          1n+half(q)
+  Nat.div(n, 2n)
 
 # n fits within l
 def lim_fits(n: Nat, l: Lim) -> Bool:
