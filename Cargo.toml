@@ -158,8 +158,12 @@ used_underscore_binding = "warn"
 [profile.dev]
 debug = "line-tables-only"
 
-# Shipping posture, pinned (Kevin, Option C): thin LTO plus 4 codegen
-# units for cross-crate inlining in the hot render path. Builds emit line
+# Shipping posture: fat LTO in one codegen unit (it was thin LTO with 4
+# units for cross-crate inlining in the hot render path; fat LTO inlines
+# across all crates too). The per-unit copies of generic and inline code
+# go (static symbols 200k -> 104k). Measured on linux-x64 (0.10.75
+# sources): the shipped binary 124.4 -> 96.1 MB, its .tar.xz 30.2 -> 27.1
+# MB, startup unchanged; the release build takes about 40% longer. Builds emit line
 # tables and do NOT strip at link: the release pipeline's split_debug step
 # produces the SHIPPED binary (objcopy --strip-debug — DWARF gone, function
 # names stay) and the split-debug decoder sidecar (objcopy
@@ -178,6 +182,6 @@ debug = "line-tables-only"
 # CARGO_PROFILE_RELEASE_STRIP=debuginfo (`strip -S`: the map goes, function
 # names stay; a dSYM decoder is a documented follow-up).
 [profile.release]
-lto = "thin"
-codegen-units = 4
+lto = "fat"
+codegen-units = 1
 debug = "line-tables-only"
