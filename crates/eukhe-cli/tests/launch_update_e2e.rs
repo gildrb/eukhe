@@ -1,6 +1,5 @@
-// Harness fns are linear scripts; pid and length narrowing sits at OS
-// boundaries where the values are bounded.
-#![allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
+// Harness fns are linear scripts.
+#![allow(clippy::too_many_lines)]
 
 //! Real-terminal e2e for the launch update check and `/restart`: an
 //! install laid out as install.sh lays it out runs an old version on a
@@ -12,21 +11,15 @@
 //! check must skip ask the mirror nothing.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use nix::fcntl::{fcntl, FcntlArg::F_SETFL, OFlag};
-use nix::pty::{openpty, Winsize};
-use serde_json::{json, Value};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 
 #[path = "support/eukhe.rs"]
@@ -35,9 +28,10 @@ mod eukhe;
 #[path = "support/ctty.rs"]
 mod ctty;
 
-/// The parent hands the child the launcher to run through this env var;
-/// unset, the child test passes trivially.
-const CHILD_ENV: &str = "EUKHE_LAUNCH_UPDATE_CHILD";
+#[path = "support/install_pty.rs"]
+mod install_pty;
+
+use install_pty::{graceful_shutdown, launched_payload, launcher_script, Client};
 
 const OLD: &str = "0.10.1";
 const NEW: &str = "0.10.2";
@@ -51,16 +45,10 @@ const PLATFORM: &str = "linux-arm64";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const PLATFORM: &str = "darwin-arm64";
 
-/// The terminal half: claims the pty as its controlling terminal, then
-/// becomes the install's launcher (`exec`), as a user's shell runs it.
+/// The terminal half ([`install_pty::run_child`]).
 #[test]
 fn launch_update_child_mode() {
-    let Ok(launcher) = std::env::var(CHILD_ENV) else {
-        return;
-    };
-    ctty::claim_controlling_tty();
-    let error = Command::new(launcher).exec();
-    panic!("exec the launcher: {error}");
+    install_pty::run_child();
 }
 
 /// A loopback HTTP/1.1 server answering fixed routes, one request per
@@ -277,29 +265,15 @@ impl World {
 
     /// The install's launcher, run by a shell on a fresh pty.
     fn client(&self, launch: Launch) -> Client {
-        let pty = openpty(
-            Some(&Winsize {
-                ws_row: 30,
-                ws_col: 120,
-                ws_xpixel: 0,
-                ws_ypixel: 0,
-            }),
-            None,
-        )
-        .expect("open pty");
-        let slave = pty.slave;
         let base = self.base();
         let path = format!(
             "{}:{}",
             base.join("bin").display(),
             std::env::var("PATH").unwrap_or_default()
         );
-        let mut command = Command::new(std::env::current_exe().expect("test binary"));
+        let mut command = install_pty::child_command("launch_update_child_mode", &self.launcher());
         command
-            .args(["--exact", "launch_update_child_mode", "--nocapture"])
             .current_dir(base.join("project"))
-            .env_clear()
-            .env(CHILD_ENV, self.launcher())
             .env("PATH", path)
             .env("HOME", &base)
             .env("TMPDIR", base.join("tmp"))
@@ -315,10 +289,7 @@ impl World {
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
                 "15000",
-            )
-            .stdin(slave.try_clone().expect("clone pty slave"))
-            .stdout(slave.try_clone().expect("clone pty slave"))
-            .stderr(slave.try_clone().expect("clone pty slave"));
+            );
         eukhe::eukhe_env(&mut command);
         match launch {
             Launch::Checks | Launch::TurnedOff => {}
@@ -329,23 +300,12 @@ impl World {
                 command.env("CI", "true");
             }
         }
-        let child = command.spawn().expect("spawn the terminal client");
-        drop(command);
-        drop(slave);
-        Client {
-            child,
-            pty: PtyReader::new(pty.master),
-        }
+        Client::spawn(command, 120)
     }
 
     /// The payload the launcher execs.
     fn launched_payload(&self) -> PathBuf {
-        let script = std::fs::read_to_string(self.launcher()).expect("launcher");
-        let line = script
-            .lines()
-            .find_map(|line| line.strip_prefix("exec \""))
-            .expect("the launcher's exec line");
-        PathBuf::from(line.trim_end_matches("/eukhe\" \"$@\""))
+        launched_payload(&self.launcher())
     }
 
     /// The session storages (`<sessions>/<id>/`).
@@ -362,183 +322,6 @@ impl Drop for World {
     fn drop(&mut self) {
         graceful_shutdown(&self.socket());
     }
-}
-
-fn launcher_script(payload: &Path) -> String {
-    format!(
-        "#!/bin/sh\n# eukhe launcher written by install.sh; the payload sits beside itself\nexec \"{}/eukhe\" \"$@\"\n",
-        payload.display()
-    )
-}
-
-/// The protocol shutdown of the daemon the client started; waits
-/// (bounded) for the supervisor its hello names to exit.
-fn graceful_shutdown(socket: &Path) {
-    let Ok(stream) = eukhe_types::platform::transport::connect_std(socket) else {
-        return;
-    };
-    let Ok(mut writer) = stream.try_clone() else {
-        return;
-    };
-    let mut reader = BufReader::new(stream);
-    let mut hello = String::new();
-    if reader.read_line(&mut hello).is_err() {
-        return;
-    }
-    let Ok(hello) = serde_json::from_str::<Value>(hello.trim()) else {
-        return;
-    };
-    let Some(pid) = hello["supervisorPid"].as_u64() else {
-        return;
-    };
-    let shutdown = json!({
-        "type": "command",
-        "id": "launch-update-e2e-shutdown",
-        "protocol": {"name": "eukhe.daemon", "version": eukhe_types::daemon::DAEMON_PROTOCOL_VERSION},
-        "command": {"type": "shutdown", "force": true},
-    });
-    let _ = writeln!(writer, "{shutdown}");
-    let _ = writer.flush();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let pid = u32::try_from(pid).unwrap_or(0);
-    while matches!(
-        eukhe_types::platform::process::is_process_alive(pid),
-        Ok(true)
-    ) && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-struct Client {
-    child: Child,
-    pty: PtyReader,
-}
-
-impl Client {
-    /// Type `text` and Enter once the echo shows.
-    fn submit(&mut self, text: &str) {
-        self.pty.write(text.as_bytes());
-        self.pty.wait_for(text, "the typed text");
-        self.pty.write(b"\r");
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        // Keep reading the pty while the child exits, as a terminal does.
-        while matches!(self.child.try_wait(), Ok(None)) {
-            self.pty.drain();
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-}
-
-/// Non-blocking reader over the pty master.
-struct PtyReader {
-    file: std::fs::File,
-    output: Vec<u8>,
-}
-
-impl PtyReader {
-    fn new(master: OwnedFd) -> PtyReader {
-        fcntl(master.as_raw_fd(), F_SETFL(OFlag::O_NONBLOCK)).expect("pty master non-blocking");
-        PtyReader {
-            file: master.into(),
-            output: Vec::new(),
-        }
-    }
-
-    fn drain(&mut self) {
-        let mut buffer = vec![0u8; 65536];
-        while let Ok(n) = self.file.read(&mut buffer) {
-            if n == 0 {
-                break;
-            }
-            self.output.extend_from_slice(&buffer[..n]);
-        }
-    }
-
-    fn write(&mut self, payload: &[u8]) {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let mut rest = payload;
-        while !rest.is_empty() {
-            match self.file.write(rest) {
-                Ok(n) => rest = &rest[n..],
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    assert!(Instant::now() < deadline, "the pty never took the input");
-                    self.drain();
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(error) => panic!("write to the pty: {error}"),
-            }
-        }
-    }
-
-    /// The byte offset of the stream so far: a later wait reads past it.
-    fn mark(&mut self) -> usize {
-        self.drain();
-        self.output.len()
-    }
-
-    fn wait_for(&mut self, needle: &str, what: &str) {
-        self.wait_for_after(0, needle, what);
-    }
-
-    /// Drain until `needle` shows in the escape-stripped stream after
-    /// byte `from`.
-    fn wait_for_after(&mut self, from: usize, needle: &str, what: &str) {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            self.drain();
-            let text = strip_escapes(&self.output[from..]);
-            if text.contains(needle) {
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "timeout waiting for {what} ({needle:?}); stream tail:\n{}",
-                &text[text.len().saturating_sub(3000)..]
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-}
-
-/// The stream without CSI and OSC sequences.
-fn strip_escapes(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\x1b' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('[') => {
-                for c in chars.by_ref() {
-                    if ('@'..='~').contains(&c) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                while let Some(c) = chars.next() {
-                    if c == '\x07' {
-                        break;
-                    }
-                    if c == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            Some(_) | None => {}
-        }
-    }
-    out
 }
 
 #[test]
