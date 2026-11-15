@@ -527,13 +527,29 @@ impl Supervisor {
 // Worker side
 // ---------------------------------------------------------------------------
 
-/// The worker's admission registry: admission id -> status (the TS
-/// daemon-mode `promptAdmissions` map), plus the durable submission each
-/// owned admission became (its request id is the admission id).
+/// One prompt admission on the worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerAdmission {
+    /// Registered; the prompt has not committed.
+    Waiting,
+    /// A cancel came first: the prompt never runs.
+    Cancelled,
+    /// Committed: the prompt is on its way to its submission.
+    Committing,
+    /// Committed and queued as this durable submission (its request id is
+    /// the admission id).
+    Admitted(eukhe_durable::types::SubmissionId),
+    /// Committed as no submission (a session command or a held input).
+    Started,
+}
+
+/// The worker's admission registry: admission id -> admission (the TS
+/// daemon-mode `promptAdmissions` map). `changed` wakes the cancels that
+/// wait for a committing admission's outcome.
 #[derive(Default, Clone)]
 pub(crate) struct WorkerAdmissions {
-    admissions: Arc<Mutex<HashMap<String, AdmissionStatus>>>,
-    submissions: Arc<Mutex<HashMap<String, eukhe_durable::types::SubmissionId>>>,
+    admissions: Arc<Mutex<HashMap<String, WorkerAdmission>>>,
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl WorkerAdmissions {
@@ -545,24 +561,55 @@ impl WorkerAdmissions {
         self.admissions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(admission_id.to_string(), AdmissionStatus::Waiting);
+            .insert(admission_id.to_string(), WorkerAdmission::Waiting);
     }
 
-    /// Admission at prompt enqueue: a waiting id becomes owned. A cancelled
-    /// or removed id refuses delivery, including cancellation before enqueue.
-    pub(crate) fn commit(&self, admission_id: &str) -> bool {
+    /// Admission at prompt enqueue: a waiting id commits, and the prompt
+    /// carries the commit to its submission. A cancelled or removed id
+    /// refuses delivery, including cancellation before enqueue.
+    pub(crate) fn commit(
+        &self,
+        admission_id: &str,
+    ) -> Result<CommittedAdmission, AdmissionCancelled> {
         let mut admissions = self
             .admissions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match admissions.get_mut(admission_id) {
-            Some(status @ AdmissionStatus::Waiting) => {
-                *status = AdmissionStatus::Owned;
-                true
+            Some(admission @ WorkerAdmission::Waiting) => {
+                *admission = WorkerAdmission::Committing;
+                Ok(self.committed(admission_id))
             }
-            Some(AdmissionStatus::Owned) => true,
-            Some(AdmissionStatus::Cancelled) | None => false,
+            Some(
+                WorkerAdmission::Committing
+                | WorkerAdmission::Admitted(_)
+                | WorkerAdmission::Started,
+            ) => Ok(self.committed(admission_id)),
+            Some(WorkerAdmission::Cancelled) | None => Err(AdmissionCancelled),
         }
+    }
+
+    fn committed(&self, admission_id: &str) -> CommittedAdmission {
+        CommittedAdmission {
+            admissions: self.clone(),
+            admission_id: admission_id.to_string(),
+        }
+    }
+
+    /// Move a committing admission on to `next`; an admission in any other
+    /// state stays as it is.
+    fn settle_commit(&self, admission_id: &str, next: Option<WorkerAdmission>) {
+        let mut admissions = self
+            .admissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if admissions.get(admission_id) == Some(&WorkerAdmission::Committing) {
+            match next {
+                Some(next) => admissions.insert(admission_id.to_string(), next),
+                None => admissions.remove(admission_id),
+            };
+        }
+        self.changed.notify_waiters();
     }
 
     /// The prompt settled: its admission clears (TS `clearAdmission`).
@@ -571,49 +618,73 @@ impl WorkerAdmissions {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(admission_id);
-        self.submissions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(admission_id);
-    }
-
-    /// The owned admission became durable submission `submission`.
-    pub(crate) fn admitted(
-        &self,
-        admission_id: &str,
-        submission: eukhe_durable::types::SubmissionId,
-    ) {
-        self.submissions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(admission_id.to_string(), submission);
-    }
-
-    fn submission(&self, admission_id: &str) -> Option<eukhe_durable::types::SubmissionId> {
-        self.submissions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(admission_id)
-            .copied()
+        self.changed.notify_waiters();
     }
 
     /// Cancel one admission: a waiting one marks cancelled (its queued
-    /// prompt never runs), any other status reports as-is, an unknown id
+    /// prompt never runs), any other admission reports as-is, an unknown id
     /// answers `None` (the wire `unknown`).
-    pub(crate) fn cancel(&self, admission_id: &str) -> Option<AdmissionStatus> {
+    fn cancel(&self, admission_id: &str) -> Option<WorkerAdmission> {
         let mut admissions = self
             .admissions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match admissions.get_mut(admission_id) {
-            None => None,
-            Some(status) => {
-                if *status == AdmissionStatus::Waiting {
-                    *status = AdmissionStatus::Cancelled;
-                }
-                Some(*status)
+        let admission = admissions.get_mut(admission_id)?;
+        if *admission == WorkerAdmission::Waiting {
+            *admission = WorkerAdmission::Cancelled;
+        }
+        Some(*admission)
+    }
+
+    /// [`Self::cancel`] for a `cancelOwned` cancel: a committing admission
+    /// has no submission to withdraw yet, so the cancel waits until the
+    /// prompt has queued it (or ended without one).
+    async fn cancel_owned(&self, admission_id: &str) -> Option<WorkerAdmission> {
+        loop {
+            // Registered before the read, so a change between the read and
+            // the wait is not missed.
+            let changed = self.changed.notified();
+            match self.cancel(admission_id) {
+                Some(WorkerAdmission::Committing) => changed.await,
+                admission => return admission,
             }
         }
+    }
+}
+
+/// A prompt's admission was cancelled before it committed: the prompt
+/// never runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Prompt admission was cancelled.")]
+pub(crate) struct AdmissionCancelled;
+
+/// A committed admission on its way to its submission. Dropped before it
+/// records one (the prompt failed first), it clears the admission, so a
+/// cancel waiting on it answers.
+pub(crate) struct CommittedAdmission {
+    admissions: WorkerAdmissions,
+    admission_id: String,
+}
+
+impl CommittedAdmission {
+    /// The prompt queued as durable submission `submission`.
+    pub(crate) fn admitted(self, submission: eukhe_durable::types::SubmissionId) {
+        self.admissions.settle_commit(
+            &self.admission_id,
+            Some(WorkerAdmission::Admitted(submission)),
+        );
+    }
+
+    /// The prompt runs as no submission (a session command or a held input).
+    pub(crate) fn started(self) {
+        self.admissions
+            .settle_commit(&self.admission_id, Some(WorkerAdmission::Started));
+    }
+}
+
+impl Drop for CommittedAdmission {
+    fn drop(&mut self) {
+        self.admissions.settle_commit(&self.admission_id, None);
     }
 }
 
@@ -627,7 +698,9 @@ impl Worker {
     /// `cancel_prompt_admission` (the worker arm the supervisor forwards
     /// to): the TS status ladder over the worker's registry. An owned
     /// admission with `cancelOwned` withdraws its queued submission, or
-    /// aborts the run that placed it.
+    /// aborts the run that placed it; one still on its way to its
+    /// submission is waited for first, so the `owned` answer never leaves
+    /// a committed prompt running.
     pub(crate) async fn handle_cancel_prompt_admission(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "cancel_prompt_admission";
         let hosted = match self.hosted(COMMAND) {
@@ -639,14 +712,15 @@ impl Worker {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let cancel_owned = payload.get("cancelOwned").and_then(Value::as_bool) == Some(true);
-        let status = self.prompt_admissions.cancel(admission_id);
-        if matches!(status, Some(AdmissionStatus::Cancelled)) {
+        let admission = if cancel_owned {
+            self.prompt_admissions.cancel_owned(admission_id).await
+        } else {
+            self.prompt_admissions.cancel(admission_id)
+        };
+        if admission == Some(WorkerAdmission::Cancelled) {
             self.prompt_admissions.clear(admission_id);
         }
-        let submission = self.prompt_admissions.submission(admission_id);
-        if let (true, Some(AdmissionStatus::Owned), Some(submission)) =
-            (cancel_owned, status, submission)
-        {
+        if let (true, Some(WorkerAdmission::Admitted(submission))) = (cancel_owned, admission) {
             let cx = eukhe_chord::context::BACKGROUND_CONTEXT.clone();
             let main = hosted.main();
             match hosted
@@ -676,10 +750,14 @@ impl Worker {
                 }
             }
         }
-        let status = match status {
+        let status = match admission {
             None => "unknown",
-            Some(AdmissionStatus::Owned) => "owned",
-            Some(AdmissionStatus::Waiting | AdmissionStatus::Cancelled) => "cancelled",
+            Some(
+                WorkerAdmission::Committing
+                | WorkerAdmission::Admitted(_)
+                | WorkerAdmission::Started,
+            ) => "owned",
+            Some(WorkerAdmission::Waiting | WorkerAdmission::Cancelled) => "cancelled",
         };
         response_success(None, COMMAND, Some(json!({ "status": status })))
     }
@@ -761,5 +839,116 @@ mod tests {
         // exists under any half-split.
         assert!(table.sole_key_for_admission_id("target").is_none());
         assert!(table.sole_key_for_admission_id("t\0u").is_none());
+    }
+
+    /// A `cancelOwned` cancel of a committing admission answers what the
+    /// prompt became: started as no submission, or cleared when the prompt
+    /// failed before queueing (its commit dropped). A plain cancel before
+    /// the commit refuses the prompt.
+    #[tokio::test]
+    async fn a_cancel_owned_answers_what_a_committing_admission_became() {
+        let admissions = WorkerAdmissions::new();
+        admissions.register("failed");
+        let committed = admissions
+            .commit("failed")
+            .expect("a waiting admission commits");
+        let cancel = admissions.cancel_owned("failed");
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+        drop(committed);
+        assert_eq!(cancel.await, None);
+
+        admissions.register("command");
+        let committed = admissions
+            .commit("command")
+            .expect("a waiting admission commits");
+        let cancel = admissions.cancel_owned("command");
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+        committed.started();
+        assert_eq!(cancel.await, Some(WorkerAdmission::Started));
+
+        admissions.register("early");
+        assert_eq!(admissions.cancel("early"), Some(WorkerAdmission::Cancelled));
+        assert_eq!(admissions.commit("early").err(), Some(AdmissionCancelled));
+    }
+
+    /// A `cancelOwned` that lands after the worker committed a prompt's
+    /// admission but before it recorded the prompt's submission stops the
+    /// prompt: the scripted answer never lands. A quiesced run gate holds
+    /// the prompt inside that window (it commits, then waits at the gate
+    /// to queue its input), and the prompt's turn holds at a faux gate
+    /// released only once the cancel has answered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cancel_owned_inside_the_commit_window_stops_the_prompt() {
+        let gates = tempfile::tempdir().expect("gate dir");
+        let gate = gates.path().join("hold.sock");
+        let listener = tokio::net::UnixListener::bind(&gate).expect("bind the hold gate");
+        let (answered, cancel_answered) = tokio::sync::oneshot::channel::<()>();
+        let held = tokio::spawn(async move {
+            let (connection, _) = listener.accept().await.expect("the turn reaches the gate");
+            let _ = cancel_answered.await;
+            drop(connection);
+        });
+        let (_dir, worker) = crate::durable_test_support::created_worker_with(
+            "cancel-window",
+            json!([{ "text": "ran", "holdUntilReleased": gate }]),
+            json!({ "noSession": true }),
+        )
+        .await;
+        assert!(worker.dispatch("worker_quiesce", &json!({})).await.success);
+
+        let prompt_payload = json!({ "message": "withdraw me", "admissionId": "adm-1" });
+        let prompt = worker.dispatch("prompt_and_wait", &prompt_payload);
+        tokio::pin!(prompt);
+        // Drive the prompt until it commits its admission (it may wait on
+        // the session's own writes first); the closed gate then holds it
+        // before it queues, and it is not polled again until the cancel
+        // has run once.
+        while worker
+            .prompt_admissions
+            .admissions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get("adm-1")
+            != Some(&WorkerAdmission::Committing)
+        {
+            assert!(futures::poll!(&mut prompt).is_pending());
+            tokio::task::yield_now().await;
+        }
+
+        let cancel_payload = json!({ "admissionId": "adm-1", "cancelOwned": true });
+        let cancel = async {
+            let response = worker
+                .dispatch("cancel_prompt_admission", &cancel_payload)
+                .await;
+            let _ = answered.send(());
+            response
+        };
+        tokio::pin!(cancel);
+        let early = futures::poll!(&mut cancel);
+        assert!(worker.dispatch("worker_release", &json!({})).await.success);
+        let (cancelled, prompted) = match early {
+            std::task::Poll::Ready(cancelled) => (cancelled, prompt.await),
+            std::task::Poll::Pending => tokio::join!(cancel, prompt),
+        };
+        held.abort();
+
+        assert_eq!(
+            cancelled.data,
+            Some(json!({ "status": "owned" })),
+            "{cancelled:?}"
+        );
+        let answers = crate::durable_test_support::worker_rows(&worker, "pi.assistant").await;
+        assert!(
+            !answers
+                .iter()
+                .any(|row| row.to_string().contains("\"ran\"")),
+            "the cancelled prompt ran: {answers:?}"
+        );
+        assert!(
+            !prompted.success,
+            "the cancelled prompt answered: {prompted:?}"
+        );
     }
 }

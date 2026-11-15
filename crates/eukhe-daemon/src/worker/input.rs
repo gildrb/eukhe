@@ -352,22 +352,30 @@ impl Worker {
             .filter(|id| !id.is_empty())
             .map(str::to_string);
         // The admission commits right before the prompt acts, so a cancel
-        // that comes while its run starts still cancels it.
+        // that comes while its run starts still cancels it. The commit
+        // lives until the prompt records what it became; a `cancelOwned`
+        // cancel waits for that.
         if let Some(id) = &admission_id {
             self.register_prompt_admission(id);
         }
-        let admission_cancelled = || {
-            admission_id
-                .as_ref()
-                .is_some_and(|id| !self.prompt_admissions.commit(id))
+        let commit_admission = || match &admission_id {
+            None => Ok(None),
+            Some(id) => self.prompt_admissions.commit(id).map(Some),
         };
-        let cancelled = || response_failure(None, command, "Prompt admission was cancelled.", None);
+        let cancelled = |error: crate::prompt_admission::AdmissionCancelled| {
+            response_failure(None, command, &error.to_string(), None)
+        };
         // `/budget on` and `/budget off` turn the principal's limits on or
         // off; the answer's `text` says what they enforce.
         if images.is_empty() && custom_row.is_none() {
             if let Some(on) = budget_toggle(message) {
-                if admission_cancelled() {
-                    return cancelled();
+                match commit_admission() {
+                    Ok(committed) => {
+                        if let Some(committed) = committed {
+                            committed.started();
+                        }
+                    }
+                    Err(error) => return cancelled(error),
                 }
                 return match self.set_budget_limits(command, on).await {
                     Ok(text) => response_success(
@@ -384,8 +392,13 @@ impl Worker {
         // queues a `/compact` behind a running turn.
         if images.is_empty() && custom_row.is_none() {
             if let Some(session_command) = eukhe_core::durable::classify_session_command(message) {
-                if admission_cancelled() {
-                    return cancelled();
+                match commit_admission() {
+                    Ok(committed) => {
+                        if let Some(committed) = committed {
+                            committed.started();
+                        }
+                    }
+                    Err(error) => return cancelled(error),
                 }
                 let queue_behind_turn =
                     payload.get("streamingBehavior").and_then(Value::as_str) == Some("followUp");
@@ -413,9 +426,10 @@ impl Worker {
             Err(response) => return response,
         };
         let message = message.as_str();
-        if admission_cancelled() {
-            return cancelled();
-        }
+        let committed = match commit_admission() {
+            Ok(committed) => committed,
+            Err(error) => return cancelled(error),
+        };
         // The first prompt of an unnamed top-level session starts its
         // generated title in the background (never awaited here).
         if custom_row.is_none() {
@@ -450,6 +464,9 @@ impl Worker {
         // until the release delivers it; a waiting prompt answers the
         // pause error instead of waiting the lease out.
         if self.input_pauses.paused() {
+            if let Some(committed) = committed {
+                committed.started();
+            }
             return self
                 .hold_input(&hosted, &request, command, wait, false)
                 .await;
@@ -460,12 +477,9 @@ impl Worker {
                 return response_failure(None, command, &ErrorChain(&error).to_string(), None)
             }
         };
-        // A prompt is the user's words or main's hand-over: it wakes a
-        // paused run, which places it at the boundary it parked at.
-        self.heard_waking(&hosted).await;
-        if let Some(id) = &admission_id {
+        if let (Some(committed), Some(id)) = (committed, &admission_id) {
             // The admission stays owned until its submission settles.
-            self.prompt_admissions.admitted(id, handle.id());
+            committed.admitted(handle.id());
             let admissions = self.prompt_admissions.clone();
             let (id, settled) = (id.clone(), handle.clone());
             tokio::spawn(async move {
@@ -473,6 +487,9 @@ impl Worker {
                 admissions.clear(&id);
             });
         }
+        // A prompt is the user's words or main's hand-over: it wakes a
+        // paused run, which places it at the boundary it parked at.
+        self.heard_waking(&hosted).await;
         if !wait {
             return response_success(None, "prompt", None);
         }
