@@ -24,6 +24,7 @@ use crate::agent_message_delivery::{AgentMessageDelivery, Recipient, RecipientRu
 use crate::compaction::durable::ManualCompactionError;
 use crate::compaction::{CompactionManager, RunningTurn};
 use crate::error_chain::ErrorChain;
+use crate::prompt_admission::{AdmissionCancelled, CommittedAdmission};
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 
 /// Why an input's display row does not build its input entry.
@@ -246,6 +247,15 @@ async fn compact_session_command(
     outcome
 }
 
+/// Start a prompt's committed admission as its command (a typed session
+/// command or a `/budget` toggle); refused when a `cancelOwned` cancel
+/// withdrew it first.
+fn start_command(committed: &mut Option<CommittedAdmission>) -> Result<(), AdmissionCancelled> {
+    committed
+        .as_mut()
+        .map_or(Ok(()), CommittedAdmission::command)
+}
+
 impl Worker {
     /// Admit one input on the hosted session's main conversation.
     ///
@@ -262,12 +272,37 @@ impl Worker {
         submit_input(&main, request, &admission, &BACKGROUND_CONTEXT).await
     }
 
+    /// [`Self::admit_input`] for a prompt that carries its committed
+    /// admission: it starts once past the run gate, so a `cancelOwned`
+    /// cancel that came while it waited there stops it.
+    async fn admit_prompt(
+        &self,
+        hosted: &HostedSession,
+        request: &InputRequest,
+        committed: &mut CommittedAdmission,
+    ) -> Result<Result<SubmissionHandle, AdmissionCancelled>, AdmitError> {
+        let main = hosted.main()?;
+        let admission = RunAdmission::enter(&self.core).await;
+        if let Err(cancelled) = committed.start() {
+            return Ok(Err(cancelled));
+        }
+        Ok(Ok(submit_input(
+            &main,
+            request,
+            &admission,
+            &BACKGROUND_CONTEXT,
+        )
+        .await?))
+    }
+
     /// Hold one admission under a live input-pause lease (TS
     /// `_sessionInputAdmissionPauses`): the input, with the entry its
     /// display row (if any) is placed as, parks in the durable held list —
     /// visible in the queue strip — and the release delivers it. A waiting
     /// prompt cannot wait the lease out: it answers the pause error while
-    /// the input stays held.
+    /// the input stays held. A prompt's `committed` admission starts in the
+    /// same store mutation that parks the input, so a `cancelOwned` cancel
+    /// either stops it before it is held or finds it held.
     async fn hold_input(
         &self,
         hosted: &HostedSession,
@@ -275,6 +310,7 @@ impl Worker {
         command: &str,
         wait: bool,
         queued_payload: bool,
+        mut committed: Option<CommittedAdmission>,
     ) -> DaemonResponse {
         let entry = match request.entry() {
             Ok(entry) => entry,
@@ -297,14 +333,25 @@ impl Worker {
                     .unwrap_or_else(|| format!("held:{}", uuid::Uuid::new_v4())),
             ),
         };
-        if let Err(error) =
-            super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
-                state.held.push(held);
-                (state, ())
-            })
-            .await
-        {
-            return response_failure(None, command, &error.to_string(), None);
+        let starting = &mut committed;
+        let parked = super::mutate_withdrawn(hosted, &self.core, &self.events, move |mut state| {
+            if let Some(Err(cancelled)) = starting.as_mut().map(CommittedAdmission::start) {
+                return (state, Err(cancelled));
+            }
+            state.held.push(held);
+            (state, Ok(()))
+        })
+        .await;
+        match parked {
+            Ok(Ok(())) => {
+                if let Some(committed) = committed {
+                    committed.held();
+                }
+            }
+            Ok(Err(cancelled)) => {
+                return response_failure(None, command, &cancelled.to_string(), None)
+            }
+            Err(error) => return response_failure(None, command, &error.to_string(), None),
         }
         if wait {
             return response_failure(None, command, "Session input is paused", None);
@@ -353,8 +400,8 @@ impl Worker {
             .map(str::to_string);
         // The admission commits right before the prompt acts, so a cancel
         // that comes while its run starts still cancels it. The commit
-        // lives until the prompt records what it became; a `cancelOwned`
-        // cancel waits for that.
+        // lives until the prompt starts on what it becomes; a `cancelOwned`
+        // cancel withdraws it before then, and waits for the outcome after.
         if let Some(id) = &admission_id {
             self.register_prompt_admission(id);
         }
@@ -362,20 +409,18 @@ impl Worker {
             None => Ok(None),
             Some(id) => self.prompt_admissions.commit(id).map(Some),
         };
-        let cancelled = |error: crate::prompt_admission::AdmissionCancelled| {
-            response_failure(None, command, &error.to_string(), None)
-        };
+        let cancelled =
+            |error: AdmissionCancelled| response_failure(None, command, &error.to_string(), None);
         // `/budget on` and `/budget off` turn the principal's limits on or
         // off; the answer's `text` says what they enforce.
         if images.is_empty() && custom_row.is_none() {
             if let Some(on) = budget_toggle(message) {
-                match commit_admission() {
-                    Ok(committed) => {
-                        if let Some(committed) = committed {
-                            committed.started();
-                        }
-                    }
+                let mut committed = match commit_admission() {
+                    Ok(committed) => committed,
                     Err(error) => return cancelled(error),
+                };
+                if let Err(error) = start_command(&mut committed) {
+                    return cancelled(error);
                 }
                 return match self.set_budget_limits(command, on).await {
                     Ok(text) => response_success(
@@ -392,18 +437,20 @@ impl Worker {
         // queues a `/compact` behind a running turn.
         if images.is_empty() && custom_row.is_none() {
             if let Some(session_command) = eukhe_core::durable::classify_session_command(message) {
-                match commit_admission() {
-                    Ok(committed) => {
-                        if let Some(committed) = committed {
-                            committed.started();
-                        }
-                    }
+                let committed = match commit_admission() {
+                    Ok(committed) => committed,
                     Err(error) => return cancelled(error),
-                }
+                };
                 let queue_behind_turn =
                     payload.get("streamingBehavior").and_then(Value::as_str) == Some("followUp");
                 return self
-                    .run_session_command(&hosted, command, &session_command, queue_behind_turn)
+                    .run_session_command(
+                        &hosted,
+                        command,
+                        &session_command,
+                        queue_behind_turn,
+                        committed,
+                    )
                     .await;
             }
         }
@@ -426,7 +473,7 @@ impl Worker {
             Err(response) => return response,
         };
         let message = message.as_str();
-        let committed = match commit_admission() {
+        let mut committed = match commit_admission() {
             Ok(committed) => committed,
             Err(error) => return cancelled(error),
         };
@@ -464,15 +511,17 @@ impl Worker {
         // until the release delivers it; a waiting prompt answers the
         // pause error instead of waiting the lease out.
         if self.input_pauses.paused() {
-            if let Some(committed) = committed {
-                committed.started();
-            }
             return self
-                .hold_input(&hosted, &request, command, wait, false)
+                .hold_input(&hosted, &request, command, wait, false, committed)
                 .await;
         }
-        let handle = match self.admit_input(&hosted, &request).await {
-            Ok(handle) => handle,
+        let admitted = match committed.as_mut() {
+            Some(committed) => self.admit_prompt(&hosted, &request, committed).await,
+            None => self.admit_input(&hosted, &request).await.map(Ok),
+        };
+        let handle = match admitted {
+            Ok(Ok(handle)) => handle,
+            Ok(Err(error)) => return cancelled(error),
             Err(error) => {
                 return response_failure(None, command, &ErrorChain(&error).to_string(), None)
             }
@@ -514,13 +563,16 @@ impl Worker {
     /// Run one typed session command on the main conversation. The answer
     /// settles with the command (TS `_executeSelectedSessionCommand` awaits
     /// it): no turn runs, so the ack is the client's completion signal.
-    /// `queue_behind_turn`: the prompt came with the follow-up key.
+    /// `queue_behind_turn`: the prompt came with the follow-up key. A
+    /// prompt's `committed` admission starts when the command does (a
+    /// `cancelOwned` cancel before then stops it) and clears when it ends.
     async fn run_session_command(
         &self,
         hosted: &Arc<HostedSession>,
         command: &str,
         session_command: &eukhe_core::durable::SessionCommand,
         queue_behind_turn: bool,
+        mut committed: Option<CommittedAdmission>,
     ) -> DaemonResponse {
         let session = match hosted.session() {
             Ok(session) => session,
@@ -529,8 +581,18 @@ impl Worker {
         let main = session.main();
         if session_command.name == eukhe_core::durable::SessionCommandName::Compact {
             return self
-                .run_compact_command(hosted, &main, command, session_command, queue_behind_turn)
+                .run_compact_command(
+                    hosted,
+                    &main,
+                    command,
+                    session_command,
+                    queue_behind_turn,
+                    committed,
+                )
                 .await;
+        }
+        if let Err(error) = start_command(&mut committed) {
+            return response_failure(None, command, &error.to_string(), None);
         }
         let outcome = eukhe_core::durable::execute_session_command(
             &session,
@@ -569,12 +631,16 @@ impl Worker {
         command: &str,
         session_command: &eukhe_core::durable::SessionCommand,
         queue_behind_turn: bool,
+        mut committed: Option<CommittedAdmission>,
     ) -> DaemonResponse {
         let busy = self.core.lock().unwrap().is_busy();
         if !(busy && queue_behind_turn) {
             // A compaction is work a stop interrupts: it holds the run
             // gate until it ends.
             let admission = RunAdmission::enter(&self.core).await;
+            if let Err(error) = start_command(&mut committed) {
+                return response_failure(None, command, &error.to_string(), None);
+            }
             return match compact_session_command(
                 &self.compaction,
                 hosted,
@@ -601,6 +667,7 @@ impl Worker {
                 .await
                 .map_err(|error| error.to_string())?;
             let admission = RunAdmission::enter(&core).await;
+            start_command(&mut committed).map_err(|error| error.to_string())?;
             compact_session_command(
                 &compaction,
                 &hosted,
@@ -674,7 +741,7 @@ impl Worker {
         // the release delivers it.
         if self.input_pauses.paused() {
             return self
-                .hold_input(&hosted, &request, command, false, true)
+                .hold_input(&hosted, &request, command, false, true, None)
                 .await;
         }
         match self.admit_input(&hosted, &request).await {
@@ -747,7 +814,7 @@ impl Worker {
         // release delivers the prompt.
         if self.input_pauses.paused() {
             return self
-                .hold_input(&hosted, &delivery.request, COMMAND, false, false)
+                .hold_input(&hosted, &delivery.request, COMMAND, false, false, None)
                 .await;
         }
         if let Err(error) = self.admit_input(&hosted, &delivery.request).await {

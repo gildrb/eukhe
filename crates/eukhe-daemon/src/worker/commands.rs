@@ -1049,12 +1049,24 @@ pub(crate) async fn drain_withdrawn(
     events: &Arc<super::EventPump>,
     list: WithdrawnList,
 ) -> SessionResult<bool> {
+    let empty = |state: &SuspendedState| match list {
+        WithdrawnList::Suspended => state.suspended.is_empty(),
+        WithdrawnList::Held => state.held.is_empty(),
+    };
     let gate = {
         let core = core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if empty(&withdrawn_of(&core)) {
+            return Ok(false);
+        }
         std::sync::Arc::clone(&core.withdrawn_gate)
     };
+    // The run gate is passed before the store's mutation gate: a drain
+    // waiting at a quiesced run gate holds up no other store mutation (a
+    // cancel withdrawing a held prompt among them). The inputs stay in the
+    // store until they are resubmitted, so the wait loses nothing.
+    let admission = RunAdmission::enter(core).await;
     let _serialized = gate.lock().await;
     let current = {
         let core = core
@@ -1062,10 +1074,7 @@ pub(crate) async fn drain_withdrawn(
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         withdrawn_of(&core)
     };
-    if match list {
-        WithdrawnList::Suspended => current.suspended.is_empty(),
-        WithdrawnList::Held => current.held.is_empty(),
-    } {
+    if empty(&current) {
         return Ok(false);
     }
     let main = hosted.main()?;
@@ -1078,9 +1087,6 @@ pub(crate) async fn drain_withdrawn(
             drained.push(input.clone());
         }
     }
-    // The inputs stay in the store until they are resubmitted, so a wait
-    // at a quiesced gate loses nothing.
-    let admission = RunAdmission::enter(core).await;
     resubmit(hosted, drained, &admission).await?;
     drop(admission);
     let next = match list {
