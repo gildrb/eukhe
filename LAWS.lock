@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "9e537c918e5a4793c438e02d9ca6e690448212bd75006b36d2dc36c7229f8dc9",
+      "spec/README.md": "6ec4f3440e36a33225f0a691bcacf6604a00471449cf7426b5016d54c76c9ea2",
       "spec/agents/agent_crown.bend": "1cc476d997332d375c83fc07922be20617635d4fbd7f95e80ddb5d5561b376f4",
       "spec/agents/agent_tree.bend": "a1382c421dbfe7380567d3ad5d4855b81f6663ac0038e9639bf9e3963834d129",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -173,6 +173,7 @@
     "laws/agent_tree.bend::agent_tree_finish_is_spec": "cbe03796136605fab76b91f86f1a74a10d82023a7b510bf8113f93997afa66ab",
     "laws/agent_tree.bend::agent_tree_halves_fair": "03b6d9fdcec28910a674fdb3d92b5e003412620ec8e53f651d4f01222b798831",
     "laws/agent_tree.bend::agent_tree_halves_unlimited": "cb2c869ec4e9b11a47957c56291dda886b5362503bc09029ed53f728c0c1cc3f",
+    "laws/agent_tree.bend::agent_tree_info_reads": "423cebec2e5b579a53ea2ed61c0877e2811c7c32bb0e6c133406c26ae7e647f4",
     "laws/agent_tree.bend::agent_tree_init_admits": "27bb35a2d3758fefe8ea3beb7fde8db953672f4e277e6ad3481e5c8cbe86ccf7",
     "laws/agent_tree.bend::agent_tree_init_blank": "1f2d6abe31d2a5ccdc66dd3251273f5eb0621350f701de748bc6f14a42329b2e",
     "laws/agent_tree.bend::agent_tree_init_deadline": "1b68da89a44a8b7c5fadd111c5675ee64e550dae1327666f46c86df732b5191f",
@@ -193,6 +194,7 @@
     "laws/agent_tree.bend::agent_tree_result_leaf": "fc523510acc1008d6534e71350e3a095f391dad62a3bea480db24e62809f66fd",
     "laws/agent_tree.bend::agent_tree_run_last": "00b1baa14a348d390fa0adfbe981402f29c8090bdc23abe1685f447ebad22ece",
     "laws/agent_tree.bend::agent_tree_run_none": "c54560c635b5cd22f452fc769205f43adc2d8984b6ab72b5af6879d0de27a8b7",
+    "laws/agent_tree.bend::agent_tree_spend_binds": "f4e365552e8dc7c25d6c162d1b4e89aefe73a5ec4e02c0dc1563278250aad261",
     "laws/agent_tree.bend::agent_tree_spend_is_spec": "cb2d2c85e3576884aaa36565382463b784847f414bd73af64e02550bf1a3adba",
     "laws/agent_tree.bend::agent_tree_split_is_spec": "a6adcc7d5dc56a1dc92eff6291e9a97b418d54da07c51e2c4b323cbbc22513ab",
     "laws/agent_tree.bend::agent_tree_split_margin_both": "f88e075e5371f4893bba087b8ec19664cb6f9fe87787d4d6b12fb3388197eacc",
@@ -4341,6 +4343,7 @@
     "laws/agent_tree.bend::failed_with": "e98f74f9a14c92cd13a35d3bd284dd41c441c634f3b2264ce8a257ea410f7181",
     "laws/agent_tree.bend::fair": "7ff337a75221097b3bd50db285fcd02255be6d98320f5790ec351299f1a3fd88",
     "laws/agent_tree.bend::fc_status": "4f8ec11029b17614c3745749b25a90fd6012a13d24e6e5d7c75e5fb2d466b550",
+    "laws/agent_tree.bend::fields": "25a059d29931b16f06879afb72043acf4afd163ef55c4978ee96291191642432",
     "laws/agent_tree.bend::finish_checks": "e79ab3d366ea8ebffaed24e7bbf3a61c464d5507f6cf28cfed699de639b6b986",
     "laws/agent_tree.bend::finish_spec": "a8f1a3515a2fcabfc6e3c89db513d21c6e73359f60f8f53f1881efc2715e0356",
     "laws/agent_tree.bend::finish_spec_at": "926f0704f7099d1b123de7e242b7e4f52b752f56d573aa01bbdc23f7b4b8d24e",

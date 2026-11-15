@@ -3739,6 +3739,8 @@ import ./proof/agent_tree/agent_tree_result_integrates.bend as PAgentTreeResultI
 import ./proof/agent_tree/agent_tree_split_margin_both.bend as PAgentTreeSplitMarginBoth
 import ./proof/agent_tree/agent_tree_apply_ends.bend as PAgentTreeApplyEnds
 import ./proof/agent_tree/agent_tree_apply_past_end.bend as PAgentTreeApplyPastEnd
+import ./proof/agent_tree/agent_tree_info_reads.bend as PAgentTreeInfoReads
+import ./proof/agent_tree/agent_tree_spend_binds.bend as PAgentTreeSpendBinds
 import ./proof/agent_tree/agent_tree_depth_configured.bend as PAgentTreeDepthConfigured
 import ./proof/agent_tree/agent_tree_nodes_configured.bend as PAgentTreeNodesConfigured
 import ./proof/agent_crown/base/view.bend as LAgentCrownView

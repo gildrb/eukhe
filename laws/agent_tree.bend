@@ -38,6 +38,10 @@ def took(s: T.Step) -> Bool:
     case T.Refused{why}:
       False{}
 
+# a node's fields as the code reads them, rebuilt into an Info
+def fields(+i: T.Info) -> T.Info:
+  T.Info{T.st_of(i), T.scope_of(i), T.limit_of(i), T.spent_of(i), T.deadline_of(i), T.patch_of(i)}
+
 def is_leaf(n: T.Node) -> Bool:
   match n:
     case T.Leaf{i}:
@@ -1302,6 +1306,35 @@ law agent_tree_spend_is_spec:
   for +p: List<&2, T.Dir>
   for +a: Nat
   {T.step(b, t, T.EvSpend{p, a}) == spend_spec(t, p, a) : T.Step}
+
+# LAW agent_tree_info_reads (T8; every law reads nodes through these
+# readers): the code reads a node's status, scope, limit, spend, deadline
+# and patch as they are stored, a leaf's and a split's alike
+# EXCLUDES: a reader that answers a constant or another field (a spend read
+#   as 0 makes every room the whole limit and every spend law hold while
+#   spends never add up); a split read as a fresh node
+law agent_tree_info_reads:
+  for +i: T.Info
+  for own: List<&2, Bool>
+  for l: T.Node
+  for r: T.Node
+  {[fields(T.info(T.Leaf{i})), fields(T.info(T.Split{i, own, l, r}))] == [i, i] : List<&2, T.Info>}
+
+# LAW agent_tree_spend_binds (T8): spends add up against the limit: a root
+# with the limit a + (c + k) takes a spend of a (its spend becomes a), then
+# a spend of c (its spend becomes a + c), then refuses a spend of k + 1
+# NoBudget: the room counts both earlier spends
+# EXCLUDES: a spend that overwrites the node's spend instead of adding to
+#   it; a room that forgets what the node spent; a spend refused within
+#   the room
+law agent_tree_spend_binds:
+  for +b: T.Bounds
+  for +s: List<&2, Bool>
+  for +a: Nat
+  for +c: Nat
+  for +k: Nat
+  for +dl: T.Lim
+  {[T.step(b, T.init(s, T.Value{Nat.add(a, Nat.add(c, k))}, dl), T.EvSpend{[], a}), T.step(b, T.Leaf{T.Info{T.Running{}, s, T.Value{Nat.add(a, Nat.add(c, k))}, a, dl, []}}, T.EvSpend{[], c}), T.step(b, T.Leaf{T.Info{T.Running{}, s, T.Value{Nat.add(a, Nat.add(c, k))}, Nat.add(a, c), dl, []}}, T.EvSpend{[], 1n+k})] == [T.Took{T.Leaf{T.Info{T.Running{}, s, T.Value{Nat.add(a, Nat.add(c, k))}, a, dl, []}}}, T.Took{T.Leaf{T.Info{T.Running{}, s, T.Value{Nat.add(a, Nat.add(c, k))}, Nat.add(a, c), dl, []}}}, T.Refused{T.NoBudget{}}] : List<&2, T.Step>}
 
 # LAW agent_tree_budget_holds (T8): in every tree reachable from a root
 # with the limit lim, everything every node spent together fits lim
