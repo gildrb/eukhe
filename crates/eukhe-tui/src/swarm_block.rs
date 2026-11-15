@@ -11,9 +11,11 @@
 //! session id, rlm child id, roster agent id), else the
 //! `parent/child` session-name path that tells duplicates apart.
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use eukhe_types::daemon::agent_roster::{summary_admission, AgentRosterStatus, ModelAdmission};
+use eukhe_types::daemon::agent_tree::TreeRole;
 
 use crate::autocomplete::CompletionItem;
 use crate::chat::Detail;
@@ -103,7 +105,8 @@ pub(crate) fn agent_name(entry: &Value) -> String {
 
 /// The family of `root`: every roster entry below it, each with its
 /// parent among the members, in tree order (a parent before its
-/// children, siblings in roster order).
+/// children; siblings by their place in the agent tree, left before
+/// right, then help leaves and the rest in roster order).
 #[must_use]
 pub(crate) fn family_members<'a>(
     roster: &'a [Value],
@@ -127,12 +130,14 @@ pub(crate) fn family_members<'a>(
             })
         })
         .collect();
+    let mut by_place: Vec<usize> = (0..found.len()).collect();
+    by_place.sort_by_key(|index| sibling_rank(found[*index].0));
     // Depth-first from the direct children; a member whose parent is not
     // in the family (or that sits on a parent cycle) hangs off the
     // session.
     let mut ordered = Vec::with_capacity(found.len());
     let mut visited = vec![false; found.len()];
-    for start in 0..found.len() {
+    for start in by_place.iter().copied() {
         if visited[start] || parents[start].is_some_and(|_| has_root(&parents, start)) {
             continue;
         }
@@ -144,8 +149,10 @@ pub(crate) fn family_members<'a>(
             }
             ordered.push(index);
             stack.extend(
-                (0..found.len())
+                by_place
+                    .iter()
                     .rev()
+                    .copied()
                     .filter(|child| parents[*child] == Some(index) && !visited[*child]),
             );
         }
@@ -164,6 +171,24 @@ pub(crate) fn family_members<'a>(
         .collect()
 }
 
+/// Where a member sorts among its siblings: a split's node by its tree
+/// path (the root, then left before right), then a help leaf, then a
+/// member outside the tree.
+fn sibling_rank(entry: &Value) -> (u8, String) {
+    let summary = &entry["summary"];
+    let role = summary
+        .get("treeRole")
+        .and_then(|role| TreeRole::deserialize(role).ok());
+    match role {
+        Some(TreeRole::Root | TreeRole::Left | TreeRole::Right | TreeRole::Integrator) => (
+            0,
+            field(summary, "treePath").unwrap_or_default().to_string(),
+        ),
+        Some(TreeRole::Help) => (1, String::new()),
+        None => (2, String::new()),
+    }
+}
+
 /// Whether following `index`'s parents ends at a member without one (no
 /// cycle on the way).
 fn has_root(parents: &[Option<usize>], index: usize) -> bool {
@@ -177,33 +202,36 @@ fn has_root(parents: &[Option<usize>], index: usize) -> bool {
     false
 }
 
-/// The members `keep` selects, in the same tree order, each hung under
-/// its nearest kept ancestor (the session when none is kept): a running
-/// grandchild of an idle child still nests under the session's tree.
-pub(crate) fn kept_members<'a>(
+/// The trees of `members` (a member without a parent and everything
+/// below it) that hold a member `live` selects, whole and in the same
+/// order: a settled node stays while any node of its tree runs.
+pub(crate) fn live_trees<'a>(
     members: &[FamilyMember<'a>],
-    keep: impl Fn(&FamilyMember<'a>) -> bool,
+    live: impl Fn(&FamilyMember<'a>) -> bool,
 ) -> Vec<FamilyMember<'a>> {
-    let kept: Vec<bool> = members.iter().map(&keep).collect();
-    let mut moved_to: Vec<Option<usize>> = vec![None; members.len()];
+    // Tree order puts every parent before its children.
+    let mut top = Vec::with_capacity(members.len());
+    for (index, member) in members.iter().enumerate() {
+        let own = member.parent.map_or(index, |parent| top[parent]);
+        top.push(own);
+    }
+    let mut kept_top = vec![false; members.len()];
+    for (index, member) in members.iter().enumerate() {
+        if live(member) {
+            kept_top[top[index]] = true;
+        }
+    }
+    let mut moved_to: Vec<usize> = vec![0; members.len()];
     let mut out = Vec::new();
     for (index, member) in members.iter().enumerate() {
-        if !kept[index] {
+        if !kept_top[top[index]] {
             continue;
         }
-        let mut ancestor = member.parent;
-        while let Some(at) = ancestor {
-            if kept[at] {
-                break;
-            }
-            ancestor = members[at].parent;
-        }
-        moved_to[index] = Some(out.len());
+        moved_to[index] = out.len();
         out.push(FamilyMember {
             entry: member.entry,
             depth: member.depth,
-            // Tree order puts every parent before its children.
-            parent: ancestor.and_then(|at| moved_to[at]),
+            parent: member.parent.map(|parent| moved_to[parent]),
         });
     }
     out

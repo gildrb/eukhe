@@ -1,21 +1,24 @@
-//! The pinned agents block (omp's subagent HUD): above the composer, one
-//! row per running subagent of this session (its family tree, nested by
-//! depth) and per running job (a kernel shell, a workflow run), visible
-//! while anything runs and gone when nothing does.
+//! The pinned agents block: above the composer, the session's agent
+//! trees, one row per node drawn with tree connectors, and one row per
+//! running job (a kernel shell, a workflow run); visible while anything
+//! runs and gone when nothing does. A tree shows whole while any of its
+//! nodes runs: its settled nodes stay with their outcome.
 //!
-//! An agent row names what the agent does, from its pushed roster row
-//! only: the [`AgentActivity`] indicator (the phase and how long the
-//! agent runs), its model and reasoning level, the tool it runs and for
-//! how long, a retry wait, its context use, its spend, and a quiet signal
-//! when nothing was heard from it for `terminal.stuckAfterSecs`. The
-//! block renders from state already in memory: a frame never waits on
-//! the daemon.
+//! A node row names, from its pushed roster row only: its status (the
+//! [`AgentActivity`] indicator while it runs: the phase and how long it
+//! runs; finished, failed or cancelled and its run time once settled),
+//! its role in the tree (root, L, R, help, integrator), its scope, its
+//! model and reasoning level, the tool it runs and for how long, a retry
+//! wait, its context use, its spend, and a quiet signal when nothing was
+//! heard from it for `terminal.stuckAfterSecs`. The block renders from
+//! state already in memory: a frame never waits on the daemon.
 
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use eukhe_types::daemon::agent_roster::{summary_admission, AgentRosterStatus, ModelAdmission};
+use eukhe_types::daemon::agent_tree::{TreeRole, TreeStatus};
 use eukhe_types::daemon::{
     CurrentTool, RetryWait, SessionWorker, WaitingJob, WaitingJobKind, WorkerRunState,
 };
@@ -27,12 +30,12 @@ use crate::agents_view_state::iso_to_unix_ms;
 use crate::bash_view::BashActivity;
 use crate::chat::{format_working_elapsed, working_icon_frame};
 use crate::chrome::{format_token_count, ContextUsage};
-use crate::glyphs::{ARROW, DOT_HALF, ELLIPSIS, WARN};
+use crate::glyphs::{ARROW, DOT_HALF, DOT_OFF, ELLIPSIS, FAIL, OK, WARN};
 use crate::style::Modifier;
 use crate::subagents::{entry_status, SessionIdentity};
-use crate::swarm_block::{family_members, kept_members, roster_lines, RosterLine};
+use crate::swarm_block::{family_members, live_trees, roster_lines, status_label, RosterLine};
 use crate::theme::{Theme, ThemeColor};
-use crate::width::truncate_line;
+use crate::width::{char_width, str_width, truncate_line};
 use crate::{Line, Span};
 
 /// `terminal.stuckAfterSecs`'s default.
@@ -47,6 +50,9 @@ pub const SLOW_TOOL_SECS: u64 = 5;
 
 /// A context use at or past this percent shows in the warning color.
 const CONTEXT_WARN_PERCENT: f64 = 90.0;
+
+/// Columns a node's scope takes at most.
+pub const SCOPE_COLS: usize = 32;
 
 /// How the block shows (`terminal.pinnedAgents`, omp
 /// `display.pinnedAgents`).
@@ -92,12 +98,20 @@ pub struct ToolRun {
     pub started_ms: Option<u64>,
 }
 
-/// One running subagent.
+/// One node of an agent tree (or a subagent outside a tree).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentRow {
     /// The family row: tree connectors, name, status, admission, depth,
     /// model with its reasoning level, and note.
     pub line: RosterLine,
+    /// Running, or how the node's last run ended.
+    pub status: TreeStatus,
+    /// The node's role in its tree (`summary.treeRole`).
+    pub role: Option<TreeRole>,
+    /// The paths the node owns (`summary.treeScope`; `""`: everything).
+    pub scope: Vec<String>,
+    /// A settled node's run time: its creation to its last activity.
+    pub elapsed_secs: Option<u64>,
     /// What the agent does; a working agent counts from its creation.
     pub activity: AgentActivity,
     pub tool: Option<ToolRun>,
@@ -140,8 +154,8 @@ pub enum JobRow {
     },
 }
 
-/// The block's content: the running agents in tree order, then the
-/// running jobs.
+/// The block's content: the nodes of the shown agent trees in tree
+/// order, then the running jobs.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentsPanel {
     pub agents: Vec<AgentRow>,
@@ -185,7 +199,8 @@ pub(crate) struct PanelView<'a> {
 impl AgentsPanel {
     /// The block of the session `root` from the roster, the session's
     /// shells, its workflow runs, and its workers (they stay listed while
-    /// paused or idle). `anchor` and `anchor_ms` name one instant on the
+    /// paused or idle): every tree of the session's family with a live
+    /// node, whole. `anchor` and `anchor_ms` name one instant on the
     /// monotonic and the wall clock ([`clock_anchor`]): an agent's
     /// creation time maps through them onto the monotonic clock its
     /// indicator counts on.
@@ -209,20 +224,31 @@ impl AgentsPanel {
                 })
                 .map(|worker| worker.state)
         };
+        let listed = |entry: &Value| is_live(entry) || worker_state(entry).is_some();
         let family = family_members(roster, root);
-        let live = kept_members(&family, |member| {
-            is_live(member.entry) || worker_state(member.entry).is_some()
-        });
-        let agents = live
+        let shown = live_trees(&family, |member| listed(member.entry));
+        let agents = shown
             .iter()
-            .zip(roster_lines(&live))
+            .zip(roster_lines(&shown))
             .enumerate()
             .map(|(index, (member, line))| {
-                let children = live
+                let running_children = shown
                     .iter()
-                    .filter(|other| other.parent == Some(index))
+                    .filter(|other| other.parent == Some(index) && is_live(other.entry))
                     .count();
-                let mut row = agent_row(member.entry, line, children, anchor, anchor_ms);
+                let status = if listed(member.entry) {
+                    TreeStatus::Running
+                } else {
+                    settled_status(member.entry)
+                };
+                let mut row = agent_row(
+                    member.entry,
+                    line,
+                    status,
+                    running_children,
+                    anchor,
+                    anchor_ms,
+                );
                 row.worker = worker_state(member.entry);
                 if matches!(
                     row.worker,
@@ -334,60 +360,102 @@ fn typed<T: serde::de::DeserializeOwned>(summary: &Value, name: &str) -> Option<
         .and_then(|value| T::deserialize(value).ok())
 }
 
+/// How a settled node's last run ended (`summary.treeStatus`); a member
+/// outside the tree reads its task state.
+fn settled_status(entry: &Value) -> TreeStatus {
+    match typed(&entry["summary"], "treeStatus") {
+        // Its session stopped with the run in flight.
+        Some(TreeStatus::Running) => TreeStatus::Cancelled,
+        Some(status) => status,
+        None if status_label(entry) == "failed" => TreeStatus::Failed,
+        None => TreeStatus::Finished,
+    }
+}
+
 fn agent_row(
     entry: &Value,
     line: RosterLine,
-    children: usize,
+    status: TreeStatus,
+    running_children: usize,
     anchor: Instant,
     anchor_ms: u64,
 ) -> AgentRow {
     let summary = &entry["summary"];
     let time = |value: Option<&Value>| value.and_then(Value::as_str).and_then(wall_ms);
-    let current: Option<CurrentTool> = typed(summary, "currentTool");
-    let retry: Option<RetryWait> = typed(summary, "retry");
-    let park: Option<QuotaPark> = typed(summary, "quotaPark");
-    let waiting: Option<crate::activity::WaitingOn> = typed(summary, "waitingOn");
     let created_ms = time(summary.get("created"));
-    let tool = current.map(|tool| ToolRun {
-        started_ms: tool.started_at.as_deref().and_then(wall_ms),
-        name: tool.name,
-    });
-    let heard_ms = [
-        time(entry.get("lastHeardFromAt")),
-        time(summary.get("lastActivityAt")),
-        tool.as_ref().and_then(|tool| tool.started_ms),
-        created_ms,
-    ]
-    .into_iter()
-    .flatten()
-    .max();
-    let flag = |name: &str| summary.get(name).and_then(Value::as_bool) == Some(true);
-    let between_turns = !flag("isStreaming") && !flag("isCompacting");
-    let activity = match (park, waiting) {
-        (Some(park), _) => AgentActivity::Parked(park),
-        (None, Some(waiting)) if between_turns => AgentActivity::Waiting(waiting),
-        (None, _) if flag("hasRunningSubagents") && between_turns => AgentActivity::Background {
-            tasks: children.max(1),
-        },
-        (None, _) => AgentActivity::Working {
-            phase: phase(entry, retry.is_some(), tool.is_some()),
-            since: created_ms.map_or(anchor, |created| instant_at(anchor, anchor_ms, created)),
-        },
-    };
-    AgentRow {
+    let settled = AgentRow {
         line,
-        activity,
-        tool,
-        retry,
-        context: summary
-            .get("contextUsage")
-            .and_then(ContextUsage::from_wire),
+        status,
+        role: typed(summary, "treeRole"),
+        scope: typed(summary, "treeScope").unwrap_or_default(),
+        elapsed_secs: None,
+        activity: AgentActivity::Idle,
+        tool: None,
+        retry: None,
+        context: None,
         cost: summary
             .get("usage")
             .and_then(|usage| usage.get("cost"))
             .and_then(Value::as_f64),
-        heard_ms,
+        heard_ms: None,
         worker: None,
+    };
+    match status {
+        TreeStatus::Finished | TreeStatus::Failed | TreeStatus::Cancelled => {
+            let ended_ms =
+                time(summary.get("lastActivityAt")).or_else(|| time(summary.get("modified")));
+            AgentRow {
+                elapsed_secs: created_ms
+                    .zip(ended_ms)
+                    .map(|(start, end)| end.saturating_sub(start) / 1_000),
+                ..settled
+            }
+        }
+        TreeStatus::Running => {
+            let current: Option<CurrentTool> = typed(summary, "currentTool");
+            let retry: Option<RetryWait> = typed(summary, "retry");
+            let park: Option<QuotaPark> = typed(summary, "quotaPark");
+            let waiting: Option<crate::activity::WaitingOn> = typed(summary, "waitingOn");
+            let tool = current.map(|tool| ToolRun {
+                started_ms: tool.started_at.as_deref().and_then(wall_ms),
+                name: tool.name,
+            });
+            let heard_ms = [
+                time(entry.get("lastHeardFromAt")),
+                time(summary.get("lastActivityAt")),
+                tool.as_ref().and_then(|tool| tool.started_ms),
+                created_ms,
+            ]
+            .into_iter()
+            .flatten()
+            .max();
+            let flag = |name: &str| summary.get(name).and_then(Value::as_bool) == Some(true);
+            let between_turns = !flag("isStreaming") && !flag("isCompacting");
+            let activity = match (park, waiting) {
+                (Some(park), _) => AgentActivity::Parked(park),
+                (None, Some(waiting)) if between_turns => AgentActivity::Waiting(waiting),
+                (None, _) if flag("hasRunningSubagents") && between_turns => {
+                    AgentActivity::Background {
+                        tasks: running_children.max(1),
+                    }
+                }
+                (None, _) => AgentActivity::Working {
+                    phase: phase(entry, retry.is_some(), tool.is_some()),
+                    since: created_ms
+                        .map_or(anchor, |created| instant_at(anchor, anchor_ms, created)),
+                },
+            };
+            AgentRow {
+                activity,
+                tool,
+                retry,
+                context: summary
+                    .get("contextUsage")
+                    .and_then(ContextUsage::from_wire),
+                heard_ms,
+                ..settled
+            }
+        }
     }
 }
 
@@ -482,9 +550,9 @@ pub(crate) fn render_agents_panel(
         .collect()
 }
 
-/// `agents 2, jobs 1` (the agents part bold, the focus anchor), the paused
-/// and idle agents, the quiet count in the warning color, and the keys
-/// while focused.
+/// `agents 2 (1 settled), jobs 1` (the agents part bold, the focus
+/// anchor), the paused, idle and settled agents, the quiet count in the
+/// warning color, and the keys while focused.
 fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line {
     let quiet = panel
         .agents
@@ -498,9 +566,15 @@ fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line 
             .filter(|row| row.worker == Some(state))
             .count()
     };
+    let settled = panel
+        .agents
+        .iter()
+        .filter(|row| row.status != TreeStatus::Running)
+        .count();
     let resting: Vec<String> = [
         (in_state(WorkerRunState::Paused), "paused"),
         (in_state(WorkerRunState::Idle), "idle"),
+        (settled, "settled"),
     ]
     .into_iter()
     .filter(|(count, _)| *count > 0)
@@ -544,6 +618,50 @@ fn title_line(panel: &AgentsPanel, view: &PanelView<'_>, theme: &Theme) -> Line 
     line
 }
 
+/// A role as its row names it.
+fn role_label(role: TreeRole) -> &'static str {
+    match role {
+        TreeRole::Root => "root",
+        TreeRole::Left => "L",
+        TreeRole::Right => "R",
+        TreeRole::Help => "help",
+        TreeRole::Integrator => "integrator",
+    }
+}
+
+/// `scope` in at most `cols` columns: the first paths that fit and `+N`
+/// for the rest; a first path too wide keeps its tail. The workspace
+/// root (`""`) reads as `.`.
+fn scope_text(scope: &[String], cols: usize) -> String {
+    let paths: Vec<&str> = scope
+        .iter()
+        .map(|path| if path.is_empty() { "." } else { path.as_str() })
+        .collect();
+    let rest = |taken: usize| match paths.len() - taken {
+        0 => String::new(),
+        more => format!(" +{more}"),
+    };
+    let fitting = (1..=paths.len()).rev().find_map(|taken| {
+        let text = format!("{}{}", paths[..taken].join(" "), rest(taken));
+        (str_width(&text) <= cols).then_some(text)
+    });
+    fitting.unwrap_or_else(|| {
+        let more = rest(1);
+        let room = cols.saturating_sub(str_width(ELLIPSIS) + str_width(&more));
+        let mut used = 0;
+        let mut tail: Vec<char> = paths[0]
+            .chars()
+            .rev()
+            .take_while(|c| {
+                used += char_width(*c);
+                used <= room
+            })
+            .collect();
+        tail.reverse();
+        format!("{ELLIPSIS}{}{more}", tail.into_iter().collect::<String>())
+    })
+}
+
 /// Elapsed seconds from `start_ms` to `now_ms`.
 fn since_secs(start_ms: u64, now_ms: u64) -> u64 {
     now_ms.saturating_sub(start_ms) / 1_000
@@ -563,13 +681,16 @@ fn agent_line(row: &AgentRow, view: &PanelView<'_>, theme: &Theme) -> Line {
             ..
         }
     );
-    let icon = match (quiet, busy && !waiting) {
-        (Some(_), _) => Span::styled(WARN, warning),
-        (None, true) => Span::styled(
+    let icon = match (row.status, quiet, busy && !waiting) {
+        (TreeStatus::Finished, _, _) => Span::styled(OK, theme.fg_style(ThemeColor::Success)),
+        (TreeStatus::Failed, _, _) => Span::styled(FAIL, theme.fg_style(ThemeColor::Error)),
+        (TreeStatus::Cancelled, _, _) => Span::styled(DOT_OFF, muted),
+        (TreeStatus::Running, Some(_), _) => Span::styled(WARN, warning),
+        (TreeStatus::Running, None, true) => Span::styled(
             working_icon_frame(view.frame),
             theme.fg_style(ThemeColor::Success),
         ),
-        (None, false) => Span::styled(DOT_HALF, warning),
+        (TreeStatus::Running, None, false) => Span::styled(DOT_HALF, warning),
     };
     let mut line = vec![
         Span::raw(" "),
@@ -577,8 +698,17 @@ fn agent_line(row: &AgentRow, view: &PanelView<'_>, theme: &Theme) -> Line {
         Span::raw(" "),
         Span::styled(row.line.tree.clone(), dim),
         Span::styled(row.line.name.clone(), theme.fg_style(ThemeColor::Accent)),
-        Span::styled(format!("  {}", row.line.model), muted),
     ];
+    if let Some(role) = row.role {
+        line.push(Span::styled(format!("  {}", role_label(role)), muted));
+    }
+    if !row.scope.is_empty() {
+        line.push(Span::styled(
+            format!("  {}", scope_text(&row.scope, SCOPE_COLS)),
+            dim,
+        ));
+    }
+    line.push(Span::styled(format!("  {}", row.line.model), muted));
     match row.worker {
         Some(WorkerRunState::Paused) => line.push(Span::styled("  paused", warning)),
         Some(WorkerRunState::Idle) => line.push(Span::styled("  idle", muted)),
@@ -589,6 +719,18 @@ fn agent_line(row: &AgentRow, view: &PanelView<'_>, theme: &Theme) -> Line {
             format!("  {}", indicator.text),
             theme.fg_style(ThemeColor::Text),
         ));
+    }
+    let outcome = match row.status {
+        TreeStatus::Running => None,
+        TreeStatus::Finished => Some("finished"),
+        TreeStatus::Failed => Some("failed"),
+        TreeStatus::Cancelled => Some("cancelled"),
+    };
+    if let Some(outcome) = outcome {
+        let elapsed = row.elapsed_secs.map_or_else(String::new, |secs| {
+            format!(" {}", format_working_elapsed(secs))
+        });
+        line.push(Span::styled(format!("  {outcome}{elapsed}"), muted));
     }
     if let Some(tool) = &row.tool {
         let elapsed = tool.started_ms.map(|start| since_secs(start, view.now_ms));

@@ -228,6 +228,10 @@ fn running_agents_map_to_their_rows() {
                 note: Some("list crates/eukhe-tui".to_string()),
                 ..line("|- ", "worker-1", "running", 1, "qwen3.8-27b:high")
             },
+            status: TreeStatus::Running,
+            role: None,
+            scope: Vec::new(),
+            elapsed_secs: None,
             activity: AgentActivity::Working {
                 phase: TurnPhase::RunningTool,
                 since: since("09:58:00"),
@@ -247,6 +251,10 @@ fn running_agents_map_to_their_rows() {
         },
         AgentRow {
             line: line("|  `- ", "worker-2", "running", 2, "-"),
+            status: TreeStatus::Running,
+            role: None,
+            scope: Vec::new(),
+            elapsed_secs: None,
             activity: AgentActivity::Working {
                 phase: TurnPhase::Retrying,
                 since: since("09:59:00"),
@@ -265,6 +273,10 @@ fn running_agents_map_to_their_rows() {
         },
         AgentRow {
             line: line("|- ", "worker-3", "running", 1, "-"),
+            status: TreeStatus::Running,
+            role: None,
+            scope: Vec::new(),
+            elapsed_secs: None,
             activity: AgentActivity::Working {
                 phase: TurnPhase::Thinking,
                 since: since("09:57:00"),
@@ -278,6 +290,10 @@ fn running_agents_map_to_their_rows() {
         },
         AgentRow {
             line: line("|- ", "worker-4", "running", 1, "-"),
+            status: TreeStatus::Running,
+            role: None,
+            scope: Vec::new(),
+            elapsed_secs: None,
             activity: AgentActivity::Parked(QuotaPark {
                 resume_at: at("12:00:00"),
                 provider: Some("anthropic".to_string()),
@@ -291,6 +307,10 @@ fn running_agents_map_to_their_rows() {
         },
         AgentRow {
             line: line("`- ", "worker-6", "queued", 1, "-"),
+            status: TreeStatus::Running,
+            role: None,
+            scope: Vec::new(),
+            elapsed_secs: None,
             activity: AgentActivity::Working {
                 phase: TurnPhase::Queued,
                 since: anchor,
@@ -641,6 +661,229 @@ fn the_mode_toggles_and_parses() {
             PinnedAgents::Collapsed,
             PinnedAgents::Full,
             PinnedAgents::Collapsed
+        ]
+    );
+}
+
+/// A node of the session's agent tree: `role`, `scope`, `path`, with
+/// `extra` as in [`child`].
+fn node(
+    id: &str,
+    status: &str,
+    parent: &str,
+    (role, scope, path): (&str, &[&str], &str),
+    extra: &Value,
+) -> Value {
+    let mut fields = extra.clone();
+    fields["treeRole"] = json!(role);
+    fields["treeScope"] = json!(scope);
+    fields["treePath"] = json!(path);
+    child(id, &format!("tree-{id}"), status, parent, &fields)
+}
+
+/// A root split into two halves (the right one split again) with a help
+/// leaf, listed in roster order help, right, left: running nodes, a
+/// finished, a failed, and a cancelled one.
+fn tree_roster() -> Vec<Value> {
+    let running = |created: &str| {
+        json!({
+            "created": at(created),
+            "isStreaming": true,
+            "entry.lastHeardFromAt": at("09:59:59"),
+        })
+    };
+    let settled = |status: &str, created: &str, ended: &str| {
+        json!({
+            "treeStatus": status,
+            "created": at(created),
+            "lastActivityAt": at(ended),
+            "usage": { "cost": 0.12 },
+        })
+    };
+    vec![
+        json!({ "agentId": "s1", "status": "running",
+                "summary": { "sessionId": "sess-1", "activeSessionId": "s1", "runtimeKind": "top-level" } }),
+        node(
+            "help",
+            "running",
+            "root-live",
+            ("help", &[], "L"),
+            &running("09:59:00"),
+        ),
+        node(
+            "rr",
+            "idle",
+            "r-live",
+            ("right", &["crates/eukhe-daemon/tests"], "RR"),
+            &settled("cancelled", "09:56:00", "09:57:00"),
+        ),
+        node(
+            "r",
+            "running",
+            "root-live",
+            ("right", &["crates/eukhe-daemon", "crates/eukhe-types"], "R"),
+            &running("09:55:00"),
+        ),
+        node(
+            "rl",
+            "idle",
+            "r-live",
+            ("left", &["crates/eukhe-daemon/src"], "RL"),
+            &settled("failed", "09:56:00", "09:58:00"),
+        ),
+        node(
+            "l",
+            "idle",
+            "root-live",
+            ("left", &["crates/eukhe-tui"], "L"),
+            &settled("finished", "09:50:00", "09:55:00"),
+        ),
+        node(
+            "root",
+            "running",
+            "s1",
+            ("root", &[""], ""),
+            &running("09:50:00"),
+        ),
+    ]
+}
+
+/// The tree draws with connectors, left before right and the help leaf
+/// last; each row names its status (the activity indicator while it
+/// runs, the outcome and run time once settled), role, scope, and spend.
+#[test]
+fn a_split_tree_renders_one_row_per_node() {
+    let anchor = Instant::now();
+    let panel = AgentsPanel::build(&tree_roster(), &root(), &sources(&[]), anchor, ms(NOW));
+    let elapsed = format_working_elapsed;
+    assert_eq!(
+        texts(&panel, PinnedAgents::Full, anchor),
+        vec![
+            " Agents  3 running - 3 settled".to_string(),
+            format!(" . `- tree-root  root  .  -  Thinking - {}", elapsed(600)),
+            format!(
+                " ok    |- tree-l  L  crates/eukhe-tui  -  finished {}  $0.12",
+                elapsed(300)
+            ),
+            format!(
+                " .    |- tree-r  R  crates/eukhe-daemon +1  -  Thinking - {}",
+                elapsed(300)
+            ),
+            format!(
+                " x    |  |- tree-rl  L  crates/eukhe-daemon/src  -  failed {}  $0.12",
+                elapsed(120)
+            ),
+            format!(
+                " o    |  `- tree-rr  R  crates/eukhe-daemon/tests  -  cancelled {}  $0.12",
+                elapsed(60)
+            ),
+            format!(" .    `- tree-help  help  -  Thinking - {}", elapsed(60)),
+        ]
+    );
+}
+
+/// A settled node stays, with its outcome and run time, while any node
+/// of its tree runs; a tree with no running node leaves the block.
+#[test]
+fn settled_nodes_stay_while_their_tree_runs() {
+    let anchor = Instant::now();
+    let roster = |root_status: &str| {
+        let root_fields = if root_status == "running" {
+            json!({ "created": at("09:50:00"), "isStreaming": true,
+                    "entry.lastHeardFromAt": at("09:59:59") })
+        } else {
+            json!({ "treeStatus": "finished", "created": at("09:50:00"),
+                    "lastActivityAt": at("09:59:00") })
+        };
+        vec![
+            node("root", root_status, "s1", ("root", &[""], ""), &root_fields),
+            node(
+                "l",
+                "idle",
+                "root-live",
+                ("left", &["src"], "L"),
+                &json!({ "treeStatus": "finished", "created": at("09:51:00"),
+                         "lastActivityAt": at("09:53:30"), "usage": { "cost": 0.5 } }),
+            ),
+        ]
+    };
+    let build =
+        |status: &str| AgentsPanel::build(&roster(status), &root(), &sources(&[]), anchor, ms(NOW));
+    let settled_leaf = AgentRow {
+        line: line("   `- ", "tree-l", "idle", 2, "-"),
+        status: TreeStatus::Finished,
+        role: Some(TreeRole::Left),
+        scope: vec!["src".to_string()],
+        elapsed_secs: Some(150),
+        activity: AgentActivity::Idle,
+        tool: None,
+        retry: None,
+        context: None,
+        cost: Some(0.5),
+        heard_ms: None,
+        worker: None,
+    };
+    assert_eq!(
+        [build("running"), build("idle")],
+        [
+            AgentsPanel {
+                agents: vec![
+                    AgentRow {
+                        line: line("`- ", "tree-root", "running", 1, "-"),
+                        status: TreeStatus::Running,
+                        role: Some(TreeRole::Root),
+                        scope: vec![String::new()],
+                        elapsed_secs: None,
+                        activity: AgentActivity::Working {
+                            phase: TurnPhase::Thinking,
+                            since: instant_at(anchor, ms(NOW), ms(&at("09:50:00"))),
+                        },
+                        tool: None,
+                        retry: None,
+                        context: None,
+                        cost: None,
+                        heard_ms: Some(ms(&at("09:59:59"))),
+                        worker: None,
+                    },
+                    settled_leaf,
+                ],
+                jobs: Vec::new(),
+            },
+            AgentsPanel::default(),
+        ]
+    );
+}
+
+/// A scope takes at most its columns: the paths that fit and a count of
+/// the rest; a first path too wide keeps its tail; the workspace root
+/// reads as `.`.
+#[test]
+fn a_scope_shortens_to_fit() {
+    let scope =
+        |paths: &[&str]| -> Vec<String> { paths.iter().map(|path| (*path).to_string()).collect() };
+    assert_eq!(
+        [
+            scope_text(&scope(&[""]), SCOPE_COLS),
+            scope_text(&scope(&["docs", "src"]), SCOPE_COLS),
+            scope_text(
+                &scope(&["crates/eukhe-daemon", "crates/eukhe-types"]),
+                SCOPE_COLS
+            ),
+            scope_text(
+                &scope(&["crates/eukhe-daemon/src/worker/summary.rs"]),
+                SCOPE_COLS
+            ),
+            scope_text(
+                &scope(&["crates/eukhe-daemon/src/worker/summary.rs", "docs"]),
+                20
+            ),
+        ],
+        [
+            ".".to_string(),
+            "docs src".to_string(),
+            "crates/eukhe-daemon +1".to_string(),
+            "...-daemon/src/worker/summary.rs".to_string(),
+            "...ker/summary.rs +1".to_string(),
         ]
     );
 }

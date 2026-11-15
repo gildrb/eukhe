@@ -1,8 +1,9 @@
-//! Headless e2e for the pinned agents block: a running subagent shows
-//! above the composer with its model, reasoning level, phase, current
-//! tool, context use, and spend, straight from the roster the client
-//! subscribed to; when a roster push says it stopped, the block goes. A
-//! collapsed block names the keys that expand it from where the keys go.
+//! Headless e2e for the pinned agents block: a running tree root shows
+//! above the composer with its role, scope, model, reasoning level,
+//! phase, current tool, context use, and spend, its settled leaf under
+//! it, straight from the roster the client subscribed to; when a roster
+//! push says the root stopped, the whole tree goes. A collapsed block
+//! names the keys that expand it from where the keys go.
 #![cfg(unix)]
 // - the futures are bounded by the surface's lifetime; boxing them would
 //   add an allocation to the steady-state loop.
@@ -33,8 +34,8 @@ fn write_json(writer: &mut UnixStream, value: &Value) {
     writer.flush().expect("flush mock frame");
 }
 
-/// The session's one subagent: running a tool while `running`, idle
-/// after.
+/// The session's agent tree root: running a tool while `running`,
+/// finished after.
 fn worker(running: bool) -> Value {
     let mut summary = json!({
         "sessionId": "c1",
@@ -49,16 +50,43 @@ fn worker(running: bool) -> Value {
         "thinkingLevel": "high",
         "usage": { "cost": 0.25 },
         "contextUsage": { "tokens": 64_000, "contextWindow": 128_000, "percent": 50.0 },
+        "treeRole": "root",
+        "treeScope": ["crates/eukhe-tui"],
+        "treePath": "",
     });
     if running {
         summary["isStreaming"] = json!(true);
         summary["isRunningTools"] = json!(true);
         summary["currentTool"] = json!({ "name": "bash" });
+    } else {
+        summary["treeStatus"] = json!("finished");
     }
     json!({
         "agentId": "c1",
         "status": if running { "running" } else { "idle" },
         "summary": summary,
+    })
+}
+
+/// The root's left half, finished.
+fn leaf() -> Value {
+    json!({
+        "agentId": "c9",
+        "status": "idle",
+        "summary": {
+            "sessionId": "c9",
+            "activeSessionId": "c9-live",
+            "sessionName": "leaf-1",
+            "runtimeKind": "subagent",
+            "rlmChildId": "sub-c9",
+            "rlmDepth": 2,
+            "parentActiveSessionId": "c1-live",
+            "parentSessionId": "c1",
+            "treeRole": "left",
+            "treeScope": ["crates/eukhe-tui/src"],
+            "treePath": "L",
+            "treeStatus": "finished",
+        },
     })
 }
 
@@ -226,7 +254,7 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("tui.sock");
     let listener = UnixListener::bind(&socket).expect("bind mock socket");
-    let handle = std::thread::spawn(move || serve(&listener, &roster([worker(true)])));
+    let handle = std::thread::spawn(move || serve(&listener, &roster([worker(true), leaf()])));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -238,16 +266,18 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
     let plan = HeadlessPlan {
         steps: vec![
             wait("settled answer"),
-            // The block heads the dock with the worker's live row.
-            wait("agents 1, jobs 0"),
-            wait("`- worker-1  qwen3.8-27b:high  Executing - "),
+            // The block heads the dock with the root's live row and its
+            // settled leaf.
+            wait("agents 2 (1 settled), jobs 0"),
+            wait("`- worker-1  root  crates/eukhe-tui  qwen3.8-27b:high  Executing - "),
             wait("-> bash  ctx 64k/128k 50%  $0.25"),
-            // The message ends the worker's run: the roster push says it
-            // is idle, and the block goes.
+            wait("   `- leaf-1  L  crates/eukhe-tui/src  -  finished"),
+            // The message ends the root's run: the roster push says it
+            // is idle, and the whole tree goes.
             HeadlessStep::Submit("@worker-1 wrap up".to_string()),
             wait("you -> worker-1: wrap up"),
             HeadlessStep::WaitGone {
-                needle: "agents 1, jobs 0".to_string(),
+                needle: "agents 2 (1 settled), jobs 0".to_string(),
                 timeout_ms: 10_000,
             },
         ],
@@ -268,7 +298,7 @@ fn a_running_subagent_shows_in_the_block_until_it_stops() {
     );
     let last = frames.last().expect("a frame");
     assert!(
-        !last.contains("worker-1  qwen3.8-27b:high"),
+        !last.contains("worker-1  root") && !last.contains("leaf-1  L"),
         "the block is gone once nothing runs:\n{last}"
     );
 }
