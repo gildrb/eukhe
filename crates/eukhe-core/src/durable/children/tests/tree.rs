@@ -14,13 +14,19 @@ use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::{ParentLink, SessionRole};
 use crate::durable::{open_session, SessionConfig, SessionStorage};
 
-/// The places and workspaces the host was asked to spawn, in order.
+/// The places and workspaces the host was asked to spawn, by tree path:
+/// a split's two children spawn concurrently, in either order.
 fn spawned(host: &FakeHost) -> Vec<(Option<TreePlace>, WorkspaceMode)> {
-    lock(&host.state)
+    let mut spawns: Vec<_> = lock(&host.state)
         .spawns
         .iter()
         .map(|spawn| (spawn.tree.clone(), spawn.workspace))
-        .collect()
+        .collect();
+    spawns.sort_by(|(left, _), (right, _)| {
+        let path = |place: &Option<TreePlace>| place.as_ref().map(|place| place.path.clone());
+        path(left).cmp(&path(right))
+    });
+    spawns
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -125,7 +131,9 @@ async fn a_split_childs_first_request_states_the_split_rule_and_its_scope() {
     split_children(&opened, &setup, &["src/a", "docs"], &["src/b"]).await;
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
-    let left = lock(&host.state).spawns[0].tree.clone();
+    let left = spawned(&host)
+        .into_iter()
+        .find_map(|(place, _)| place.filter(|place| place.role == TreeRole::Left));
     let system = first_system_prompt(left.expect("the left child's place"), host).await;
     assert!(
         system.contains("Split when two halves write disjoint files"),
