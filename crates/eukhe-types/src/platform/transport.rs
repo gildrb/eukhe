@@ -247,18 +247,18 @@ fn too_long(path: &Path) -> std::io::Error {
     )
 }
 
+/// The longest path [`bind_transport`] binds, in bytes: an abstract
+/// name's (Linux), else a socket file address's.
+#[cfg(target_os = "linux")]
+pub const ENDPOINT_NAME_LIMIT: usize = MAX_ABSTRACT_NAME;
+#[cfg(not(target_os = "linux"))]
+pub const ENDPOINT_NAME_LIMIT: usize = MAX_SUN_PATH;
+
 /// Whether `path` can name an endpoint [`bind_transport`] binds: an
 /// abstract name (Linux), else a socket file address.
 #[must_use]
 pub fn is_addressable(path: &Path) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        abstract_address(path).is_ok()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        UnixSocketAddress::new(path).is_ok()
-    }
+    path.as_os_str().len() <= ENDPOINT_NAME_LIMIT
 }
 
 /// Bind a listening endpoint at `path` whose accept applies `peers` to

@@ -603,6 +603,17 @@ impl Supervisor {
             (PathBuf::from(&descriptor.socket_path), cwd, launch_env)
         };
 
+        // A path past the endpoint name limit can never be bound: no
+        // worker could serve it, and no holder can be asked about it.
+        if !eukhe_types::platform::transport::is_addressable(&worker_socket) {
+            bail!(
+                "the worker socket path is {} bytes, over the {}-byte limit: {}",
+                worker_socket.as_os_str().len(),
+                eukhe_types::platform::transport::ENDPOINT_NAME_LIMIT,
+                worker_socket.display()
+            );
+        }
+
         // Never spawn beside a live holder of the worker's endpoint: a
         // worker whose stop failed and that still runs keeps it (on Linux
         // an abstract name the kernel frees only when that process exits),
