@@ -80,10 +80,10 @@ impl CommandFailed {
 }
 
 /// Something accepted the daemon socket's connection but did not greet as
-/// this product's daemon: its hello names another protocol (a pre-rename
-/// `prime-agent.daemon` build), or its first line is not a parseable
-/// frame. The holder keeps the socket bound, so a supervisor spawned beside
-/// it cannot listen; a launcher must stop the holder first.
+/// this product's daemon: its hello names another protocol (a renamed
+/// build's), or its first line is not a parseable frame. The holder keeps
+/// the socket bound, so a supervisor spawned beside it cannot listen; a
+/// launcher must stop the holder first.
 #[derive(Debug, PartialEq)]
 pub struct ForeignDaemon {
     pub socket_path: std::path::PathBuf,

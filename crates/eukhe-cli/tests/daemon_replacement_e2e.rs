@@ -1,5 +1,5 @@
 //! The launcher replaces a daemon it cannot use (an older eukhe version, a
-//! pre-rename `prime-agent` build answering another protocol name) only on
+//! renamed `eukhe-<suffix>` build answering another protocol name) only on
 //! an interactive start, never replaces a newer daemon or a daemon of a
 //! background client's start, and `shutdown --force` stops a renamed
 //! daemon found by its socket.
@@ -45,7 +45,7 @@ const LAUNCHER_CALLER_ENV: &str = "EUKHE_TEST_REPLACEMENT_LAUNCHER_CALLER";
 /// Child mode: the client build the launcher runs as, `<version> <build
 /// id>`.
 const LAUNCHER_BUILD_ENV: &str = "EUKHE_TEST_REPLACEMENT_LAUNCHER_BUILD";
-/// Child mode: serve a pre-rename daemon's hello on this socket.
+/// Child mode: serve a renamed build's daemon hello on this socket.
 const FOREIGN_SOCKET_ENV: &str = "EUKHE_TEST_FOREIGN_DAEMON_SOCKET";
 /// The line the foreign child prints once its socket listens.
 const FOREIGN_READY: &str = "foreign daemon listening";
@@ -171,8 +171,8 @@ fn launcher_child_mode() {
     }
 }
 
-/// Child mode: a pre-rename supervisor stand-in. Its argv is the old
-/// daemon's (`prime-agent ... --mode daemon --daemon-socket <socket>`, set
+/// Child mode: a renamed supervisor stand-in. Its argv is the renamed
+/// daemon's (`eukhe-old ... --mode daemon --daemon-socket <socket>`, set
 /// by the spawner through argv0 and libtest's trailing filters), every
 /// connection gets the old protocol name's hello, and every command but
 /// `shutdown` gets an empty success. It ignores `shutdown`: only a signal
@@ -187,7 +187,7 @@ fn foreign_daemon_child_mode() {
     std::io::stdout().flush().expect("flush");
     let hello = json!({
         "type": "daemon_hello",
-        "protocol": { "name": "prime-agent.daemon", "version": eukhe_types::daemon::DAEMON_PROTOCOL_VERSION },
+        "protocol": { "name": "eukhe-old.daemon", "version": eukhe_types::daemon::DAEMON_PROTOCOL_VERSION },
         "schemaId": eukhe_types::daemon::DAEMON_SCHEMA_ID,
         "appVersion": "0.9.9-eukhe.1",
     });
@@ -221,7 +221,7 @@ fn foreign_daemon_child_mode() {
 fn spawn_foreign_daemon(root: &Path, socket: &Path) -> Child {
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
-        .arg0("prime-agent")
+        .arg0("eukhe-old")
         .args(["--exact", "foreign_daemon_child_mode", "--nocapture", "--"])
         .args(["--mode", "daemon", "--daemon-socket"])
         .arg(socket)
@@ -742,7 +742,7 @@ async fn another_build_of_this_version_is_kept_with_a_notice() {
     other.abort();
 }
 
-/// A pre-rename daemon answering another protocol name holds the socket:
+/// A renamed build's daemon answering another protocol name holds the socket:
 /// an interactive start finds it through the socket, stops it (SIGTERM),
 /// and starts this build — no startup timeout.
 #[test]

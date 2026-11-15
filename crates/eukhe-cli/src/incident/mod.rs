@@ -422,7 +422,7 @@ mod tests {
         assert!(is_daemon_log_file_name("daemon.sock.98ed5cb2.log"));
         assert!(is_daemon_log_file_name("old-sock.a1b2c3d4.log"));
         // A custom socket basename without `.sock`.
-        assert!(is_daemon_log_file_name("prime-daemon.a1b2c3d4.log"));
+        assert!(is_daemon_log_file_name("custom-daemon.a1b2c3d4.log"));
         assert!(!is_daemon_log_file_name("agent.jsonl"));
         assert!(!is_daemon_log_file_name("agent.jsonl.old"));
         assert!(!is_daemon_log_file_name("daemon.sock.log"));

@@ -1,7 +1,7 @@
 //! The process holding a daemon socket, found through the socket itself
-//! rather than by process name: a renamed or older build (a pre-rename
-//! `prime-agent` supervisor) keeps the socket bound under another name, and
-//! the name-based census never sees it.
+//! rather than by process name: a renamed or older build (an
+//! `eukhe-<suffix>` supervisor) keeps the socket bound under another name,
+//! and the name-based census never sees it.
 //!
 //! Linux maps the listening socket's inode (`/proc/net/unix`) to the pid
 //! whose `/proc/<pid>/fd` holds it. macOS has no `/proc`; the best effort
@@ -21,9 +21,10 @@ use std::time::{Duration, Instant};
 use eukhe_core::platform::process::{kill_pid, Signal};
 use eukhe_types::platform::process::{is_process_alive, process_start_id};
 
-/// Executable names of the product family: this build and the pre-rename
-/// one, whose supervisors may still hold the socket after an upgrade.
-const FAMILY_NAMES: [&str; 2] = ["eukhe", "prime-agent"];
+/// The executable name of the product: `eukhe`, or `eukhe-<suffix>` for a
+/// renamed build whose supervisor may still hold the socket after an
+/// upgrade.
+const FAMILY_NAME: &str = "eukhe";
 
 /// How long a holder gets to exit after SIGTERM (a supervisor stops its
 /// workers first) before SIGKILL.
@@ -107,12 +108,10 @@ impl SocketOwner {
                 .and_then(|name| name.to_str())
                 .map(|name| name.strip_suffix(" (deleted)").unwrap_or(name))
                 .is_some_and(|name| {
-                    FAMILY_NAMES.iter().any(|family| {
-                        name == *family
-                            || name
-                                .strip_prefix(family)
-                                .is_some_and(|rest| rest.starts_with('-'))
-                    })
+                    name == FAMILY_NAME
+                        || name
+                            .strip_prefix(FAMILY_NAME)
+                            .is_some_and(|rest| rest.starts_with('-'))
                 })
         };
         let executable = eukhe_types::platform::process::process_executable_path(self.pid);
@@ -268,7 +267,7 @@ mod tests {
         let cases: [(&[&str], bool, Option<&str>); 8] = [
             (
                 &[
-                    "/nix/store/x/libexec/eukhe/prime-agent",
+                    "/nix/store/x/libexec/eukhe/eukhe-old",
                     "--mode",
                     "daemon",
                     "--daemon-socket",

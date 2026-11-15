@@ -991,7 +991,7 @@ async fn greetings_classify_daemon_builds_and_foreign_daemons() {
         hello(json!({})),
         json!({
             "type": "daemon_hello",
-            "protocol": { "name": "prime-agent.daemon", "version": 7 },
+            "protocol": { "name": "eukhe-old.daemon", "version": 7 },
             "appVersion": "0.9.9-eukhe.1",
         })
         .to_string(),
@@ -1041,7 +1041,7 @@ async fn greetings_classify_daemon_builds_and_foreign_daemons() {
             Ok(Relation::Same),
             Err((
                 true,
-                "the daemon on <socket> speaks an unknown protocol \"prime-agent.daemon\""
+                "the daemon on <socket> speaks an unknown protocol \"eukhe-old.daemon\""
                     .to_string()
             )),
             Err((
