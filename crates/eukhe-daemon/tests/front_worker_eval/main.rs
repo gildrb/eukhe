@@ -501,7 +501,7 @@ fn run_into(
     std::fs::create_dir_all(&workspace).expect("workspace");
     std::fs::write(
         agent.join("settings.json"),
-        json!({ "onboardingShown": true, "sessionShape": shape.setting() }).to_string(),
+        json!({ "sessionShape": shape.setting() }).to_string(),
     )
     .expect("settings");
     let socket = dir.path().join("d.sock");

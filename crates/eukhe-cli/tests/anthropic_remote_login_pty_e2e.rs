@@ -239,8 +239,6 @@ impl World {
         std::fs::write(
             agent_dir.join("settings.json"),
             json!({
-                "onboardingShown": true,
-                "onboardingCompleted": true,
                 "terminal": { "fullscreen": fullscreen },
             })
             .to_string(),

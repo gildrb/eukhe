@@ -66,17 +66,12 @@ pub(crate) fn migrate(document: &Map<String, Value>) -> Migrated {
 }
 
 /// The shapes of the first releases (queueMode, websockets, skills
-/// object, retry.maxDelayMs, onboardingCompleted). A `markdown` that is
-/// not an object stays: the load names it.
+/// object, retry.maxDelayMs). A `markdown` that is not an object stays:
+/// the load names it.
 fn legacy_shapes(document: &mut Map<String, Value>) {
     // queueMode -> steeringMode
     if let Some(queue_mode) = document.remove("queueMode") {
         document.entry("steeringMode").or_insert(queue_mode);
-    }
-    // onboardingCompleted (the legacy first-run flag) -> onboardingShown,
-    // which the first-run check reads alone.
-    if let Some(completed) = document.get("onboardingCompleted").cloned() {
-        document.entry("onboardingShown").or_insert(completed);
     }
     // websockets bool -> transport
     if !document.contains_key("transport") {

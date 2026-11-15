@@ -26,9 +26,10 @@
 //! Persist is off for the settings an untrusted project may not set
 //! (`settings::trust`: programs, commands, code sources, execution gates,
 //! where sessions live) and for the ones eukhe writes itself
-//! (`recentModels`, `onboardingCompleted`). Replicate is on for what a
-//! client renders or reads (the TUI `ClientSettings` getters, the session
-//! switches, the model and thinking defaults the client shows).
+//! (`recentModels`) or no longer reads (`onboardingCompleted`). Replicate
+//! is on for what a client renders or reads (the TUI `ClientSettings`
+//! getters, the session switches, the model and thinking defaults the
+//! client shows).
 //!
 //! A setting with no default of its own is Text `""`, the empty list, or
 //! Json `null` (its reader takes the provider's or the Harness's default).
@@ -57,6 +58,8 @@ pub(crate) const MERMAID_MODES: &[&str] = &["off", "final", "streaming"];
 pub(crate) const WORKFLOW_SIZES: &[&str] = &["small", "medium", "large"];
 pub(crate) const PINNED_AGENTS_MODES: &[&str] = &["off", "collapsed", "full"];
 
+/// Retired: no reader or writer. The key stays known, so an earlier
+/// release's settings file is no unknown key to the trust check.
 pub const ONBOARDING_SHOWN: Decl = Decl {
     id: "onboardingShown",
     ty: CvarType::Bool,
@@ -66,8 +69,7 @@ pub const ONBOARDING_SHOWN: Decl = Decl {
     init: Init::Bool(false),
 };
 
-/// The legacy first-run flag; the load migration copies it to
-/// `onboardingShown` (`settings::merge::migrate`).
+/// Retired like [`ONBOARDING_SHOWN`]: an earlier release's first-run flag.
 pub const ONBOARDING_COMPLETED: Decl = Decl {
     id: "onboardingCompleted",
     ty: CvarType::Bool,
@@ -1355,9 +1357,9 @@ pub const STT_ENABLED: Decl = Decl {
 
 /// The settings eukhe edits as documents: each scope's `settings.json` is
 /// their one store (the package and resource commands, the MCP registry,
-/// the model switch's recent list, the onboarding flag write it, and their
-/// readers read it). No cfg file and no `/set` sets them. Every other
-/// setting a user sets is saved in the global `config.cfg`
+/// the model switch's recent list write it, and their readers read it; the
+/// retired onboarding flags stay known). No cfg file and no `/set` sets them.
+/// Every other setting a user sets is saved in the global `config.cfg`
 /// (`SettingsManager::save_global`).
 pub const DOCUMENTS: &[&Decl] = &[
     &ONBOARDING_SHOWN,

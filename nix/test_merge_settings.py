@@ -41,7 +41,7 @@ class MergeSettingsTest(unittest.TestCase):
         # The regression: the activation installed the declared settings
         # over the file, so every Home Manager switch (an eukhe update)
         # dropped the model the user had chosen and the next session
-        # started on the featured default.
+        # started on another default.
         self.target.parent.mkdir()
         self.target.write_text(json.dumps({
             "theme": "old",
@@ -55,7 +55,6 @@ class MergeSettingsTest(unittest.TestCase):
             "theme": "death-note",
             "memory": {"model": "anthropic/claude-sonnet-5-5"},
             "trustedProjects": ["/home/u/Repos/dotfiles"],
-            "onboardingShown": True,
         })
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         self.assertEqual(json.loads(self.target.read_text()), {
@@ -65,7 +64,6 @@ class MergeSettingsTest(unittest.TestCase):
             "defaultModel": "qwen3.8-27b",
             "recentModels": ["local/qwen3.8-27b", "anthropic/claude-opus-5-5"],
             "trustedProjects": ["/home/u/Repos/dotfiles"],
-            "onboardingShown": True,
         })
         self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o600)
         self.assertFalse(Path(f"{self.target}.lock").exists())

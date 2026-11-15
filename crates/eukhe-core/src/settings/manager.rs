@@ -870,19 +870,6 @@ impl SettingsManager {
         self.set_global_cvar(&table::GATEWAY_SIGNAL_MODEL, &Value::from(selector))
     }
 
-    /// `onboardingShown` setter (a document key: [`Self::set_document`]).
-    ///
-    /// # Errors
-    ///
-    /// The global settings file cannot be read, parsed or written.
-    pub fn set_onboarding_shown(&mut self, shown: bool) -> Result<()> {
-        self.set_document(
-            SettingsScope::Global,
-            &table::ONBOARDING_SHOWN,
-            &Value::Bool(shown),
-        )
-    }
-
     /// Replace the `packages` array of `scope`'s settings file.
     ///
     /// # Errors

@@ -201,13 +201,6 @@ impl SettingsManager {
         self.cvars().nat(&table::BRANCH_SUMMARY_RESERVE_TOKENS)
     }
 
-    /// TS `getOnboardingShown`: first run is defined by the settings alone
-    /// (the load migration carries the legacy `onboardingCompleted`).
-    #[must_use]
-    pub fn get_onboarding_shown(&self) -> bool {
-        self.cvars().bool(&table::ONBOARDING_SHOWN)
-    }
-
     /// TS `getCompactionEnabled`: the auto-compaction toggle.
     #[must_use]
     pub fn get_compaction_enabled(&self) -> bool {
