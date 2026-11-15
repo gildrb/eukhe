@@ -172,10 +172,11 @@ debug = "line-tables-only"
 # decoder restores file:line offline and ships as a SEPARATE release
 # asset, never install payload (assemble_artifacts.py hard-fails on
 # decoder sidecars). .dynsym survives stripping, so dynamic linking and
-# the release GLIBC baseline gate are unaffected. macOS is unchanged:
-# darwin builds keep line tables in the executable (dSYM extraction is a
-# documented follow-up); byte claims are measured on Linux x86_64 ELF
-# only.
+# the release GLIBC baseline gate are unaffected. macOS: the linker leaves
+# the DWARF in the object files and the executable only a debug map naming
+# them, which no user machine has; the release workflow builds darwin with
+# CARGO_PROFILE_RELEASE_STRIP=debuginfo (`strip -S`: the map goes, function
+# names stay; a dSYM decoder is a documented follow-up).
 [profile.release]
 lto = "thin"
 codegen-units = 4

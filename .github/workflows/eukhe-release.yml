@@ -285,9 +285,12 @@ jobs:
       - name: Fetch dependencies (locked, checksummed)
         run: cargo fetch --locked --target "${TARGET}"
       - name: Build (release, frozen, offline)
-        # The build identity names the released commit.
+        # The build identity names the released commit. STRIP=debuginfo
+        # drops the debug map (stabs naming the runner's object files, which
+        # no user machine has): 7.8 MB of the executable; function names stay.
         env:
           EUKHE_BUILD_COMMIT: ${{ needs.version.outputs.sha }}
+          CARGO_PROFILE_RELEASE_STRIP: debuginfo
         run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the release version"
         run: |
