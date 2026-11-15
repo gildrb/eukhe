@@ -154,8 +154,10 @@ fn parse_events(stdout: &str) -> Vec<Value> {
 }
 
 /// `value` with every assistant message removed, also those nested in
-/// `turn_end` and `agent_end`: what a client shows besides the model's own
-/// replies.
+/// `turn_end` and `agent_end`, and the assistant's stream (a
+/// `message_update`'s `assistantMessageEvent`, whose text delta holds as much
+/// of the reply as the stream coalesced): what a client shows besides the
+/// model's own replies.
 fn without_assistant_messages(value: &Value) -> Value {
     match value {
         Value::Array(items) => Value::Array(
@@ -168,7 +170,9 @@ fn without_assistant_messages(value: &Value) -> Value {
         Value::Object(fields) => Value::Object(
             fields
                 .iter()
-                .filter(|(_, field)| field["role"] != "assistant")
+                .filter(|(key, field)| {
+                    key.as_str() != "assistantMessageEvent" && field["role"] != "assistant"
+                })
                 .map(|(key, field)| (key.clone(), without_assistant_messages(field)))
                 .collect(),
         ),
