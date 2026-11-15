@@ -31,15 +31,18 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     // Paced at 1500 tokens/second so the ~6k-token turn streams for
     // ~4s: the mid-turn marker-progression assertion needs several wire
     // updates inside the turn (an unpaced faux finishes in ~0.3s and the
-    // whole stream lands in a handful of frames). The settle bound is
-    // calibrated against the producer pace with a load-realistic margin,
-    // while the pre-fix starvation pipeline (one ~4-token delta per 50ms
-    // tick, a tick-bound pace no free CPU speeds up) took 150+ seconds per
-    // turn. On Linux a healthy debug render takes ~11s per turn (the whole
-    // test ~23s idle, ~28s beside 14 busy loops), so 45s per turn keeps a
-    // 3x margin against starvation. On macOS the debug render is CPU-bound
-    // at ~30s of CPU per turn (63-71s wall for the test alone) and a loaded
-    // pre-push host passes 45s, so the bound there is 120s per turn.
+    // whole stream lands in a handful of frames). The capture paints at
+    // the terminal's frame rate (`FrameGate`, at most one frame per 16ms):
+    // without it every applied change is a frame (5.6k frames, each laying
+    // out the whole streaming message), a CPU-bound run whose wall time
+    // grew with the box load past the bound in full nightlies, which the
+    // product never pays. Gated it paints ~650 frames, ~21s for the whole
+    // test idle on Linux and 30-40s beside stress-ng --cpu 16 and a looping
+    // e2e suite (load 34-46). The pre-fix starvation pipeline (one ~4-token
+    // delta per 50ms tick, a tick-bound pace no free CPU speeds up) took
+    // 150+ seconds per turn, so 45s per turn on Linux keeps a 3x margin
+    // against it. On macOS a loaded pre-push host passed 45s before the
+    // gate, so the bound there stays 120s per turn.
     // The mid-turn marker progression below is the content proof.
     let script = serde_json::json!({
         "engine": "faux",
@@ -91,6 +94,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
+            eukhe_tui::interactive::HeadlessStep::FrameGate,
             eukhe_tui::interactive::HeadlessStep::Submit("first".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle {
                 timeout_ms: turn_bound_ms,

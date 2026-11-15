@@ -71,6 +71,13 @@ pub enum HeadlessStep {
     /// One mouse report (fullscreen): the wheel scrolls, a left-button
     /// press, drag or release drives the transcript's text selection.
     Mouse(crossterm::event::MouseEvent),
+    /// Capture at the terminal's frame rate for the whole run, wherever
+    /// the step stands: at most one frame per `MIN_RENDER_INTERVAL`, every
+    /// change inside the interval coalesced into the next frame. Without
+    /// it the capture renders every change (the per-change sequence most
+    /// verifiers assert on); with it a throughput verifier measures the
+    /// frames the product paints.
+    FrameGate,
 }
 
 /// The headless exit gate's settle, snapshotted: the members the gate

@@ -103,6 +103,9 @@ pub(super) enum Renderer {
         /// starts it over).
         history: Vec<String>,
         frames: Vec<String>,
+        /// The plan asked for the terminal's frame gate
+        /// ([`HeadlessStep::FrameGate`]).
+        frame_gate: bool,
     },
 }
 
@@ -286,6 +289,9 @@ impl Renderer {
             }
             UiMode::Headless(plan) => {
                 let steps = plan.steps;
+                let frame_gate = steps
+                    .iter()
+                    .any(|step| matches!(step, HeadlessStep::FrameGate));
                 tokio::spawn(async move {
                     for step in steps {
                         match step {
@@ -359,6 +365,7 @@ impl Renderer {
                                     return;
                                 }
                             }
+                            HeadlessStep::FrameGate => {}
                         }
                     }
                     let _ = ui_tx.send(UiInput::HeadlessDone);
@@ -368,6 +375,7 @@ impl Renderer {
                     height: plan.height,
                     history: Vec::new(),
                     frames: Vec::new(),
+                    frame_gate,
                 })
             }
         }
@@ -433,6 +441,15 @@ impl Renderer {
         matches!(self, Renderer::Terminal { .. })
     }
 
+    /// Whether frames wait out `MIN_RENDER_INTERVAL`: always on a
+    /// terminal, on request for a headless capture.
+    pub(super) fn frame_gated(&self) -> bool {
+        match self {
+            Renderer::Terminal { .. } => true,
+            Renderer::Headless { frame_gate, .. } => *frame_gate,
+        }
+    }
+
     /// Paint one frame on the terminal; headless runs capture through
     /// [`Renderer::render_headless`] instead. The first frame (and the
     /// first after a resume or a `/settings` switch) sets the screen up
@@ -484,6 +501,7 @@ impl Renderer {
             height,
             history,
             frames,
+            ..
         } = self
         else {
             return;

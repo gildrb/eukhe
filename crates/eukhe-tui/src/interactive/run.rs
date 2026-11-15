@@ -1885,29 +1885,28 @@ async fn run_interactive_surface(
         // inside the window waits for the deadline arm above instead of
         // burning a render now.
         if session.dirty {
-            if renderer.is_terminal() {
-                let interval_elapsed =
-                    last_render_at.is_none_or(|at| at.elapsed() >= MIN_RENDER_INTERVAL);
-                if interval_elapsed {
+            // Headless capture renders every change unless its plan asked
+            // for the gate ([`HeadlessStep::FrameGate`]): the per-change
+            // frame sequence is what most verifiers assert on.
+            let interval_elapsed = !renderer.frame_gated()
+                || last_render_at.is_none_or(|at| at.elapsed() >= MIN_RENDER_INTERVAL);
+            if interval_elapsed {
+                if renderer.is_terminal() {
                     renderer.draw(&mut view)?;
-                    session.dirty = false;
-                    last_render_at = Some(Instant::now());
-                    last_pulse_phase = view.pulse_frame;
-                    render_deadline = None;
                 } else {
-                    render_deadline = Some(last_render_at.unwrap() + MIN_RENDER_INTERVAL);
+                    // The paint bookkeeping matches the terminal's: a
+                    // paint satisfied the armed deadline, and the
+                    // pre-select inventory re-arms every wake still
+                    // pending, so the harness runs the terminal's wake
+                    // path.
+                    renderer.render_headless(&mut session, &mut view);
                 }
-            } else {
-                // Headless capture keeps the per-change frame sequence
-                // the verifiers assert on: no wall-clock interval applies.
-                // The paint bookkeeping matches the terminal's: a paint
-                // satisfied the armed deadline, and the pre-select
-                // inventory re-arms every wake still pending, so the
-                // harness runs the terminal's wake path.
-                renderer.render_headless(&mut session, &mut view);
                 session.dirty = false;
+                last_render_at = Some(Instant::now());
                 last_pulse_phase = view.pulse_frame;
                 render_deadline = None;
+            } else {
+                render_deadline = Some(last_render_at.unwrap() + MIN_RENDER_INTERVAL);
             }
         } else if render_deadline.is_some_and(|deadline| deadline <= Instant::now()) {
             // A fired deadline with nothing dirty to paint must not
