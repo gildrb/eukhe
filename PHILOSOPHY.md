@@ -1,112 +1,78 @@
 # Philosophy
 
-Working notes on what Eukhe is for. They change as the thinking does.
+Eukhe is a harness: the software between a principal and the AI agents that work for that principal. Below: what it guarantees, what it only measures, and the assumptions both rest on.
 
-## The question
+## Terms
 
-If AGI arrived today and any task were possible, how would you want it done? What still matters when everything is possible?
+- **Principal**: the person or organisation a run acts for, who answers for it.
+- **Agent**: a process acting on model outputs. **Run**: the agent tree started from one request. **Program run**: one execution of any program other than Eukhe's own processes and its launcher: a program an agent or a check starts, a provider's command-line tool, a credential helper.
+- **Effect**: an action an agent, or the harness itself, submits to the **core**, the part of the harness that allows or refuses it before it happens (program run, write, message, request, payment). A **consequence** follows outside the core's rulings, such as what a program does once started.
+- **Contract**: a run's goal, checks, limits and grants, set through an input no agent or program can write; each term records its setter.
+- **Check**: a fixed, capped procedure the harness runs on a copy of the work, returning confirmed, refuted or undecided.
+- **Limit**: a cap on money, tokens, requests, tool calls or time, per run or per account. **Grant**: permission for a kind of effect on a target for a time.
+- **Isolation**: the core, record, contract, checks, credentials and every trusted part are out of reach of agents and program runs. **Confinement in force**: a listed operating-system mechanism with no known unfixed escape holds a program run to its grants; whether isolation held is a separate fact.
+- **Guarantee**: a statement about the core's rulings and record, or a bound a trusted part enforces from a ruling, that holds for every model output while isolation holds. **Measured property**: an estimate published with method, sample and date.
+- **Label**: failed if a check is refuted; else unverified if there is no check or a verdict is missing or undecided; else "checks passed" with qualifiers such as "unconfined" or "not isolated"; else verified.
 
-Four things:
+## Values
 
-1. **Cost.** What it may spend: money, a share of a plan's usage, tokens.
-2. **Time.** When it must be finished.
-3. **Truthfulness.** Whether the result was reached the way you agreed, and whether what the agent reports is what happened.
-4. **Results.** The work itself. Given enough budget, reaching a goal is easy; the budget decides the quality of the result.
+1. The principal answers for a run. Delegation is worth the accepted work it yields per unit of the principal's attention.
+2. The contract is the principal's. An agent never sets, widens or relaxes a term of its own task or an ancestor's; it sets terms only for tasks it starts, inside its own.
+3. A report never claims more than the harness knows.
+4. First, never traded: no effect whose reserved worst case exceeds what remains of a limit, and no agent's effect outside a grant. Then the checks confirmed. Then cheaper or sooner.
+5. A guarantee holds for a model that does not cooperate, whatever its honesty or competence.
+6. An allowed effect is launched once per start. It gets a further start only when the target deduplicates it or answers that the first will never take hold; elapsed time never justifies a relaunch.
+7. Permission to read and permission to send are not permission to send what was read.
+8. No message is refused or held for a missing term, and nothing is asked before starting. An unset term takes the principal's standing profile, else the shipped default, recorded as "shipped default, not set by the principal". The shipped default sets no limit: a run goes until finished, shown as "until finished, shipped default", and the report says the run had no limit; limits are a profile the principal turns on. No other filled bound is unlimited, except the bound on unacknowledged spend, which follows the limits, and none is zero by omission. Shipped grants: an interactive run gets what an interactive session does without asking (model requests to the configured provider, reads and writes in the project, the default tools); other kinds of run get model requests and reads and writes in scope. With no provider configured, the run issues its report saying so.
 
-AGI is likely within a year. Today's harnesses are built around today's models. Eukhe is built for the models that come next, and works with weak ones too.
+## Assumptions (each with a dated refutation test)
 
-## Constraints, not goals
+1. Models keep getting more competent through 2029, and principals delegate larger tasks.
+2. Unattended runs spend and act unobserved, and commit faster as models improve.
+3. Some runs that optimise toward a check pass it by gaming, at a measured rate.
+4. A principal's hours are bounded; accepting goals and checks a model drafted costs attention.
+5. Goals admit unintended readings; checks cover part of the intent.
+6. Some effects cannot be undone. Processes crash and pause, providers fail, resources are shared.
+7. Crashes, contention, overreach and overspend per accepted contract do not fall as models improve.
+8. For a reader of its language, accepting a law costs less attention than reading the code it governs.
 
-"Keep going until it's done" is the wrong instruction, for a person or an agent. With nothing else to aim at, any way to "done" will do, including ways nobody agreed to.
+## Guarantees and what Eukhe does
 
-You give Eukhe a goal and the limits it must stay within:
+**Scope.** A guarantee is a statement about the core's rulings and record, or a bound that a trusted part of the harness (storage, operating system, clock) enforces from a ruling. It holds for every model output, a non-cooperating model's included, while isolation holds, and covers what agents do through effects; what program runs do, only while confinement is in force. A program that cannot be confined runs only under an explicit unconfined grant. Interactive runs hold it by default, so work proceeds, counted, and the label reads "checks passed, unconfined"; a run started without it, and every scheduled, loop or autoresearch run, refuses such a program and names the reason. A program run that can reach a protected part breaks isolation, announced first, for every run whose protected parts it could reach, running or later, and for later runs under the same operating-system user until that user's state is reset or checked again. A program holds a placeholder for a credential, which the harness swaps for the real secret on requests to that credential's hosts. A program that cannot work with a placeholder holds the real token, which the report names; starting it counts as a possible break of isolation unless the release lists the token's reach as touching no protected part. *Status:* no confinement or isolation yet; the design is settled and goes to build, where a red team attacks the code.
 
-- "Reach the goal without costing me more than €100."
-- "Formalize the seven pillars from the spec and implement them end to end, using at most 80% of my Fable usage."
-- "Finish by tonight."
+**Limits.** A limit is the metered spend and time the principal puts at risk if the goal, a check or the model is wrong; it is not a forecast and does not bound damage. Before the first effect every dimension has a limit or a recorded "unlimited", with its source. Each effect reserves its declared worst case first, on the run's and the account's ledgers, so spend passes a limit only when a provider reports more than it declared, which the report shows. Judging the checks, the final answer and the report are reserved first; a limit too small for them is accepted, and the run ends without spending, the report showing the arithmetic. *Status:* an unset limit is unlimited today; its source is not shown yet.
 
-Eukhe plans the work to fit. It may take longer, use a cheaper model, or pace itself, but it does not run past a limit or run out of quota halfway. Harnesses today run until the work is done with no sense of what it took or what it cost.
+**Sound report.** The report is sound; the result may still be wrong. Witnessed facts are true of the record, the label never exceeds the evidence, and model text is marked as assertion. "Verified" means every check confirmed and no qualifier applies; it confirms those checks only, not that the result meets the intent, which is at best measured.
 
-Without limits you can still say "hill-climb on this until I stop you" (`/autoresearch`). Most harnesses don't offer that at all.
+**Checks.** Checks run on a copy of the work, out of the worker's reach. Worker code a check runs is confined to that copy or needs a grant bound to the judged work; in an interactive run holding the unconfined grant, it runs unconfined, and the verdict counts outside the guarantee, with the label "checks passed, unconfined, not isolated". A held-out check's content never goes to the worker; sent to a provider that may share state with the worker, its secrecy is only measured. It answers only confirmed or not, a bounded number of times. A model judge's yes is measured, not witnessed. A proof counts only with checker, axioms and binding fixed.
 
-## Done is not enough
+**Liveness.** While the run's core and storage are alive, or a supervisor has detected their loss, a stuck run ends or pauses with its cause shown, and every wait ends by the deadline unless time is unlimited. Starvation is ruled out only within shares carved from a parent's limits; a wait on a shared provider quota, machine or account is a pause with its cause, outside the guarantee. A message between agents is delivered at most once; one of unknown delivery is reported interrupted, never silently lost. Without a supervisor, the report says no liveness bound holds.
 
-A test checks the result, not how it was reached. In school, one student studies and passes, one studies and fails, one cheats and passes. The test cannot tell the first and third apart. Agents cheat the same way: they change the test, hard-code the expected answer, skip the check, or report success that did not happen.
+**Attention.** Questions, approvals, notices and the summary are bounded in count and size in advance. When a demand's answer window closes unanswered, the step is refused and the run continues, or, if the contract asks, the run waits until its deadline; never a yes. Spend since the last acknowledged summary is bounded when the principal sets a bound or turns on limits, and the run pauses at the bound; under the shipped default it is unlimited, as the report states.
 
-So Eukhe checks the process as well as the outcome:
+**Authority.** Grants come from the contract or the shipped default and only narrow when passed to a child. A recorded stop allows no new agent effect in the subtree, and no agent can delay it. Until confinement is in force, grants and stops bound only the effects the core rules on, not what started programs do; the report says so.
 
-- Checks the agent can't edit, and checks it never sees.
-- An independent review of what the agent actually did, looking for gaming.
-- Labels that never claim more than is known: verified, unverified, failed, or passed but not trusted.
+**Irreversible effects.** An effect outside the core counts as irreversible unless it writes only inside the work scope, whose snapshot the harness holds and which the principal, or for an interactive run the shipped default, declared unobserved by outside processes, or its target declares it read-only. Irreversible effects draw on a count per class per run and per account; those the core can value also reserve their worst case against a cumulative money cap, which the shipped default sets to zero. A program run that reaches outside the scope or runs unconfined counts as one and reserves no money; what it does is reported unbounded, so the counts are lower bounds.
 
-This is why `/goal` alone is an anti-pattern: it rewards reaching "done" by any means.
+**Record and once.** Every effect is recorded with its author and cause before it happens; replay reproduces the rulings and detects changes to anchored entries. A launch follows the run's current owner durably writing its start, and storage refuses a replaced owner's writes, so each start launches at most once without relying on any clock. One of unknown outcome is reported interrupted; its reserved spend stays held.
 
-## Any model, small to AGI
+**Trees, data and core.** A child's limits are carved from its parent's, its grants are a subset of its parent's, and no deadline in the tree is later than the root's. Writing agents form a binary tree: an agent splits work into two children with disjoint scopes, each in its own copy, and integrates their results; a write outside a child's scope comes back as a conflict and is never applied. An agent waits only when no message, child result or own work is pending. Data an agent has read keeps its sensitivity mark in all it then causes; output of an unconfined program carries the highest mark. A grant for a mark covers all data at that mark: under the interactive default the configured provider may receive data at every mark, as the report's first line says. Every interface reaches agents through one core, whose rules are specified as laws and proven where a proof is complete. Objections to the goal are recorded and amend nothing. Prompts carry no guarantee; prompt wording, context management, retries and model routing are practices, kept while measured to help. *Status:* the agent tree is specified with laws; no code runs it yet.
 
-The harness should take any model, from a small local one to AGI, and get the work done within the limits. A weak model makes more mistakes; the harness makes them safe to make. Its state survives a crash, it retries without repeating an effect, it checks every claim, and it never overspends. Given enough budget, even a bad model eventually reaches the goal, and reaches it honestly.
+## The bet
 
-## What stops mattering, what matters more
+For one accepted contract of fixed work, the guarantees multiply the work a principal can delegate per decision by
 
-Looking three to five years ahead, much of what harnesses do today stops mattering:
+```
+M = D0 / D1 = (q + R + a0 + S_G + S_N) / (q + R + a1 + h + ρ × S_G + S_N)
+  D0, D1: decisions without and with the guarantees    q: on competence failures
+  R: approvals required by rules outside the harness
+  a0, a1: to accept the result without and with the report
+  S_G, S_N: on failures the guarantees bound, do not bound
+  ρ: share of those a bounded failure still costs    h: decisions the guarantees add
+```
 
-- Long system prompts and prompt engineering aimed at a model's weaknesses.
-- Fixed workflows: plan mode, step lists, fixed agent roles.
-- Context tricks: summaries, compaction heuristics, retrieval over the repository. Memory belongs here: useful, not where the value is.
-- Many narrow tools, where a few general ones would do.
-- Approving every command by hand. That does not scale to a thousand agents.
-- How fast code gets written. Code becomes cheap; deciding what you want and checking that you got it does not.
+M exceeds 1 exactly when D0 exceeds D1: the guarantees remove more decisions, acceptance included, than they add. A growing class of bounded failures raises M only while M stays below one over the share a bounded failure of that class still costs; fewer competence failures also raise M, with no gain from the guarantees. No assumption above makes M rise as models improve, so no guarantee is claimed to gain value faster than competence. That rise is the bet, measured from every decision recorded with its cause. If by 2028-12-31, between registered model generations whose measured competence rose, measured M does not rise by the registered margin once approvals, price and speed are factored out, or rises only with a rising audited defect rate, the bet is false.
 
-What matters more:
+---
 
-- Intent stated exactly: the goal, the limits, the laws.
-- Hard limits on cost, time, quota and rights. A smarter model can do more damage faster.
-- Truthfulness: independent checks, held-out checks, a faithful record. A smarter model is also better at making a wrong result look right.
-- Correct edges: state that survives crashes, effects that happen exactly once. They let a long run go unattended.
-- Choosing the model: the cheapest one that can do each part, a stronger one only where it fails.
-
-## Scaling with the model
-
-A harness offers two kinds of things. Guidance (prompts, workflows, hints) helps a weak model and gets in a strong one's way. Guarantees (limits, verification, exactly-once effects, rights, the record) are right for a small model and for AGI alike.
-
-Eukhe puts its weight on guarantees and keeps guidance thin and optional, chosen per model. A smarter model then gets more done inside the same limits instead of outgrowing the harness. Every new feature is either a guarantee or optional guidance, never required hand-holding.
-
-A weak model makes more mistakes. The harness keeps them cheap and harmless:
-
-- It runs the checks itself and hands back the failure, instead of telling the model to remember to check.
-- It retries inside the budget. A model that is wrong most of the time still succeeds when each attempt is cheap, checked and can't cause damage.
-- It starts with a cheap model and escalates to a stronger one only for the part that keeps failing, so the budget decides the quality.
-- It splits work into smaller checked steps for a weaker model and larger ones for a stronger model. The guarantees stay the same.
-- It gives the model laws as the target. Code that doesn't meet them fails its proof and is tried again, within the budget.
-
-## Laws
-
-People will stop reading code. They still need an exact way to say what they want. A law states a requirement precisely; a proof shows the code meets it. If the laws are good and the proofs pass, the implementation matches the spec, and nobody has to read the proofs or the code.
-
-So good laws are the spec, formalized. A trivial law proves nothing and costs check time. Every pillar of Eukhe has a spec, and the spec becomes laws proven against the core that makes Eukhe's decisions.
-
-## A core, not an app
-
-Eukhe is a core with an SDK. A product embeds it and gets everything above. The `eukhe` command is one product built on it. The goal is for Eukhe to be what other harnesses and interfaces are built on.
-
-The core runs in one of two places. As a library it runs inside the product's own process, and the product's tools are plain functions. In the daemon, sessions survive crashes and app restarts, several interfaces can share one session, and the agent's work is kept apart from the product. The SDK is planned to offer one API for both: the product picks one in its configuration and can switch later without rewriting code, and its tools, approvals, budgets and cancellation work the same way in either. Today the two have separate APIs.
-
-## Reproducible
-
-The same inputs give the same behavior on every machine: one pinned toolchain, one pinned Python for the kernel, locked package versions. Results that depend on what happens to be installed can't be guaranteed.
-
-## What matters, in order
-
-1. **Budgets:** hard limits on cost, time, tokens, tool calls and plan usage, for a task and everything it starts.
-2. **Verified completion:** "done" confirmed independently, and the process checked for cheating.
-3. **Exactly-once effects:** after any crash, nothing is done twice and nothing is claimed that wasn't done.
-4. **Loop and autoresearch:** work toward a condition, or keep improving until stopped, within the limits.
-5. **Durable sessions:** state survives anything.
-6. **Capability security, a replayable record, orchestration at scale, a stable SDK contract:** what makes a thousand unattended agents safe to run.
-
-Memory and context management help, but they don't define Eukhe, and they won't be what matters with AGI.
-
-## Open questions
-
-- How should a plan's usage window (for example "80% of my Fable quota") be measured and paced across providers?
-- How much of a run's process can an independent judge review for faithfulness before the review costs more than it saves?
-- Which limits should a parent be allowed to pass to the agents it starts?
+Definitions, derivations, refutation tests and status per statement: `ledger/ledger.yaml`.
