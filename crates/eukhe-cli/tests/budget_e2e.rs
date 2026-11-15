@@ -99,15 +99,18 @@ fn held(state: &Value, dimension: &str) -> u64 {
     })
 }
 
-/// free + held + spent + lent == limit + over in `dimension`.
+/// free + held + (spent − mark) + lent == limit + over in `dimension`:
+/// the run's limit holds what it spent since it started (`mark`, the
+/// account's spend at its start, B19).
 fn assert_balanced(state: &Value, dimension: &str) {
     let limit = state["limits"][dimension]
         .as_u64()
         .expect("a limited dimension");
+    let mark = state["mark"][dimension].as_u64().unwrap_or(0);
     assert_eq!(
         amount(state, "free", dimension)
             + held(state, dimension)
-            + amount(state, "spent", dimension)
+            + (amount(state, "spent", dimension) - mark)
             + amount(state, "lent", dimension),
         limit + amount(state, "over", dimension),
         "{state:#}"
@@ -218,10 +221,11 @@ fn a_tool_call_past_the_budget_is_not_run_and_the_agent_still_answers() {
     assert_balanced(&state, "toolCalls");
 }
 
-/// B1, B2, B6: a request whose smallest offer is past the budget is never
-/// sent: no answer, exit 1, nothing spent, the agent exhausted.
+/// B17, B1: limits that cannot hold the run's first request beside its
+/// final answer's reserve send nothing: no answer, exit 1, nothing spent
+/// or held, and the error names the short dimension and its limit.
 #[test]
-fn a_request_past_the_budget_is_never_sent() {
+fn a_first_request_past_the_budget_is_never_sent() {
     let home = tempfile::TempDir::new().unwrap();
     let script = json!({ "responses": ["this must never be said"] });
     let (stdout, stderr, code) = run(
@@ -231,15 +235,15 @@ fn a_request_past_the_budget_is_never_sent() {
     );
     assert_eq!(code, 1, "stdout: {stdout}\nstderr: {stderr}");
     assert!(!stdout.contains("this must never be said"), "{stdout}");
-    assert!(stderr.contains("Budget exhausted (tokens)"), "{stderr}");
-    let (owner, state) = ledger_state(&budgets(home.path())).expect("a ledger");
+    assert!(
+        stderr.contains("Budget too small for the run's first request: tokens limit 50;")
+            && stderr.contains("Nothing was sent."),
+        "{stderr}"
+    );
+    let (_, state) = ledger_state(&budgets(home.path())).expect("a ledger");
     assert_eq!(amount(&state, "spent", "tokens"), 0, "{state:#}");
     assert_eq!(amount(&state, "free", "tokens"), 50, "{state:#}");
-    assert_eq!(
-        member(&state, &owner),
-        (json!("exhausted"), json!("tokens")),
-        "{state:#}"
-    );
+    assert_eq!(state["account"]["holds"], json!([]), "{state:#}");
 }
 
 /// B3, B9: what the ledger reports as spent is the sum of what the
@@ -286,48 +290,106 @@ fn the_ledgers_total_is_the_sum_of_the_providers_usage() {
     }
 }
 
-/// A short `--budget-time` (40 s): a deadline closer than a work request
-/// and the final answer's reserve together (20 s kept, B14, and a request's
-/// 30 s floor). The first request is refused as work (time), the agent is
-/// told to wrap up, and its final answer is granted and given: the run ends
-/// with that answer. (At 2 minutes, as this test had it before B14, the
-/// reserve keeps 30 s and work fits.)
+/// B17, B14: a `--budget-time` (40 s) shorter than the first request's
+/// floor (30 s) and the final answer's reserve (20 s) together sends
+/// nothing: no answer, exit 1, nothing reserved, the deadline 40 s after
+/// the run started, and the error names time, its limit and the reserve.
 #[test]
-fn a_short_deadline_wraps_the_run_up_with_its_final_answer() {
+fn a_deadline_below_the_first_request_and_its_reserve_sends_nothing() {
     let home = tempfile::TempDir::new().unwrap();
-    let script = json!({ "responses": ["the final answer"] });
+    let script = json!({ "responses": ["this must never be said"] });
     let (stdout, stderr, code) = run(
         home.path(),
         &["--budget-time", "40s", "--mode", "json", "-p", "work on it"],
         &script,
     );
-    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
-    assert_eq!(final_answer(&events(&stdout)), "the final answer");
-    let (owner, records) = ledger(&budgets(home.path())).expect("a ledger");
-    let state = &records.last().expect("a record")["state"];
+    assert_eq!(code, 1, "stdout: {stdout}\nstderr: {stderr}");
+    assert!(!stdout.contains("this must never be said"), "{stdout}");
+    assert!(
+        stderr.contains("Budget too small for the run's first request: time limit 40s;")
+            && stderr.contains("the final answer keeps 20s. Nothing was sent."),
+        "{stderr}"
+    );
+    let (_, records) = ledger(&budgets(home.path())).expect("a ledger");
     let open = &records[0];
     assert_eq!(
         open["op"]["deadlineMs"].as_u64(),
         open["atMs"].as_u64().map(|at| at + 40_000),
         "the deadline is 40 seconds after the budget was set: {open:#}"
     );
+    assert!(
+        records
+            .iter()
+            .all(|record| record["op"]["kind"] != "reserve"),
+        "nothing was reserved: {records:#?}"
+    );
+    let state = &records.last().expect("a record")["state"];
+    assert_eq!(state["account"]["holds"], json!([]), "{state:#}");
+    assert!(
+        stderr.contains("deadline "),
+        "the run's budget line names the deadline: {stderr}"
+    );
+}
+
+/// B14, B1: a `--budget-time` (60 s) that holds the first request (its
+/// 30 s floor and the final answer's 20 s reserve) but whose deadline comes
+/// within them mid-run: the first request answers after 12 s with a tool
+/// call, which runs; the next work request is refused for time, the agent
+/// is told to wrap up, and its final answer is granted and given: the run
+/// ends with that answer before its deadline.
+#[test]
+fn a_deadline_reached_mid_run_wraps_it_up_with_its_final_answer() {
+    let home = tempfile::TempDir::new().unwrap();
+    std::fs::write(home.path().join("a.txt"), "alpha\n").unwrap();
+    let mut slow_call = read_call("a.txt");
+    slow_call["delayMs"] = json!(12_000);
+    let script = json!({ "responses": [slow_call, "the final answer"] });
+    let started = Instant::now();
+    let (stdout, stderr, code) = run(
+        home.path(),
+        &["--budget-time", "60s", "--mode", "json", "-p", "work on it"],
+        &script,
+    );
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+    assert!(
+        started.elapsed() < Duration::from_secs(60),
+        "the run ended before its deadline"
+    );
+    let events = events(&stdout);
+    assert_eq!(final_answer(&events), "the final answer");
+    assert!(
+        events
+            .iter()
+            .any(|event| event["type"] == "tool_execution_end"
+                && event["isError"] == json!(false)
+                && event["result"].to_string().contains("alpha")),
+        "the first request's tool call ran: {stdout}"
+    );
+    let (owner, records) = ledger(&budgets(home.path())).expect("a ledger");
     let reserves: Vec<(Value, Value)> = records
         .iter()
         .filter(|record| record["op"]["kind"] == "reserve" && record["op"]["agent"] == owner)
         .map(|record| (record["op"]["use"].clone(), record["outcome"].clone()))
         .collect();
     assert!(
+        reserves
+            .first()
+            .is_some_and(|(use_, outcome)| use_ == "work" && outcome["kind"] == "granted"),
+        "the first work request was granted: {reserves:#?}"
+    );
+    assert!(
         reserves.iter().any(|(use_, outcome)| use_ == "work"
             && outcome
                 == &json!({ "kind": "refused", "refusal": { "why": "short", "dimension": "time" } })),
-        "a work request was refused for time: {reserves:#?}"
+        "a later work request was refused for time: {reserves:#?}"
     );
     assert!(
         reserves
-            .iter()
-            .any(|(use_, outcome)| use_ == "final" && outcome["kind"] == "granted"),
-        "the final answer was granted: {reserves:#?}"
+            .last()
+            .is_some_and(|(use_, outcome)| use_ == "final" && outcome["kind"] == "granted"),
+        "the final answer was granted last: {reserves:#?}"
     );
+    let state = &records.last().expect("a record")["state"];
     assert_eq!(
         member(state, &owner),
         (json!("wrap_up"), json!("time")),

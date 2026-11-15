@@ -164,6 +164,14 @@ pub enum SessionEvent {
     BudgetUpdate {
         budget: Option<BudgetReport>,
     },
+    /// With limits off, a plan window's last reading passed the reserve
+    /// line (`100 - budget.planReserve` % used): told once per window and
+    /// reset. `text` is the notice in the daemon's local time; the run
+    /// continues.
+    PlanUsage {
+        notice: crate::budget::PlanNotice,
+        text: String,
+    },
     /// The conversation's acceptance changed: its checks, a verdict, a
     /// claim, or the label of the result.
     AcceptanceUpdate {
@@ -240,6 +248,7 @@ impl SessionEvent {
             | Self::UnknownEffectsUpdate { .. }
             | Self::LoopUpdate { .. }
             | Self::BudgetUpdate { .. }
+            | Self::PlanUsage { .. }
             | Self::AcceptanceUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }

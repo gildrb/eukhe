@@ -5,8 +5,10 @@
 //! attach snapshot carries the budget as `state.budget`.
 
 use anyhow::{Context, Result};
-use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetReport};
-use eukhe_types::daemon::{BudgetAudit, BudgetAuditReply, BudgetReply, DaemonCommand};
+use eukhe_types::budget::{BudgetAmounts, BudgetReport, RunLimits};
+use eukhe_types::daemon::{
+    BudgetAudit, BudgetAuditReply, BudgetLimitsReply, BudgetReply, DaemonCommand,
+};
 use serde_json::{Map, Value};
 
 use super::DaemonClient;
@@ -33,9 +35,9 @@ impl DaemonClient {
         Ok(reply.budget)
     }
 
-    /// Give the session `active_session_id` the budget `limits`; answers
-    /// the new budget. A session that already has a budget refuses: add to
-    /// it with [`Self::add_budget`].
+    /// Set the limits of the current run of the session
+    /// `active_session_id` (a number or `unlimited` per dimension);
+    /// answers the new budget.
     ///
     /// # Errors
     ///
@@ -45,7 +47,7 @@ impl DaemonClient {
     pub async fn set_budget(
         &self,
         active_session_id: &str,
-        limits: BudgetLimits,
+        limits: RunLimits,
     ) -> Result<BudgetReport> {
         let data = self
             .request_ok(DaemonCommand::SetBudget {
@@ -56,6 +58,29 @@ impl DaemonClient {
             })
             .await?;
         changed_budget("set_budget", data)
+    }
+
+    /// Turn the principal's limits (`budget.limits`) on or off through the
+    /// session `active_session_id`'s daemon; answers the line that says
+    /// what they enforce.
+    ///
+    /// # Errors
+    ///
+    /// The request fails, the daemon refuses it
+    /// ([`RequestRejected`](super::RequestRejected)), or its answer has
+    /// another shape.
+    pub async fn set_budget_limits(&self, active_session_id: &str, on: bool) -> Result<String> {
+        let data = self
+            .request_ok(DaemonCommand::SetBudgetLimits {
+                id: None,
+                active_session_id: active_session_id.to_string(),
+                on,
+                rest: Map::default(),
+            })
+            .await?;
+        let reply: BudgetLimitsReply =
+            serde_json::from_value(data).context("read the set_budget_limits answer")?;
+        Ok(reply.text)
     }
 
     /// Add `amounts` to the budget of the session `active_session_id`, so
@@ -127,6 +152,7 @@ mod tests {
 
     use super::*;
     use crate::daemon_client::{DaemonClientEvent, RequestRejected};
+    use eukhe_types::budget::LimitValue;
 
     fn amounts(cost_micros: u64, tokens: u64) -> BudgetAmounts {
         BudgetAmounts {
@@ -141,10 +167,10 @@ mod tests {
     fn report() -> (BudgetReport, Value) {
         let report = BudgetReport {
             session_id: "s1".to_string(),
-            limits: BudgetLimits {
+            limits: eukhe_types::budget::BudgetLimits {
                 cost_micros: Some(5_000_000),
                 tokens: Some(200_000),
-                ..BudgetLimits::default()
+                ..eukhe_types::budget::BudgetLimits::default()
             },
             free: amounts(4_000_000, 198_500),
             spent: amounts(1_000_000, 1_500),
@@ -202,6 +228,7 @@ mod tests {
                     }));
                     Ok(json!({ "budget": report }))
                 }
+                ("set_budget_limits", _) => Ok(json!({ "text": "Limits off" })),
                 ("audit_budget", _) => Ok(json!({
                     "audit": {
                         "records": 9,
@@ -242,14 +269,14 @@ mod tests {
         tokio::spawn(serve(listener, seen, wire));
         let (client, mut events) = DaemonClient::connect(&socket).await.expect("connect");
 
-        let limits = |cost_micros, tokens| BudgetLimits {
+        let limits = |cost_micros: Option<LimitValue>, tokens: Option<u64>| RunLimits {
             cost_micros,
-            tokens,
-            ..BudgetLimits::default()
+            tokens: tokens.map(LimitValue::At),
+            ..RunLimits::default()
         };
         let none = client.get_budget("empty").await.expect("get_budget");
         let limited = client
-            .set_budget("s1", limits(Some(5_000_000), Some(200_000)))
+            .set_budget("s1", limits(Some(LimitValue::Unlimited), Some(200_000)))
             .await
             .expect("set_budget");
         let added = client
@@ -261,6 +288,10 @@ mod tests {
             .set_budget("taken", limits(None, Some(7)))
             .await
             .expect_err("a session that has a budget refuses");
+        let toggled = client
+            .set_budget_limits("s1", false)
+            .await
+            .expect("set_budget_limits");
         let (session, event) = match tokio::time::timeout(Duration::from_secs(2), events.recv())
             .await
             .expect("an event in time")
@@ -275,7 +306,7 @@ mod tests {
         client.close();
 
         assert_eq!(
-            (none, limited, added, audit, session, event),
+            (none, limited, added, audit, session, event, toggled),
             (
                 None,
                 report.clone(),
@@ -291,6 +322,7 @@ mod tests {
                 SessionEvent::BudgetUpdate {
                     budget: Some(report),
                 },
+                "Limits off".to_string(),
             )
         );
         assert_eq!(
@@ -312,7 +344,7 @@ mod tests {
                 json!({
                     "type": "set_budget",
                     "activeSessionId": "s1",
-                    "limits": { "costMicros": 5_000_000, "tokens": 200_000 },
+                    "limits": { "costMicros": "unlimited", "tokens": 200_000 },
                 }),
                 json!({
                     "type": "add_budget",
@@ -325,6 +357,7 @@ mod tests {
                     "activeSessionId": "taken",
                     "limits": { "tokens": 7 },
                 }),
+                json!({ "type": "set_budget_limits", "activeSessionId": "s1", "on": false }),
             ]
         );
     }

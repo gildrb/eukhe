@@ -144,10 +144,10 @@ pub struct InteractiveOptions {
     /// picker's scoped view). `None` leaves the scope unset.
     pub models: Option<Vec<String>>,
     /// The `--budget-*` limits: they ride the create config's `budget`
-    /// field of every root session this run creates or reopens (a
-    /// session that already has a budget keeps its own). `None` sets no
-    /// budget.
-    pub budget: Option<eukhe_types::budget::BudgetLimits>,
+    /// field of every root session this run creates or reopens, the
+    /// session's standing limits (each run's set limits). `None` sets
+    /// none.
+    pub budget: Option<eukhe_types::budget::RunLimits>,
     /// Create without a session file (`--no-session`).
     pub no_session: bool,
     pub session: SessionSelection,

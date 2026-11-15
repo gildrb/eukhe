@@ -58,6 +58,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_session_stats"
         | "get_budget"
         | "set_budget"
+        | "set_budget_limits"
         | "add_budget"
         | "audit_budget"
         | "get_context_tree"
@@ -147,6 +148,7 @@ mod tests {
             "answer_shell_approval",
             "get_budget",
             "set_budget",
+            "set_budget_limits",
             "add_budget",
             "audit_budget",
         ] {

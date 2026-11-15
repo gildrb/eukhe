@@ -480,14 +480,16 @@ fn the_title_and_the_speed_yield_before_the_fixed_segments() {
     }
 }
 
-/// The budget segment sits after the spend and reads the report's line:
-/// dim while the budget admits work, the warning tone in wrap-up, the
-/// error tone when exhausted.
+/// The budget segment sits after the spend and shows the limited
+/// dimensions with their source: dim while the budget admits work, the
+/// warning tone in wrap-up, the error tone when exhausted; `limits on`
+/// precedes it while the toggle is on, and a run without limits reads
+/// `until finished`.
 #[test]
 fn the_budget_segment_follows_the_spend_in_the_tone_of_its_phase() {
     use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
     let theme = theme();
-    let row = |phase: BudgetPhase, short: Option<BudgetDimension>| {
+    let row = |phase: BudgetPhase, short: Option<BudgetDimension>, limits_on: bool| {
         let state = ChromeState {
             cost_usd: Some(0.126),
             budget: Some(BudgetReport {
@@ -505,6 +507,7 @@ fn the_budget_segment_follows_the_spend_in_the_tone_of_its_phase() {
                 short,
                 ..BudgetReport::default()
             }),
+            limits_on,
             context: None,
             git: None,
             ..base()
@@ -512,31 +515,47 @@ fn the_budget_segment_follows_the_spend_in_the_tone_of_its_phase() {
         let line = render_status_line(&state, Detail::Overview, &theme, 120);
         let tone = line
             .iter()
-            .find(|span| span.content.starts_with("budget: "))
+            .find(|span| span.content.starts_with("12/50 calls"))
             .map(|span| span.style.fg);
         (text(&line), tone)
     };
+    let until_finished = ChromeState {
+        budget: Some(BudgetReport::default()),
+        context: None,
+        git: None,
+        ..base()
+    };
     assert_eq!(
         [
-            row(BudgetPhase::Working, None),
-            row(BudgetPhase::WrapUp, Some(BudgetDimension::Cost)),
-            row(BudgetPhase::Exhausted, Some(BudgetDimension::ToolCalls)),
+            row(BudgetPhase::Working, None, false),
+            row(BudgetPhase::WrapUp, Some(BudgetDimension::Cost), false),
+            row(BudgetPhase::Exhausted, Some(BudgetDimension::ToolCalls), true),
+            (
+                text(&render_status_line(
+                    &until_finished,
+                    Detail::Overview,
+                    &theme,
+                    120
+                )),
+                None
+            ),
         ],
         [
             (
-                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls".to_string(),
+                " [M] mock - [D] eukhe - $0.13 - 12/50 calls, $0.42/$2.00 (set)".to_string(),
                 Some(theme.fg_style(ThemeColor::Dim).fg),
             ),
             (
-                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - wrap-up"
+                " [M] mock - [D] eukhe - $0.13 - 12/50 calls, $0.42/$2.00 (set); wrap-up"
                     .to_string(),
                 Some(theme.fg_style(ThemeColor::Warning).fg),
             ),
             (
-                " [M] mock - [D] eukhe - $0.13 - budget: $0.42/$2.00 - 12/50 calls - exhausted (tool calls)"
+                " [M] mock - [D] eukhe - $0.13 - limits on - 12/50 calls, $0.42/$2.00 (set); exhausted (tool calls)"
                     .to_string(),
                 Some(theme.fg_style(ThemeColor::Error).fg),
             ),
+            (" [M] mock - [D] eukhe - until finished".to_string(), None),
         ]
     );
 }

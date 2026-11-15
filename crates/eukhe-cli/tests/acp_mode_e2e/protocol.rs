@@ -3,6 +3,13 @@
 
 use super::*;
 
+/// Whether `update` carries the run's budget report: every run has a
+/// ledger, so its reports ride the stream beside the TS frames.
+fn is_budget_frame(update: &Value) -> bool {
+    update["params"]["update"]["sessionUpdate"] == "session_info_update"
+        && update["params"]["update"]["_meta"]["com.eukhe"]["budget"].is_object()
+}
+
 /// The TS initialize response shape (capture `ts-happy_path.jsonl`), with the
 /// version and sessionId-class fields normalized as volatile.
 #[test]
@@ -63,8 +70,13 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
     // Frame shape sequence from ts-happy_path.jsonl: the chunk stream, the
     // response boundary, the completion event, the terminal envelope, and
     // then the response. The faux provider emits its text in one chunk.
+    // The run's budget reports ride beside them.
+    assert!(
+        updates.iter().any(is_budget_frame),
+        "the run reports its budget: {updates:#?}"
+    );
     let mut shapes = Vec::new();
-    for update in &updates {
+    for update in updates.iter().filter(|update| !is_budget_frame(update)) {
         let body = &update["params"]["update"];
         let meta = &body["_meta"]["com.eukhe"];
         shapes.push((
@@ -146,18 +158,21 @@ fn acp_prompt_chunk_carries_the_assistant_message_id() {
         &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "hello" }] }),
     );
     let (_, updates) = client.wait_response(prompt, TIMEOUT);
-    let chunk = updates
+    let place = updates
         .iter()
-        .find(|update| update["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+        .position(|update| update["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
         .expect("a message chunk");
+    let chunk = &updates[place];
     assert_eq!(chunk["params"]["update"]["messageId"], "eukhe-assistant-1");
     assert_eq!(
         chunk["params"]["update"]["content"],
         json!({ "type": "text", "text": "ACP-OK" })
     );
+    // The turn's sequence counts every frame before the chunk (the run's
+    // budget reports included).
     assert_eq!(
         chunk["params"]["update"]["_meta"]["com.eukhe"],
-        json!({ "promptTurnId": 1, "eventSequence": 1, "phase": "event" })
+        json!({ "promptTurnId": 1, "eventSequence": place + 1, "phase": "event" })
     );
 }
 
@@ -496,8 +511,8 @@ fn acp_daemon_attached_cancels_mid_turn() {
     let (prompt_response, updates) = client.wait_response(prompt, Duration::from_mins(1));
     assert_eq!(prompt_response["result"]["stopReason"], "cancelled");
     assert!(
-        updates.is_empty(),
-        "a cancelled turn publishes no boundary frames after the cancel"
+        updates.iter().all(is_budget_frame),
+        "a cancelled turn publishes no frames after the cancel but the run's budget reports: {updates:#?}"
     );
     let close = client.request("session/close", &json!({ "sessionId": session_id }));
     let (close_response, _) = client.wait_response(close, Duration::from_mins(1));

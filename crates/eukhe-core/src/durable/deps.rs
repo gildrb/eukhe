@@ -326,6 +326,9 @@ pub struct SessionConfig {
     pub host: SessionHost,
     /// What the open does with the run its storage left unfinished.
     pub stored_work: StoredWork,
+    /// The kind of run the session's first effect starts when it has no
+    /// budget (interactive; a `-p` run headless, an embedding sdk).
+    pub run_kind: eukhe_types::budget::RunKind,
 }
 
 impl SessionConfig {
@@ -365,6 +368,7 @@ impl SessionConfig {
             prewarm_kernel: false,
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
+            run_kind: eukhe_types::budget::RunKind::Interactive,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
             #[cfg(not(test))]

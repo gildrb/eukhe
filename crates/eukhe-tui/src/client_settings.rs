@@ -164,6 +164,16 @@ pub trait ClientSettings: Send + Sync {
     fn stuck_after_secs(&self) -> u64 {
         crate::agents_panel::DEFAULT_STUCK_AFTER_SECS
     }
+    /// `budget.limits` is `on` (default off): the status line shows
+    /// `limits on`.
+    fn budget_limits_on(&self) -> bool {
+        false
+    }
+    /// The names of the principal's own presets (`budget.presets`), for a
+    /// message's `/b` prefix.
+    fn budget_preset_names(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// `terminal.fullscreen` (default true: the alternate screen; an
     /// explicit false runs inline).
     fn fullscreen(&self) -> bool;

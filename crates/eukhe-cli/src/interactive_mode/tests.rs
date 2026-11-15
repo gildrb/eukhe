@@ -267,7 +267,7 @@ fn the_launch_budget_is_for_the_sessions_this_run_starts() {
         ..Default::default()
     };
     let mut options = run_options_for_continue(dir.path());
-    options.config.budget = Some(limits);
+    options.config.budget = Some(limits.into());
     let base = build_tui_options(
         &options,
         dir.path().join("d.sock"),
@@ -284,7 +284,7 @@ fn the_launch_budget_is_for_the_sessions_this_run_starts() {
         ),
         (
             serde_json::json!({ "costMicros": 2_000_000 }),
-            Some(limits),
+            Some(limits.into()),
             None,
             None,
         )

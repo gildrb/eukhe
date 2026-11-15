@@ -245,6 +245,7 @@ async fn run_interactive_surface(
         view.show_speed = settings.show_speed();
         view.pinned_agents = settings.pinned_agents();
         view.stuck_after_secs = settings.stuck_after_secs();
+        view.chrome.limits_on = settings.budget_limits_on();
         // Every frame the off-screen check rejects goes to the agent log.
         let log = std::sync::Arc::clone(settings);
         crate::inline_term::log_rejections_with(Box::new(move |message| {

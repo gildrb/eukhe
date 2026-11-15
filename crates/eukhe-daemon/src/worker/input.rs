@@ -351,10 +351,32 @@ impl Worker {
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .map(str::to_string);
+        // The admission commits right before the prompt acts, so a cancel
+        // that comes while its run starts still cancels it.
         if let Some(id) = &admission_id {
             self.register_prompt_admission(id);
-            if !self.prompt_admissions.commit(id) {
-                return response_failure(None, command, "Prompt admission was cancelled.", None);
+        }
+        let admission_cancelled = || {
+            admission_id
+                .as_ref()
+                .is_some_and(|id| !self.prompt_admissions.commit(id))
+        };
+        let cancelled = || response_failure(None, command, "Prompt admission was cancelled.", None);
+        // `/budget on` and `/budget off` turn the principal's limits on or
+        // off; the answer's `text` says what they enforce.
+        if images.is_empty() && custom_row.is_none() {
+            if let Some(on) = budget_toggle(message) {
+                if admission_cancelled() {
+                    return cancelled();
+                }
+                return match self.set_budget_limits(command, on).await {
+                    Ok(text) => response_success(
+                        None,
+                        command,
+                        serde_json::to_value(eukhe_types::daemon::BudgetLimitsReply { text }).ok(),
+                    ),
+                    Err(response) => response,
+                };
             }
         }
         // Typed session commands (`/compact`, `/goal`, ...) run on the
@@ -362,12 +384,39 @@ impl Worker {
         // queues a `/compact` behind a running turn.
         if images.is_empty() && custom_row.is_none() {
             if let Some(session_command) = eukhe_core::durable::classify_session_command(message) {
+                if admission_cancelled() {
+                    return cancelled();
+                }
                 let queue_behind_turn =
                     payload.get("streamingBehavior").and_then(Value::as_str) == Some("followUp");
                 return self
                     .run_session_command(&hosted, command, &session_command, queue_behind_turn)
                     .await;
             }
+        }
+        // A message sent while the session is idle starts a fresh run with
+        // the limits its `/b` prefix asks (`runLimits`); one that joins the
+        // running run sets them on it. Nothing is sent when the run's
+        // limits do not fill.
+        let ask = match payload.get("runLimits").filter(|ask| !ask.is_null()) {
+            None => None,
+            Some(ask) => match serde_json::from_value::<super::budget::RunAsk>(ask.clone()) {
+                Ok(ask) => Some(ask),
+                Err(error) => {
+                    return response_failure(
+                        None,
+                        command,
+                        &format!("invalid runLimits: {error}"),
+                        None,
+                    )
+                }
+            },
+        };
+        if let Err(response) = self.begin_message_run(&hosted, command, ask).await {
+            return response;
+        }
+        if admission_cancelled() {
+            return cancelled();
         }
         // The first prompt of an unnamed top-level session starts its
         // generated title in the background (never awaited here).
@@ -759,4 +808,16 @@ impl Worker {
             }
         });
     }
+}
+
+/// `/budget on` (`Some(true)`) or `/budget off` (`Some(false)`); any other
+/// text `None`.
+pub(crate) fn budget_toggle(message: &str) -> Option<bool> {
+    let mut words = message.split_whitespace();
+    let toggle = match (words.next(), words.next()) {
+        (Some("/budget"), Some("on")) => true,
+        (Some("/budget"), Some("off")) => false,
+        (_, _) => return None,
+    };
+    words.next().is_none().then_some(toggle)
 }

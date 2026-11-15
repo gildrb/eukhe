@@ -316,7 +316,7 @@ has `list_models`; a provider without one fails without sending a request.",
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
         &["budget"],
-        "budget <show|set|add|audit> [--account <account>]",
+        "budget <on|off|show|set|add|audit> [--account <account>]",
         "Read or change a budget account",
     )
     .description(
@@ -372,6 +372,21 @@ spends against the total it reports: `ledger exact` or where it stops adding up.
         "--account <account>  daemon (the default) or a session id",
         "--json               Print JSON",
     ]),
+    CommandSpec::new(
+        &["budget", "on"],
+        "budget on",
+        "Turn limits on for every run",
+    )
+    .description(
+        "Runs end with their answer at the limits profile (or your `budget.profile`): a share \
+of each plan window, and time, tool calls and requests per kind of run. Prints the numbers.",
+    ),
+    CommandSpec::new(
+        &["budget", "off"],
+        "budget off",
+        "Turn limits off: runs go until finished",
+    )
+    .description("The default. A limit set for a run (flags, /budget set, /b) still applies."),
     CommandSpec::new(&["usage"], "usage [--json]", "Show the plan quota of each login")
         .description(
             "Reads each stored login's plan usage from its provider (Anthropic, ChatGPT, GitHub \

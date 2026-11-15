@@ -18,7 +18,7 @@
 //! let session = open_session(config, cx).await?;
 //! let conversation = session.main();
 //! let mut events = eukhe_sdk::watch(&session, &conversation, cx).await?;
-//! eukhe_sdk::prompt(&conversation, "Summarize README.md", cx).await?;
+//! eukhe_sdk::prompt(&session, &conversation, "Summarize README.md", cx).await?;
 //! events.delivered().await;
 //! while let Some(batch) = events.try_next() {
 //!     for event in batch.iter() {
@@ -31,13 +31,16 @@
 //! # }
 //! ```
 //!
-//! - [`open_session`] opens a [`SessionConfig`]: `SessionConfig::new` sets
-//!   a default for every optional input (the settings' model, the
-//!   settings' thinking level, models from eukhe auth and `models.json`);
-//!   set its public fields to override one. [`SessionStorage::Jsonl`]
-//!   keeps the session on disk, [`SessionStorage::Memory`] in memory.
-//! - [`prompt`] submits user text to a conversation and waits until the
-//!   conversation is idle again.
+//! - [`open_session`] opens a [`SessionConfig`] whose runs are SDK runs:
+//!   `SessionConfig::new` sets a default for every optional input (the
+//!   settings' model, the settings' thinking level, models from eukhe auth
+//!   and `models.json`); set its public fields to override one.
+//!   [`SessionStorage::Jsonl`] keeps the session on disk,
+//!   [`SessionStorage::Memory`] in memory.
+//! - [`prompt`] submits user text to a conversation as a new SDK run and
+//!   waits until the conversation is idle again. A run goes until
+//!   finished unless the principal set limits or turned them on
+//!   (`budget.limits`); its spend is counted either way.
 //! - [`watch`] streams a conversation's committed events.
 //! - [`unknown_effects`] lists a conversation's interrupted effects whose
 //!   outcome a restart could not tell, [`resolve_unknown_effect`] settles
@@ -45,15 +48,17 @@
 //!   follows the ledger (its current state first, then every change).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
-//! - [`set_budget`] gives a session a [`budget`]: limits on money, tokens,
-//!   tool calls and model requests, and a wall-clock deadline, for the
-//!   session and the agents beneath it; each model request and tool call
-//!   reserves its worst case first, and a provider that reports more than
-//!   the reserve leaves an overrun.
-//!   [`add_budget`] adds to it (time moves the deadline; an exhausted
+//! - [`set_budget`] sets the [`budget`] limits of every run of the
+//!   session (a number or `unlimited` per dimension: money, tokens, tool
+//!   calls, model requests, and a wall-clock time per run) that nothing
+//!   the session or the agents beneath it spend can pass; each model
+//!   request and tool call reserves its worst case first, and a provider
+//!   that reports more than the reserve leaves an overrun. [`add_budget`]
+//!   adds to the current run (time moves the deadline; an exhausted
 //!   session works again), [`budget_report`] reads what is free, held,
-//!   spent and lent and the time left, [`watch_budget`] follows every
-//!   change, and [`audit_budget`] replays the budget's ledger.
+//!   spent and lent, each limit's source and the time left,
+//!   [`watch_budget`] follows every change, [`watch_plan_notices`] the
+//!   plan usage notices, and [`audit_budget`] replays the budget's ledger.
 //! - [`set_acceptance`] sets the acceptance checks of a conversation's
 //!   task as its owner (pass [`owner_checks`] of the explicit
 //!   [`CheckSpec`]s to add the intent check);
@@ -80,10 +85,10 @@ pub use eukhe_chord::context;
 pub use eukhe_core::durable::acceptance::{
     acceptance_state, set_acceptance, watch_acceptance_updates, AcceptanceUpdates,
 };
-pub use eukhe_core::durable::budget::{BudgetError, BudgetGate};
+pub use eukhe_core::durable::budget::{BudgetError, BudgetGate, RunError, RunStart};
 pub use eukhe_core::durable::{
-    create_models, open_session, EukheSession, ModelRequest, OpenError, SessionConfig,
-    SessionModels, SessionStorage,
+    create_models, EukheSession, ModelRequest, OpenError, SessionConfig, SessionModels,
+    SessionStorage,
 };
 pub use eukhe_durable::harness::effects::{
     EffectKind, EffectResolution, UnknownEffect, UnknownEffectUpdates,
@@ -98,7 +103,7 @@ pub use eukhe_types::budget;
 pub use eukhe_types::daemon::BudgetAudit;
 pub use eukhe_types::pi_ai::Model;
 
-use budget::{BudgetAmounts, BudgetLimits, BudgetReport};
+use budget::{BudgetAmounts, BudgetReport, PlanNotice, RunKind, RunLimits};
 use context::Context;
 use eukhe_durable::harness::types::InputSubmissionDraft;
 
@@ -108,15 +113,44 @@ pub fn new_session_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
-/// Submit `text` to `conversation` as the user's input, wait until its run
-/// settles, then until the conversation is idle (continuations, queued
-/// input and compaction included).
+/// Open `config` as a session of an embedding host: each of its runs, and
+/// a budget set before its first prompt, is an SDK run (B15).
 ///
 /// # Errors
 ///
-/// The submission is refused (the session closed, `cx` cancelled), or a
-/// wait fails.
-pub async fn prompt(conversation: &Conversation, text: &str, cx: &Context) -> anyhow::Result<()> {
+/// The session's storage, settings, models or harness do not open.
+pub async fn open_session(
+    mut config: SessionConfig,
+    cx: &Context,
+) -> Result<EukheSession, OpenError> {
+    config.run_kind = RunKind::Sdk;
+    eukhe_core::durable::open_session(config, cx).await
+}
+
+/// Submit `text` to `conversation` of `session` as the user's input, as a
+/// new run of the session (its limits renewed: [`set_budget`]), wait until
+/// its run settles, then until the conversation is idle (continuations,
+/// queued input and compaction included).
+///
+/// # Errors
+///
+/// The run's limits do not fill (a `budget.*` setting that is no limit,
+/// a ledger that cannot be written), the submission is refused (the
+/// session closed, `cx` cancelled), or a wait fails.
+pub async fn prompt(
+    session: &EukheSession,
+    conversation: &Conversation,
+    text: &str,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let gate = session.budget();
+    tokio::task::spawn_blocking(move || {
+        gate.start_run(RunStart {
+            kind: RunKind::Sdk,
+            ..RunStart::default()
+        })
+    })
+    .await??;
     let submission = conversation
         .submit(InputSubmissionDraft::new(text.to_owned()), cx)
         .await?;
@@ -233,20 +267,23 @@ pub fn watch_unknown_effects(
     )?)
 }
 
-/// Give `session` the budget `limits`; answers the budget's state. A
-/// dimension without a limit is unlimited. Set it before the session's
-/// first prompt: nothing is spent past a budget from the moment it is set.
+/// Give every run of `session` the limits `limits` (each prompt is a run):
+/// a dimension `limits` leaves unset fills as the session's runs do
+/// (`budget.limits` off: unlimited, until finished). The current run takes
+/// them at once; answers the budget's state.
 ///
 /// # Errors
 ///
-/// The session already has a budget (the [`BudgetError`] `AlreadyOpen`:
-/// add to it with [`add_budget`]), or its ledger cannot be written.
+/// The session draws from another session's budget (the [`BudgetError`]
+/// `NotRoot`), a `budget.*` setting is no limit, or the ledger cannot be
+/// written.
 pub async fn set_budget(
     session: &EukheSession,
-    limits: BudgetLimits,
+    limits: impl Into<RunLimits>,
 ) -> anyhow::Result<BudgetReport> {
     let gate = session.budget();
-    Ok(tokio::task::spawn_blocking(move || gate.set(limits)).await??)
+    let limits = limits.into();
+    Ok(tokio::task::spawn_blocking(move || gate.set_standing(limits)).await??)
 }
 
 /// Add `amounts` to `session`'s budget; answers the budget's state. A
@@ -284,6 +321,14 @@ pub async fn budget_report(session: &EukheSession) -> anyhow::Result<Option<Budg
 #[must_use]
 pub fn watch_budget(session: &EukheSession) -> tokio::sync::watch::Receiver<Option<BudgetReport>> {
     session.budget().watch()
+}
+
+/// Follow `session`'s plan notices: a plan window's last reading passed
+/// `100 - budget.planReserve` percent used while limits are off (once per
+/// window until a reading below the line). The run continues.
+#[must_use]
+pub fn watch_plan_notices(session: &EukheSession) -> tokio::sync::broadcast::Receiver<PlanNotice> {
+    session.budget().plan_notices()
 }
 
 /// Audit `session`'s budget: every record of its ledger replayed, and the

@@ -164,6 +164,9 @@ pub(crate) enum RpcCommandError {
     /// The session's budget ledger refused or failed.
     #[error(transparent)]
     Budget(#[from] eukhe_core::durable::budget::BudgetError),
+    /// The session's run did not start or its limits did not change.
+    #[error(transparent)]
+    Run(#[from] eukhe_core::durable::budget::RunError),
     /// A budget ledger call on the blocking pool did not finish.
     #[error("the budget ledger call did not finish: {0}")]
     BudgetTask(#[from] tokio::task::JoinError),

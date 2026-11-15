@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::quota::QuotaWindow;
+
 /// The largest amount one dimension of a budget holds: money in
 /// micro-dollars (10 million dollars), tokens, tool calls, model requests,
 /// a duration in milliseconds; also the deadline of a budget without a time
@@ -495,11 +497,53 @@ pub struct BudgetReport {
     /// run programs).
     #[serde(skip_serializing_if = "is_zero")]
     pub program_runs: u64,
+    /// The plan share the run ended at (limits on): a window of the
+    /// plan's quota reached its reserve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanShare>,
+}
+
+/// A run of a plan login ended at its share of the plan's quota: the
+/// windows as last read, the first one at or past `100 -
+/// reserve_percent` used.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanShare {
+    /// `budget.planReserve`: the percent of each window left to the
+    /// principal.
+    pub reserve_percent: u64,
+    pub windows: Vec<QuotaWindow>,
+    /// The place in `windows` of the window that ended the run.
+    pub wrapped_by: usize,
+}
+
+/// A plan window's last reading passed `100 - reserve_percent` used while
+/// limits are off: told once per window until a reading below the line
+/// (a reset). The run continues.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanNotice {
+    /// The provider whose plan it is (`anthropic`, `openai-codex`, ...).
+    pub provider: String,
+    pub window: QuotaWindow,
+    pub reserve_percent: u64,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde's `skip_serializing_if` passes a reference.
 fn is_zero(count: &u64) -> bool {
     *count == 0
+}
+
+/// Micro-dollars as every surface shows money: dollars and cents; an
+/// amount below half a cent keeps four decimals, rounded up, so it never
+/// reads as nothing.
+#[must_use]
+pub fn dollars(micros: u64) -> String {
+    if (1..5_000).contains(&micros) {
+        return format!("$0.{:04}", micros.div_ceil(100));
+    }
+    let cents = micros.saturating_add(5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 #[cfg(test)]
@@ -560,16 +604,4 @@ mod tests {
             report
         );
     }
-}
-
-/// Micro-dollars as every surface shows money: dollars and cents; an
-/// amount below half a cent keeps four decimals, rounded up, so it never
-/// reads as nothing.
-#[must_use]
-pub fn dollars(micros: u64) -> String {
-    if (1..5_000).contains(&micros) {
-        return format!("$0.{:04}", micros.div_ceil(100));
-    }
-    let cents = micros.saturating_add(5_000) / 10_000;
-    format!("${}.{:02}", cents / 100, cents % 100)
 }

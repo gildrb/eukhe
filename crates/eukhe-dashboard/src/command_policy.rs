@@ -46,6 +46,7 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetSessionStats { .. } => "get_session_stats",
         DaemonCommand::GetBudget { .. } => "get_budget",
         DaemonCommand::SetBudget { .. } => "set_budget",
+        DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",

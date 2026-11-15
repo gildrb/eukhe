@@ -203,6 +203,24 @@ enum Answer {
 
 /// Run the `budget` command; returns the process exit code.
 pub fn run_budget_command(args: &[String]) -> i32 {
+    // `eukhe budget on|off`: the principal's limits toggle.
+    let toggle = match args {
+        [word] if word == "on" => Some(true),
+        [word] if word == "off" => Some(false),
+        _ => None,
+    };
+    if let Some(on) = toggle {
+        return match set_limits(on, &crate::config::get_agent_dir()) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(error) => {
+                eprintln!("Error: {error:#}");
+                1
+            }
+        };
+    }
     let command = match parse_budget_command(args) {
         Ok(command) => command,
         Err(error) => {
@@ -223,6 +241,48 @@ pub fn run_budget_command(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// Write `budget.limits` (`on` or `off`) to the global config under
+/// `agent_dir` and answer the line of the toggle: with limits on, the
+/// numbers the active profile enforces; the plan clause when a provider
+/// is logged in with a plan (an OAuth login in `auth.json`).
+fn set_limits(on: bool, agent_dir: &Path) -> Result<String> {
+    let cwd = std::env::current_dir().context("the working directory does not read")?;
+    let mut settings = eukhe_core::settings::SettingsManager::create(&cwd, agent_dir);
+    let mode = if on {
+        eukhe_core::settings::BudgetLimitsMode::On
+    } else {
+        eukhe_core::settings::BudgetLimitsMode::Off
+    };
+    settings
+        .set_budget_limits(mode)
+        .context("budget.limits was not written")?
+        .applied()?;
+    if !on {
+        return Ok(eukhe_daemon::limits_text::LIMITS_OFF.to_owned());
+    }
+    let plan = std::fs::read_to_string(agent_dir.join("auth.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|document| {
+            document.as_object().map(|providers| {
+                providers.values().any(|credential| {
+                    credential.get("type").and_then(Value::as_str) == Some("oauth")
+                })
+            })
+        })
+        .unwrap_or(false);
+    let auth = if plan {
+        eukhe_types::budget::AuthClass::Plan
+    } else {
+        eukhe_types::budget::AuthClass::ApiKey
+    };
+    Ok(eukhe_daemon::limits_text::on_line(
+        auth,
+        settings.get_budget_plan_reserve(),
+        &settings.get_budget_profile(),
+    ))
 }
 
 /// The answer of the daemon for a session's account: `None` for the
@@ -263,7 +323,7 @@ fn through_daemon(command: &BudgetCommand) -> Option<Result<Answer>> {
         Some(match command.verb {
             Verb::Show => client.get_budget(&active).await.map(Answer::Report),
             Verb::Set => client
-                .set_budget(&active, command.amounts)
+                .set_budget(&active, command.amounts.into())
                 .await
                 .map(|report| Answer::Report(Some(report))),
             Verb::Add => client
@@ -291,22 +351,31 @@ fn live_address(data: &Value, session_id: &str) -> Option<String> {
 fn on_ledger(command: &BudgetCommand, agent_dir: &Path) -> Result<Answer> {
     let gate = BudgetGate::side(agent_dir, &command.account);
     let answer = match command.verb {
-        Verb::Show => gate.ledger().report(&command.account).map(Answer::Report),
+        Verb::Show => gate
+            .ledger()
+            .report(&command.account)
+            .map(Answer::Report)
+            .map_err(anyhow::Error::from),
         Verb::Set => gate
             .set(command.amounts)
-            .map(|report| Answer::Report(Some(report))),
+            .map(|report| Answer::Report(Some(report)))
+            .map_err(anyhow::Error::from),
         Verb::Add => gate
             .add(added(command.amounts))
-            .map(|report| Answer::Report(Some(report))),
-        Verb::Audit => gate.audit().map(|audit| {
-            Answer::Audit(BudgetAudit {
-                records: audit.records,
-                settled: audit.settled,
-                spent: audit.spent,
-                exact: audit.exact(),
-                first_mismatch: audit.first_mismatch,
+            .map(|report| Answer::Report(Some(report)))
+            .map_err(anyhow::Error::from),
+        Verb::Audit => gate
+            .audit()
+            .map(|audit| {
+                Answer::Audit(BudgetAudit {
+                    records: audit.records,
+                    settled: audit.settled,
+                    spent: audit.spent,
+                    exact: audit.exact(),
+                    first_mismatch: audit.first_mismatch,
+                })
             })
-        }),
+            .map_err(anyhow::Error::from),
     };
     answer.with_context(|| format!("budget account {}", command.account))
 }
@@ -323,7 +392,7 @@ fn render(command: &BudgetCommand, answer: &Answer) -> String {
         (Output::Text, Answer::Report(Some(report))) => format!(
             "{}: {}",
             command.account,
-            budget_text::report_detail(report, budget_text::now_ms(), " · ")
+            budget_text::report_detail(report, budget_text::now_ms())
         ),
         (Output::Text, Answer::Report(None)) => {
             format!("{}: no budget set", command.account)

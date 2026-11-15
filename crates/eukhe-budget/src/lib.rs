@@ -28,8 +28,8 @@ mod worst;
 
 pub use amounts::{limits_of, mask};
 pub use ledger::{
-    Audit, CarveOutcome, Ledger, LedgerError, ReclaimOutcome, Refusal, Reservation, Reserved, Use,
-    FINAL_MIN_MS, REQUEST_MIN_MS, TOOL_MIN_MS,
+    floor, Audit, CarveOutcome, Ledger, LedgerError, ReclaimOutcome, Refusal, Reservation,
+    Reserved, Use, FINAL_MIN_MS, REQUEST_MIN_MS, TOOL_MIN_MS,
 };
 pub use record::{
     Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord,

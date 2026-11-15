@@ -836,14 +836,23 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native: give a root session its budget (reply:
-    /// [`super::BudgetReply`]). A session that already has one refuses:
-    /// `add_budget` adds to it.
+    /// Rust-native: set the limits of the session's current run (reply:
+    /// [`super::BudgetReply`]): a number or `unlimited` per dimension.
     SetBudget {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         active_session_id: String,
-        limits: crate::budget::BudgetLimits,
+        limits: crate::budget::RunLimits,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: turn the principal's limits (`budget.limits`) on or
+    /// off (reply: [`super::BudgetLimitsReply`]).
+    SetBudgetLimits {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        on: bool,
         #[serde(flatten)]
         rest: JsonMap,
     },

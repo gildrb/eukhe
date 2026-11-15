@@ -32,8 +32,8 @@ fn write_json(writer: &mut UnixStream, value: &Value) {
     writer.flush().expect("flush mock frame");
 }
 
-/// A budget report of `sess-1`: a cost limit and a limit of 50 tool
-/// calls, 12 of them made.
+/// A budget report of `sess-1`'s interactive run: a cost limit and a limit
+/// of 50 tool calls the principal set, 12 of them made.
 fn report(limit_micros: u64, spent_micros: u64, phase: &str) -> Value {
     let mut report = json!({
         "sessionId": "sess-1",
@@ -49,6 +49,14 @@ fn report(limit_micros: u64, spent_micros: u64, phase: &str) -> Value {
         "lent": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
         "over": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0 },
         "phase": phase,
+        "kind": "interactive",
+        "sources": {
+            "costMicros": { "source": "set" },
+            "tokens": { "source": "until_finished" },
+            "timeMs": { "source": "until_finished" },
+            "toolCalls": { "source": "set" },
+            "requests": { "source": "until_finished" },
+        },
     });
     if phase != "working" {
         report["short"] = json!("cost");
@@ -247,10 +255,17 @@ fn status_lines(frames: &[String]) -> Vec<&str> {
 
 /// A session with a budget: the status line reads the snapshot's report,
 /// then each `budget_update`; `/budget add` and `/budget audit` go to the
-/// daemon and show its answer; a refused `/budget set` is the error row.
+/// daemon and show its answer, a refusal of the daemon is the error row;
+/// `/budget set` replaces the run's limits, and a cost limit at what the
+/// run spent wraps it up, which the status line's phase then shows (B19,
+/// B21).
 #[test]
 fn the_status_line_follows_the_budget_and_the_command_changes_it() {
     let answer = |command: &Value| match command["type"].as_str() {
+        Some("add_budget") if command["amounts"]["tokens"] != 0 => Some(Reply {
+            response: Err("the budget ledger call did not finish: the runtime is shutting down"),
+            events: Vec::new(),
+        }),
         // The answer carries the added budget; the update after it a
         // request that settled meanwhile.
         Some("add_budget") => Some(Reply {
@@ -270,8 +285,8 @@ fn the_status_line_follows_the_budget_and_the_command_changes_it() {
             events: Vec::new(),
         }),
         Some("set_budget") => Some(Reply {
-            response: Err("session sess-1 already has a budget"),
-            events: vec![budget_update(&report(3_000_000, 500_000, "wrap_up"))],
+            response: Ok(json!({ "budget": report(500_000, 500_000, "wrap_up") })),
+            events: vec![budget_update(&report(500_000, 500_000, "wrap_up"))],
         }),
         Some(_) | None => None,
     };
@@ -279,14 +294,15 @@ fn the_status_line_follows_the_budget_and_the_command_changes_it() {
         report(2_000_000, 420_000, "working"),
         answer,
         vec![
-            wait("budget: $0.42/$2.00 - 12/50 calls"),
+            wait("12/50 calls, $0.42/$2.00 (set)"),
             submit("/budget add cost=1"),
-            wait("budget: $0.50/$3.00 - 12/50 calls"),
+            wait("12/50 calls, $0.50/$3.00 (set)"),
             submit("/budget audit"),
             wait("ledger exact: 14 records, settled $0.50, 12 calls"),
-            submit("/budget set cost=5"),
-            wait("session sess-1 already has a budget"),
-            wait("12/50 calls - wrap-up"),
+            submit("/budget add tokens=1k"),
+            wait("the budget ledger call did not finish"),
+            submit("/budget set cost=0.50"),
+            wait("12/50 calls, $0.50/$0.50 (set); wrap-up"),
             HeadlessStep::WaitIdle { timeout_ms: 10_000 },
         ],
     );
@@ -297,12 +313,12 @@ fn the_status_line_follows_the_budget_and_the_command_changes_it() {
         (
             status
                 .first()
-                .map(|line| line.contains("budget: $0.42/$2.00 - 12/50 calls")),
+                .map(|line| line.contains("12/50 calls, $0.42/$2.00 (set)")),
             // The answer of `/budget add` is its row in the transcript.
-            seen("budget: $0.42/$3.00 - 12/50 calls"),
+            seen("budget: 12/50 tool calls, $0.42/$3.00 (set)"),
             status
                 .last()
-                .map(|line| line.contains("budget: $0.50/$3.00 - 12/50 calls - wrap-up")),
+                .map(|line| line.contains("12/50 calls, $0.50/$0.50 (set); wrap-up")),
             received,
         ),
         (
@@ -317,9 +333,14 @@ fn the_status_line_follows_the_budget_and_the_command_changes_it() {
                 }),
                 json!({ "type": "audit_budget", "activeSessionId": "s1" }),
                 json!({
+                    "type": "add_budget",
+                    "activeSessionId": "s1",
+                    "amounts": { "costMicros": 0, "tokens": 1_000, "timeMs": 0, "toolCalls": 0, "requests": 0 },
+                }),
+                json!({
                     "type": "set_budget",
                     "activeSessionId": "s1",
-                    "limits": { "costMicros": 5_000_000 },
+                    "limits": { "costMicros": 500_000 },
                 }),
             ],
         ),
@@ -328,8 +349,8 @@ fn the_status_line_follows_the_budget_and_the_command_changes_it() {
 }
 
 /// A session without a budget: no segment and `no budget set`; `/budget
-/// set` gives it one, which the status line then shows; a value that does
-/// not parse is refused in the client and never sent.
+/// set` gives it one, which the status line then shows with its source; a
+/// value that does not parse is refused in the client and never sent.
 #[test]
 fn a_session_without_a_budget_gets_one_from_the_command() {
     let answered = json!({
@@ -337,6 +358,14 @@ fn a_session_without_a_budget_gets_one_from_the_command() {
         "limits": { "costMicros": 2_000_000, "tokens": 200_000 },
         "free": { "costMicros": 2_000_000, "tokens": 200_000, "timeMs": 0, "toolCalls": 0 },
         "phase": "working",
+        "kind": "interactive",
+        "sources": {
+            "costMicros": { "source": "set" },
+            "tokens": { "source": "set" },
+            "timeMs": { "source": "until_finished" },
+            "toolCalls": { "source": "until_finished" },
+            "requests": { "source": "until_finished" },
+        },
     });
     let answer = move |command: &Value| match command["type"].as_str() {
         Some("get_budget") => Some(Reply {
@@ -359,7 +388,7 @@ fn a_session_without_a_budget_gets_one_from_the_command() {
             submit("/budget set cost=abc"),
             wait("cost \"abc\": expected dollars, like 1.50 or $1.50"),
             submit("/budget set cost=2 tokens=200k"),
-            wait("budget: $0.00/$2.00 - 0/200k tok"),
+            wait("$0.00/$2.00, 0/200k tok (set)"),
             HeadlessStep::WaitIdle { timeout_ms: 10_000 },
         ],
     );
@@ -367,14 +396,16 @@ fn a_session_without_a_budget_gets_one_from_the_command() {
     let status = status_lines(&frames);
     assert_eq!(
         (
-            status.first().map(|line| line.contains("budget:")),
+            status
+                .first()
+                .map(|line| line.trim_end().ends_with("[T] /tmp")),
             status
                 .last()
-                .map(|line| line.contains("budget: $0.00/$2.00 - 0/200k tok")),
+                .map(|line| line.contains("[T] /tmp - $0.00/$2.00, 0/200k tok (set)")),
             received,
         ),
         (
-            Some(false),
+            Some(true),
             Some(true),
             vec![
                 json!({ "type": "get_budget", "activeSessionId": "s1" }),

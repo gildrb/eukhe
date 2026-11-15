@@ -92,7 +92,7 @@ pub(crate) enum HeadlessSessionError {
     McpManager(#[source] tokio::task::JoinError),
     /// The `--budget-*` limits did not become the session's budget.
     #[error("cannot set the session's budget: {0}")]
-    Budget(#[source] eukhe_core::durable::budget::BudgetError),
+    Budget(#[source] eukhe_core::durable::budget::RunError),
     #[error("cannot set the session's budget: {0}")]
     BudgetTask(#[source] tokio::task::JoinError),
     /// Reading or reconfiguring the main conversation's agent failed.
@@ -321,27 +321,14 @@ pub(crate) async fn open_headless_session(
             }
         }
     };
+    // The `--budget-*` flags are what the principal sets for every run of
+    // the session (a resumed session's own limits included).
     if let Some(limits) = budget {
         let gate = opened.session.budget();
-        let kept = tokio::task::spawn_blocking(move || match gate.report() {
-            Some(report) => Ok(Some(report)),
-            None => gate.set(limits).map(|_| None),
-        })
-        .await
-        .map_err(HeadlessSessionError::BudgetTask)?
-        .map_err(HeadlessSessionError::Budget)?;
-        // A session that has a budget keeps it: the flags change nothing,
-        // and the run says so.
-        if let Some(report) = kept {
-            eprintln!(
-                "eukhe: this session already has a budget, the --budget flags change nothing ({})",
-                eukhe_tui::budget_text::report_detail(
-                    &report,
-                    eukhe_tui::budget_text::now_ms(),
-                    " · "
-                )
-            );
-        }
+        tokio::task::spawn_blocking(move || gate.set_standing(limits))
+            .await
+            .map_err(HeadlessSessionError::BudgetTask)?
+            .map_err(HeadlessSessionError::Budget)?;
     }
     Ok(opened)
 }
@@ -570,6 +557,9 @@ async fn session_config(
     };
     session.thinking = config.thinking.map(thinking_level);
     session.host = options.app_mode.session_host();
+    // A `-p` prompt (and every prompt of a headless session) is a
+    // headless run.
+    session.run_kind = eukhe_types::budget::RunKind::Headless;
     session.prompt = PromptConfig {
         custom_system_prompt: config.system_prompt.clone(),
         append_system_prompt: config.append_system_prompt.clone(),

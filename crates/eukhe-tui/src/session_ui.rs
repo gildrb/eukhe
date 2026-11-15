@@ -180,7 +180,7 @@ pub(crate) struct SessionUi {
     models: Option<Vec<String>>,
     /// The `--budget-*` limits carried into every fresh root session's
     /// `create` config: a `/new` session starts under the same budget.
-    launch_budget: Option<eukhe_types::budget::BudgetLimits>,
+    launch_budget: Option<eukhe_types::budget::RunLimits>,
     /// The model catalog for the `/model` picker: a startup snapshot from
     /// the composition root (the bundled fallback), replaced by the
     /// daemon's `get_model_catalog` response once it lands.
@@ -240,6 +240,9 @@ pub(crate) struct SessionUi {
     /// The client-process settings seam (`/settings`);
     /// the composition root supplies it.
     client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
+    /// The preset names a message's `/b` prefix takes: the shipped
+    /// presets, then the principal's `budget.presets`.
+    budget_presets: Vec<String>,
     /// The ban-risk warning's view-local dedup (TS
     /// `anthropicSubscriptionWarningShown`): this VIEW's own
     /// once-per-instance gate. The once-per-SESSION-lifecycle gate (the

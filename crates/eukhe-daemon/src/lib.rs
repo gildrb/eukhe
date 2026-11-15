@@ -58,6 +58,7 @@ pub mod job_notices;
 pub mod journal;
 pub(crate) mod kin_gate;
 pub mod lease;
+pub mod limits_text;
 pub mod mcp_connections;
 pub mod mcp_login;
 pub(crate) mod messaging;

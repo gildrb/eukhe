@@ -23,6 +23,7 @@
 mod gate;
 mod notices;
 mod rows;
+mod runs;
 mod tools;
 
 #[cfg(test)]
@@ -39,13 +40,14 @@ use eukhe_budget::{
     CarveOutcome, Ledger, LedgerError, Member, ReclaimOutcome, Reserved, Use, REQUEST_MIN_MS,
     TOOL_MIN_MS,
 };
-use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport};
+use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport, RunKind};
 use tokio::sync::watch;
 
 use super::deps::{HostCall, HostCallHandler, HostDeps};
 
 pub use notices::BUDGET_NOTICE_CUSTOM_TYPE;
 pub use rows::wrap_models_with_budget;
+pub use runs::{active_profile, RunError, RunFacts, RunFactsFn, RunStart};
 
 /// Why a budget operation failed. Every failure refuses the spend.
 pub type BudgetError = LedgerError;
@@ -95,6 +97,8 @@ pub struct BudgetGate {
     /// the reserve: set when a final answer ends with its text, cleared
     /// when a work turn ends.
     final_answered: AtomicBool,
+    /// The session's runs: how they fill, their starts, the plan notices.
+    runs: runs::Runs,
 }
 
 /// What the agent's steps actually spent, as this process saw them.
@@ -214,6 +218,7 @@ impl BudgetGate {
             steps: Mutex::default(),
             turn: Mutex::new(FIRST_TURN),
             final_answered: AtomicBool::new(false),
+            runs: runs::Runs::default(),
         })
     }
 
@@ -307,19 +312,6 @@ impl BudgetGate {
         self.reports.subscribe()
     }
 
-    /// Sets the budget of a session that belongs to no account: it becomes
-    /// the owner of a new one.
-    ///
-    /// # Errors
-    ///
-    /// [`LedgerError::AlreadyOpen`] when the session has a budget (add to
-    /// it instead), and the ledger's or the compiled core's failures.
-    pub fn set(&self, limits: BudgetLimits) -> Result<BudgetReport, BudgetError> {
-        let report = self.ledger.open_root(limits)?;
-        self.changed(&report);
-        Ok(report)
-    }
-
     /// Adds budget: an overrun is repaid first, every agent of the account
     /// works again, and time moves the deadline. A session without a budget
     /// gets one, limited in the dimensions `amounts` names.
@@ -329,13 +321,13 @@ impl BudgetGate {
     /// [`LedgerError::NotRoot`] for a budget carved from a parent's,
     /// [`LedgerError::TooLarge`], and the ledger's or the compiled core's
     /// failures.
-    pub fn add(&self, amounts: BudgetAmounts) -> Result<BudgetReport, BudgetError> {
+    pub fn add(&self, amounts: BudgetAmounts) -> Result<BudgetReport, RunError> {
         let report = match self.ledger.fund(amounts) {
             Ok(report) => report,
             Err(LedgerError::NoBudget(_)) => {
-                self.ledger.open_root(eukhe_budget::limits_of(amounts))?
+                return self.set(eukhe_budget::limits_of(amounts));
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         };
         self.changed(&report);
         Ok(report)
@@ -621,6 +613,17 @@ impl BudgetGate {
         };
         let gate = Arc::clone(self);
         let reserved = tokio::task::spawn_blocking(move || {
+            // The session's first effect starts its first run.
+            match gate.ensure_run() {
+                Ok(()) => {}
+                Err(RunError::Ledger(error)) => return Err(error),
+                Err(error) => {
+                    return Err(LedgerError::Io {
+                        path: gate.ledger.path(),
+                        source: std::io::Error::other(error.to_string()),
+                    })
+                }
+            }
             gate.ledger.reserve_keyed(
                 gate.agent(),
                 use_,
@@ -713,20 +716,20 @@ impl Held {
         }
     }
 
-    /// Settles at `spend` on a blocking thread. A reservation that held no
-    /// model request (a side request's, a tool call's) is charged none: a
-    /// side request is no turn of the agent. The spend of work is a step
-    /// of the agent; one dropped unsettled is not (its spend is unknown).
+    /// Settles at `spend` on a blocking thread. A side request is charged
+    /// no model request: it is no turn of the agent (a tool call's spend
+    /// holds none). The hold is no guide: the ledger holds nothing in an
+    /// unlimited dimension, whose spend is still counted (B15). The spend
+    /// of work is a step of the agent; one dropped unsettled is not (its
+    /// spend is unknown).
     async fn settle(mut self, mut spend: BudgetAmounts) {
         // The blocking task runs to its end even when this future is
         // dropped while it waits.
         self.settled = true;
-        if self.full.requests == 0 {
-            spend.requests = 0;
-        }
         match self.use_ {
             Use::Work => self.gate.step_spent(spend),
-            Use::Final | Use::Side => {}
+            Use::Side => spend.requests = 0,
+            Use::Final => {}
         }
         let gate = Arc::clone(&self.gate);
         let id = self.id;
@@ -752,11 +755,16 @@ impl Drop for Held {
     }
 }
 
-/// Connects a session to its budget once its deps exist: registers the
+/// Connects a session to its budget once its deps exist: its runs fill
+/// (`kind`: the run its first effect starts), registers the
 /// `budget.status` kernel host request (the budget's report as JSON, `null`
 /// without a budget) and delivers the gate's notices to the session's main
 /// conversation.
-pub(crate) fn install(deps: &Arc<HostDeps>) {
+pub(crate) fn install(deps: &Arc<HostDeps>, kind: RunKind) {
+    deps.budget.fill_runs(
+        kind,
+        runs::session_facts(Arc::clone(&deps.settings), deps.agent_dir.clone()),
+    );
     let gate = Arc::clone(&deps.budget);
     let status: HostCallHandler = Arc::new(move |_call: HostCall| {
         let gate = Arc::clone(&gate);

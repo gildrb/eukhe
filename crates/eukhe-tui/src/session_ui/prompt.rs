@@ -91,6 +91,8 @@ pub(crate) struct PromptOrder {
     pub(crate) active_session_id: String,
     pub(crate) session_id: String,
     pub(crate) text: String,
+    /// What the `/b` prefix of `text` asks of its run.
+    pub(crate) run_ask: Option<crate::budget_text::RunAsk>,
     pub(crate) behavior: SubmitBehavior,
     pub(crate) images: Option<serde_json::Value>,
     pub(crate) stashed_images: Vec<(u64, LoadedImage)>,
@@ -519,10 +521,33 @@ impl SessionUi {
         {
             return Ok(());
         }
+        // `/b quick cost=2 <message>`: the message runs under the limits
+        // its prefix asks; a prefix that does not read stays in the
+        // editor with its error.
+        match self.run_ask(text) {
+            Ok(Some(_)) => return self.send_prompt(text, behavior, view).await,
+            Ok(None) => {}
+            Err(error) => {
+                view.editor.set_text(text);
+                self.error_row(&error.to_string(), view);
+                return Ok(());
+            }
+        }
         if text.starts_with('/') {
             return self.handle_slash(text, behavior, view).await;
         }
         self.send_prompt(text, behavior, view).await
+    }
+
+    /// What the `/b` prefix of `text` asks of its run (`None`: it has
+    /// none).
+    fn run_ask(
+        &self,
+        text: &str,
+    ) -> std::result::Result<Option<crate::budget_text::RunAsk>, crate::budget_text::BudgetTextError>
+    {
+        let names: Vec<&str> = self.budget_presets.iter().map(String::as_str).collect();
+        crate::budget_text::run_prefix(text, &names)
     }
 
     // ------------------------------------------------------------------
@@ -882,6 +907,7 @@ impl SessionUi {
             client: self.client.clone(),
             active_session_id: self.active_session_id.clone(),
             session_id: self.session_id.clone(),
+            run_ask: self.run_ask(&text).ok().flatten(),
             text,
             behavior,
             images,
@@ -910,10 +936,23 @@ impl SessionUi {
         notes: mpsc::UnboundedSender<PromptSubmitNote>,
     ) {
         while let Some(order) = orders.recv().await {
+            // A `/b` message sends what follows its prefix, the limits it
+            // asks riding along (`runLimits`).
+            let (message, rest) = match &order.run_ask {
+                Some(ask) => (
+                    ask.rest.clone(),
+                    std::iter::once((
+                        "runLimits".to_owned(),
+                        serde_json::to_value(ask).unwrap_or_default(),
+                    ))
+                    .collect(),
+                ),
+                None => (order.text.clone(), Map::default()),
+            };
             let command = DaemonCommand::Prompt {
                 id: None,
                 active_session_id: order.active_session_id.clone(),
-                message: order.text.clone(),
+                message,
                 input: eukhe_types::daemon::PromptInput {
                     content: None,
                     images: order.images.clone(),
@@ -934,7 +973,7 @@ impl SessionUi {
                     rlm_notice_nonce: None,
                     reply_to: None,
                 },
-                rest: Map::default(),
+                rest,
             };
             // A turn prompt's answer is its admission (the ack cap names a
             // lost ack). A session command's answer settles with the
@@ -1344,6 +1383,8 @@ mod tests {
             active_session_id: "s1".to_string(),
             session_id: "durable-1".to_string(),
             text: text.to_string(),
+            run_ask: crate::budget_text::run_prefix(text, &crate::budget_text::SHIPPED_PRESETS)
+                .expect("reads"),
             behavior: SubmitBehavior::Steer,
             images: None,
             stashed_images: Vec::new(),
@@ -1449,6 +1490,76 @@ mod tests {
             .expect("a note");
         assert_eq!(command.text, "/compact");
         assert!(command.result.is_ok(), "{:?}", command.result);
+        client.close();
+    }
+
+    /// A `/b` message sends what follows its prefix, with the presets and
+    /// limits it asks as `runLimits`; the note keeps the text as typed.
+    #[tokio::test]
+    async fn a_b_prefix_rides_the_prompt_as_its_run_limits() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let socket = dir.path().join("d.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
+        let (seen_tx, mut seen) = mpsc::unbounded_channel::<Value>();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            let (reader, mut writer) = stream.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut hello = json!({
+                "type": "daemon_hello",
+                "protocol": { "name": "eukhe.daemon", "version": 7 },
+                "clientId": "srv",
+                "serverCapabilities": [],
+            })
+            .to_string();
+            hello.push('\n');
+            writer.write_all(hello.as_bytes()).await.expect("hello");
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let envelope: Value = serde_json::from_str(line.trim()).expect("envelope");
+                if envelope["command"]["type"] != "prompt" {
+                    continue;
+                }
+                let _ = seen_tx.send(envelope["command"].clone());
+                let mut answer = json!({
+                    "type": "response",
+                    "id": envelope["id"],
+                    "command": "prompt",
+                    "success": true,
+                    "data": {},
+                })
+                .to_string();
+                answer.push('\n');
+                writer.write_all(answer.as_bytes()).await.expect("answer");
+            }
+        });
+        let (client, _events) = DaemonClient::connect(&socket).await.expect("connect");
+        let (orders_tx, orders_rx) = mpsc::unbounded_channel();
+        let (notes_tx, mut notes) = mpsc::unbounded_channel();
+        tokio::spawn(SessionUi::prompt_submit_worker(orders_rx, notes_tx));
+        let text = "/b quick cost=unlimited fix the parser";
+        orders_tx
+            .send(order(&client, text, false))
+            .expect("order the prompt");
+        let command = seen.recv().await.expect("the prompt");
+        let note = notes.recv().await.expect("a note");
+        assert_eq!(
+            (
+                command["message"].clone(),
+                command["runLimits"].clone(),
+                note.text
+            ),
+            (
+                json!("fix the parser"),
+                json!({ "presets": ["quick"], "set": { "costMicros": "unlimited" } }),
+                text.to_string(),
+            )
+        );
         client.close();
     }
 }

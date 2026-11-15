@@ -25,7 +25,8 @@ use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_budget::{actual_spend, mask, Ledger, Reserved, Use, REQUEST_MIN_MS};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, BudgetSources,
+    LimitSource, RunKind,
 };
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context as PiContext,
@@ -151,6 +152,7 @@ impl Fixture {
                 steps: Mutex::default(),
                 turn: Mutex::new(FIRST_TURN),
                 final_answered: std::sync::atomic::AtomicBool::new(false),
+                runs: super::runs::Runs::default(),
             }),
         };
         let notices = Arc::new(Mutex::new(Vec::new()));
@@ -256,12 +258,20 @@ fn tokens(tokens: u64) -> BudgetLimits {
     }
 }
 
-/// The report of the fixture session's own account.
+/// The report of the fixture session's own account: an interactive run
+/// whose `limits` the principal set.
 fn report(limits: BudgetLimits) -> BudgetReport {
     BudgetReport {
         session_id: "session".to_owned(),
         agent_session_id: "session".to_owned(),
         limits,
+        kind: Some(RunKind::Interactive),
+        sources: BudgetDimension::ALL
+            .into_iter()
+            .filter(|dimension| limits.get(*dimension).is_some())
+            .fold(BudgetSources::default(), |sources, dimension| {
+                sources.with(dimension, LimitSource::Set)
+            }),
         ..BudgetReport::default()
     }
 }
@@ -1002,8 +1012,9 @@ async fn stopped_at_the_deadline(
 /// B6, B10: a work turn stopped at the granted time the deadline cut has
 /// used up the time for work: before its final answer the agent is in
 /// `WrapUp`, short of time, as when work is refused for time, whether the
-/// turn streamed or not; the final answer is told so. Before, the agent
-/// stayed Working and the run did not end budget-limited.
+/// turn streamed or not; the final answer is told so. The run counts both
+/// model requests, its requests unlimited (B15). Before, the agent stayed
+/// Working and the run did not end budget-limited.
 #[tokio::test(start_paused = true)]
 async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
     let limits = BudgetLimits {
@@ -1013,6 +1024,10 @@ async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
     let wrapping_up = BudgetReport {
         free: BudgetAmounts {
             time_ms: 45_000,
+            ..BudgetAmounts::default()
+        },
+        spent: BudgetAmounts {
+            requests: 2,
             ..BudgetAmounts::default()
         },
         phase: BudgetPhase::WrapUp,
@@ -1498,13 +1513,28 @@ async fn a_provider_registered_after_the_wrap_is_gated() {
     );
 }
 
+/// B17, B19: the run's first work turn goes out under a roomy budget (a
+/// run whose first request does not fit its limits sends nothing), then
+/// the principal sets the run's token limit so that exactly `free` tokens
+/// are free beside what the run spent. What the provider received and the
+/// notices given so far are forgotten. The run's new token limit.
+async fn worked_then_left(fixture: &Fixture, free: u64) -> u64 {
+    fixture.gate.set(tokens(100_000)).unwrap();
+    fixture.request(agent("look around")).await;
+    let limit = free + fixture.gate.report().unwrap().spent.tokens;
+    fixture.gate.set(tokens(limit)).unwrap();
+    fixture.received.lock().unwrap().clear();
+    fixture.notices.lock().unwrap().clear();
+    limit
+}
+
 /// B6: an agent turn that work no longer fits is sent as the final answer:
 /// no tools, the wrap-up notice as its last message, the phase `WrapUp`.
 #[tokio::test]
 async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
     let fixture = Fixture::new();
     // No work cap fits 4000 tokens; a final answer of 2048 does.
-    fixture.gate.set(tokens(4_000)).unwrap();
+    let limit = worked_then_left(&fixture, 4_000).await;
     let reply = fixture.request(agent("build it")).await;
     let notice = "[budget] The tokens budget of this task is used up for work: 4.0k tokens left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
     assert_eq!(
@@ -1524,7 +1554,7 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
             Some(BudgetPhase::WrapUp),
             vec![Notice {
                 kind: NoticeKind::WrapUp,
-                request_id: "budget:session:wrap-up:-:4000:-:-:-:-".to_owned(),
+                request_id: format!("budget:session:wrap-up:-:{limit}:-:-:-:-"),
                 text: notice.to_owned(),
             }]
         )
@@ -1537,7 +1567,7 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
 #[tokio::test]
 async fn the_gate_knows_the_final_answer_was_the_last_reply() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(4_000)).unwrap();
+    worked_then_left(&fixture, 4_000).await;
     let before = fixture.gate.final_answer_delivered();
     fixture.request(agent("build it")).await;
     let answered = fixture.gate.final_answer_delivered();
@@ -1560,12 +1590,13 @@ async fn the_gate_knows_the_final_answer_was_the_last_reply() {
 #[tokio::test]
 async fn an_exhausted_budget_sends_nothing_until_budget_is_added() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(100)).unwrap();
+    worked_then_left(&fixture, 100).await;
+    let calls = fixture.faux.state().call_count;
     let refused = fixture.request(agent("build it")).await;
     assert_eq!(
         (
             refused.error_message,
-            fixture.faux.state().call_count,
+            fixture.faux.state().call_count - calls,
             fixture.gate.phase()
         ),
         (

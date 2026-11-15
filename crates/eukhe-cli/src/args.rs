@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use eukhe_core::resources::SystemPromptInput;
 use eukhe_types::ai::ModelThinkingLevel;
-use eukhe_types::budget::{BudgetDimension, BudgetLimits};
+use eukhe_types::budget::{BudgetDimension, LimitValue, RunLimits};
 
 /// Supported reasoning-effort levels (`THINKING_LEVELS` in the TS product).
 pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -198,10 +198,11 @@ pub struct Args {
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,
     /// `--budget-cost`, `--budget-tokens`, `--budget-time` (a wall-clock
-    /// duration from when the budget is set: its deadline),
-    /// `--budget-tool-calls` and `--budget-requests`: the limits of the
-    /// session's budget (a dimension without its flag has no limit).
-    pub budget: BudgetLimits,
+    /// duration from when a run starts: its deadline),
+    /// `--budget-tool-calls` and `--budget-requests`: the limits the
+    /// principal sets for each run of the session, a value or `unlimited`
+    /// (a dimension without its flag is unset).
+    pub budget: RunLimits,
     /// `--accept-cmd` (repeatable): commands that must exit 0 on the final
     /// state before the run counts as done.
     pub accept_cmds: Vec<String>,
@@ -269,15 +270,15 @@ fn parse_positive_u64(value: &str, flag: &str, diagnostics: &mut Vec<Diagnostic>
     }
 }
 
-/// One `--budget-*` flag: the limit of `dimension` in its stored unit, or
-/// the diagnostic that names the flag and the value.
+/// One `--budget-*` flag: the limit of `dimension` in its stored unit or
+/// `unlimited`, or the diagnostic that names the flag and the value.
 fn parse_budget_limit(
     value: &str,
     flag: &str,
     dimension: BudgetDimension,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<u64> {
-    match eukhe_tui::budget_text::parse_amount(dimension, flag, value) {
+) -> Option<LimitValue> {
+    match eukhe_tui::budget_text::parse_limit(dimension, flag, value) {
         Ok(limit) => Some(limit),
         Err(error) => {
             diagnostics.push(Diagnostic::error(error.to_string()));
@@ -1027,8 +1028,9 @@ mod tests {
         assert_eq!(parsed.autonomous_timeout_ms, Some(4_294_967_296));
     }
 
-    /// The five `--budget-*` flags are the limits of the session's budget,
-    /// each in its stored unit; a dimension without its flag has no limit.
+    /// The five `--budget-*` flags are the limits the principal sets, each
+    /// in its stored unit or `unlimited`; a dimension without its flag is
+    /// unset.
     #[test]
     fn budget_flags_are_the_limits_of_the_budget() {
         let all = parse(&[
@@ -1037,13 +1039,13 @@ mod tests {
             "--budget-tokens",
             "200k",
             "--budget-time",
-            "10m",
+            "unlimited",
             "--budget-tool-calls",
             "50",
             "--budget-requests",
             "30",
         ]);
-        let one = parse(&["--budget-cost", "2", "-p", "hello"]);
+        let one = parse(&["--budget-cost", "unlimited", "-p", "hello"]);
         assert_eq!(
             (
                 all.budget,
@@ -1053,20 +1055,20 @@ mod tests {
                 parse(&["-p", "hello"]).budget,
             ),
             (
-                BudgetLimits {
-                    cost_micros: Some(1_500_000),
-                    tokens: Some(200_000),
-                    time_ms: Some(600_000),
-                    tool_calls: Some(50),
-                    requests: Some(30),
+                RunLimits {
+                    cost_micros: Some(LimitValue::At(1_500_000)),
+                    tokens: Some(LimitValue::At(200_000)),
+                    time_ms: Some(LimitValue::Unlimited),
+                    tool_calls: Some(LimitValue::At(50)),
+                    requests: Some(LimitValue::At(30)),
                 },
                 Vec::new(),
-                BudgetLimits {
-                    cost_micros: Some(2_000_000),
-                    ..BudgetLimits::default()
+                RunLimits {
+                    cost_micros: Some(LimitValue::Unlimited),
+                    ..RunLimits::default()
                 },
                 vec!["hello".to_string()],
-                BudgetLimits::default(),
+                RunLimits::default(),
             )
         );
     }
@@ -1075,7 +1077,7 @@ mod tests {
     /// the flag and the value, and sets no limit.
     #[test]
     fn a_bad_budget_value_names_the_flag_and_the_value() {
-        let refused: Vec<(BudgetLimits, String)> = [
+        let refused: Vec<(RunLimits, String)> = [
             ["--budget-cost", "abc"],
             ["--budget-cost", ".50"],
             ["--budget-tokens", "0"],
@@ -1089,7 +1091,7 @@ mod tests {
             (parsed.budget, last_error(&parsed).to_string())
         })
         .collect();
-        let no_limit = BudgetLimits::default();
+        let no_limit = RunLimits::default();
         assert_eq!(
             refused,
             [

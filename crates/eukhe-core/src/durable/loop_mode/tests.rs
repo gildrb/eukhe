@@ -466,10 +466,11 @@ async fn a_count_bounds_the_automatic_iterations() {
 }
 
 /// L4: the session's budget decides whether it funds the next iteration:
-/// with a budget of three model requests, `/loop 10 go` runs two turns
-/// (one request each); the request left is the final answer's, so long
-/// before its count the loop ends as out of budget: no further request
-/// reaches the provider.
+/// with three model requests set for every run of the session (as a flag
+/// sets them; the whole `/loop` is one run, B15), `/loop 10 go` runs two
+/// turns (one request each); the request left is the final answer's, so
+/// long before its count the loop ends as out of budget: no further
+/// request reaches the provider.
 #[tokio::test]
 async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
     let lab = open(vec![
@@ -482,7 +483,7 @@ async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
     .await;
     lab.session
         .budget()
-        .set(BudgetLimits {
+        .set_standing(BudgetLimits {
             requests: Some(3),
             ..BudgetLimits::default()
         })
@@ -506,10 +507,10 @@ async fn a_loop_stops_when_the_budget_funds_no_further_turn() {
     lab.close().await;
 }
 
-/// L4: a budget whose tool calls are spent funds no further turn: with a
-/// budget of one tool call, `/loop 10 go` ends as out of budget after the
-/// turn that spent it, though model requests are left, instead of sending
-/// the prompt again to a model that can run no tool.
+/// L4: a budget whose tool calls are spent funds no further turn: with one
+/// tool call set for every run of the session, `/loop 10 go` ends as out
+/// of budget after the turn that spent it, though model requests are left,
+/// instead of sending the prompt again to a model that can run no tool.
 #[tokio::test]
 async fn a_loop_stops_when_the_budget_has_no_tool_call_left() {
     let lab = open(vec![
@@ -537,7 +538,7 @@ async fn a_loop_stops_when_the_budget_has_no_tool_call_left() {
     std::fs::write(project(lab.dir.path()).join("notes.txt"), "alpha\n").expect("notes");
     lab.session
         .budget()
-        .set(BudgetLimits {
+        .set_standing(BudgetLimits {
             tool_calls: Some(1),
             ..BudgetLimits::default()
         })

@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use eukhe_bend::rules::budget::{Acct, Hold};
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources, RunKind, RunLimits,
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources, PlanShare, RunKind,
+    RunLimits,
 };
 use serde::{Deserialize, Serialize};
 
@@ -180,6 +181,13 @@ pub struct RunRecord {
     /// create config, the SDK); each run fills from it.
     #[serde(skip_serializing_if = "RunLimits::is_unset")]
     pub standing: RunLimits,
+    /// What the principal set for this run only (`/budget set`, `/b`
+    /// pairs); a later set of the run goes over it.
+    #[serde(skip_serializing_if = "RunLimits::is_unset")]
+    pub asked: RunLimits,
+    /// The run's `/b` presets, in order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub presets: Vec<String>,
 }
 
 /// An operation on an account: the facts the core decided on.
@@ -205,14 +213,22 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<RunRecord>,
     },
-    /// A new run of a root account: its own limits from now (`time_ms`: a
-    /// deadline that long from `now_ms`), what is free being the limits
-    /// less what is still held and lent; spend starts over.
+    /// A run of a root account gets its limits (`time_ms`: a deadline
+    /// that long from `now_ms`; none: no deadline), counting what it used
+    /// since `mark` (the account's spend when the run started), what is
+    /// held and lent: a new run marks the spend so far, a run whose limits
+    /// the principal sets keeps its mark and `program_runs`.
     Renew {
         limits: BudgetLimits,
         run: RunRecord,
         now_ms: u64,
+        #[serde(default, skip_serializing_if = "BudgetAmounts::is_zero")]
+        mark: BudgetAmounts,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        program_runs: u64,
     },
+    /// The agent's run reached its share of a plan's quota: it wraps up.
+    PlanWrap { agent: String, plan: PlanShare },
     /// A child without a budget of its own draws from this account, below
     /// `parent`.
     Join { agent: String, parent: String },
@@ -336,12 +352,19 @@ pub struct State {
     /// were recorded (it counts no spend without a limit).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<RunRecord>,
-    /// What the run spent in each dimension without a limit (time: 0).
+    /// What the account spent in each dimension without a limit (time: 0).
     #[serde(skip_serializing_if = "BudgetAmounts::is_zero")]
     pub tally: BudgetAmounts,
+    /// The account's spend (counted and tallied) when its run started:
+    /// the run's spend is what was spent since.
+    #[serde(skip_serializing_if = "BudgetAmounts::is_zero")]
+    pub mark: BudgetAmounts,
     /// The tool calls of the run that run a program, as granted.
     #[serde(skip_serializing_if = "is_zero")]
     pub program_runs: u64,
+    /// The plan share the run ended at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanShare>,
 }
 
 /// One line of a ledger file.

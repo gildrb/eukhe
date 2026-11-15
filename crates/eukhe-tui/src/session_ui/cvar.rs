@@ -128,6 +128,10 @@ impl SessionUi {
                 if let Some(secs) = value_of("terminal.stuckAfterSecs").and_then(Value::as_u64) {
                     view.stuck_after_secs = secs;
                 }
+                // The status line's `limits on` follows `budget.limits`.
+                if let Some(mode) = value_of("budget.limits").and_then(Value::as_str) {
+                    view.chrome.limits_on = mode == "on";
+                }
                 let shown = parse_list(line)
                     .ok()
                     .and_then(|commands| match commands.as_slice() {

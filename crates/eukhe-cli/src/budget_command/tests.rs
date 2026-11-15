@@ -102,10 +102,11 @@ fn bad_invocations_name_what_is_wrong() {
 }
 
 /// On the ledger file: the daemon's account has no budget until `set`
-/// gives it one; `add` raises it; `show` reads it; `audit` replays its
-/// records exactly; a second `set` is refused with the ledger's message.
+/// gives it one; a second `set` replaces the run's limit from what is
+/// free; `add` raises it; `show` reads it; `audit` replays its records
+/// exactly. Each limit is the principal's: its source is `set`.
 #[test]
-fn the_daemon_account_is_set_added_to_shown_and_audited_on_its_ledger() {
+fn the_daemon_account_is_set_reset_added_to_shown_and_audited_on_its_ledger() {
     let dir = tempfile::tempdir().expect("tempdir");
     let tokens = |tokens| BudgetLimits {
         tokens: Some(tokens),
@@ -130,6 +131,11 @@ fn the_daemon_account_is_set_added_to_shown_and_audited_on_its_ledger() {
             tokens: limit,
             ..BudgetAmounts::default()
         },
+        kind: Some(eukhe_types::budget::RunKind::Interactive),
+        sources: eukhe_types::budget::BudgetSources {
+            tokens: eukhe_types::budget::LimitSource::Set,
+            ..eukhe_types::budget::BudgetSources::default()
+        },
         ..BudgetReport::default()
     };
     assert_eq!(
@@ -137,11 +143,11 @@ fn the_daemon_account_is_set_added_to_shown_and_audited_on_its_ledger() {
         (
             Ok(Answer::Report(None)),
             Ok(Answer::Report(Some(report(100_000)))),
-            Err("budget account daemon: session daemon already has a budget".to_string()),
-            Ok(Answer::Report(Some(report(125_000)))),
-            Ok(Answer::Report(Some(report(125_000)))),
+            Ok(Answer::Report(Some(report(5)))),
+            Ok(Answer::Report(Some(report(25_005)))),
+            Ok(Answer::Report(Some(report(25_005)))),
             Ok(Answer::Audit(BudgetAudit {
-                records: 2,
+                records: 3,
                 settled: BudgetAmounts::default(),
                 spent: BudgetAmounts::default(),
                 exact: true,
@@ -176,7 +182,7 @@ fn answers_print_under_the_accounts_name() {
             render(&show(Output::Json), &Answer::Report(None)),
         ],
         [
-            "daemon: budget: 3/30 req".to_string(),
+            "daemon: budget: 3/30 requests (set)".to_string(),
             "daemon: no budget set".to_string(),
             json!({ "account": "daemon", "budget": null }).to_string(),
         ]

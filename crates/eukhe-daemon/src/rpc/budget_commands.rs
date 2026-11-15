@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use eukhe_core::durable::budget::{BudgetError, BudgetGate};
-use eukhe_types::budget::{BudgetAmounts, BudgetLimits};
+use eukhe_core::durable::budget::BudgetGate;
+use eukhe_types::budget::{BudgetAmounts, RunLimits};
 use eukhe_types::daemon::{BudgetAudit, BudgetAuditReply, BudgetReply};
 use serde_json::Value;
 
@@ -22,24 +22,24 @@ use super::protocol::ResponseData;
 /// The ledger read did not finish.
 pub(crate) async fn get_budget(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     reply(state, |gate| {
-        Ok(BudgetReply {
+        Ok::<_, eukhe_core::durable::budget::BudgetError>(BudgetReply {
             budget: gate.report(),
         })
     })
     .await
 }
 
-/// `set_budget { limits }`: the budget of a session that has none.
+/// `set_budget { limits }`: the limits of the session's current run, a
+/// number or `unlimited` per dimension.
 ///
 /// # Errors
 ///
-/// A missing `limits`, the ledger's refusal (the session has a budget:
-/// add to it) or failure.
+/// A missing `limits`, the ledger's refusal or failure.
 pub(crate) async fn set_budget(
     state: &Arc<RpcState>,
     payload: &Value,
 ) -> Result<ResponseData, RpcCommandError> {
-    let limits: BudgetLimits = field("set_budget", payload, "limits")?;
+    let limits: RunLimits = field("set_budget", payload, "limits")?;
     reply(state, move |gate| {
         gate.set(limits).map(|report| BudgetReply {
             budget: Some(report),
@@ -90,10 +90,13 @@ pub(crate) async fn audit_budget(state: &Arc<RpcState>) -> Result<ResponseData, 
 
 /// What `call` reads from or does to the live session's budget, on the
 /// blocking pool (ledger file IO), as the response data.
-async fn reply<T: serde::Serialize + Send + 'static>(
+async fn reply<T: serde::Serialize + Send + 'static, E: Send + 'static>(
     state: &Arc<RpcState>,
-    call: impl FnOnce(&BudgetGate) -> Result<T, BudgetError> + Send + 'static,
-) -> Result<ResponseData, RpcCommandError> {
+    call: impl FnOnce(&BudgetGate) -> Result<T, E> + Send + 'static,
+) -> Result<ResponseData, RpcCommandError>
+where
+    RpcCommandError: From<E>,
+{
     let gate = state.session.session().await.budget();
     let reply = tokio::task::spawn_blocking(move || call(&gate)).await??;
     Ok(ResponseData::Present(serde_json::to_value(reply)?))

@@ -55,6 +55,7 @@ use eukhe_types::pi_ai::{
 use futures::StreamExt as _;
 
 use super::notices::{self, NoticeKind};
+use super::runs::{Checked, SeenModel};
 use super::{BudgetGate, Held};
 use crate::durable::rlm::now_millis;
 
@@ -190,8 +191,9 @@ pub(super) fn offers(
 /// What a request that failed after its provider started answering spent:
 /// the usage the provider reported, its output never below the real-token
 /// count of what streamed (`streamed`), the part past the reported output
-/// at its worst price; `full` (the whole reservation) when the provider
-/// reported nothing.
+/// at its worst price; `full` (the whole reservation) and its one request
+/// when the provider reported nothing (the ledger holds no request in an
+/// unlimited dimension, whose spend is still counted: B15).
 pub(super) fn failed_spend(
     cost: &ModelCost,
     tokenizer: &Tokenizer,
@@ -205,7 +207,10 @@ pub(super) fn failed_spend(
         && reported.cache_write == 0
         && reported.cost.total <= 0.0;
     if nothing {
-        return full;
+        return BudgetAmounts {
+            requests: 1,
+            ..full
+        };
     }
     let counted = message_tokens(tokenizer, &Message::Assistant(streamed.clone()));
     let missing = counted.saturating_sub(reported.output);
@@ -844,6 +849,39 @@ impl<O: GatedOptions> Request<O> {
                 .collect();
             (Use::Side, self.gate.keep(), side)
         };
+        if agent_turn {
+            let gate = Arc::clone(&self.gate);
+            let seen = SeenModel {
+                provider: model.provider.clone(),
+                priced: model.cost.input > 0.0 || model.cost.output > 0.0,
+            };
+            let first = offered.last().copied().unwrap_or_default();
+            let checked =
+                tokio::task::spawn_blocking(move || gate.check_work(&seen, first, keep)).await;
+            match checked {
+                Err(error) => {
+                    let error = self.gate.task_failed(error);
+                    return self.refuse(notices::ledger_failed("the request was not sent", &error));
+                }
+                Ok(Err(error)) => {
+                    return self.refuse(notices::ledger_failed("the request was not sent", &error));
+                }
+                Ok(Ok(Checked::Go)) => {}
+                Ok(Ok(Checked::Floor(text))) => return self.refuse(text),
+                Ok(Ok(Checked::Plan(plan))) => {
+                    let finale = Finale {
+                        input,
+                        target,
+                        again: None,
+                    };
+                    return self
+                        .final_answer(context, options, &tokenizer, finale, Opened::No, |cap| {
+                            notices::plan_wrap_text(&plan, cap)
+                        })
+                        .await;
+                }
+            }
+        }
         // What an agent turn asks again when it is stopped at a granted
         // time the deadline cut.
         let asked = agent_turn.then(|| offered.clone());
@@ -870,8 +908,11 @@ impl<O: GatedOptions> Request<O> {
             })) => {
                 options.stream_mut().max_tokens = Some(caps[reservation.index]);
                 if agent_turn {
-                    self.gate
-                        .tell(NoticeKind::Set, &report, || notices::set_text(&report));
+                    // A run without limits tells the agent nothing.
+                    if !report.limits.is_unlimited() {
+                        self.gate
+                            .tell(NoticeKind::Set, &report, || notices::set_text(&report));
+                    }
                     if reservation.low {
                         let keep = self.gate.keep();
                         self.gate.tell(NoticeKind::Low, &report, || {

@@ -77,6 +77,10 @@ enum HeadlessModeError {
     /// finish.
     #[error("the session's budget could not be read: {0}")]
     BudgetReport(#[source] tokio::task::JoinError),
+    /// The `-p` run did not start: its limits did not fill (a
+    /// `budget.profile` that is no limit, the ledger's failure).
+    #[error("the run's budget could not be set: {0}")]
+    RunStart(#[source] eukhe_core::durable::budget::RunError),
     /// The session resolved no model: a run with prompts must fail loudly.
     #[error(
         "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
@@ -623,9 +627,11 @@ async fn run_exit(
     watch.finish().await;
     // The session's budget as the run leaves it: one stderr line in both
     // modes, and in json mode the report as the stream's last
-    // `budget_update`. The budget ended the run after the agent's final
-    // answer when its phase left work and that answer, from the reserve,
-    // is the agent's last delivered reply.
+    // `budget_update`, when the run has a limit or the budget ended or
+    // refused it; a run until finished keeps stderr and the TS stream as
+    // they were. The budget ended the run after the agent's final answer
+    // when its phase left work and that answer, from the reserve, is the
+    // agent's last delivered reply.
     let gate = session.budget();
     let (budget, final_answer) =
         tokio::task::spawn_blocking(move || (gate.report(), gate.final_answer_delivered()))
@@ -653,9 +659,16 @@ async fn run_exit(
         | ExitCause::AutonomousFailed
         | ExitCause::BudgetUnanswered => None,
     };
-    if let Some(report) = budget {
+    let refused = facts.primary == Primary::BudgetRefused
+        || matches!(
+            exit.cause,
+            ExitCause::BudgetLimited | ExitCause::BudgetUnanswered
+        );
+    if let Some(report) = budget.filter(|report| {
+        refused || !report.limits.is_unlimited() || !matches!(report.phase, BudgetPhase::Working)
+    }) {
         let detail =
-            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms(), " · ");
+            eukhe_tui::budget_text::report_detail(&report, eukhe_tui::budget_text::now_ms());
         match state {
             Some(state) => eprintln!("{detail} · {state}"),
             None => eprintln!("{detail}"),
@@ -717,6 +730,38 @@ async fn drive_prompts(
     let harness = session.harness();
     let config = &options.config;
     let quiescent = || wait_quiescent(opened, watch, config.wait_limit, cx);
+    // The `-p` invocation is one headless run: its limits fill now (the
+    // `--budget-*` flags were set as the session's standing limits).
+    let gate = session.budget();
+    tokio::task::spawn_blocking(move || {
+        gate.start_run(eukhe_core::durable::budget::RunStart {
+            kind: eukhe_types::budget::RunKind::Headless,
+            ..eukhe_core::durable::budget::RunStart::default()
+        })
+    })
+    .await
+    .map_err(HeadlessModeError::BudgetReport)?
+    .map_err(HeadlessModeError::RunStart)?;
+    // With limits off, a plan window past the reserve line is told once on
+    // stderr; the run continues.
+    let mut notices = session.budget().plan_notices();
+    tokio::spawn(async move {
+        loop {
+            match notices.recv().await {
+                Ok(notice) => eprintln!(
+                    "{}",
+                    eukhe_daemon::limits_text::plan_usage_line(
+                        &notice.window,
+                        notice.reserve_percent,
+                        eukhe_tui::budget_text::now_ms(),
+                        &eukhe_daemon::limits_text::local_clock,
+                    )
+                ),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    });
     // The CLI autonomous flags enable the run on the main conversation (no
     // status row, as TS `createAgentSession({ autonomous })`) with its own
     // limits; a run without flags keeps the session's state

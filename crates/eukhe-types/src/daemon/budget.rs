@@ -1,8 +1,9 @@
 //! The budget on the daemon wire (Rust-native): the `get_budget`,
 //! `set_budget` and `add_budget` commands answer a [`BudgetReply`],
-//! `audit_budget` a [`BudgetAuditReply`]; the `budget_update` session event
-//! and the attach snapshot's `state.budget` carry the same
-//! [`BudgetReport`]. The budget's own vocabulary is `crate::budget`.
+//! `audit_budget` a [`BudgetAuditReply`], `set_budget_limits` a
+//! [`BudgetLimitsReply`]; the `budget_update` session event and the attach
+//! snapshot's `state.budget` carry the same [`BudgetReport`]. The budget's
+//! own vocabulary is `crate::budget`.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,13 @@ use crate::budget::{BudgetAmounts, BudgetReport};
 pub struct BudgetReply {
     /// The session's budget; `null` for a session without one.
     pub budget: Option<BudgetReport>,
+}
+
+/// The `set_budget_limits` response data: the line the toggle answers
+/// with (`Limits on: ...`, `Limits off: ...`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BudgetLimitsReply {
+    pub text: String,
 }
 
 /// The `audit_budget` response data.
@@ -45,7 +53,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::budget::BudgetLimits;
+    use crate::budget::{BudgetLimits, LimitValue, RunLimits};
     use crate::daemon::{rt, DaemonCommand, SessionEvent};
     use crate::JsonMap;
 
@@ -113,16 +121,25 @@ mod tests {
                 json!({
                     "type": "set_budget",
                     "activeSessionId": "s1",
-                    "limits": { "costMicros": 5_000_000, "timeMs": 600_000 },
+                    "limits": { "costMicros": 5_000_000, "timeMs": "unlimited" },
                 }),
                 DaemonCommand::SetBudget {
                     id: None,
                     active_session_id: session(),
-                    limits: BudgetLimits {
-                        cost_micros: Some(5_000_000),
-                        time_ms: Some(600_000),
-                        ..BudgetLimits::default()
+                    limits: RunLimits {
+                        cost_micros: Some(LimitValue::At(5_000_000)),
+                        time_ms: Some(LimitValue::Unlimited),
+                        ..RunLimits::default()
                     },
+                    rest: JsonMap::default(),
+                },
+            ),
+            (
+                json!({ "type": "set_budget_limits", "activeSessionId": "s1", "on": true }),
+                DaemonCommand::SetBudgetLimits {
+                    id: None,
+                    active_session_id: session(),
+                    on: true,
                     rest: JsonMap::default(),
                 },
             ),

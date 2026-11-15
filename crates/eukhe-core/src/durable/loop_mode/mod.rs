@@ -140,6 +140,12 @@ pub enum LoopCommandError {
     /// The session failed to read, commit or submit.
     #[error(transparent)]
     Session(#[from] SessionError),
+    /// The loop's run did not start (its limits did not fill).
+    #[error(transparent)]
+    Budget(#[from] crate::durable::budget::RunError),
+    /// The run's start on the blocking pool did not finish.
+    #[error("the budget ledger call did not finish: {0}")]
+    BudgetTask(#[from] tokio::task::JoinError),
 }
 
 /// Withdraw the queued iterations of the loop: a loop that ended or
@@ -213,6 +219,7 @@ pub(crate) async fn execute_loop_command(
             }
         }
     };
+    let entering = matches!(input, Input::Enter { .. });
     let facts = host
         .facts(&harness, conversation.id(), Mode::Idle, cx)
         .await?;
@@ -220,6 +227,18 @@ pub(crate) async fn execute_loop_command(
     let rested = act == LoopAct::Rest;
     match act {
         LoopAct::Submit { iteration, text } => {
+            // A loop that starts is one run: its limits fill for the
+            // whole loop.
+            if entering {
+                let gate = Arc::clone(&deps.budget);
+                tokio::task::spawn_blocking(move || {
+                    gate.start_run(crate::durable::budget::RunStart {
+                        kind: eukhe_types::budget::RunKind::Loop,
+                        ..crate::durable::budget::RunStart::default()
+                    })
+                })
+                .await??;
+            }
             host.start(conversation, &doc, iteration, text, cx).await?;
         }
         LoopAct::Report(_) => {

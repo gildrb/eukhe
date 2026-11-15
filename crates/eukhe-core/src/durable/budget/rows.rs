@@ -33,7 +33,8 @@ use crate::durable::rlm::now_millis;
 const CLASSIFY_OUTPUT_CAP: u64 = 1024;
 
 /// The stream of one chat request of `gate`'s agent: `inner`'s own stream
-/// when the session has no budget (one `stat`), else the gated request's.
+/// when the gate starts no runs and the session has no budget (one
+/// `stat`), else the gated request's.
 /// Must be called inside a tokio runtime (the provider contract runs every
 /// request on one).
 fn gated<O: GatedOptions>(
@@ -43,9 +44,13 @@ fn gated<O: GatedOptions>(
     context: &TranscriptContext,
     options: O,
 ) -> AssistantMessageEventStream {
-    if !gate.ledger.exists() {
+    if !gate.fills_runs() && !gate.ledger.exists() {
         return inner(model, context, options);
     }
+    gate.saw(super::runs::SeenModel {
+        provider: model.provider.clone(),
+        priced: model.cost.input > 0.0 || model.cost.output > 0.0,
+    });
     let outer = AssistantMessageEventStream::new();
     let request = Request {
         gate: Arc::clone(gate),

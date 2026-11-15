@@ -166,6 +166,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "resolve_unknown_effect",
     "get_budget",
     "set_budget",
+    "set_budget_limits",
     "add_budget",
     "audit_budget",
     "set_acceptance",
@@ -738,6 +739,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::SetBudget {
             active_session_id, ..
         }
+        | DaemonCommand::SetBudgetLimits {
+            active_session_id, ..
+        }
         | DaemonCommand::AddBudget {
             active_session_id, ..
         }
@@ -1079,6 +1083,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetSessionStats { .. } => "get_session_stats",
         DaemonCommand::GetBudget { .. } => "get_budget",
         DaemonCommand::SetBudget { .. } => "set_budget",
+        DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",

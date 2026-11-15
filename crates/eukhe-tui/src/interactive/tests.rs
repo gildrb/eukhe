@@ -173,9 +173,9 @@ fn create_config_binds_a_new_child_to_its_parent() {
 #[test]
 fn create_config_carries_the_budget_of_a_root_session_only() {
     let mut opts = options(ModelSelection::default());
-    opts.budget = Some(eukhe_types::budget::BudgetLimits {
-        cost_micros: Some(2_000_000),
-        tool_calls: Some(50),
+    opts.budget = Some(eukhe_types::budget::RunLimits {
+        cost_micros: Some(eukhe_types::budget::LimitValue::At(2_000_000)),
+        tool_calls: Some(eukhe_types::budget::LimitValue::At(50)),
         ..Default::default()
     });
     let root = opts.create_config();

@@ -308,7 +308,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         },
     ));
     super::jobs::install(&deps);
-    budget::install(&deps);
+    budget::install(&deps, config.run_kind);
     // The budget rides INNERMOST, under provider admission: a request
     // reserves when it is about to reach its provider, holding its slot,
     // and every failover re-dispatch and retry reserves again. A provider

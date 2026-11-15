@@ -130,6 +130,9 @@ pub enum TurnUpdate {
     /// settlement, added budget, a phase change); `None` is no budget.
     /// Moves the status line's budget segment only.
     BudgetUpdate(Option<Box<eukhe_types::budget::BudgetReport>>),
+    /// `plan_usage`: with limits off, a plan window passed the reserve
+    /// line; the notice row (the run continues).
+    PlanUsage(String),
     /// `acceptance_update`: the acceptance of the session's task changed
     /// (its checks, a verdict, a claim, the label); the status line's
     /// verification segment shows it.
@@ -375,6 +378,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::BudgetUpdate { budget } => {
             TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
         }
+        SessionEvent::PlanUsage { text, .. } => TurnUpdate::PlanUsage(text.clone()),
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

@@ -6,7 +6,9 @@
 use std::time::Duration;
 
 use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
-use eukhe_sdk::budget::{BudgetAmounts, BudgetLimits, BudgetReport};
+use eukhe_sdk::budget::{
+    BudgetAmounts, BudgetLimits, BudgetReport, BudgetSources, LimitSource, RunKind,
+};
 use eukhe_sdk::context::BACKGROUND_CONTEXT;
 use eukhe_sdk::{
     add_budget, audit_budget, available_models, budget_report, new_session_id, open_session,
@@ -45,7 +47,7 @@ async fn a_host_opens_a_session_prompts_it_and_reads_its_events() {
     let session = open_session(config, cx).await.unwrap();
     let conversation = session.main();
     let mut events = watch(&session, &conversation, cx).await.unwrap();
-    prompt(&conversation, "hi", cx).await.unwrap();
+    prompt(&session, &conversation, "hi", cx).await.unwrap();
     events.delivered().await;
     events.stop().await;
 
@@ -88,9 +90,9 @@ async fn a_host_opens_a_session_prompts_it_and_reads_its_events() {
 }
 
 /// A budget set through the facade is the session's: it reads back with
-/// its limits free, its change reaches the watch, a second set is refused
-/// with the ledger's message, added budget raises it, and its ledger
-/// replays exactly (B1, B6, B8, B9).
+/// its limits free as the principal's for an SDK run, its change reaches
+/// the watch, a second set replaces it, added budget raises it, and its
+/// ledger replays exactly (B1, B6, B8, B9, B15, B19).
 #[tokio::test]
 async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
     let cx = &*BACKGROUND_CONTEXT;
@@ -129,10 +131,7 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
         .expect("the set budget reaches the watch")
         .unwrap();
     let watched = changes.borrow_and_update().clone();
-    let again = set_budget(&session, limits(7))
-        .await
-        .unwrap_err()
-        .to_string();
+    let again = set_budget(&session, limits(7)).await.unwrap();
     let added = add_budget(&session, amounts(25_000)).await.unwrap();
     let read = budget_report(&session).await.unwrap();
     let audit = audit_budget(&session).await.unwrap();
@@ -143,6 +142,11 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
         agent_session_id: session_id.clone(),
         limits: limits(tokens),
         free: amounts(tokens),
+        kind: Some(RunKind::Sdk),
+        sources: BudgetSources {
+            tokens: LimitSource::Set,
+            ..BudgetSources::default()
+        },
         ..BudgetReport::default()
     };
     assert_eq!(
@@ -151,11 +155,11 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
             None,
             report(100_000),
             Some(report(100_000)),
-            format!("session {session_id} already has a budget"),
-            report(125_000),
-            Some(report(125_000)),
+            report(7),
+            report(25_007),
+            Some(report(25_007)),
             BudgetAudit {
-                records: 2,
+                records: 3,
                 settled: BudgetAmounts::default(),
                 spent: BudgetAmounts::default(),
                 exact: true,

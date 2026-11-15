@@ -6,13 +6,12 @@
 //! line's budget segment, like every `budget_update` after it.
 use super::{AgentView, DaemonCommand, Duration, Map, SessionUi, Value, UI_REQUEST_TIMEOUT_MS};
 use crate::budget_text;
-use crate::glyphs::SEP;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
-use eukhe_types::daemon::BudgetAudit;
+use eukhe_types::daemon::{BudgetAudit, BudgetLimitsReply};
 use serde::Deserialize;
 
 /// What a `/budget` line the command does not read is answered with.
-const USAGE: &str = "Usage: /budget [set|add cost=<dollars> tokens=<n> time=<duration> calls=<n> requests=<n> | audit]";
+const USAGE: &str = "Usage: /budget [on|off | set|add cost=<dollars> tokens=<n> time=<duration> calls=<n> requests=<n> | audit]";
 
 impl SessionUi {
     /// `/budget`: the report line, or `no budget set`. `/budget set
@@ -32,39 +31,52 @@ impl SessionUi {
             .split_once(char::is_whitespace)
             .map_or((args, ""), |(verb, words)| (verb, words.trim()));
         let active_session_id = self.active_session_id.clone();
-        let command = match (verb, budget_text::parse_assignments(words)) {
-            ("", _) => DaemonCommand::GetBudget {
+        let command = match verb {
+            "" => DaemonCommand::GetBudget {
                 id: None,
                 active_session_id,
                 rest: Map::default(),
             },
-            ("audit", _) if words.is_empty() => DaemonCommand::AuditBudget {
+            "audit" if words.is_empty() => DaemonCommand::AuditBudget {
                 id: None,
                 active_session_id,
                 rest: Map::default(),
             },
-            ("set", Ok(limits)) => DaemonCommand::SetBudget {
-                id: None,
-                active_session_id,
-                limits,
-                rest: Map::default(),
-            },
-            ("add", Ok(limits)) => DaemonCommand::AddBudget {
-                id: None,
-                active_session_id,
-                amounts: BudgetDimension::ALL.into_iter().fold(
-                    BudgetAmounts::default(),
-                    |amounts, dimension| {
-                        amounts.with(dimension, limits.get(dimension).unwrap_or(0))
-                    },
-                ),
-                rest: Map::default(),
-            },
-            ("set" | "add", Err(error)) => {
-                view.editor.set_text(text);
-                self.error_row(&error.to_string(), view);
+            "on" | "off" if words.is_empty() => {
+                self.set_limits(verb == "on", view).await;
                 return;
             }
+            "set" => match budget_text::parse_limits(words) {
+                Ok(limits) => DaemonCommand::SetBudget {
+                    id: None,
+                    active_session_id,
+                    limits,
+                    rest: Map::default(),
+                },
+                Err(error) => {
+                    view.editor.set_text(text);
+                    self.error_row(&error.to_string(), view);
+                    return;
+                }
+            },
+            "add" => match budget_text::parse_assignments(words) {
+                Ok(limits) => DaemonCommand::AddBudget {
+                    id: None,
+                    active_session_id,
+                    amounts: BudgetDimension::ALL.into_iter().fold(
+                        BudgetAmounts::default(),
+                        |amounts, dimension| {
+                            amounts.with(dimension, limits.get(dimension).unwrap_or(0))
+                        },
+                    ),
+                    rest: Map::default(),
+                },
+                Err(error) => {
+                    view.editor.set_text(text);
+                    self.error_row(&error.to_string(), view);
+                    return;
+                }
+            },
             _ => {
                 view.editor.set_text(text);
                 self.error_row(USAGE, view);
@@ -101,11 +113,41 @@ impl SessionUi {
             Ok(report) => {
                 let line = report.as_ref().map_or_else(
                     || "no budget set".to_string(),
-                    |report| budget_text::report_detail(report, budget_text::now_ms(), SEP),
+                    |report| budget_text::report_detail(report, budget_text::now_ms()),
                 );
                 self.budget = report;
                 view.chrome.budget.clone_from(&self.budget);
                 self.note(&line, view);
+            }
+            Err(error) => {
+                self.error_row(&format!("the budget reply does not read: {error}"), view);
+            }
+        }
+    }
+
+    /// `/budget on` and `/budget off`: the daemon writes `budget.limits`
+    /// and answers the line of the toggle; the status line follows.
+    async fn set_limits(&mut self, on: bool, view: &mut AgentView) {
+        let command = DaemonCommand::SetBudgetLimits {
+            id: None,
+            active_session_id: self.active_session_id.clone(),
+            on,
+            rest: Map::default(),
+        };
+        let data = match self
+            .bounded_request(Duration::from_millis(UI_REQUEST_TIMEOUT_MS), command)
+            .await
+        {
+            Ok(data) => data,
+            Err(error) => {
+                self.error_row(&format!("{error:#}"), view);
+                return;
+            }
+        };
+        match BudgetLimitsReply::deserialize(&data) {
+            Ok(reply) => {
+                view.chrome.limits_on = on;
+                self.note(&reply.text, view);
             }
             Err(error) => {
                 self.error_row(&format!("the budget reply does not read: {error}"), view);

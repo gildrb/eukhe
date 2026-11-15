@@ -42,6 +42,7 @@ fn run(kind: RunKind) -> RunRecord {
             cost_micros: Some(LimitValue::Unlimited),
             ..RunLimits::default()
         },
+        ..RunRecord::default()
     }
 }
 
@@ -135,13 +136,19 @@ fn a_run_opens_the_account_and_the_next_run_renews_it() {
         Some(run(RunKind::Scheduled)),
         "the run and what the principal set for every run are recorded"
     );
-    // The file replays; the new run's spend starts at zero.
+    // The file replays. The new run's spend starts at zero (`renewed`), the
+    // account keeps what was spent (B19): the request in the limited
+    // dimension, money and tokens in the tally of what no limit counts.
+    let kept = BudgetAmounts {
+        requests: 1,
+        ..BudgetAmounts::default()
+    };
     assert_eq!(
         ledger.audit().unwrap(),
         Audit {
             records: 4,
-            settled: BudgetAmounts::default(),
-            spent: BudgetAmounts::default(),
+            settled: kept,
+            spent: kept,
             first_mismatch: None,
         }
     );

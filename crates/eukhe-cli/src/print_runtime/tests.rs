@@ -363,8 +363,10 @@ async fn close(opened: HeadlessSession) {
 /// a job still running when the wait ends at the time budget's deadline,
 /// exits 0 as budget-limited: the budget ended it, after its answer.
 /// Before, the wait's end at the deadline was a give-up: exit 1. The
-/// budget of two requests holds the first turn's work and a final answer:
-/// the second turn no longer fits as work and is sent as the final answer.
+/// budget of two requests, the session's standing limit as the
+/// `--budget-*` flags set it, holds the first turn's work and a final
+/// answer: the second turn no longer fits as work and is sent as the final
+/// answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_final_answer_with_a_job_running_at_the_budget_deadline_exits_zero() {
     let dir = tempfile::TempDir::new().expect("tempdir");
@@ -386,7 +388,7 @@ async fn a_final_answer_with_a_job_running_at_the_budget_deadline_exits_zero() {
     let (session, provider) = faux_session(dir.path(), &script, SessionStorage::Memory).await;
     session
         .budget()
-        .set(eukhe_types::budget::BudgetLimits {
+        .set_standing(eukhe_types::budget::BudgetLimits {
             requests: Some(2),
             ..eukhe_types::budget::BudgetLimits::default()
         })

@@ -259,6 +259,7 @@ impl WorkerPane {
             | TurnUpdate::UnknownEffectsUpdate(_)
             | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::BudgetUpdate(_)
+            | TurnUpdate::PlanUsage(_)
             | TurnUpdate::AcceptanceUpdate(_)
             | TurnUpdate::QueueUpdated(_)
             | TurnUpdate::BashStart { .. }

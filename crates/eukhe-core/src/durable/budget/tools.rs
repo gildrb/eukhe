@@ -9,7 +9,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eukhe_budget::{Reserved, Use, TOOL_MIN_MS};
+use eukhe_budget::{Reserved, Use, PROGRAM_LABEL, TOOL_MIN_MS};
 use eukhe_chord::context::{with_cancel, Context};
 use eukhe_durable::harness::types::{ToolExecute, ToolExecutionResult};
 use eukhe_types::budget::BudgetAmounts;
@@ -123,12 +123,18 @@ impl BudgetGate {
 
     /// `execute` of the tool `name` behind the gate
     /// ([`Self::gated_call`]); a call the gate refuses or stops returns its
-    /// tool error.
+    /// tool error. A call of `bash` or `python` runs a program: the run
+    /// counts it.
     pub(crate) fn wrap_tool(self: &Arc<Self>, name: &str, execute: ToolExecute) -> ToolExecute {
         let gate = Arc::clone(self);
-        let label = format!("tool:{name}");
+        let label = match name {
+            "bash" | crate::durable::rlm::PYTHON_TOOL_NAME => {
+                format!("{PROGRAM_LABEL}{name}")
+            }
+            _ => format!("tool:{name}"),
+        };
         Arc::new(move |args, api, cx| {
-            if !gate.ledger.exists() {
+            if !gate.fills_runs() && !gate.ledger.exists() {
                 return execute(args, api, cx);
             }
             let gate = Arc::clone(&gate);

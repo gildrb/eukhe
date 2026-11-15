@@ -79,6 +79,7 @@ impl Worker {
             "get_session_stats" => self.handle_get_session_stats(),
             "get_budget" => self.handle_get_budget().await,
             "set_budget" => self.handle_set_budget(payload).await,
+            "set_budget_limits" => self.handle_set_budget_limits(payload).await,
             "add_budget" => self.handle_add_budget(payload).await,
             "audit_budget" => self.handle_audit_budget().await,
             "get_model_catalog" => self.handle_get_model_catalog(),

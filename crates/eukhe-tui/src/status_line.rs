@@ -97,6 +97,10 @@ pub fn render_status_line(
     if let Some(cost) = state.cost_usd.filter(|cost| *cost > 0.0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("${cost:.2}"))]);
     }
+    // `limits on` while the principal's limits toggle is on.
+    if state.limits_on {
+        segments.push(vec![theme.fg(ThemeColor::Dim, "limits on")]);
+    }
     // The budget beside the spend: dim while it admits work, the warning
     // tone once only a final answer is left, the error tone when nothing
     // is. Its time reads what is left at this paint.
@@ -108,11 +112,7 @@ pub fn render_status_line(
         };
         segments.push(vec![theme.fg(
             tone,
-            crate::budget_text::report_line(
-                budget,
-                crate::budget_text::now_ms(),
-                crate::glyphs::SEP,
-            ),
+            crate::budget_text::status_text(budget, crate::budget_text::now_ms()),
         )]);
     }
     if let Some(depth) = state.tray_depth.filter(|depth| *depth > 0) {

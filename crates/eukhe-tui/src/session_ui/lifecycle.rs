@@ -95,6 +95,16 @@ impl SessionUi {
             speed_stats: None,
             speed_clock: crate::gen_speed::SpeedClock::default(),
             client_settings: options.client_settings.clone(),
+            budget_presets: crate::budget_text::SHIPPED_PRESETS
+                .iter()
+                .map(|name| (*name).to_owned())
+                .chain(
+                    options
+                        .client_settings
+                        .iter()
+                        .flat_map(|settings| settings.budget_preset_names()),
+                )
+                .collect(),
             anthropic_subscription_warning_shown: false,
             anthropic_warning_mark_pending: std::sync::Arc::default(),
             active_side_question_id: None,
@@ -224,13 +234,10 @@ impl SessionUi {
             .attach_session(&active_session_id, DockFold::FirstFrame)
             .await
             .with_context(|| format!("attaching session {active_session_id}"))?;
-        // `--budget-*` on an attach: no create carries the limits, so a
-        // session without a budget gets them here (its `budget_update`
-        // moves the status line); one that has a budget keeps its own,
-        // as a reopened session does.
-        if let (SessionSelection::Attach(_), Some(limits), None) =
-            (&options.session, options.budget, &session.budget)
-        {
+        // `--budget-*` on an attach: no create carries the limits, so they
+        // become the limits of the session's current run (its
+        // `budget_update` moves the status line).
+        if let (SessionSelection::Attach(_), Some(limits)) = (&options.session, options.budget) {
             session
                 .bounded_request(
                     Duration::from_millis(UI_REQUEST_TIMEOUT_MS),

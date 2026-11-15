@@ -1,4 +1,5 @@
 use super::*;
+use eukhe_types::budget::{BudgetSources, RunKind};
 
 fn parse(dimension: BudgetDimension, text: &str) -> Result<u64, String> {
     parse_amount(dimension, "--flag", text).map_err(|error| error.to_string())
@@ -242,12 +243,15 @@ fn report(phase: BudgetPhase, short: Option<BudgetDimension>) -> BudgetReport {
         kind: None,
         sources: eukhe_types::budget::BudgetSources::default(),
         program_runs: 0,
+        plan: None,
     }
 }
 
 /// The line in each phase, with and without an overrun, with only some
 /// dimensions limited, and as time passes: time reads what is left until
-/// the deadline at the moment the line is made, 0 once it passed.
+/// the deadline at the moment the line is made, 0 once it passed. A
+/// report of a ledger written before runs were recorded (no kind) reads
+/// every limit as set.
 #[test]
 fn the_report_line_names_use_time_left_phase_and_overrun() {
     let overrun = BudgetReport {
@@ -271,36 +275,200 @@ fn the_report_line_names_use_time_left_phase_and_overrun() {
         ..report(BudgetPhase::WrapUp, Some(BudgetDimension::Tokens))
     };
     let working = report(BudgetPhase::Working, None);
+    let all = "3/30 requests, 12/50 tool calls, 6m 50s left, $0.42/$2.00, 31.0k/200k tok (set)";
     assert_eq!(
         [
-            report_line(&working, NOW_MS, " · "),
-            report_line(&working, NOW_MS + 400_000, " · "),
-            report_line(&working, NOW_MS + 500_000, " · "),
+            report_line(&working, NOW_MS),
+            report_line(&working, NOW_MS + 400_000),
+            report_line(&working, NOW_MS + 500_000),
             report_line(
                 &report(BudgetPhase::WrapUp, Some(BudgetDimension::Cost)),
-                NOW_MS,
-                " · "
+                NOW_MS
             ),
             report_line(
                 &report(BudgetPhase::Exhausted, Some(BudgetDimension::Time)),
-                NOW_MS,
-                " - "
+                NOW_MS
             ),
-            report_line(&report(BudgetPhase::Exhausted, None), NOW_MS, " · "),
-            report_line(&overrun, NOW_MS, " · "),
-            report_line(&tokens_only, NOW_MS, " · "),
-            report_line(&BudgetReport::default(), NOW_MS, " · "),
+            report_line(&report(BudgetPhase::Exhausted, None), NOW_MS),
+            report_line(&overrun, NOW_MS),
+            report_line(&tokens_only, NOW_MS),
+            report_line(&BudgetReport::default(), NOW_MS),
         ],
         [
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 6m 50s left · 12/50 calls · 3/30 req",
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 10s left · 12/50 calls · 3/30 req",
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 0s left · 12/50 calls · 3/30 req",
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 6m 50s left · 12/50 calls · 3/30 req · wrap-up",
-            "budget: $0.42/$2.00 - 31.0k/200k tok - 6m 50s left - 12/50 calls - 3/30 req - exhausted (time)",
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 6m 50s left · 12/50 calls · 3/30 req · exhausted",
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 6m 50s left · 12/50 calls · 3/30 req · exhausted (tool calls) · over $0.01, 1.2k tok",
-            "budget: 31.0k/1.5M tok · wrap-up · over $0.0003",
-            "budget: no limit",
+            format!("budget: {all}"),
+            "budget: 3/30 requests, 12/50 tool calls, 10s left, $0.42/$2.00, 31.0k/200k tok (set)"
+                .to_string(),
+            "budget: 3/30 requests, 12/50 tool calls, 0s left, $0.42/$2.00, 31.0k/200k tok (set)"
+                .to_string(),
+            format!("budget: {all}; wrap-up"),
+            format!("budget: {all}; exhausted (time)"),
+            format!("budget: {all}; exhausted"),
+            format!("budget: {all}; exhausted (tool calls); over $0.01, 1.2k tok"),
+            "budget: 31.0k/1.5M tok (set); $0.42, 3 requests, 12 tool calls; wrap-up; over $0.0003"
+                .to_string(),
+            "budget: until finished (default)".to_string(),
+        ]
+    );
+}
+
+/// What a run spent: $0.42, 31.0k tokens, 12 requests, 41 tool calls and
+/// 3 programs, 2 minutes into a run of kind `kind` with `limits` decided
+/// by `sources`.
+fn run(kind: RunKind, limits: BudgetLimits, sources: BudgetSources) -> BudgetReport {
+    BudgetReport {
+        session_id: "sess-1".to_string(),
+        agent_session_id: "sess-1".to_string(),
+        limits,
+        spent: BudgetAmounts {
+            cost_micros: 420_000,
+            tokens: 31_000,
+            tool_calls: 41,
+            requests: 12,
+            ..BudgetAmounts::default()
+        },
+        deadline_ms: limits.time_ms.map(|_| NOW_MS + 14_280_000),
+        kind: Some(kind),
+        sources,
+        program_runs: 3,
+        ..BudgetReport::default()
+    }
+}
+
+/// The limits profile's requests, tool calls and time (4 h) with money
+/// declared unlimited by the principal.
+fn limits_on() -> BudgetReport {
+    run(
+        RunKind::Interactive,
+        BudgetLimits {
+            time_ms: Some(14_400_000),
+            tool_calls: Some(4_000),
+            requests: Some(3_200),
+            ..BudgetLimits::default()
+        },
+        BudgetSources {
+            cost_micros: LimitSource::Set,
+            time_ms: LimitSource::LimitsProfile,
+            tool_calls: LimitSource::LimitsProfile,
+            requests: LimitSource::LimitsProfile,
+            ..BudgetSources::default()
+        },
+    )
+}
+
+/// The budget line groups dimensions by who decided their limit, in the
+/// owner-approved wording, with limits on, without limits, and with a
+/// `/b` preset; the status line shows only the limited dimensions.
+#[test]
+fn the_budget_line_groups_dimensions_by_source() {
+    let until_finished = run(
+        RunKind::Headless,
+        BudgetLimits::default(),
+        BudgetSources::default(),
+    );
+    let preset = run(
+        RunKind::Interactive,
+        BudgetLimits {
+            requests: Some(800),
+            ..BudgetLimits::default()
+        },
+        BudgetSources {
+            requests: LimitSource::Preset("quick".to_string()),
+            time_ms: LimitSource::Set,
+            ..BudgetSources::default()
+        },
+    );
+    assert_eq!(
+        [
+            report_line(&limits_on(), NOW_MS),
+            report_line(&until_finished, NOW_MS),
+            report_line(&preset, NOW_MS),
+            status_text(&limits_on(), NOW_MS),
+            status_text(&until_finished, NOW_MS),
+            status_text(&preset, NOW_MS),
+        ],
+        [
+            "budget: 12/3,200 requests, 41/4,000 tool calls, 3h 58m left (limits on); $0.42 spent, no money limit (set); 31.0k tok; 3 program runs (unconfined, a lower bound)",
+            "budget: until finished (default); spent $0.42, 31.0k tok, 12 requests, 41 tool calls; 3 program runs (unconfined, a lower bound)",
+            "budget: 12/800 requests (/b quick); no time limit (set); $0.42, 31.0k tok, 41 tool calls; 3 program runs (unconfined, a lower bound)",
+            "12/3,200 req, 41/4,000 calls, 3h 58m left (limits on)",
+            "until finished",
+            "12/800 req (/b quick)",
+        ]
+    );
+}
+
+/// `--json` names each dimension's limit and its source in full.
+#[test]
+fn the_json_limits_name_each_source_in_full() {
+    assert_eq!(
+        limits_json(&limits_on()),
+        serde_json::json!({
+            "costMicros": { "limit": "unlimited", "source": "set by the principal" },
+            "tokens": { "limit": "unlimited", "source": "until finished (default)" },
+            "timeMs": { "limit": 14_400_000, "source": "limits profile" },
+            "toolCalls": { "limit": 4_000, "source": "limits profile" },
+            "requests": { "limit": 3_200, "source": "limits profile" },
+        })
+    );
+}
+
+/// `/budget set` takes `unlimited` as a limit; `/budget add` does not.
+#[test]
+fn set_takes_unlimited_and_add_takes_amounts() {
+    assert_eq!(
+        (
+            parse_limits("cost=unlimited requests=30").map_err(|error| error.to_string()),
+            parse_assignments("cost=unlimited").map_err(|error| error.to_string()),
+        ),
+        (
+            Ok(RunLimits {
+                cost_micros: Some(LimitValue::Unlimited),
+                requests: Some(LimitValue::At(30)),
+                ..RunLimits::default()
+            }),
+            Err("cost \"unlimited\": expected dollars, like 1.50 or $1.50".to_string()),
+        )
+    );
+}
+
+/// A message's `/b` prefix names presets and limits; a message without
+/// one has none, and a value that does not read is refused by name.
+#[test]
+fn the_b_prefix_reads_presets_and_limits() {
+    let read = |text: &str| {
+        run_prefix(text, &["quick", "deep", "mine"]).map_err(|error| error.to_string())
+    };
+    let ask = |presets: &[&str], set: RunLimits, rest: &str| {
+        Ok(Some(RunAsk {
+            presets: presets.iter().map(|name| (*name).to_owned()).collect(),
+            set,
+            rest: rest.to_owned(),
+        }))
+    };
+    assert_eq!(
+        [
+            read("fix the parser"),
+            read("/budget"),
+            read("/b quick fix the parser"),
+            read("/b mine cost=2 time=unlimited fix it"),
+            read("/b cost=abc fix it"),
+            read("/b cost=1 cost=2 fix it"),
+        ],
+        [
+            Ok(None),
+            Ok(None),
+            ask(&["quick"], RunLimits::default(), "fix the parser"),
+            ask(
+                &["mine"],
+                RunLimits {
+                    cost_micros: Some(LimitValue::At(2_000_000)),
+                    time_ms: Some(LimitValue::Unlimited),
+                    ..RunLimits::default()
+                },
+                "fix it"
+            ),
+            Err("cost \"abc\": expected dollars, like 1.50 or $1.50".to_string()),
+            Err("cost is given twice".to_string()),
         ]
     );
 }
@@ -320,12 +488,12 @@ fn the_report_detail_adds_the_deadline_and_the_owner() {
     };
     assert_eq!(
         [
-            report_detail(&report(BudgetPhase::Working, None), NOW_MS, " · "),
-            report_detail(&child, NOW_MS, " · "),
+            report_detail(&report(BudgetPhase::Working, None), NOW_MS),
+            report_detail(&child, NOW_MS),
         ],
         [
-            "budget: $0.42/$2.00 · 31.0k/200k tok · 6m 50s left · 12/50 calls · 3/30 req · deadline 2027-01-15 08:00:00 UTC",
-            "budget: 3/30 req · from the budget of sess-1",
+            "budget: 3/30 requests, 12/50 tool calls, 6m 50s left, $0.42/$2.00, 31.0k/200k tok (set); deadline 2027-01-15 08:00:00 UTC",
+            "budget: 3/30 requests (set); $0.42, 31.0k tok, 12 tool calls; from the budget of sess-1",
         ]
     );
 }

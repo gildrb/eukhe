@@ -598,6 +598,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "set_budget", "activeSessionId": "sess", "limits": {"costMicros": 5000000}}"#,
     ),
     (
+        "set_budget_limits",
+        r#"{"type": "set_budget_limits", "activeSessionId": "sess", "on": true}"#,
+    ),
+    (
         "add_budget",
         r#"{"type": "add_budget", "activeSessionId": "sess", "amounts": {"tokens": 50000}}"#,
     ),
@@ -665,6 +669,7 @@ fn known_command_types_match_the_ts_list() {
                     | "resolve_unknown_effect"
                     | "get_budget"
                     | "set_budget"
+                    | "set_budget_limits"
                     | "add_budget"
                     | "audit_budget"
                     | "set_acceptance"

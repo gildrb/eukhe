@@ -134,9 +134,9 @@ pub struct RuntimeConfig {
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
     pub initial_goal: Option<InitialGoal>,
-    /// The `--budget-*` limits: the budget of the session this run starts
-    /// (`None`: no flag was given, the session gets no budget).
-    pub budget: Option<eukhe_types::budget::BudgetLimits>,
+    /// The `--budget-*` limits: the standing limits of the session this
+    /// run starts, each run's set limits (`None`: no flag was given).
+    pub budget: Option<eukhe_types::budget::RunLimits>,
     /// The acceptance checks of `--accept-cmd` and `--accept-judge`: the
     /// run counts as done only when each passes on the final state.
     pub acceptance: Option<AcceptanceSeed>,
@@ -360,7 +360,7 @@ pub fn runtime_config_from_args(
             objective: objective.clone(),
             token_budget: parsed.goal_token_budget,
         }),
-        budget: (!parsed.budget.is_unlimited()).then_some(parsed.budget),
+        budget: (!parsed.budget.is_unset()).then_some(parsed.budget),
         acceptance: acceptance_seed(parsed),
         wait_limit: std::time::Duration::from_millis(
             parsed.wait_limit_ms.unwrap_or(DEFAULT_WAIT_LIMIT_MS),
@@ -433,8 +433,8 @@ mod tests {
         );
     }
 
-    /// The `--budget-*` flags are the run's budget; without one the run
-    /// sets none.
+    /// The `--budget-*` flags are the limits the principal sets for the
+    /// session's runs; without one the run sets none.
     #[test]
     fn budget_flags_become_the_budget_of_the_run() {
         let cwd = tempfile::tempdir().expect("tempdir");
@@ -456,9 +456,9 @@ mod tests {
                 budget(&["-p", "hello"]),
             ],
             [
-                Some(eukhe_types::budget::BudgetLimits {
-                    tokens: Some(200_000),
-                    time_ms: Some(600_000),
+                Some(eukhe_types::budget::RunLimits {
+                    tokens: Some(eukhe_types::budget::LimitValue::At(200_000)),
+                    time_ms: Some(eukhe_types::budget::LimitValue::At(600_000)),
                     ..Default::default()
                 }),
                 None,

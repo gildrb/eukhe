@@ -58,6 +58,8 @@ pub struct ChromeState {
     /// `state.budget`, then every `budget_update`): the status line's
     /// `budget:` segment beside the spend.
     pub budget: Option<eukhe_types::budget::BudgetReport>,
+    /// `budget.limits` is `on`: the status line shows `limits on`.
+    pub limits_on: bool,
     /// Context usage: tokens and window (the status line's right side).
     pub context: Option<ContextUsage>,
     /// Where the cwd sits in git, from the background probe; `None`

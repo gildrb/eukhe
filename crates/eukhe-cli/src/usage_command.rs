@@ -2,13 +2,12 @@
 //! from the provider's plan usage endpoint: each window's used share and
 //! reset time.
 
-use std::time::{Duration, UNIX_EPOCH};
+use eukhe_core::platform::LocalTime;
 
 use eukhe_ai::quota::{
     fetch_plan_quota, CredentialKind, PlanCredential, PlanQuota, QuotaError, QuotaWindow,
 };
 use eukhe_core::auth::{AuthCredential, AuthStorage};
-use eukhe_core::platform::{local_time, LocalTime};
 use serde_json::json;
 
 use crate::config::APP_NAME;
@@ -129,20 +128,11 @@ fn percent(permille: u32) -> String {
 
 /// An instant broken down in the local time zone; `None` when the zone
 /// cannot convert it.
-type LocalClock<'a> = &'a dyn Fn(u64) -> Option<LocalTime>;
+type LocalClock<'a> = eukhe_daemon::limits_text::LocalClock<'a>;
 
 /// The local time zone of this process.
 fn local_clock(epoch_ms: u64) -> Option<LocalTime> {
-    local_time(UNIX_EPOCH + Duration::from_millis(epoch_ms)).ok()
-}
-
-/// The local calendar day of an instant, counted from 1970-01-01.
-#[allow(
-    clippy::cast_possible_wrap,
-    reason = "epoch seconds stay far inside the i64 range"
-)]
-fn local_day(epoch_ms: u64, local: &LocalTime) -> i64 {
-    ((epoch_ms / 1_000) as i64 + local.offset_seconds).div_euclid(86_400)
+    eukhe_daemon::limits_text::local_clock(epoch_ms)
 }
 
 /// A wait as `2h 15m`, or `2d 3h` from a day up.
@@ -160,7 +150,6 @@ fn wait(ms: u64) -> String {
 /// When a window resets, in local time: `19:35` today, `Sat 14:00` within
 /// the week, `2026-08-01 14:00` later.
 fn reset_text(at_ms: u64, now_ms: u64, clock: LocalClock<'_>) -> String {
-    const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let wait_text = at_ms
         .checked_sub(now_ms)
         .filter(|ms| *ms > 0)
@@ -171,20 +160,10 @@ fn reset_text(at_ms: u64, now_ms: u64, clock: LocalClock<'_>) -> String {
         "reset"
     };
     let wait_text = wait_text.unwrap_or_default();
-    let (Some(at), Some(now)) = (clock(at_ms), clock(now_ms)) else {
-        return format!("{verb}{wait_text}");
-    };
-    let time = format!("{:02}:{:02}", at.hour, at.minute);
-    let day = local_day(at_ms, &at);
-    let when = match day - local_day(now_ms, &now) {
-        0 => time,
-        1..=6 => {
-            let weekday = usize::try_from((day + 4).rem_euclid(7)).unwrap_or_default();
-            format!("{} {time}", WEEKDAYS[weekday])
-        }
-        _ => format!("{} {time}", at.date()),
-    };
-    format!("{verb} {when}{wait_text}")
+    match eukhe_daemon::limits_text::local_when(at_ms, now_ms, clock) {
+        Some(when) => format!("{verb} {when}{wait_text}"),
+        None => format!("{verb}{wait_text}"),
+    }
 }
 
 fn window_line(window: &QuotaWindow, width: usize, now_ms: u64, clock: LocalClock<'_>) -> String {

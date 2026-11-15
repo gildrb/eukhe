@@ -18,9 +18,9 @@ use std::sync::{Arc, PoisonError};
 use eukhe_budget::Refusal;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::types::{SubmissionDraft, WriteSubmissionDraft};
-use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
+use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, PlanShare};
 
-use super::{BudgetError, BudgetGate};
+use super::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
 use crate::durable::main_conversation::main_conversation;
 use crate::durable::rlm::CustomNotice;
@@ -247,8 +247,52 @@ pub(super) fn tool_refused(short: &str) -> String {
 
 /// The error of a request or tool call the ledger could not admit
 /// (`refused`: what did not happen): a ledger that fails refuses.
-pub(super) fn ledger_failed(refused: &str, error: &BudgetError) -> String {
+pub(super) fn ledger_failed(refused: &str, error: &dyn std::fmt::Display) -> String {
     format!("Budget ledger failed: {refused}. {error}")
+}
+
+/// `amount` of `dimension` as the floor's error writes it: money and time
+/// as a notice shows them, counts as numbers.
+fn floor_amount(dimension: BudgetDimension, amount: u64) -> String {
+    match dimension {
+        BudgetDimension::Cost | BudgetDimension::Time => shown(
+            &BudgetLimits::default().with(dimension, Some(1)),
+            BudgetAmounts::default().with(dimension, amount),
+        ),
+        BudgetDimension::Tokens | BudgetDimension::ToolCalls | BudgetDimension::Requests => {
+            amount.to_string()
+        }
+    }
+}
+
+/// The error of a run's first request that does not fit its `limits`
+/// beside the final answer (the `short` dimension): it asks `first`, the
+/// final answer keeps `keep`.
+pub(super) fn floor_text(
+    short: BudgetDimension,
+    limits: &BudgetLimits,
+    first: BudgetAmounts,
+    keep: BudgetAmounts,
+) -> String {
+    format!(
+        "Budget too small for the run's first request: {} limit {}; the request needs {} and the final answer keeps {}. Nothing was sent. /budget set raises the limit.",
+        short.label(),
+        floor_amount(short, limits.get(short).unwrap_or_default()),
+        floor_amount(short, first.get(short)),
+        floor_amount(short, keep.get(short)),
+    )
+}
+
+/// The notice that ends a final-answer request of at most `cap` output
+/// tokens: the run reached its share of the plan's quota.
+pub(super) fn plan_wrap_text(plan: &PlanShare, cap: u64) -> String {
+    let (label, used) = plan.windows.get(plan.wrapped_by).map_or(("", 0), |window| {
+        (window.label.as_str(), window.used_permille / 10)
+    });
+    format!(
+        "[budget] Plan usage of the {label} window is at {used} % (limits on keep {} % of the window for the user): this run ends here. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens.",
+        plan.reserve_percent
+    )
 }
 
 /// Deliver `notice` to the session's main conversation as a passive write:

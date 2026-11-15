@@ -562,11 +562,11 @@ fn concurrent_creates_for_one_file_share_a_single_launch() {
     );
 }
 
-/// An open that names a budget gives it to a live session that has none,
-/// once: a later open that names another budget succeeds too, and the
-/// session keeps the budget it has.
+/// An open that names a budget gives it to a live session that has none;
+/// a later open that names another budget succeeds too and sets that one,
+/// as the principal's limits for the session's runs (B15, B19).
 #[test]
-fn create_over_a_live_worker_gives_it_the_creates_budget_once() {
+fn create_over_a_live_worker_gives_it_each_creates_budget() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let socket = dir.path().join("daemon.sock");
     let agent_dir = dir.path().join("agent");
@@ -606,21 +606,32 @@ fn create_over_a_live_worker_gives_it_the_creates_budget_once() {
     }
 
     let zero = json!({ "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 0, "requests": 0 });
-    let budget = json!({
-        "budget": {
-            "sessionId": session_id,
-            "agentSessionId": session_id,
-            "limits": { "toolCalls": 12 },
-            "free": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": 12, "requests": 0 },
-            "held": zero,
-            "spent": zero,
-            "lent": zero,
-            "over": zero,
-            "phase": "working",
-        },
-    });
+    let until_finished = json!({ "source": "until_finished" });
+    let budget = |tool_calls: u64| {
+        json!({
+            "budget": {
+                "sessionId": session_id,
+                "agentSessionId": session_id,
+                "limits": { "toolCalls": tool_calls },
+                "free": { "costMicros": 0, "tokens": 0, "timeMs": 0, "toolCalls": tool_calls, "requests": 0 },
+                "held": zero,
+                "spent": zero,
+                "lent": zero,
+                "over": zero,
+                "phase": "working",
+                "kind": "interactive",
+                "sources": {
+                    "costMicros": until_finished,
+                    "tokens": until_finished,
+                    "timeMs": until_finished,
+                    "toolCalls": { "source": "set" },
+                    "requests": until_finished,
+                },
+            },
+        })
+    };
     assert_eq!(
         budgets,
-        vec![json!({ "budget": null }), budget.clone(), budget]
+        vec![json!({ "budget": null }), budget(12), budget(99)]
     );
 }

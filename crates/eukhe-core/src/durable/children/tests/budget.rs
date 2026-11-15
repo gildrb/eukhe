@@ -8,7 +8,9 @@
 //! spawns as before.
 
 use eukhe_budget::{CarveOutcome, Ledger, Member, Reserved, Use, REQUEST_MIN_MS};
-use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport};
+use eukhe_types::budget::{
+    BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport, BudgetSources, LimitSource, RunKind,
+};
 
 use super::worker::{call_tool, say};
 use super::*;
@@ -48,7 +50,8 @@ fn ledger_report(agent_dir: &std::path::Path, session_id: &str) -> Option<Budget
     ledger(agent_dir, session_id).report(session_id).unwrap()
 }
 
-/// The parent's report: its account limited to `limits` in cost.
+/// The parent's report: its account limited to `limits` in cost, as the
+/// principal set it for the parent's interactive run.
 fn parent_report(limit: u64, free: u64, spent: u64, lent: u64) -> BudgetReport {
     BudgetReport {
         session_id: PARENT_SESSION_ID.to_owned(),
@@ -57,6 +60,19 @@ fn parent_report(limit: u64, free: u64, spent: u64, lent: u64) -> BudgetReport {
         free: cost(free),
         spent: cost(spent),
         lent: cost(lent),
+        ..parent_run()
+    }
+}
+
+/// The run of the parent's account: interactive, its cost limit set by
+/// the principal.
+fn parent_run() -> BudgetReport {
+    BudgetReport {
+        kind: Some(RunKind::Interactive),
+        sources: BudgetSources {
+            cost_micros: LimitSource::Set,
+            ..BudgetSources::default()
+        },
         ..BudgetReport::default()
     }
 }

@@ -562,7 +562,7 @@ impl Worker {
     /// Run `line` for this session; the failure is `command`'s response.
     #[tracing::instrument(skip(self))]
     #[allow(clippy::result_large_err)] // the error is the wire response itself
-    async fn cvar_line(
+    pub(crate) async fn cvar_line(
         &self,
         command: &str,
         line: &str,

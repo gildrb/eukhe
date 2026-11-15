@@ -68,6 +68,18 @@ pub(crate) async fn execute(
             ))
         }
         goal => {
+            // The whole autoresearch run is one run: its limits fill now,
+            // before anything changes.
+            let gate = std::sync::Arc::clone(&deps.budget);
+            tokio::task::spawn_blocking(move || {
+                gate.start_run(crate::durable::budget::RunStart {
+                    kind: eukhe_types::budget::RunKind::Autoresearch,
+                    ..crate::durable::budget::RunStart::default()
+                })
+            })
+            .await
+            .map_err(|error| failed(error.into()))?
+            .map_err(|error| failed(error.into()))?;
             let branch = lab.begin(goal).await.map_err(failed)?.line();
             let reply = Reply {
                 value: Value::Null,

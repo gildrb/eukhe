@@ -19,8 +19,8 @@
 //! surface and the time now (Unix milliseconds).
 
 use eukhe_types::budget::{
-    dollars, BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport,
-    BUDGET_AMOUNT_MAX,
+    dollars, BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, LimitSource,
+    LimitValue, RunLimits, BUDGET_AMOUNT_MAX,
 };
 use eukhe_types::daemon::BudgetAudit;
 
@@ -188,40 +188,160 @@ pub fn parse_amount(
     })
 }
 
-/// The `key=value` words of `/budget set` and `/budget add`: `cost`,
-/// `tokens`, `time`, `calls` and `requests`, any subset, each at most
-/// once.
+/// A limit the principal sets for `dimension`: an amount
+/// ([`parse_amount`]) or `unlimited`.
+///
+/// # Errors
+///
+/// What [`parse_amount`] refuses, `unlimited` aside.
+pub fn parse_limit(
+    dimension: BudgetDimension,
+    name: &str,
+    text: &str,
+) -> Result<LimitValue, BudgetTextError> {
+    if text.trim() == LimitValue::UNLIMITED {
+        return Ok(LimitValue::Unlimited);
+    }
+    parse_amount(dimension, name, text).map(LimitValue::At)
+}
+
+/// The `key=value` words of `/budget set`, `/budget add` and `/b`:
+/// `cost`, `tokens`, `time`, `calls` and `requests`, any subset, each at
+/// most once; `unlimited` only where `unlimited` is a limit (`set`).
+fn assignments(text: &str, unlimited: bool) -> Result<RunLimits, BudgetTextError> {
+    let mut limits = RunLimits::default();
+    for word in text.split_whitespace() {
+        let unknown = || BudgetTextError::UnknownWord {
+            word: word.to_string(),
+        };
+        let (key, value) = word.split_once('=').ok_or_else(unknown)?;
+        let dimension = key_dimension(key).ok_or_else(unknown)?;
+        if limits.get(dimension).is_some() {
+            return Err(BudgetTextError::Repeated {
+                name: key.to_string(),
+            });
+        }
+        let limit = if unlimited {
+            parse_limit(dimension, key, value)?
+        } else {
+            LimitValue::At(parse_amount(dimension, key, value)?)
+        };
+        limits = limits.with(dimension, Some(limit));
+    }
+    if limits.is_unset() {
+        return Err(BudgetTextError::NoAmount);
+    }
+    Ok(limits)
+}
+
+/// The dimension a `key=value` key names.
+fn key_dimension(key: &str) -> Option<BudgetDimension> {
+    match key {
+        "cost" => Some(BudgetDimension::Cost),
+        "tokens" => Some(BudgetDimension::Tokens),
+        "time" => Some(BudgetDimension::Time),
+        "calls" => Some(BudgetDimension::ToolCalls),
+        "requests" => Some(BudgetDimension::Requests),
+        _ => None,
+    }
+}
+
+/// The `key=value` words of `/budget add`: amounts only.
 ///
 /// # Errors
 ///
 /// A word that is not `key=value` with one of the five keys, a key given
 /// twice, no word at all, or a value [`parse_amount`] refuses.
 pub fn parse_assignments(text: &str) -> Result<BudgetLimits, BudgetTextError> {
-    let mut limits = BudgetLimits::default();
-    for word in text.split_whitespace() {
-        let unknown = || BudgetTextError::UnknownWord {
-            word: word.to_string(),
-        };
-        let (key, value) = word.split_once('=').ok_or_else(unknown)?;
-        let dimension = match key {
-            "cost" => BudgetDimension::Cost,
-            "tokens" => BudgetDimension::Tokens,
-            "time" => BudgetDimension::Time,
-            "calls" => BudgetDimension::ToolCalls,
-            "requests" => BudgetDimension::Requests,
-            _ => return Err(unknown()),
-        };
-        if limits.get(dimension).is_some() {
-            return Err(BudgetTextError::Repeated {
-                name: key.to_string(),
+    assignments(text, false).map(|limits| limits.counted())
+}
+
+/// The `key=value` words of `/budget set`: each an amount or
+/// `unlimited`.
+///
+/// # Errors
+///
+/// As [`parse_assignments`]; `unlimited` is a value here.
+pub fn parse_limits(text: &str) -> Result<RunLimits, BudgetTextError> {
+    assignments(text, true)
+}
+
+/// The presets every principal has: `quick` (a quarter of the limits
+/// profile) and `deep` (four times it).
+pub const SHIPPED_PRESETS: [&str; 2] = ["quick", "deep"];
+
+/// What a message's `/b` prefix asks of its run: the presets it names, in
+/// order, the limits its `key=value` pairs set, and the message after it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunAsk {
+    pub presets: Vec<String>,
+    pub set: RunLimits,
+    #[serde(skip)]
+    pub rest: String,
+}
+
+/// The `/b` prefix of `message` (`/b quick cost=2 fix the parser`) read
+/// against the preset `names` ([`SHIPPED_PRESETS`] and the principal's
+/// `budget.presets`); `None` for a message without one. A message the
+/// compiled core does not take (past its wire) has no prefix.
+///
+/// # Errors
+///
+/// A pair with an empty value, a key given twice, or a value
+/// [`parse_limit`] refuses: the error names the key and the value.
+pub fn run_prefix(message: &str, names: &[&str]) -> Result<Option<RunAsk>, BudgetTextError> {
+    use eukhe_bend::rules::limits::{prefix, Key, Prefix};
+    // Only a message that starts with a slash (full-width included) can
+    // carry a prefix.
+    if !message.starts_with(['/', '\u{ff0f}']) {
+        return Ok(None);
+    }
+    let (presets, pairs, rest) = match prefix(message, names) {
+        Ok(Prefix::Read {
+            presets,
+            pairs,
+            rest,
+        }) => (presets, pairs, rest),
+        Ok(Prefix::Refused { word }) => {
+            let (key, value) = word.split_once('=').unwrap_or((&word, ""));
+            return Err(match key_dimension(key) {
+                Some(_) if !value.is_empty() => BudgetTextError::Repeated {
+                    name: key.to_owned(),
+                },
+                Some(dimension) => match parse_limit(dimension, key, value) {
+                    Ok(_) => BudgetTextError::Repeated {
+                        name: key.to_owned(),
+                    },
+                    Err(error) => error,
+                },
+                None => BudgetTextError::UnknownWord { word },
             });
         }
-        limits = limits.with(dimension, Some(parse_amount(dimension, key, value)?));
+        Err(_) => return Ok(None),
+    };
+    if presets.is_empty() && pairs.is_empty() && rest == message {
+        return Ok(None);
     }
-    if limits.is_unlimited() {
-        return Err(BudgetTextError::NoAmount);
+    let mut set = RunLimits::default();
+    for (key, value) in pairs {
+        let (dimension, name) = match key {
+            Key::Cost => (BudgetDimension::Cost, "cost"),
+            Key::Tokens => (BudgetDimension::Tokens, "tokens"),
+            Key::Time => (BudgetDimension::Time, "time"),
+            Key::Calls => (BudgetDimension::ToolCalls, "calls"),
+            Key::Requests => (BudgetDimension::Requests, "requests"),
+        };
+        set = set.with(dimension, Some(parse_limit(dimension, name, &value)?));
     }
-    Ok(limits)
+    Ok(Some(RunAsk {
+        presets: presets
+            .into_iter()
+            .filter_map(|place| names.get(place).map(|name| (*name).to_owned()))
+            .collect(),
+        set,
+        rest,
+    }))
 }
 
 /// A token count, cut (never rounded up): `999`, `31.0k`, `200k`, `1.5M`.
@@ -283,7 +403,177 @@ fn amount_text(dimension: BudgetDimension, amount: u64) -> String {
         BudgetDimension::Cost => dollars(amount),
         BudgetDimension::Tokens => tokens(amount),
         BudgetDimension::Time => duration(amount),
-        BudgetDimension::ToolCalls | BudgetDimension::Requests => amount.to_string(),
+        BudgetDimension::ToolCalls | BudgetDimension::Requests => count(amount),
+    }
+}
+
+/// A count with thousands separators: `3,200`.
+fn count(value: u64) -> String {
+    let digits = value.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (place, digit) in digits.chars().enumerate() {
+        if place > 0 && (digits.len() - place).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
+/// `amount` of `dimension` with its unit as the budget line writes it:
+/// `$0.42`, `31.0k tok`, `3,200 requests`.
+fn long_amount(dimension: BudgetDimension, amount: u64) -> String {
+    match dimension {
+        BudgetDimension::ToolCalls => format!("{} tool calls", count(amount)),
+        BudgetDimension::Requests => format!("{} requests", count(amount)),
+        BudgetDimension::Cost | BudgetDimension::Tokens | BudgetDimension::Time => {
+            format!("{}{}", amount_text(dimension, amount), unit(dimension))
+        }
+    }
+}
+
+/// What a dimension without a limit is named in `no <name> limit`.
+fn limit_name(dimension: BudgetDimension) -> &'static str {
+    match dimension {
+        BudgetDimension::Cost => "money",
+        BudgetDimension::Tokens => "token",
+        BudgetDimension::Time => "time",
+        BudgetDimension::ToolCalls => "tool call",
+        BudgetDimension::Requests => "request",
+    }
+}
+
+/// The order limited dimensions are written in.
+const LIMITED_ORDER: [BudgetDimension; 5] = [
+    BudgetDimension::Requests,
+    BudgetDimension::ToolCalls,
+    BudgetDimension::Time,
+    BudgetDimension::Cost,
+    BudgetDimension::Tokens,
+];
+
+/// The order the spend of dimensions without a limit is written in.
+const SPENT_ORDER: [BudgetDimension; 4] = [
+    BudgetDimension::Cost,
+    BudgetDimension::Tokens,
+    BudgetDimension::Requests,
+    BudgetDimension::ToolCalls,
+];
+
+/// The source a report gives `dimension`'s limit. A ledger written before
+/// runs were recorded (no kind) has only the principal's limits.
+fn source_of(report: &BudgetReport, dimension: BudgetDimension) -> LimitSource {
+    match report.sources.get(dimension) {
+        LimitSource::UntilFinished
+            if report.kind.is_none() && report.limits.get(dimension).is_some() =>
+        {
+            LimitSource::Set
+        }
+        source => source.clone(),
+    }
+}
+
+/// The short word of who decided a limit, as the budget and status lines
+/// write it after a group: `limits on`, `set`, `/b <name>`; `None`: the
+/// default (until finished).
+fn source_word(source: &LimitSource) -> Option<String> {
+    match source {
+        LimitSource::UntilFinished => None,
+        LimitSource::Set => Some("set".to_owned()),
+        LimitSource::LimitsProfile | LimitSource::Profile => Some("limits on".to_owned()),
+        LimitSource::Preset(name) => Some(format!("/b {name}")),
+    }
+}
+
+/// The long name of who decided a limit, as `eukhe budget show --json`
+/// and the session record write it.
+#[must_use]
+pub fn source_name(source: &LimitSource) -> String {
+    match source {
+        LimitSource::UntilFinished => "until finished (default)".to_owned(),
+        LimitSource::Set => "set by the principal".to_owned(),
+        LimitSource::LimitsProfile => "limits profile".to_owned(),
+        LimitSource::Profile => "profile".to_owned(),
+        LimitSource::Preset(name) => format!("/b {name}"),
+    }
+}
+
+/// Each dimension's limit and the long name of its source, keyed by the
+/// dimension's wire name: `{"requests": {"limit": 3200, "source":
+/// "limits profile"}, "costMicros": {"limit": "unlimited", "source":
+/// "until finished (default)"}}`.
+#[must_use]
+pub fn limits_json(report: &BudgetReport) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for dimension in BudgetDimension::ALL {
+        let key = match dimension {
+            BudgetDimension::Cost => "costMicros",
+            BudgetDimension::Tokens => "tokens",
+            BudgetDimension::Time => "timeMs",
+            BudgetDimension::ToolCalls => "toolCalls",
+            BudgetDimension::Requests => "requests",
+        };
+        let limit = report
+            .limits
+            .get(dimension)
+            .map_or(LimitValue::Unlimited, LimitValue::At);
+        map.insert(
+            key.to_owned(),
+            serde_json::json!({
+                "limit": limit,
+                "source": source_name(&source_of(report, dimension)),
+            }),
+        );
+    }
+    serde_json::Value::Object(map)
+}
+
+/// What is used of `dimension`: spent, held by requests in flight and
+/// lent to children.
+fn used(report: &BudgetReport, dimension: BudgetDimension) -> u64 {
+    report
+        .spent
+        .get(dimension)
+        .saturating_add(report.held.get(dimension))
+        .saturating_add(report.lent.get(dimension))
+}
+
+/// A limited dimension as used against its limit (time: what is left).
+fn against(report: &BudgetReport, dimension: BudgetDimension, limit: u64, now_ms: u64) -> String {
+    match dimension {
+        BudgetDimension::Time => format!("{} left", duration(time_left(report, now_ms))),
+        BudgetDimension::Cost
+        | BudgetDimension::Tokens
+        | BudgetDimension::ToolCalls
+        | BudgetDimension::Requests => format!(
+            "{}/{}",
+            amount_text(dimension, used(report, dimension)),
+            long_amount(dimension, limit)
+        ),
+    }
+}
+
+/// `item` added to the group of `source`, a new group in order of first
+/// appearance.
+fn push_grouped<K: PartialEq>(groups: &mut Vec<(K, Vec<String>)>, source: K, item: String) {
+    match groups.iter_mut().find(|(word, _)| *word == source) {
+        Some((_, items)) => items.push(item),
+        None => groups.push((source, vec![item])),
+    }
+}
+
+/// The phase and overrun parts after a line's dimensions.
+fn phase_parts(report: &BudgetReport, parts: &mut Vec<String>) {
+    match (report.phase, report.short) {
+        (BudgetPhase::Working, _) => {}
+        (BudgetPhase::WrapUp, _) => parts.push("wrap-up".to_string()),
+        (BudgetPhase::Exhausted, Some(short)) => {
+            parts.push(format!("exhausted ({})", short.label()));
+        }
+        (BudgetPhase::Exhausted, None) => parts.push("exhausted".to_string()),
+    }
+    if !report.over.is_zero() {
+        parts.push(format!("over {}", amounts_text(&report.over)));
     }
 }
 
@@ -326,64 +616,125 @@ fn time_left(report: &BudgetReport, now_ms: u64) -> u64 {
     })
 }
 
-/// The one line a budget report reads as at `now_ms` (Unix milliseconds),
-/// its parts joined by `separator`: per limited dimension what is used
-/// (spent, held and lent) against the limit and the time left until the
-/// deadline, the agent's phase when it is not working, and the overrun
-/// when there is one.
+/// The one line a budget report reads as at `now_ms` (Unix
+/// milliseconds): its dimensions grouped by who decided their limit,
+/// each group followed by its source word; a limited dimension as used
+/// against the limit (time: what is left), one the principal left
+/// unlimited as its spend and `no <name> limit`, one without a limit by
+/// default as its spend; then the program runs, the agent's phase when it
+/// is not working and the overrun when there is one:
+/// `budget: 12/3,200 requests, 41/4,000 tool calls, 3h 58m left (limits
+/// on); $0.42 spent, no money limit (set); 31.0k tok; 3 program runs
+/// (unconfined, a lower bound)`, or for a run without limits `budget:
+/// until finished (default); spent $0.42, 31.0k tok, 12 requests, 41 tool
+/// calls`.
 #[must_use]
-pub fn report_line(report: &BudgetReport, now_ms: u64, separator: &str) -> String {
-    let mut parts: Vec<String> = BudgetDimension::ALL
-        .into_iter()
-        .filter_map(|dimension| {
-            let limit = report.limits.get(dimension)?;
-            if dimension == BudgetDimension::Time {
-                return Some(format!("{} left", duration(time_left(report, now_ms))));
-            }
-            let used = report
-                .spent
-                .get(dimension)
-                .saturating_add(report.held.get(dimension))
-                .saturating_add(report.lent.get(dimension));
-            Some(format!(
+pub fn report_line(report: &BudgetReport, now_ms: u64) -> String {
+    let mut groups: Vec<(Option<String>, Vec<String>)> = Vec::new();
+    for dimension in LIMITED_ORDER {
+        if let Some(limit) = report.limits.get(dimension) {
+            let word = source_word(&source_of(report, dimension));
+            push_grouped(&mut groups, word, against(report, dimension, limit, now_ms));
+        }
+    }
+    for dimension in LIMITED_ORDER {
+        let source = source_of(report, dimension);
+        if report.limits.get(dimension).is_some() || source == LimitSource::UntilFinished {
+            continue;
+        }
+        let item = match dimension {
+            BudgetDimension::Time => "no time limit".to_owned(),
+            BudgetDimension::Cost
+            | BudgetDimension::Tokens
+            | BudgetDimension::ToolCalls
+            | BudgetDimension::Requests => format!(
+                "{} spent, no {} limit",
+                long_amount(dimension, used(report, dimension)),
+                limit_name(dimension)
+            ),
+        };
+        push_grouped(&mut groups, source_word(&source), item);
+    }
+    for dimension in SPENT_ORDER {
+        let spent = used(report, dimension);
+        if report.limits.get(dimension).is_none()
+            && source_of(report, dimension) == LimitSource::UntilFinished
+            && spent > 0
+        {
+            push_grouped(&mut groups, None, long_amount(dimension, spent));
+        }
+    }
+    let limited = groups.iter().any(|(word, _)| word.is_some());
+    let mut parts: Vec<String> = Vec::new();
+    if !limited {
+        parts.push("until finished (default)".to_owned());
+    }
+    for (word, items) in &groups {
+        parts.push(match word {
+            Some(word) => format!("{} ({word})", items.join(", ")),
+            None if limited => items.join(", "),
+            None => format!("spent {}", items.join(", ")),
+        });
+    }
+    if report.program_runs > 0 {
+        parts.push(format!(
+            "{} program runs (unconfined, a lower bound)",
+            count(report.program_runs)
+        ));
+    }
+    phase_parts(report, &mut parts);
+    format!("budget: {}", parts.join("; "))
+}
+
+/// The status line's budget segment: the limited dimensions as used
+/// against their limit (time: left), grouped by source word (`12/3,200
+/// req (limits on)`), or `until finished` for a run without limits; then
+/// the phase.
+#[must_use]
+pub fn status_text(report: &BudgetReport, now_ms: u64) -> String {
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for dimension in LIMITED_ORDER {
+        let Some(limit) = report.limits.get(dimension) else {
+            continue;
+        };
+        let item = match dimension {
+            BudgetDimension::Time => format!("{} left", duration(time_left(report, now_ms))),
+            BudgetDimension::Cost
+            | BudgetDimension::Tokens
+            | BudgetDimension::ToolCalls
+            | BudgetDimension::Requests => format!(
                 "{}/{}{}",
-                amount_text(dimension, used),
+                amount_text(dimension, used(report, dimension)),
                 amount_text(dimension, limit),
                 unit(dimension)
-            ))
-        })
+            ),
+        };
+        let word = source_word(&source_of(report, dimension)).unwrap_or_else(|| "set".to_owned());
+        push_grouped(&mut groups, word, item);
+    }
+    let mut parts: Vec<String> = groups
+        .iter()
+        .map(|(word, items)| format!("{} ({word})", items.join(", ")))
         .collect();
     if parts.is_empty() {
-        parts.push("no limit".to_string());
+        parts.push("until finished".to_owned());
     }
-    match (report.phase, report.short) {
-        (BudgetPhase::Working, _) => {}
-        (BudgetPhase::WrapUp, _) => parts.push("wrap-up".to_string()),
-        (BudgetPhase::Exhausted, Some(short)) => {
-            parts.push(format!("exhausted ({})", short.label()));
-        }
-        (BudgetPhase::Exhausted, None) => parts.push("exhausted".to_string()),
-    }
-    if !report.over.is_zero() {
-        parts.push(format!("over {}", amounts_text(&report.over)));
-    }
-    format!("budget: {}", parts.join(separator))
+    phase_parts(report, &mut parts);
+    parts.join("; ")
 }
 
 /// [`report_line`] with what a full answer about the budget adds: the
 /// deadline (UTC) of a budget with a time limit, and the account's owner
 /// when the agent draws from another session's budget.
 #[must_use]
-pub fn report_detail(report: &BudgetReport, now_ms: u64, separator: &str) -> String {
-    let mut line = report_line(report, now_ms, separator);
+pub fn report_detail(report: &BudgetReport, now_ms: u64) -> String {
+    let mut line = report_line(report, now_ms);
     if let Some(deadline) = report.deadline_ms {
-        line.push_str(separator);
-        line.push_str("deadline ");
+        line.push_str("; deadline ");
         line.push_str(&utc_time(deadline));
     }
     if !report.agent_session_id.is_empty() && report.agent_session_id != report.session_id {
-        line.push_str(separator);
-        line.push_str("from the budget of ");
+        line.push_str("; from the budget of ");
         line.push_str(&report.session_id);
     }
     line

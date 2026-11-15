@@ -71,7 +71,7 @@ async fn the_started_session_gets_the_budget_of_the_flags() {
     };
     let mut options = run_options(dir.path());
     options.session.no_session = true;
-    options.config.budget = Some(limits);
+    options.config.budget = Some(limits.into());
     // The scripted provider (nextest runs each test in its own process).
     std::env::set_var("EUKHE_FAUX_SCRIPT", r#"{ "responses": ["done"] }"#);
 

@@ -62,6 +62,13 @@ pub(crate) fn add(a: BudgetAmounts, b: BudgetAmounts) -> BudgetAmounts {
     }
 }
 
+/// `a` less `b` in each dimension, never below zero.
+pub(crate) fn sub(a: BudgetAmounts, b: BudgetAmounts) -> BudgetAmounts {
+    BudgetDimension::ALL.into_iter().fold(a, |left, dimension| {
+        left.with(dimension, a.get(dimension).saturating_sub(b.get(dimension)))
+    })
+}
+
 /// Each dimension's limit, 0 where there is none.
 pub(crate) fn limits_amounts(limits: &BudgetLimits) -> BudgetAmounts {
     BudgetDimension::ALL

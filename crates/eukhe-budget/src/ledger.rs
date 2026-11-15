@@ -28,12 +28,16 @@ use eukhe_types::budget::{
 };
 
 use crate::amounts::{
-    add, counted, dimension, from_ask, limits_amounts, mask, to_amt, to_ask, unlimited,
+    add, counted, dimension, from_ask, limits_amounts, mask, sub, to_amt, to_ask, unlimited,
 };
 use crate::record::{
-    Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord,
-    RunRecord, State, UseRecord, PROGRAM_LABEL,
+    Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord, State,
+    UseRecord, PROGRAM_LABEL,
 };
+
+mod runs;
+
+pub use runs::floor;
 
 /// How much of a file's end is read to find its last record before the
 /// whole file is.
@@ -451,48 +455,14 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 limits,
                 run,
                 now_ms,
+                mark,
+                program_runs,
             } => {
-                let amounts = limits_amounts(limits);
-                let until = limits
-                    .time_ms
-                    .map_or(BUDGET_AMOUNT_MAX, |ms| now_ms.saturating_add(ms));
-                if until > BUDGET_AMOUNT_MAX
-                    || BudgetDimension::ALL
-                        .into_iter()
-                        .any(|dimension| amounts.get(dimension) > BUDGET_AMOUNT_MAX)
-                {
-                    return Err(LedgerError::TooLarge);
-                }
-                // What is still held and lent stays out of what is free.
-                let busy = mask(add(state.account.held(), state.account.lent), limits);
-                let (free, over) = BudgetDimension::ALL.into_iter().fold(
-                    (BudgetAmounts::default(), BudgetAmounts::default()),
-                    |(free, over), dimension| {
-                        let (limit, busy) = (amounts.get(dimension), busy.get(dimension));
-                        (
-                            free.with(dimension, limit.saturating_sub(busy)),
-                            over.with(dimension, busy.saturating_sub(limit)),
-                        )
-                    },
-                );
-                let renewed = core::fund(
-                    core::Ask {
-                        amt: to_amt(free),
-                        ms: until,
-                    },
-                    &core::Acct::default(),
-                )?;
-                next.account = Account {
-                    holds: state.account.holds.clone(),
-                    lent: state.account.lent,
-                    over,
-                    ..Account::from_acct(&renewed, holder)
-                };
-                next.limits = *limits;
-                next.members = resume(&state.members);
-                next.run = Some(run.clone());
-                next.tally = BudgetAmounts::default();
-                next.program_runs = 0;
+                next = runs::renewed(state, limits, run, *now_ms, *mark, *program_runs)?;
+                Outcome::Done
+            }
+            Op::PlanWrap { agent, plan } => {
+                next = runs::plan_wrapped(state, agent, plan)?;
                 Outcome::Done
             }
             Op::Join { agent, parent } => {
@@ -749,6 +719,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 now_ms,
             } => {
                 next.limits = raise(state.limits, *amount)?;
+                next.run = runs::set_where_limited(state.run.as_ref(), &state.limits, &next.limits);
                 let timed = state.limits.time_ms.is_some();
                 let ms = if timed { amount.time_ms } else { 0 };
                 if state.account.until.saturating_add(ms) > BUDGET_AMOUNT_MAX {
@@ -816,6 +787,7 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                             Some(limit) => limits.with(dimension, Some(limit)),
                             None => limits,
                         });
+                next.run = runs::set_where_limited(state.run.as_ref(), &state.limits, &next.limits);
                 Outcome::Done
             }
         };
@@ -944,7 +916,7 @@ impl Locked {
                 ..state.account.free
             },
             held: state.account.held(),
-            spent: add(state.account.spent, state.tally),
+            spent: sub(add(state.account.spent, state.tally), state.mark),
             lent: state.account.lent,
             over: state.account.over,
             phase,
@@ -966,6 +938,7 @@ impl Locked {
                 .map(|run| run.sources.clone())
                 .unwrap_or_default(),
             program_runs: state.program_runs,
+            plan: state.plan.clone(),
         }
     }
 
@@ -1137,59 +1110,6 @@ impl Ledger {
             now,
         )?;
         Ok(locked.report(&self.session_id, &self.session_id, now))
-    }
-
-    /// Starts a run of a root session with `limits` (a deadline
-    /// `limits.time_ms` from now): opens its account when it has none,
-    /// else renews it: the run's limits from now, spend counted from zero,
-    /// what is still held and lent kept out of what is free.
-    ///
-    /// # Errors
-    ///
-    /// [`LedgerError::NotRoot`] for a session that draws from another
-    /// account or was given a budget by its parent,
-    /// [`LedgerError::TooLarge`], and the file's or the core's failures.
-    pub fn start_run(
-        &self,
-        limits: BudgetLimits,
-        run: RunRecord,
-    ) -> Result<BudgetReport, LedgerError> {
-        if self.link_path().is_file() {
-            return Err(LedgerError::NotRoot(self.session_id.clone()));
-        }
-        let Some(mut locked) = Locked::open(&self.path(), true)? else {
-            return Err(LedgerError::NoBudget(self.session_id.clone()));
-        };
-        let now = (self.clock)();
-        let op = match locked.state() {
-            None => Op::Open {
-                agent: self.session_id.clone(),
-                limits,
-                deadline_ms: limits.time_ms.map(|ms| now.saturating_add(ms)),
-                parent: None,
-                run: Some(run),
-            },
-            Some(state) if state.parent.is_some() || state.returned.is_some() => {
-                return Err(LedgerError::NotRoot(self.session_id.clone()));
-            }
-            Some(_) => Op::Renew {
-                limits,
-                run,
-                now_ms: now,
-            },
-        };
-        locked.apply(op, now)?;
-        Ok(locked.report(&self.session_id, &self.session_id, now))
-    }
-
-    /// The run the session's own account records, if any.
-    ///
-    /// # Errors
-    ///
-    /// The file's failures.
-    pub fn run(&self) -> Result<Option<RunRecord>, LedgerError> {
-        Ok(Locked::open(&self.path(), false)?
-            .and_then(|locked| locked.state().and_then(|state| state.run.clone())))
     }
 
     /// Makes this session (a child without a budget of its own) draw from
@@ -2004,7 +1924,9 @@ impl Ledger {
                 // A child's ledger starts over after it was handed back; a
                 // new run counts its spend from zero.
                 Op::Return { .. } if record.outcome == Outcome::Done => BudgetAmounts::default(),
-                Op::Renew { .. } => BudgetAmounts::default(),
+                // A new run, or limits the principal set, moves spend
+                // between what the limits count and the tally.
+                Op::Renew { .. } => record.state.account.spent,
                 Op::Open { .. }
                 | Op::Join { .. }
                 | Op::Reserve { .. }
@@ -2013,7 +1935,8 @@ impl Ledger {
                 | Op::Return { .. }
                 | Op::Reclaim { .. }
                 | Op::Fund { .. }
-                | Op::Limit { .. } => settled,
+                | Op::Limit { .. }
+                | Op::PlanWrap { .. } => settled,
             };
             state = record.state;
             records += 1;

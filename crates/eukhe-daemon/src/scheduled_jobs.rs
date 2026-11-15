@@ -291,6 +291,20 @@ impl AgentCronSchedulerHooks for QueueHooks {
             // queued one instead of stacking.
             self.remove_queued_heartbeat_follow_up(job).await;
         }
+        // A fire into an idle session is a scheduled run: its limits fill
+        // fresh. A fire that joins a running run (a steering heartbeat)
+        // and a quota wake (it resumes the run it paused) start none.
+        if job.source != JobSource::QuotaResume && !activity.is_streaming {
+            let gate = hosted.session()?.budget();
+            tokio::task::spawn_blocking(move || {
+                gate.start_run(eukhe_core::durable::budget::RunStart {
+                    kind: eukhe_types::budget::RunKind::Scheduled,
+                    ..eukhe_core::durable::budget::RunStart::default()
+                })
+            })
+            .await
+            .context("the budget ledger call did not finish")??;
+        }
         let request = Self::fire_request(job);
         kill_point("fire", "started");
         let handle =

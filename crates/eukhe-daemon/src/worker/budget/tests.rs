@@ -24,7 +24,7 @@ fn worker(dir: &Path) -> Arc<Worker> {
             active_session_id: "budget-session".to_string(),
             agent_dir: dir.join("agent"),
             recovery_journal_path: dir.join("recovery.jsonl"),
-            script: Some(json!({ "modelId": "faux-1", "responses": ["ack"] })),
+            script: Some(json!({ "modelId": "faux-1", "responses": ["ack", "ack"] })),
         },
         None,
     ))
@@ -70,10 +70,15 @@ fn amounts(cost_micros: u64, tokens: u64, tool_calls: u64) -> Value {
     json!({ "costMicros": cost_micros, "tokens": tokens, "timeMs": 0, "toolCalls": tool_calls, "requests": 0 })
 }
 
-/// The wire report of a budget of `limits` that nothing was spent from,
+/// The wire report of an interactive run whose `limits` the principal set
+/// (the other dimensions until finished) and that nothing was spent from,
 /// as its owner sees it: `free` is all of it.
 fn untouched(session_id: &str, limits: &Value, free: &Value) -> Value {
     let zero = amounts(0, 0, 0);
+    let source = |key: &str| match limits.get(key) {
+        Some(_) => json!({ "source": "set" }),
+        None => json!({ "source": "until_finished" }),
+    };
     json!({
         "sessionId": session_id,
         "agentSessionId": session_id,
@@ -84,6 +89,14 @@ fn untouched(session_id: &str, limits: &Value, free: &Value) -> Value {
         "lent": zero,
         "over": zero,
         "phase": "working",
+        "kind": "interactive",
+        "sources": {
+            "costMicros": source("costMicros"),
+            "tokens": source("tokens"),
+            "timeMs": source("timeMs"),
+            "toolCalls": source("toolCalls"),
+            "requests": source("requests"),
+        },
     })
 }
 
@@ -125,26 +138,27 @@ async fn a_set_budget_reads_back_with_its_limits_free() {
     );
 }
 
-/// A session that has a budget refuses a second `set_budget` with the
-/// ledger's message and keeps its budget; a `set_budget` without limits
-/// is refused before the ledger is asked.
+/// A second `set_budget` replaces the limits of the session's current run
+/// (B19); a `set_budget` without limits is refused before the ledger is
+/// asked.
 #[tokio::test]
-async fn a_second_set_budget_is_refused_with_the_ledgers_message() {
+async fn a_second_set_budget_replaces_the_runs_limits() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created(dir.path()).await;
     let id = session_id(&worker);
     let unnamed = refusal(&worker, "set_budget", &json!({})).await;
     let limits = json!({ "tokens": 100_000 });
     let set = data(&worker, "set_budget", &json!({ "limits": limits })).await;
-    let again = refusal(&worker, "set_budget", &json!({ "limits": { "tokens": 7 } })).await;
+    let replaced = json!({ "tokens": 7 });
+    let again = data(&worker, "set_budget", &json!({ "limits": replaced })).await;
     let kept = data(&worker, "get_budget", &json!({})).await;
-    let report = untouched(&id, &limits, &amounts(0, 100_000, 0));
+    let report = untouched(&id, &replaced, &amounts(0, 7, 0));
     assert_eq!(
         (unnamed, set, again, kept),
         (
             (false, None, "limits is required".to_string()),
+            json!({ "budget": untouched(&id, &limits, &amounts(0, 100_000, 0)) }),
             json!({ "budget": report }),
-            (false, None, format!("session {id} already has a budget")),
             json!({ "budget": report }),
         )
     );
@@ -253,9 +267,10 @@ async fn an_audit_replays_the_ledger_of_a_session_that_has_a_budget() {
 
 /// The create config's `budget` is the new session's budget before its
 /// first turn; a later create of the same session that names another
-/// budget succeeds and keeps the one the session has (B1).
+/// budget sets that one, as the principal's limits for its runs (B15,
+/// B19).
 #[tokio::test]
-async fn a_create_budget_is_set_once_for_a_session() {
+async fn a_later_create_sets_the_budget_it_names() {
     let dir = tempfile::tempdir().expect("tempdir");
     let sessions = dir.path().join("sessions");
     let id = "0192a000-0000-7000-8000-00000000b0d9";
@@ -288,11 +303,13 @@ async fn a_create_budget_is_set_once_for_a_session() {
         )
         .await;
     assert!(reopened.success, "reopen failed: {reopened:?}");
-    let kept = data(&second, "get_budget", &json!({})).await;
-    let report = untouched(id, &json!({ "toolCalls": 12 }), &amounts(0, 0, 12));
+    let reset = data(&second, "get_budget", &json!({})).await;
     assert_eq!(
-        (set, kept),
-        (json!({ "budget": report }), json!({ "budget": report }))
+        (set, reset),
+        (
+            json!({ "budget": untouched(id, &json!({ "toolCalls": 12 }), &amounts(0, 0, 12)) }),
+            json!({ "budget": untouched(id, &json!({ "toolCalls": 99 }), &amounts(0, 0, 99)) }),
+        )
     );
 }
 
@@ -372,5 +389,60 @@ async fn a_fork_draws_from_the_budget_of_the_session_it_forks() {
             forked
         ),
         (false, json!(1), expected)
+    );
+}
+
+/// A message sent while the session is idle starts a fresh interactive
+/// run: its `/b` prefix (`runLimits`) fills that run only, and the next
+/// message's run goes until finished again with limits off (B15, B20).
+#[tokio::test]
+async fn each_idle_message_starts_its_own_run() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path()).await;
+    let prompted = worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({
+                "activeSessionId": "budget-session",
+                "message": "first",
+                "runLimits": { "presets": ["quick"], "set": { "toolCalls": 9 } },
+            }),
+        )
+        .await;
+    assert!(prompted.success, "prompt failed: {prompted:?}");
+    let first = data(&worker, "get_budget", &json!({})).await;
+    let prompted = worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({ "activeSessionId": "budget-session", "message": "second" }),
+        )
+        .await;
+    assert!(prompted.success, "prompt failed: {prompted:?}");
+    let second = data(&worker, "get_budget", &json!({})).await;
+    let pick = |budget: &Value| {
+        (
+            budget["budget"]["kind"].clone(),
+            budget["budget"]["limits"].clone(),
+            budget["budget"]["sources"].clone(),
+            budget["budget"]["spent"]["requests"].clone(),
+        )
+    };
+    assert_eq!(
+        (pick(&first), pick(&second)),
+        (
+            (
+                json!("interactive"),
+                json!({ "timeMs": 3_600_000, "toolCalls": 9, "requests": 800 }),
+                json!({
+                    "costMicros": { "source": "until_finished" },
+                    "tokens": { "source": "until_finished" },
+                    "timeMs": { "source": "preset", "name": "quick" },
+                    "toolCalls": { "source": "set" },
+                    "requests": { "source": "preset", "name": "quick" },
+                }),
+                json!(1),
+            ),
+            (json!("interactive"), json!({}), Value::Null, json!(1)),
+        )
     );
 }

@@ -194,6 +194,18 @@ impl ClientSettings for CliClientSettings {
         self.manager().get_stuck_after_secs()
     }
 
+    fn budget_limits_on(&self) -> bool {
+        self.manager().get_budget_limits() == eukhe_core::settings::BudgetLimitsMode::On
+    }
+
+    fn budget_preset_names(&self) -> Vec<String> {
+        self.manager()
+            .get_budget_presets()
+            .as_object()
+            .map(|presets| presets.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     setting!(
         show_images,
         set_show_images,
