@@ -407,18 +407,30 @@ async fn reads_the_execution_mode_when_a_round_starts_and_keeps_it_for_the_round
     ran.harness.close(context()).await.unwrap();
 }
 
-/// The events of a round calling `a` then `b`, each sleeping 20 ms.
-async fn trace(setup: &ChatSetup) -> Vec<String> {
+/// The events of a round calling `a` then `b`. With `meet`, each tool
+/// waits after its start until the other has started too (a parallel
+/// round passes; a sequential one would never let `b` start); without,
+/// each sleeps 20 ms.
+async fn trace(setup: &ChatSetup, meet: bool) -> Vec<String> {
     let events: Events = Arc::default();
+    let meeting = meet.then(|| Arc::new(tokio::sync::Barrier::new(2)));
     for name in ["a", "b"] {
         let events = Arc::clone(&events);
+        let meeting = meeting.clone();
         add_tool(
             &setup.registry,
             tool(name, move |_, _, _| {
-                let events = Arc::clone(&events);
+                let (events, meeting) = (Arc::clone(&events), meeting.clone());
                 async move {
                     push(&events, format!("start {name}"));
-                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    match meeting {
+                        Some(meeting) => {
+                            tokio::time::timeout(Duration::from_secs(30), meeting.wait())
+                                .await
+                                .expect("the other tool of the round never started");
+                        }
+                        None => tokio::time::sleep(Duration::from_millis(20)).await,
+                    }
                     push(&events, format!("end {name}"));
                     Ok(empty_content())
                 }
@@ -446,9 +458,10 @@ async fn trace(setup: &ChatSetup) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn runs_a_round_in_parallel_by_default_and_sequentially_when_configured_or_required_by_a_tool(
 ) {
-    // Both start before either ends; on a multi-thread runtime the two
-    // parallel tool tasks may start in either order (JS runs them in creation order).
-    let mut started = trace(&setup()).await[..2].to_vec();
+    // Both start before either ends (each waits for the other's start);
+    // on a multi-thread runtime the two parallel tool tasks may start in
+    // either order (JS runs them in creation order).
+    let mut started = trace(&setup(), true).await[..2].to_vec();
     started.sort();
     assert_eq!(started, ["start a", "start b"]);
     let configured = setup();
@@ -456,7 +469,7 @@ async fn runs_a_round_in_parallel_by_default_and_sequentially_when_configured_or
         .settings
         .update(|settings| settings.tool_execution = Some(ToolExecutionMode::Sequential));
     assert_eq!(
-        trace(&configured).await,
+        trace(&configured, false).await,
         ["start a", "end a", "start b", "end b"]
     );
 
