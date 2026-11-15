@@ -213,7 +213,8 @@ pub fn custom_message_entries(
         }
         CustomType::ModelPromptError
         | CustomType::KernelUnavailable
-        | CustomType::OutputLimitNotice => vec![ChatEntry::Status {
+        | CustomType::OutputLimitNotice
+        | CustomType::SpawnFailedNotice => vec![ChatEntry::Status {
             text,
             kind: crate::chat::StatusKind::Warning,
         }],

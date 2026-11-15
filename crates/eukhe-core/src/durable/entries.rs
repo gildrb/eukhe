@@ -151,6 +151,7 @@ pub fn is_display_only_custom_type(custom_type: &str) -> bool {
             | crate::durable::rlm::kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE
             | eukhe_types::custom_type::WORKER_RESTART_NOTICE_CUSTOM_TYPE
             | eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE
+            | eukhe_types::custom_type::SPAWN_FAILED_NOTICE_CUSTOM_TYPE
     )
 }
 

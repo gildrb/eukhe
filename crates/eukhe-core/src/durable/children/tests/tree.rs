@@ -1,9 +1,9 @@
 //! The agent tree over the children: a split spawns both children in their
 //! own copies with their places, a split child's own first request states
 //! the split rule and its place, a refused split names its first failing
-//! check, a help leaf works read-only in the parent's directory, a failed
-//! split child runs again once, and an abort of the turn cancels the
-//! subtree.
+//! check, a split whose children cannot start fails and shows it once, a
+//! help leaf works read-only in the parent's directory, a failed split
+//! child runs again once, and an abort of the turn cancels the subtree.
 
 use eukhe_ai::utils::text::get_system_message_text;
 use eukhe_ai::utils::transcript::get_current_system_message;
@@ -181,6 +181,63 @@ async fn a_refused_split_names_its_first_failing_check_and_spawns_nothing() {
         )
     );
     opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// A split whose children cannot be created fails, never a success with
+/// no children: the model reads both children's errors as the tool's
+/// result, and the user sees the failure once, as one display-only row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_split_whose_children_cannot_start_fails_and_shows_it_once() {
+    let setup = setup();
+    let host = FakeHost::new();
+    lock(&host.state).spawn_error = Some("the worker socket cannot be bound".to_owned());
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let reply = request_turn(
+        &opened,
+        &setup,
+        "rlm.split",
+        json!({
+            "left": { "scope": ["a"], "task": "l", "name": "left" },
+            "right": { "scope": ["b"], "task": "r", "name": "right" },
+        }),
+    )
+    .await;
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    let notices: Vec<String> = opened
+        .root
+        .entries(ConversationEntryQuery::default(), 1000, None, cx())
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .filter_map(|entry| {
+            crate::durable::entries::CUSTOM_ENTRY
+                .narrow(entry)
+                .expect("eukhe.custom data")
+        })
+        .map(|entry| entry.data().clone())
+        .filter(|data| {
+            data.custom_type == eukhe_types::custom_type::SPAWN_FAILED_NOTICE_CUSTOM_TYPE
+                && data.display
+        })
+        .map(|data| match data.content {
+            Some(UserContent::Text(text)) => text,
+            other => panic!("the notice is text: {other:?}"),
+        })
+        .collect();
+    assert!(reply.starts_with("error: "), "{reply}");
+    assert_eq!(
+        reply.matches("the worker socket cannot be bound").count(),
+        2,
+        "both children's errors reach the model: {reply}"
+    );
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(
+        notices[0].starts_with("rlm.split failed: ")
+            && notices[0].contains("the worker socket cannot be bound"),
+        "{notices:?}"
+    );
     opened.harness.close(cx()).await.unwrap();
 }
 

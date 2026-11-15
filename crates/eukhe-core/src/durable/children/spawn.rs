@@ -22,7 +22,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use anyhow::{anyhow, bail};
 use eukhe_bend::rules::agent_tree::{Dir, Lim};
 use eukhe_chord::json::to_json;
-use eukhe_durable::harness::types::ToolExecutionApiExt;
+use eukhe_durable::harness::types::{
+    SubmissionDraft, ToolExecutionApi, ToolExecutionApiExt, WriteSubmissionDraft,
+};
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::{
@@ -30,6 +32,7 @@ use eukhe_durable::types::{
 };
 use eukhe_types::acceptance::{AcceptanceSeed, CheckSpec};
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
+use eukhe_types::custom_type::SPAWN_FAILED_NOTICE_CUSTOM_TYPE;
 use eukhe_types::daemon::agent_tree::{TreePlace, TreeRole};
 use futures::FutureExt;
 use serde::Deserialize;
@@ -51,6 +54,7 @@ use super::wire::RlmSpawnHandle;
 use super::Children;
 use crate::agent_messaging::assert_direct_agent_message_target;
 use crate::durable::deps::HostCall;
+use crate::durable::rlm::CustomNotice;
 use crate::kernel::rlm_runtime::{
     create_default_rlm_subagent_session_name, kwargs_from_payload,
     normalize_requested_rlm_subagent_model, normalize_requested_rlm_subagent_session_name,
@@ -586,19 +590,34 @@ pub(super) async fn admit_spawns(
             return Err(anyhow!("{error}"));
         }
     };
-    // Every task is admitted; a child whose create fails reports its own
-    // error (the other children stay admitted and listed).
+    // Every task is admitted; each child is waited for, so a failure names
+    // every child that did not start and every one that did (it stays
+    // admitted and listed), never a success with fewer children.
     let mut handles = Vec::with_capacity(task_ids.len());
+    let mut failures = Vec::new();
     for task_id in task_ids {
-        let row = wait_for_admission(&harness, conversation_id, task_id).await?;
-        handles.push(RlmSpawnHandle {
-            rlm_child_id: row.rlm_child_id,
-            name: row.session_name,
-            session_dir: row.session_dir.unwrap_or_default(),
-            model: row.model.unwrap_or_default(),
-        });
+        match wait_for_admission(&harness, conversation_id, task_id).await {
+            Ok(row) => handles.push(RlmSpawnHandle {
+                rlm_child_id: row.rlm_child_id,
+                name: row.session_name,
+                session_dir: row.session_dir.unwrap_or_default(),
+                model: row.model.unwrap_or_default(),
+            }),
+            Err(error) => failures.push(format!("{error:#}")),
+        }
     }
-    Ok(handles)
+    if failures.is_empty() {
+        return Ok(handles);
+    }
+    let failed = failures.join("; ");
+    if handles.is_empty() {
+        return Err(anyhow!(failed));
+    }
+    let started: Vec<&str> = handles.iter().map(|handle| handle.name.as_str()).collect();
+    Err(anyhow!(
+        "{failed}; started anyway: {} (rlm.list_subagents lists them)",
+        started.join(", ")
+    ))
 }
 
 /// The wall clock in Unix milliseconds.
@@ -733,6 +752,54 @@ pub(super) async fn split(children: Arc<Children>, call: HostCall) -> anyhow::Re
         .try_into()
         .map_err(|_| anyhow!("rlm.split admitted other than two children"))?;
     Ok(json!({ "left": left, "right": right }))
+}
+
+/// Show the user, once, that a spawn the model asked for failed
+/// (`operation`: `rlm.split` or `rlm.spawn`): a display-only row in the
+/// calling conversation, placed at its next boundary, while the model reads
+/// the error as the tool's result and decides what to do. The row's request
+/// id is the tool call's, so a replayed call shows no second row. A closing
+/// session takes none; a row that cannot be written is logged.
+#[tracing::instrument(skip_all, fields(operation = %operation))]
+pub(super) async fn show_spawn_failure(
+    children: &Children,
+    api: Option<Arc<dyn ToolExecutionApi>>,
+    operation: &str,
+    error: &anyhow::Error,
+) {
+    let (Some(api), Some(harness)) = (api, children.harness.get()) else {
+        return;
+    };
+    let notice = CustomNotice::new(
+        SPAWN_FAILED_NOTICE_CUSTOM_TYPE,
+        format!("{operation} failed: {error:#}"),
+        true,
+        None,
+    );
+    let submitted = children
+        .services
+        .closing
+        .admit(|| async {
+            let entry = notice.draft()?;
+            let conversation = harness
+                .conversation(api.conversation_id(), &cx())
+                .await?
+                .ok_or_else(|| anyhow!("the calling conversation does not exist"))?;
+            conversation
+                .submit(
+                    SubmissionDraft::Write(WriteSubmissionDraft {
+                        request_id: Some(format!("spawn-failed:{}", api.call_id())),
+                        entry,
+                    }),
+                    &cx(),
+                )
+                .await?;
+            anyhow::Ok(())
+        })
+        .await;
+    if let Some(Err(failure)) = submitted {
+        tracing::warn!(error = %failure, operation, "spawn failure notice not delivered");
+    }
 }
 
 // ---------------------------------------------------------------------------

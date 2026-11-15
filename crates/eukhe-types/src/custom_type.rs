@@ -16,6 +16,12 @@ pub const WORKER_RESTART_NOTICE_CUSTOM_TYPE: &str = "eukhe.worker_restart";
 /// Display-only, never model context.
 pub const OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE: &str = "eukhe.output_limit";
 
+/// The `customType` of the row a session shows when an `rlm.split` or
+/// `rlm.spawn` its model asked for failed: the model read the error as
+/// the tool's result, the user sees it here once. Display-only, never
+/// model context.
+pub const SPAWN_FAILED_NOTICE_CUSTOM_TYPE: &str = "eukhe.spawn_failed";
+
 /// The type of one custom message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomType {
@@ -52,6 +58,8 @@ pub enum CustomType {
     WorkerRestartNotice,
     /// The answer above hit the output limit and is truncated.
     OutputLimitNotice,
+    /// A split or spawn the model asked for failed.
+    SpawnFailedNotice,
     /// A type without a dedicated row.
     Other(String),
 }
@@ -79,6 +87,7 @@ impl CustomType {
             SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => Self::SessionSlashCommandResult,
             WORKER_RESTART_NOTICE_CUSTOM_TYPE => Self::WorkerRestartNotice,
             OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Self::OutputLimitNotice,
+            SPAWN_FAILED_NOTICE_CUSTOM_TYPE => Self::SpawnFailedNotice,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -105,6 +114,7 @@ impl CustomType {
             Self::SessionSlashCommandResult => SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
             Self::WorkerRestartNotice => WORKER_RESTART_NOTICE_CUSTOM_TYPE,
             Self::OutputLimitNotice => OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE,
+            Self::SpawnFailedNotice => SPAWN_FAILED_NOTICE_CUSTOM_TYPE,
             Self::Other(other) => other,
         }
     }
@@ -135,6 +145,7 @@ mod tests {
             CustomType::SessionSlashCommandResult,
             CustomType::WorkerRestartNotice,
             CustomType::OutputLimitNotice,
+            CustomType::SpawnFailedNotice,
             CustomType::Other("autonomous_status".to_owned()),
         ];
         for custom_type in types {

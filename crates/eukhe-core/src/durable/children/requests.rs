@@ -43,7 +43,9 @@ use crate::kernel::rlm_runtime::{
 
 /// Register every `rlm.*` handler of `children` onto `registry`. A spawn
 /// (`rlm.run`, `rlm.split`) first asks at the run pause's gate: a paused
-/// session starts none until it runs again.
+/// session starts none until it runs again. A spawn that fails shows the
+/// user its error once ([`super::spawn::show_spawn_failure`]); the model
+/// reads it as the tool's result.
 pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
@@ -55,7 +57,7 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
         }};
     }
     macro_rules! spawning {
-        ($request_type:literal, $function:path) => {{
+        ($request_type:literal, $operation:literal, $function:path) => {{
             let children = Arc::clone(children);
             registry.register(
                 $request_type,
@@ -67,7 +69,13 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
                             .gate(GateKind::Spawn, &cx())
                             .await
                             .map_err(session_error)?;
-                        $function(children, call).await
+                        let api = call.call.clone();
+                        let spawned = $function(Arc::clone(&children), call).await;
+                        if let Err(error) = &spawned {
+                            super::spawn::show_spawn_failure(&children, api, $operation, error)
+                                .await;
+                        }
+                        spawned
                     }
                     .boxed()
                 }),
@@ -76,8 +84,8 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     }
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
-    spawning!("rlm.run", super::spawn::run);
-    spawning!("rlm.split", super::spawn::split);
+    spawning!("rlm.run", "rlm.spawn", super::spawn::run);
+    spawning!("rlm.split", "rlm.split", super::spawn::split);
     handler!("rlm.tree_facts", super::spawn::tree_facts);
     handler!("rlm.tree_lend", super::spawn::tree_lend);
     handler!("rlm.tree_return", super::spawn::tree_return);

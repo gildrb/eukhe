@@ -121,6 +121,9 @@ struct FakeState {
     commands: Vec<RlmChildCommandRequest>,
     /// The verdict of each child's acceptance its settled runs report.
     verdicts: HashMap<String, RlmChildVerdict>,
+    /// The error every spawn answers with (the host cannot create the
+    /// child's session).
+    spawn_error: Option<String>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -177,8 +180,16 @@ impl RlmSubagentHost for FakeHost {
                 .clone()
                 .unwrap_or_else(|| "faux/faux-1".to_owned()),
         };
-        lock(&self.state).spawns.push(request);
-        Box::pin(async move { Ok(session) })
+        let mut fake = lock(&self.state);
+        let spawned = match &fake.spawn_error {
+            Some(error) => Err(anyhow::anyhow!(
+                "spawn RLM child session {}: {error}",
+                request.child.rlm_child_id
+            )),
+            None => Ok(session),
+        };
+        fake.spawns.push(request);
+        Box::pin(async move { spawned })
     }
 
     fn prompt(&self, request: RlmChildPromptRequest) -> RlmHostFuture<'_, ()> {
