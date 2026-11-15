@@ -109,3 +109,100 @@ def at_tick.keeps(p: List<&2, T.Dir>, +t: T.Node, +now: Nat, -n: T.Node, e: {S.n
             case T.Split{i, own, l, r}:
               %at_tick.exp_false(i, now, LP.at_patch.and_l(Bool.not(AgentTree.late(T.Split{i, own, l, r}, now)), AgentTree.on_time_path(rest, r, now), o)) : {AgentTree.runs_at(S.node_at(rest, T.tick(r, now, _))) == True{} : Bool}
               at_tick.keeps(rest, r, now, n, e, hr, LP.at_patch.and_r(Bool.not(AgentTree.late(T.Split{i, own, l, r}, now)), AgentTree.on_time_path(rest, r, now), o))
+
+# a cancelled node never runs
+def at_tick.cancel_stops(i: T.Info) -> {T.running(T.st_of(T.cancel_info(i))) == False{} : Bool}:
+  match i:
+    case T.Info{st, s, lim, sp, dl, q}:
+      match st:
+        case T.Running{}:
+          {==}
+        case T.Finished{}:
+          {==}
+        case T.Failed{}:
+          {==}
+        case T.Cancelled{}:
+          {==}
+
+# T8: a tick with the cut flag set leaves no running node at any path
+def at_tick.cut_stops(p: List<&2, T.Dir>, +t: T.Node, +now: Nat) -> {AgentTree.runs_at(S.node_at(p, T.tick(t, now, True{}))) == False{} : Bool}:
+  match p:
+    case Nil{}:
+      match t:
+        case T.Leaf{i}:
+          at_tick.cancel_stops(i)
+        case T.Split{i, own, l, r}:
+          at_tick.cancel_stops(i)
+    case Con{d, rest}:
+      match d:
+        case T.GoL{}:
+          match t:
+            case T.Leaf{i}:
+              {==}
+            case T.Split{i, own, l, r}:
+              at_tick.cut_stops(rest, l, now)
+        case T.GoR{}:
+          match t:
+            case T.Leaf{i}:
+              {==}
+            case T.Split{i, own, l, r}:
+              at_tick.cut_stops(rest, r, now)
+
+# a node is late exactly when it is expired
+def at_tick.late_eq(i: T.Info, +now: Nat) -> {Bool.and(T.running(T.st_of(i)), S.up(T.deadline_of(i), now)) == T.expired(i, now) : Bool}:
+  match i:
+    case T.Info{st, s, lim, sp, dl, q}:
+      match dl:
+        case T.Unlimited{}:
+          {==}
+        case T.Value{d}:
+          {==}
+
+# a node whose tick flag is not False does not run after its tick
+def at_tick.cut_base(a: Bool, i: T.Info, o: {Bool.not(a) == False{} : Bool}) -> {T.running(T.st_of(T.tick_info(a, i))) == False{} : Bool}:
+  match a:
+    case True{}:
+      at_tick.cancel_stops(i)
+    case False{}:
+      LP.at_patch.absurd({T.running(T.st_of(T.tick_info(False{}, i))) == False{} : Bool}, Equal.sym(Bool, True{}, False{}, o))
+
+# T8: under the cut flag c, a node with a late node on its path from the
+# root (itself included) does not run after a tick
+def at_tick.late_below(p: List<&2, T.Dir>, c: Bool, +t: T.Node, +now: Nat, o: {Bool.and(Bool.not(c), AgentTree.on_time_path(p, t, now)) == False{} : Bool}) -> {AgentTree.runs_at(S.node_at(p, T.tick(t, now, c))) == False{} : Bool}:
+  match p:
+    case Nil{}:
+      match c:
+        case True{}:
+          at_tick.cut_stops(Nil{}, t, now)
+        case False{}:
+          match t:
+            case T.Leaf{i}:
+              %at_tick.late_eq(i, now) : {T.running(T.st_of(T.tick_info(_, i))) == False{} : Bool}
+              at_tick.cut_base(Bool.and(T.running(T.st_of(i)), S.up(T.deadline_of(i), now)), i, o)
+            case T.Split{i, own, l, r}:
+              %at_tick.late_eq(i, now) : {T.running(T.st_of(T.tick_info(_, i))) == False{} : Bool}
+              at_tick.cut_base(Bool.and(T.running(T.st_of(i)), S.up(T.deadline_of(i), now)), i, o)
+    case Con{d, rest}:
+      match d:
+        case T.GoL{}:
+          match c:
+            case True{}:
+              at_tick.cut_stops(T.GoL{} <> rest, t, now)
+            case False{}:
+              match t:
+                case T.Leaf{i}:
+                  {==}
+                case T.Split{i, own, l, r}:
+                  %at_tick.late_eq(i, now) : {AgentTree.runs_at(S.node_at(rest, T.tick(l, now, _))) == False{} : Bool}
+                  at_tick.late_below(rest, Bool.and(T.running(T.st_of(i)), S.up(T.deadline_of(i), now)), l, now, o)
+        case T.GoR{}:
+          match c:
+            case True{}:
+              at_tick.cut_stops(T.GoR{} <> rest, t, now)
+            case False{}:
+              match t:
+                case T.Leaf{i}:
+                  {==}
+                case T.Split{i, own, l, r}:
+                  %at_tick.late_eq(i, now) : {AgentTree.runs_at(S.node_at(rest, T.tick(r, now, _))) == False{} : Bool}
+                  at_tick.late_below(rest, Bool.and(T.running(T.st_of(i)), S.up(T.deadline_of(i), now)), r, now, o)

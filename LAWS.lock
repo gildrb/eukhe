@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "1dcf7ddf6eed6e0624cf8f476c80fd9aed29d128cc1a40c392facc3ebb04300c",
+      "spec/README.md": "ad7639f94212a7a4bae0c3ac2ab2b64365d26ff0c3e7924391348af898ffb771",
       "spec/agents/agent_crown.bend": "1cc476d997332d375c83fc07922be20617635d4fbd7f95e80ddb5d5561b376f4",
       "spec/agents/agent_tree.bend": "a1382c421dbfe7380567d3ad5d4855b81f6663ac0038e9639bf9e3963834d129",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -150,6 +150,7 @@
     "laws/agent_tree.bend::agent_tree_cancel_needs_node": "176538d0618861044fe914ee119794c8726505014544c0d07e0060116bfd0295",
     "laws/agent_tree.bend::agent_tree_cancel_quiets": "bdd79a5b1c3d8cd1dd5d880570125e26eeeec54af895490922e59ba976506677",
     "laws/agent_tree.bend::agent_tree_cancel_shape": "9537ed3f7da8e3f4ced8a4c41f3e701321038caadbcde6967d137e84182e5719",
+    "laws/agent_tree.bend::agent_tree_cancel_takes": "0f0b603f2fd122851ad3e5fbfe0b29fffa2e56d9623ef50072126ffd90d8ef73",
     "laws/agent_tree.bend::agent_tree_conflicts_cover": "a344c5581eaa42042def428d876fafabd7551f2d6d919e8496f73d4676aa2251",
     "laws/agent_tree.bend::agent_tree_conflicts_outside": "f4ffef95715cabcaae1a190c09848763062a8ea48f2c4a1373959df30e3489be",
     "laws/agent_tree.bend::agent_tree_deadlines_down": "d8a1214438fc2f2ea9c06f92392140251f18403faf1059eaae71bf6d7eb4e950",
@@ -195,6 +196,7 @@
     "laws/agent_tree.bend::agent_tree_split_is_spec": "a6adcc7d5dc56a1dc92eff6291e9a97b418d54da07c51e2c4b323cbbc22513ab",
     "laws/agent_tree.bend::agent_tree_split_margin_both": "f88e075e5371f4893bba087b8ec19664cb6f9fe87787d4d6b12fb3388197eacc",
     "laws/agent_tree.bend::agent_tree_split_reads_bounds": "a486a3cc76e4364430154be99086244fc006d3c5f0d4a562a59790ad3efade6d",
+    "laws/agent_tree.bend::agent_tree_tick_cancels_late_below": "f0504371a5e8dcdf0c6af571f45d5859a03540e4adb34ee23925550e011cac61",
     "laws/agent_tree.bend::agent_tree_tick_cancels_only_late": "001aa8c1fc47ebd10d2f3c8f9401c773ef10c40346ba14c75b6e50be8ceb317b",
     "laws/agent_tree.bend::agent_tree_tick_keeps_on_time": "e8db280c095c397008b56700a1f7a06c6ef3e581594a069c3eb21ff46df3d227",
     "laws/agent_tree.bend::agent_tree_tick_marks": "53a3ba26987e660e845874e87b357fe3f644459604929bc4ed6519c6cd279366",
@@ -4400,6 +4402,7 @@
     "laws/agent_tree.bend::status_tag": "caca4db398bfb484d39c7a5f13a9908f3f27443a30d83884523abb2e0b30da65",
     "laws/agent_tree.bend::tick_move": "98cef6c4b7fd35b895847600521a3c6232d76b4506fad6cb365862c81edbca46",
     "laws/agent_tree.bend::tick_moves": "04397e712180313789e8bd93a77b34949f195ed4c01ecfe36e9660335ce4e28f",
+    "laws/agent_tree.bend::took": "c25a7a069b886b49a1eb047f1d7bda1b9dbc7f71193bc13e2f24005aef808013",
     "laws/agent_tree.bend::unstatus": "7480ee61b585a58bcc26cda104adb408eac04df892c36e849b13449d9de4efc8",
     "laws/agent_tree.bend::unstatus_info": "e47bad6f20b084d474b381dc1e4f3afa13bf89a296c7a2cbe609c08e89141d19",
     "laws/agent_tree.bend::unstatus_of": "33fdc9102315bc4fb95187e09d098fdc1b5d3b0d317fc8c74946c4a3b30bb8bd",

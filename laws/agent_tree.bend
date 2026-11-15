@@ -30,6 +30,14 @@ def landed(s: T.Step, t: T.Node) -> T.Node:
     case T.Refused{why}:
       t
 
+# T7: the step was taken (not refused)
+def took(s: T.Step) -> Bool:
+  match s:
+    case T.Took{n}:
+      True{}
+    case T.Refused{why}:
+      False{}
+
 def is_leaf(n: T.Node) -> Bool:
   match n:
     case T.Leaf{i}:
@@ -1146,6 +1154,19 @@ law agent_tree_cancel_needs_node:
   for e: {S.node_at(p, t) == None{} : Maybe<&2, T.Node>}
   {T.step(b, t, T.EvCancel{p}) == T.Refused{T.NoNode{}} : T.Step}
 
+# LAW agent_tree_cancel_takes (T7): a cancel at a path where a node is is
+# taken, whatever the statuses in its subtree
+# EXCLUDES: a cancel of an existing node refused (NoNode or any other
+#   reason) when nothing in its subtree runs, a finished node read as gone
+# WITNESS: p = [] and n = t.
+law agent_tree_cancel_takes:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +n: T.Node
+  for e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  {took(T.step(b, t, T.EvCancel{p})) == True{} : Bool}
+
 # LAW agent_tree_fail_needs_node (T7): a fail at a path where no node is
 # is refused NoNode, the tree unchanged
 # EXCLUDES: a fail at a missing path that fails the nearest node above it
@@ -1368,6 +1389,22 @@ law agent_tree_tick_cancels_only_late:
   for r: {S.is_running(n) == True{} : Bool}
   for o: {on_time_path(p, t, now) == True{} : Bool}
   {runs_at(S.node_at(p, landed(T.step(b, t, T.EvTick{now}), t))) == True{} : Bool}
+
+# LAW agent_tree_tick_cancels_late_below (T8): for every tree t and
+# node n at p, when some node on the path from the root to n (n included)
+# is late at now, n does not run after a tick at now (a tick cancels a late
+# node with its whole subtree, whatever the deadlines below it)
+# EXCLUDES: a tick that cancels only the nodes whose own deadline is up;
+#   one that leaves a late node's subtree running
+law agent_tree_tick_cancels_late_below:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +now: Nat
+  for +n: T.Node
+  for e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  for o: {on_time_path(p, t, now) == False{} : Bool}
+  {runs_at(S.node_at(p, landed(T.step(b, t, T.EvTick{now}), t))) == False{} : Bool}
 
 # LAW agent_tree_tick_shape (T8, T7, T11): for every tree t and time now,
 # a tick changes statuses only: the same leaves and splits, each split's

@@ -3708,6 +3708,7 @@ import ./proof/agent_tree/agent_tree_parallel_is_sequential.bend as PAgentTreePa
 import ./proof/agent_tree/agent_tree_redo_is_spec.bend as PAgentTreeRedoIsSpec
 import ./proof/agent_tree/agent_tree_spend_is_spec.bend as PAgentTreeSpendIsSpec
 import ./proof/agent_tree/agent_tree_split_is_spec.bend as PAgentTreeSplitIsSpec
+import ./proof/agent_tree/agent_tree_tick_cancels_late_below.bend as PAgentTreeTickCancelsLateBelow
 import ./proof/agent_tree/agent_tree_tick_cancels_only_late.bend as PAgentTreeTickCancelsOnlyLate
 import ./proof/agent_tree/agent_tree_tick_keeps_on_time.bend as PAgentTreeTickKeepsOnTime
 import ./proof/agent_tree/agent_tree_tick_none_late.bend as PAgentTreeTickNoneLate
@@ -3722,6 +3723,7 @@ import ./proof/agent_tree/agent_tree_cancel_marks.bend as PAgentTreeCancelMarks
 import ./proof/agent_tree/agent_tree_cancel_keeps.bend as PAgentTreeCancelKeeps
 import ./proof/agent_tree/agent_tree_cancel_shape.bend as PAgentTreeCancelShape
 import ./proof/agent_tree/agent_tree_cancel_needs_node.bend as PAgentTreeCancelNeedsNode
+import ./proof/agent_tree/agent_tree_cancel_takes.bend as PAgentTreeCancelTakes
 import ./proof/agent_tree/agent_tree_fail_needs_node.bend as PAgentTreeFailNeedsNode
 import ./proof/agent_tree/agent_tree_fail_shape.bend as PAgentTreeFailShape
 import ./proof/agent_tree/agent_tree_tick_shape.bend as PAgentTreeTickShape
