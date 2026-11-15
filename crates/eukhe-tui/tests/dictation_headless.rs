@@ -190,6 +190,7 @@ fn options(socket: PathBuf, agent_dir: &Path, dictation: Dictation) -> Interacti
         client_settings: None,
         dictation: Some(dictation),
         daemon_launcher: None,
+        restart: None,
     }
 }
 

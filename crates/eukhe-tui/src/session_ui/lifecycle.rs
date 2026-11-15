@@ -184,6 +184,8 @@ impl SessionUi {
             session_file: None,
             pending_selection: None,
             return_to_agents_view: !options.no_session,
+            restarter: options.restart.clone(),
+            restart_target: None,
             client_auth: options.client_auth.clone(),
             keybindings: options.keybindings.clone(),
             prompt_stash: options.prompt_stash.clone(),

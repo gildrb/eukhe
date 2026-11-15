@@ -441,6 +441,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         client_settings: Some(std::sync::Arc::new(RecordingSettings::default())),
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

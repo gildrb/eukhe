@@ -59,6 +59,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -231,6 +232,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     // The interactive runtime's own launch sequence, minus the TTY: spawn
     // the real supervisor binary detached and wait for the hello handshake.
@@ -329,6 +331,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -531,6 +534,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -688,6 +692,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         restore_dock_focus: false,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -779,6 +784,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -917,6 +923,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let ctrl_o = || {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(
@@ -1492,6 +1499,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let key = |code: KeyCode| {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(

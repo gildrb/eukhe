@@ -10,7 +10,7 @@ use crate::settings::types::{
     ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
     Settings, ShellSettings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
     TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
-    TransportSetting, TtsSettings, WarningSettings,
+    TransportSetting, TtsSettings, UpdateSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -224,6 +224,9 @@ fn populated() -> Settings {
         privacy: Some(PrivacySettings {
             anonymize_remote: Some(true),
             terms: None,
+        }),
+        update: Some(UpdateSettings {
+            auto_download: Some(true),
         }),
         extra: serde_json::Map::new(),
     }

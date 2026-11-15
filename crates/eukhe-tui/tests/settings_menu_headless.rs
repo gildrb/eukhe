@@ -427,6 +427,7 @@ fn options(socket: PathBuf, settings: Arc<RecordingSettings>) -> InteractiveOpti
         client_settings: Some(settings),
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

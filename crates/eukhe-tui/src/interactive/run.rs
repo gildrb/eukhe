@@ -618,6 +618,11 @@ async fn run_interactive_surface(
     // previous chat view of this session left via the agents view or a
     // switch) returns to the editor when its chat reopens.
     session.restore_prompt_stash_on_open(&mut view);
+    // An update the launch check staged: its notice, once per process. The
+    // watch is taken first, so one staged after the look below still
+    // arrives on it.
+    let mut staged_update = options.restart.as_ref().map(|restarter| restarter.staged());
+    session.show_update_notice(&mut view);
     // Whether the headless plan completed (the plan's final
     // `HeadlessDone`; the run loop's idle gate ends the run on it).
     let mut headless_done = false;
@@ -1507,6 +1512,18 @@ async fn run_interactive_surface(
                     session.dirty = true;
                 }
             }
+            staged = async {
+                match staged_update.as_mut() {
+                    Some(watch) => watch.changed().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match staged {
+                    Ok(()) => session.show_update_notice(&mut view),
+                    // The seam dropped its sender: nothing more is staged.
+                    Err(_) => staged_update = None,
+                }
+            }
             maybe_prompt = prompt_rx.recv() => {
                 if let Some(note) = maybe_prompt {
                     if events.is_empty() {
@@ -1953,7 +1970,8 @@ async fn run_interactive_surface(
     // `returnToAgentsView` skips the stats fetch entirely -- the next
     // surface is another view, not a process exit), so the round-trip is
     // dead work on that path.
-    let resume_hint = if handing_off {
+    // `/restart` starts this session again at once: no hint either.
+    let resume_hint = if handing_off || session.restart_target.is_some() {
         None
     } else {
         session.exit_resume_hint(&view.theme).await
@@ -1991,6 +2009,7 @@ async fn run_interactive_surface(
         agents_view_scope: session.scoped_agents_view.take(),
         selection_request: session.pending_selection,
         agents_view_notice: None,
+        restart: session.restart_target.take(),
     };
     // The agents-view handoff's background detach owns this connection now
     // (it closes once the daemon answers); every other exit closes it here.
@@ -1998,10 +2017,13 @@ async fn run_interactive_surface(
         session.client.close();
     }
     // A handoff (agents view, `/resume <selector>`) lets the process keep
-    // running: retire the watchdog. Every other completion is a process
-    // exit, where the deadline dies with the process -- or fires when the
-    // exit wedged, which is the point.
-    if outcome.return_to_agents_view || outcome.selection_request.is_some() {
+    // running, and `/restart` replaces it: retire the watchdog. Every
+    // other completion is a process exit, where the deadline dies with the
+    // process -- or fires when the exit wedged, which is the point.
+    if outcome.return_to_agents_view
+        || outcome.selection_request.is_some()
+        || outcome.restart.is_some()
+    {
         exit_guard.cancel();
     }
     Ok(outcome)

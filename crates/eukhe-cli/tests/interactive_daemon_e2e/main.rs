@@ -592,6 +592,7 @@ fn base_options(
         provider_auth: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

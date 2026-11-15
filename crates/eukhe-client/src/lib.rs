@@ -20,15 +20,19 @@
 //!   `eukhe-daemon supervisor ...`) detached and waits until it greets.
 //! - [`paths`]: the daemon socket path (explicit, `EUKHE_DAEMON_SOCKET`,
 //!   else the per-user default), resolved as the `eukhe` CLI resolves it.
+//! - [`restart`]: `/restart`, the [`Restarter`] seam the composition root
+//!   provides and the plan for the daemon a restart leaves.
 //!
 //! [`DaemonClient`]: daemon_client::DaemonClient
 //! [`DaemonClientEvent`]: daemon_client::DaemonClientEvent
 //! [`DaemonLauncher`]: saved_sessions::DaemonLauncher
 //! [`ProcessLauncher`]: launcher::ProcessLauncher
+//! [`Restarter`]: restart::Restarter
 
 pub mod daemon_build;
 pub mod daemon_client;
 pub mod direct_transport;
 pub mod launcher;
 pub mod paths;
+pub mod restart;
 pub mod saved_sessions;

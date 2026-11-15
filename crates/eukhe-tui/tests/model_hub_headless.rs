@@ -429,6 +429,7 @@ fn options(socket: PathBuf, settings: Arc<HubSettings>) -> InteractiveOptions {
         client_settings: Some(settings),
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

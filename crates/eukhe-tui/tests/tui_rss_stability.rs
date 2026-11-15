@@ -397,6 +397,7 @@ fn interactive_session_rss_plateaus_over_long_stream() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = HeadlessPlan {
         steps,

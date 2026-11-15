@@ -197,6 +197,13 @@ impl SettingsManager {
         self.set_global_cvar(&table::QUIET_STARTUP, &Value::Bool(quiet))
     }
 
+    /// `update.autoDownload`: an interactive launch downloads a newer
+    /// release in the background for `/restart`.
+    #[must_use]
+    pub fn get_update_auto_download(&self) -> bool {
+        self.cvars().bool(&table::UPDATE_AUTO_DOWNLOAD)
+    }
+
     /// `idleEvictionMinutes` (`number | "off"`; a `none` value reads as
     /// `off`; the load names a malformed value, which then reads as unset).
     #[must_use]

@@ -272,6 +272,15 @@ pub struct TitleSettings {
     pub generate: Option<bool>,
 }
 
+/// `update`: the release check of an interactive launch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSettings {
+    /// Download a newer release in the background at an interactive
+    /// launch, for `/restart` to apply (default true).
+    pub auto_download: Option<bool>,
+}
+
 /// `tts`: text to speech.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -642,6 +651,8 @@ pub struct Settings {
     pub stt: Option<SttSettings>,
     /// `privacy`: outbound anonymization.
     pub privacy: Option<PrivacySettings>,
+    /// `update`: the launch's release check.
+    pub update: Option<UpdateSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

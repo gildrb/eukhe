@@ -465,6 +465,7 @@ fn options(
         client_settings: Some(settings),
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

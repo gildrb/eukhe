@@ -25,6 +25,7 @@ mod notes;
 mod panels;
 mod prompt;
 mod queue;
+mod restart;
 mod scoped_models;
 mod sessions_fork;
 mod settings;
@@ -531,6 +532,10 @@ pub(crate) struct SessionUi {
     /// `returnToAgentsView`): true for every daemon-hosted session, false
     /// only for `--no-session` runs.
     pub(crate) return_to_agents_view: bool,
+    /// `/restart` (the composition root's install seam).
+    restarter: Option<eukhe_client::restart::SharedRestarter>,
+    /// `/restart` decided to start this build again: the run returns it.
+    pub(crate) restart_target: Option<eukhe_client::restart::Target>,
     /// `/mcp login` / `/mcp logout` (the composition root's auth flows).
     client_auth: Option<crate::client_auth::ClientAuthCommandsHandle>,
     /// The effective key binds (user `binds.cfg` over the TS

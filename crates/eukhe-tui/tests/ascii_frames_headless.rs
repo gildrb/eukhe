@@ -343,6 +343,7 @@ fn options(socket: PathBuf, screen_mode: ScreenMode) -> InteractiveOptions {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

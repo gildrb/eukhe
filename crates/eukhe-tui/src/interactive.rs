@@ -220,6 +220,9 @@ pub struct InteractiveOptions {
     /// none listens and never replaces one. `None` only reconnects (a test
     /// harness that owns its daemon).
     pub daemon_launcher: Option<eukhe_client::saved_sessions::SharedDaemonLauncher>,
+    /// `/restart` and the staged-update notice: the composition root's
+    /// install seam. `None` reports `/restart` as unavailable.
+    pub restart: Option<eukhe_client::restart::SharedRestarter>,
 }
 
 // The opaque service handles (provider_auth,
@@ -334,6 +337,9 @@ pub struct InteractiveOutcome {
     /// notice seeds the view's status line instead of the pane dying to
     /// the shell.
     pub agents_view_notice: Option<String>,
+    /// `/restart` asked to start this build again on this session; the
+    /// composition root runs it once the terminal is restored.
+    pub restart: Option<eukhe_client::restart::Target>,
 }
 
 /// Inputs consumed by the UI loop. Terminal keys arrive one event at a time;

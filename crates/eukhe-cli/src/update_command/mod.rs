@@ -3,12 +3,15 @@
 //! the release's SHA256SUMS, unpacked beside the install and run once
 //! before the launcher switches to it. Installs another tool owns (Nix,
 //! mise, an app bundle, a cargo build) or a directory this user cannot
-//! write get the command that updates them, and nothing changes. Only this
-//! command fetches releases: nothing checks at startup or in the
-//! background.
+//! write get the command that updates them, and nothing changes. An
+//! interactive launch runs the same check in the background and stages the
+//! release without switching (`launch_check`); `/restart` switches to it
+//! (`restart`).
 
 mod install;
+mod launch_check;
 mod release;
+mod restart;
 mod swap;
 
 use std::path::Path;
@@ -19,6 +22,33 @@ use eukhe_client::daemon_build::{relation, Build, Relation};
 use crate::daemon_discovery::{current_state_root, discover_daemons, DaemonStatus};
 use install::{classify, launcher_dir, InstallKind, Installer, Places};
 use release::{Pin, Release, Releases, PLATFORM};
+
+pub(crate) use launch_check::launch_restarter;
+pub(crate) use restart::{print_build_identity, BUILD_IDENTITY_FLAG};
+
+/// Where the update steps report: the terminal of `eukhe update`, or the
+/// log of a background check that must not write over the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Voice {
+    Terminal,
+    Log,
+}
+
+impl Voice {
+    fn say(self, line: &str) {
+        match self {
+            Voice::Terminal => println!("{line}"),
+            Voice::Log => tracing::info!("{line}"),
+        }
+    }
+
+    fn warn(self, line: &str) {
+        match self {
+            Voice::Terminal => eprintln!("warning: {line}"),
+            Voice::Log => tracing::warn!("{line}"),
+        }
+    }
+}
 
 /// The releases of gildrb/eukhe; `EUKHE_RELEASES_URL` names a mirror with
 /// the same layout (`latest/download/<asset>`, `download/<tag>/<asset>`).
@@ -107,23 +137,29 @@ fn is_newer(running: &str, latest: &str) -> bool {
     relation(running, latest) == Relation::Newer
 }
 
-/// Checks for, and with an install, installs the newest release; returns
-/// the version it installed.
-async fn update(running: &str, install: Option<&Installer>) -> Result<Option<String>> {
-    let Some(platform) = PLATFORM else {
-        bail!("no eukhe release ships for this platform (releases: darwin-arm64, linux-x64, linux-arm64)");
-    };
+/// The releases this build reads: the mirror and the pin the environment
+/// names, else gildrb/eukhe's.
+fn releases(running: &str) -> Result<Releases> {
     let url = |key: &str, default: &str| {
         std::env::var(key)
             .ok()
             .filter(|url| !url.is_empty())
             .unwrap_or_else(|| default.to_string())
     };
-    let releases = Releases::new(
+    Releases::new(
         &url(ENV_RELEASES_URL, RELEASES_URL),
         &url(ENV_PIN_URL, PIN_URL),
         running,
-    )?;
+    )
+}
+
+/// Checks for, and with an install, installs the newest release; returns
+/// the version it installed.
+async fn update(running: &str, install: Option<&Installer>) -> Result<Option<String>> {
+    let Some(platform) = PLATFORM else {
+        bail!("no eukhe release ships for this platform (releases: darwin-arm64, linux-x64, linux-arm64)");
+    };
+    let releases = releases(running)?;
     let latest = releases.latest().await?;
     println!("Current version: {running}");
     println!("Latest release:  {}", latest.version);
@@ -140,18 +176,37 @@ async fn update(running: &str, install: Option<&Installer>) -> Result<Option<Str
     Ok(Some(latest.version))
 }
 
-/// Download, check, unpack, switch, prune.
+/// Stage, switch, prune.
 async fn apply(
     releases: &Releases,
     latest: &Release,
     platform: &str,
     install: &Installer,
 ) -> Result<()> {
+    let payload = stage_release(releases, latest, platform, install, Voice::Terminal).await?;
+    swap::point_launcher(install, &latest.version)?;
+    println!("  payload:  {}", payload.display());
+    println!("  launcher: {}", install.launcher.display());
+    for warning in swap::prune(install, &payload) {
+        Voice::Terminal.warn(&warning);
+    }
+    Ok(())
+}
+
+/// Download, check and unpack `latest` into `<root>/eukhe-<version>`; the
+/// launcher still execs the running payload. Returns the payload.
+async fn stage_release(
+    releases: &Releases,
+    latest: &Release,
+    platform: &str,
+    install: &Installer,
+    voice: Voice,
+) -> Result<std::path::PathBuf> {
     let name = latest.archive(platform);
     let sha256 = releases.checksum(latest, &name).await?;
-    let stage = swap::Stage::create(install, &latest.version)?;
+    let stage = swap::Stage::create(install, &latest.version, voice)?;
     let archive = stage.path(&name);
-    println!("Downloading {name}");
+    voice.say(&format!("Downloading {name}"));
     // The pin is fetched while the archive downloads; it is judged first.
     // The download is checked against `sha256`, so a pin that agrees with
     // it agrees with the archive.
@@ -163,20 +218,23 @@ async fn apply(
         Pin::Same => "SHA256SUMS and nix/release.json".to_string(),
         Pin::OtherVersion(version) => format!("SHA256SUMS (nix/release.json pins {version})"),
         Pin::Unavailable(why) => {
-            eprintln!("warning: {why}: SHA256SUMS verification only");
+            voice.warn(&format!("{why}: SHA256SUMS verification only"));
             "SHA256SUMS".to_string()
         }
     };
     download?;
-    println!("Verified sha256 {sha256} against {verified}");
+    voice.say(&format!("Verified sha256 {sha256} against {verified}"));
     let staged = swap::unpack(&stage, &archive, &latest.version)?;
-    let payload = swap::switch(&stage, &staged, install, &latest.version)?;
-    println!("  payload:  {}", payload.display());
-    println!("  launcher: {}", install.launcher.display());
-    for warning in swap::prune(install, &payload) {
-        eprintln!("warning: {warning}");
+    let (payload, placed) = swap::place(&stage, &staged, install, &latest.version)?;
+    match placed {
+        swap::Placed::Moved => {}
+        swap::Placed::Kept => voice.say(&format!(
+            "eukhe {} is already unpacked: kept {}",
+            latest.version,
+            payload.display()
+        )),
     }
-    Ok(())
+    Ok(payload)
 }
 
 /// The note for running daemons of another version: they keep running the

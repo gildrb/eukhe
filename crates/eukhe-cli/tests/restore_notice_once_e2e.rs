@@ -325,6 +325,7 @@ async fn each_restore_notice_shows_once_across_reconnects() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let outcome = tokio::time::timeout(
         Duration::from_secs(600),

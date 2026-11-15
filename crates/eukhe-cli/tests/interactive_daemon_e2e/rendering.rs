@@ -86,6 +86,7 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let turn_bound_ms = if cfg!(target_os = "linux") {
         45_000
@@ -276,6 +277,7 @@ async fn tui_renders_and_fires_user_keybindings_from_settings() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let key = |code: KeyCode, modifiers: KeyModifiers| {
         eukhe_tui::interactive::HeadlessStep::Key(crossterm::event::KeyEvent::new(code, modifiers))
@@ -482,6 +484,7 @@ async fn tui_prompts_queued_behind_a_turn_render_the_queue_strip() {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -639,6 +642,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         restore_dock_focus: false,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
@@ -785,6 +789,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         restore_dock_focus: false,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     };
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![

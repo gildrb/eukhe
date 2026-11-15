@@ -43,7 +43,7 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
         .enable_all()
         .build()
         .context("build the interactive runtime")?;
-    runtime.block_on(async {
+    let relaunch = runtime.block_on(async {
         // A kept daemon of another build is announced by the session view
         // itself (from its hello); the agents view gets it as its status
         // line. Only this interactive start may replace an older daemon.
@@ -97,12 +97,17 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
                     }
                     AfterSession::Exit => {
                         print_resume_hint(outcome.resume_hint.as_deref());
-                        return Ok(());
+                        return Ok(None);
                     }
+                    AfterSession::Restart(relaunch) => return Ok(Some(relaunch)),
                 }
             }
         }
     })?;
+    if let Some(relaunch) = relaunch {
+        // The runtime's threads end with the process image.
+        return Err(start_again(&relaunch, options));
+    }
     // tmux (verified on 3.2a) can drop the pane's final output when the
     // process dies immediately after writing it: the just-printed resume
     // hint -- and the tail of the exit flush -- races the pane-death
@@ -140,13 +145,14 @@ fn print_resume_hint(hint: Option<&str>) {
 /// `/resume <selector>` chain runs its target before the loop decides again.
 /// `return_chat` is the live session id of the chat the view is entered
 /// from: escape on the empty global view returns to it (a startup launch
-/// straight into the view has none, and escape there exits).
+/// straight into the view has none, and escape there exits). A session's
+/// `/restart` ends the loop with the start it asked for.
 async fn run_agents_view_flow(
     base: InteractiveOptions,
     anchor: Option<String>,
     return_chat: Option<String>,
     notice: Option<String>,
-) -> Result<()> {
+) -> Result<Option<Relaunch>> {
     let mut anchor = anchor;
     let mut return_chat = return_chat;
     // The flow's roster connection (TS `AgentsViewPersistentState.rosterClient`):
@@ -241,7 +247,7 @@ async fn run_agents_view_flow(
             frames.pop();
         }
         let Some(selection) = view.selection else {
-            return Ok(());
+            return Ok(None);
         };
         expanded_ancestors = view.expanded_ancestors.clone();
         selected_row_identity = view.selected_row_identity.clone();
@@ -289,7 +295,13 @@ async fn run_agents_view_flow(
                     if let Some(link) = roster_link.take() {
                         link.close();
                     }
-                    return Ok(());
+                    return Ok(None);
+                }
+                AfterSession::Restart(relaunch) => {
+                    if let Some(link) = roster_link.take() {
+                        link.close();
+                    }
+                    return Ok(Some(relaunch));
                 }
             }
         }
@@ -317,20 +329,67 @@ enum AfterSession {
     Open(SessionSelection),
     /// Agents-back or a bare `/resume`: the agents view.
     AgentsView,
+    /// `/restart`: the build it named starts on the session, in place of
+    /// this process.
+    Restart(Relaunch),
     /// Every other exit ends the process.
     Exit,
 }
 
-/// Take the next step out of a finished session run: its `/resume
-/// <selector>` request first, then a return to the agents view.
+/// A `/restart`: the executable to start and the session it reopens.
+#[derive(Debug, PartialEq)]
+struct Relaunch {
+    exe: PathBuf,
+    session: String,
+}
+
+/// Take the next step out of a finished session run: its `/restart`
+/// first, then its `/resume <selector>` request, then a return to the
+/// agents view.
 fn after_session(outcome: &mut eukhe_tui::interactive::InteractiveOutcome) -> AfterSession {
-    if let Some(selection) = outcome.selection_request.take() {
+    if let Some(target) = outcome.restart.take() {
+        // The durable id reopens the session whether or not the daemon
+        // that served it still runs.
+        let session = if outcome.session_id.is_empty() {
+            outcome.active_session_id.clone()
+        } else {
+            outcome.session_id.clone()
+        };
+        AfterSession::Restart(Relaunch {
+            exe: target.exe,
+            session,
+        })
+    } else if let Some(selection) = outcome.selection_request.take() {
         AfterSession::Open(selection)
     } else if outcome.return_to_agents_view {
         AfterSession::AgentsView
     } else {
         AfterSession::Exit
     }
+}
+
+/// Start `relaunch` in place of this process (same pid, terminal and
+/// environment) on its session, with this launch's daemon socket and
+/// session directory. Returns only when the start failed.
+fn start_again(relaunch: &Relaunch, options: &RunOptions) -> anyhow::Error {
+    use std::io::Write as _;
+    use std::os::unix::process::CommandExt as _;
+    let mut command = Command::new(&relaunch.exe);
+    command.arg("--resume").arg(&relaunch.session);
+    if let Some(socket) = &options.daemon_socket {
+        command.arg("--daemon-socket").arg(socket);
+    }
+    if let Some(dir) = &options.session.session_dir {
+        command.arg("--session-dir").arg(dir);
+    }
+    // Nothing this process wrote may land after the new one's first frame.
+    let _ = std::io::stdout().flush();
+    let error = command.exec();
+    anyhow!(
+        "cannot start {} again: {error}. Resume this session with: eukhe --resume {}",
+        relaunch.exe.display(),
+        relaunch.session
+    )
 }
 
 /// Run the session a `/resume <selector>` asked for, on the base options.
@@ -555,6 +614,11 @@ fn build_tui_options(
         }),
         daemon_launcher: Some(eukhe_client::saved_sessions::SharedDaemonLauncher::new(
             daemon_launcher,
+        )),
+        // `/restart`, and the launch's update check behind it (on its own
+        // thread: the first frame never waits for it).
+        restart: Some(crate::update_command::launch_restarter(
+            settings.get_update_auto_download(),
         )),
     };
     Ok(tui_options_value)

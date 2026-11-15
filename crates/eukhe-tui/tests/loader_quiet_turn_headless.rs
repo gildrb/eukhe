@@ -221,6 +221,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

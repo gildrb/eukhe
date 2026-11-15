@@ -1419,6 +1419,17 @@ pub const STT_ENABLED: Decl = Decl {
     init: Init::Bool(false),
 };
 
+/// The background download of a newer release at an interactive launch
+/// (opt-out). Global: a project never decides what the binary fetches.
+pub const UPDATE_AUTO_DOWNLOAD: Decl = Decl {
+    id: "update.autoDownload",
+    ty: CvarType::Bool,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Bool(true),
+};
+
 /// The settings eukhe edits as documents: each scope's `settings.json` is
 /// their one store (the package and resource commands, the MCP registry,
 /// the model switch's recent list write it, and their readers read it; the
@@ -1581,4 +1592,5 @@ pub const DECLS: &[Decl] = &[
     TITLES_GENERATE,
     TTS_LOCAL_VOICE,
     STT_ENABLED,
+    UPDATE_AUTO_DOWNLOAD,
 ];

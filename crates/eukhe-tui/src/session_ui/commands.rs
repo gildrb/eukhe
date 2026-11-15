@@ -281,6 +281,9 @@ impl SessionUi {
             "quit" => {
                 self.exit_requested = true;
             }
+            // `/restart`: start this session again on the installed build
+            // (a staged update applied first).
+            "restart" => self.restart(view).await,
             // `/pause`: the worker tree pauses (its running model request
             // and tool calls finish, nothing new starts).
             "pause" => {

@@ -129,6 +129,7 @@ fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

@@ -301,6 +301,7 @@ fn options(socket: PathBuf, catalog: Vec<CatalogModel>) -> InteractiveOptions {
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

@@ -146,6 +146,7 @@ fn session_options(
         restore_dock_focus,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

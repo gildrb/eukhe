@@ -319,6 +319,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
         client_settings: None,
         dictation: None,
         daemon_launcher: Some(SharedDaemonLauncher::new(launcher)),
+        restart: None,
     };
     let outcome = tokio::time::timeout(
         Duration::from_secs(300),

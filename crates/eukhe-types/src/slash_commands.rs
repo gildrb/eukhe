@@ -229,6 +229,7 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "effects", description: "List the interrupted effects whose outcome is unknown, or settle one after checking", execution: SlashCommandExecution::Client, argument_hint: Some("[ran|not-run <id>]"), aliases: &[], takes_argument: false, subcommands: EFFECTS_SUBCOMMANDS, subcommand_optional: true },
     BuiltinSlashCommand { name: "reload", description: "Reload keybindings, skills, prompts, and themes", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "speed", description: "Toggle footer readout of model output tok/sec (latest response and session average)", execution: SlashCommandExecution::Client, argument_hint: Some("[on|off]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "restart", description: "Restart Eukhe on the installed version (applies a downloaded update) and reopen this session", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "quit", description: "Quit Eukhe", execution: SlashCommandExecution::Client, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
 ];
 

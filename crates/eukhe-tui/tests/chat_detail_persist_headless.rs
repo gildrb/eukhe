@@ -368,6 +368,7 @@ fn options(socket: PathBuf, settings: Arc<StubSettings>) -> InteractiveOptions {
         client_settings: Some(settings),
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 

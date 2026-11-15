@@ -184,6 +184,12 @@ fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, CliErr
         return Ok(tiny_command::run_tiny_worker(&args[1..]));
     }
 
+    // The build `/restart` starts reads this build's identity (hidden:
+    // never a public flag).
+    if args.first().map(String::as_str) == Some(update_command::BUILD_IDENTITY_FLAG) {
+        return Ok(update_command::print_build_identity());
+    }
+
     // Public command routing: help requests, removed commands, management
     // commands, and the model/session rewrites.
     let public_command = public_command::handle_public_command(args);

@@ -376,6 +376,7 @@ impl SessionUi {
             client_settings: self.client_settings.clone(),
             dictation: self.dictation.clone(),
             daemon_launcher: None,
+            restart: None,
         }
     }
 

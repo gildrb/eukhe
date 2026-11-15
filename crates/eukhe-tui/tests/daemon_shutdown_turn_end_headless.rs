@@ -417,6 +417,7 @@ fn options_with_session(socket: PathBuf, session: SessionSelection) -> Interacti
         client_settings: None,
         dictation: None,
         daemon_launcher: None,
+        restart: None,
     }
 }
 
