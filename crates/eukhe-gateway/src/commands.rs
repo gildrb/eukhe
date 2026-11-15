@@ -30,6 +30,8 @@ pub(crate) enum PhoneCommand {
     /// `/model all` lists; `/model all N` makes the Nth listed model the
     /// model of every role.
     ModelAll(Option<String>),
+    /// `/restart`: start the gateway again on the installed build.
+    Restart,
 }
 
 /// What one text message means to the gateway.
@@ -80,7 +82,7 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
     let reply = call(Entry::GatewayCommands, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let parsed = match reader.tag_of(3, "a message meaning")? {
-        0 => Parsed::Command(match reader.tag_of(11, "a phone command")? {
+        0 => Parsed::Command(match reader.tag_of(12, "a phone command")? {
             0 => PhoneCommand::Help,
             1 => PhoneCommand::Sessions,
             2 => PhoneCommand::Use(reader.str()?.to_owned()),
@@ -91,7 +93,8 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
             7 => PhoneCommand::Memory,
             8 => PhoneCommand::Model(maybe_str(&mut reader)?),
             9 => PhoneCommand::Reasoning(maybe_str(&mut reader)?),
-            10.. => PhoneCommand::ModelAll(maybe_str(&mut reader)?),
+            10 => PhoneCommand::ModelAll(maybe_str(&mut reader)?),
+            11.. => PhoneCommand::Restart,
         }),
         1 => Parsed::Answer(reader.str()?.to_owned()),
         2.. => Parsed::Prompt,
@@ -171,6 +174,22 @@ mod tests {
                 Parsed::Command(PhoneCommand::ModelAll(None)),
                 Parsed::Command(PhoneCommand::ModelAll(Some("3".to_string()))),
                 Parsed::Answer(model_usage.to_string()),
+            ]
+        );
+    }
+
+    /// `/restart` takes no argument: alone it is the command, with words
+    /// its usage line.
+    #[test]
+    fn restart_takes_no_arguments() {
+        assert_eq!(
+            [parse("/restart"), parse("/restart now")],
+            [
+                Parsed::Command(PhoneCommand::Restart),
+                Parsed::Answer(
+                    "Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."
+                        .to_string()
+                ),
             ]
         );
     }

@@ -37,6 +37,8 @@ type Cmd is Data:
   # `/model all` lists the models for the all-roles model; `/model all N`
   # makes N, as written, the model of every role
   CModelAll{arg: Maybe<&2, String>}
+  # `/restart` starts the gateway again on the installed build
+  CRestart{}
 
 # What one text message means
 type Out is Data:
@@ -51,7 +53,7 @@ type Spec is Data:
 
 # The commands, in PhoneCommand order
 def specs() -> List<&2, Spec>:
-  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [all] [N]", "Show the models; N switches to one; all N uses it for every role."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}]
+  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [all] [N]", "Show the models; N switches to one; all N uses it for every role."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}, Spec{"restart", "/restart", "Restart the gateway on the installed eukhe version (applies a downloaded update)."}]
 
 # Text
 # ----
@@ -224,7 +226,9 @@ def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
       model(args)
     case 9n:
       reasoning(upto(args))
-    case 10n+u:
+    case 10n:
+      none(args, CRestart{})
+    case 11n+u:
       None{}
 
 def find.at(b: Bool, i: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:

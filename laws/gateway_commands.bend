@@ -26,8 +26,8 @@ import ./doc_commit.bend as DocCommit
 # R3: the name is read with its ASCII letters lowercased; a name among the
 #     session command names Rust sends is a prompt (the session runs it).
 # R4: the commands, in order: help, sessions, use, latest, new, stop,
-#     status, memory, model, reasoning. `/use` takes exactly one argument
-#     (kept as written), `/reasoning` none or one (kept as written),
+#     status, memory, model, reasoning, restart. `/use` takes exactly one
+#     argument (kept as written), `/reasoning` none or one (kept as written),
 #     `/model` none, one, or the two `all` and N: one argument `all` is the
 #     all-roles listing, another one argument a switch (kept as written),
 #     `all` then N sets the all-roles model (N kept as written); the others
@@ -38,7 +38,7 @@ import ./doc_commit.bend as DocCommit
 #     for the empty name (a lone `/`), the help text; else, when command
 #     names start with it, their lines in order, each on its own line,
 #     then `Send one of these. Send / for all commands.`; else, when the
-#     slash_suggest suggestion over the 10 names picks one,
+#     slash_suggest suggestion over the 11 names picks one,
 #     `No command /<name>. Did you mean /<closest>?` and on a second line
 #     `Not sent to the agent. Send / for all commands.`; else
 #     `No command /<name>. Not sent to the agent.` and on the next lines
@@ -59,15 +59,15 @@ import ./doc_commit.bend as DocCommit
 
 # R4: the command names, in order
 def gc_names() -> List<&2, String>:
-  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory", "model", "reasoning"]
+  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory", "model", "reasoning", "restart"]
 
 # R5: the command lines, in the same order
 def gc_lines() -> List<&2, String>:
-  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "/reasoning [level] - Show the thinking level; a level sets it."]
+  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "/reasoning [level] - Show the thinking level; a level sets it.", "/restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."]
 
 # R7
 def gc_help() -> String:
-  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\n/reasoning [level] - Show the thinking level; a level sets it.\nOther text goes to the agent."
+  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\n/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\nOther text goes to the agent."
 
 # the text at index i of xs; "" past the end
 def gc_at(xs: List<&2, String>, i: Nat) -> String:
@@ -252,6 +252,8 @@ def gc_w_cmd(c: Gc.Cmd) -> String:
       Wr.put_nat(9n, gc_w_arg(m))
     case Gc.CModelAll{m}:
       Wr.put_nat(10n, gc_w_arg(m))
+    case Gc.CRestart{}:
+      Wr.put_nat(11n, "")
 
 def gc_w_out(o: Gc.Out) -> String:
   match o:
@@ -502,6 +504,38 @@ law gateway_commands_reasoning_usage:
   for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
   {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 9n))} : Gc.Out}
 
+# LAW gateway_commands_restart (R4): `/restart` (any ASCII case, no session
+# command) with no word after it is `/restart`
+# EXCLUDES: `/restart` sent to the agent, taken for another command or
+#   answered with its usage
+law gateway_commands_restart:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "restart" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CRestart{}} : Gc.Out}
+
+# LAW gateway_commands_restart_usage (R5): `/restart` with one word or more
+# after it answers its usage line, which names what it does
+# EXCLUDES: `/restart` run with arguments, the arguments sent to the
+#   agent, another usage line or description
+law gateway_commands_restart_usage:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> more) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "restart" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{"Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."} : Gc.Out}
+
 # LAW gateway_commands_lone_slash (R6, R7): a lone `/` (the empty name not a
 # session command) answers the help text
 # EXCLUDES: a missing or partial help text, a lone `/` sent to the agent
@@ -535,7 +569,7 @@ law gateway_commands_listing:
   {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{gc_listing(l <> ls)} : Gc.Out}
 
 # LAW gateway_commands_near (R6): the same name, when no command name
-# starts with it and the slash_suggest suggestion over the 10 names picks
+# starts with it and the slash_suggest suggestion over the 11 names picks
 # the j-th, answers `No command /<name>. Did you mean /<j-th name>?` and
 # `Not sent to the agent. Send / for all commands.` on a second line
 # EXCLUDES: a near miss named past the slash_suggest pick, a near miss sent
@@ -591,22 +625,24 @@ law gateway_commands_unknown_words:
   {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OPrompt{} : Gc.Out}
 
 # LAW gateway_commands_example (R1-R7): anchor: the vectors of Rust's tests
-# the_core_parses_phone_messages and
-# model_and_reasoning_parse_with_and_without_arguments
+# the_core_parses_phone_messages,
+# model_and_reasoning_parse_with_and_without_arguments and
+# restart_takes_no_arguments
 # (crates/eukhe-gateway/src/commands.rs), with Rust's session command names
 # (eukhe-types SESSION_SLASH_COMMAND_NAMES)
 # EXCLUDES: a code that drifts from the Rust test vectors
 law gateway_commands_example:
-  {[Gc.parse("/help", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/dynamic-workflow --size large review the repo", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/compact", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/use 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/hlep", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning high", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning low extra", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3 4", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OCommand{Gc.CModelAll{None{}}}, Gc.OCommand{Gc.CModelAll{Some{"3"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
+  {[Gc.parse("/help", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/dynamic-workflow --size large review the repo", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/compact", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/use 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/hlep", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning high", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model 2 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/reasoning low extra", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/model all 3 4", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/restart", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"]), Gc.parse("/restart now", ["compact", "refine", "goal", "autonomous", "remind", "force", "dynamic-workflow", "autoresearch"])] == [Gc.OCommand{Gc.CHelp{}}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CUse{"3"}}, Gc.OAnswer{"No command /hlep. Did you mean /help?\nNot sent to the agent. Send / for all commands."}, Gc.OCommand{Gc.CModel{None{}}}, Gc.OCommand{Gc.CModel{Some{"2"}}}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OCommand{Gc.CReasoning{Some{"high"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"Usage: /reasoning [level] - Show the thinking level; a level sets it."}, Gc.OCommand{Gc.CModelAll{None{}}}, Gc.OCommand{Gc.CModelAll{Some{"3"}}}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OCommand{Gc.CRestart{}}, Gc.OAnswer{"Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."}] : List<&2, Gc.Out>}
 
 # LAW gateway_commands_more_example (R1-R7): anchor, in no Rust test: a
 # lone `/`, a prefix, `/use` alone, a path, an unknown name with words, an
 # uppercase name, a far miss, a blank text, a prefix of three commands,
 # extra spaces, `/stop` with a word, an uppercase `/Reasoning`, the prefix
-# `/m` of memory and model, `/model ALL 3` (only the word `all` as written)
+# `/m` of memory and model, `/model ALL 3` (only the word `all` as written),
+# the prefix `/re` of reasoning and restart, an uppercase `/Restart`
 # EXCLUDES: a code that drifts from these vectors
 law gateway_commands_more_example:
-  {[Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/Reasoning", []), Gc.parse("/m", []), Gc.parse("/model ALL 3", [])] == [Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}] : List<&2, Gc.Out>}
+  {[Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/Reasoning", []), Gc.parse("/m", []), Gc.parse("/model ALL 3", []), Gc.parse("/re", []), Gc.parse("/Restart", [])] == [Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CRestart{}}] : List<&2, Gc.Out>}
 
 # Laws: the entry (R8)
 # --------------------
@@ -655,8 +691,8 @@ law gateway_commands_entry_refuses:
 # usage answer, a session command, a prompt; input left over and a
 # malformed request; `/model` without and with its argument, `/reasoning`
 # with its argument, a `/model` usage answer; `/model all` without and
-# with its argument
+# with its argument; `/restart` and its usage answer
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law gateway_commands_entry_example:
-  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3"] : List<&2, String>}
+  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,"), FGc.ffi("8,/restart0,"), FGc.ffi("12,/restart now0,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3", "0,11,", "1,99,Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."] : List<&2, String>}
 

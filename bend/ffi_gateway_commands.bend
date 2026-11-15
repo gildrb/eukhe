@@ -9,7 +9,8 @@
 #              argument (String) | 3 latest | 4 new | 5 stop | 6 status
 #              | 7 memory | 8 model, then its argument (Maybe<String>)
 #              | 9 reasoning, then its argument (Maybe<String>)
-#              | 10 model all, then its argument (Maybe<String>))
+#              | 10 model all, then its argument (Maybe<String>)
+#              | 11 restart)
 #            | 1 an answer: its text (String)
 #            | 2 a prompt
 #
@@ -79,6 +80,8 @@ def put_cmd(c: Gc.Cmd) -> String:
       W.put_nat(9n, put_arg(m))
     case Gc.CModelAll{m}:
       W.put_nat(10n, put_arg(m))
+    case Gc.CRestart{}:
+      W.put_nat(11n, "")
 
 # what the message means, encoded
 def put_out(o: Gc.Out) -> String:

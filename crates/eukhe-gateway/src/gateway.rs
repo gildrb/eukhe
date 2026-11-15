@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use eukhe_client::daemon_build::{relation, Build, Relation};
 use eukhe_client::daemon_client::DaemonClientEvent;
+use eukhe_client::restart::{plan, Target};
 use eukhe_tui::client_settings::{all_roles_note, ClientSettings};
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::daemon::{
@@ -28,7 +29,7 @@ use crate::sessions::{
 };
 use crate::signal::{Inbound, Peer, SignalCli, Typing};
 use crate::style::{self, StyledText};
-use crate::GatewayConfig;
+use crate::{GatewayConfig, GatewayExit, RestartSupport};
 use eukhe_client::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
 
 /// Signal shows a typing indicator for about 15 s; refresh it sooner.
@@ -77,6 +78,21 @@ enum DaemonState {
     },
 }
 
+/// What one phone message leaves for the phone.
+enum Done {
+    Reply(String),
+    /// Nothing to say (a prompt: the agent answers).
+    Quiet,
+    /// `/restart` starts the target.
+    Restart(Target),
+}
+
+/// Whether the gateway keeps serving after a message.
+enum Flow {
+    Serve,
+    Restart(Target),
+}
+
 pub(crate) struct Gateway<L> {
     config: GatewayConfig,
     /// The settings the `/model` reply reads (the all-roles model).
@@ -103,6 +119,10 @@ pub(crate) struct Gateway<L> {
     sent_prompts: VecDeque<String>,
     /// Each peer's last `/sessions` list, which `/use N` indexes.
     listings: HashMap<Peer, Vec<SavedSession>>,
+    /// `/restart` and the staged-update notice.
+    restart: RestartSupport,
+    /// The staged update's version, while the seam can still stage one.
+    staged: Option<watch::Receiver<Option<String>>>,
 }
 
 impl<L: DaemonLauncher> Gateway<L> {
@@ -120,6 +140,7 @@ impl<L: DaemonLauncher> Gateway<L> {
         config: GatewayConfig,
         launcher: L,
         settings: Arc<dyn ClientSettings>,
+        restart: RestartSupport,
     ) -> anyhow::Result<Self> {
         let mut interrupt =
             signal(SignalKind::interrupt()).context("install the SIGINT handler")?;
@@ -141,6 +162,10 @@ impl<L: DaemonLauncher> Gateway<L> {
             .await
             .context("start signal-cli")?;
         let route = home_route(config.root_heartbeat.as_deref());
+        let staged = match &restart {
+            RestartSupport::Available(restarter) => Some(restarter.staged()),
+            RestartSupport::Unavailable => None,
+        };
         let mut gateway = Self {
             config,
             settings,
@@ -157,6 +182,8 @@ impl<L: DaemonLauncher> Gateway<L> {
             stop_pending: None,
             sent_prompts: VecDeque::new(),
             listings: HashMap::new(),
+            restart,
+            staged,
         };
         if let Some(schedule) = gateway.config.root_heartbeat.clone() {
             let binding = gateway.routed_binding().await?;
@@ -171,6 +198,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             tracing::info!(%schedule, session = %binding.session.path, "the root session's heartbeat runs");
         }
         tracing::info!("the gateway runs");
+        gateway.log_update_notice();
         Ok(gateway)
     }
 
@@ -182,19 +210,20 @@ impl<L: DaemonLauncher> Gateway<L> {
         }
     }
 
-    /// Serve until shutdown: inbound messages strictly in arrival order,
-    /// daemon events as they come, reconnects when the daemon goes away.
+    /// Serve until shutdown or `/restart`: inbound messages strictly in
+    /// arrival order, daemon events as they come, reconnects when the
+    /// daemon goes away.
     ///
     /// # Errors
     ///
     /// The `signal-cli` supervisor stops delivering messages.
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn serve(mut self) -> anyhow::Result<()> {
+    pub(crate) async fn serve(mut self) -> anyhow::Result<GatewayExit> {
         let mut typing_tick = tokio::time::interval(TYPING_REFRESH);
         typing_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let outcome = loop {
             if *self.shutdown.borrow() {
-                break Ok(());
+                break Ok(GatewayExit::Stopped);
             }
             if self.link.is_dead() {
                 match self.daemon {
@@ -234,11 +263,14 @@ impl<L: DaemonLauncher> Gateway<L> {
             tokio::select! {
                 changed = self.shutdown.changed() => {
                     if changed.is_err() {
-                        break Ok(());
+                        break Ok(GatewayExit::Stopped);
                     }
                 }
                 inbound = self.inbound.recv() => match inbound {
-                    Some(inbound) => self.handle_inbound(inbound).await,
+                    Some(inbound) => match self.handle_inbound(inbound).await {
+                        Flow::Serve => {}
+                        Flow::Restart(target) => break Ok(GatewayExit::Restart(target)),
+                    },
                     None => break Err(anyhow::anyhow!("the signal-cli supervisor stopped")),
                 },
                 event = self.link.events.recv(), if connected => {
@@ -259,7 +291,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                             // An older daemon keeps serving this gateway, which never replaces a daemon.
                             if let Relation::Newer | Relation::Other = relation(Build::THIS, self.link.client.daemon_build()) {
                                 tracing::info!(version = self.link.client.daemon_build().version, "a daemon of another eukhe build runs; the gateway stops so its service restarts it on that build");
-                                break Ok(());
+                                break Ok(GatewayExit::Stopped);
                             }
                             self.daemon = DaemonState::Up;
                             self.reattach().await;
@@ -275,23 +307,32 @@ impl<L: DaemonLauncher> Gateway<L> {
                     }
                 }
                 _ = typing_tick.tick() => self.refresh_typing().await,
+                staged = staged_change(self.staged.as_mut()) => match staged {
+                    Ok(()) => self.log_update_notice(),
+                    // The seam dropped its sender: nothing more is staged.
+                    Err(_) => self.staged = None,
+                },
             }
         };
-        let cleanup = async {
-            self.stop_typing().await;
-            if let Some(binding) = self.binding.take() {
-                if let Err(error) = self.link.detach(&binding.active_session_id).await {
-                    tracing::warn!(error = %format!("{error:#}"), "detach at shutdown failed");
-                }
-            }
-        };
-        if tokio::time::timeout(SHUTDOWN_BUDGET, cleanup)
+        if tokio::time::timeout(SHUTDOWN_BUDGET, self.clean_up())
             .await
             .is_err()
         {
             tracing::warn!("the shutdown cleanup timed out");
         }
         outcome
+    }
+
+    /// Stop the typing indicator and detach the bound session. A daemon
+    /// that stopped for `/restart` has no session to detach.
+    #[tracing::instrument(skip_all)]
+    async fn clean_up(&mut self) {
+        self.stop_typing().await;
+        if let Some(binding) = self.binding.take().filter(|_| !self.link.is_dead()) {
+            if let Err(error) = self.link.detach(&binding.active_session_id).await {
+                tracing::warn!(error = %format!("{error:#}"), "detach at shutdown failed");
+            }
+        }
     }
 
     /// Start the daemon again after it went away, reconnect, and attach
@@ -337,7 +378,7 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     #[tracing::instrument(skip_all, fields(peer = ?inbound.peer, timestamp = inbound.timestamp))]
-    async fn handle_inbound(&mut self, inbound: Inbound) {
+    async fn handle_inbound(&mut self, inbound: Inbound) -> Flow {
         if let Err(error) = self
             .signal
             .read_receipt(&inbound.peer, inbound.timestamp)
@@ -357,29 +398,35 @@ impl<L: DaemonLauncher> Gateway<L> {
         };
         let peer = inbound.peer.clone();
         let outcome = match parsed {
-            Parsed::Command(command) => self.run_command(&peer, command).await.map(Some),
-            Parsed::Answer(answer) => Ok(Some(answer)),
+            Parsed::Command(command) => self.run_command(&peer, command).await,
+            Parsed::Answer(answer) => Ok(Done::Reply(answer)),
             Parsed::Prompt if inbound.text.trim().is_empty() && inbound.images.is_empty() => {
                 tracing::info!("ignored an empty message");
-                Ok(None)
+                Ok(Done::Quiet)
             }
-            Parsed::Prompt => self.prompt(&inbound).await.map(|()| None),
+            Parsed::Prompt => self.prompt(&inbound).await.map(|()| Done::Quiet),
         };
         match outcome {
-            Ok(Some(reply)) => self.reply(&peer, reply).await,
-            Ok(None) => {}
+            Ok(Done::Reply(reply)) => self.reply(&peer, reply).await,
+            Ok(Done::Quiet) => {}
+            Ok(Done::Restart(target)) => {
+                self.reply(&peer, format!("Restarting on eukhe {}", target.version))
+                    .await;
+                return Flow::Restart(target);
+            }
             Err(error) => {
                 let error = format!("{error:#}");
                 tracing::warn!(%error, "message failed");
                 self.reply(&peer, format!("Error: {error}")).await;
             }
         }
+        Flow::Serve
     }
 
-    /// Run one phone command; the answer is the reply text.
+    /// Run one phone command; the answer is what the phone hears.
     #[tracing::instrument(skip_all)]
-    async fn run_command(&mut self, peer: &Peer, command: PhoneCommand) -> anyhow::Result<String> {
-        match command {
+    async fn run_command(&mut self, peer: &Peer, command: PhoneCommand) -> anyhow::Result<Done> {
+        let reply = match command {
             PhoneCommand::Help => Ok(crate::commands::help()),
             PhoneCommand::Sessions => {
                 let bound = self.binding.as_ref().map(|binding| binding.session.clone());
@@ -390,7 +437,9 @@ impl<L: DaemonLauncher> Gateway<L> {
                 let now_ms = u64::try_from(now_ms).context("the clock is out of range")?;
                 let sessions = self.refresh_listing(peer).await?;
                 if sessions.is_empty() {
-                    return Ok("No sessions. Send a message to start one.".to_string());
+                    return Ok(Done::Reply(
+                        "No sessions. Send a message to start one.".to_string(),
+                    ));
                 }
                 let mut lines: Vec<String> = sessions
                     .iter()
@@ -446,7 +495,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             }
             PhoneCommand::Stop => {
                 let Some(binding) = &self.binding else {
-                    return Ok("No session is open.".to_string());
+                    return Ok(Done::Reply("No session is open.".to_string()));
                 };
                 self.link
                     .client
@@ -467,6 +516,35 @@ impl<L: DaemonLauncher> Gateway<L> {
             PhoneCommand::Model(number) => self.model(number, ModelSwitch::Session).await,
             PhoneCommand::Reasoning(level) => self.reasoning(level).await,
             PhoneCommand::ModelAll(number) => self.model(number, ModelSwitch::AllRoles).await,
+            PhoneCommand::Restart => return Ok(self.restart().await),
+        };
+        reply.map(Done::Reply)
+    }
+
+    /// `/restart`: the build to start, or what the phone hears instead. A
+    /// busy daemon is never stopped (`plan`).
+    #[tracing::instrument(skip_all)]
+    async fn restart(&self) -> Done {
+        match prepared(&self.restart).await {
+            Ok((target, release_wait)) => match plan(&self.link.client, &target, release_wait)
+                .await
+                .stay_message(&target)
+            {
+                Some(text) => Done::Reply(text),
+                None => Done::Restart(target),
+            },
+            Err(text) => Done::Reply(text),
+        }
+    }
+
+    /// Log the staged-update notice, once per process.
+    fn log_update_notice(&self) {
+        let notice = match &self.restart {
+            RestartSupport::Available(restarter) => restarter.take_notice(),
+            RestartSupport::Unavailable => None,
+        };
+        if let Some(notice) = notice {
+            tracing::info!("{notice}");
         }
     }
 
@@ -1296,6 +1374,34 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 }
 
+/// The build `/restart` starts and how long a daemon that agreed to stop
+/// may take to free its socket; `Err` is the reply that says why there is
+/// none.
+async fn prepared(restart: &RestartSupport) -> Result<(Target, Duration), String> {
+    let restarter = match restart {
+        RestartSupport::Available(restarter) => Arc::clone(restarter),
+        RestartSupport::Unavailable => return Err("/restart is not available here".to_string()),
+    };
+    let release_wait = restarter.release_wait();
+    // Applying the update and reading the target's identity run processes:
+    // off the event loop.
+    match tokio::task::spawn_blocking(move || restarter.prepare()).await {
+        Ok(Ok(target)) => Ok((target, release_wait)),
+        Ok(Err(why)) => Err(format!("Cannot restart: {why}")),
+        Err(error) => Err(format!("Cannot restart: {error}")),
+    }
+}
+
+/// The next change of the staged update; never without the seam.
+async fn staged_change(
+    staged: Option<&mut watch::Receiver<Option<String>>>,
+) -> Result<(), watch::error::RecvError> {
+    match staged {
+        Some(watch) => watch.changed().await,
+        None => std::future::pending().await,
+    }
+}
+
 /// The `heartbeat_set` that creates or replaces the root session's
 /// heartbeat: `schedule` (`gateway.rootHeartbeat`) with the root
 /// instruction, the daemon's default delivery (a fire waits while the
@@ -1345,6 +1451,61 @@ fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A restarter whose `prepare` answers `prepared`.
+    struct FixedRestarter {
+        prepared: Result<Target, String>,
+        staged: watch::Sender<Option<String>>,
+    }
+
+    impl eukhe_client::restart::Restarter for FixedRestarter {
+        fn staged(&self) -> watch::Receiver<Option<String>> {
+            self.staged.subscribe()
+        }
+
+        fn take_notice(&self) -> Option<String> {
+            None
+        }
+
+        fn prepare(&self) -> Result<Target, String> {
+            self.prepared.clone()
+        }
+
+        fn release_wait(&self) -> Duration {
+            Duration::from_secs(2)
+        }
+    }
+
+    fn fixed(prepared: Result<Target, String>) -> RestartSupport {
+        RestartSupport::Available(Arc::new(FixedRestarter {
+            prepared,
+            staged: watch::channel(None).0,
+        }))
+    }
+
+    /// `/restart` before the daemon is asked anything: without the seam it
+    /// is unavailable, a seam that cannot prepare says why, and a prepared
+    /// target goes on to the plan with the seam's release wait.
+    #[tokio::test]
+    async fn restart_prepares_the_target_or_says_why_not() {
+        let target = Target {
+            exe: std::path::PathBuf::from("/opt/eukhe/bin/eukhe"),
+            version: "1.2.4".to_string(),
+            identity: None,
+        };
+        assert_eq!(
+            [
+                prepared(&RestartSupport::Unavailable).await,
+                prepared(&fixed(Err("the install is read-only".to_string()))).await,
+                prepared(&fixed(Ok(target.clone()))).await,
+            ],
+            [
+                Err("/restart is not available here".to_string()),
+                Err("Cannot restart: the install is read-only".to_string()),
+                Ok((target, Duration::from_secs(2))),
+            ]
+        );
+    }
 
     /// `gateway.rootHeartbeat` arms the root session's heartbeat with one
     /// `heartbeat_set`: the setting's schedule, the root instruction, the

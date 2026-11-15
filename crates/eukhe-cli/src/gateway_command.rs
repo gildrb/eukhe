@@ -105,13 +105,45 @@ pub fn run_gateway_command(args: &[String]) -> i32 {
                 return 1;
             }
         };
-    match runtime.block_on(eukhe_gateway::run(config, launcher, settings)) {
-        Ok(()) => 0,
+    // `/restart`, and the launch's update check behind it (on its own
+    // thread); after the log starts, so its warnings reach it.
+    let restarter = crate::update_command::launch_restarter(
+        eukhe_core::settings::SettingsManager::create(
+            &config.new_session_cwd,
+            crate::config::get_agent_dir(),
+        )
+        .get_update_auto_download(),
+    );
+    let restart = eukhe_gateway::RestartSupport::Available(restarter);
+    let exit = runtime.block_on(eukhe_gateway::run(config, launcher, settings, restart));
+    // The runtime's blocking threads end before this process is replaced.
+    drop(runtime);
+    match exit {
+        Ok(eukhe_gateway::GatewayExit::Stopped) => 0,
+        Ok(eukhe_gateway::GatewayExit::Restart(target)) => {
+            let error = start_again(&target.exe, args);
+            eprintln!(
+                "Error: cannot start {} again: {error}",
+                target.exe.display()
+            );
+            1
+        }
         Err(error) => {
             eprintln!("Error: {error:#}");
             1
         }
     }
+}
+
+/// Start `exe gateway <args>` in place of this process (same pid, so a
+/// service manager keeps supervising it). Returns only when the start
+/// failed.
+fn start_again(exe: &std::path::Path, args: &[String]) -> std::io::Error {
+    use std::os::unix::process::CommandExt as _;
+    std::process::Command::new(exe)
+        .arg("gateway")
+        .args(args)
+        .exec()
 }
 
 /// The gateway configuration from the global settings, the session-dir

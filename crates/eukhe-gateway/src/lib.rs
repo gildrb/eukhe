@@ -13,6 +13,7 @@ mod style;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use eukhe_client::restart::{SharedRestarter, Target};
 use eukhe_client::saved_sessions::DaemonLauncher;
 use eukhe_tui::client_settings::{ClientSettings, ModelRoleSource};
 use eukhe_types::model_roles::ModelRole;
@@ -100,11 +101,32 @@ pub struct SignalConfig {
     pub allow: Vec<String>,
 }
 
-/// Run the gateway until SIGINT or SIGTERM: relay the allowed Signal
-/// senders' messages into the daemon session the CLI uses, and the agent's
-/// replies back. `settings` is the settings store `/model` reads (the
-/// all-roles model). On a signal it stops the typing indicator and
-/// detaches.
+/// Whether the phone's `/restart` can start the gateway again.
+#[derive(Clone)]
+pub enum RestartSupport {
+    /// The composition root's install seam: it applies a staged update and
+    /// names the build to start.
+    Available(SharedRestarter),
+    /// `/restart` answers that it is not available.
+    Unavailable,
+}
+
+/// How the gateway ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GatewayExit {
+    /// SIGINT, SIGTERM, or a daemon of another build took over.
+    Stopped,
+    /// The phone's `/restart`: the composition root starts the target in
+    /// place of this process.
+    Restart(Target),
+}
+
+/// Run the gateway until SIGINT, SIGTERM or the phone's `/restart`: relay
+/// the allowed Signal senders' messages into the daemon session the CLI
+/// uses, and the agent's replies back. `settings` is the settings store
+/// `/model` reads (the all-roles model); `restart` serves `/restart` and
+/// logs the staged-update notice. On a signal or a restart it stops the
+/// typing indicator and detaches.
 ///
 /// # Errors
 ///
@@ -116,8 +138,9 @@ pub async fn run(
     config: GatewayConfig,
     launcher: impl DaemonLauncher,
     settings: Arc<dyn ClientSettings>,
-) -> anyhow::Result<()> {
-    gateway::Gateway::start(config, launcher, settings)
+    restart: RestartSupport,
+) -> anyhow::Result<GatewayExit> {
+    gateway::Gateway::start(config, launcher, settings, restart)
         .await?
         .serve()
         .await
