@@ -1,45 +1,37 @@
 ---
 name: subagents
-description: Decide whether a subagent is justified, then spawn, brief and collect it. Read before any rlm.spawn or rlm.spawn_batch call - when a task splits into independent parts that can run at once, when work would flood this context with material of which only a summary matters, when a task needs tools or instructions that conflict with yours, or when the user asks for a subagent. Covers the required why value, dividing work by context, self-contained prompts, compact hand-back and fan-in, and when rlm.query (a tool-less sub-model call over a slice of data) does the job instead.
+description: Split work into scoped children or ask read-only helpers, then integrate. Read before the first rlm.split or rlm.spawn; covers when rlm.query suffices.
 ---
 
 # Subagents
 
-Default: do the work in this loop. A child costs a fresh context, a full briefing and a hand-back. It pays only when this loop would get worse without it.
+Every agent is a node of one tree. A node does its work alone, or splits into exactly two children with disjoint file scopes and becomes their parent. Read-only helpers are extra leaves. Default: do the work in this loop.
 
 ## Decide
 
-| `why` | Spawn when | Not when |
+| Call | When | Not when |
 |---|---|---|
-| `parallel` | independent tasks can run at once, each in a fresh context you can discard | the tasks share state or must run in order |
-| `isolate` | the work reads far more than it returns (a broad search, long logs, a large diff) and only a compact result matters | one known lookup, edit or command |
-| `tools` | the task needs a tool set or instructions that conflict with yours | you only lack know-how: read the matching skill |
-| `user` | the user asked for a subagent | |
+| `rlm.split(left, right)` | two halves write disjoint files, each worth its own planning (several edits or files) | the halves edit the same files; one half needs the other's result |
+| `rlm.spawn(task)` | a read-only job: a broad search, long logs, a review; only a compact result matters | one known lookup or command |
+| `rlm.query(prompt, context)` | a function over a slice of data, no tools | |
 
-No row fits: do it here.
+## Split
 
-## Query instead
+1. Scope each half by files or directories: `left={"scope": ["crates/a"], "task": "..."}`. A child writes only inside its scope; the rest of your scope stays yours (`own`).
+2. Keep shared files (lockfiles, `mod.rs`, index files, generated code) in your own scope. A child that needs one reports a conflict.
+3. Brief fully: goal, exact paths and facts, constraints, the check that means done. A child never sees this conversation.
+4. Each child works in a copy of your workspace as it is now (uncommitted edits included), runs its check there, and reports.
+5. While the children run, work on your own scope. A child splits again inside its scope the same way (at most depth 3, 15 agents).
 
-A function over a slice, no tools: `await rlm.query(prompt, context)`, or `rlm.query_batch([...])` for many. No child, briefing or transcript: the answer is a Python value; print only what you need. Keep long material (files, logs, this conversation through `history` or `chat`) in variables, slice it in code, query each slice, combine the values.
+## Integrate
 
-## Spawn
-
-1. Divide by context, not by role: one child per independent body of material (a directory, a dataset, a question). Never chain planner, coder and reviewer children over the same material.
-2. Brief fully: goal, exact paths and facts, constraints, what done means. A child never sees this conversation.
-3. Ask for a compact hand-back: the answer, decisions and paths, not transcripts. Bulky output goes to a file; the reply names it.
-4. Pass `why` and a short unique `name`; keep the handle. Children that edit one tree in parallel get `workspace="isolated"`.
-5. When done is checkable, pass `accept` checks; trust the harness's verdict over the child's words.
-6. Several children: one `rlm.spawn_batch` call.
-
-## Collect
-
-- Results arrive as agent messages, never as return values. Do other work meanwhile; when only their results remain, `await jobs.wait()` in this turn. Never poll; never end the turn while children run.
-- `rlm.collect()` snapshots children without steering them. Read the files they wrote.
-- After a kernel restart or compaction, `rlm.list_subagents()` returns the handles.
-- Delete a child only when it is idle and its context is no longer needed.
+- The harness applies each child's writes inside its scope to your workspace when the child settles. Writes outside its scope are conflicts: never applied; the report lists them, the child's version stays under the workspace's `conflicts/`. Resolve them in your own scope.
+- Results arrive as agent messages. When only their results remain, `await jobs.wait()`; a user message ends the wait first. Never poll; never end the turn while children run.
+- After each result: run the check, then report.
+- A failed child runs once more on its own; a second failure reaches you with its partial work. Absorb it (do that scope yourself) or leave it.
 
 ## Refusals
 
-A refused spawn (depth limit, concurrency cap, missing or wrong `why`) states its rule. Act on it: do the work here, wait for a running child to settle, or fix `why`. Never retry unchanged.
+A refused split states its rule (scopes overlap or leave a gap, a half is empty, depth or node bound, budget). Act on it: fix the scopes, do the work here, or wait. Never retry unchanged.
 
 Signatures and types: [references/api.md](references/api.md).

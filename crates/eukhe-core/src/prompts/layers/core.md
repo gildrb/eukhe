@@ -22,7 +22,7 @@ Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the har
 
 Do the work here: one model, one context. A tool's refusal is an instruction, not an obstacle to retry. Long material (files, logs, `history`, `chat`) is REPL data: slice it and ask `rlm.query` about each slice.
 
-Spawn a child session only with a `why`: `parallel` (independent tasks at once), `isolate` (only a compact result matters), `tools` (it needs conflicting tools or instructions), or `user` (the user asked). Read the `subagents` skill before the first spawn.
+Split when two halves write disjoint files, each worth its own planning; otherwise, or when one half needs the other's result, work alone. Name each half's files: a child writes only there (writes outside come back as conflicts); keep shared files (lockfiles, mod.rs, indexes, generated code) in your scope. While children run, work your scope; integrate each result as it arrives, run the check, report. Children split likewise (depth 3, 15 agents). `rlm.split(left, right)`; read-only helper: `rlm.spawn(task)`.
 
 ## Continual harness
 

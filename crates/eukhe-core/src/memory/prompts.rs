@@ -22,7 +22,7 @@
 //!   The spec made the view's latest word the truth before any other
 //!   source, so the agent trusted its own stale claims.
 //! - The turns leave subagents and waiting to the harness layers: when to
-//!   spawn a subagent is the core layer's `why` policy, and a running
+//!   split or ask a helper is the core layer's split rule, and a running
 //!   subagent's report is waited for in the turn by the closing
 //!   `<critical>` block. The spec's "use subagents only when the user asks"
 //!   contradicted the core layer, and its "go on, or end your turn" left

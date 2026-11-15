@@ -27,11 +27,15 @@ use crate::packages::get_bundled_skills_dir;
 
 /// The most bytes eukhe's own system prompt and tool schemas may take in
 /// one request of a default root session (chat memory on, as the daemon
-/// and headless runs open it): what release v0.10.67 (f58acb642) sends,
-/// its bundled skills counted: 21,926 bytes (system prompt 9,490, tool
-/// schemas 12,436). No headroom: the prompt does not grow past the
-/// release unless a change decides it.
-const PROMPT_BUDGET_BYTES: usize = 21_926;
+/// and headless runs open it): release v0.10.67 (f58acb642) sent 21,926
+/// bytes, its bundled skills counted (system prompt 9,490, tool schemas
+/// 12,436). The agent tree raised it by 300 to 22,226 (system prompt
+/// 9,712, tool schemas 12,514): the split rule (when to split, scopes,
+/// shared files, integrate and check) and the workflow's writing `scope`
+/// replace the spawn `why` rule, and what remained after trimming the
+/// replaced subagent guidance is that rule's own text. No headroom: the
+/// prompt does not grow further unless a change decides it.
+const PROMPT_BUDGET_BYTES: usize = 22_226;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT

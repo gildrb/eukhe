@@ -120,7 +120,7 @@ Omit `[project.scripts]` when a CLI is not needed.
 - The skill's sources are read where they are: editing Python source takes effect on the next kernel start.
 - If the user sets `EUKHE_KERNEL_PYTHON`, Eukhe installs nothing — skills whose imports are missing there are disabled with a warning.
 
-A Python skill runs inside the agent's kernel, so it can spawn subagents itself with `import rlm` and `await rlm.spawn("subtask", name="worker", why="isolate")`. Only do that when the subagent rule holds (see the `subagents` skill); `why` is required.
+A Python skill runs inside the agent's kernel, so it can ask a read-only helper with `import rlm` and `await rlm.spawn("subtask", name="worker")`, or split scoped writing work with `rlm.split`. The `subagents` skill says when.
 
 ## Verifying a Python Skill
 

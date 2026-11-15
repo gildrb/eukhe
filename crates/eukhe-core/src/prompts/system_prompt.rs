@@ -425,7 +425,7 @@ fn session_role_section(options: &BuildSystemPromptOptions, has_python: bool) ->
     )];
     if options.daemonless {
         lines.push(
-            "Subagents are unavailable in this session (no child runtime): rlm.spawn will error. Plan to do all work yourself."
+            "Subagents are unavailable in this session (no child runtime): rlm.split and rlm.spawn will error. Plan to do all work yourself."
                 .to_string(),
         );
     }

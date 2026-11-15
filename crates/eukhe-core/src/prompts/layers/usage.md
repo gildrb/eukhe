@@ -10,7 +10,7 @@ Rules (clear user intent overrides them):
 - At depth 0, on long work, give short progress updates at milestones, in the same response as the next tool call.
 - A settled-work notice (`[job-settled ...]`, `[bash-done ...]`, a child's report) means: resume the task with its result. A notice that needs no action needs no reply.
 <!-- eukhe:harness-memory -->
-- Keep memories lean and current. Run independent substantive tasks as parallel subagents (`why="parallel"`).
+- Keep memories lean and current.
 - After a repeated failure or a reusable tactic, `await refine.run()`: repeated delegation into subagent specs, procedures into skills, durable facts into memories, narrow policies into prompt notes. Change the smallest component that fixes it.
 <!-- /eukhe:harness-memory -->
 <!-- eukhe:chat-memory -->

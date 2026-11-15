@@ -12,7 +12,9 @@ export const meta = { name: "review", description: "Review the changed files", p
 
 API (globals):
 
-- `agent(prompt, opts?) -> Promise<string | object | null>`: run one subagent with `prompt` and return its final message. `opts`: `label` (short roster name), `phase` (phase title; default: the current `phase()`), `schema` (a JSON Schema object: the agent must end with a matching JSON block, the call returns the parsed object), `model` (model id), `effort` (thinking level), `isolation` (`"worktree"`: a copy-on-write workspace merged back when the agent ends). Returns `null` when the agent fails, is cancelled, or misses the schema after one retry. Throws `WorkflowBudgetExhausted` when the run already spawned `budget.maxAgents` agents.
+- `agent(prompt, opts?) -> Promise<string | object | null>`: run one subagent with `prompt` and return its final message. `opts`: `label` (short roster name), `phase` (phase title; default: the current `phase()`), `schema` (a JSON Schema object: the agent must end with a matching JSON block, the call returns the parsed object), `model` (model id), `effort` (thinking level), `scope` (the files and directories the agent writes). Returns `null` when the agent fails, is cancelled, or misses the schema after one retry. Throws `WorkflowBudgetExhausted` when the run already spawned `budget.maxAgents` agents.
+  - Without `scope`: a read-only agent (reads, runs read-only commands, reports); its writes are refused.
+  - With `scope`: a writing agent. It returns `{ result, conflicts }`: `result` as above, `conflicts` the paths it changed outside its scope (or that changed under it); those changes are kept apart, never applied. A `scope` that names no file is refused: `a writing agent needs its files`.
 - `parallel(thunks) -> Promise<array>`: run `() => agent(...)` thunks at once (a barrier). A thunk that throws gives `null` in its slot.
 - `pipeline(items, ...stages) -> Promise<array>`: pass each item through the stages in order, with no barrier between stages: item 1 can be in stage 3 while item 2 is in stage 1. A stage gets `(value, item, index)`; a `null` value or a throw stops that item with `null`.
 - `phase(title)`: enter a phase of `meta.phases` (the view marks earlier phases done).
@@ -22,7 +24,9 @@ API (globals):
 
 Rules:
 
-- At most `budget.concurrency` agents run at once; more calls wait for a slot. Plan at most `budget.maxAgents` agents.
+- At most `budget.concurrency` read-only agents run at once; more calls wait for a slot. Plan at most `budget.maxAgents` agents.
+- Writing agents called in the same turn of the script (one `parallel()`, the first stage of one `pipeline()`) start together as one batch, all or none; they take no `budget.concurrency` slot. The batch is a balanced binary tree over its agents: the harness merges each pair's changes, and each agent's changes land in its scope. One writing agent alone is a batch of one node. A batch is refused when two of its agents share a file (`the writing agents started together must name disjoint files`), when a path lies outside this session's scope or in a running batch, or when it holds more agents than the remaining tree depth allows (2, 4 or 8, by depth).
+- Keep shared files (lockfiles, `mod.rs`, index files, generated code) out of every agent's scope; edit them after the batch.
 - Deterministic: `Date` is virtual and `Math.random` is seeded; there is no I/O except `agent()`. Do not branch on time.
 - Agents do not see each other or this conversation: put every fact an agent needs in its prompt (paths, the request, earlier results).
 - Check every result for `null` before using it.
@@ -50,17 +54,17 @@ Phased plan, implement, verify:
 ```js
 export const meta = { name: "change", description: "Plan, implement in parts, verify", phases: [{ title: "Plan" }, { title: "Implement" }, { title: "Verify" }] };
 phase("Plan");
-const plan = await agent(`Plan this change as independent parts: ${args}`, {
+const plan = await agent(`Plan this change as independent parts on disjoint files: ${args}`, {
   label: "planner",
-  schema: { type: "object", required: ["parts"], properties: { parts: { type: "array", items: { type: "string" } } } },
+  schema: { type: "object", required: ["parts"], properties: { parts: { type: "array", items: { type: "object", required: ["task", "files"], properties: { task: { type: "string" }, files: { type: "array", items: { type: "string" } } } } } } },
 });
 if (plan === null) return "planning failed";
 phase("Implement");
-const parts = await parallel(plan.parts.map((part, i) => () => agent(`Implement: ${part}`, { label: `part ${i + 1}`, isolation: "worktree" })));
+const parts = await parallel(plan.parts.map((part, i) => () => agent(`Implement: ${part.task}`, { label: `part ${i + 1}`, scope: part.files })));
 phase("Verify");
-const verdict = await agent(`Build and test the change. Parts:\n${plan.parts.join("\n")}`, { label: "verifier" });
+const verdict = await agent(`Build and test the change. Parts:\n${plan.parts.map((p) => p.task).join("\n")}`, { label: "verifier" });
 log(`${parts.filter((p) => p !== null).length}/${parts.length} parts done`);
-return { parts: parts.map((p) => (p === null ? "failed" : "done")), verdict };
+return { parts: parts.map((p) => (p === null ? "failed" : { done: true, conflicts: p.conflicts })), verdict };
 ```
 
 ## Resume

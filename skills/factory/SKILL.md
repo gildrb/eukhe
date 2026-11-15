@@ -5,7 +5,7 @@ description: Run a stored state machine of child agents (a factory) - fan-out, b
 
 # Factory
 
-A factory entry is a validated machine: states, each backed by a subagent spec, joined by guarded transitions. A run spawns each state's child, feeds captured outputs into the next prompts, and runs to quiescence in a background kernel task.
+A factory entry is a validated machine: states, each backed by a subagent spec, joined by guarded transitions. A run spawns each state's child, feeds captured outputs into the next prompts, and runs to quiescence in a background kernel task. A state without `scope` is read-only; a writing state names its files (`"scope": ["docs/{topic}.md"]`), and its instances start together as one batch of the agent tree.
 
 ## Choose
 

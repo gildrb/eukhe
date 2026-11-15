@@ -176,7 +176,10 @@ fn cached_prefix_is_stable_across_sessions() {
 /// programmatic tools (the prompt must not document them). The `@remote`
 /// decorator sends `remote.register`; the model reaches the functions it
 /// announces through `dyn`. `jobs.wait_event` is the kernel telling a
-/// `jobs.wait` in flight that one of its `bash()` handles settled.
+/// `jobs.wait` in flight that one of its `bash()` handles settled. The
+/// workflow tool's agents read and lend the session's tree facts
+/// (`rlm.tree_*`); a factory's writing states admit and end their batches
+/// through `tree.batch*`.
 const INTERNAL_HOST_REQUESTS: &[&str] = &[
     "model.info",
     "mcp.config",
@@ -184,6 +187,12 @@ const INTERNAL_HOST_REQUESTS: &[&str] = &[
     "mcp.begin_login",
     "remote.register",
     "jobs.wait_event",
+    "rlm.tree_facts",
+    "rlm.tree_lend",
+    "rlm.tree_return",
+    "tree.batch",
+    "tree.batch_end",
+    "tree.batch_drop",
 ];
 
 /// Map one registered host-request type to the prompt token that documents
@@ -195,7 +204,6 @@ fn prompt_token_for_host_request(request: &str) -> Option<String> {
     Some(
         match request {
             "rlm.run" => "rlm.spawn",
-            "rlm.run_batch" => "rlm.spawn_batch",
             "rlm.progress.note" => "rlm.progress_note",
             "agent_observe.list" | "agent_message.list_agents" => "agent_observe.list_agents",
             "agent_observe.get" => "agent_observe.get_agent",
