@@ -64,7 +64,7 @@ eukhe-durable = { path = "crates/eukhe-durable" }
 eukhe-shell = { path = "crates/eukhe-shell" }
 thiserror = "2"
 futures = "0.3"
-toml = "0.9"
+toml = "1"
 # Dev-only; the default fork/timeout features are unused.
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 # The eukhe and eukhe-daemon binaries' global allocator: returns freed
