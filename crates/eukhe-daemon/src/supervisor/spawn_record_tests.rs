@@ -10,9 +10,12 @@ use super::*;
 /// The witness supervisor for the launch oracles: a per-test uuid
 /// tempdir whose descriptor dir is the probe's drain root, with the
 /// launch-probe budget pinned to 1 ms. No live worker ever answers —
-/// the launch fails at the probe, after the spawn record served.
+/// the launch fails at the probe, after the spawn record served. The dir
+/// is under `/tmp`, not `TMPDIR` (macOS: `/var/folders/…`): the worker
+/// socket in it must fit a socket address (103 bytes on macOS), or the
+/// pre-spawn holder check refuses the spawn before the record.
 fn spawn_record_witness(tag: &str) -> (Arc<Supervisor>, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!("pa-spawnrec-{tag}-{}", uuid::Uuid::new_v4()));
+    let dir = std::path::Path::new("/tmp").join(format!("pa-sr-{tag}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let agent_dir = dir.join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
