@@ -328,7 +328,7 @@ fn a_cell_past_the_blocking_budget_ends_the_turn_and_its_end_wakes_the_session()
         "the turn did not end: {after_turn}"
     );
     assert!(
-        after_turn.contains("settled as job cell-") && !after_turn.contains("CELL_DONE"),
+        after_turn.contains("continues as job cell-") && !after_turn.contains("CELL_DONE"),
         "the cell held the turn to its end: {after_turn}"
     );
 
