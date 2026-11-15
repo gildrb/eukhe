@@ -16,7 +16,7 @@ dependencies = []
 # The runtime tests and the tests' kernel venv: the lazily imported
 # packages the tests exercise, and the build backend of the editable skill
 # installs of that venv.
-dev = ["dill", "mcp>=2,<3", "pillow", "tyro", "hatchling", "editables"]
+dev = ["dill", "mcp>=2.2,<3", "pillow>=13", "tyro", "hatchling", "editables"]
 # Eukhe's package lock: every package a kernel may install, on demand, at
 # one exact version with hashes (uv.lock, exported to
 # requirements-kernel.txt by `make runtime-lock`). Nothing of it is
@@ -36,8 +36,8 @@ kernel = [
   "lxml",
   "pydantic",
   "tyro",
-  "pillow",
-  "mcp>=2,<3",
+  "pillow>=13",
+  "mcp>=2.2,<3",
 ]
 
 [build-system]
