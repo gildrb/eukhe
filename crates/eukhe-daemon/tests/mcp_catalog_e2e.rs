@@ -1,10 +1,9 @@
 //! MCP catalog e2e: the `/mcp` view's daemon surface serves the RESOLVED
 //! service catalog (the discovery rows the interactive view renders), the
 //! paste flow installs a token service end-to-end through the real daemon,
-//! and the disconnect removes it. The packaged bundled snapshot
-//! (`<package-dir>/mcp-services.bundled.json`) feeds the catalog, and the
-//! pinned-definition hint gates on that snapshot being in hand, with the
-//! linear/notion compiled fallback covered by the eukhe-core verifiers.
+//! and the disconnect removes it. The compiled linear/notion built-ins and
+//! the user's local source (`<agent-dir>/mcp-services.json`) feed the
+//! catalog; a record whose service left every source keeps a pinned row.
 
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
@@ -33,7 +32,7 @@
 )]
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -49,17 +48,12 @@ use process::Daemon;
 /// serializing them keeps the harness out of parallel-spawn resource races.
 static DAEMON_E2E: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Spawn the supervisor. `package_dir` carries the bundled MCP services
-/// snapshot the catalog resolves (`None`: no bundle at all — a stray
-/// ambient package dir must never leak in either way; the kernel runtime
-/// and skills fall back to the source checkout).
-fn spawn_supervisor(socket: &Path, agent_dir: &Path, package_dir: Option<&Path>) -> Daemon {
+/// Spawn the supervisor. A stray ambient package dir never leaks in; the
+/// kernel runtime and skills fall back to the source checkout.
+fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     let mut command = supervisor_command(socket, agent_dir);
     command.env("EUKHE_CODING_AGENT_DIR", agent_dir);
-    match package_dir {
-        Some(dir) => command.env("EUKHE_PACKAGE_DIR", dir),
-        None => command.env_remove("EUKHE_PACKAGE_DIR"),
-    };
+    command.env_remove("EUKHE_PACKAGE_DIR");
     command.env(
         eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
@@ -144,55 +138,66 @@ impl Client {
 }
 
 /// TS parity (byte-exact, the daemon wire renders it on the card): the
-/// pinned-definition hint, gated on a provable catalog snapshot.
+/// pinned-definition hint.
 const PINNED_FROM_RECORD_HINT: &str =
     "This service's catalog source is unavailable; its connection keeps the pinned definition.";
 
-/// The REAL shipped catalog payload projected to the v2 client contract (the
-/// same fixture the eukhe-core parity tests parse).
-const REAL_CATALOG: &str =
-    include_str!("../../eukhe-core/tests/fixtures/mcp/plugins-catalog.v2.json");
-
-/// One extra pasteable service whose endpoint cannot resolve (the reserved
+/// The user's local source: a GitHub entry whose two fields alias one token,
+/// and one pasteable service whose endpoint cannot resolve (the reserved
 /// `invalid` TLD): the install's verification fails closed with the network
 /// category instead of touching any real endpoint.
-fn seeded_catalog_document() -> Value {
-    let mut catalog: Value = serde_json::from_str(REAL_CATALOG).expect("fixture catalog parses");
-    catalog["entries"]
-        .as_array_mut()
-        .expect("entries array")
-        .push(json!({
-            "server": "paste-fixture", "service": "paste-fixture",
-            "label": "Paste Fixture", "url": "https://paste-fixture.invalid/mcp",
-            "aliases": [],
-            "transport": { "type": "http", "url": "https://paste-fixture.invalid/mcp" },
-            "auth": { "strategy": "api_key", "clientRegistration": "unknown" },
-            "setup": {
-                "status": "requires-setup",
-                "reason": "paste a fixture token",
-                "fields": [
-                    { "id": "FIXTURE_PAT_TOKEN", "label": "FIXTURE_PAT_TOKEN",
-                      "required": true, "kind": "bearer-token",
-                      "credentialSet": "fixture-pat" }
-                ]
+fn local_services_document() -> Value {
+    let github_field = |id: &str| {
+        json!({
+            "id": id, "label": id, "required": true,
+            "kind": "bearer-token", "credentialSet": "github-pat"
+        })
+    };
+    json!({
+        "version": 1,
+        "entries": [
+            {
+                "server": "github", "service": "github", "label": "GitHub",
+                "url": "https://api.githubcopilot.com/mcp/", "aliases": [],
+                "transport": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" },
+                "auth": { "strategy": "api_key", "clientRegistration": "unknown" },
+                "setup": {
+                    "status": "requires-setup",
+                    "reason": "paste a GitHub personal access token",
+                    "fields": [
+                        github_field("GITHUB_PAT_TOKEN"),
+                        github_field("GITHUB_PERSONAL_ACCESS_TOKEN")
+                    ]
+                },
+                "verification": { "status": "unverified" },
+                "legacyBuiltin": false, "provenance": [{ "source": "user" }]
             },
-            "verification": { "status": "unverified" },
-            "legacyBuiltin": false, "provenance": [{ "source": "prime" }]
-        }));
-    catalog
+            {
+                "server": "paste-fixture", "service": "paste-fixture",
+                "label": "Paste Fixture", "url": "https://paste-fixture.invalid/mcp",
+                "aliases": [],
+                "transport": { "type": "http", "url": "https://paste-fixture.invalid/mcp" },
+                "auth": { "strategy": "api_key", "clientRegistration": "unknown" },
+                "setup": {
+                    "status": "requires-setup",
+                    "reason": "paste a fixture token",
+                    "fields": [
+                        { "id": "FIXTURE_PAT_TOKEN", "label": "FIXTURE_PAT_TOKEN",
+                          "required": true, "kind": "bearer-token",
+                          "credentialSet": "fixture-pat" }
+                    ]
+                },
+                "verification": { "status": "unverified" },
+                "legacyBuiltin": false, "provenance": [{ "source": "user" }]
+            }
+        ]
+    })
 }
 
-/// A package dir carrying `catalog` as the bundled MCP services snapshot
-/// (the bare catalog document the build ships).
-fn bundled_package_dir(root: &Path, catalog: &Value) -> PathBuf {
-    let package_dir = root.join("package");
-    std::fs::create_dir_all(&package_dir).expect("package dir");
-    std::fs::write(
-        package_dir.join("mcp-services.bundled.json"),
-        catalog.to_string(),
-    )
-    .expect("write bundled catalog");
-    package_dir
+/// Write `document` as the user's default local source.
+fn write_local_services(agent_dir: &Path, document: &Value) {
+    std::fs::write(agent_dir.join("mcp-services.json"), document.to_string())
+        .expect("write local source");
 }
 
 #[test]
@@ -203,12 +208,10 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let sessions_dir = dir.path().join("sessions");
     std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
-    // The packaged bundled snapshot, read by the daemon's catalog
-    // resolution (fail-closed parsing is covered in eukhe-core).
-    let package_dir = bundled_package_dir(dir.path(), &seeded_catalog_document());
+    write_local_services(&agent_dir, &local_services_document());
 
     let socket = dir.path().join("mcp.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, Some(&package_dir));
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
 
@@ -230,8 +233,8 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
         .expect("active session id")
         .to_string();
 
-    // The resolved catalog surfaces: 69 service cards (the real 68 plus the
-    // paste fixture), linear/notion reserved, the fixture row pasteable.
+    // The resolved catalog surfaces: 4 service cards (the two built-ins and
+    // the two local entries), the fixture row pasteable.
     client.send_command(
         "m1",
         &json!({ "type": "get_mcp_connections", "activeSessionId": session_id }),
@@ -244,9 +247,14 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     let services = roster["data"]["services"]
         .as_array()
         .unwrap_or_else(|| panic!("services array: {roster}"));
+    let mut ids: Vec<&str> = services
+        .iter()
+        .filter_map(|service| service["serviceId"].as_str())
+        .collect();
+    ids.sort_unstable();
     assert_eq!(
-        services.len(),
-        69,
+        ids,
+        ["github", "linear", "notion", "paste-fixture"],
         "the resolved catalog surfaces: {services:?}"
     );
     let linear = services
@@ -405,35 +413,32 @@ fn catalog_surfaces_and_paste_installs_through_the_daemon() {
     client.shutdown_daemon();
 }
 
-/// The pinned-definition hint gating through the real daemon (Kevin's
-/// dogfood report, TS parity): a connection record whose service left the
-/// catalog shows the catalog-source hint ONLY when a validated snapshot is
-/// in hand to prove that. With no packaged bundle (a dev install) the
-/// pinned row stays manageable and is never one-click connectable, but no
-/// source-unavailable claim: TS always has its catalog, so it never claims
-/// absence it cannot prove.
+/// A connection record whose service left every source keeps a pinned row
+/// through the real daemon (TS parity): manageable, never one-click
+/// connectable, and carrying the byte-exact catalog-source hint.
 #[test]
-fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
+fn pinned_row_shows_the_source_unavailable_hint() {
     let _serial = DAEMON_E2E.lock().unwrap();
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
-    // A bundled catalog that does NOT define the service, plus the durable
+    // A local source that does NOT define the service, plus the durable
     // record the pin is built from.
-    let bundled = json!({
-        "version": 2,
-        "counts": {},
-        "entries": [{
-            "server": "bundle-only", "service": "bundle-only", "label": "Bundle Only",
-            "url": "https://bundle-only.example/mcp", "aliases": [],
-            "transport": { "type": "http", "url": "https://bundle-only.example/mcp" },
-            "auth": { "strategy": "oauth", "clientRegistration": "dynamic" },
-            "setup": { "status": "ready" },
-            "verification": { "status": "unverified" },
-            "legacyBuiltin": false, "provenance": [{ "source": "prime" }]
-        }]
-    });
-    let package_dir = bundled_package_dir(dir.path(), &bundled);
+    write_local_services(
+        &agent_dir,
+        &json!({
+            "version": 1,
+            "entries": [{
+                "server": "local-only", "service": "local-only", "label": "Local Only",
+                "url": "https://local-only.example/mcp", "aliases": [],
+                "transport": { "type": "http", "url": "https://local-only.example/mcp" },
+                "auth": { "strategy": "oauth", "clientRegistration": "dynamic" },
+                "setup": { "status": "ready" },
+                "verification": { "status": "unverified" },
+                "legacyBuiltin": false, "provenance": [{ "source": "user" }]
+            }]
+        }),
+    );
     let record = json!({
         "version": 1,
         "connections": {
@@ -451,48 +456,23 @@ fn pinned_hint_needs_a_snapshot_to_claim_the_source_unavailable() {
     std::fs::write(agent_dir.join("mcp-connections.json"), record.to_string())
         .expect("write records");
 
-    // Bundle present: the snapshot proves the service is gone — the hint
-    // shows, byte-exact.
-    {
-        let socket = dir.path().join("bundle-present.sock");
-        let _daemon = spawn_supervisor(&socket, &agent_dir, Some(&package_dir));
-        let (mut client, _hello) = Client::connect(&socket);
-        let view = pinned_service_view(&mut client, dir.path(), "present");
-        assert_eq!(
-            view["connectionStatus"], "not_connected",
-            "the pinned card: {view}"
-        );
-        assert_eq!(
-            view["connectable"], false,
-            "a pin is never one-click connectable: {view}"
-        );
-        assert_eq!(
-            view["setupHint"].as_str(),
-            Some(PINNED_FROM_RECORD_HINT),
-            "the proven-vanished row carries the byte-exact TS hint: {view}"
-        );
-        client.shutdown_daemon();
-    }
-
-    // No packaged bundle: the row stays, the claim does not — the ordinary
-    // account hint is all the card says.
-    let socket = dir.path().join("bundle-absent.sock");
-    let _daemon = spawn_supervisor(&socket, &agent_dir, None);
+    let socket = dir.path().join("pinned.sock");
+    let _daemon = spawn_supervisor(&socket, &agent_dir);
     let (mut client, _hello) = Client::connect(&socket);
-    let view = pinned_service_view(&mut client, dir.path(), "absent");
+    let view = pinned_service_view(&mut client, dir.path(), "pinned");
     client.shutdown_daemon();
     assert_eq!(
-        view["connectionStatus"], "not_connected",
-        "the pinned row stays manageable: {view}"
-    );
-    assert_eq!(
-        view["connectable"], false,
-        "still never one-click connectable: {view}"
-    );
-    assert_ne!(
-        view["setupHint"].as_str(),
-        Some(PINNED_FROM_RECORD_HINT),
-        "no snapshot in hand means no source-unavailable claim: {view}"
+        (
+            view["connectionStatus"].as_str(),
+            view["connectable"].as_bool(),
+            view["setupHint"].as_str(),
+        ),
+        (
+            Some("not_connected"),
+            Some(false),
+            Some(PINNED_FROM_RECORD_HINT)
+        ),
+        "the pinned card: {view}"
     );
 }
 

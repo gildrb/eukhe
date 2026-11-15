@@ -21,13 +21,8 @@ use super::service_catalog::{DescriptorTransport, McpServiceDescriptor};
 use super::McpServerConfig;
 
 /// The pinned-definition hint (TS `service-catalog.ts:1081,1102`): shown
-/// when a connection record outlives its catalog entry. The claim "the
-/// catalog source is unavailable" is honest only when a validated remote
-/// catalog snapshot is in hand — TS always has one (the compiled catalog
-/// in the deployed release, the packaged bundle on main), so it never
-/// claims absence it cannot prove;
-/// without a snapshot the pin keeps the connection manageable but makes
-/// no source-unavailable claim.
+/// when a connection record outlives its catalog entry (no compiled
+/// built-in and no local source defines the service any more).
 pub(crate) const PINNED_FROM_RECORD_HINT: &str =
     "This service's catalog source is unavailable; its connection keeps the pinned definition.";
 
@@ -83,12 +78,6 @@ pub struct BuildViewsInputs<'a> {
     pub user_servers: Option<&'a HashMap<String, McpServerConfig>>,
     pub credentials: &'a SnapshotCredentials,
     pub records: &'a HashMap<String, McpConnectionRecord>,
-    /// A validated catalog snapshot is in hand (the packaged bundle): the
-    /// pinned-definition hint claims the service left the catalog, so it
-    /// renders only when a snapshot can PROVE that. Without one (the bundle
-    /// is missing or invalid) the pin keeps the connection manageable but
-    /// stays silent.
-    pub catalog_available: bool,
 }
 
 fn not_connected_catalog_view(service: &McpServiceDescriptor) -> McpPluginView {
@@ -98,14 +87,14 @@ fn not_connected_catalog_view(service: &McpServiceDescriptor) -> McpPluginView {
             "This service requires manual setup before it can be connected.".to_string()
         })),
         SetupStatus::Ready if http.is_none() => Some(
-            "This service uses a stdio adapter or a tenant URL template. Add it manually with /mcp add."
+            "This service uses a stdio adapter or a tenant URL template. Add it manually with `eukhe mcp add`."
                 .to_string(),
         ),
         SetupStatus::Ready if service.auth_strategy == AuthStrategy::ApiKey => Some(
-            "This service requires an API key. Add it manually with /mcp add.".to_string(),
+            "This service requires an API key. Add it manually with `eukhe mcp add`.".to_string(),
         ),
         SetupStatus::Ready if service.auth_strategy == AuthStrategy::None => Some(
-            "No login required. Add it manually with /mcp add to use it.".to_string(),
+            "No login required. Add it manually with `eukhe mcp add` to use it.".to_string(),
         ),
         SetupStatus::Ready if !service.metadata_reviewed => Some(
             "OAuth support has not been verified. Connect checks capabilities and asks for approval before login."
@@ -152,7 +141,6 @@ fn base_catalog_service_view(
     service: &McpServiceDescriptor,
     credentials: &SnapshotCredentials,
     records: &HashMap<String, McpConnectionRecord>,
-    catalog_available: bool,
 ) -> McpPluginView {
     if !matches!(service.transport, DescriptorTransport::Http { .. }) {
         return not_connected_catalog_view(service);
@@ -160,7 +148,7 @@ fn base_catalog_service_view(
     let accounts = account_states_for(service, credentials, records);
     if accounts.is_empty() {
         let mut view = not_connected_catalog_view(service);
-        if service.pinned_from_record && catalog_available {
+        if service.pinned_from_record {
             view.setup_hint = Some(PINNED_FROM_RECORD_HINT.to_string());
         }
         return view;
@@ -203,7 +191,7 @@ fn base_catalog_service_view(
                 .find(|account| account.status == McpConnectionStatus::NotConnected)
                 .and_then(|account| account.setup_hint.clone())
         });
-    let setup_hint = if service.pinned_from_record && catalog_available {
+    let setup_hint = if service.pinned_from_record {
         Some(PINNED_FROM_RECORD_HINT.to_string())
     } else {
         error_hint
@@ -265,9 +253,8 @@ fn catalog_service_view(
     credentials: &SnapshotCredentials,
     records: &HashMap<String, McpConnectionRecord>,
     reserved_config: Option<&McpServerConfig>,
-    catalog_available: bool,
 ) -> McpPluginView {
-    let mut view = base_catalog_service_view(service, credentials, records, catalog_available);
+    let mut view = base_catalog_service_view(service, credentials, records);
     let ownership = reserved_mcp_ownership(Some(service), reserved_config);
     match ownership {
         ReservedOwnership::Canonical => view,
@@ -428,7 +415,7 @@ pub fn build_plugin_views(inputs: &BuildViewsInputs<'_>) -> Vec<McpPluginView> {
         .collect();
     let mut user_views: HashMap<String, McpPluginView> = HashMap::new();
     for (name, config) in inputs.user_servers.iter().flat_map(|m| m.iter()) {
-        // Dead shadows: a user entry cannot override a bundled catalog service.
+        // Dead shadows: a user entry cannot override a built-in service.
         if reserved.contains(name.as_str()) {
             continue;
         }
@@ -439,7 +426,7 @@ pub fn build_plugin_views(inputs: &BuildViewsInputs<'_>) -> Vec<McpPluginView> {
     }
     let mut views: Vec<McpPluginView> = Vec::new();
     for service in inputs.services {
-        // A user-declared server owns the id for non-bundled services; no
+        // A user-declared server owns the id for non-built-in services; no
         // duplicate card.
         if !service.legacy_builtin && user_views.contains_key(&service.service_id) {
             continue;
@@ -449,7 +436,6 @@ pub fn build_plugin_views(inputs: &BuildViewsInputs<'_>) -> Vec<McpPluginView> {
             inputs.credentials,
             inputs.records,
             inputs.user_servers.and_then(|m| m.get(&service.service_id)),
-            inputs.catalog_available,
         ));
     }
     views.extend(user_views.into_values());
@@ -549,7 +535,6 @@ pub fn build_connection_views(
             inputs.credentials,
             inputs.records,
             user_servers.and_then(|servers| servers.get(&service.service_id)),
-            inputs.catalog_available,
         );
         if plugin.connection_ids.is_empty() {
             if !matches!(ownership, ReservedOwnership::Canonical) {
@@ -758,7 +743,7 @@ mod connection_view_tests {
                 "setup": { "status": "ready" },
                 "verification": { "status": "unverified" },
                 "legacyBuiltin": legacy_builtin,
-                "provenance": [{ "source": "prime" }]
+                "provenance": [{ "source": "user" }]
             }))
             .expect("fixture entry parses"),
             false,
@@ -815,7 +800,6 @@ mod connection_view_tests {
             user_servers,
             credentials,
             records,
-            catalog_available: false,
         }
     }
 

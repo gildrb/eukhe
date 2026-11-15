@@ -1,6 +1,6 @@
 ---
 name: mcp
-description: Use external services over MCP (Notion, Linear, Slack and the rest of the catalog) from the REPL through the pre-imported mcp module - find whether a service is supported and connected, discover a connection's live tool schemas, and call its tools. Use when a task needs data or actions in an external service, or when the user asks which services they can connect.
+description: Use external services over MCP (Notion, Linear and the servers the user adds) from the REPL through the pre-imported mcp module - find whether a service is supported and connected, discover a connection's live tool schemas, and call its tools. Use when a task needs data or actions in an external service, or when the user asks which services they can connect.
 ---
 
 # MCP Services
@@ -17,6 +17,7 @@ One pre-imported `mcp` module reaches every service; there are no per-service sk
 ## Recommend, never connect
 
 - An unconnected service that would help: name the catalog entry and tell the user to open `/plugins` or run `/mcp login <service>`. You cannot connect, log in or ask for scopes.
+- A service missing from the catalog: the catalog holds Linear, Notion, the entries of the user's `mcp-services.json` and the `mcpServers` setting. Tell the user to add the server with `eukhe mcp add` in a shell.
 - `setup_required` needs a developer app or API key first: say so; do not promise one click.
 - A connection the user adds mid-task works on the next call.
 

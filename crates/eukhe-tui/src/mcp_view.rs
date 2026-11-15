@@ -437,7 +437,7 @@ impl McpView {
                     let message = if self.rows.is_empty() {
                         "No external services available"
                     } else {
-                        "No matching services"
+                        "No matching services. Add one with `eukhe mcp add`"
                     };
                     // The message row aligns with the rows' labels (the
                     // TS `TruncatedText` pad plus the text's own leading

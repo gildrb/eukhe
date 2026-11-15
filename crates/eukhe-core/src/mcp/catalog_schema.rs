@@ -1,65 +1,13 @@
-//! Strict schema for the MCP service catalog: the `plugins/catalog.v2.json`
-//! client contract (spec §1.2) and the user-authored `mcp-services.json`
-//! local sources (v1), both validated with the shipped TS contract
-//! (`packages/ai/src/mcp/catalog.ts` `validateMcpServiceEntry`).
+//! Strict schema for one MCP service entry: the compiled built-ins and the
+//! user-authored `mcp-services.json` local sources (v1), validated with the
+//! shipped TS contract (`packages/ai/src/mcp/catalog.ts`
+//! `validateMcpServiceEntry`).
 //!
-//! Whole-file fail-closed: any unknown key, wrong type, or broken invariant
-//! rejects the entire payload — a bad catalog falls back to the compiled
-//! built-ins (`deny_unknown_fields` mirrors the versioned-path discipline:
-//! additive schema changes require a version bump, so old clients drop the
-//! snapshot silently instead of mis-parsing).
+//! Fail-closed: any unknown key, wrong type, or broken invariant rejects the
+//! entry (`deny_unknown_fields`: additive schema changes require a version
+//! bump).
 
 use serde::Deserialize;
-
-/// Envelope of the plugins catalog (`catalog.v2.json`): exactly `version`,
-/// `counts`, `entries`.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CatalogFileEnvelope {
-    version: u8,
-    counts: CatalogCounts,
-    entries: Vec<McpServiceEntry>,
-}
-
-/// The 14 derived count keys (drift-checked catalog CI side); every key is
-/// informational for the client, so a missing one never fails the payload but
-/// an unknown one does (additive changes need a version bump).
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct CatalogCounts {
-    pub total: Option<u64>,
-    pub http: Option<u64>,
-    #[serde(rename = "httpTemplate")]
-    pub http_template: Option<u64>,
-    pub sse: Option<u64>,
-    pub stdio: Option<u64>,
-    pub ready: Option<u64>,
-    #[serde(rename = "requiresSetup")]
-    pub requires_setup: Option<u64>,
-    #[serde(rename = "metadataReviewed")]
-    pub metadata_reviewed: Option<u64>,
-    #[serde(rename = "oauthStrategy")]
-    pub oauth_strategy: Option<u64>,
-    #[serde(rename = "apiKeyStrategy")]
-    pub api_key_strategy: Option<u64>,
-    #[serde(rename = "readinessOauthReady")]
-    pub readiness_oauth_ready: Option<u64>,
-    #[serde(rename = "readinessUserSetup")]
-    pub readiness_user_setup: Option<u64>,
-    #[serde(rename = "readinessPrimeRestricted")]
-    pub readiness_prime_restricted: Option<u64>,
-    #[serde(rename = "readinessUnknown")]
-    pub readiness_unknown: Option<u64>,
-}
-
-/// The validated plugins catalog: `version` (1 or 2), the informational
-/// counts, and entries sorted by server id with unique ids.
-#[derive(Debug, Clone)]
-pub struct PluginsCatalog {
-    pub version: u8,
-    pub counts: CatalogCounts,
-    pub entries: Vec<McpServiceEntry>,
-}
 
 /// One catalog entry = one reviewed connection (endpoint) of a service
 /// (spec §1.2; TS `McpServiceEntry`). `server` is the stable id, the kernel
@@ -199,8 +147,6 @@ pub enum Readiness {
     OauthReady,
     #[serde(rename = "user-setup")]
     UserSetup,
-    #[serde(rename = "prime-restricted")]
-    PrimeRestricted,
     Unknown,
 }
 
@@ -280,11 +226,7 @@ pub struct McpServiceProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProvenanceSource {
-    #[serde(rename = "openai-plugins")]
-    OpenAiPlugins,
-    #[serde(rename = "claude-plugins-official")]
-    ClaudePluginsOfficial,
-    Prime,
+    Builtin,
     User,
 }
 
@@ -525,52 +467,8 @@ pub(crate) fn server_id_valid(server: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
 }
 
-/// Why a plugins catalog payload was rejected.
-#[derive(Debug, thiserror::Error)]
-pub enum CatalogError {
-    /// Not a catalog document. The parser's error is dropped on purpose:
-    /// its text can quote raw (possibly secret) input.
-    #[error("catalog is not a valid catalog document")]
-    NotADocument,
-    #[error("catalog has unsupported version {0}")]
-    UnsupportedVersion(u8),
-    #[error("{0} (rejected)")]
-    Entry(#[source] CatalogEntryError),
-    #[error("catalog contains duplicate server id {0}")]
-    DuplicateServer(String),
-}
-
-/// Parse and validate a plugins catalog payload (v1 local or v2 bundled).
-/// Whole-file fail-closed: any invalid entry rejects the entire file;
-/// callers fall back to the compiled built-ins on `Err`.
-pub fn parse_plugins_catalog(bytes: &[u8]) -> Result<PluginsCatalog, CatalogError> {
-    let envelope: CatalogFileEnvelope =
-        serde_json::from_slice(bytes).map_err(|_| CatalogError::NotADocument)?;
-    if envelope.version != 1 && envelope.version != 2 {
-        return Err(CatalogError::UnsupportedVersion(envelope.version));
-    }
-    let mut entries = envelope.entries;
-    for entry in &entries {
-        entry.validate().map_err(CatalogError::Entry)?;
-    }
-    let mut seen = std::collections::HashSet::new();
-    for entry in &entries {
-        if !seen.insert(entry.server.clone()) {
-            return Err(CatalogError::DuplicateServer(safe_entry_id(&entry.server)));
-        }
-    }
-    entries.sort_by(|a, b| a.server.cmp(&b.server));
-    Ok(PluginsCatalog {
-        version: envelope.version,
-        counts: envelope.counts,
-        entries,
-    })
-}
-
-/// The compiled legacy built-ins (the offline fallback when no snapshot is
-/// available): the pre-catalog integrations whose ids stay reserved. Data
-/// mirrors the catalog entries for `linear` and `notion` (metadata-reviewed
-/// OAuth dynamic-client services).
+/// The compiled built-in services: the integrations whose ids stay reserved
+/// (`linear`, `notion`; metadata-reviewed OAuth dynamic-client services).
 pub fn compiled_builtin_services() -> Vec<McpServiceEntry> {
     let json = serde_json::json!([
         {
@@ -590,7 +488,7 @@ pub fn compiled_builtin_services() -> Vec<McpServiceEntry> {
             "setup": { "status": "ready", "readiness": "oauth-ready" },
             "verification": { "status": "metadata-reviewed" },
             "legacyBuiltin": true,
-            "provenance": [{ "source": "prime" }],
+            "provenance": [{ "source": "builtin" }],
             "oauth": { "kind": "oauth" }
         },
         {
@@ -609,7 +507,7 @@ pub fn compiled_builtin_services() -> Vec<McpServiceEntry> {
             "setup": { "status": "ready", "readiness": "oauth-ready" },
             "verification": { "status": "metadata-reviewed" },
             "legacyBuiltin": true,
-            "provenance": [{ "source": "prime" }],
+            "provenance": [{ "source": "builtin" }],
             "oauth": { "kind": "oauth" }
         }
     ]);
@@ -624,16 +522,6 @@ pub fn compiled_builtin_services() -> Vec<McpServiceEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The REAL shipped catalog payload projected to the v2 client contract
-    /// (the shipped TS bundled catalog, audit evidence stripped per spec
-    /// §1.2: envelope {version, counts, entries}, 68 entries, provenance
-    /// [{"source":"prime"}]).
-    const REAL_PAYLOAD: &str = include_str!("../../tests/fixtures/mcp/plugins-catalog.v2.json");
-
-    fn parse(bytes: &[u8]) -> PluginsCatalog {
-        parse_plugins_catalog(bytes).expect("catalog parses")
-    }
 
     /// Regression: an IPv4-mapped loopback endpoint is refused. The url
     /// crate spells `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`, which the
@@ -665,186 +553,5 @@ mod tests {
     fn safe_entry_id_cuts_long_ids_on_a_char_boundary() {
         let id = format!("{}{}", "a".repeat(63), "\u{e9}".repeat(4));
         assert_eq!(safe_entry_id(&id), format!("{}...", "a".repeat(63)));
-    }
-
-    /// Parity gate: the real 68-service payload parses with zero failures.
-    #[test]
-    fn real_sixty_eight_service_payload_parses_cleanly() {
-        let catalog = parse(REAL_PAYLOAD.as_bytes());
-        assert_eq!(catalog.version, 2);
-        assert_eq!(catalog.entries.len(), 68, "68 services, 0 failures");
-        // Sorted by server id, unique ids.
-        let ids: Vec<&str> = catalog.entries.iter().map(|e| e.server.as_str()).collect();
-        let mut sorted = ids.clone();
-        sorted.sort_unstable();
-        assert_eq!(ids, sorted);
-        // The two legacy built-ins ship metadata-reviewed.
-        for server in ["linear", "notion"] {
-            let entry = catalog
-                .entries
-                .iter()
-                .find(|e| e.server == server)
-                .expect(server);
-            assert!(entry.legacy_builtin);
-            assert_eq!(
-                entry.verification.status,
-                VerificationStatus::MetadataReviewed
-            );
-        }
-        // The declared counts match the entries (the catalog CI drift check,
-        //mirrored here over the projection).
-        let counts = &catalog.counts;
-        assert_eq!(counts.total, Some(68));
-        assert_eq!(counts.http, Some(68));
-        assert_eq!(counts.ready, Some(57));
-        assert_eq!(counts.requires_setup, Some(11));
-        assert_eq!(counts.metadata_reviewed, Some(2));
-        assert_eq!(counts.oauth_strategy, Some(5));
-        assert_eq!(counts.api_key_strategy, Some(10));
-        assert_eq!(counts.readiness_oauth_ready, Some(57));
-        assert_eq!(counts.readiness_user_setup, Some(11));
-        assert_eq!(counts.readiness_prime_restricted, Some(0));
-        assert_eq!(counts.readiness_unknown, Some(0));
-        // The pasteable credential shapes survive parsing (GitHub's
-        // credentialSet alias pair).
-        let github = catalog
-            .entries
-            .iter()
-            .find(|e| e.server == "github")
-            .expect("github");
-        let field_ids: Vec<&str> = github
-            .setup
-            .fields
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|f| f.id.as_str())
-            .collect();
-        assert_eq!(
-            field_ids,
-            ["GITHUB_PAT_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"]
-        );
-        assert!(github
-            .setup
-            .fields
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .all(|f| f.credential_set.as_deref() == Some("github-pat")));
-    }
-
-    /// Fail-closed: one malformed entry rejects the ENTIRE file (plugins do
-    /// not use skip-invalid; a bad file falls back to the compiled built-ins).
-    #[test]
-    fn one_malformed_entry_rejects_the_whole_file() {
-        let catalog: serde_json::Value = serde_json::from_str(REAL_PAYLOAD).unwrap();
-        let bad = serde_json::to_string(&serde_json::json!({
-            "version": 2,
-            "counts": {},
-            "entries": [
-                catalog["entries"][0],
-                { "server": "broken-entry", "service": "x", "label": "x", "url": "",
-                  "aliases": [], "transport": {"type": "http", "url": "https://ok.example/mcp"},
-                  "auth": {"strategy": "none", "clientRegistration": "unknown"},
-                  "setup": {"status": "ready"},
-                  "verification": {"status": "unverified"},
-                  "legacyBuiltin": false,
-                  "provenance": [{"source": "prime"}] }
-            ]
-        }))
-        .unwrap();
-        let error = parse_plugins_catalog(bad.as_bytes())
-            .expect_err("whole file fails closed")
-            .to_string();
-        assert!(
-            error.contains("broken-entry"),
-            "names the bad entry: {error}"
-        );
-    }
-
-    /// Fail-closed: unsupported versions are rejected silently-forever (old
-    /// clients stay on their snapshot).
-    #[test]
-    fn unsupported_version_rejects() {
-        for version in [0u8, 3, 255] {
-            let doc = serde_json::json!({ "version": version, "counts": {}, "entries": [] });
-            let error = parse_plugins_catalog(doc.to_string().as_bytes())
-                .expect_err("unsupported version rejects")
-                .to_string();
-            assert!(error.contains("unsupported version"), "{error}");
-        }
-    }
-
-    /// Fail-closed: unknown keys reject (additive schema changes need a
-    /// version bump) — envelope, counts, entry, and auth.
-    #[test]
-    fn unknown_keys_reject() {
-        let base = serde_json::json!({
-            "version": 2,
-            "counts": {},
-            "entries": [valid_entry("svc-a")]
-        });
-        // The clean shape parses.
-        parse_plugins_catalog(base.to_string().as_bytes()).expect("clean shape parses");
-        // Envelope unknown key rejects.
-        let mut doc = base.clone();
-        doc["sources"] = serde_json::json!([]);
-        assert!(
-            parse_plugins_catalog(doc.to_string().as_bytes()).is_err(),
-            "envelope sources key rejects"
-        );
-        // Counts unknown key rejects.
-        let mut doc = base.clone();
-        doc["counts"]["mergedFromBothSources"] = serde_json::json!(1);
-        assert!(
-            parse_plugins_catalog(doc.to_string().as_bytes()).is_err(),
-            "counts unknown key rejects"
-        );
-        // Unknown ENTRY key rejects the file.
-        let mut doc = base.clone();
-        doc["entries"][0]["experimentalNewField"] = serde_json::json!("v3 shape");
-        assert!(
-            parse_plugins_catalog(doc.to_string().as_bytes()).is_err(),
-            "entry unknown key rejects"
-        );
-        // Unknown AUTH key rejects the file.
-        let mut doc = base;
-        doc["entries"][0]["auth"]["alternatives"] = serde_json::json!([]);
-        assert!(
-            parse_plugins_catalog(doc.to_string().as_bytes()).is_err(),
-            "auth unknown key rejects"
-        );
-    }
-
-    fn valid_entry(server: &str) -> serde_json::Value {
-        serde_json::json!({
-            "server": server, "service": server, "label": "Fixture",
-            "url": format!("https://{server}.example/mcp"),
-            "aliases": [],
-            "transport": { "type": "http", "url": format!("https://{server}.example/mcp") },
-            "auth": { "strategy": "oauth", "clientRegistration": "dynamic" },
-            "setup": { "status": "ready" },
-            "verification": { "status": "unverified" },
-            "legacyBuiltin": false,
-            "provenance": [{ "source": "prime" }],
-            "oauth": { "kind": "oauth" }
-        })
-    }
-
-    /// The compiled legacy built-ins match the shipped catalog entries for
-    /// linear/notion (reserved ids, metadata-reviewed, OAuth dynamic).
-    #[test]
-    fn compiled_builtins_match_the_catalog_entries() {
-        let catalog = parse(REAL_PAYLOAD.as_bytes());
-        let builtins = compiled_builtin_services();
-        for builtin in &builtins {
-            let shipped = catalog
-                .entries
-                .iter()
-                .find(|e| e.server == builtin.server)
-                .expect("builtin in the shipped catalog");
-            assert_eq!(builtin, shipped, "compiled fallback mirrors the payload");
-        }
-        assert_eq!(builtins.len(), 2);
     }
 }

@@ -3,7 +3,6 @@
 //! host requests. Port of core/mcp/mcp-manager.ts plus the TS MCP catalog
 //! (the OAuth flow lives in the `oauth*` submodules).
 
-mod bundled_source;
 mod catalog_plugin_views;
 mod catalog_schema;
 mod catalog_status_views;
@@ -292,9 +291,6 @@ pub struct McpManagerOptions {
     /// Declared local service-catalog sources (settings
     /// `mcpCatalogSources`, ~-relative allowed); re-read on refresh.
     pub get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
-    /// The plugins-catalog snapshot source; defaults to the packaged
-    /// bundled snapshot. Never fetches.
-    pub remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
     /// Injectable verification probe (tests); the real streamable-HTTP
     /// handshake by default.
     pub probe_override: Option<probe::McpEndpointProbe>,
@@ -308,17 +304,11 @@ pub struct McpManager {
     begin_login: Option<BeginLoginFn>,
     agent_dir: Option<std::path::PathBuf>,
     get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
-    remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
     probe_override: Option<probe::McpEndpointProbe>,
     integrations: HashMap<String, ResolvedIntegration>,
     /// The resolved service catalog (the SAME resolution feeds integrations
     /// and the `/mcp` view).
     service_catalog: service_catalog::McpCatalogResolution,
-    /// Whether the last resolution had a validated catalog snapshot in
-    /// hand (the packaged bundle): the pinned-definition hint claims a
-    /// service left the catalog, so it renders only when a snapshot can
-    /// prove that.
-    catalog_available: bool,
     connection_store: std::sync::Arc<std::sync::Mutex<connection_store::McpConnectionStore>>,
     acp_servers: std::sync::Arc<std::sync::Mutex<HashMap<String, AcpMcpServerConfig>>>,
     acp_owner_id: std::sync::Mutex<Option<String>>,
@@ -347,23 +337,15 @@ impl McpManager {
             }
             None => connection_store::McpConnectionStore::in_memory(),
         }));
-        let remote_source = options.remote_source.or_else(|| {
-            agent_dir.as_ref().map(|_| {
-                Box::new(bundled_source::bundled_plugins_snapshot)
-                    as manager_catalog::RemoteCatalogSourceFn
-            })
-        });
         let mut manager = Self {
             auth_storage: Arc::new(tokio::sync::Mutex::new(options.auth_storage)),
             get_user_servers: options.get_user_servers,
             begin_login: options.begin_login,
             agent_dir,
             get_catalog_sources: options.get_catalog_sources,
-            remote_source,
             probe_override: options.probe_override,
             integrations: HashMap::new(),
             service_catalog: crate::mcp::service_catalog::McpCatalogResolution::default(),
-            catalog_available: false,
             connection_store,
             acp_servers: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
             acp_owner_id: std::sync::Mutex::new(None),
@@ -484,7 +466,7 @@ impl McpManager {
         if !integration.config.is_enabled() {
             return false;
         }
-        // A bundled catalog service owns its name; a shadowing user entry
+        // A built-in service owns its name; a shadowing user entry
         // is dead by design so its token can never replay against the
         // official endpoint.
         if integration.user_declared && self.is_reserved_server_name(&integration.server) {
@@ -570,7 +552,6 @@ impl McpManager {
             begin_login: None,
             agent_dir: Some(agent_dir.to_path_buf()),
             get_catalog_sources: None,
-            remote_source: None,
             probe_override: None,
         });
         (
@@ -1061,7 +1042,6 @@ mod tests {
             begin_login: None,
             agent_dir: None,
             get_catalog_sources: None,
-            remote_source: None,
             probe_override: None,
         })
     }

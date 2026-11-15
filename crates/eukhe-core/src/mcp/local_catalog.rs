@@ -6,11 +6,11 @@
 //! The loader is deliberately narrow: a bounded read of a regular file +
 //! JSON parse + structural validation — no execution, no network, no
 //! credential access. A local file can never masquerade as trusted:
-//! provenance may only claim the `user` source, `legacyBuiltin` and
-//! `metadata-reviewed` review status cannot be self-asserted, audit-derived
-//! `setup.readiness` cannot be self-asserted, and ids colliding with the
-//! compiled built-ins are refused (no silent override/rebind of reserved
-//! ids). Errors are visible and bounded: they name the file and entry index
+//! provenance may only claim the `user` source, `legacyBuiltin`,
+//! `metadata-reviewed` review status and `setup.readiness` cannot be
+//! self-asserted, and ids colliding with the compiled built-ins are refused
+//! (no silent override/rebind of reserved ids). Errors are visible and
+//! bounded: they name the file and entry index
 //! and never echo raw input values.
 
 use std::collections::HashMap;
@@ -97,22 +97,20 @@ pub enum LocalEntryFault {
     ForeignProvenance { id: String },
     #[error(" ({id}): local entries need at least one provenance record with source \"user\"")]
     NoProvenance { id: String },
-    #[error(
-        " ({id}): local entries cannot claim legacyBuiltin; it is reserved for Prime built-ins"
-    )]
+    #[error(" ({id}): local entries cannot claim legacyBuiltin; it marks the built-in services")]
     LegacyBuiltin { id: String },
     #[error(
         " ({id}): local entries cannot claim \"{status}\"; local sources are always unverified"
     )]
     Verified { id: String, status: &'static str },
     #[error(
-        " ({id}): local entries cannot claim setup.readiness; readiness is a Prime audit assessment"
+        " ({id}): local entries cannot claim setup.readiness; only the built-in services carry it"
     )]
     Readiness { id: String },
     #[error(": duplicate local id \"{id}\"")]
     Duplicate { id: String },
     #[error(
-        ": id \"{id}\" collides with the bundled catalog entry for \"{label}\"; local sources cannot shadow or rebind built-ins -- pick another id"
+        ": id \"{id}\" collides with the built-in service \"{label}\"; local sources cannot shadow or rebind built-ins -- pick another id"
     )]
     Reserved { id: String, label: String },
 }
@@ -121,10 +119,9 @@ pub enum LocalEntryFault {
 /// error and yields zero entries; every problem with an existing file is a
 /// returned error naming the path (and entry index where applicable).
 ///
-/// `reserved` maps every id this installation already owns (compiled
-/// built-ins plus the remote/bundled catalog) to its label; a local entry
-/// colliding with any of them is refused — local sources cannot shadow or
-/// rebind reserved ids.
+/// `reserved` maps every compiled built-in id to its label; a local entry
+/// colliding with one is refused — local sources cannot shadow or rebind
+/// reserved ids.
 pub fn load_local_service_catalog(
     path: &Path,
     reserved: &HashMap<String, String>,

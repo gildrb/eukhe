@@ -547,7 +547,7 @@ pub struct Settings {
     pub mcp_servers: Option<serde_json::Map<String, serde_json::Value>>,
     /// Extra local MCP service-catalog files (TS `mcpCatalogSources`;
     /// ~-relative allowed), merged after the compiled built-ins, first
-    /// source wins per id, and no bundled id can be shadowed.
+    /// source wins per id, and no built-in id can be shadowed.
     pub mcp_catalog_sources: Option<Vec<String>>,
     pub packages: Option<Vec<serde_json::Value>>,
     pub skills: Option<Vec<String>>,

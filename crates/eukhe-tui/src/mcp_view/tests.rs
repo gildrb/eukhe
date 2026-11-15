@@ -343,7 +343,9 @@ fn search_ranks_identity_fields_before_descriptions() {
         view.handle_key(&character.to_string(), &kb());
     }
     let rows = frame_text(&mut view);
-    assert!(rows.iter().any(|row| row == "  No matching services"));
+    assert!(rows
+        .iter()
+        .any(|row| row == "  No matching services. Add one with `eukhe mcp add`"));
 }
 
 /// The TS scoring bands exactly: prefix ties break on the remaining
@@ -442,7 +444,9 @@ fn the_empty_roster_renders_the_empty_message() {
         view.handle_key(&character.to_string(), &kb());
     }
     let rows = frame_text(&mut view);
-    assert!(rows.iter().any(|row| row == "  No matching services"));
+    assert!(rows
+        .iter()
+        .any(|row| row == "  No matching services. Add one with `eukhe mcp add`"));
     assert!(
         rows.iter().any(|row| row.contains("Esc close")),
         "the hint still renders: {rows:?}"

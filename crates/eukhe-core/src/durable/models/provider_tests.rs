@@ -76,7 +76,6 @@ fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Va
                     begin_login: None,
                     agent_dir: None,
                     get_catalog_sources: None,
-                    remote_source: None,
                     probe_override: None,
                 },
             ))),

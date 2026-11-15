@@ -1,5 +1,5 @@
 //! The catalog-driven `McpManager` surface: service-catalog resolution
-//! (compiled built-ins -> local sources -> remote snapshot), integrations
+//! (compiled built-ins -> local sources), integrations
 //! over resolved descriptors with ENDPOINT PINNING (an installed record or
 //! bound credential keeps its approved endpoint even when the catalog URL
 //! moves), the static-token paste install, and demand-driven verification.
@@ -30,11 +30,6 @@ use super::McpServerConfig;
 use super::{McpManager, ResolvedIntegration};
 use crate::auth::types::AuthCredential;
 
-/// The catalog snapshot seam: returns the parsed snapshot when one is
-/// available (the default reads the packaged bundled asset).
-pub type RemoteCatalogSourceFn =
-    Box<dyn Fn() -> Option<super::catalog_schema::PluginsCatalog> + Send + Sync>;
-
 /// The paste-install outcome for the view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticTokenInstall {
@@ -48,9 +43,9 @@ pub struct StaticTokenInstall {
 
 impl McpManager {
     /// Resolve the service catalog now: compiled built-ins, declared local
-    /// sources plus the default `mcp-services.json`, the remote snapshot,
-    /// and the durable pins from the connection records. Visible
-    /// diagnostics never fail the resolution.
+    /// sources plus the default `mcp-services.json`, and the durable pins
+    /// from the connection records. Visible diagnostics never fail the
+    /// resolution.
     pub(crate) fn resolve_service_catalog(&mut self) {
         let mut sources: Vec<LocalCatalogSource> = Vec::new();
         if let Some(agent_dir) = self.agent_dir.as_deref() {
@@ -64,20 +59,15 @@ impl McpManager {
                 });
             }
         }
-        let remote = self.remote_source.as_ref().and_then(|source| source());
-        let catalog_available = remote.is_some();
-        let remote_entries = remote.map(|catalog| catalog.entries);
         let (records, store_error) = {
             let store = self.connection_store.lock().unwrap();
             (store.records(), store.load_error().map(str::to_owned))
         };
-        self.service_catalog =
-            resolve_mcp_service_catalog(&sources, remote_entries.as_deref(), &records);
+        self.service_catalog = resolve_mcp_service_catalog(&sources, &records);
         // A connections file this build cannot use serves no records: say why.
         if let Some(error) = store_error {
             self.service_catalog.diagnostics.push(error);
         }
-        self.catalog_available = catalog_available;
     }
 
     /// The resolved descriptors (host integration + view surfaces).
@@ -126,7 +116,6 @@ impl McpManager {
             user_servers: Some(&user_servers),
             credentials: &credentials,
             records: &records,
-            catalog_available: self.catalog_available,
         })
     }
 
@@ -147,7 +136,6 @@ impl McpManager {
                 user_servers: Some(&user_servers),
                 credentials: &credentials,
                 records: &records,
-                catalog_available: self.catalog_available,
             },
             &AcpServerRow::from_configs(acp_servers),
         )

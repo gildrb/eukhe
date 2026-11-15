@@ -312,7 +312,6 @@ impl Worker {
             begin_login: None,
             agent_dir: Some(agent_dir),
             get_catalog_sources: None,
-            remote_source: None,
             probe_override: None,
         });
         let navigation =

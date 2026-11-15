@@ -2,11 +2,10 @@
 //! catalog (the compiled catalog is the other; [`crate::ModelCatalog`]
 //! serves their union).
 //!
-//! Ported from `bundled-model-catalog.ts`: the packaged assets
-//! (`models.bundled.json` + `mcp-services.bundled.json`) are generated at
-//! build time and shipped beside the executable. The models asset is parsed
-//! with the strict schema and pinned to compiled transports. When the asset
-//! is there but damaged, the compiled model definitions serve. The loader
+//! Ported from `bundled-model-catalog.ts`: the packaged `models.bundled.json`
+//! asset is generated at build time and shipped beside the executable. It is
+//! parsed with the strict schema and pinned to compiled transports. When the
+//! asset is there but damaged, the compiled model definitions serve. The loader
 //! keeps the reason ([`BundledCatalogFallback`]), so the user can see it.
 
 use std::path::{Path, PathBuf};
@@ -17,9 +16,6 @@ use crate::Model;
 
 /// The packaged models asset file name.
 pub const PACKAGED_MODEL_CATALOG_FILE: &str = "models.bundled.json";
-
-/// The packaged MCP services asset file name (parsed by the plugins lane).
-pub const PACKAGED_MCP_CATALOG_FILE: &str = "mcp-services.bundled.json";
 
 /// Location of the bundled catalog assets.
 #[derive(Debug, Clone)]
@@ -81,13 +77,6 @@ impl BundledAssets {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
-    }
-
-    /// Raw bytes of the bundled MCP services snapshot (the plugins lane owns
-    /// parsing it).
-    #[must_use]
-    pub fn read_mcp_services(&self) -> Option<String> {
-        std::fs::read_to_string(self.dir.join(PACKAGED_MCP_CATALOG_FILE)).ok()
     }
 }
 
@@ -211,9 +200,7 @@ mod tests {
     #[test]
     fn from_dir_reads_assets() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(PACKAGED_MCP_CATALOG_FILE), "{}").unwrap();
         let assets = BundledAssets::from_dir(dir.path());
-        assert!(assets.read_mcp_services().is_some());
         assert_eq!(assets.read_models().unwrap(), None);
         assert_eq!(assets.dir(), dir.path());
     }

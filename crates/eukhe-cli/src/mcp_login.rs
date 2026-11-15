@@ -55,7 +55,6 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
                 eukhe_core::settings::SettingsManager::create(&catalog_cwd, &catalog_agent_dir);
             settings.get_mcp_catalog_sources()
         })),
-        remote_source: None,
         probe_override: None,
     })
 }
