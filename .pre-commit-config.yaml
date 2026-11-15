@@ -11,7 +11,8 @@
 # (no e2e suite) of the crates they touch, the compiled Bend core up to
 # date (scripts/bend_core.py check), the proofs the Bend change can reach
 # (scripts/bend_proofs.py), the embedded JavaScript up to date (`make
-# embedded-js-check`), the laws against LAWS.lock. No lock: every
+# embedded-js-check`), the dashboard UI (`make dashboard-ui`, when they
+# touch crates/eukhe-dashboard/ui/), the laws against LAWS.lock. No lock: every
 # worktree pushes at any time. The full gate runs nightly
 # (scripts/ci_nightly.sh).
 # Skip rule: a push that changes only Markdown files in docs/ or at the
@@ -30,7 +31,7 @@ repos:
         always_run: true
         stages: [pre-commit]
       - id: ci-push
-        name: ci-push (fmt, secrets, clippy and unit tests on the touched crates, bend core check, the reached proofs, embedded js, laws lock)
+        name: ci-push (fmt, secrets, clippy and unit tests on the touched crates, bend core check, the reached proofs, embedded js, dashboard ui, laws lock)
         entry: nice -n 10 scripts/ci_local.sh pre-push
         language: system
         pass_filenames: false

@@ -20,7 +20,8 @@ check:
 # (< 5 min) checks the pushed commits: rustfmt, their secrets scan, clippy
 # and the unit tests (nextest profile pre-push, .config/nextest.toml: no
 # e2e suite) of the crates they touch, the proofs their Bend change can
-# reach (scripts/bend_proofs.py), the embedded JavaScript, the laws against
+# reach (scripts/bend_proofs.py), the embedded JavaScript, the dashboard UI
+# (when they touch crates/eukhe-dashboard/ui/), the laws against
 # LAWS.lock. ci-local is
 # the full gate (< 30 min): every test (nextest profile nightly) and `bend
 # PROOF.bend --verdict`; the nightly run (scripts/ci_nightly.sh, a systemd

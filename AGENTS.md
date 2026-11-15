@@ -8,7 +8,7 @@ PrimeIntellect-ai/prime-agent (remote `upstream`).
 - Never set git identity (`user.name`/`user.email`, `-c`, `GIT_AUTHOR_*`/`GIT_COMMITTER_*`). Commits use the ambient git config. Missing identity: report it. Allowed: `*_DATE` variables (the golden corpus pins them), throwaway repos made by tests.
 - No `Co-authored-by` trailers.
 - CI runs only on this machine; GitHub runs no gate; no pull requests.
-  - `make hooks` installs the prek hooks (`.pre-commit-config.yaml`). pre-commit (< 1 min): `make ci-fast`. pre-push (< 5 min): fmt, secrets, clippy and unit tests (nextest profile `pre-push`: no `*_e2e` suite) on the touched crates, the proofs the Bend change reaches (`scripts/bend_proofs.py`), `gate.py --lock-only`; on the pushed commits in the pushing worktree; no lock.
+  - `make hooks` installs the prek hooks (`.pre-commit-config.yaml`). pre-commit (< 1 min): `make ci-fast`. pre-push (< 5 min): fmt, secrets, clippy and unit tests (nextest profile `pre-push`: no `*_e2e` suite) on the touched crates, the proofs the Bend change reaches (`scripts/bend_proofs.py`), `make dashboard-ui` when `crates/eukhe-dashboard/ui/` changed, `gate.py --lock-only`; on the pushed commits in the pushing worktree; no lock. Docs (`docs/`, `spec/`, root Markdown other than `README.md`) build no crate: no clippy or tests for them.
   - Tools and build env: `mise.toml` (cargo-nextest; sccache for every worktree, `RUSTUP_TOOLCHAIN` unset so `rust-toolchain.toml` rules); the gate scripts load it.
   - Never skip hooks (`--no-verify`).
   - `scripts/toolchain.env` pins the Bend and Lean releases.

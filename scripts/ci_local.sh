@@ -21,7 +21,9 @@
 #                                 pre-push: no e2e suite) of the crates they
 #                                 touch, the proofs their Bend change can
 #                                 reach (scripts/bend_proofs.py), the
-#                                 embedded JavaScript (as in fast), and the
+#                                 embedded JavaScript (as in fast), the
+#                                 dashboard UI (as in full, when they touch
+#                                 crates/eukhe-dashboard/ui/), and the
 #                                 laws against LAWS.lock. No lock: every
 #                                 worktree pushes at any time.
 #   scripts/ci_local.sh full      `make ci-local`, the nightly gate
@@ -132,15 +134,18 @@ docs_only() {
 }
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
-# files, the agent rules, docs/, the laws and proofs (the proofs gate
-# checks them), and site/ (the website: no gate runs on it; `make
-# site-check` is its own check). (scripts/release/ and
-# README.md stay code: eukhe-cli's packaging tests run and copy them.)
+# files, the agent rules, the docs (docs/, spec/, and the root's
+# PHILOSOPHY.md and SECURITY.md), the laws and proofs (the proofs and laws
+# lock gates check them, spec/'s Bend files included), and site/ (the
+# website: no gate runs on it; `make site-check` is its own check).
+# (scripts/release/ and README.md stay code: eukhe-cli's packaging tests
+# run and copy them.)
 outside_crates() {
   case "$1" in
-    "" | .github/* | nix/* | docs/* | scripts/ci_* | scripts/test_ci_* | \
+    "" | .github/* | nix/* | docs/* | spec/* | scripts/ci_* | scripts/test_ci_* | \
       scripts/bend_proofs.py | scripts/test_bend_proofs.py | .config/nextest.toml | mise.toml | \
-      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | Makefile | flake.nix | flake.lock | \
+      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | PHILOSOPHY.md | SECURITY.md | \
+      Makefile | flake.nix | flake.lock | \
       LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/* | site/*) return 0 ;;
     *) return 1 ;;
   esac
@@ -350,6 +355,26 @@ dashboard_ui() {
   test -z "$(git status --porcelain -- crates/eukhe-dashboard/web)"
 }
 
+# The dashboard UI gate of full (format, lint, tests, build, and the
+# committed web/ matching the build), when a change touches
+# crates/eukhe-dashboard/ui/.
+dashboard_ui_touched() {
+  local path old p
+  while IFS=$'\t' read -r path old; do
+    for p in "${path}" "${old}"; do
+      [[ "${p}" == crates/eukhe-dashboard/ui/* ]] && return 0
+    done
+  done <<<"$1"
+  return 1
+}
+dashboard_ui_changed() {
+  if ! dashboard_ui_touched "$1"; then
+    echo "dashboard ui skipped: nothing under crates/eukhe-dashboard/ui/ changed"
+    return 0
+  fi
+  dashboard_ui
+}
+
 # The test environment is clean (AGENTS.md: inherited EUKHE_* variables
 # would point test daemons at real state), except for the build settings
 # (cargo's, rustup's, sccache's; mise.toml), so the tests reuse the build
@@ -471,6 +496,7 @@ case "${mode}" in
     gate "clippy (touched crates)" clippy_touched "${rows}"
     gate proofs proofs "${rows}" "${base}"
     gate "embedded js" embedded_js "${rows}"
+    gate "dashboard ui" dashboard_ui_changed "${rows}"
     gate "laws lock" laws_lock "${rows}"
     gate "tests (touched crates)" tests_touched "${rows}"
     ;;
