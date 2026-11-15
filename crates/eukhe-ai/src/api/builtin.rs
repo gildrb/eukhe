@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{ClassifierModel, ImageModel};
 
+use super::anthropic_messages::{streams_sharing, ClientVersion};
 use super::lazy::{lazy_api, LazyApiCapabilities, LoadApi};
 use super::{ProviderClassifier, ProviderImages, ProviderStreams};
 use crate::utils::diagnostics::Thrown;
@@ -121,10 +122,16 @@ fn lazy_builtin(api: &'static str) -> ProviderStreams {
     lazy_api(builtin_loader(api), LazyApiCapabilities::default())
 }
 
-/// TS `anthropicMessagesApi()`.
+/// TS `anthropicMessagesApi()`. The API owns one [`ClientVersion`]: its
+/// subscription requests send the version an earlier one learned.
 #[must_use]
 pub fn anthropic_messages_api() -> ProviderStreams {
-    lazy_builtin("anthropic-messages")
+    let client_version = ClientVersion::default();
+    let load: LoadApi = Arc::new(move || {
+        let client_version = client_version.clone();
+        Box::pin(async move { Ok::<_, Thrown>(streams_sharing(client_version)) })
+    });
+    lazy_api(load, LazyApiCapabilities::default())
 }
 
 /// TS `azureOpenAIResponsesApi()`.

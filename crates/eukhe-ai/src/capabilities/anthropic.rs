@@ -8,7 +8,7 @@ use serde_json::json;
 use super::http::{api_key, count, header_source, send, unexpected, unversioned_root, Body, Call};
 use super::{ListedModel, TokenCount, WebSearchRequest, WebSearchResult, WebSource};
 use crate::api::anthropic_messages::params::build_params;
-use crate::api::anthropic_messages::{is_oauth_token, AnthropicOptions};
+use crate::api::anthropic_messages::{client_version, is_oauth_token, AnthropicOptions};
 use crate::api::classifier_shared::error;
 use crate::types::{Model, ProviderRequestOptions, StreamOptions};
 use crate::utils::diagnostics::Thrown;
@@ -65,6 +65,7 @@ pub(crate) async fn count_tokens(
         model,
         context.messages(),
         is_oauth_token(key),
+        client_version::PINNED,
         &chat_options,
     )?;
     let payload: JsonObject = params

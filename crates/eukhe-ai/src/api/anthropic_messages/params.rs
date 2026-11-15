@@ -14,7 +14,7 @@ use serde_json::json;
 
 use super::{
     adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
-    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT, CLAUDE_CODE_VERSION,
+    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -813,7 +813,8 @@ fn get_beta_features(
 
 /// TS `buildParams`; also returns what the reply of a per-message-effort
 /// model records in `providerThinkingLevel` (the effort the request left in
-/// force, or [`NO_EFFORT`]); `None` for other models.
+/// force, or [`NO_EFFORT`]); `None` for other models. An OAuth token's
+/// billing header carries `client_version`.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
 /// optional marks take the slots left, in this order
@@ -826,6 +827,7 @@ pub(crate) fn build_params(
     model: &Model,
     messages: &[Message],
     is_oauth_token: bool,
+    client_version: &str,
     options: &AnthropicOptions,
 ) -> Result<(JsonObject, Option<String>), Thrown> {
     let cache_control = get_cache_control(
@@ -990,7 +992,7 @@ pub(crate) fn build_params(
             .map_or("", |messages| billing::first_user_text(messages));
         system.push(json!({
             "type": "text",
-            "text": billing::billing_header(first_user_text, CLAUDE_CODE_VERSION),
+            "text": billing::billing_header(first_user_text, client_version),
         }));
         system.push(json!({ "type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT }));
     }

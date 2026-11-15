@@ -3,7 +3,8 @@
 //! Submodules: [`client`] emulates the `@anthropic-ai/sdk` request path the
 //! TS module drives, [`federation`] the SDK's workload identity federation,
 //! [`params`] builds the request body, [`sse`] decodes the event stream,
-//! and [`events`] folds stream events into the assistant message.
+//! [`events`] folds stream events into the assistant message, and
+//! [`client_version`] keeps the client version of subscription requests.
 //!
 //! eukhe additions on top of v1.0.4:
 //! - explicit prompt-cache breakpoints (`TextContent::cache_breakpoint`):
@@ -16,6 +17,7 @@
 
 mod billing;
 mod client;
+pub(crate) mod client_version;
 mod events;
 mod federation;
 pub(crate) mod params;
@@ -32,6 +34,8 @@ use eukhe_types::pi_ai::{
 use serde::Deserialize;
 
 use self::client::{ClientAuth, SdkClient};
+pub use self::client_version::ClientVersion;
+use self::client_version::Refusal;
 use self::federation::{get_anthropic_federation, has_request_auth, AnthropicFederationConfig};
 use super::ProviderStreams;
 use crate::api::cache_breakpoints::excess_breakpoints_error;
@@ -45,10 +49,6 @@ use crate::utils::now_ms;
 use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::stream_failure::record_stream_failure;
 use crate::utils::transcript::{get_current_tools, resolve_transcript};
-
-/// Stealth mode: the Claude Code version mimicked with OAuth tokens (the
-/// version omp mimics on the same subscription).
-pub(crate) const CLAUDE_CODE_VERSION: &str = "2.1.280";
 
 /// The Claude Code identity system block required with OAuth tokens.
 const CLAUDE_CODE_SYSTEM_PROMPT: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -138,6 +138,9 @@ pub struct AnthropicOptions {
     pub tool_choice: Option<AnthropicToolChoice>,
     /// Pre-built client; skips internal client construction.
     pub client: Option<AnthropicClient>,
+    /// The client version subscription (OAuth) requests send; the requests
+    /// of one provider share it ([`streams_sharing`]).
+    pub client_version: ClientVersion,
 }
 
 /// The `extra` keys of [`ProviderStreamOptions`] this API reads.
@@ -206,6 +209,7 @@ impl AnthropicOptions {
                 .map(parse_tool_choice)
                 .transpose()?,
             client: None,
+            client_version: ClientVersion::default(),
         })
     }
 }
@@ -354,6 +358,8 @@ struct ClientInputs<'a> {
     fetch: Option<&'a FetchFunction>,
     dynamic_headers: Option<&'a ProviderHeaders>,
     session_id: Option<&'a str>,
+    /// The client version a subscription (OAuth) request sends.
+    client_version: &'a str,
     federation: Option<&'a AnthropicFederationConfig>,
 }
 
@@ -383,7 +389,10 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
         let mut identity = browser_headers();
         identity.insert(
             "user-agent".into(),
-            Some(format!("claude-cli/{CLAUDE_CODE_VERSION} (external, cli)")),
+            Some(format!(
+                "claude-cli/{} (external, cli)",
+                inputs.client_version
+            )),
         );
         identity.insert("x-app".into(), Some("cli".into()));
         if let Some(session_id) = inputs.session_id.filter(|id| !id.is_empty()) {
@@ -512,8 +521,25 @@ pub fn stream(
     context: &TranscriptContext,
     options: ProviderStreamOptions,
 ) -> AssistantMessageEventStream {
+    stream_sharing(model, context, options, &ClientVersion::default())
+}
+
+/// [`stream`] sending `client_version` with a subscription token.
+fn stream_sharing(
+    model: &Model,
+    context: &TranscriptContext,
+    options: ProviderStreamOptions,
+    client_version: &ClientVersion,
+) -> AssistantMessageEventStream {
     match AnthropicOptions::from_provider_options(options) {
-        Ok(options) => stream_anthropic(model, context, options),
+        Ok(options) => stream_anthropic(
+            model,
+            context,
+            AnthropicOptions {
+                client_version: client_version.clone(),
+                ..options
+            },
+        ),
         Err(error) => error_stream(model, error.to_string()),
     }
 }
@@ -590,7 +616,10 @@ pub fn stream_anthropic(
     stream
 }
 
-/// The request and stream loop of TS `stream`.
+/// The request and stream loop of TS `stream`. A subscription request the
+/// provider refuses for its client version sends again with the version the
+/// refusal names, once per newer version ([`client_version::refusal`]), and
+/// the provider's [`ClientVersion`] keeps it for its later requests.
 async fn run(
     model: &Model,
     context: &TranscriptContext,
@@ -599,67 +628,43 @@ async fn run(
     stream: &AssistantMessageEventStream,
 ) -> Result<(), StreamFailure> {
     let request = &options.stream.request;
-    let (client, is_oauth) = if let Some(client) = &options.client {
-        (client.inner.clone(), false)
-    } else {
-        let api_key = request.api_key.as_deref();
-        let federation = get_anthropic_federation(
-            model,
-            api_key,
-            request.headers.as_ref(),
-            request.env.as_ref(),
-        );
-        if federation.is_none() && !has_request_auth(api_key, request.headers.as_ref()) {
-            return Err(StreamFailure::message(format!(
-                "No API key for provider: {}",
-                model.provider
-            )));
-        }
-        let copilot_headers = (model.provider == "github-copilot").then(|| {
-            let has_images = has_copilot_vision_input(context.messages());
-            to_provider_headers(&build_copilot_dynamic_headers(
-                context.messages(),
-                has_images,
-            ))
-        });
-        let cache_retention =
-            params::resolve_cache_retention(options.stream.cache_retention, request.env.as_ref());
-        let cache_session_id = if cache_retention == CacheRetention::None {
-            None
-        } else {
-            options.stream.session_id.as_deref()
+    let mut version = options.client_version.current();
+    let (response, is_oauth) = loop {
+        let (client, is_oauth) = request_client(model, context, options, &version)?;
+        let params = request_params(model, context, is_oauth, &version, options, output).await?;
+        let failure = match events::send_with_retries(&client, params, options).await {
+            Ok(response) => break (response, is_oauth),
+            Err(failure) => failure,
         };
-        create_client(
-            model,
-            &ClientInputs {
-                api_key,
-                options_headers: request.headers.as_ref(),
-                fetch: request.fetch.as_ref(),
-                dynamic_headers: copilot_headers.as_ref(),
-                session_id: cache_session_id,
-                federation: federation.as_ref(),
-            },
-        )
-    };
-    let (mut params, recorded_effort) =
-        params::build_params(model, context.messages(), is_oauth, options)
-            .map_err(StreamFailure::plain)?;
-    // The effort controls this request leaves in force, replayed by the next.
-    output.provider_thinking_level = recorded_effort;
-    if let Some(on_payload) = &request.on_payload {
-        let next = on_payload(JsonValue::Object(params.clone()), model)
-            .await
-            .map_err(StreamFailure::plain)?;
-        if let Some(next) = next {
-            // TS `{ ...nextParams, stream: true }`.
-            params = match next {
-                JsonValue::Object(object) => object,
-                _ => JsonObject::new(),
-            };
-            params.insert("stream".into(), true.into());
+        if !is_oauth {
+            return Err(failure);
         }
-    }
-    let response = events::send_with_retries(&client, params, options).await?;
+        let detail = failure.thrown.to_string();
+        match client_version::refusal(&detail, &version) {
+            Refusal::Other => return Err(failure),
+            Refusal::Retry { required } => {
+                tracing::warn!(
+                    model = %model.id,
+                    sent = %version,
+                    required = %required,
+                    "client version refused: sending again with the required version"
+                );
+                options.client_version.learn(&required);
+                version = required;
+            }
+            Refusal::Final { required } => {
+                return Err(StreamFailure {
+                    thrown: ErrorObject::new(client_version::refusal_message(
+                        &version,
+                        required.as_deref(),
+                        &detail,
+                    ))
+                    .thrown(),
+                    diagnostic: failure.diagnostic,
+                });
+            }
+        }
+    };
     if let Some(on_response) = &request.on_response {
         on_response(
             crate::types::ProviderResponse {
@@ -685,6 +690,91 @@ async fn run(
     .await
 }
 
+/// The SDK client of one send, and whether it sends a subscription (OAuth)
+/// token (with `version` as its client version).
+fn request_client(
+    model: &Model,
+    context: &TranscriptContext,
+    options: &AnthropicOptions,
+    version: &str,
+) -> Result<(SdkClient, bool), StreamFailure> {
+    if let Some(client) = &options.client {
+        return Ok((client.inner.clone(), false));
+    }
+    let request = &options.stream.request;
+    let api_key = request.api_key.as_deref();
+    let federation = get_anthropic_federation(
+        model,
+        api_key,
+        request.headers.as_ref(),
+        request.env.as_ref(),
+    );
+    if federation.is_none() && !has_request_auth(api_key, request.headers.as_ref()) {
+        return Err(StreamFailure::message(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
+    }
+    let copilot_headers = (model.provider == "github-copilot").then(|| {
+        let has_images = has_copilot_vision_input(context.messages());
+        to_provider_headers(&build_copilot_dynamic_headers(
+            context.messages(),
+            has_images,
+        ))
+    });
+    let cache_retention =
+        params::resolve_cache_retention(options.stream.cache_retention, request.env.as_ref());
+    let cache_session_id = if cache_retention == CacheRetention::None {
+        None
+    } else {
+        options.stream.session_id.as_deref()
+    };
+    Ok(create_client(
+        model,
+        &ClientInputs {
+            api_key,
+            options_headers: request.headers.as_ref(),
+            fetch: request.fetch.as_ref(),
+            dynamic_headers: copilot_headers.as_ref(),
+            session_id: cache_session_id,
+            client_version: version,
+            federation: federation.as_ref(),
+        },
+    ))
+}
+
+/// The body of one send (after the caller's `on_payload`). Records in
+/// `output` the effort controls it leaves in force before `on_payload`
+/// runs, so a request `on_payload` stops still carries them.
+async fn request_params(
+    model: &Model,
+    context: &TranscriptContext,
+    is_oauth: bool,
+    version: &str,
+    options: &AnthropicOptions,
+    output: &mut AssistantMessage,
+) -> Result<JsonObject, StreamFailure> {
+    let (mut params, recorded_effort) =
+        params::build_params(model, context.messages(), is_oauth, version, options)
+            .map_err(StreamFailure::plain)?;
+    // The effort controls this request leaves in force, replayed by the next.
+    output.provider_thinking_level = recorded_effort;
+    if let Some(on_payload) = &options.stream.request.on_payload {
+        let next = on_payload(JsonValue::Object(params.clone()), model)
+            .await
+            .map_err(StreamFailure::plain)?;
+        if let Some(next) = next {
+            // TS `{ ...nextParams, stream: true }`.
+            params = match next {
+                JsonValue::Object(object) => object,
+                _ => JsonObject::new(),
+            };
+            params.insert("stream".into(), true.into());
+        }
+    }
+    Ok(params)
+}
+
 /// TS `mapThinkingLevelToEffort`.
 fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> AnthropicEffort {
     if let Some(Some(mapped)) =
@@ -707,6 +797,16 @@ pub fn stream_simple(
     model: &Model,
     context: &TranscriptContext,
     options: &SimpleStreamOptions,
+) -> AssistantMessageEventStream {
+    stream_simple_sharing(model, context, options, &ClientVersion::default())
+}
+
+/// [`stream_simple`] sending `client_version` with a subscription token.
+fn stream_simple_sharing(
+    model: &Model,
+    context: &TranscriptContext,
+    options: &SimpleStreamOptions,
+    client_version: &ClientVersion,
 ) -> AssistantMessageEventStream {
     let request = &options.stream.request;
     if get_anthropic_federation(
@@ -753,6 +853,7 @@ pub fn stream_simple(
                 stream: base,
                 thinking_enabled: Some(false),
                 tool_choice,
+                client_version: client_version.clone(),
                 ..AnthropicOptions::default()
             },
         );
@@ -768,6 +869,7 @@ pub fn stream_simple(
                 thinking_enabled: Some(true),
                 effort: Some(effort),
                 tool_choice,
+                client_version: client_version.clone(),
                 ..AnthropicOptions::default()
             },
         );
@@ -797,17 +899,32 @@ pub fn stream_simple(
             // rulebook's `budget_effort`).
             effort: Some(map_thinking_level_to_effort(model, reasoning)),
             tool_choice,
+            client_version: client_version.clone(),
             ..AnthropicOptions::default()
         },
     )
 }
 
-/// The `anthropic-messages` module (no deferred responses).
+/// The `anthropic-messages` module (no deferred responses), its requests
+/// sharing a fresh [`ClientVersion`].
 #[must_use]
 pub fn streams() -> ProviderStreams {
+    streams_sharing(ClientVersion::default())
+}
+
+/// The `anthropic-messages` module whose subscription requests share
+/// `client_version`: a version one refused request learns, the later ones
+/// send.
+#[must_use]
+pub fn streams_sharing(client_version: ClientVersion) -> ProviderStreams {
+    let simple_version = client_version.clone();
     ProviderStreams {
-        stream: Arc::new(stream),
-        stream_simple: Arc::new(|model, context, options| stream_simple(model, context, &options)),
+        stream: Arc::new(move |model, context, options| {
+            stream_sharing(model, context, options, &client_version)
+        }),
+        stream_simple: Arc::new(move |model, context, options| {
+            stream_simple_sharing(model, context, &options, &simple_version)
+        }),
         fetch_deferred: None,
         cancel_deferred: None,
     }
