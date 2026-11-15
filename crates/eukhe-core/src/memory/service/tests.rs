@@ -606,6 +606,76 @@ async fn a_stale_socket_is_taken_over() {
     assert!(memory.owns().await);
 }
 
+/// A chat dir whose `lock` path is past every endpoint name limit (108
+/// bytes), with the agent dir (whose run dir holds the short endpoints)
+/// set to a fresh short dir. Nextest runs each test in its own process.
+fn long_chat_dir() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root
+        .path()
+        .join("d".repeat(60))
+        .join("e".repeat(60))
+        .join("sessions")
+        .join("0123456789abcdef0123456789abcdef");
+    assert!(dir.join("lock").as_os_str().len() > 108);
+    let agent = tempfile::Builder::new().tempdir_in("/tmp").unwrap();
+    std::env::set_var(eukhe_types::platform::dirs::ENV_AGENT_DIR, agent.path());
+    (root, agent, dir)
+}
+
+/// A `lock` too long to name an endpoint still has one owner, at a short
+/// endpoint in the run dir, whose client reaches it and takes over when
+/// it goes.
+#[tokio::test]
+async fn a_chat_with_a_long_lock_path_has_one_reachable_owner() {
+    let (_root, agent, dir) = long_chat_dir();
+    let owner = Memory::open(&dir, no_model()).await.unwrap();
+    let client = Memory::open(&dir, no_model()).await.unwrap();
+    assert_eq!((owner.owns().await, client.owns().await), (true, false));
+    assert_eq!(
+        std::fs::read_link(dir.join("lock"))
+            .unwrap()
+            .parent()
+            .map(std::path::Path::to_path_buf),
+        Some(agent.path().join("run").join("chat"))
+    );
+    assert_eq!(
+        client.append(Kind::User, "from the client").await.unwrap(),
+        0
+    );
+    drop(owner);
+    assert_eq!(
+        client.append(Kind::User, "after the owner").await.unwrap(),
+        1
+    );
+    assert!(client.owns().await);
+    assert_eq!(
+        client
+            .settled_history(SETTLE_TIMEOUT, 0)
+            .await
+            .unwrap()
+            .text,
+        "<chat>\n0+1|user: from the client\n1+1|user: after the owner\n</chat>"
+    );
+}
+
+/// A long `lock` linking to a socket that refuses connections (its owner
+/// died) is taken over.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_long_lock_linking_to_a_stale_socket_is_taken_over() {
+    let (_root, tmp, dir) = long_chat_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let endpoint = tmp.path().join("dead");
+    let dead = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+    dead.bind(&socket2::SockAddr::unix(&endpoint).unwrap())
+        .unwrap();
+    drop(dead);
+    std::os::unix::fs::symlink(&endpoint, dir.join("lock")).unwrap();
+    let memory = Memory::open(&dir, no_model()).await.unwrap();
+    assert!(memory.owns().await);
+}
+
 #[tokio::test]
 async fn a_resent_append_is_written_once() {
     let dir = tempfile::tempdir().unwrap();

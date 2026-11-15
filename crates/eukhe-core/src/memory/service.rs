@@ -38,13 +38,12 @@ use std::time::{Duration, SystemTime};
 
 use eukhe_types::daemon::MemoryUpdate;
 use eukhe_types::pi_ai::ImageContent;
-use eukhe_types::platform::transport::connect_transport;
 use tokio::sync::Mutex;
 
 use super::compactor::Summarizer;
 use super::view::pieces;
 use super::{AppendKey, Kind};
-use client::{claim, Claim, Client, Disconnected, Subscription};
+use client::{claim, connect_lock, Claim, Client, Disconnected, Subscription};
 use owner::OwnerHandle;
 use race::{race, Exits, Raced};
 
@@ -689,12 +688,7 @@ impl MemoryUpdates {
 /// The live owner's view parts, when an owner answers on `dir/lock`. Never
 /// claims ownership: a reader must not start a compactor.
 pub(crate) async fn live_parts(dir: &Path) -> Option<Vec<(u32, u64)>> {
-    let stream = connect_transport(
-        &dir.join("lock"),
-        eukhe_bend::rules::server_peer::PEER_RULES,
-    )
-    .await
-    .ok()?;
+    let stream = connect_lock(&dir.join("lock")).await.ok()?;
     let client = Client::connect(stream);
     match answered(
         Some(Request::Parts.reply_deadline()),

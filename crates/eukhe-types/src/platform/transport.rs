@@ -247,6 +247,20 @@ fn too_long(path: &Path) -> std::io::Error {
     )
 }
 
+/// Whether `path` can name an endpoint [`bind_transport`] binds: an
+/// abstract name (Linux), else a socket file address.
+#[must_use]
+pub fn is_addressable(path: &Path) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        abstract_address(path).is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        UnixSocketAddress::new(path).is_ok()
+    }
+}
+
 /// Bind a listening endpoint at `path` whose accept applies `peers` to
 /// each connected peer. An abstract endpoint (Linux) records this
 /// process's pid at [`record_path`] once bound; the record goes when the

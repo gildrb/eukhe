@@ -11,6 +11,7 @@ pub mod lock_dir;
 pub mod perms;
 pub mod process;
 pub mod shell;
+pub mod socket_dir;
 
 pub use dir_move::move_dir;
 pub use fs::fsync;

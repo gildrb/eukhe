@@ -39,7 +39,8 @@ impl Drop for OwnerHandle {
             let _ = actor.join();
         }
         // Free the path for the next owner at once; a socket that is no
-        // longer this owner's is left alone.
+        // longer this owner's is left alone. A short endpoint `lock` links
+        // to stays: the next owner replaces it.
         if self.identity.is_some()
             && eukhe_types::platform::socket_identity(&self.lock) == self.identity
         {
