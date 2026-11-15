@@ -836,13 +836,19 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native: set the limits of the session's current run (reply:
+    /// Rust-native: set the limits of the session's running run, or,
+    /// while it runs nothing, of its next run (reply:
     /// [`super::BudgetReply`]): a number or `unlimited` per dimension.
     SetBudget {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         active_session_id: String,
         limits: crate::budget::RunLimits,
+        /// The session's standing limits instead (a create's `budget` on
+        /// a live session it reuses, as a fresh create sets them): every
+        /// run's from now on, the current run's included.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        standing: bool,
         #[serde(flatten)]
         rest: JsonMap,
     },

@@ -14,6 +14,7 @@ use serde_json::Value;
 use super::commands::RpcState;
 use super::error::RpcCommandError;
 use super::protocol::ResponseData;
+use super::reads::{is_busy, rpc_context};
 
 /// `get_budget`: the session's budget, `budget` null without one.
 ///
@@ -23,14 +24,15 @@ use super::protocol::ResponseData;
 pub(crate) async fn get_budget(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     reply(state, |gate| {
         Ok::<_, eukhe_core::durable::budget::BudgetError>(BudgetReply {
-            budget: gate.report(),
+            budget: gate.shown_report(),
         })
     })
     .await
 }
 
-/// `set_budget { limits }`: the limits of the session's current run, a
-/// number or `unlimited` per dimension.
+/// `set_budget { limits }`: the limits of the session's running run, or,
+/// while it runs nothing, of its next run; a number or `unlimited` per
+/// dimension.
 ///
 /// # Errors
 ///
@@ -40,16 +42,23 @@ pub(crate) async fn set_budget(
     payload: &Value,
 ) -> Result<ResponseData, RpcCommandError> {
     let limits: RunLimits = field("set_budget", payload, "limits")?;
+    let live = run_live(state).await?;
     reply(state, move |gate| {
-        gate.set(limits).map(|report| BudgetReply {
+        let report = if live {
+            gate.set(limits).map_err(RpcCommandError::from)
+        } else {
+            gate.set_next(limits).map_err(RpcCommandError::from)
+        };
+        report.map(|report| BudgetReply {
             budget: Some(report),
         })
     })
     .await
 }
 
-/// `add_budget { amounts }`: more budget (`timeMs` moves the deadline); a
-/// session without a budget gets `amounts` as its budget.
+/// `add_budget { amounts }`: more budget (`timeMs` moves the deadline) for
+/// the session's running run, or, while it runs nothing, for its next
+/// run; a session without a budget gets `amounts` as its budget.
 ///
 /// # Errors
 ///
@@ -59,12 +68,26 @@ pub(crate) async fn add_budget(
     payload: &Value,
 ) -> Result<ResponseData, RpcCommandError> {
     let amounts: BudgetAmounts = field("add_budget", payload, "amounts")?;
+    let live = run_live(state).await?;
     reply(state, move |gate| {
-        gate.add(amounts).map(|report| BudgetReply {
+        let report = if live {
+            gate.add(amounts).map_err(RpcCommandError::from)
+        } else {
+            gate.add_next(amounts).map_err(RpcCommandError::from)
+        };
+        report.map(|report| BudgetReply {
             budget: Some(report),
         })
     })
     .await
+}
+
+/// Whether a run is live on the session's main conversation: limits set
+/// or added meanwhile are its own, else the next run's.
+async fn run_live(state: &Arc<RpcState>) -> Result<bool, RpcCommandError> {
+    let handle = state.session.handle().await;
+    let session = &handle.session;
+    Ok(is_busy(session.harness(), session.main().id(), &rpc_context()).await?)
 }
 
 /// `audit_budget`: the ledger replayed record by record, and its settled

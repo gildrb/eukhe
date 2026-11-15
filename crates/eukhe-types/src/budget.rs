@@ -501,6 +501,32 @@ pub struct BudgetReport {
     /// plan's quota reached its reserve.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<PlanShare>,
+    /// What the principal set or added while the session was idle: the
+    /// next run starts with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<NextRun>,
+}
+
+/// Limits the principal set (`/budget set`) or added (`/budget add`)
+/// while the session ran nothing: the next run starts with them, a `/b`
+/// pair of its message going over them, and they are then used up.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NextRun {
+    #[serde(skip_serializing_if = "RunLimits::is_unset")]
+    pub limits: RunLimits,
+    /// Added to the next run's limits; a dimension it leaves unlimited
+    /// takes the amount as its limit.
+    #[serde(skip_serializing_if = "BudgetAmounts::is_zero")]
+    pub added: BudgetAmounts,
+}
+
+impl NextRun {
+    /// Nothing set or added.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == NextRun::default()
+    }
 }
 
 /// A run of a plan login ended at its share of the plan's quota: the

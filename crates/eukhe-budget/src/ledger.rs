@@ -939,6 +939,8 @@ impl Locked {
                 .unwrap_or_default(),
             program_runs: state.program_runs,
             plan: state.plan.clone(),
+            // The gate keeps what the next run starts with.
+            next: None,
         }
     }
 

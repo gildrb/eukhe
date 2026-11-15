@@ -52,6 +52,7 @@ impl SessionUi {
                     id: None,
                     active_session_id,
                     limits,
+                    standing: false,
                     rest: Map::default(),
                 },
                 Err(error) => {

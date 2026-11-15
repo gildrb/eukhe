@@ -117,62 +117,100 @@ async fn next_budget_update(events: &mut broadcast::Receiver<Arc<OutboundFrame>>
     }
 }
 
-/// A session has no budget until one is set; a set budget reads back with
-/// its limits free and every other amount zero (B1, B8).
+/// The report of a session without a budget yet that shows only what its
+/// next run starts with (`next`).
+fn next_only(session_id: &str, next: &Value) -> Value {
+    let zero = amounts(0, 0, 0);
+    json!({
+        "sessionId": session_id,
+        "agentSessionId": session_id,
+        "limits": {},
+        "free": zero,
+        "held": zero,
+        "spent": zero,
+        "lent": zero,
+        "over": zero,
+        "phase": "working",
+        "next": next,
+    })
+}
+
+/// B15: a session has no budget until one is set; limits set while it
+/// runs nothing are its next run's: they read back as such, the next task
+/// runs capped by them, and they are then used up.
 #[tokio::test]
-async fn a_set_budget_reads_back_with_its_limits_free() {
+async fn a_budget_set_while_idle_caps_the_next_task() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created(dir.path()).await;
+    let id = session_id(&worker);
     let before = data(&worker, "get_budget", &json!({})).await;
     let limits = json!({ "costMicros": 5_000_000, "toolCalls": 40 });
     let set = data(&worker, "set_budget", &json!({ "limits": limits })).await;
-    let after = data(&worker, "get_budget", &json!({})).await;
-    let report = untouched(&session_id(&worker), &limits, &amounts(5_000_000, 0, 40));
+    let pending = data(&worker, "get_budget", &json!({})).await;
+    let prompted = worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({ "activeSessionId": "budget-session", "message": "the task" }),
+        )
+        .await;
+    assert!(prompted.success, "prompt failed: {prompted:?}");
+    let ran = data(&worker, "get_budget", &json!({})).await;
+    let shown = next_only(&id, &json!({ "limits": limits }));
     assert_eq!(
-        (before, set, after),
+        (
+            before,
+            set,
+            pending,
+            ran["budget"]["limits"].clone(),
+            ran["budget"]["sources"]["costMicros"].clone(),
+            ran["budget"]["spent"]["requests"].clone(),
+            ran["budget"].get("next").cloned(),
+        ),
         (
             json!({ "budget": null }),
-            json!({ "budget": report }),
-            json!({ "budget": report }),
+            json!({ "budget": shown }),
+            json!({ "budget": shown }),
+            limits,
+            json!({ "source": "set" }),
+            json!(1),
+            None,
         )
     );
 }
 
-/// A second `set_budget` replaces the limits of the session's current run
-/// (B19); a `set_budget` without limits is refused before the ledger is
-/// asked.
+/// A second `set_budget` while idle goes over the first for the next run;
+/// a `set_budget` without limits is refused before the ledger is asked.
 #[tokio::test]
-async fn a_second_set_budget_replaces_the_runs_limits() {
+async fn a_second_set_budget_while_idle_goes_over_the_first() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created(dir.path()).await;
     let id = session_id(&worker);
     let unnamed = refusal(&worker, "set_budget", &json!({})).await;
-    let limits = json!({ "tokens": 100_000 });
-    let set = data(&worker, "set_budget", &json!({ "limits": limits })).await;
-    let replaced = json!({ "tokens": 7 });
-    let again = data(&worker, "set_budget", &json!({ "limits": replaced })).await;
-    let kept = data(&worker, "get_budget", &json!({})).await;
-    let report = untouched(&id, &replaced, &amounts(0, 7, 0));
+    data(
+        &worker,
+        "set_budget",
+        &json!({ "limits": { "tokens": 100_000, "requests": 9 } }),
+    )
+    .await;
+    let again = data(&worker, "set_budget", &json!({ "limits": { "tokens": 7 } })).await;
     assert_eq!(
-        (unnamed, set, again, kept),
+        (unnamed, again),
         (
             (false, None, "limits is required".to_string()),
-            json!({ "budget": untouched(&id, &limits, &amounts(0, 100_000, 0)) }),
-            json!({ "budget": report }),
-            json!({ "budget": report }),
+            json!({
+                "budget": next_only(&id, &json!({ "limits": { "tokens": 7, "requests": 9 } })),
+            }),
         )
     );
 }
 
-/// `add_budget` on a session without a budget sets the amounts as its
-/// budget; on a session with one it raises the limits and what is free,
-/// and limits a dimension that had no limit (B6).
+/// `add_budget` while idle adds up for the next run.
 #[tokio::test]
-async fn add_budget_sets_a_budget_then_raises_it() {
+async fn add_budget_while_idle_adds_up_for_the_next_run() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created(dir.path()).await;
     let id = session_id(&worker);
-    let first = data(
+    data(
         &worker,
         "add_budget",
         &json!({ "amounts": { "tokens": 50_000 } }),
@@ -185,24 +223,18 @@ async fn add_budget_sets_a_budget_then_raises_it() {
     )
     .await;
     assert_eq!(
-        (first, second),
-        (
-            json!({
-                "budget": untouched(&id, &json!({ "tokens": 50_000 }), &amounts(0, 50_000, 0)),
-            }),
-            json!({
-                "budget": untouched(
-                    &id,
-                    &json!({ "costMicros": 2_000_000, "tokens": 60_000 }),
-                    &amounts(2_000_000, 60_000, 0),
-                ),
-            }),
-        )
+        second,
+        json!({
+            "budget": next_only(
+                &id,
+                &json!({ "added": amounts(2_000_000, 60_000, 0) }),
+            ),
+        })
     );
 }
 
-/// `set_budget` sends one `budget_update` with the new report, and the
-/// attach snapshot's state carries the same report from then on (B8).
+/// `set_budget` sends one `budget_update` with the report it answers, and
+/// the attach snapshot's state carries the same report from then on (B8).
 #[tokio::test]
 async fn a_set_budget_sends_a_budget_update_and_fills_the_attach_state() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -221,7 +253,7 @@ async fn a_set_budget_sends_a_budget_update_and_fills_the_attach_state() {
     let set = data(&worker, "set_budget", &json!({ "limits": limits })).await;
     let event = next_budget_update(&mut events).await;
     let after = state_budget(&worker);
-    let report = untouched(&session_id(&worker), &limits, &amounts(0, 100_000, 0));
+    let report = next_only(&session_id(&worker), &json!({ "limits": limits }));
     assert_eq!(
         (before, set, event, after),
         (
@@ -233,8 +265,8 @@ async fn a_set_budget_sends_a_budget_update_and_fills_the_attach_state() {
     );
 }
 
-/// A session without a budget has no ledger to audit; a fresh budget's
-/// ledger holds its one record and replays exactly (B9).
+/// A session without a budget has no ledger to audit; the ledger of a run
+/// replays exactly (B9).
 #[tokio::test]
 async fn an_audit_replays_the_ledger_of_a_session_that_has_a_budget() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -247,20 +279,26 @@ async fn an_audit_replays_the_ledger_of_a_session_that_has_a_budget() {
         &json!({ "limits": { "costMicros": 1_000_000 } }),
     )
     .await;
+    let prompted = worker
+        .dispatch(
+            "prompt_and_wait",
+            &json!({ "activeSessionId": "budget-session", "message": "the task" }),
+        )
+        .await;
+    assert!(prompted.success, "prompt failed: {prompted:?}");
     let audit = data(&worker, "audit_budget", &json!({})).await;
     assert_eq!(
-        (without, audit),
+        (
+            without,
+            audit["audit"]["exact"].clone(),
+            audit["audit"]["firstMismatch"].clone(),
+            audit["audit"]["settled"] == audit["audit"]["spent"],
+        ),
         (
             (false, None, format!("session {id} has no budget")),
-            json!({
-                "audit": {
-                    "records": 1,
-                    "settled": amounts(0, 0, 0),
-                    "spent": amounts(0, 0, 0),
-                    "exact": true,
-                    "firstMismatch": null,
-                },
-            }),
+            json!(true),
+            Value::Null,
+            true,
         )
     );
 }

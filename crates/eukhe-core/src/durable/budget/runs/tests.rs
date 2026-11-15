@@ -255,6 +255,56 @@ fn set_replaces_the_current_run_and_standing_limits_carry_over() {
     );
 }
 
+/// B15: limits set or added while the session runs nothing are the next
+/// run's: the report shows them as such, the next run starts with them (a
+/// `/b` pair of its message over them; an amount added to a dimension the
+/// run leaves unlimited is its limit), and the run after it is free of
+/// them.
+#[test]
+fn limits_set_while_idle_apply_to_the_next_run_only() {
+    let (_dir, gate) = gate(BudgetLimitsMode::Off, AuthClass::ApiKey, Value::Null);
+    start(&gate, RunKind::Interactive, RunLimits::default(), &[]);
+    let shown = gate
+        .set_next(RunLimits {
+            cost_micros: Some(LimitValue::At(5_000_000)),
+            tool_calls: Some(LimitValue::At(9)),
+            ..RunLimits::default()
+        })
+        .unwrap();
+    gate.add_next(one_request()).unwrap();
+    let next = start(
+        &gate,
+        RunKind::Interactive,
+        RunLimits {
+            tool_calls: Some(LimitValue::At(4)),
+            ..RunLimits::default()
+        },
+        &[],
+    );
+    let after = start(&gate, RunKind::Interactive, RunLimits::default(), &[]);
+    assert_eq!(
+        (
+            shown.limits,
+            shown.next.map(|next| next.limits.cost_micros),
+            next.limits,
+            next.next,
+            after.limits
+        ),
+        (
+            BudgetLimits::default(),
+            Some(Some(LimitValue::At(5_000_000))),
+            BudgetLimits {
+                cost_micros: Some(5_000_000),
+                tool_calls: Some(4),
+                requests: Some(1),
+                ..BudgetLimits::default()
+            },
+            None,
+            BudgetLimits::default()
+        )
+    );
+}
+
 fn one_request() -> BudgetAmounts {
     BudgetAmounts {
         requests: 1,

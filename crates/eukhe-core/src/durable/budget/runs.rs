@@ -24,7 +24,7 @@ use eukhe_bend::rules::limits as core;
 use eukhe_budget::{LedgerError, RunRecord, REQUEST_MIN_MS};
 use eukhe_types::budget::{
     AuthClass, BudgetAmounts, BudgetDimension, BudgetReport, BudgetSources, LimitSource,
-    LimitValue, PlanNotice, PlanShare, RunKind, RunLimits,
+    LimitValue, NextRun, PlanNotice, PlanShare, RunKind, RunLimits,
 };
 use serde_json::{Map, Value};
 use tokio::sync::broadcast;
@@ -85,13 +85,15 @@ struct RunFill {
 
 /// The runs of a gate: how they fill, one start at a time, the model of
 /// the session's last request, whether the current run's first work
-/// request is still to come, and the plan notices.
+/// request is still to come, the plan notices, and what the principal set
+/// or added for the next run while the session was idle.
 pub(super) struct Runs {
     fill: OnceLock<RunFill>,
     starting: Mutex<()>,
     seen: Mutex<Option<SeenModel>>,
     fresh: AtomicBool,
     notices: broadcast::Sender<PlanNotice>,
+    pub(super) next: Mutex<NextRun>,
 }
 
 impl Default for Runs {
@@ -102,6 +104,7 @@ impl Default for Runs {
             seen: Mutex::new(None),
             fresh: AtomicBool::new(false),
             notices: broadcast::Sender::new(16),
+            next: Mutex::new(NextRun::default()),
         }
     }
 }
@@ -438,6 +441,83 @@ impl BudgetGate {
         self.set_current(RunLimits::default(), Vec::new(), Some(limits.into()))
     }
 
+    /// Sets limits for the session's next run, as the principal asks them
+    /// while the session runs nothing (`/budget set` while idle) over what
+    /// was set for it before: the next run starts with them, the `/b`
+    /// pairs of its message over them. Returns the report that shows them.
+    /// Blocking file IO.
+    ///
+    /// # Errors
+    ///
+    /// The ledger does not read.
+    pub fn set_next(&self, limits: RunLimits) -> Result<BudgetReport, LedgerError> {
+        self.change_next(|next| next.limits = limits.over(next.limits))
+    }
+
+    /// Adds `amounts` to the session's next run (`/budget add` while
+    /// idle): a dimension the run leaves unlimited takes the amount as its
+    /// limit. Returns the report that shows them. Blocking file IO.
+    ///
+    /// # Errors
+    ///
+    /// The ledger does not read.
+    pub fn add_next(&self, amounts: BudgetAmounts) -> Result<BudgetReport, LedgerError> {
+        self.change_next(|next| {
+            next.added = BudgetDimension::ALL
+                .into_iter()
+                .fold(next.added, |sum, dimension| {
+                    sum.with(
+                        dimension,
+                        sum.get(dimension).saturating_add(amounts.get(dimension)),
+                    )
+                });
+        })
+    }
+
+    /// Change what the next run starts with while no run starts; the
+    /// report that shows it ([`Self::shown_report`]), published.
+    fn change_next(&self, change: impl FnOnce(&mut NextRun)) -> Result<BudgetReport, LedgerError> {
+        {
+            let _serial = self
+                .runs
+                .starting
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            change(
+                &mut self
+                    .runs
+                    .next
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner),
+            );
+        }
+        if let Some(report) = self.read()? {
+            return Ok(report);
+        }
+        let report = self.next_only();
+        self.publish(&report);
+        Ok(report)
+    }
+
+    /// What `/budget` shows: the budget's report ([`Self::report`]), or,
+    /// for a session without a budget yet, a report of nothing but the
+    /// limits set or added for its next run; `None` without either.
+    /// Blocking file IO.
+    #[must_use]
+    pub fn shown_report(&self) -> Option<BudgetReport> {
+        self.report()
+            .or_else(|| Some(self.next_only()).filter(|report| report.next.is_some()))
+    }
+
+    /// A report of nothing but what the next run starts with.
+    fn next_only(&self) -> BudgetReport {
+        self.with_next(BudgetReport {
+            session_id: self.agent().to_owned(),
+            agent_session_id: self.agent().to_owned(),
+            ..BudgetReport::default()
+        })
+    }
+
     fn set_current(
         &self,
         set: RunLimits,
@@ -476,12 +556,24 @@ impl BudgetGate {
             .standing
             .or_else(|| current.as_ref().map(|run| run.standing))
             .unwrap_or_default();
-        let (asked, names) = match (begin, &current) {
+        // A new run starts with what the principal set or added while the
+        // session was idle (its message's `/b` pairs over it); it is used
+        // up once the run started.
+        let next = match begin {
+            Begin::New => self
+                .runs
+                .next
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
+            Begin::Current => NextRun::default(),
+        };
+        let (mut asked, names) = match (begin, &current) {
             (Begin::Current, Some(run)) => (
                 start.set.over(run.asked),
                 run.presets.iter().cloned().chain(start.presets).collect(),
             ),
-            (Begin::New | Begin::Current, _) => (start.set, start.presets),
+            (Begin::New | Begin::Current, _) => (start.set.over(next.limits), start.presets),
         };
         let kind = core_kind(start.kind);
         let auth = core_auth(facts.auth);
@@ -500,17 +592,36 @@ impl BudgetGate {
             &format!("profile.{}", start.kind.slug()),
             entry(&facts.profile, start.kind.slug()),
         )?;
-        let filled = core::fill(
-            match facts.limits {
-                BudgetLimitsMode::Off => core::Toggle::Off,
-                BudgetLimitsMode::On => core::Toggle::On,
-            },
-            kind,
-            auth,
-            &core_lims(&asked.over(standing)),
-            &presets.iter().map(core_lims).collect::<Vec<_>>(),
-            &core_lims(&own),
-        )?;
+        let fill = |asked: &RunLimits| {
+            core::fill(
+                match facts.limits {
+                    BudgetLimitsMode::Off => core::Toggle::Off,
+                    BudgetLimitsMode::On => core::Toggle::On,
+                },
+                kind,
+                auth,
+                &core_lims(&asked.over(standing)),
+                &presets.iter().map(core_lims).collect::<Vec<_>>(),
+                &core_lims(&own),
+            )
+        };
+        let mut filled = fill(&asked)?;
+        // What was added for the next run: a dimension the run leaves
+        // unlimited takes the amount as its limit, set by the principal; a
+        // limited one grows by it.
+        let first_fill = run_limits(&filled.lims).counted();
+        let taken = BudgetDimension::ALL
+            .into_iter()
+            .filter(|dimension| {
+                next.added.get(*dimension) > 0 && first_fill.get(*dimension).is_none()
+            })
+            .fold(RunLimits::default(), |taken, dimension| {
+                taken.with(dimension, Some(LimitValue::At(next.added.get(dimension))))
+            });
+        if !taken.is_unset() {
+            asked = taken.over(asked);
+            filled = fill(&asked)?;
+        }
         let source = |src: core::Src| match src {
             core::Src::UntilFinished => LimitSource::UntilFinished,
             core::Src::Set => LimitSource::Set,
@@ -535,13 +646,29 @@ impl BudgetGate {
             asked,
             presets: names,
         };
-        let limits = run_limits(&filled.lims).counted();
+        let limits = BudgetDimension::ALL.into_iter().fold(
+            run_limits(&filled.lims).counted(),
+            |limits, dimension| match (limits.get(dimension), taken.get(dimension)) {
+                (Some(limit), None) => limits.with(
+                    dimension,
+                    Some(limit.saturating_add(next.added.get(dimension))),
+                ),
+                (None, _) | (Some(_), Some(_)) => limits,
+            },
+        );
         let started = match begin {
             Begin::New => self.ledger.start_run(limits, run),
             Begin::Current => self.ledger.set_run(limits, run),
         };
         match started {
             Ok(report) => {
+                if begin == Begin::New {
+                    *self
+                        .runs
+                        .next
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = NextRun::default();
+                }
                 if begin == Begin::New || first {
                     self.runs.fresh.store(true, Ordering::Relaxed);
                 }

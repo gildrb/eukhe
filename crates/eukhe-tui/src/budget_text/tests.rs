@@ -56,6 +56,7 @@ fn report(phase: BudgetPhase, short: Option<BudgetDimension>) -> BudgetReport {
         sources: eukhe_types::budget::BudgetSources::default(),
         program_runs: 0,
         plan: None,
+        next: None,
     }
 }
 
@@ -327,5 +328,33 @@ fn the_audit_line_says_exact_or_where_it_breaks() {
             "ledger MISMATCH at record 7",
             "ledger MISMATCH: 14 records, settled $0.42, 31.0k tok, 12 calls, 3 req but reports nothing spent",
         ]
+    );
+}
+
+/// Limits set or added while the session was idle read as the next run's
+/// after the current run's line and in the status segment.
+#[test]
+fn limits_for_the_next_run_read_as_next_run() {
+    let report = BudgetReport {
+        next: Some(eukhe_types::budget::NextRun {
+            limits: eukhe_types::budget::RunLimits {
+                cost_micros: Some(LimitValue::At(5_000_000)),
+                time_ms: Some(LimitValue::Unlimited),
+                ..eukhe_types::budget::RunLimits::default()
+            },
+            added: BudgetAmounts {
+                requests: 3,
+                ..BudgetAmounts::default()
+            },
+        }),
+        ..BudgetReport::default()
+    };
+    assert_eq!(
+        (report_line(&report, NOW_MS), status_text(&report, NOW_MS)),
+        (
+            "budget: until finished (default); next run: +3 requests, no time limit, $5.00"
+                .to_owned(),
+            "until finished; next run: +3 requests, no time limit, $5.00".to_owned()
+        )
     );
 }

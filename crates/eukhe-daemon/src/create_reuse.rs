@@ -300,16 +300,17 @@ impl Supervisor {
                 match self.reuse_summary_or_holder(resident, &path_text).await? {
                     ReuseAnswer::Summary(summary) => {
                         // The create's budget is for a session that has
-                        // none: the live session takes it now, and one
-                        // that has a budget refuses the set and keeps its
-                        // own. Only a session left without the budget
+                        // none: the live session takes it now as its
+                        // standing limits, as a fresh create sets them, and
+                        // one that has a budget refuses the set and keeps
+                        // its own. Only a session left without the budget
                         // its opener named fails the open.
                         if let Some(limits) = budget {
                             let set = self
                                 .route_command_ready_typed(
                                     resident,
                                     "set_budget",
-                                    json!({ "limits": limits }),
+                                    json!({ "limits": limits, "standing": true }),
                                     ROUTE_TIMEOUT_MS,
                                     RouteAdmission::Control,
                                 )

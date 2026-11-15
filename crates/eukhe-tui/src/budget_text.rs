@@ -279,6 +279,29 @@ fn amounts_text(amounts: &BudgetAmounts) -> String {
     }
 }
 
+/// What the principal set or added for the next run while the session
+/// was idle: `next run: 2h, $5.00, +100 requests`.
+fn next_part(report: &BudgetReport, parts: &mut Vec<String>) {
+    let Some(next) = &report.next else {
+        return;
+    };
+    let items: Vec<String> = LIMITED_ORDER
+        .into_iter()
+        .flat_map(|dimension| {
+            let set = next.limits.get(dimension).map(|limit| match limit {
+                LimitValue::At(amount) => long_amount(dimension, amount),
+                LimitValue::Unlimited => format!("no {} limit", limit_name(dimension)),
+            });
+            let added = next.added.get(dimension);
+            let added = (added > 0).then(|| format!("+{}", long_amount(dimension, added)));
+            set.into_iter().chain(added)
+        })
+        .collect();
+    if !items.is_empty() {
+        parts.push(format!("next run: {}", items.join(", ")));
+    }
+}
+
 /// What is left of the budget's time at `now_ms`: until its deadline, or
 /// what the report says was left when it was read.
 fn time_left(report: &BudgetReport, now_ms: u64) -> u64 {
@@ -354,6 +377,7 @@ pub fn report_line(report: &BudgetReport, now_ms: u64) -> String {
         ));
     }
     phase_parts(report, &mut parts);
+    next_part(report, &mut parts);
     format!("budget: {}", parts.join("; "))
 }
 
@@ -391,6 +415,7 @@ pub fn status_text(report: &BudgetReport, now_ms: u64) -> String {
         parts.push("until finished".to_owned());
     }
     phase_parts(report, &mut parts);
+    next_part(report, &mut parts);
     parts.join("; ")
 }
 

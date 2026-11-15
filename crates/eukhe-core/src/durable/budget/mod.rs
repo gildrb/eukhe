@@ -558,25 +558,43 @@ impl BudgetGate {
         Ok(())
     }
 
-    /// The report of the ledger for this agent, published to the watchers;
-    /// `None` without a budget (one `stat`).
+    /// The report of the ledger for this agent, with what the next run
+    /// starts with, published to the watchers; `None` without a budget
+    /// (one `stat`).
     fn read(&self) -> Result<Option<BudgetReport>, BudgetError> {
         if !self.ledger.exists() {
             return Ok(None);
         }
-        let report = self.ledger.report(self.agent())?;
+        let report = self
+            .ledger
+            .report(self.agent())?
+            .map(|report| self.with_next(report));
         if let Some(report) = &report {
             self.publish(report);
         }
         Ok(report)
     }
 
+    /// `report` with what the principal set or added for the next run
+    /// while the session was idle, if anything.
+    fn with_next(&self, mut report: BudgetReport) -> BudgetReport {
+        let next = self
+            .runs
+            .next
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        report.next = (!next.is_empty()).then_some(next);
+        report
+    }
+
     fn publish(&self, report: &BudgetReport) {
+        let report = self.with_next(report.clone());
         self.reports.send_if_modified(|current| {
-            if current.as_ref() == Some(report) {
+            if current.as_ref() == Some(&report) {
                 return false;
             }
-            *current = Some(report.clone());
+            *current = Some(report);
             true
         });
     }

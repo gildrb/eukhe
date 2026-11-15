@@ -131,6 +131,7 @@ mod tests {
                         time_ms: Some(LimitValue::Unlimited),
                         ..RunLimits::default()
                     },
+                    standing: false,
                     rest: JsonMap::default(),
                 },
             ),

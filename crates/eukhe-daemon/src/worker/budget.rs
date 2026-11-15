@@ -129,11 +129,7 @@ impl Worker {
         command: &str,
         text: &str,
     ) -> Result<String, DaemonResponse> {
-        let joins = self
-            .core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_busy();
+        let joins = self.run_live();
         let session = hosted
             .session()
             .map_err(|error| response_failure(None, command, &error.to_string(), None))?;
@@ -160,22 +156,36 @@ impl Worker {
     pub(crate) async fn handle_get_budget(&self) -> DaemonResponse {
         self.answer_budget("get_budget", |gate| {
             Ok::<_, BudgetError>(BudgetReply {
-                budget: gate.report(),
+                budget: gate.shown_report(),
             })
         })
         .await
     }
 
-    /// `set_budget { limits }` (Rust-native): the limits of the session's
-    /// current run, a number or `unlimited` per dimension.
+    /// `set_budget { limits, standing }` (Rust-native): the limits of the
+    /// session's running run, or, while it runs nothing, of its next run;
+    /// with `standing`, the session's standing limits (every run's, the
+    /// current one's included); a number or `unlimited` per dimension.
     pub(crate) async fn handle_set_budget(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "set_budget";
         let limits: RunLimits = match field(COMMAND, payload, "limits") {
             Ok(limits) => limits,
             Err(response) => return response,
         };
+        let standing = payload
+            .get("standing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let live = self.run_live();
         self.answer_budget(COMMAND, move |gate| {
-            gate.set(limits).map(|report| BudgetReply {
+            let report = if standing {
+                gate.set_standing(limits).map_err(|error| error.to_string())
+            } else if live {
+                gate.set(limits).map_err(|error| error.to_string())
+            } else {
+                gate.set_next(limits).map_err(|error| error.to_string())
+            };
+            report.map(|report| BudgetReply {
                 budget: Some(report),
             })
         })
@@ -237,20 +247,36 @@ impl Worker {
         ))
     }
 
-    /// `add_budget { amounts }` (Rust-native): `amounts` more budget; a
-    /// session without a budget gets them as its budget.
+    /// `add_budget { amounts }` (Rust-native): `amounts` more budget for
+    /// the session's running run, or, while it runs nothing, for its next
+    /// run; a session without a budget gets them as its budget.
     pub(crate) async fn handle_add_budget(&self, payload: &Value) -> DaemonResponse {
         const COMMAND: &str = "add_budget";
         let amounts: BudgetAmounts = match field(COMMAND, payload, "amounts") {
             Ok(amounts) => amounts,
             Err(response) => return response,
         };
+        let live = self.run_live();
         self.answer_budget(COMMAND, move |gate| {
-            gate.add(amounts).map(|report| BudgetReply {
+            let report = if live {
+                gate.add(amounts).map_err(|error| error.to_string())
+            } else {
+                gate.add_next(amounts).map_err(|error| error.to_string())
+            };
+            report.map(|report| BudgetReply {
                 budget: Some(report),
             })
         })
         .await
+    }
+
+    /// Whether a run is live on the session's shown conversation: limits
+    /// set or added meanwhile are its own, else the next run's.
+    fn run_live(&self) -> bool {
+        self.core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_busy()
     }
 
     /// `audit_budget` (Rust-native): the ledger replayed record by record,

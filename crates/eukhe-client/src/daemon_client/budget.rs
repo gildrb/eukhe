@@ -35,9 +35,9 @@ impl DaemonClient {
         Ok(reply.budget)
     }
 
-    /// Set the limits of the current run of the session
-    /// `active_session_id` (a number or `unlimited` per dimension);
-    /// answers the new budget.
+    /// Set the limits of the running run of the session
+    /// `active_session_id`, or, while it runs nothing, of its next run (a
+    /// number or `unlimited` per dimension); answers the new budget.
     ///
     /// # Errors
     ///
@@ -54,6 +54,7 @@ impl DaemonClient {
                 id: None,
                 active_session_id: active_session_id.to_string(),
                 limits,
+                standing: false,
                 rest: Map::default(),
             })
             .await?;

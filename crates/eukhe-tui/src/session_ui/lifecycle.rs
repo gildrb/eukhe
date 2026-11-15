@@ -225,8 +225,9 @@ impl SessionUi {
             .await
             .with_context(|| format!("attaching session {active_session_id}"))?;
         // `--budget-*` on an attach: no create carries the limits, so they
-        // become the limits of the session's current run (its
-        // `budget_update` moves the status line).
+        // become the limits of the session's running run, or, while it
+        // runs nothing, of its next run (its `budget_update` moves the
+        // status line).
         if let (SessionSelection::Attach(_), Some(limits)) = (&options.session, options.budget) {
             session
                 .bounded_request(
@@ -235,6 +236,7 @@ impl SessionUi {
                         id: None,
                         active_session_id: session.active_session_id.clone(),
                         limits,
+                        standing: false,
                         rest: Map::default(),
                     },
                 )

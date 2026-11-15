@@ -312,14 +312,16 @@ fn message_text(message: &Value) -> String {
     }
 }
 
-/// A user message the harness adds on its own (`[python-state]`, ...):
-/// never a prompt.
+/// A user message the harness adds on its own (`[python-state]`, ...,
+/// and the budget's notices, `[budget] This task has a budget: ...`,
+/// placed after the prompt before the request): never a prompt.
 fn is_harness_notice(message: &Value) -> bool {
     let text = message_text(message);
-    text.starts_with('[')
-        && text
-            .split_once("]\n")
-            .is_some_and(|(tag, _)| !tag.contains(' '))
+    text.starts_with("[budget] ")
+        || (text.starts_with('[')
+            && text
+                .split_once("]\n")
+                .is_some_and(|(tag, _)| !tag.contains(' ')))
 }
 
 fn classify(index: usize, body: Value, raw_len: usize, idempotency_key: Option<String>) -> Request {
