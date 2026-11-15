@@ -15,7 +15,7 @@ use eukhe_core::settings::cvar::table;
 use eukhe_core::settings::BudgetLimitsMode;
 use eukhe_types::budget::{BudgetAmounts, RunKind, RunLimits};
 use eukhe_types::daemon::{
-    BudgetAudit, BudgetAuditReply, BudgetLimitsReply, BudgetReply, SessionEvent,
+    BudgetAudit, BudgetAuditReply, BudgetLimitsReply, BudgetReply, DaemonErrorInfo, SessionEvent,
 };
 use serde_json::Value;
 
@@ -121,7 +121,8 @@ impl Worker {
     ///
     /// The response that names why the run did not start (a prefix that
     /// does not read, a profile or preset that is no limit, the ledger's
-    /// failure): nothing is sent.
+    /// failure), marked [`DaemonErrorInfo::PrefixRefused`]: nothing is
+    /// sent.
     #[allow(clippy::result_large_err)] // the error is the wire response itself
     pub(crate) async fn begin_message_run(
         &self,
@@ -141,7 +142,12 @@ impl Worker {
         .await;
         match begun {
             Ok(Ok(rest)) => Ok(rest),
-            Ok(Err(error)) => Err(response_failure(None, command, &error.to_string(), None)),
+            Ok(Err(error)) => Err(response_failure(
+                None,
+                command,
+                &error.to_string(),
+                Some(DaemonErrorInfo::PrefixRefused),
+            )),
             Err(error) => Err(response_failure(
                 None,
                 command,

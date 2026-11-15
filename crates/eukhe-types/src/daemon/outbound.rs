@@ -86,6 +86,12 @@ pub enum DaemonErrorInfo {
     /// interactive client detached. Nothing to answer; the client drops
     /// its panel (the `shell_approval_settled` frame usually beat it).
     ShellApprovalGone,
+    /// A prompt's run did not begin: its `/b` prefix does not read, a
+    /// profile or preset it names is no limit, or the ledger failed. The
+    /// message was not sent and no run stopped, so the refusal is the
+    /// answer: a client reports its message (ACP's internal error), never
+    /// the stop reason of the run before.
+    PrefixRefused,
     /// A `code` this build does not know (a newer daemon's typed
     /// refusal): forwards-compatibility — the unknown code must degrade
     /// to the plain refusal message that rides the same response instead

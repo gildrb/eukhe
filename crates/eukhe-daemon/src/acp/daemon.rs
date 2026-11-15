@@ -26,8 +26,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use eukhe_types::daemon::{
-    DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType, DaemonProtocolInfo,
-    DaemonResponse, DaemonSessionLifecycle, DAEMON_PROTOCOL_NAME, DAEMON_PROTOCOL_VERSION,
+    DaemonCommand, DaemonCommandEnvelope, DaemonCommandFrameType, DaemonErrorInfo,
+    DaemonProtocolInfo, DaemonResponse, DaemonSessionLifecycle, DAEMON_PROTOCOL_NAME,
+    DAEMON_PROTOCOL_VERSION,
 };
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -1310,6 +1311,7 @@ async fn prompt_turn(
             .as_ref()
             .and_then(|hosted| hosted.assistant_stop_reason)
             == Some(eukhe_types::ai::StopReason::Length);
+        let prefix_refused = response.error_info == Some(DaemonErrorInfo::PrefixRefused);
         let failure = response
             .error
             .unwrap_or_else(|| "unknown error".to_string());
@@ -1319,6 +1321,12 @@ async fn prompt_turn(
         eprintln!("eukhe-daemon: acp turn failed: {failure}");
         publish_error_boundary(&producer, turn_id).await;
         producer.finish_prompt(turn_id).await;
+        // A prompt whose run never began (its `/b` prefix did not read)
+        // sent nothing: its refusal is the answer, never the stop reason
+        // the run before left on the session.
+        if prefix_refused {
+            return super::internal_error(&id, &format!("eukhe turn failed: {failure}"));
+        }
         if truncated {
             let stop_reason = types::AcpStopReason::MaxTokens;
             return jsonrpc::response(

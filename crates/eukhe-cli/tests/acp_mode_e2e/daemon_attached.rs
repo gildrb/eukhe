@@ -522,6 +522,56 @@ fn acp_b_prefix_sets_the_runs_limits_and_sends_the_rest() {
     );
 }
 
+/// A `/b` prefix that does not read is refused by its word over ACP even
+/// when the run before ended short of budget: the refused prompt began no
+/// run, so the stop reason that run left on the session
+/// (`max_turn_requests`) is not its answer.
+#[test]
+fn acp_b_prefix_refusal_after_a_short_run_reports_its_word() {
+    // Two requests: the first asks for a tool, so the second, the last the
+    // limit admits, is the final answer and the run wraps up.
+    let mut client = AcpChild::spawn(
+        &["--mode", "acp", "--no-session"],
+        &json!({ "engine": "faux", "responses": [
+            { "content": [
+                { "type": "toolCall", "name": "no_such_tool", "arguments": {} },
+            ] },
+            { "text": "B-OK" },
+        ] }),
+    );
+    let socket = client.socket.clone();
+    let session_id = initialize_and_new_session(&mut client);
+    let short = client.request(
+        "session/prompt",
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/b requests=2 reply" }] }),
+    );
+    let _ = client.wait_response(short, TIMEOUT);
+    let list = daemon_request(&socket, "b-list", &json!({ "type": "list" }));
+    let active_session_id = &list["data"]["sessions"][0]["activeSessionId"];
+    let budget = daemon_request(
+        &socket,
+        "b-budget",
+        &json!({ "type": "get_budget", "activeSessionId": active_session_id }),
+    );
+    assert_ne!(
+        budget["data"]["budget"]["phase"],
+        json!("working"),
+        "the run before is short of budget: {budget}"
+    );
+    let refused = client.request(
+        "session/prompt",
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/b cost=abc reply" }] }),
+    );
+    let (refused, _) = client.wait_response(refused, TIMEOUT);
+    assert!(
+        refused["result"].is_null()
+            && refused["error"]["data"]["details"]
+                .as_str()
+                .is_some_and(|details| details.contains("cost \"abc\": expected dollars")),
+        "the prefix is refused by its word, not the run before's stop: {refused}"
+    );
+}
+
 #[test]
 fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
     // The faux session is short, so `/compact` skips (TS

@@ -433,7 +433,8 @@ async fn a_fork_draws_from_the_budget_of_the_session_it_forks() {
 /// A message sent while the session is idle starts a fresh interactive
 /// run: its `/b` prefix fills that run only, and the next message's run
 /// goes until finished again with limits off (B15, B20). A prefix that
-/// does not read is refused by its word, and nothing is sent.
+/// does not read is refused by its word, marked a prefix refusal, and
+/// nothing is sent.
 #[tokio::test]
 async fn each_idle_message_starts_its_own_run() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -445,10 +446,15 @@ async fn each_idle_message_starts_its_own_run() {
         )
         .await;
     assert_eq!(
-        (refused.success, refused.error.as_deref()),
+        (
+            refused.success,
+            refused.error.as_deref(),
+            refused.error_info.as_ref()
+        ),
         (
             false,
-            Some("cost \"abc\": expected dollars, like 1.50 or $1.50")
+            Some("cost \"abc\": expected dollars, like 1.50 or $1.50"),
+            Some(&eukhe_types::daemon::DaemonErrorInfo::PrefixRefused)
         ),
         "{refused:?}"
     );
