@@ -30,25 +30,30 @@ import ./base.bend as LawsBase
 # R3: a plan run wraps up at the first window at or past 1000 - reserve
 #     permille (S3; B18).
 # R4: a window reaching that line is told of once; a reading below it
-#     arms it again (S4; B23).
+#     arms it again: after the readings, a label is told of exactly when
+#     a window of it is at or past the line, or it was told of and no
+#     window of it read below the line, and the labels kept (which Rust
+#     sends back with the next reading) hold each label once (S4; B23).
 # R5: a run's limits hold its first request exactly when the reservation
 #     on an account holding those limits is granted, and otherwise name the
-#     dimension it is short in; an unbounded dimension is never short (S5;
-#     B17).
+#     dimension it is short in; an unbounded dimension is never short and
+#     takes no part: limits that bound some dimensions hold the request as
+#     those dimensions alone do (S5; B17).
 # R6: a renewal gives each bounded dimension its limit less what the run
 #     used, keeps every other part of the account, and puts the deadline
 #     at now plus a time limit (S6; B19).
-# R7: the `/b` prefix: presets and pairs read, the first other word and
-#     all after it reach the model verbatim; a message without the prefix
-#     untouched; full-width forms folded, a decimal comma read as a point;
-#     an empty value or a repeated key refused with the word (B20). Pinned
-#     here by an anchor only: the universal laws of the parser are not
-#     written (open; the Rust tests of rules/limits.rs cover it).
-# R8: the entry answers any input it refuses with the exact error form
-#     `E limits: malformed request`; an anchor pins the spelling of each
-#     request and reply. Not written: the universal round trip of every
-#     spelled request (open; the Rust tests of rules/limits.rs cover the
-#     spellings).
+# R7: the `/b` prefix: a message that does not open with `/b` (folded)
+#     then a space or its end is untouched; after the opener the words
+#     read in order, presets and pairs, up to the first other word, which
+#     with all after it reaches the model verbatim; full-width forms
+#     folded, a decimal comma read as a point; an empty value or a
+#     repeated key refused with the word as typed (S7; B20).
+# R8: the entry answers every request Rust spells, every number and
+#     count within the wire, with the model's answer spelled; input left
+#     after a request, a tag past the known ones, and every input it
+#     refuses answer the exact error form `E limits: malformed request`;
+#     every input it answers otherwise is such a request, read whole; an
+#     anchor pins the spelling of each request and reply.
 #
 # Not pinned here: that Rust asks the entry at each run's start, keeps
 # the labels told of per provider, and parses a pair's value as an amount
@@ -284,6 +289,205 @@ def sp_fit_req(q: FL.Req) -> Bool:
     case FL.QPrefix{text, +ns}:
       Bool.and(LawsBase.wire_fits(String.length(text)), LawsBase.wire_strs_fit(ns))
 
+# R8: a tag's place in a request: the request's own tag; a kind; an
+# auth; a preset's scale; a limit, by its dimension, of the limits a
+# request names first (a fill's limits set, a floor's, a renewal's), of a
+# fill's j-th preset (from 0), of a fill's profile
+type Spot is Data:
+  AtReq{}
+  AtKind{}
+  AtAuth{}
+  AtScale{}
+  InLims{d: B.Dim}
+  InPreset{j: Nat, d: B.Dim}
+  InOwn{d: B.Dim}
+
+# R8: the m-th value past the known ones at a tag's place: a request's
+# tag past 7 (prefix), a kind's past 5 (autoresearch), an auth's past 2
+# (a local model), a scale's past 1 (deep), a limit's past 2 (unlimited)
+def sp_unknown(p: Spot, m: Nat) -> Nat:
+  match p:
+    case AtReq{}:
+      8n+m
+    case AtKind{}:
+      6n+m
+    case AtAuth{}:
+      3n+m
+    case AtScale{}:
+      2n+m
+    case InLims{d}:
+      3n+m
+    case InPreset{j, d}:
+      3n+m
+    case InOwn{d}:
+      3n+m
+
+# R8: limits spelled up to dimension d's tag, then bad in its place
+def sp_w_lims_cut(l: L.Lims, d: B.Dim, bad: String) -> String:
+  match l:
+    case L.Lims{c, k, m, n, r}:
+      match d:
+        case B.Cost{}:
+          bad
+        case B.Tok{}:
+          sp_w_val(c, bad)
+        case B.Time{}:
+          sp_w_val(c, sp_w_val(k, bad))
+        case B.Calls{}:
+          sp_w_val(c, sp_w_val(k, sp_w_val(m, bad)))
+        case B.Reqs{}:
+          sp_w_val(c, sp_w_val(k, sp_w_val(m, sp_w_val(n, bad))))
+
+def sp_w_items_cut.then(h: L.Lims, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  match r:
+    case None{}:
+      None{}
+    case Some{s}:
+      Some{sp_w_lims(h, s)}
+
+# R8: the items of ps spelled up to the j-th one's limit of dimension d,
+# then bad in its place; none when ps has no j-th item
+def sp_w_items_cut(ps: List<&2, L.Lims>, j: Nat, d: B.Dim, bad: String) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
+      None{}
+    case Con{h, t}:
+      match j:
+        case 0n:
+          Some{sp_w_lims_cut(h, d, bad)}
+        case 1n+i:
+          sp_w_items_cut.then(h, sp_w_items_cut(t, i, d, bad))
+
+# R8: a fill's head before its limits set: its tag, the toggle, the kind,
+# the auth
+def sp_w_fill_head(t: L.Toggle, k: L.Run, a: L.Auth, rest: String) -> String:
+  Wr.put_nat(0n, Wr.put_bool(sp_on(t), Wr.put_nat(sp_kind_tag(k), Wr.put_nat(sp_auth_tag(a), rest))))
+
+def sp_w_fill_cut.ps(t: L.Toggle, k: L.Run, a: L.Auth, set: L.Lims, n: Nat, r: Maybe<&2, String>) -> Maybe<&2, String>:
+  match r:
+    case None{}:
+      None{}
+    case Some{s}:
+      Some{sp_w_fill_head(t, k, a, sp_w_lims(set, Wr.put_nat(n, s)))}
+
+# R8: a fill spelled up to the tag at p, then bad in its place
+def sp_w_fill_cut(p: Spot, t: L.Toggle, k: L.Run, a: L.Auth, set: L.Lims, +ps: List<&2, L.Lims>, own: L.Lims, bad: String) -> Maybe<&2, String>:
+  match p:
+    case AtReq{}:
+      Some{bad}
+    case AtKind{}:
+      Some{Wr.put_nat(0n, Wr.put_bool(sp_on(t), bad))}
+    case AtAuth{}:
+      Some{Wr.put_nat(0n, Wr.put_bool(sp_on(t), Wr.put_nat(sp_kind_tag(k), bad)))}
+    case AtScale{}:
+      None{}
+    case InLims{d}:
+      Some{sp_w_fill_head(t, k, a, sp_w_lims_cut(set, d, bad))}
+    case InPreset{j, d}:
+      sp_w_fill_cut.ps(t, k, a, set, List.length(&2, L.Lims, ps), sp_w_items_cut(ps, j, d, bad))
+    case InOwn{d}:
+      Some{sp_w_fill_head(t, k, a, sp_w_lims(set, Wr.put_list(~L.Lims, ~sp_w_lims, ps, sp_w_lims_cut(own, d, bad))))}
+
+# R8: a request with no tag but its own spelled up to it, then bad
+def sp_w_only_cut(p: Spot, bad: String) -> Maybe<&2, String>:
+  match p:
+    case AtReq{}:
+      Some{bad}
+    case AtKind{}:
+      None{}
+    case AtAuth{}:
+      None{}
+    case AtScale{}:
+      None{}
+    case InLims{d}:
+      None{}
+    case InPreset{j, d}:
+      None{}
+    case InOwn{d}:
+      None{}
+
+# R8: a request spelled up to the tag at p, then bad in its place; none
+# when the request has no tag at p
+def sp_w_req_cut(q: FL.Req, p: Spot, bad: String) -> Maybe<&2, String>:
+  match q:
+    case FL.QFill{t, k, a, set, ps, own}:
+      sp_w_fill_cut(p, t, k, a, set, ps, own, bad)
+    case FL.QProfile{k, a}:
+      match p:
+        case AtReq{}:
+          Some{bad}
+        case AtKind{}:
+          Some{Wr.put_nat(1n, bad)}
+        case AtAuth{}:
+          Some{Wr.put_nat(1n, Wr.put_nat(sp_kind_tag(k), bad))}
+        case AtScale{}:
+          None{}
+        case InLims{d}:
+          None{}
+        case InPreset{j, d}:
+          None{}
+        case InOwn{d}:
+          None{}
+    case FL.QPreset{s, k, a}:
+      match p:
+        case AtReq{}:
+          Some{bad}
+        case AtKind{}:
+          Some{Wr.put_nat(2n, Wr.put_nat(sp_scale_tag(s), bad))}
+        case AtAuth{}:
+          Some{Wr.put_nat(2n, Wr.put_nat(sp_scale_tag(s), Wr.put_nat(sp_kind_tag(k), bad)))}
+        case AtScale{}:
+          Some{Wr.put_nat(2n, bad)}
+        case InLims{d}:
+          None{}
+        case InPreset{j, d}:
+          None{}
+        case InOwn{d}:
+          None{}
+    case FL.QWraps{us, r}:
+      sp_w_only_cut(p, bad)
+    case FL.QNotice{ws, r, told}:
+      sp_w_only_cut(p, bad)
+    case FL.QFloor{l, c, keep}:
+      match p:
+        case AtReq{}:
+          Some{bad}
+        case AtKind{}:
+          None{}
+        case AtAuth{}:
+          None{}
+        case AtScale{}:
+          None{}
+        case InLims{d}:
+          Some{Wr.put_nat(5n, sp_w_lims_cut(l, d, bad))}
+        case InPreset{j, d}:
+          None{}
+        case InOwn{d}:
+          None{}
+    case FL.QRenew{l, mark, now, a}:
+      match p:
+        case AtReq{}:
+          Some{bad}
+        case AtKind{}:
+          None{}
+        case AtAuth{}:
+          None{}
+        case AtScale{}:
+          None{}
+        case InLims{d}:
+          Some{Wr.put_nat(6n, sp_w_lims_cut(l, d, bad))}
+        case InPreset{j, d}:
+          None{}
+        case InOwn{d}:
+          None{}
+    case FL.QPrefix{text, ns}:
+      sp_w_only_cut(p, bad)
+
+# R8: a request with the m-th unknown value at the tag at p, whatever
+# follows it (rest); none when the request has no tag at p
+def sp_w_req_bad(q: FL.Req, +p: Spot, m: Nat, rest: String) -> Maybe<&2, String>:
+  sp_w_req_cut(q, p, Wr.put_nat(sp_unknown(p, m), rest))
+
 # Laws: the fill (R1)
 # -------------------
 
@@ -421,6 +625,53 @@ law limits_notice_tells:
   for +told: List<&2, String>
   {S.now(L.plan_notice(ws, r, told)) == S.fresh(ws, Nat.sub(1000n, r), told) : List<&2, Nat>}
 
+# LAW limits_notice_told (R4): after the readings ws, label s is told of
+# exactly when a window of that label is at or past 1000 - reserve, or it
+# was told of and no window of that label read below the line
+# EXCLUDES: a label kept after a reading below the line (never armed
+#   again), a label at or past the line left out (told of twice), a told
+#   label without a reading dropped (told of again), a label dropped or
+#   armed by another window's reading
+law limits_notice_told:
+  for +ws: List<&2, L.Win>
+  for +r: Nat
+  for +told: List<&2, String>
+  for +s: String
+  {S.among(s, S.told(L.plan_notice(ws, r, told))) == S.told_after(s, ws, Nat.sub(1000n, r), told) : Bool}
+
+# R4: no text of ls is there twice
+def sp_distinct(ls: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case Con{+h, +t}:
+      Bool.and(Bool.not(S.among(h, t)), sp_distinct(t))
+
+# LAW limits_notice_told_once (R4): after the readings ws, each label
+# told of is kept once: from windows of distinct labels and labels told
+# of once, the labels told of after hold no label twice
+# EXCLUDES: a label kept again beside its new copy (the list Rust keeps
+#   and sends back on every reading growing while a window stays at or
+#   past the line), a told label copied for each reading
+law limits_notice_told_once:
+  for +ws: List<&2, L.Win>
+  for +r: Nat
+  for +told: List<&2, String>
+  for dw: {S.distinct(ws) == True{} : Bool}
+  for dt: {sp_distinct(told) == True{} : Bool}
+  {sp_distinct(S.told(L.plan_notice(ws, r, told))) == True{} : Bool}
+
+# LAW limits_notice_kept_once (R4): after any readings ws and any labels
+# told of, the labels told of after hold no label twice
+# EXCLUDES: a label kept twice when two windows of a reading share it
+#   (two weekly windows both labelled 7d), a label told of twice kept
+#   twice
+law limits_notice_kept_once:
+  for +ws: List<&2, L.Win>
+  for +r: Nat
+  for +told: List<&2, String>
+  {sp_distinct(S.told(L.plan_notice(ws, r, told))) == True{} : Bool}
+
 # LAW limits_notice_example (R4): anchor: a 5-hour window at 85 % is told
 # of once; the same reading again tells nothing; a reading at 10 % arms it
 # again; the next crossing is told; another window's reading leaves it
@@ -460,6 +711,19 @@ law limits_floor_unbounded:
   for +d: B.Dim
   for h: {S.is_at(S.dim(d, l)) == False{} : Bool}
   {S.names(d, L.floor(l, c, keep)) == False{} : Bool}
+
+# LAW limits_floor_drops_unbounded (R5): a dimension without a number
+# takes no part in the floor: the floor of any limits is the floor of the
+# same limits with each such dimension a limit of 0 and the request and
+# its reserve asking nothing of it, limits that bound every dimension,
+# which limits_floor_is_reserve holds to the ledger
+# EXCLUDES: a floor that checks nothing when one dimension is unbounded, a
+#   floor that checks a bounded dimension only beside other bounded ones
+law limits_floor_drops_unbounded:
+  for l: L.Lims
+  for c: B.Ask
+  for keep: B.Ask
+  {L.floor(l, c, keep) == L.floor(S.closed(l), S.only(l, c), S.only(l, keep)) : Maybe<&2, B.Dim>}
 
 # Laws: renewal (R6)
 # ------------------
@@ -507,6 +771,41 @@ law limits_renew_keeps:
 # Laws: the prefix (R7)
 # ---------------------
 
+# LAW limits_prefix_untouched (R7): a message that does not open with
+# `/b` (folded) then a space or its end has no prefix: no preset, no
+# pair, the whole message the rest as typed
+# EXCLUDES: `/bob` read as `/b` then `ob`, a message without the prefix
+#   trimmed or folded, a leading space taken for the start of the prefix
+law limits_prefix_untouched:
+  for +s: String
+  for ns: List<&2, String>
+  for h: {S.opens(s) == False{} : Bool}
+  {L.prefix(s, ns) == L.Read{Nil{}, Nil{}, s} : L.Prefix}
+
+# LAW limits_prefix_reads (R7): a message of an opener a b that reads as
+# `/b`, then words each after a gap of spaces, then trailing spaces, reads
+# word by word in order: a preset name (folded) its place, a known key
+# (folded) before `=` a pair with its value folded and `,` read as `.`, a
+# pair with an empty value or a key given before refused with the word as
+# typed; the first other word, with every word and gap after it and the
+# trailing spaces, is the rest verbatim
+# EXCLUDES: a reader that eats `2h` in `/b 5 2h after` or in `/b quick 2h
+#   after` (a word that looks like a duration taken as a value), a rest
+#   trimmed or with its gaps collapsed, full-width digits kept in a value,
+#   `,` kept in a value, a repeated key taking the last value, presets or
+#   pairs out of order, a refused word folded, a tab or ideographic space
+#   not read as a gap
+law limits_prefix_reads:
+  for +a: Char
+  for +b: Char
+  for +xs: List<&2, S.Item>
+  for +t: String
+  for +ns: List<&2, String>
+  for ho: {S.opener(a, b) == True{} : Bool}
+  for hx: {S.items(xs) == True{} : Bool}
+  for ht: {S.spaces(t) == True{} : Bool}
+  {L.prefix(SCon{a, SCon{b, S.spell(xs, t)}}, ns) == S.prefix_of(xs, t, ns, Nil{}) : L.Prefix}
+
 # LAW limits_prefix_example (R7): anchor: the `/b` prefix of messages:
 # a preset then a message word that looks like a duration, full-width
 # digits and a decimal comma, a key given twice, an empty value, a word
@@ -519,6 +818,79 @@ law limits_prefix_example:
 # Laws: the entry (R8)
 # --------------------
 
+# LAW limits_entry_answers (R8): the entry answers every request Rust
+# spells, every number, count and length within the wire, with the
+# model's answer spelled
+# EXCLUDES: fields read in another order (the limits set read as the
+#   profile, the mark read as the account's spent), a tag read as another
+#   kind, auth, preset or source, a dimension of the limits swapped, a
+#   preset list or a window lost, a default
+law limits_entry_answers:
+  for +q: FL.Req
+  for fit: {sp_fit_req(q) == True{} : Bool}
+  {FL.ffi(sp_w_req(q, "")) == sp_w_reply(q) : String}
+
+# LAW limits_entry_left_over (R8): a spelled request followed by more
+# input answers the error form
+# EXCLUDES: the input after the request ignored or read into a field
+law limits_entry_left_over:
+  for +q: FL.Req
+  for +ch: Char
+  for +t: String
+  for fit: {sp_fit_req(q) == True{} : Bool}
+  {FL.ffi(sp_w_req(q, SCon{ch, t})) == Wr.err("limits: malformed request") : String}
+
+# LAW limits_entry_unknown_tag (R8): a tag past the known ones answers
+# the error form, whatever follows it: a request tag past 7 (prefix), a
+# kind tag past 5 (autoresearch) in a profile, an auth tag past 2 (a
+# local model) in a profile of any kind, a preset tag past 1 (deep), a
+# limit tag past 2 (unlimited) in a floor's limits; every such tag within
+# the wire
+# EXCLUDES: an unknown tag read as a known one (a newer caller's request
+#   answered as a prefix or a plan reading, an unknown kind as
+#   autoresearch, an unknown auth as a local model, an unknown preset as
+#   deep, an unknown limit as unset or unlimited)
+law limits_entry_unknown_tag:
+  for +k: L.Run
+  for +m: Nat
+  for +a: Nat
+  for +b: Nat
+  for +c: Nat
+  for +d: Nat
+  for +rest: String
+  for fm: {LawsBase.wire_fits(8n+m) == True{} : Bool}
+  for fa: {LawsBase.wire_fits(6n+a) == True{} : Bool}
+  for fb: {LawsBase.wire_fits(3n+b) == True{} : Bool}
+  for fc: {LawsBase.wire_fits(2n+c) == True{} : Bool}
+  for fd: {LawsBase.wire_fits(3n+d) == True{} : Bool}
+  {FL.ffi(Wr.put_nat(8n+m, rest)) == Wr.err("limits: malformed request") : String} &
+  {FL.ffi(Wr.put_nat(1n, Wr.put_nat(6n+a, rest))) == Wr.err("limits: malformed request") : String} &
+  {FL.ffi(Wr.put_nat(1n, Wr.put_nat(sp_kind_tag(k), Wr.put_nat(3n+b, rest)))) == Wr.err("limits: malformed request") : String} &
+  {FL.ffi(Wr.put_nat(2n, Wr.put_nat(2n+c, rest))) == Wr.err("limits: malformed request") : String} &
+  {FL.ffi(Wr.put_nat(5n, Wr.put_nat(3n+d, rest))) == Wr.err("limits: malformed request") : String}
+
+# LAW limits_entry_tag_anywhere (R8): in every request Rust spells
+# (every number, count and length within the wire), an unknown value at
+# any of its tags, whatever follows it, answers the error form: the
+# request's tag; the kind and the auth of a fill, a profile, a preset; a
+# preset's scale; each of the five limits of a fill's limits set, of each
+# of its presets, of its profile, of a floor's and a renewal's limits;
+# every such value within the wire
+# EXCLUDES: an unknown tag read as a known one at any place (a fill's
+#   time limit 3 read as unlimited, a fill's or a preset's kind 6 read as
+#   autoresearch, a second preset's limit tag read as unset), an unknown
+#   tag checked only at the first place of its kind
+law limits_entry_tag_anywhere:
+  for +q: FL.Req
+  for +p: Spot
+  for +m: Nat
+  for +rest: String
+  for +s: String
+  for fit: {sp_fit_req(q) == True{} : Bool}
+  for fu: {LawsBase.wire_fits(sp_unknown(p, m)) == True{} : Bool}
+  for at: {sp_w_req_bad(q, p, m, rest) == Some{s} : Maybe<&2, String>}
+  {FL.ffi(s) == Wr.err("limits: malformed request") : String}
+
 # LAW limits_entry_refuses (R8): every error the entry answers is exactly
 # `E limits: malformed request`
 # EXCLUDES: an error text that varies with the input, a second error form
@@ -526,6 +898,20 @@ law limits_entry_refuses:
   for +s: String
   for bad: {LawsBase.wire_opens_err(FL.ffi(s)) == True{} : Bool}
   {FL.ffi(s) == Wr.err("limits: malformed request") : String}
+
+# LAW limits_entry_exact (R8): every input the entry does not answer with
+# the error form is a request Rust spells, every number, count and length
+# within the wire, and nothing after it
+# EXCLUDES: a decision answered on input that is no request: a request cut
+#   off before its end (a floor's missing final-answer reserve, a missing
+#   field defaulted), a number not in canonical decimal (a leading zero,
+#   more than 14 digits, no ','), a list shorter than its count, a known
+#   tag read from an unknown one
+law limits_entry_exact:
+  for +s: String
+  for ok: {LawsBase.wire_opens_err(FL.ffi(s)) == False{} : Bool}
+  exs q: FL.Req
+  {s == sp_w_req(q, "") : String} & {sp_fit_req(q) == True{} : Bool}
 
 # LAW limits_entry_example (R8): anchor: wire strings Rust sends and the
 # replies it reads; an unknown tag, input left over

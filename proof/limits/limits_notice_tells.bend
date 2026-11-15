@@ -34,19 +34,6 @@ def lnt.by0(xs: List<&2, Nat>) -> {lnt.by(0n, xs) == xs : List<&2, Nat>}:
       %Equal.sym(List<&2, Nat>, lnt.by(0n, t), t, lnt.by0(t)) : {x <> _ == x <> t : List<&2, Nat>}
       {==}
 
-# the code's text equality is the spec's
-def lnt.same(a: String, b: String) -> {L.same(a, b) == S.same(a, b) : Bool}:
-  match a b:
-    case SNil{} SNil{}:
-      {==}
-    case SNil{} SCon{y, v}:
-      {==}
-    case SCon{x, u} SNil{}:
-      {==}
-    case SCon{Chr{p}, u} SCon{Chr{q}, v}:
-      %Equal.sym(Bool, L.same(u, v), S.same(u, v), lnt.same(u, v)) : {L.same.chr(p, q, _) == Bool.and(U32.is_eq(p, q), S.same(u, v)) : Bool}
-      {==}
-
 def lnt.has_or(a: Bool, b: Bool) -> {L.has.or(a, b) == Bool.or(a, b) : Bool}:
   match a:
     case True{}:
@@ -61,7 +48,7 @@ def lnt.has(+s: String, ls: List<&2, String>) -> {L.has(s, ls) == S.among(s, ls)
       {==}
     case Con{+h, +t}:
       %Equal.sym(Bool, L.has(s, t), S.among(s, t), lnt.has(s, t)) : {L.has.or(L.same(s, h), _) == Bool.or(S.same(s, h), S.among(s, t)) : Bool}
-      %Equal.sym(Bool, L.same(s, h), S.same(s, h), lnt.same(s, h)) : {L.has.or(_, S.among(s, t)) == Bool.or(S.same(s, h), S.among(s, t)) : Bool}
+      %Equal.sym(Bool, L.same(s, h), S.same(s, h), LB.lmb.same(s, h)) : {L.has.or(_, S.among(s, t)) == Bool.or(S.same(s, h), S.among(s, t)) : Bool}
       lnt.has_or(S.same(s, h), S.among(s, t))
 
 def lnt.step(b: Bool, +i: Nat, +f: List<&2, Nat>) -> {L.notice.add(b, i, lnt.by(1n+i, f)) == lnt.by(i, S.fresh.at(b, S.shift(f))) : List<&2, Nat>}:

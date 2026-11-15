@@ -1,0 +1,30 @@
+# Every number at its largest: limits, presets and the principal's
+# profile at {MAX} (fill reads them, never adds), every kind and auth of
+# the profile and the presets, used permilles and reserves at {MAX}
+# (compared, never added), floors and renewals at the largest a budget
+# holds (13 nines: the core adds the asks and the deadline to them)
+# fill: limits on and off, two presets, every limit at {MAX}
+call 0,T0,0,1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},2,1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},
+call 0,F5,2,1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},1,{MAX},
+# profile and preset of the longest run kind, each auth
+call 1,5,0,
+call 2,1,5,0,
+call 1,5,1,
+call 2,1,5,1,
+call 1,5,2,
+call 2,1,5,2,
+# plan wraps and the notice: permilles and the reserve at {MAX}
+call 3,3,{MAX},{MAX},{MAX},{MAX},
+call 4,2,2,5h{MAX},2,7d{MAX},{MAX},2,2,5h2,7d
+# floor: every limit and both asks at the largest
+call 5,1,9999999999999,1,9999999999999,1,9999999999999,1,9999999999999,1,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,
+# renew: limits, the mark, now and the account at the largest
+call 6,1,9999999999999,1,9999999999999,1,9999999999999,1,9999999999999,1,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,1,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,9999999999999,
+# prefix: values past every number the wire reads stay text
+call 7,59,/b quick deep 99999999999999h 9999999999999999k after lunch2,5,quick4,deep
+# an unknown request, kind or auth tag; a number past the wire
+refuse 8,
+refuse 1,6,0,
+refuse 1,0,3,
+refuse 3,1,{LONG},0,
+refuse 6,1,{LONG},1,{LONG},1,{LONG},1,{LONG},1,{LONG},0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

@@ -30,6 +30,40 @@ def lmb.absurd_tf(-G: Type, e: {True{} == False{} : Bool}) -> G:
   %e : lmb.IfT(_, G)
   Unit{}
 
+def lmb.and_l(+a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+def lmb.and_r(+a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      lmb.absurd_ft({b == True{} : Bool}, e)
+
+def lmb.not_t(b: Bool, e: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      lmb.absurd_ft({True{} == False{} : Bool}, e)
+    case False{}:
+      {==}
+
+# the code's text equality is the spec's
+def lmb.same(a: String, b: String) -> {L.same(a, b) == S.same(a, b) : Bool}:
+  match a b:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{y, v}:
+      {==}
+    case SCon{x, u} SNil{}:
+      {==}
+    case SCon{Chr{p}, u} SCon{Chr{q}, v}:
+      %Equal.sym(Bool, L.same(u, v), S.same(u, v), lmb.same(u, v)) : {L.same.chr(p, q, _) == Bool.and(U32.is_eq(p, q), S.same(u, v)) : Bool}
+      {==}
+
 # a + 0 is a
 def lmb.add_zero(n: Nat) -> {Nat.add(n, 0n) == n : Nat}:
   match n:

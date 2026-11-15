@@ -65,14 +65,6 @@ type Req is Data:
 # Decoders
 # --------
 
-# d's value, then k on it and the input after it
-def then(-A: Data, -R: Data, d: W.Dec<A>, k: A -> String -> W.Dec<R>) -> W.Dec<R>:
-  match d:
-    case W.Got{x, s}:
-      k(x, s)
-    case W.Bad{}:
-      W.Bad{}
-
 def get_kind.of(n: Nat, s: String) -> W.Dec<L.Run>:
   match n:
     case 0n:
@@ -90,8 +82,15 @@ def get_kind.of(n: Nat, s: String) -> W.Dec<L.Run>:
     case 6n+p:
       W.Bad{}
 
+def get_kind.n(r: W.Dec<Nat>) -> W.Dec<L.Run>:
+  match r:
+    case W.Got{n, s}:
+      get_kind.of(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_kind(s: String) -> W.Dec<L.Run>:
-  then(Nat, L.Run, W.get_nat(s), n => r => get_kind.of(n, r))
+  get_kind.n(W.get_nat(s))
 
 def get_auth.of(n: Nat, s: String) -> W.Dec<L.Auth>:
   match n:
@@ -104,8 +103,15 @@ def get_auth.of(n: Nat, s: String) -> W.Dec<L.Auth>:
     case 3n+p:
       W.Bad{}
 
+def get_auth.n(r: W.Dec<Nat>) -> W.Dec<L.Auth>:
+  match r:
+    case W.Got{n, s}:
+      get_auth.of(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_auth(s: String) -> W.Dec<L.Auth>:
-  then(Nat, L.Auth, W.get_nat(s), n => r => get_auth.of(n, r))
+  get_auth.n(W.get_nat(s))
 
 def get_scale.of(n: Nat, s: String) -> W.Dec<L.Scale>:
   match n:
@@ -116,8 +122,15 @@ def get_scale.of(n: Nat, s: String) -> W.Dec<L.Scale>:
     case 2n+p:
       W.Bad{}
 
+def get_scale.n(r: W.Dec<Nat>) -> W.Dec<L.Scale>:
+  match r:
+    case W.Got{n, s}:
+      get_scale.of(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_scale(s: String) -> W.Dec<L.Scale>:
-  then(Nat, L.Scale, W.get_nat(s), n => r => get_scale.of(n, r))
+  get_scale.n(W.get_nat(s))
 
 def get_toggle.of(b: Bool, s: String) -> W.Dec<L.Toggle>:
   match b:
@@ -126,52 +139,297 @@ def get_toggle.of(b: Bool, s: String) -> W.Dec<L.Toggle>:
     case False{}:
       W.Got{L.Off{}, s}
 
+def get_toggle.b(r: W.Dec<Bool>) -> W.Dec<L.Toggle>:
+  match r:
+    case W.Got{b, s}:
+      get_toggle.of(b, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_toggle(s: String) -> W.Dec<L.Toggle>:
-  then(Bool, L.Toggle, W.get_bool(s), b => r => get_toggle.of(b, r))
+  get_toggle.b(W.get_bool(s))
+
+def get_val.at(r: W.Dec<Nat>) -> W.Dec<L.Val>:
+  match r:
+    case W.Got{v, s}:
+      W.Got{L.At{v}, s}
+    case W.Bad{}:
+      W.Bad{}
 
 def get_val.of(n: Nat, s: String) -> W.Dec<L.Val>:
   match n:
     case 0n:
       W.Got{L.Unset{}, s}
     case 1n:
-      then(Nat, L.Val, W.get_nat(s), v => r => W.Got{L.At{v}, r})
+      get_val.at(W.get_nat(s))
     case 2n:
       W.Got{L.Unlimited{}, s}
     case 3n+p:
       W.Bad{}
 
+def get_val.n(r: W.Dec<Nat>) -> W.Dec<L.Val>:
+  match r:
+    case W.Got{n, s}:
+      get_val.of(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_val(s: String) -> W.Dec<L.Val>:
-  then(Nat, L.Val, W.get_nat(s), n => r => get_val.of(n, r))
+  get_val.n(W.get_nat(s))
+
+def get_lims.r(c: L.Val, k: L.Val, m: L.Val, n: L.Val, d: W.Dec<L.Val>) -> W.Dec<L.Lims>:
+  match d:
+    case W.Got{r, s}:
+      W.Got{L.Lims{c, k, m, n, r}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_lims.n(c: L.Val, k: L.Val, m: L.Val, d: W.Dec<L.Val>) -> W.Dec<L.Lims>:
+  match d:
+    case W.Got{n, s}:
+      get_lims.r(c, k, m, n, get_val(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_lims.m(c: L.Val, k: L.Val, d: W.Dec<L.Val>) -> W.Dec<L.Lims>:
+  match d:
+    case W.Got{m, s}:
+      get_lims.n(c, k, m, get_val(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_lims.k(c: L.Val, d: W.Dec<L.Val>) -> W.Dec<L.Lims>:
+  match d:
+    case W.Got{k, s}:
+      get_lims.m(c, k, get_val(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_lims.c(d: W.Dec<L.Val>) -> W.Dec<L.Lims>:
+  match d:
+    case W.Got{c, s}:
+      get_lims.k(c, get_val(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_lims(s: String) -> W.Dec<L.Lims>:
-  then(L.Val, L.Lims, get_val(s), c => s1 => then(L.Val, L.Lims, get_val(s1), k => s2 => then(L.Val, L.Lims, get_val(s2), m => s3 => then(L.Val, L.Lims, get_val(s3), n => s4 => then(L.Val, L.Lims, get_val(s4), r => s5 => W.Got{L.Lims{c, k, m, n, r}, s5})))))
+  get_lims.c(get_val(s))
+
+def get_win.u(l: String, d: W.Dec<Nat>) -> W.Dec<L.Win>:
+  match d:
+    case W.Got{u, s}:
+      W.Got{L.Win{l, u}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_win.l(d: W.Dec<String>) -> W.Dec<L.Win>:
+  match d:
+    case W.Got{l, s}:
+      get_win.u(l, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_win(s: String) -> W.Dec<L.Win>:
-  then(String, L.Win, W.get_str(s), l => s1 => then(Nat, L.Win, W.get_nat(s1), u => s2 => W.Got{L.Win{l, u}, s2}))
+  get_win.l(W.get_str(s))
+
+def get_fill.own(t: L.Toggle, k: L.Run, a: L.Auth, set: L.Lims, ps: List<&2, L.Lims>, d: W.Dec<L.Lims>) -> W.Dec<Req>:
+  match d:
+    case W.Got{own, s}:
+      W.Got{QFill{t, k, a, set, ps, own}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_fill.ps(t: L.Toggle, k: L.Run, a: L.Auth, set: L.Lims, d: W.Dec<List<&2, L.Lims>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{ps, s}:
+      get_fill.own(t, k, a, set, ps, get_lims(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_fill.set(t: L.Toggle, k: L.Run, a: L.Auth, d: W.Dec<L.Lims>) -> W.Dec<Req>:
+  match d:
+    case W.Got{set, s}:
+      get_fill.ps(t, k, a, set, W.get_list(~L.Lims, ~get_lims, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_fill.a(t: L.Toggle, k: L.Run, d: W.Dec<L.Auth>) -> W.Dec<Req>:
+  match d:
+    case W.Got{a, s}:
+      get_fill.set(t, k, a, get_lims(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_fill.k(t: L.Toggle, d: W.Dec<L.Run>) -> W.Dec<Req>:
+  match d:
+    case W.Got{k, s}:
+      get_fill.a(t, k, get_auth(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_fill.t(d: W.Dec<L.Toggle>) -> W.Dec<Req>:
+  match d:
+    case W.Got{t, s}:
+      get_fill.k(t, get_kind(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_fill(s: String) -> W.Dec<Req>:
-  then(L.Toggle, Req, get_toggle(s), t => s1 => then(L.Run, Req, get_kind(s1), k => s2 => then(L.Auth, Req, get_auth(s2), a => s3 => then(L.Lims, Req, get_lims(s3), set => s4 => then(List<&2, L.Lims>, Req, W.get_list(~L.Lims, ~get_lims, s4), ps => s5 => then(L.Lims, Req, get_lims(s5), own => s6 => W.Got{QFill{t, k, a, set, ps, own}, s6}))))))
+  get_fill.t(get_toggle(s))
+
+def get_profile.a(k: L.Run, d: W.Dec<L.Auth>) -> W.Dec<Req>:
+  match d:
+    case W.Got{a, s}:
+      W.Got{QProfile{k, a}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_profile.k(d: W.Dec<L.Run>) -> W.Dec<Req>:
+  match d:
+    case W.Got{k, s}:
+      get_profile.a(k, get_auth(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_profile(s: String) -> W.Dec<Req>:
-  then(L.Run, Req, get_kind(s), k => s1 => then(L.Auth, Req, get_auth(s1), a => s2 => W.Got{QProfile{k, a}, s2}))
+  get_profile.k(get_kind(s))
+
+def get_preset.a(c: L.Scale, k: L.Run, d: W.Dec<L.Auth>) -> W.Dec<Req>:
+  match d:
+    case W.Got{a, s}:
+      W.Got{QPreset{c, k, a}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_preset.k(c: L.Scale, d: W.Dec<L.Run>) -> W.Dec<Req>:
+  match d:
+    case W.Got{k, s}:
+      get_preset.a(c, k, get_auth(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_preset.c(d: W.Dec<L.Scale>) -> W.Dec<Req>:
+  match d:
+    case W.Got{c, s}:
+      get_preset.k(c, get_kind(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_preset(s: String) -> W.Dec<Req>:
-  then(L.Scale, Req, get_scale(s), c => s1 => then(L.Run, Req, get_kind(s1), k => s2 => then(L.Auth, Req, get_auth(s2), a => s3 => W.Got{QPreset{c, k, a}, s3})))
+  get_preset.c(get_scale(s))
+
+def get_wraps.r(us: List<&2, Nat>, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{r, s}:
+      W.Got{QWraps{us, r}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_wraps.us(d: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{us, s}:
+      get_wraps.r(us, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_wraps(s: String) -> W.Dec<Req>:
-  then(List<&2, Nat>, Req, W.get_list(~Nat, ~W.get_nat, s), us => s1 => then(Nat, Req, W.get_nat(s1), r => s2 => W.Got{QWraps{us, r}, s2}))
+  get_wraps.us(W.get_list(~Nat, ~W.get_nat, s))
+
+def get_notice.told(ws: List<&2, L.Win>, r: Nat, d: W.Dec<List<&2, String>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{told, s}:
+      W.Got{QNotice{ws, r, told}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_notice.r(ws: List<&2, L.Win>, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{r, s}:
+      get_notice.told(ws, r, W.get_list(~String, ~W.get_str, s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_notice.ws(d: W.Dec<List<&2, L.Win>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{ws, s}:
+      get_notice.r(ws, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_notice(s: String) -> W.Dec<Req>:
-  then(List<&2, L.Win>, Req, W.get_list(~L.Win, ~get_win, s), ws => s1 => then(Nat, Req, W.get_nat(s1), r => s2 => then(List<&2, String>, Req, W.get_list(~String, ~W.get_str, s2), told => s3 => W.Got{QNotice{ws, r, told}, s3})))
+  get_notice.ws(W.get_list(~L.Win, ~get_win, s))
+
+def get_floor.keep(l: L.Lims, c: B.Ask, d: W.Dec<B.Ask>) -> W.Dec<Req>:
+  match d:
+    case W.Got{keep, s}:
+      W.Got{QFloor{l, c, keep}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_floor.c(l: L.Lims, d: W.Dec<B.Ask>) -> W.Dec<Req>:
+  match d:
+    case W.Got{c, s}:
+      get_floor.keep(l, c, FB.get_ask(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_floor.l(d: W.Dec<L.Lims>) -> W.Dec<Req>:
+  match d:
+    case W.Got{l, s}:
+      get_floor.c(l, FB.get_ask(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_floor(s: String) -> W.Dec<Req>:
-  then(L.Lims, Req, get_lims(s), l => s1 => then(B.Ask, Req, FB.get_ask(s1), c => s2 => then(B.Ask, Req, FB.get_ask(s2), keep => s3 => W.Got{QFloor{l, c, keep}, s3})))
+  get_floor.l(get_lims(s))
+
+def get_renew.a(l: L.Lims, mark: B.Amt, now: Nat, d: W.Dec<B.Acct>) -> W.Dec<Req>:
+  match d:
+    case W.Got{a, s}:
+      W.Got{QRenew{l, mark, now, a}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_renew.now(l: L.Lims, mark: B.Amt, d: W.Dec<Nat>) -> W.Dec<Req>:
+  match d:
+    case W.Got{now, s}:
+      get_renew.a(l, mark, now, FB.get_acct(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_renew.mark(l: L.Lims, d: W.Dec<B.Amt>) -> W.Dec<Req>:
+  match d:
+    case W.Got{mark, s}:
+      get_renew.now(l, mark, W.get_nat(s))
+    case W.Bad{}:
+      W.Bad{}
+
+def get_renew.l(d: W.Dec<L.Lims>) -> W.Dec<Req>:
+  match d:
+    case W.Got{l, s}:
+      get_renew.mark(l, FB.get_amt(s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_renew(s: String) -> W.Dec<Req>:
-  then(L.Lims, Req, get_lims(s), l => s1 => then(B.Amt, Req, FB.get_amt(s1), mark => s2 => then(Nat, Req, W.get_nat(s2), now => s3 => then(B.Acct, Req, FB.get_acct(s3), a => s4 => W.Got{QRenew{l, mark, now, a}, s4}))))
+  get_renew.l(get_lims(s))
+
+def get_prefix.ns(text: String, d: W.Dec<List<&2, String>>) -> W.Dec<Req>:
+  match d:
+    case W.Got{ns, s}:
+      W.Got{QPrefix{text, ns}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_prefix.text(d: W.Dec<String>) -> W.Dec<Req>:
+  match d:
+    case W.Got{text, s}:
+      get_prefix.ns(text, W.get_list(~String, ~W.get_str, s))
+    case W.Bad{}:
+      W.Bad{}
 
 def get_prefix(s: String) -> W.Dec<Req>:
-  then(String, Req, W.get_str(s), text => s1 => then(List<&2, String>, Req, W.get_list(~String, ~W.get_str, s1), ns => s2 => W.Got{QPrefix{text, ns}, s2}))
+  get_prefix.text(W.get_str(s))
 
 # the request of tag n
 def get_req.of(n: Nat, s: String) -> W.Dec<Req>:
@@ -195,9 +453,16 @@ def get_req.of(n: Nat, s: String) -> W.Dec<Req>:
     case 8n+p:
       W.Bad{}
 
+def get_req.n(r: W.Dec<Nat>) -> W.Dec<Req>:
+  match r:
+    case W.Got{n, s}:
+      get_req.of(n, s)
+    case W.Bad{}:
+      W.Bad{}
+
 # the request at the start of s
 def get_req(s: String) -> W.Dec<Req>:
-  then(Nat, Req, W.get_nat(s), n => r => get_req.of(n, r))
+  get_req.n(W.get_nat(s))
 
 # Encoders
 # --------

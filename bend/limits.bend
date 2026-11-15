@@ -497,13 +497,22 @@ def notice.keep(told: List<&2, String>, +ls: List<&2, String>) -> List<&2, Strin
     case Con{+h, t}:
       notice.label(Bool.not(has(h, ls)), h, notice.keep(t, ls))
 
+# the labels of ls, each once (the last of each kept): two windows of a
+# reading may share a label
+def notice.once(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{+h, +t}:
+      notice.label(Bool.not(has(h, t)), h, notice.once(t))
+
 def notice.at(+ws: List<&2, Win>, +line: Nat, +told: List<&2, String>) -> Told:
-  Told{notice.now(ws, line, 0n, told), List.append(&2, String, notice.over(ws, line), notice.keep(told, notice.labels(ws)))}
+  Told{notice.now(ws, line, 0n, told), notice.once(List.append(&2, String, notice.over(ws, line), notice.keep(told, notice.labels(ws))))}
 
 # The windows to tell of: each reading at or past 1000 - reserve permille
 # whose label is not in told; the labels told of after: those at or past
 # the line, and those of told no reading has (a reading below the line
-# arms its window again)
+# arms its window again), each once
 def plan_notice(ws: List<&2, Win>, reserve: Nat, told: List<&2, String>) -> Told:
   notice.at(ws, Nat.sub(1000n, reserve), told)
 
@@ -621,22 +630,20 @@ def fold.space(wide: Bool, c: Char) -> Char:
     case False{}:
       c
 
-def fold.in(form: Bool, +n: Nat, c: Char) -> Char:
+def fold.in(form: Bool, +x: U32, c: Char) -> Char:
   match form:
     case True{}:
-      Chr{U32.from_nat(Nat.sub(n, 65248n))}
+      Chr{U32.sub(x, 65248)}
     case False{}:
-      fold.space(Nat.is_eq(n, 12288n), c)
-
-def fold.code(+n: Nat, c: Char) -> Char:
-  fold.in(Bool.and(Nat.is_le(65281n, n), Nat.is_le(n, 65374n)), n, c)
+      fold.space(U32.is_eq(x, 12288), c)
 
 # the char a full-width form reads as (NFKC): U+FF01..U+FF5E as
-# U+0021..U+007E, U+3000 as a space; any other char as itself
+# U+0021..U+007E, U+3000 as a space; any other char as itself (compared
+# as U32, so a proof never counts up to a code point)
 def fold(c: Char) -> Char:
   match c:
     case Chr{+x}:
-      fold.code(U32.to_nat(x), Chr{x})
+      fold.in(Bool.and(U32.is_le(65281, x), U32.is_le(x, 65374)), x, Chr{x})
 
 def code.of(c: Char) -> Nat:
   match c:
@@ -653,21 +660,6 @@ def is_space.n(+n: Nat) -> Bool:
 # a space ends a word: space, tab, line feed, carriage return (folded)
 def is_space(c: Char) -> Bool:
   is_space.n(code(c))
-
-def skip.at(sp: Bool, c: Char, t: String, after: String) -> String:
-  match sp:
-    case True{}:
-      after
-    case False{}:
-      SCon{c, t}
-
-# s without its leading spaces
-def skip(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      skip.at(is_space(c), c, t, skip(t))
 
 # A text cut in two
 type Cut is Data:
@@ -837,61 +829,100 @@ def classify.at(m: Maybe<&2, Nat>, w: String, ps: List<&2, KV>) -> Wd:
 def classify(+w: String, ns: List<&2, String>, ps: List<&2, KV>) -> Wd:
   classify.at(named(folded(w), ns, 0n), w, ps)
 
-# Where the reading of the prefix is: the input left, the presets and
-# pairs so far (reversed); or done
-type St is Data:
-  Reading{s: String, ks: List<&2, Nat>, ps: List<&2, KV>}
-  Finished{p: Prefix}
+# What a word ends the reading with: the presets and pairs so far, read
+# on; or the reading done
+type Closed is Data:
+  Next{ks: List<&2, Nat>, ps: List<&2, KV>}
+  Stop{p: Prefix}
 
-def words.on(x: Wd, w: String, r: String, ks: List<&2, Nat>, ps: List<&2, KV>, s: String) -> St:
+def close.on(x: Wd, w: String, at: String, ks: List<&2, Nat>, ps: List<&2, KV>) -> Closed:
   match x:
     case WPreset{i}:
-      Reading{r, i <> ks, ps}
+      Next{List.append(&2, Nat, ks, [i]), ps}
     case WPair{p}:
-      Reading{r, ks, p <> ps}
+      Next{ks, List.append(&2, KV, ps, [p])}
     case WBad{}:
-      Finished{Refused{w}}
+      Stop{Refused{w}}
     case WEnd{}:
-      Finished{Read{List.reverse(&2, Nat, ks), List.reverse(&2, KV, ps), s}}
+      Stop{Read{ks, ps, at}}
 
-def words.word(p: Cut, ns: List<&2, String>, ks: List<&2, Nat>, +ps: List<&2, KV>, s: String) -> St:
-  match p:
+def close.word(c: Cut, at: String, ns: List<&2, String>, ks: List<&2, Nat>, +ps: List<&2, KV>) -> Closed:
+  match c:
     case Cut{+w, r}:
-      words.on(classify(w, ns, ps), w, r, ks, ps, s)
+      close.on(classify(w, ns, ps), w, at, ks, ps)
 
-def words.at(s: String, ns: List<&2, String>, ks: List<&2, Nat>, ps: List<&2, KV>) -> St:
-  match s:
-    case SNil{}:
-      Finished{Read{List.reverse(&2, Nat, ks), List.reverse(&2, KV, ps), ""}}
-    case SCon{+c, +t}:
-      words.word(word(SCon{c, t}), ns, ks, ps, SCon{c, t})
+# the word that starts at at (the text from it on) ends: read it, with ks
+# and ps the presets and pairs before it
+def close(+at: String, ns: List<&2, String>, ks: List<&2, Nat>, ps: List<&2, KV>) -> Closed:
+  close.word(word(at), at, ns, ks, ps)
 
-# the next word of the prefix
-def words.step(st: St, ns: List<&2, String>) -> St:
+# Where the reading of the prefix is, char by char: between words, in a
+# word (the text from its start on), or done; with the presets and pairs
+# read so far
+type St is Data:
+  Gap{ks: List<&2, Nat>, ps: List<&2, KV>}
+  In{at: String, ks: List<&2, Nat>, ps: List<&2, KV>}
+  Fin{p: Prefix}
+
+def step.next(c: Closed) -> St:
+  match c:
+    case Next{ks, ps}:
+      Gap{ks, ps}
+    case Stop{p}:
+      Fin{p}
+
+def step.gap(sp: Bool, here: String, ks: List<&2, Nat>, ps: List<&2, KV>) -> St:
+  match sp:
+    case True{}:
+      Gap{ks, ps}
+    case False{}:
+      In{here, ks, ps}
+
+def step.in(sp: Bool, at: String, ns: List<&2, String>, ks: List<&2, Nat>, ps: List<&2, KV>) -> St:
+  match sp:
+    case True{}:
+      step.next(close(at, ns, ks, ps))
+    case False{}:
+      In{at, ks, ps}
+
+# the reading after char c, here the text from c on
+def step(st: St, +c: Char, here: String, ns: List<&2, String>) -> St:
   match st:
-    case Reading{s, ks, ps}:
-      words.at(skip(s), ns, ks, ps)
-    case Finished{p}:
-      Finished{p}
+    case Gap{ks, ps}:
+      step.gap(is_space(c), here, ks, ps)
+    case In{at, ks, ps}:
+      step.in(is_space(c), at, ns, ks, ps)
+    case Fin{p}:
+      Fin{p}
 
-def words.end(st: St) -> Prefix:
-  match st:
-    case Reading{s, ks, ps}:
-      Read{List.reverse(&2, Nat, ks), List.reverse(&2, KV, ps), s}
-    case Finished{p}:
+def ended.closed(c: Closed) -> Prefix:
+  match c:
+    case Next{ks, ps}:
+      Read{ks, ps, ""}
+    case Stop{p}:
       p
 
-# at most f more words (each word takes a char at least)
-def words.go(f: Nat, st: St, +ns: List<&2, String>) -> Prefix:
-  match f:
-    case 0n:
-      words.end(st)
-    case 1n+g:
-      words.go(g, words.step(st, ns), ns)
+# the reading at the end of the text
+def ended(st: St, ns: List<&2, String>) -> Prefix:
+  match st:
+    case Gap{ks, ps}:
+      Read{ks, ps, ""}
+    case In{at, ks, ps}:
+      ended.closed(close(at, ns, ks, ps))
+    case Fin{p}:
+      p
+
+# read the words of s from reading st on
+def go(s: String, st: St, +ns: List<&2, String>) -> Prefix:
+  match s:
+    case SNil{}:
+      ended(st, ns)
+    case SCon{+c, +t}:
+      go(t, step(st, c, SCon{c, t}, ns), ns)
 
 # read the words of s
-def words(+s: String, ns: List<&2, String>) -> Prefix:
-  words.go(1n+String.length(s), Reading{s, Nil{}, Nil{}}, ns)
+def words(s: String, ns: List<&2, String>) -> Prefix:
+  go(s, Gap{Nil{}, Nil{}}, ns)
 
 def prefix.at(b: Bool, r: String, ns: List<&2, String>, s: String) -> Prefix:
   match b:
