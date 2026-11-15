@@ -810,7 +810,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prime_theme_resolves() {
+    fn eukhe_theme_resolves() {
         let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
         assert_eq!(
             [
@@ -915,7 +915,7 @@ mod tests {
         assert_eq!(
             theme.selection_row_style(),
             theme.soft_selection_style(),
-            "prime: the selection paints the soft wash"
+            "eukhe: the selection paints the soft wash"
         );
         assert_ne!(
             theme.selection_row_style().bg,
@@ -982,14 +982,14 @@ mod tests {
     /// 256-color palette keeps a slot the surface's slot separates from.
     #[test]
     fn soft_selection_pins_the_contrast_ladder_values() {
-        let prime = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let eukhe = Theme::builtin("eukhe", ColorMode::TrueColor);
         assert_eq!(
-            prime.soft_selection_style().bg,
+            eukhe.soft_selection_style().bg,
             Some(Color(Paint::Rgb(54, 54, 58)))
         );
-        let prime256 = Theme::builtin("eukhe", ColorMode::Color256);
+        let eukhe256 = Theme::builtin("eukhe", ColorMode::Color256);
         assert_eq!(
-            prime256.soft_selection_style().bg,
+            eukhe256.soft_selection_style().bg,
             Some(Color(Paint::Indexed(237)))
         );
         let dark = Theme::builtin("dark", ColorMode::TrueColor);

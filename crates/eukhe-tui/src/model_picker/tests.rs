@@ -901,16 +901,16 @@ fn search_preserves_overlong_version_runs() {
 /// their first 29 characters.
 fn long_name_catalog() -> Vec<CatalogModel> {
     vec![
-        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model("local-inference", "mock-1", "Mock 1", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "tm/inkling-2-preview",
             "Thinking Machines: Inkling 2 Preview Edition",
             true,
             Some(opus_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "tm/inkling-2-fast",
             "Thinking Machines: Inkling 2 Fast Edition",
             true,
@@ -944,7 +944,7 @@ fn narrow_rows_stay_distinct_and_the_selection_shows_its_name() {
     let mut picker = ModelPicker::new(picker_options(long_name_catalog()));
     let rows = frame_text_at(&mut picker, 60);
     let effort_row =
-        |name: &str| format!("  {name}   ##..   medium{}prime-inference", " ".repeat(12));
+        |name: &str| format!("  {name}   ##..   medium{}local-inference", " ".repeat(12));
     assert_eq!(rows[4], effort_row("...Fast Edition"));
     assert_eq!(rows[5], effort_row("...Preview E..."));
     let full_rows = |picker: &mut ModelPicker| -> Vec<String> {
@@ -960,7 +960,7 @@ fn narrow_rows_stay_distinct_and_the_selection_shows_its_name() {
         rows[4].starts_with("> Thinking Machines: Inkling 2 Fast Edition"),
         "{rows:#?}"
     );
-    assert!(rows[4].contains("medium") && !rows[4].contains("prime-inference"));
+    assert!(rows[4].contains("medium") && !rows[4].contains("local-inference"));
     picker.handle_key("down", &kb());
     let rows = full_rows(&mut picker);
     assert!(

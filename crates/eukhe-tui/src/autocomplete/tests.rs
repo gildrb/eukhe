@@ -572,7 +572,7 @@ fn command_catalog_parse_keeps_skills_and_source_labels() {
                 "name": "skill:packaged",
                 "description": "From the registry",
                 "source": "skill",
-                "sourceInfo": { "source": "npm:@prime/skill-pack", "scope": "project" },
+                "sourceInfo": { "source": "npm:@example/skill-pack", "scope": "project" },
             },
             {
                 "name": "skill:path-skill",
@@ -592,7 +592,7 @@ fn command_catalog_parse_keeps_skills_and_source_labels() {
     assert_eq!(entries[0].source_tag.as_deref(), Some("#user"));
     assert_eq!(
         entries[1].source_tag.as_deref(),
-        Some("#project:npm:@prime/skill-pack")
+        Some("#project:npm:@example/skill-pack")
     );
     assert_eq!(entries[2].source_tag.as_deref(), Some("#temporary"));
     // Prompt-template entries are a different surface: they stay out.

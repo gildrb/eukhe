@@ -658,7 +658,7 @@ mod tests {
     fn message(stop_reason: &str, error: Option<&str>, provider_failure: bool) -> AssistantMessage {
         let mut value = serde_json::json!({
             "role": "assistant", "content": [], "api": "openai-completions",
-            "provider": "prime", "model": "m", "stopReason": stop_reason, "timestamp": 0,
+            "provider": "local", "model": "m", "stopReason": stop_reason, "timestamp": 0,
             "usage": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
                        "totalTokens": 0,
                        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,

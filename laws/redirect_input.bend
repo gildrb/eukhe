@@ -11,7 +11,7 @@ import ./base.bend as LawsBase
 # bend/redirect_input.bend, run as the compiled core by
 # bend/ffi_redirect_input.bend (eukhe-bend rules/redirect_input.rs; asked by
 # eukhe-core auth/redirect_input.rs for the subscription and MCP logins'
-# paste prompt, the localhost callback, and the Prime Inference key paste).
+# paste prompt and the localhost callback).
 # Every input is free: any text, code, state and failure.
 #
 # R1: the cleaned paste (Rust `clean_paste`): every char that is whitespace

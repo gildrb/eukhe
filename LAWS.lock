@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "c3174df16db7541bc92cb3eeffe5bac3a563a7dddbd0f53fb58aca5de87563d7",
+      "spec/README.md": "8cc258dc0c9440e6d1e5ecef40c4222eb98e270e7e22ca9161d103268e8f74a9",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
       "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
       "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
@@ -46,7 +46,7 @@
       "spec/record/SPEC.md": "739f1a964415ba6110aebc91d79772dea6afdd12b2e420a0328c1d93fcdeea38",
       "spec/rlm/family.bend": "99f8168e29b71118de3b3ac82f77bb8b372b3f405dbfcc38e05fd34eeb3f2969",
       "spec/rlm/query.bend": "aedda18ea855c6d5fc8b686468b6e6c5de1ac6a518a9de1583afc2179cedae9e",
-      "spec/security/SPEC.md": "b1014784110332b8723cbb9ec1092db03c5cfd5a1eeb3ffb09edb39d0785dfee",
+      "spec/security/SPEC.md": "749fe7db274aae11926cf013638305adb1ea1608eb432a01d43af1ca33eab9c5",
       "spec/settings/config.bend": "bc83b87d24b27a51a7a1a4314dadde0d8707701ca6cbf284c1e1d59b1812d8dd",
       "spec/settings/config_rules.bend": "58d9611976a8f128996e0ccbd8e335ebcebaf6f3e1e37729bb437bde0a6ed443",
       "spec/theme/model.bend": "5ee20895b39b7d986f66c6329e5a19b03629559ebf4f1fde6ffae2e1cff4388b",

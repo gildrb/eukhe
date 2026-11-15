@@ -1,8 +1,7 @@
 //! eukhe addition (not part of pi-ai v1.0.4): shared classification and
 //! reporting for provider stream failures, so no provider collapses a
 //! specific cause (refusal, safety filter, overload, ...) into a generic
-//! string before it is persisted. Ported from the old eukhe port of
-//! prime-agent's `packages/ai/src/utils/stream-failure.ts`.
+//! string before it is persisted.
 
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, StopReason,

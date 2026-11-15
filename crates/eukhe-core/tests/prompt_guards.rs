@@ -608,8 +608,8 @@ fn each_tool_is_documented_once_in_the_core_layer_or_its_skill() {
 // ---------------------------------------------------------------------
 
 /// The packaged skill set at TS tip `f62dae4d0`
-/// (`packages/coding-agent/skills/`) minus the Prime Intellect product
-/// skill and the network web-search skill this fork drops, and the `edit`
+/// (`packages/coding-agent/skills/`) minus the upstream product skill and
+/// the network web-search skill this fork drops, and the `edit`
 /// skill the kernel's document functions replaced — the generic `mcp` doc
 /// skill in, the per-service linear/notion pair out (TS removed theirs when
 /// the generic MCP surface landed) — plus this fork's `autoresearch`,

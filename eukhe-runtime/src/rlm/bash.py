@@ -953,14 +953,14 @@ def _status_script(command: str, completion_a: str, completion_b: str) -> str:
         "{\n"
         f"{command}\n"
         f"}} {_OUTPUT_FD}>&- {_STATUS_FD}>&-\n"
-        "__prime_status=$?\n"
+        "__eukhe_status=$?\n"
         "\\set +x\n"
         f"{emit} '\\036eukhe-complete:%s%s\\037' "
-        f"'{completion_a}' '{completion_b}' >&{_OUTPUT_FD} || exit \"$__prime_status\"\n"
-        f"{emit} '%s\\n' \"$__prime_status\" >&{_STATUS_FD}\n"
+        f"'{completion_a}' '{completion_b}' >&{_OUTPUT_FD} || exit \"$__eukhe_status\"\n"
+        f"{emit} '%s\\n' \"$__eukhe_status\" >&{_STATUS_FD}\n"
         f"exec {_OUTPUT_FD}>&- {_STATUS_FD}>&-\n"
         "wait\n"
-        'exit "$__prime_status"\n'
+        'exit "$__eukhe_status"\n'
     )
 
 

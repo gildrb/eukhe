@@ -178,7 +178,7 @@ fn theme_submenu_previews_and_esc_restores() {
             name: "dark".to_string()
         }
     );
-    // Esc restores the row's theme (prime) and closes.
+    // Esc restores the row's theme (eukhe) and closes.
     assert_eq!(
         menu.handle_key("esc", &kb()),
         SettingsMenuAction::RestoreTheme {
