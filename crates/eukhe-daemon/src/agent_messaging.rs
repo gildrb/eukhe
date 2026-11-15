@@ -173,7 +173,6 @@ mod family;
 mod message;
 mod observe;
 
-pub(crate) use family::running_family_subagents;
 pub use message::LinkAgentMessageController;
 pub(crate) use observe::LinkAgentObserveController;
 

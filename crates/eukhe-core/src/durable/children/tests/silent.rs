@@ -11,16 +11,14 @@ async fn a_silent_child_settles_its_row_without_a_report() {
     let setup = setup();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let reply = spawn_batch_turn(
+    let reply = spawn_turn(
         &opened,
         &setup,
-        json!([{
-            "prompt": PROMPT,
-            "kwargs": { "why": "parallel", "label": "scan api", "phase": "Scan", "report": "silent" }
-        }]),
+        PROMPT,
+        json!({ "label": "scan api", "phase": "Scan", "report": "silent" }),
     )
     .await;
-    assert!(reply.contains("handles"), "{reply}");
+    assert!(reply.contains("rlm_child_id"), "{reply}");
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
         .unwrap()
@@ -75,6 +73,8 @@ async fn a_silent_child_settles_its_row_without_a_report() {
             "answer": "the full answer",
             "error": null,
             "failure": null,
+            "scopedHandback": null,
+            "patch": null,
         })
     );
     opened.harness.close(cx()).await.unwrap();
@@ -87,12 +87,7 @@ async fn a_failed_silent_child_posts_no_report() {
     let setup = setup();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    spawn_batch_turn(
-        &opened,
-        &setup,
-        json!([{ "prompt": PROMPT, "kwargs": { "why": "parallel", "report": "silent" } }]),
-    )
-    .await;
+    spawn_turn(&opened, &setup, PROMPT, json!({ "report": "silent" })).await;
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
         .unwrap()

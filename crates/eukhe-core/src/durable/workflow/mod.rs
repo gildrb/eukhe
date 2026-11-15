@@ -5,18 +5,25 @@
 //! sandbox (`eukhe_durable::codemode`), deterministic, journaled, and
 //! replayed after a worker restart, and its end reaches the conversation as
 //! a `[job-settled job:workflow-<id> ...]` report that wakes the model. The
-//! script's `agent()` calls spawn silent RLM children (`eukhe.children`), at
-//! most the run size's concurrency at once and its `max_agents` in total;
-//! each run's progress lives in the `eukhe.workflow.runs` document the
-//! `/workflows` view reads.
+//! script's `agent()` calls are nodes of the session's agent tree
+//! (`eukhe.children`): a read-only agent is a help leaf; the writing agents
+//! a script starts together form one batch ([`batch`]), a balanced binary
+//! tree whose integrators the harness runs. At most the run size's
+//! concurrency read-only agents run at once and its `max_agents` agents in
+//! total; each run's progress lives in the `eukhe.workflow.runs` document
+//! the `/workflows` view reads.
 
+mod batch;
+mod batch_doc;
 pub(crate) mod command;
 mod globals;
+mod kernel_batch;
 mod meta;
 mod run_doc;
 mod run_task;
 mod schema;
 mod size;
+mod tree;
 
 #[cfg(test)]
 mod tests;
@@ -42,7 +49,7 @@ use eukhe_types::workflow::{WorkflowRunState, WorkflowSize};
 pub use run_doc::{snapshots, unsettled_run_tasks, unsettled_runs, UnsettledRuns};
 pub use size::effective_limits;
 
-use super::deps::{HarnessCell, HostDeps, HostRequestRegistry, SessionClosing};
+use super::deps::{HarnessCell, HostCall, HostDeps, HostRequestRegistry, SessionClosing};
 use super::settings::EukheSettings;
 use globals::WorkflowServices;
 use meta::parse_script;
@@ -97,8 +104,10 @@ pub(crate) struct WorkflowConfig {
     pub(crate) closing: SessionClosing,
 }
 
-/// The extension over `config`.
+/// The extension over `config`; registers the kernel's writing-batch
+/// requests ([`kernel_batch`]).
 pub(crate) fn install(config: &WorkflowConfig) -> Arc<Extension> {
+    kernel_batch::register(&config.host_requests);
     let services = Arc::new(WorkflowServices {
         host_requests: config.host_requests.clone(),
     });
@@ -112,6 +121,7 @@ pub(crate) fn install(config: &WorkflowConfig) -> Arc<Extension> {
         options: Arc::new(options),
         harness: config.harness.clone(),
         closing: config.closing.clone(),
+        host_requests: config.host_requests.clone(),
     }));
     let erased = task.erase();
     let shared = Arc::new(Shared {
@@ -316,6 +326,51 @@ pub(crate) async fn cancel_agents(
         for name in agent.child_names() {
             super::children::cancel_child(harness, conversation_id, name, cx).await?;
         }
+    }
+    Ok(())
+}
+
+/// End the writing batches of run `run_id`: cancel the ones that did not
+/// settle and return every batch's nodes to the session
+/// (`rlm.tree_return`, idempotent: a batch that settled returned them
+/// already).
+pub(crate) async fn return_batches(
+    host_requests: &HostRequestRegistry,
+    harness: &Harness,
+    conversation_id: ConversationId,
+    run_id: &str,
+    cx: &Context,
+) -> anyhow::Result<()> {
+    let runs = read_runs(harness, conversation_id, cx).await?;
+    let keys = match runs.runs.get(run_id) {
+        Some(record) => record.batch_keys(run_id),
+        None => return Ok(()),
+    };
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let conversation = harness
+        .conversation(conversation_id, cx)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("conversation {conversation_id} does not exist"))?;
+    let cancelled = keys.clone();
+    conversation
+        .commit(
+            move |tx| async move { batch_doc::tx_cancel(&tx, conversation_id, &cancelled).await },
+            cx,
+        )
+        .await?;
+    let handler = host_requests
+        .get("rlm.tree_return")
+        .ok_or_else(|| anyhow::anyhow!("rlm.tree_return is not available"))?;
+    for key in keys {
+        handler(HostCall {
+            data: serde_json::json!({ "key": key }),
+            cell_source_code: None,
+            call: None,
+            signal: None,
+        })
+        .await?;
     }
     Ok(())
 }

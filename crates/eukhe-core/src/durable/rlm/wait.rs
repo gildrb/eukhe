@@ -8,12 +8,14 @@
 //! it. With nothing running and nothing ready it is refused; it lasts what
 //! the caller asked, at most 30 minutes, and the user's abort ends it.
 //!
-//! The compiled Bend core decides each poll and the cap (`bend/wait_any.bend`,
-//! entry `wait_any`; `laws/wait_any.bend`). The wait watches the jobs it
-//! waits on, so a job settling meanwhile keeps its result for the wait
-//! instead of its notice; the result it takes is delivered once
-//! ([`crate::durable::jobs::JobResult`]), and the ones it leaves go to the
-//! notice when it ends.
+//! The compiled Bend core decides each poll. A queued input comes first:
+//! the agent tree's next action (`bend/agent_tree.bend`, T10) reads it
+//! before any settled work. The rest of the poll and the cap come from
+//! `bend/wait_any.bend` (entry `wait_any`; `laws/wait_any.bend`). The wait
+//! watches the jobs it waits on, so a job settling meanwhile keeps its
+//! result for the wait instead of its notice; the result it takes is
+//! delivered once ([`crate::durable::jobs::JobResult`]), and the ones it
+//! leaves go to the notice when it ends.
 //!
 //! A cell whose whole code is one `await jobs.wait(...)` with literal
 //! arguments runs here, without the kernel, while a detached cell holds
@@ -24,6 +26,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use eukhe_bend::rules::agent_tree::{self, Action, View};
 use eukhe_bend::rules::wait_any::{self, Pick, Signals, Target, Targets};
 use eukhe_durable::types::ConversationId;
 use serde_json::{json, Value};
@@ -233,26 +236,36 @@ pub(crate) async fn wait(
             .collect();
         targets.extend(watching.jobs.iter().map(Job::target));
         targets.extend(std::iter::repeat_n(Target::Running, children));
-        if message {
-            targets.push(Target::Ready);
-        }
         let signals = Signals {
             cancelled: cancelled || aborted,
             late: tokio::time::Instant::now() >= deadline,
         };
+        // A queued input comes first (T10): the agent tree's next action
+        // reads it before any settled work.
+        let ready = targets
+            .iter()
+            .filter(|target| **target == Target::Ready)
+            .count();
+        if !signals.cancelled
+            && agent_tree::next(View {
+                message,
+                arrived: u64::try_from(ready).unwrap_or(u64::MAX),
+                own_work: false,
+            }) == Action::ReadMessage
+        {
+            return Ok(Ended::Message);
+        }
         match wait_any::poll(mode, signals, &targets) {
             Pick::Take(index) => {
                 return Ok(match index.checked_sub(local.len()) {
                     None => Ended::Local(index),
-                    Some(at) => match watching.jobs.get(at) {
-                        Some(job) => {
-                            let _taken = job.take();
-                            Ended::Job(job.clone())
-                        }
-                        // Past the jobs only the queued input is ever
-                        // ready: running children are never taken.
-                        None => Ended::Message,
-                    },
+                    Some(at) => {
+                        // Running children are never taken: past the
+                        // handles only the jobs are ever ready.
+                        let job = &watching.jobs[at];
+                        let _taken = job.take();
+                        Ended::Job(job.clone())
+                    }
                 });
             }
             Pick::Nothing => return Err(WaitError::Nothing),

@@ -18,8 +18,10 @@ use eukhe_core::durable::{
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_types::acceptance::AcceptanceSeed;
+use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::budget::{apply_create_budget, CreateBudget};
@@ -99,6 +101,9 @@ pub(crate) struct CreateParams {
     pub(crate) parent_session_id: Option<String>,
     /// The parent's session file (`parentSessionPath`, RLM children).
     pub(crate) parent_session_path: Option<String>,
+    /// The node's place in the agent tree (`runtimeMetadata` `treeRole`,
+    /// `treeScope`, `treePath`, `treeAllowance`, `treeDeadline`).
+    pub(crate) tree: Option<TreePlace>,
     pub(crate) child_script: Option<String>,
     pub(crate) model_patterns: Option<Vec<String>>,
     /// The parent's in-flight model request the spawn anchored to (TS
@@ -245,6 +250,7 @@ impl CreateParams {
             parent_active_session_id: text(metadata, "parentActiveSessionId"),
             parent_session_id: text(metadata, "parentSessionId"),
             parent_session_path: text(Some(payload), "parentSessionPath"),
+            tree: metadata.and_then(|metadata| TreePlace::deserialize(metadata).ok()),
             child_script: text(Some(payload), "childScript"),
             model_patterns: payload
                 .get("models")
@@ -618,6 +624,7 @@ impl Worker {
                     spawned_by_request_id: params.spawned_by_request_id.clone(),
                 }),
             worker: params.worker,
+            tree: params.tree.clone(),
         };
         // A spawned child is a subagent: the family its parent had, then
         // `subagent.cfg` and its `agents/<name>.cfg`; anything else is the
@@ -979,6 +986,7 @@ impl Worker {
                 core.parent_session_id.clone_from(&params.parent_session_id);
                 core.parent_session_path
                     .clone_from(&params.parent_session_path);
+                core.tree.clone_from(&params.tree);
                 core.child_script.clone_from(&params.child_script);
                 core.prompt = params.prompt.clone();
                 core.scoped_models = self.resolve_scoped_models(params);
@@ -1372,6 +1380,65 @@ mod tests {
         assert_eq!(
             (spawned_flag, is_main_worker(&woken).await),
             ((true, true), (true, true))
+        );
+    }
+
+    /// A tree node's spawn metadata reaches its role and its summary: the
+    /// role, scope and path, and the status of a node that has not run.
+    #[tokio::test]
+    async fn a_tree_node_create_carries_its_place_to_the_summary() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let worker = chat_worker(dir.path());
+        let place = TreePlace {
+            role: eukhe_types::daemon::agent_tree::TreeRole::Left,
+            scope: vec!["crates/eukhe-tui".to_string()],
+            path: "L".to_string(),
+            allowance: 7,
+            deadline: None,
+        };
+        let mut metadata = json!({
+            "kind": "subagent",
+            "rlmChildId": "sub-0000c0de",
+            "parentActiveSessionId": "main-live",
+        });
+        for (key, value) in serde_json::to_value(&place)
+            .expect("place")
+            .as_object()
+            .expect("object")
+        {
+            metadata[key] = value.clone();
+        }
+        let payload = json!({
+            "cwd": dir.path(),
+            "sessionDir": dir.path().join("sessions"),
+            "rlmDepth": 1,
+            "parentSessionPath": dir.path().join("main-session"),
+            "runtimeMetadata": metadata,
+        });
+        let params = CreateParams::parse(&payload, &dir.path().join("agent")).expect("parse");
+        assert_eq!(params.tree, Some(place.clone()));
+        let created = worker.dispatch("create", &payload).await;
+        assert!(created.success, "create failed: {created:?}");
+        let summary = {
+            let core = worker
+                .core
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            worker.summary_locked(&core)
+        };
+        assert_eq!(
+            (
+                summary.tree_role,
+                summary.tree_scope,
+                summary.tree_path,
+                summary.tree_status
+            ),
+            (
+                Some(place.role),
+                Some(place.scope),
+                Some(place.path),
+                Some(eukhe_types::daemon::agent_tree::TreeStatus::Finished)
+            )
         );
     }
 }

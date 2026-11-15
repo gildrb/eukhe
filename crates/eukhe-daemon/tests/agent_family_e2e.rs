@@ -310,6 +310,7 @@ async fn spawn_settled_child(
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
             acceptance: None,
+            tree: None,
         })
         .await
         .expect("spawn the child");

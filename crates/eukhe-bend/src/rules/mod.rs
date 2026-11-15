@@ -2,6 +2,7 @@
 //! (`pub mod <area>;`, one per line), each encoding its input with the wire
 //! format, calling its entry and decoding the reply.
 
+pub mod agent_tree;
 pub mod ai_text;
 pub mod approvals;
 pub mod arg_repair;
@@ -22,7 +23,6 @@ pub mod doc_plan;
 pub mod doc_publish;
 pub mod err_text;
 pub mod error_body;
-pub mod family;
 pub mod frames;
 pub mod fsmode;
 pub mod glob;

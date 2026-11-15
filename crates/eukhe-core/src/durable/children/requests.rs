@@ -1,66 +1,49 @@
 //! The `rlm.*` kernel host requests over the durable children registry:
-//! `rlm.run` (`rlm.spawn`),
-//! `rlm.find_models`, `rlm.list_subagents`,
-//! `rlm.delete_subagent`, `rlm.collect`, `rlm.answer`, and
-//! `rlm.progress.note`
-//! (`rlm.rename` lives in [`super::rename`]).
+//! the spawns of [`super::spawn`] (`rlm.run`, `rlm.split`, and the tree
+//! facts of a crown its caller keeps), `rlm.find_models`,
+//! `rlm.list_subagents`, `rlm.delete_subagent`, `rlm.collect`,
+//! `rlm.answer`, and `rlm.progress.note` (`rlm.rename` lives in
+//! [`super::rename`]).
 
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
 use eukhe_ai::auth::AuthOperationOptions;
-use eukhe_bend::rules::family;
+use eukhe_bend::rules::agent_tree::{self, Action, View};
 use eukhe_bend::rules::worker::GateKind;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
-use eukhe_chord::json::to_json;
-use eukhe_durable::harness::types::ToolExecutionApiExt;
 use eukhe_durable::harness::Harness;
-use eukhe_durable::session::{SessionError, SessionResult, Tx};
+use eukhe_durable::session::{CommitListener, SessionError, SessionResult, Tx};
 use eukhe_durable::types::{
-    ConversationId, DocumentObserverExt, TaskId, TaskOptions, TaskOutcome, TaskOwnership,
-    TaskState, TaskStatus, ROOT_CONVERSATION_ID,
+    CommitChange, CommitPublication, ConversationId, DocumentObserverExt, InputSubmission,
+    SubmissionState, TaskId, TaskStatus, ROOT_CONVERSATION_ID,
 };
-use eukhe_types::acceptance::{AcceptanceSeed, CheckSpec};
-use eukhe_types::budget::BudgetLimits;
 use futures::FutureExt;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use tokio::sync::Notify;
 
-use super::budget::{allot, give_back, named_budget, Allotment};
-use super::depth::read_max_depth_override;
-use super::host::{
-    ChildMessageKind, RlmChildDeleteRequest, RlmChildListing, RlmChildVerdict, RlmSubagentHost,
-};
-use super::notice::{rlm_child_label, DELETED_BY_PARENT};
+use super::host::{RlmChildDeleteRequest, RlmChildListing, RlmChildVerdict, RlmSubagentHost};
+use super::notice::DELETED_BY_PARENT;
 use super::progress::{tx_note, utf16_length, NoteOutcome, RLM_PROGRESS_NOTE_MAX_LENGTH};
 use super::registry::{
-    child_identity, read_children, resolve, tx_children, tx_put_row, tx_update_row, ChildDeletion,
-    ChildRow, ChildStatus, HandbackOutcome, Resolved, CHILDREN_DOC,
+    read_children, resolve, tx_update_row, ChildDeletion, ChildRow, HandbackOutcome, Resolved,
+    CHILDREN_DOC,
 };
-use super::task::{ChildTaskInput, ReportMode};
-use super::wire::{
-    RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
-};
+use super::task::report_request_id;
+use super::wire::{RlmChildResult, RlmDeleteSubagentResult, RlmSubagentActivity, RlmSubagentEntry};
 use super::Children;
-use crate::agent_messaging::assert_direct_agent_message_target;
-use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 use crate::kernel::cancellation::AbortSignal;
 use crate::kernel::rlm_runtime::{
-    create_default_rlm_subagent_session_name, find_rlm_model_matches, kwargs_from_payload,
-    normalize_requested_rlm_subagent_model, normalize_requested_rlm_subagent_session_name,
-    normalize_requested_rlm_subagent_thinking_level, RlmModelInfo, DEFAULT_RLM_MODEL_SEARCH_LIMIT,
+    find_rlm_model_matches, RlmModelInfo, DEFAULT_RLM_MODEL_SEARCH_LIMIT,
     MAX_RLM_MODEL_SEARCH_LIMIT,
 };
 
-const NO_SPAWN_RUNTIME: &str =
-    "rlm.spawn requires a daemon-backed session: this session has no RLM child runtime";
-
 /// Register every `rlm.*` handler of `children` onto `registry`. A spawn
-/// (`rlm.run`, `rlm.run_batch`) first asks at the run pause's gate: a
-/// paused session starts none until it runs again.
+/// (`rlm.run`, `rlm.split`) first asks at the run pause's gate: a paused
+/// session starts none until it runs again.
 pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>) {
     macro_rules! handler {
         ($request_type:literal, $function:path) => {{
@@ -93,8 +76,11 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     }
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
-    spawning!("rlm.run", run);
-    spawning!("rlm.run_batch", run_batch);
+    spawning!("rlm.run", super::spawn::run);
+    spawning!("rlm.split", super::spawn::split);
+    handler!("rlm.tree_facts", super::spawn::tree_facts);
+    handler!("rlm.tree_lend", super::spawn::tree_lend);
+    handler!("rlm.tree_return", super::spawn::tree_return);
     handler!("rlm.list_subagents", list_subagents);
     handler!("rlm.delete_subagent", delete_subagent);
     handler!("rlm.collect", collect);
@@ -132,7 +118,7 @@ pub(super) fn now_ms() -> f64 {
     clippy::cast_sign_loss,
     reason = "a non-negative whole number of milliseconds"
 )]
-fn whole_ms(value: f64) -> u64 {
+pub(super) fn whole_ms(value: f64) -> u64 {
     value.max(0.0) as u64
 }
 
@@ -230,601 +216,6 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
             "retry_after_ms": retry_after_ms
         }),
     })
-}
-
-// ---------------------------------------------------------------------------
-// rlm.run (rlm.spawn)
-// ---------------------------------------------------------------------------
-
-/// Validated `rlm.spawn` kwargs.
-pub(super) struct SpawnKwargs {
-    /// The reason the spawn names (`why`); the compiled core decides
-    /// whether it is allowed (`eukhe_bend::rules::family`).
-    pub(super) why: Option<String>,
-    pub(super) name: Option<String>,
-    pub(super) model: Option<String>,
-    pub(super) thinking: Option<String>,
-    /// `None` when the caller did not choose (the shared workspace).
-    pub(super) workspace: Option<WorkspaceMode>,
-    /// The roster label; `None`: derived from the prompt.
-    pub(super) label: Option<String>,
-    /// The workflow phase the child serves.
-    pub(super) phase: Option<String>,
-    pub(super) report: ReportMode,
-    /// The budget the spawn names for the child (`budget`), carved out of
-    /// the parent's account; `None`: the child draws from the parent's
-    /// account as a shared member (it joins at its open).
-    pub(super) budget: Option<BudgetLimits>,
-    /// The checks the child's task starts with, this parent their owner
-    /// (`accept`, `accept_intent`, `accept_returns`); `None`: no checks.
-    pub(super) accept: Option<AcceptanceSeed>,
-}
-
-/// Unsupported keys are rejected with the sorted key list; name, model, and
-/// thinking normalize through the pure helpers.
-fn spawn_kwargs(data: &Value) -> anyhow::Result<SpawnKwargs> {
-    const OPERATION: &str = "rlm.spawn";
-    let kwargs = kwargs_from_payload(data);
-    reject_unsupported_kwargs(
-        &kwargs,
-        OPERATION,
-        &[
-            "why",
-            "name",
-            "model",
-            "thinking",
-            "workspace",
-            "label",
-            "phase",
-            "report",
-            "budget",
-            "accept",
-            "accept_intent",
-            "accept_returns",
-        ],
-    )?;
-    let why = optional_string_kwarg(&kwargs, "why", OPERATION)?.map(str::to_owned);
-    let name = optional_string_kwarg(&kwargs, "name", OPERATION)?;
-    let name = normalize_requested_rlm_subagent_session_name(name, OPERATION)?;
-    if let Some(name) = &name {
-        assert_direct_agent_message_target(name)?;
-    }
-    let model = optional_string_kwarg(&kwargs, "model", OPERATION)?;
-    let model = normalize_requested_rlm_subagent_model(model, OPERATION)?;
-    let thinking = optional_string_kwarg(&kwargs, "thinking", OPERATION)?;
-    let thinking =
-        normalize_requested_rlm_subagent_thinking_level(thinking, OPERATION)?.map(String::from);
-    let workspace = match optional_string_kwarg(&kwargs, "workspace", OPERATION)? {
-        None => None,
-        Some("shared") => Some(WorkspaceMode::Shared),
-        Some("isolated") => Some(WorkspaceMode::Isolated),
-        Some(_) => bail!("{OPERATION} workspace must be \"shared\" or \"isolated\""),
-    };
-    let text = |key: &str| -> anyhow::Result<Option<String>> {
-        Ok(optional_string_kwarg(&kwargs, key, OPERATION)?
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned))
-    };
-    let label = text("label")?;
-    let phase = text("phase")?;
-    let report = match optional_string_kwarg(&kwargs, "report", OPERATION)? {
-        None | Some("inbox") => ReportMode::Inbox,
-        Some("silent") => ReportMode::Silent,
-        Some(_) => bail!("{OPERATION} report must be \"inbox\" or \"silent\""),
-    };
-    let budget = named_budget(&kwargs, OPERATION)?;
-    let accept = spawn_acceptance(&kwargs, OPERATION)?;
-    Ok(SpawnKwargs {
-        why,
-        name,
-        model,
-        thinking,
-        workspace,
-        label,
-        phase,
-        report,
-        budget,
-        accept,
-    })
-}
-
-/// The keys a check of `kind` takes (the `CheckSpec` wire shape); `None`
-/// for a kind that is no check.
-fn check_keys(kind: &str) -> Option<&'static [&'static str]> {
-    let keys: &'static [&'static str] = match kind {
-        "command" => &["kind", "command", "expect", "timeoutMs", "protect"],
-        "judge" => &["kind", "condition", "evidence", "model"],
-        "until" => &["kind", "command", "timeoutMs"],
-        "intent" => &["kind", "model"],
-        _ => return None,
-    };
-    Some(keys)
-}
-
-/// One check of `accept`: a `CheckSpec` object. A kernel's `snake_case`
-/// `timeout_ms` reads as the wire's `timeoutMs`; an unknown key, an
-/// unknown kind, or a check with no command or condition is refused.
-fn spawn_check(index: usize, item: &Value, operation: &str) -> anyhow::Result<CheckSpec> {
-    let what = format!("{operation} accept[{index}]");
-    let Value::Object(fields) = item else {
-        bail!("{what} must be a check object, e.g. {{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}");
-    };
-    let fields: Map<String, Value> = fields
-        .iter()
-        .map(|(key, value)| {
-            let key = if key == "timeout_ms" {
-                "timeoutMs"
-            } else {
-                key.as_str()
-            };
-            (key.to_owned(), value.clone())
-        })
-        .collect();
-    let kind = fields
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let Some(keys) = check_keys(&kind) else {
-        bail!("{what} kind must be \"command\", \"judge\", \"until\" or \"intent\"");
-    };
-    if let Some(key) = fields.keys().find(|key| !keys.contains(&key.as_str())) {
-        bail!(
-            "{what} has the unknown key {key:?}; a {kind} check takes {}",
-            keys.join(", ")
-        );
-    }
-    let check: CheckSpec = serde_json::from_value(Value::Object(fields))
-        .map_err(|error| anyhow!("{what} is not a {kind} check: {error}"))?;
-    let blank = match &check {
-        CheckSpec::Command { command, .. } | CheckSpec::Until { command, .. } => {
-            command.trim().is_empty().then_some("a command")
-        }
-        CheckSpec::Judge { condition, .. } => condition.trim().is_empty().then_some("a condition"),
-        CheckSpec::Intent { .. } => None,
-    };
-    if let Some(missing) = blank {
-        bail!("{what} needs {missing}");
-    }
-    Ok(check)
-}
-
-/// The checks `accept` (a list of `CheckSpec` objects), `accept_intent`
-/// (whether the intent check joins them; default true) and
-/// `accept_returns` (the most returns in a row to the child's worker)
-/// give the child's task; `None` without `accept`.
-fn spawn_acceptance(
-    kwargs: &Map<String, Value>,
-    operation: &str,
-) -> anyhow::Result<Option<AcceptanceSeed>> {
-    let given = |key: &str| kwargs.get(key).filter(|value| !value.is_null());
-    let Some(accept) = given("accept") else {
-        if let Some(key) = ["accept_intent", "accept_returns"]
-            .into_iter()
-            .find(|key| given(key).is_some())
-        {
-            bail!("{operation} {key} needs accept (the child's acceptance checks)");
-        }
-        return Ok(None);
-    };
-    let Value::Array(items) = accept else {
-        bail!("{operation} accept must be a list of checks, e.g. [{{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}]");
-    };
-    let checks = items
-        .iter()
-        .enumerate()
-        .map(|(index, item)| spawn_check(index, item, operation))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let intent = match given("accept_intent") {
-        None => true,
-        Some(Value::Bool(intent)) => *intent,
-        Some(_) => bail!("{operation} accept_intent must be a bool"),
-    };
-    let max_returns =
-        match given("accept_returns") {
-            None => None,
-            Some(value) => Some(value.as_u64().ok_or_else(|| {
-                anyhow!("{operation} accept_returns must be a non-negative integer")
-            })?),
-        };
-    let seed = AcceptanceSeed {
-        checks,
-        max_returns,
-        intent,
-    };
-    if seed.specs().is_empty() {
-        bail!("{operation} accept names no check: give a check, or leave accept_intent true");
-    }
-    Ok(Some(seed))
-}
-
-/// The spawn-name-unavailability error (TS
-/// `formatAgentSessionNameUnavailable`).
-pub(super) fn spawn_name_unavailable(name: &str, depth: u32) -> String {
-    format!(
-        "Agent name \"{name}\" is unavailable: an agent of that name already exists at depth {depth} under this parent"
-    )
-}
-
-/// One validated spawn of an `rlm.run` / `rlm.run_batch` request, or of
-/// main's `worker_assign`.
-pub(super) struct SpawnSpec {
-    pub(super) prompt: String,
-    pub(super) kwargs: SpawnKwargs,
-    /// More details of the task prompt's row (`userMessages`, `note`).
-    pub(super) details: Option<Map<String, Value>>,
-    /// Main's user entries the prompt hands over (their images go along).
-    pub(super) user_entries: Vec<u64>,
-    /// The child is a worker of a main session.
-    pub(super) worker: bool,
-}
-
-/// Validate one `{prompt, kwargs}` spawn payload.
-fn spawn_spec(data: &Value) -> anyhow::Result<SpawnSpec> {
-    let Some(prompt) = data.get("prompt").and_then(Value::as_str) else {
-        bail!("rlm.spawn prompt must be a string");
-    };
-    Ok(SpawnSpec {
-        prompt: prompt.to_owned(),
-        kwargs: spawn_kwargs(data)?,
-        details: None,
-        user_entries: Vec::new(),
-        worker: false,
-    })
-}
-
-/// `rlm.spawn`: admit one `eukhe.rlm.child` task (see [`admit_spawns`]).
-async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
-    let spec = spawn_spec(&call.data)?;
-    let handles = admit_spawns(&children, &call, vec![spec], None).await?;
-    let handle = handles
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("rlm.spawn admitted no child"))?;
-    Ok(serde_json::to_value(&handle)?)
-}
-
-/// `rlm.spawn_batch`: admit every `{prompt, kwargs}` of `tasks` together
-/// or none of them (see [`admit_spawns`]).
-async fn run_batch(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
-    let Some(tasks) = call.data.get("tasks").and_then(Value::as_array) else {
-        bail!("rlm.spawn_batch tasks must be a non-empty list");
-    };
-    if tasks.is_empty() {
-        bail!("rlm.spawn_batch tasks must be a non-empty list");
-    }
-    let specs = tasks
-        .iter()
-        .map(spawn_spec)
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let handles = admit_spawns(&children, &call, specs, None).await?;
-    Ok(json!({ "handles": handles }))
-}
-
-/// One admitted spawn: its name, label, phase, named budget, and task
-/// input.
-type Admitted = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<BudgetLimits>,
-    ChildTaskInput,
-);
-
-/// Admit `specs` as `eukhe.rlm.child` tasks in the calling tool's commit,
-/// together with their registry rows, then wait for each task's `spawn`
-/// phase to create its child. The compiled core decides admission
-/// (`eukhe_bend::rules::family`, entry 431): first on the reasons and the
-/// depth (no family count yet, no cap), then inside the commit on the
-/// family's running or starting subagents (the host's view unioned with
-/// this session's not-yet-visible children) against
-/// `subagentMaxConcurrency`. The name checks, that decision, and the rows
-/// land atomically, so parallel same-name spawns cannot both admit and a
-/// batch is all-or-nothing. A child whose spawn names a budget is carved
-/// that allotment out of the session's account in the same commit, all of
-/// the batch or none ([`super::budget`]): a batch that does not fit is
-/// refused, and no such child starts without its allotment. A child that
-/// names none carves nothing. `forward_cursor` (main's
-/// `worker_assign`): the user messages the task carries are handed over
-/// in the same commit ([`super::worker`]).
-pub(super) async fn admit_spawns(
-    children: &Arc<Children>,
-    call: &HostCall,
-    specs: Vec<SpawnSpec>,
-    forward_cursor: Option<u64>,
-) -> anyhow::Result<Vec<RlmSpawnHandle>> {
-    if !children.has_runtime {
-        bail!("{NO_SPAWN_RUNTIME}");
-    }
-    // The runtime bound (`set_rlm_max_depth`) of the calling conversation
-    // overrides the configured one; without an open Harness or a calling
-    // tool there is none to read, and the errors below keep their order.
-    let depth_override = match (children.harness.get(), call.call.as_ref()) {
-        (Some(harness), Some(api)) => {
-            read_max_depth_override(&harness, api.conversation_id(), &cx())
-                .await
-                .map_err(session_error)?
-        }
-        _ => None,
-    };
-    let depth = children.services.rlm_depth;
-    let max_depth = depth_override.unwrap_or(children.services.rlm_max_depth);
-    let whys: Vec<Option<String>> = specs.iter().map(|spec| spec.kwargs.why.clone()).collect();
-    let decide = move |running: u32, cap: u32| {
-        let whys: Vec<Option<&str>> = whys.iter().map(Option::as_deref).collect();
-        family::admit(&family::Batch {
-            depth,
-            max_depth,
-            running,
-            cap,
-            whys: &whys,
-        })
-    };
-    let child_depth = match decide(0, 0) {
-        family::Admission::Admit { child_depth } => child_depth,
-        family::Admission::Refuse(text) => bail!("{text}"),
-    };
-    let Some(api) = call.call.clone() else {
-        bail!("rlm.spawn must run inside a tool call");
-    };
-    let capacity = children.services.host.spawn_capacity().await?;
-    let harness = children.harness.require().map_err(session_error)?;
-    let conversation_id = api.conversation_id();
-    // The spawn anchors to the parent's in-flight model request (TS
-    // `spawnedByRequestId` from the semantic-edge recorder); the tool call
-    // id stands in when no recorder carries one.
-    let spawned_by_request_id = children
-        .services
-        .semantic_edges
-        .as_ref()
-        .and_then(|recorder| recorder.last_turn_request_id())
-        .or_else(|| Some(api.call_id().to_owned()));
-    let admitted: Vec<Admitted> = specs
-        .into_iter()
-        .map(|spec| {
-            (
-                spec.kwargs.name,
-                spec.kwargs.label,
-                spec.kwargs.phase,
-                spec.kwargs.budget,
-                ChildTaskInput {
-                    prompt: spec.prompt,
-                    model: spec.kwargs.model,
-                    thinking: spec.kwargs.thinking,
-                    spawned_by_request_id: spawned_by_request_id.clone(),
-                    max_depth: Some(max_depth),
-                    workspace: spec.kwargs.workspace,
-                    owed: None,
-                    report: spec.kwargs.report,
-                    child: None,
-                    kind: ChildMessageKind::Task,
-                    details: spec.details,
-                    user_entries: spec.user_entries,
-                    worker: spec.worker,
-                    accept: spec.kwargs.accept,
-                },
-            )
-        })
-        .collect();
-    let task = children.task.as_definition_ref();
-    let parent_session_id = children.services.parent_session_id.clone();
-    let started_at = now_ms();
-    let gate = Arc::clone(&children.services.budget);
-    // What the commit carved out of this session's budget: it returns
-    // when the commit does not land.
-    let carved = Arc::new(Mutex::new(Vec::new()));
-    let taken = Arc::clone(&carved);
-    let committed = api
-        .commit(
-            move |tx| async move {
-                let state = tx_children(&tx, conversation_id).await?;
-                let mut active: std::collections::HashSet<&str> = capacity
-                    .active_session_ids
-                    .iter()
-                    .map(String::as_str)
-                    .collect();
-                active.extend(
-                    state
-                        .children
-                        .values()
-                        .filter(|row| !row.is_deleted() && !row.status.is_terminal())
-                        .map(|row| row.session_id.as_str()),
-                );
-                let running = u32::try_from(active.len()).unwrap_or(u32::MAX);
-                if let family::Admission::Refuse(text) = decide(running, capacity.max_concurrency) {
-                    return Err(SessionError::error(text));
-                }
-                let mut batch_names: Vec<&str> = Vec::new();
-                for name in admitted.iter().filter_map(|(name, ..)| name.as_deref()) {
-                    let taken = batch_names.contains(&name)
-                        || state
-                            .children
-                            .values()
-                            .any(|row| !row.is_deleted() && row.session_name == name);
-                    if taken {
-                        return Err(SessionError::error(spawn_name_unavailable(
-                            name,
-                            child_depth,
-                        )));
-                    }
-                    batch_names.push(name);
-                }
-                let mut task_ids = Vec::with_capacity(admitted.len());
-                let mut allotments = Vec::with_capacity(admitted.len());
-                for (name, label, phase, budget, input) in admitted {
-                    let task_id = tx
-                        .create_task(
-                            task.clone(),
-                            to_json(&input)?,
-                            TaskOptions {
-                                ownership: TaskOwnership::Conversation,
-                                conversation_id: Some(conversation_id),
-                                background: Some(true),
-                                abandon_on_restart: None,
-                            },
-                        )
-                        .await?;
-                    let identity = child_identity(&parent_session_id, task_id);
-                    let session_name = name.unwrap_or_else(|| {
-                        create_default_rlm_subagent_session_name(
-                            &input.prompt,
-                            &identity.rlm_child_id,
-                        )
-                    });
-                    let row = ChildRow {
-                        task_id: task_id.get(),
-                        rlm_child_id: identity.rlm_child_id,
-                        session_id: identity.session_id,
-                        session_name,
-                        label: label.unwrap_or_else(|| rlm_child_label(&input.prompt)),
-                        started_at,
-                        status: ChildStatus::Spawning,
-                        active_session_id: None,
-                        session_dir: None,
-                        model: None,
-                        answer_preview: None,
-                        error: None,
-                        failure: None,
-                        replied_since_task: false,
-                        deletion: None,
-                        settled: false,
-                        read: false,
-                        report_submission: None,
-                        usage: None,
-                        progress: None,
-                        reporter: None,
-                        handback: None,
-                        phase,
-                        answer: None,
-                        task: None,
-                        worker: input.worker,
-                        acceptance: input
-                            .accept
-                            .as_ref()
-                            .map(|seed| RlmChildVerdict::pending(seed.specs().len())),
-                    };
-                    tx_put_row(&tx, conversation_id, &row).await?;
-                    if let Some(limits) = budget {
-                        allotments.push(Allotment {
-                            session_id: row.session_id,
-                            limits,
-                        });
-                    }
-                    task_ids.push(task_id);
-                }
-                if let Some(cursor) = forward_cursor {
-                    super::worker::tx_hand_over(&tx, conversation_id, cursor).await?;
-                }
-                // Each named allotment leaves the account here, all of the
-                // batch or none, before the commit that starts the
-                // children: a refusal admits nothing, and no such child
-                // starts without its allotment on disk.
-                let allotted = allot(&gate, allotments).await?;
-                *taken.lock().unwrap_or_else(PoisonError::into_inner) = allotted;
-                Ok(task_ids)
-            },
-            &cx(),
-        )
-        .await;
-    let task_ids = match committed {
-        Ok(task_ids) => task_ids,
-        Err(error) => {
-            // No child was admitted: what the commit carved returns now
-            // (after a failure here, at this session's next open).
-            let carved =
-                std::mem::take(&mut *carved.lock().unwrap_or_else(PoisonError::into_inner));
-            for child in carved {
-                if let Err(failure) = give_back(&children.services.budget, &child).await {
-                    tracing::warn!(
-                        %child,
-                        error = %failure,
-                        "returning the allotment of a spawn that was not admitted"
-                    );
-                }
-            }
-            return Err(anyhow!("{error}"));
-        }
-    };
-    // Every task is admitted; a child whose create fails reports its own
-    // error (the batch's other children stay admitted and listed).
-    let mut handles = Vec::with_capacity(task_ids.len());
-    for task_id in task_ids {
-        let row = wait_for_admission(&harness, conversation_id, task_id).await?;
-        handles.push(RlmSpawnHandle {
-            rlm_child_id: row.rlm_child_id,
-            name: row.session_name,
-            session_dir: row.session_dir.unwrap_or_default(),
-            model: row.model.unwrap_or_default(),
-        });
-    }
-    Ok(handles)
-}
-
-/// The message of a terminal child task that left no admitted child.
-fn admission_failure(task_id: TaskId, state: &TaskState) -> Option<anyhow::Error> {
-    let TaskState::Terminal { outcome } = state else {
-        return None;
-    };
-    Some(match outcome {
-        TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error } => {
-            anyhow!("{}", error.message)
-        }
-        TaskOutcome::Orphaned { reason } => anyhow!("{reason}"),
-        TaskOutcome::Completed { .. } | TaskOutcome::Aborted { .. } => {
-            anyhow!("RLM child task {task_id} ended before its child was created")
-        }
-    })
-}
-
-/// Wait until the `spawn` phase of `task_id` admitted its child (the row
-/// leaves `spawning`) or the task ended without one.
-async fn wait_for_admission(
-    harness: &Harness,
-    conversation_id: ConversationId,
-    task_id: TaskId,
-) -> anyhow::Result<ChildRow> {
-    let changed = Arc::new(Notify::new());
-    let watch = harness
-        .watch_doc(&CHILDREN_DOC, conversation_id, &cx())
-        .await
-        .map_err(session_error)?;
-    if let Some(watch) = &watch {
-        let changed = Arc::clone(&changed);
-        watch
-            .start(Arc::new(move |_value, _ops, _cx| {
-                changed.notify_one();
-                futures::future::ready(Ok(())).boxed()
-            }))
-            .map_err(session_error)?;
-    }
-    let key = task_id.to_string();
-    let outcome = loop {
-        let state = read_children(harness, conversation_id, &cx())
-            .await
-            .map_err(session_error)?;
-        let row = state.children.get(&key);
-        if let Some(row) = row.filter(|row| row.status != ChildStatus::Spawning) {
-            break Ok(row.clone());
-        }
-        let record = harness
-            .get_task(task_id, &cx())
-            .await
-            .map_err(session_error)?;
-        if let Some(failure) = record.and_then(|record| admission_failure(task_id, &record.state)) {
-            break Err(failure);
-        }
-        tokio::select! {
-            () = changed.notified() => {}
-            settled = harness.wait_for_task(task_id, &cx()) => {
-                settled.map_err(session_error)?;
-            }
-        }
-    };
-    if let Some(watch) = watch {
-        watch.stop().await;
-    }
-    outcome
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,9 +449,13 @@ fn collect_targets(data: &Value) -> anyhow::Result<Vec<String>> {
 /// shared wait, `timeout_ms` clamped to the cap of every wait on the
 /// agent's work (30 minutes, the compiled core's `wait_any` timeout; the
 /// kernel keeps a cell inside it from detaching at its blocking budget);
-/// a timeout returns current snapshots, never an error. An abort of the
-/// turn that stops the waiting cell (Esc) cancels the children it waited
-/// on ([`cancel_waited`]) and fails the wait.
+/// a timeout returns current snapshots, never an error. The agent tree's
+/// next action ends the wait (T10): a queued message first, then the
+/// first result that arrived. A wait the message ended answers
+/// `end: "message"` and leaves the children running, their reports owed.
+/// `arrived` names the waited children settled and unread when the wait
+/// ended. An abort of the turn that stops the waiting cell (Esc) cancels
+/// the children it waited on ([`cancel_waited`]) and fails the wait.
 async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let targets = collect_targets(&call.data)?;
     let requested = match call.data.get("timeout_ms") {
@@ -1118,7 +513,7 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         }
     }
     let deadline = tokio::time::Instant::now() + timeout;
-    let waited = wait_for_verdicts(
+    let mut waited = wait_for_verdicts(
         &harness,
         conversation_id,
         &live,
@@ -1134,27 +529,38 @@ async fn collect(children: Arc<Children>, call: HostCall) -> anyhow::Result<Valu
         // A stop that is no abort request (a closing session signals the
         // call without marking it) leaves the children running; the wait
         // goes on as before it.
-        wait_for_verdicts(&harness, conversation_id, &live, deadline, None).await?;
+        waited = wait_for_verdicts(&harness, conversation_id, &live, deadline, None).await?;
     }
     let state = read_children(&harness, conversation_id, &cx())
         .await
         .map_err(session_error)?;
-    mark_read(
-        &harness,
-        conversation_id,
-        &call,
-        live.iter()
-            .filter_map(|task_id| state.children.get(&task_id.to_string())),
-    )
-    .await?;
-    let now = now_ms();
-    let results: Vec<RlmChildResult> = live
+    let rows: Vec<&ChildRow> = live
         .iter()
-        .chain(&deleted)
         .filter_map(|task_id| state.children.get(&task_id.to_string()))
+        .collect();
+    let arrived: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.status.is_terminal() && !row.read)
+        .map(|row| row.rlm_child_id.as_str())
+        .collect();
+    mark_read(&harness, conversation_id, &call, rows.iter().copied()).await?;
+    let now = now_ms();
+    let results: Vec<RlmChildResult> = rows
+        .iter()
+        .copied()
+        .chain(
+            deleted
+                .iter()
+                .filter_map(|task_id| state.children.get(&task_id.to_string())),
+        )
         .map(|row| collect_result(row, now))
         .collect();
-    Ok(json!({ "results": results }))
+    Ok(match waited {
+        Waited::Message => json!({ "results": results, "arrived": arrived, "end": "message" }),
+        Waited::Over | Waited::Arrived | Waited::Stopped => {
+            json!({ "results": results, "arrived": arrived })
+        }
+    })
 }
 
 /// The parent read the outcome of each settled child of `rows` through a
@@ -1203,15 +609,22 @@ async fn mark_read<'a>(
 enum Waited {
     /// Every child reached its verdict, or the deadline passed.
     Over,
+    /// A child's result arrived while others still run.
+    Arrived,
+    /// A message for the parent is queued: it reads it first.
+    Message,
     /// The requesting cell's stop signal fired first.
     Stopped,
 }
 
-/// Wait until every child of `task_ids` reached its verdict (its row left
-/// `spawning`/`running`) or its task ended, or `deadline` passed, or `stop`
-/// (the requesting cell's stop signal) fired. The row, not the task: a
-/// settled child's task stays live while its report waits behind the
-/// parent's busy turn — possibly the very turn that waits here.
+/// Wait on the children of `task_ids` until the agent tree's next action
+/// is no wait (T10: a queued message, else a result that arrived: a
+/// child's verdict the parent has not read), every child reached its
+/// verdict (its row left `spawning`/`running`) or its task ended, or
+/// `deadline` passed, or `stop` (the requesting cell's stop signal) fired.
+/// The row, not the task: a settled child's task stays live while its
+/// report waits behind the parent's busy turn — possibly the very turn
+/// that waits here.
 async fn wait_for_verdicts(
     harness: &Harness,
     conversation_id: ConversationId,
@@ -1236,12 +649,22 @@ async fn wait_for_verdicts(
             }))
             .map_err(session_error)?;
     }
+    let inputs = {
+        let changed = Arc::clone(&changed);
+        let listener: CommitListener = Arc::new(move |publication, _| {
+            if moves_inputs(publication, conversation_id) {
+                changed.notify_one();
+            }
+        });
+        harness.subscribe_commits(listener).map_err(session_error)?
+    };
     let outcome = async {
         loop {
             let state = read_children(harness, conversation_id, &cx())
                 .await
                 .map_err(session_error)?;
             let mut pending = None;
+            let mut arrived: u64 = 0;
             for task_id in task_ids {
                 let row = state.children.get(&task_id.to_string());
                 let running = row.is_some_and(|row| !row.status.is_terminal());
@@ -1252,13 +675,24 @@ async fn wait_for_verdicts(
                     .map_err(session_error)?
                     .is_none_or(|record| record.state.status() == TaskStatus::Terminal);
                 if running && !ended {
-                    pending = Some(live);
-                    break;
+                    pending.get_or_insert(live);
+                } else if row.is_some_and(|row| row.status.is_terminal() && !row.read) {
+                    arrived += 1;
                 }
             }
             let Some(task_id) = pending else {
                 return anyhow::Ok(Waited::Over);
             };
+            let view = View {
+                message: message_queued(harness, conversation_id).await?,
+                arrived,
+                own_work: false,
+            };
+            match agent_tree::next(view) {
+                Action::ReadMessage => return Ok(Waited::Message),
+                Action::Integrate => return Ok(Waited::Arrived),
+                Action::WorkOwn | Action::Wait => {}
+            }
             let woke = tokio::time::timeout_at(deadline, async {
                 tokio::select! {
                     () = changed.notified() => Ok(None),
@@ -1278,10 +712,52 @@ async fn wait_for_verdicts(
         }
     }
     .await;
+    inputs.unsubscribe();
     if let Some(watch) = watch {
         watch.stop().await;
     }
     outcome
+}
+
+/// Whether `publication` queues, places or settles an input of
+/// `conversation_id`.
+fn moves_inputs(publication: &CommitPublication, conversation_id: ConversationId) -> bool {
+    publication.changes.iter().any(|change| match change {
+        CommitChange::Submission(record) => record.conversation_id == conversation_id,
+        CommitChange::Conversation(_)
+        | CommitChange::Entry(_)
+        | CommitChange::Task(_)
+        | CommitChange::Document(_) => false,
+    })
+}
+
+/// Whether an input other than a child's report waits queued for
+/// `conversation_id`: a user message or steer, a peer's message, a job
+/// notice. A report is a child's result, read through its row.
+async fn message_queued(
+    harness: &Harness,
+    conversation_id: ConversationId,
+) -> anyhow::Result<bool> {
+    let inspection = harness.inspect(&cx()).await.map_err(session_error)?;
+    Ok(inspection.submissions.iter().any(|submission| {
+        submission.conversation_id == conversation_id
+            && matches!(
+                submission.state,
+                SubmissionState::Input(InputSubmission::Queued)
+            )
+            && !submission.request_id.as_deref().is_some_and(is_report)
+    }))
+}
+
+/// Whether `request_id` names a child's report ([`report_request_id`]).
+fn is_report(request_id: &str) -> bool {
+    request_id
+        .strip_prefix("rlm:")
+        .and_then(|rest| rest.split_once(":report:"))
+        .and_then(|(task, ordinal)| task.parse::<u64>().ok().zip(ordinal.parse::<u32>().ok()))
+        .is_some_and(|(task, ordinal)| {
+            report_request_id(TaskId::from_number(task), ordinal) == request_id
+        })
 }
 
 /// Resolves when `stop` fires; never without one.
@@ -1342,7 +818,9 @@ async fn cancel_waited(
 
 /// `rlm.answer`: the settled-or-not state of the one live child `target`
 /// selects, with its full final answer when it kept one (a silent
-/// child's): `{status, settled, sessionId, answer?, error?, failure?}`.
+/// child's): `{status, settled, sessionId, answer?, error?, failure?,
+/// scopedHandback?, patch?}`: a finished writer's hand-back by its scope,
+/// a failed or cancelled writer's partial patch (not applied).
 async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let Some(target) = call
         .data
@@ -1360,6 +838,10 @@ async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value
         .map_err(session_error)?;
     let row = resolve_live(state.children.values(), target, "child")?;
     mark_read(&harness, conversation_id, &call, [row]).await?;
+    let scoped = match &row.handback {
+        Some(HandbackOutcome::Done { handback }) => Some(&handback.handback),
+        Some(HandbackOutcome::Failed { .. }) | None => None,
+    };
     Ok(json!({
         "status": row.status.collect_status(),
         "settled": row.status.is_terminal(),
@@ -1367,39 +849,7 @@ async fn answer(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value
         "answer": row.answer.clone().or_else(|| row.answer_preview.clone()),
         "error": row.error,
         "failure": row.failure,
+        "scopedHandback": scoped,
+        "patch": row.patch,
     }))
-}
-
-// ---------------------------------------------------------------------------
-// kwargs helpers
-// ---------------------------------------------------------------------------
-
-/// Present-but-non-string kwargs fail like the TS normalizers do.
-fn optional_string_kwarg<'a>(
-    kwargs: &'a Map<String, Value>,
-    key: &str,
-    operation: &str,
-) -> anyhow::Result<Option<&'a str>> {
-    match kwargs.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value)),
-        Some(_) => bail!("{operation} {key} must be a string"),
-    }
-}
-
-fn reject_unsupported_kwargs(
-    kwargs: &Map<String, Value>,
-    operation: &str,
-    supported: &[&str],
-) -> anyhow::Result<()> {
-    let mut unsupported: Vec<&str> = kwargs
-        .keys()
-        .map(String::as_str)
-        .filter(|key| !supported.contains(key))
-        .collect();
-    if unsupported.is_empty() {
-        return Ok(());
-    }
-    unsupported.sort_unstable();
-    bail!("Unsupported {operation} kwargs: {}", unsupported.join(", "));
 }

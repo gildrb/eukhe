@@ -9,6 +9,8 @@ let __wfPhase: string | null = null;
 const __wfSeen = new Map<string, number>();
 const __wfIgnore = () => undefined;
 const __wfUpdates: Promise<undefined>[] = [];
+// The writing agents called since the last microtask: one batch.
+let __wfBatch: AgentWriter[] | null = null;
 
 function __wfSettled(): Promise<undefined[]> {
 	return Promise.all(__wfUpdates.map((update) => update.then(__wfIgnore, __wfIgnore)));
@@ -29,6 +31,43 @@ function __wfRelease() {
 	} else {
 		next();
 	}
+}
+
+// Join the batch of the writing agents called in this turn of the script:
+// the batch starts once the turn yields, so `parallel()` and the first
+// stage of `pipeline()` start their writing agents as one batch.
+function __wfJoinBatch(request: AgentRequest): Promise<AgentAnswer> {
+	let batch = __wfBatch;
+	if (batch === null) {
+		const started: AgentWriter[] = [];
+		batch = started;
+		__wfBatch = started;
+		void Promise.resolve().then(() => {
+			__wfBatch = null;
+			__wfStartBatch(started);
+		});
+	}
+	const joined = batch;
+	return new Promise<AgentAnswer>((resolve, reject) => {
+		joined.push({ request, resolve, reject });
+	});
+}
+
+// Admit the batch all or none, then run each of its agents; a refusal
+// rejects every agent of the batch.
+function __wfStartBatch(batch: AgentWriter[]) {
+	wf.batch({ agents: batch.map((writer) => writer.request) }).then(
+		() => {
+			for (const writer of batch) {
+				wf.agent(writer.request).then(writer.resolve, writer.reject);
+			}
+		},
+		(error: unknown) => {
+			for (const writer of batch) {
+				writer.reject(error);
+			}
+		},
+	);
 }
 
 const budget = Object.freeze({
@@ -68,9 +107,17 @@ async function agent(prompt: string, opts?: AgentOptions): Promise<unknown> {
 	const identity = JSON.stringify([prompt, options]);
 	const occurrence = __wfSeen.get(identity) ?? 0;
 	__wfSeen.set(identity, occurrence + 1);
+	const request: AgentRequest = { ordinal, occurrence, prompt, options };
+	if (options.scope !== undefined && options.scope !== null) {
+		const answer = await __wfJoinBatch(request);
+		if (!answer.cached) {
+			__wfSpawned += 1;
+		}
+		return answer.result;
+	}
 	await __wfAcquire();
 	try {
-		const answer = await wf.agent({ ordinal, occurrence, prompt, options });
+		const answer = await wf.agent(request);
 		if (!answer.cached) {
 			__wfSpawned += 1;
 		}

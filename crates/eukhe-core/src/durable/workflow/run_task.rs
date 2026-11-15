@@ -11,7 +11,8 @@
 //! outcome, and the reopened session runs it again. An abort of the task
 //! (`/workflows` cancel) cancels the run's agents, marks the run
 //! cancelled, and hands the cancelled report to a new task that starts in
-//! the `report` phase, which the abort does not reach.
+//! the `report` phase, which the abort does not reach. A run's end and its
+//! abort return every writing batch's nodes to the session.
 
 use std::sync::Arc;
 
@@ -32,10 +33,10 @@ use eukhe_types::pi_ai::{UserContent, UserContentBlock};
 use eukhe_types::workflow::WorkflowRunState;
 use serde::{Deserialize, Serialize};
 
-use super::cancel_agents;
 use super::run_doc::{tx_put_run, tx_run, RunRecord};
+use super::{cancel_agents, return_batches};
 use crate::durable::children::{report_step, Fate, ReportStep};
-use crate::durable::deps::{HarnessCell, SessionClosing};
+use crate::durable::deps::{HarnessCell, HostRequestRegistry, SessionClosing};
 
 /// The task kind.
 pub(crate) const RUN_TASK_KIND: &str = "eukhe.workflow.run";
@@ -50,6 +51,8 @@ pub(crate) struct RunServices {
     pub(crate) harness: HarnessCell,
     /// The session's closing gate: a closing conversation admits no report.
     pub(crate) closing: SessionClosing,
+    /// The `rlm.*` host requests: the return of a batch's nodes.
+    pub(crate) host_requests: HostRequestRegistry,
 }
 
 /// Input of one run task.
@@ -252,12 +255,21 @@ async fn run(
             }
         }
     };
+    let harness = services.harness.require()?;
     if state != WorkflowRunState::Done {
-        let harness = services.harness.require()?;
         cancel_agents(&harness, conversation_id, &run_id, &cx)
             .await
             .map_err(|error| SessionError::error(format!("{error:#}")))?;
     }
+    return_batches(
+        &services.host_requests,
+        &harness,
+        conversation_id,
+        &run_id,
+        &cx,
+    )
+    .await
+    .map_err(|error| SessionError::error(format!("{error:#}")))?;
     runtime
         .commit(
             move |tx, _current| async move {
@@ -437,6 +449,15 @@ async fn abort(
             cancel_agents(&harness, conversation_id, &run_id, &cx)
                 .await
                 .map_err(|error| SessionError::error(format!("{error:#}")))?;
+            return_batches(
+                &services.host_requests,
+                &harness,
+                conversation_id,
+                &run_id,
+                &cx,
+            )
+            .await
+            .map_err(|error| SessionError::error(format!("{error:#}")))?;
             None
         }
         RunCheckpoint::Report { report, withdrawn } => Some((report.clone(), *withdrawn)),

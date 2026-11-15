@@ -53,6 +53,31 @@ pub async fn delete_inactive_child(
     Ok(DeleteChildOutcome::Deleted(Box::new(result.subagent)))
 }
 
+/// An abort of `conversation_id`'s turn reaches its subtree in the agent
+/// tree (the daemon's `abort` runs it after aborting the run): every child
+/// task still spawning or running aborts, which cancels the child's run,
+/// and through the child's own abort, its subtree. Main's root (its
+/// worker) is above main's turn and keeps running.
+///
+/// # Errors
+///
+/// A document read failure or a failed task abort.
+pub async fn cancel_tree(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<()> {
+    let state = read_children(harness, conversation_id, cx).await?;
+    let running = state
+        .children
+        .values()
+        .filter(|row| !row.worker && !row.is_deleted() && !row.status.is_terminal());
+    for row in running {
+        harness.abort_task(row.live_task(), cx).await?;
+    }
+    Ok(())
+}
+
 /// One live (not deleted) child as a host command sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildRecord {

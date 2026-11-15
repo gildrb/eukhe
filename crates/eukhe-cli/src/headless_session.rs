@@ -566,6 +566,7 @@ async fn session_config(
         rlm_max_depth: eukhe_daemon::rlm_children::DEFAULT_RLM_MAX_DEPTH,
         parent: None,
         worker: false,
+        tree: None,
     };
     session.thinking = config.thinking.map(thinking_level);
     session.host = options.app_mode.session_host();

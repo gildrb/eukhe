@@ -331,6 +331,18 @@ impl Worker {
         {
             return response_failure(None, command, &error.to_string(), None);
         }
+        // The turn's abort reaches the agent tree below this node: every
+        // child still running is cancelled, and through its own abort, its
+        // subtree.
+        if let Err(error) = eukhe_core::durable::children::cancel_tree(
+            hosted.harness(),
+            main.id(),
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        {
+            return response_failure(None, command, &error.to_string(), None);
+        }
         // The durable rewrite: the withdrawn inbox inputs join the
         // suspended and held ones, then `queue` decides their fate. A
         // live input-pause lease keeps a `send` queued as held (the

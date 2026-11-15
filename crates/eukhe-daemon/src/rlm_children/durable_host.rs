@@ -17,10 +17,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
 
+use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_core::agent_messaging::{
     create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
 };
-use eukhe_core::child_workspace::{ChildWorkspace, Handback, WorkspaceMode};
+use eukhe_core::child_workspace::{run_check, unit_patch, CheckRun, ChildWorkspace, WorkspaceMode};
 use eukhe_core::durable::children as durable;
 use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
@@ -383,7 +384,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                         workspace.tree().to_string_lossy().into_owned()
                     }
                 };
-                let runtime_metadata = json!({
+                let mut runtime_metadata = json!({
                     "kind": "subagent",
                     "rlmChildId": request.child.rlm_child_id,
                     "parentActiveSessionId": this.parent_active_session_id,
@@ -392,6 +393,17 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     // Main's worker: its own chat and the worker doctrine.
                     "worker": request.worker,
                 });
+                // The child's place in the agent tree (`treeRole`,
+                // `treeScope`, `treePath`, `treeAllowance`,
+                // `treeDeadline`): the child session reads it back, the
+                // roster shows it.
+                if let (Some(place), Some(metadata)) =
+                    (&request.tree, runtime_metadata.as_object_mut())
+                {
+                    if let Value::Object(keys) = serde_json::to_value(place)? {
+                        metadata.extend(keys);
+                    }
+                }
                 // A create naming an existing storage reopens it, so a
                 // passivated child is found again by the same id.
                 let created = this
@@ -821,23 +833,8 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 }
                 Ok(_) | Err(_) => {}
             }
-            // An isolated child's changes come back once it stopped (so it
-            // writes nothing after the merge); the parent's later hand-back
-            // reads this record. Its remainder (the record, the kept
-            // conflicting versions) stays for the parent to read.
-            let root = {
-                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
-                this.workspace_root(&request.rlm_child_id, &identity)?
-            };
-            let workspace = ChildWorkspace::at(root);
-            if workspace.is_created() {
-                workspace.hand_back().await.with_context(|| {
-                    format!(
-                        "hand back deleted RLM child {}'s workspace",
-                        request.rlm_child_id
-                    )
-                })?;
-            }
+            // A deleted child's workspace stays as it is: its partial work
+            // applies only when the parent absorbs it.
             {
                 let mut calls = this.durable_calls();
                 calls.done.insert(request.idempotency_key);
@@ -937,101 +934,10 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         })
     }
 
-    /// The spawn cap's inputs: `subagentMaxConcurrency` from the parent's
-    /// settings scope (read on the blocking pool like the child model), and
-    /// — unless the cap is unlimited — the durable session ids of the
-    /// family's running subagents from the supervisor roster. A worker
-    /// parent reads the roster with its worker token (`list_agent_peers`);
-    /// a parent without one (a headless `-p`/`json`/`rpc` session, which
-    /// no supervisor hosts) reads the same roster entries through
-    /// `roster_subscribe`, the plain-client snapshot (the subscription
-    /// ends with this request's connection). Its own row is absent there,
-    /// so its family is every row whose parent chain reaches its active
-    /// session id.
-    fn spawn_capacity(&self) -> durable::RlmHostFuture<'_, durable::RlmSpawnCapacity> {
-        let this = Arc::clone(&self.inner);
-        Box::pin(async move {
-            let cwd = this
-                .identity
-                .lock()
-                .expect("identity lock")
-                .working_dir()?
-                .to_owned();
-            let agent_dir = this.agent_dir.clone();
-            let max_concurrency = tokio::task::spawn_blocking(move || {
-                eukhe_core::settings::SettingsManager::create(Path::new(&cwd), &agent_dir)
-                    .get_subagent_max_concurrency()
-            })
-            .await
-            .context("the subagent concurrency settings read task join failed")?;
-            if max_concurrency == 0 {
-                return Ok(durable::RlmSpawnCapacity {
-                    max_concurrency,
-                    active_session_ids: Vec::new(),
-                });
-            }
-            let worker_token = this
-                .worker_token
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            let rows = if let Some(worker_token) = worker_token {
-                let mut roster = this
-                    .command(
-                        &DaemonCommand::ListAgentPeers {
-                            id: None,
-                            worker_token,
-                            scope: Some(eukhe_types::daemon::AgentPeerScope::Roster),
-                            rest: Map::default(),
-                        },
-                        STATE_TIMEOUT_MS,
-                    )
-                    .await
-                    .context("read the family roster for the subagent concurrency cap")?;
-                match roster.get_mut("peers").map(Value::take) {
-                    Some(Value::Array(rows)) => rows,
-                    Some(_) | None => Vec::new(),
-                }
-            } else {
-                let snapshot = this
-                    .command(
-                        &DaemonCommand::RosterSubscribe {
-                            id: None,
-                            rest: Map::default(),
-                        },
-                        STATE_TIMEOUT_MS,
-                    )
-                    .await
-                    .context("read the supervisor roster for the subagent concurrency cap")?;
-                let entries: Vec<eukhe_types::daemon::agent_roster::AgentRosterEntry> =
-                    serde_json::from_value(snapshot.get("roster").cloned().unwrap_or_default())
-                        .context("decode the supervisor roster snapshot")?;
-                // A roster entry's summary carries the family edges;
-                // its classification (a queued child counts as
-                // running) is the entry's own `status`.
-                entries
-                    .into_iter()
-                    .map(|entry| {
-                        let mut row = entry.summary;
-                        row["status"] = json!(entry.status);
-                        row
-                    })
-                    .collect()
-            };
-            Ok(durable::RlmSpawnCapacity {
-                max_concurrency,
-                active_session_ids: crate::agent_messaging::running_family_subagents(
-                    &rows,
-                    &this.parent_active_session_id,
-                ),
-            })
-        })
-    }
-
     fn hand_back(
         &self,
         request: durable::RlmChildHandbackRequest,
-    ) -> durable::RlmHostFuture<'_, Option<Handback>> {
+    ) -> durable::RlmHostFuture<'_, Option<durable::RlmChildHandback>> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
             let root = {
@@ -1070,13 +976,75 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     Ok(_) | Err(_) => {}
                 }
             }
-            let handback = workspace.hand_back().await.with_context(|| {
+            let parent_cwd = this
+                .identity
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .working_dir()?
+                .to_owned();
+            let agent_dir = this.agent_dir.clone();
+            let cwd = parent_cwd.clone();
+            let config = tokio::task::spawn_blocking(move || {
+                eukhe_core::settings::SettingsManager::create(Path::new(&cwd), &agent_dir)
+                    .get_agent_tree_check()
+            })
+            .await
+            .context("the agent tree check settings read task join failed")?;
+            // The child's own check runs in its checkout over what it
+            // changed, before its writes come back (a rerun after the
+            // hand-back has no checkout left to check).
+            let child_check = if workspace.is_handed_back() {
+                CheckRun::None
+            } else {
+                let changed = workspace.changed().await?;
+                run_check(&workspace.tree(), &changed, &config).await
+            };
+            let handback = workspace
+                .hand_back_scoped(&request.units, &request.scope)
+                .await
+                .with_context(|| {
+                    format!(
+                        "hand back RLM child {}'s workspace (session {})",
+                        request.rlm_child_id, request.session_id
+                    )
+                })?;
+            // The parent's check runs after the integration, over what was
+            // taken.
+            let taken: Vec<std::path::PathBuf> = handback
+                .taken
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect();
+            let parent_check = run_check(Path::new(&parent_cwd), &taken, &config).await;
+            Ok(Some(durable::RlmChildHandback {
+                handback,
+                child_check,
+                parent_check,
+            }))
+        })
+    }
+
+    fn measure(
+        &self,
+        request: durable::RlmChildHandbackRequest,
+    ) -> durable::RlmHostFuture<'_, Option<Patch>> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let root = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.workspace_root(&request.rlm_child_id, &identity)
+            };
+            let workspace = ChildWorkspace::at(root);
+            if !workspace.is_created() || workspace.is_handed_back() {
+                return Ok(None);
+            }
+            let changed = workspace.changed().await.with_context(|| {
                 format!(
-                    "hand back RLM child {}'s workspace (session {})",
+                    "read RLM child {}'s changes (session {})",
                     request.rlm_child_id, request.session_id
                 )
             })?;
-            Ok(Some(handback))
+            Ok(Some(unit_patch(&request.units, &changed)))
         })
     }
 }

@@ -376,17 +376,44 @@ impl Drop for SandboxedDaemon {
     }
 }
 
-/// The kernel cell the parent spawns its two children with: neither is
-/// given a budget of its own.
-const SPAWN_TWO: &str = "one = await rlm.spawn(\"lane one\", name=\"kid-one\", why=\"isolate\")\ntwo = await rlm.spawn(\"lane two\", name=\"kid-two\", why=\"isolate\")\nprint(one.rlm_child_id, two.rlm_child_id)";
+/// The kernel cell the parent spawns its two children with: neither names
+/// a budget of its own.
+const SPAWN_TWO: &str = "one = await rlm.spawn(\"lane one\", name=\"kid-one\")\ntwo = await rlm.spawn(\"lane two\", name=\"kid-two\")\nprint(one.rlm_child_id, two.rlm_child_id)";
 
-/// B4: a parent that spawns two subagents without a budget of their own
-/// shares its one account with them: one ledger, each child a member
-/// below the parent (joined, then released when it ended, its link to the
-/// parent's file gone) whose requests reserve from that account, and no
-/// record of the account's life passes the root's budget.
+/// Every account ledger in `dir`: its owner (the file's stem) and every
+/// complete record.
+fn ledgers(dir: &Path) -> Vec<(String, Vec<Value>)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .filter_map(|file| {
+            let owner = file.file_stem()?.to_string_lossy().into_owned();
+            let text = std::fs::read_to_string(&file).ok()?;
+            let complete = &text[..text.rfind('\n')?];
+            let records = complete
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("a ledger line"))
+                .collect();
+            Some((owner, records))
+        })
+        .collect()
+}
+
+/// B4 under the agent tree (T14): a parent with a budget that asks two
+/// read-only helpers gives each its own budget, carved from its one
+/// account (the tree gives every child a limit under a limited parent):
+/// the parent's ledger records a carve for each child and its reclaim
+/// when the child ended, each child's account is its own ledger, and no
+/// record of the parent's account passes the root's budget.
 #[test]
-fn subagents_without_a_budget_draw_from_their_parents_one_account() {
+fn a_parents_helpers_are_carved_from_its_one_account() {
     let home = tempfile::TempDir::new().unwrap();
     let socket = home.path().join("daemon.sock");
     let _daemon = SandboxedDaemon {
@@ -434,43 +461,33 @@ fn subagents_without_a_budget_draw_from_their_parents_one_account() {
     );
     assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
 
-    let dir = agent_dir.join("budgets");
-    let (owner, records) = ledger(&dir).expect("one ledger");
-    let joined: BTreeSet<(String, String)> = records
+    let all = ledgers(&agent_dir.join("budgets"));
+    let ops = |records: &[Value], kind: &str| -> BTreeSet<String> {
+        records
+            .iter()
+            .filter(|record| record["op"]["kind"] == kind)
+            .filter_map(|record| record["op"]["child"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let parents: Vec<&(String, Vec<Value>)> = all
         .iter()
-        .filter(|record| record["op"]["kind"] == "join")
-        .map(|record| {
-            (
-                record["op"]["agent"].as_str().unwrap().to_owned(),
-                record["op"]["parent"].as_str().unwrap().to_owned(),
-            )
-        })
+        .filter(|(_, records)| !ops(records, "carve").is_empty())
         .collect();
-    let children: BTreeSet<String> = joined.iter().map(|(child, _)| child.clone()).collect();
+    assert_eq!(parents.len(), 1, "one account carves: {all:#?}");
+    let (owner, records) = parents[0];
+    let carved = ops(records, "carve");
+    let owners: BTreeSet<String> = all.iter().map(|(owner, _)| owner.clone()).collect();
     assert_eq!(
         (
-            joined.len(),
-            joined.iter().all(|(_, parent)| *parent == owner),
+            carved.len(),
+            ops(records, "reclaim") == carved,
+            carved.iter().all(|child| owners.contains(child)),
+            all.len(),
         ),
-        (2, true),
-        "two children joined below the parent: {joined:?}"
+        (2, true, true, 3),
+        "the parent {owner} carved two children, each with its own ledger, and reclaimed both"
     );
-    for child in &children {
-        // A granted reservation, and the release when the child ended.
-        let did = |kind: &str| {
-            records.iter().any(|record| {
-                record["op"]["kind"] == kind
-                    && record["op"]["agent"] == child.as_str()
-                    && (kind != "reserve" || record["outcome"]["kind"] == "granted")
-            })
-        };
-        assert_eq!(
-            (did("reserve"), did("release"), dir.join(format!("{child}.link")).exists()),
-            (true, true, false),
-            "the child {child} reserved from the account, was released when it ended, and links to no account"
-        );
-    }
-    for record in &records {
+    for record in records {
         let state = &record["state"];
         for dimension in ["tokens", "requests"] {
             let limit = state["limits"][dimension].as_u64().expect("a limit");

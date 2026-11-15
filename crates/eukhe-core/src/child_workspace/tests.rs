@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use super::{files, ChildWorkspace, Handback, Listing, BASE, CONFLICTS, HANDBACK};
+use super::check::detect;
+use super::{
+    files, run_check, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckRun, ChildWorkspace,
+    Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
+};
 
 /// Every file under `dir` with its text (`.git` left out).
 fn snapshot(dir: &Path) -> BTreeMap<String, String> {
@@ -38,6 +43,47 @@ fn files_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .iter()
         .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
         .collect()
+}
+
+fn names(paths: &[&str]) -> Vec<String> {
+    paths.iter().map(|path| (*path).to_owned()).collect()
+}
+
+fn paths(paths: &[&str]) -> Vec<PathBuf> {
+    paths.iter().map(PathBuf::from).collect()
+}
+
+/// The whole workspace as one unit, owned.
+fn whole() -> (Vec<String>, Vec<bool>) {
+    (names(&[""]), vec![true])
+}
+
+#[test]
+fn a_path_belongs_to_its_longest_component_wise_prefix() {
+    let units = names(&["", "src", "src/core", "docs/a.md"]);
+    let cases = [
+        "src/core/x.rs",
+        "src/corex/y.rs",
+        "src/lib.rs",
+        "docs/a.md",
+        "docs/b.md",
+        "README.md",
+    ];
+    assert_eq!(
+        cases.map(|path| unit_of(&units, Path::new(path))),
+        [Some(2), Some(1), Some(1), Some(3), Some(0), Some(0)]
+    );
+    // Without the root unit, a path outside every unit has none.
+    assert_eq!(unit_of(&names(&["src"]), Path::new("lib/x.rs")), None);
+}
+
+#[test]
+fn a_childs_patch_marks_each_unit_it_changed() {
+    let units = names(&["", "src", "docs"]);
+    assert_eq!(
+        unit_patch(&units, &paths(&["src/a.rs", "src/b.rs", "README.md"])),
+        vec![Some(1), Some(1), None]
+    );
 }
 
 #[tokio::test]
@@ -95,20 +141,18 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
     fs::remove_file(workspace.tree().join("gone.txt")).unwrap();
     write(&parent, "b.txt", "b-parent");
     write(&parent, "c.txt", "c-parent");
-    let handback = workspace.hand_back().await.unwrap();
+    let (units, scope) = whole();
+    let handback = workspace.hand_back_scoped(&units, &scope).await.unwrap();
     let kept = workspace.root().join(CONFLICTS);
     assert_eq!(
         (handback, snapshot(&parent), snapshot(&kept)),
         (
-            Handback {
-                taken: vec![
-                    ".gitignore".to_owned(),
-                    "a.txt".to_owned(),
-                    "gone.txt".to_owned(),
-                    "new/d.txt".to_owned(),
-                ],
-                conflicts: vec!["c.txt".to_owned()],
+            ScopedHandback {
+                taken: names(&[".gitignore", "a.txt", "gone.txt", "new/d.txt"]),
+                outside: Vec::new(),
+                conflicts: names(&["c.txt"]),
                 kept: Some(kept.to_string_lossy().into_owned()),
+                patch: vec![Some(1)],
             },
             files_of(&[
                 (".gitignore", "target/\n"),
@@ -130,33 +174,100 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
     );
 }
 
+/// A child owning `src` changes files in and out of its scope: the
+/// in-scope changes (an edit, an addition, a removal) reach the parent;
+/// the rest stays under `conflicts/`, never applied.
 #[tokio::test]
-async fn a_hand_back_cut_by_a_crash_runs_again_to_the_same_result() {
+async fn a_scoped_hand_back_applies_only_the_childs_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent");
+    write(&parent, "src/a.rs", "a0");
+    write(&parent, "src/old.rs", "old");
+    write(&parent, "docs/d.md", "d0");
+    write(&parent, "README.md", "r0");
+    let workspace = ChildWorkspace::at(dir.path().join("ws"));
+    workspace.create(&parent).await.unwrap();
+    write(&workspace.tree(), "src/a.rs", "a-child");
+    write(&workspace.tree(), "src/new.rs", "new-child");
+    fs::remove_file(workspace.tree().join("src/old.rs")).unwrap();
+    write(&workspace.tree(), "docs/d.md", "d-child");
+    write(&workspace.tree(), "top.txt", "top-child");
+    let units = names(&["", "src", "docs"]);
+    let scope = vec![false, true, false];
+    let changed = workspace.changed().await.unwrap();
+    let handback = workspace.hand_back_scoped(&units, &scope).await.unwrap();
+    let kept = workspace.root().join(CONFLICTS);
+    assert_eq!(
+        (changed, handback, snapshot(&parent), snapshot(&kept)),
+        (
+            paths(&[
+                "docs/d.md",
+                "src/a.rs",
+                "src/new.rs",
+                "src/old.rs",
+                "top.txt"
+            ]),
+            ScopedHandback {
+                taken: names(&["src/a.rs", "src/new.rs", "src/old.rs"]),
+                outside: names(&["docs/d.md", "top.txt"]),
+                conflicts: Vec::new(),
+                kept: Some(kept.to_string_lossy().into_owned()),
+                patch: vec![Some(1), Some(1), Some(1)],
+            },
+            files_of(&[
+                ("README.md", "r0"),
+                ("docs/d.md", "d0"),
+                ("src/a.rs", "a-child"),
+                ("src/new.rs", "new-child"),
+            ]),
+            files_of(&[("docs/d.md", "d-child"), ("top.txt", "top-child")]),
+        )
+    );
+}
+
+/// A scoped hand-back a crash cut (one in-scope path replaced, one
+/// out-of-scope path kept) runs again to the result of an uncut one.
+#[tokio::test]
+async fn a_scoped_hand_back_cut_by_a_crash_runs_again_to_the_same_result() {
     let dir = tempfile::tempdir().unwrap();
     let make = |name: &str| {
         let parent = dir.path().join(name).join("parent");
-        write(&parent, "a.txt", "a0");
-        write(&parent, "b.txt", "b0");
-        write(&parent, "c.txt", "c0");
+        write(&parent, "src/a.rs", "a0");
+        write(&parent, "src/b.rs", "b0");
+        write(&parent, "src/gone.rs", "g0");
+        write(&parent, "docs/d.md", "d0");
         (parent, ChildWorkspace::at(dir.path().join(name).join("ws")))
     };
     let (clean_parent, clean) = make("clean");
     let (cut_parent, cut) = make("cut");
     for (parent, workspace) in [(&clean_parent, &clean), (&cut_parent, &cut)] {
         workspace.create(parent).await.unwrap();
-        write(&workspace.tree(), "a.txt", "a-child");
-        write(&workspace.tree(), "b.txt", "b-child");
-        write(&workspace.tree(), "c.txt", "c-child");
-        write(parent, "c.txt", "c-parent");
+        write(&workspace.tree(), "src/a.rs", "a-child");
+        write(&workspace.tree(), "src/b.rs", "b-child");
+        fs::remove_file(workspace.tree().join("src/gone.rs")).unwrap();
+        write(&workspace.tree(), "docs/d.md", "d-child");
     }
-    // The cut run replaced a.txt, then the process died before its record.
-    files::replace(&cut.tree().join("a.txt"), &cut_parent.join("a.txt")).unwrap();
+    // The cut run replaced src/a.rs, removed src/gone.rs and kept
+    // docs/d.md, then the process died before its record.
+    files::replace(&cut.tree().join("src/a.rs"), &cut_parent.join("src/a.rs")).unwrap();
+    files::replace(
+        &cut.tree().join("src/gone.rs"),
+        &cut_parent.join("src/gone.rs"),
+    )
+    .unwrap();
+    files::replace(
+        &cut.tree().join("docs/d.md"),
+        &cut.root().join(CONFLICTS).join("docs/d.md"),
+    )
+    .unwrap();
     assert!(!cut.root().join(HANDBACK).exists());
-    let clean_back = clean.hand_back().await.unwrap();
-    let cut_back = cut.hand_back().await.unwrap();
+    let units = names(&["src", "docs"]);
+    let scope = vec![true, false];
+    let clean_back = clean.hand_back_scoped(&units, &scope).await.unwrap();
+    let cut_back = cut.hand_back_scoped(&units, &scope).await.unwrap();
     // A repeat after the record returns the record.
-    let again = cut.hand_back().await.unwrap();
-    let relative = |back: Handback, root: &Path| Handback {
+    let again = cut.hand_back_scoped(&units, &scope).await.unwrap();
+    let relative = |back: ScopedHandback, root: &Path| ScopedHandback {
         kept: back.kept.map(|kept| {
             Path::new(&kept)
                 .strip_prefix(root)
@@ -170,21 +281,32 @@ async fn a_hand_back_cut_by_a_crash_runs_again_to_the_same_result() {
         (
             relative(cut_back.clone(), cut.root()),
             snapshot(&cut_parent),
+            snapshot(&cut.root().join(CONFLICTS)),
             again,
         ),
         (
-            relative(clean_back, clean.root()),
+            relative(clean_back.clone(), clean.root()),
             snapshot(&clean_parent),
+            snapshot(&clean.root().join(CONFLICTS)),
             cut_back,
         )
     );
     assert_eq!(
-        snapshot(&clean_parent),
-        files_of(&[
-            ("a.txt", "a-child"),
-            ("b.txt", "b-child"),
-            ("c.txt", "c-parent")
-        ])
+        (relative(clean_back, clean.root()), snapshot(&clean_parent)),
+        (
+            ScopedHandback {
+                taken: names(&["src/a.rs", "src/b.rs", "src/gone.rs"]),
+                outside: names(&["docs/d.md"]),
+                conflicts: Vec::new(),
+                kept: Some(CONFLICTS.to_owned()),
+                patch: vec![Some(1), Some(1)],
+            },
+            files_of(&[
+                ("docs/d.md", "d0"),
+                ("src/a.rs", "a-child"),
+                ("src/b.rs", "b-child"),
+            ]),
+        )
     );
 }
 
@@ -203,14 +325,17 @@ async fn a_hand_back_after_a_crash_removes_the_copy_the_crash_left_beside_a_path
         &format!(".a.txt{}", files::STAGED_SUFFIX),
         "a-child",
     );
-    let handback = workspace.hand_back().await.unwrap();
+    let (units, scope) = whole();
+    let handback = workspace.hand_back_scoped(&units, &scope).await.unwrap();
     assert_eq!(
         (handback, snapshot(&parent)),
         (
-            Handback {
-                taken: vec!["a.txt".to_owned()],
+            ScopedHandback {
+                taken: names(&["a.txt"]),
+                outside: Vec::new(),
                 conflicts: Vec::new(),
                 kept: None,
+                patch: vec![Some(1)],
             },
             files_of(&[("a.txt", "a-child")]),
         )
@@ -231,15 +356,18 @@ async fn a_path_the_parent_holds_as_a_directory_or_under_a_file_is_a_conflict() 
     write(&workspace.tree(), "q/x", "x-child");
     write(&parent, "p/inner", "inner-parent");
     write(&parent, "q", "q-parent");
-    let handback = workspace.hand_back().await.unwrap();
+    let (units, scope) = whole();
+    let handback = workspace.hand_back_scoped(&units, &scope).await.unwrap();
     let kept = workspace.root().join(CONFLICTS);
     assert_eq!(
         (handback, snapshot(&parent), snapshot(&kept)),
         (
-            Handback {
-                taken: vec!["a.txt".to_owned()],
-                conflicts: vec!["p".to_owned(), "q/x".to_owned()],
+            ScopedHandback {
+                taken: names(&["a.txt"]),
+                outside: Vec::new(),
+                conflicts: names(&["p", "q/x"]),
                 kept: Some(kept.to_string_lossy().into_owned()),
+                patch: vec![Some(1)],
             },
             files_of(&[
                 ("a.txt", "a-child"),
@@ -248,5 +376,154 @@ async fn a_path_the_parent_holds_as_a_directory_or_under_a_file_is_a_conflict() 
             ]),
             files_of(&[("p", "p-child"), ("q/x", "x-child")]),
         )
+    );
+}
+
+#[test]
+fn a_cargo_check_tests_each_crate_owning_a_touched_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        root,
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"crates/*\"]\n",
+    );
+    write(root, "Cargo.lock", "");
+    write(root, "crates/a/Cargo.toml", "[package]\nname = \"alpha\"\n");
+    write(root, "crates/a/src/lib.rs", "");
+    write(root, "crates/b/Cargo.toml", "[package]\nname = \"beta\"\n");
+    write(root, "crates/b/tests/t.rs", "");
+    write(root, "crates/c/Cargo.toml", "[package]\nname = \"gamma\"\n");
+    assert_eq!(
+        detect(
+            root,
+            &[
+                root.join("crates/b/tests/t.rs"),
+                PathBuf::from("crates/a/src/lib.rs"),
+                PathBuf::from("crates/a/src/removed.rs"),
+                PathBuf::from("Cargo.lock"),
+            ],
+        ),
+        Some("cargo test -p 'alpha' -p 'beta'".to_owned())
+    );
+}
+
+#[test]
+fn an_npm_check_tests_the_nearest_package() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "package.json", "{}");
+    write(root, "index.js", "");
+    write(root, "web/package.json", "{}");
+    write(root, "web/src/x.ts", "");
+    assert_eq!(
+        [
+            detect(root, &paths(&["web/src/x.ts"])),
+            detect(root, &paths(&["index.js", "web/src/x.ts"])),
+        ],
+        [
+            Some("npm --prefix 'web' test".to_owned()),
+            Some("npm test && npm --prefix 'web' test".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_python_check_runs_the_touched_test_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "pyproject.toml", "[project]\nname = \"p\"\n");
+    write(root, "pkg/mod.py", "");
+    write(root, "tests/unit/test_mod.py", "");
+    assert_eq!(
+        [
+            detect(root, &paths(&["pkg/mod.py", "tests/unit/test_mod.py"])),
+            detect(root, &paths(&["pkg/mod.py"])),
+        ],
+        [
+            Some("python -m pytest 'tests/unit'".to_owned()),
+            Some("python -m pytest .".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn without_a_project_or_a_command_there_is_no_check() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "notes.txt", "");
+    let config = CheckConfig {
+        command: None,
+        timeout: Duration::from_secs(60),
+    };
+    assert_eq!(
+        run_check(dir.path(), &paths(&["notes.txt"]), &config).await,
+        CheckRun::None
+    );
+}
+
+/// The run without its duration (the one field a test cannot know).
+fn timeless(run: CheckRun) -> CheckRun {
+    match run {
+        CheckRun::None => CheckRun::None,
+        CheckRun::Ran {
+            command,
+            outcome,
+            output,
+            duration_ms: _,
+        } => CheckRun::Ran {
+            command,
+            outcome,
+            output,
+            duration_ms: 0,
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_configured_command_wins_and_reports_its_exit_and_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "crates/a/Cargo.toml", "[package]\nname = \"alpha\"\n");
+    let touched = paths(&["crates/a/src/lib.rs"]);
+    let config = |command: &str| CheckConfig {
+        command: Some(command.to_owned()),
+        timeout: Duration::from_secs(60),
+    };
+    let passed = run_check(root, &touched, &config("printf ok")).await;
+    let failed = run_check(root, &touched, &config("echo out; echo err >&2; exit 3")).await;
+    assert_eq!(
+        [timeless(passed), timeless(failed)],
+        [
+            CheckRun::Ran {
+                command: "printf ok".to_owned(),
+                outcome: CheckOutcome::Passed,
+                output: "ok".to_owned(),
+                duration_ms: 0,
+            },
+            CheckRun::Ran {
+                command: "echo out; echo err >&2; exit 3".to_owned(),
+                outcome: CheckOutcome::Failed { code: Some(3) },
+                output: "out\nerr\n".to_owned(),
+                duration_ms: 0,
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_check_past_its_timeout_is_killed() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = CheckConfig {
+        command: Some("echo started; sleep 30".to_owned()),
+        timeout: Duration::from_millis(500),
+    };
+    assert_eq!(
+        timeless(run_check(dir.path(), &[], &config).await),
+        CheckRun::Ran {
+            command: "echo started; sleep 30".to_owned(),
+            outcome: CheckOutcome::TimedOut,
+            output: "started\n".to_owned(),
+            duration_ms: 0,
+        }
     );
 }

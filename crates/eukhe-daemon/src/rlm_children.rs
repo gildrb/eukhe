@@ -246,9 +246,6 @@ struct SupervisorChildSessionsInner {
     /// The parent's durable children reader (the durable worker's main
     /// conversation); `None` leaves the family view empty.
     durable_children: std::sync::Mutex<Option<DurableChildrenSource>>,
-    /// The worker's supervisor token (the family roster read behind the
-    /// spawn cap authenticates with it); `None` until the worker wires it.
-    worker_token: std::sync::Mutex<Option<String>>,
 }
 
 impl Clone for SupervisorChildSessions {
@@ -279,7 +276,6 @@ impl SupervisorChildSessions {
                 parent_cvar_family: std::sync::Mutex::new(None),
                 delete_notifier: std::sync::Mutex::new(None),
                 durable_children: std::sync::Mutex::new(None),
-                worker_token: std::sync::Mutex::new(None),
             }),
         }
     }
@@ -350,16 +346,6 @@ impl SupervisorChildSessions {
             .durable_children
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
-    }
-
-    /// Wire the worker's supervisor token: the spawn cap reads the family
-    /// roster (`list_agent_peers`) with it.
-    pub fn set_worker_token(&self, token: String) {
-        *self
-            .inner
-            .worker_token
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(token);
     }
 
     /// The inherited RLM depth bound (TS `getRlmMaxDepthStatus().maxDepth`

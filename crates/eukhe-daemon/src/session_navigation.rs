@@ -405,6 +405,8 @@ fn replacement_params(
         parent_active_session_id: live.parent_active_session_id,
         parent_session_id: live.parent_session_id,
         parent_session_path: live.parent_session_path,
+        // A replacement session is the user's own, outside every tree.
+        tree: None,
         child_script: live.child_script,
         model_patterns: None,
         spawned_by_request_id: None,

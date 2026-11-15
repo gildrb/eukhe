@@ -284,7 +284,7 @@ fn storage_text(dir: &Path) -> String {
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
     format!(
-        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
+        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
         receipt = receipt.display().to_string(),
         error_receipt = error_receipt.display().to_string(),
     )
@@ -543,7 +543,7 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
 /// RLM child through the product surface and record its id + session dir.
 fn semantic_spawn_cell(receipt: &Path, error_receipt: &Path) -> String {
     format!(
-        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"child task text\", name=\"kid\", why=\"isolate\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id, \"session_dir\": str(handle.session_dir)}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
+        "import json, traceback\ntry:\n    handle = await rlm.spawn(\"child task text\", name=\"kid\")\n    open({receipt:?}, \"w\").write(json.dumps({{\"rlm_child_id\": handle.rlm_child_id, \"session_dir\": str(handle.session_dir)}}))\n    print(handle.rlm_child_id)\nexcept Exception:\n    open({error_receipt:?}, \"w\").write(traceback.format_exc())\n    raise",
         receipt = receipt.display().to_string(),
         error_receipt = error_receipt.display().to_string(),
     )

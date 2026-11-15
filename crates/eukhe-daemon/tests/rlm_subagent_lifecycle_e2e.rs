@@ -396,7 +396,18 @@ fn kid_resident(client: &mut Client) -> bool {
 }
 
 /// The body of the spawn cell: spawn `kid`, record its id.
-const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nrecord({\"id\": handle.rlm_child_id})";
+const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nrecord({\"id\": handle.rlm_child_id})";
+
+/// The opening of a cell whose `kid` runs code (`bash`), which a read-only
+/// help leaf cannot: split the work, `kid` writing in its own copy, and
+/// delete the other half at once (every child runs the one child script),
+/// leaving `handle` the one running child. Deleting the running spare
+/// queues its `cancelled` notice, which wakes the parent for one model call
+/// once the turn of this cell ends ([`SPARE_GONE`] answers it).
+const SPLIT_KID: &str = "handle, spare = await rlm.split({\"scope\": [\"kid\"], \"task\": \"run the lane task\", \"name\": \"kid\"}, {\"scope\": [\"spare\"], \"task\": \"stand by\", \"name\": \"spare\"})\nawait rlm.delete_subagent(spare)";
+
+/// The parent's answer to the deleted spare's notice.
+const SPARE_GONE: &str = "the spare is gone";
 
 /// The body of the busy-parent cell: spawn `kid`, wait for its run to
 /// settle by reading the roster (which reads no report, unlike
@@ -404,7 +415,7 @@ const SPAWN: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\
 /// then hold the turn until the gate opens.
 fn spawn_wait_hold(gate: &Path) -> String {
     format!(
-        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nwhile not (results := [s for s in await rlm.list_subagents() if s.rlm_child_id == handle.rlm_child_id and s.status != \"running\"]):\n    await asyncio.sleep(0.05)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
+        "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nwhile not (results := [s for s in await rlm.list_subagents() if s.rlm_child_id == handle.rlm_child_id and s.status != \"running\"]):\n    await asyncio.sleep(0.05)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [asdict(r) for r in results]}})\nwhile not os.path.exists({gate:?}):\n    await asyncio.sleep(0.05)",
         gate = gate.display().to_string(),
     )
 }
@@ -437,7 +448,7 @@ fn spawn_message_wait_and_kill_a_subagent() {
         &json!([
             tool_call(&lane.cell(
                 "spawn",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
+                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nrecord({\"id\": handle.rlm_child_id, \"results\": [{\"status\": r.status, \"settled\": r.settled, \"answer\": r.answer_preview} for r in results]})",
             )),
             { "text": "spawn turn done" },
             tool_call(&lane.cell(
@@ -604,8 +615,9 @@ fn aborting_a_parent_waiting_in_collect_cancels_the_child() {
         &json!([
             tool_call(&lane.cell(
                 "wait",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+                &format!("{SPLIT_KID}\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({{\"results\": [r.status for r in results]}})"),
             )),
+            { "text": SPARE_GONE },
             { "text": "after the abort" },
         ]),
     );
@@ -659,8 +671,9 @@ fn aborting_a_parent_waiting_in_collect_kills_the_child_s_background_job() {
         &json!([
             tool_call(&lane.cell(
                 "wait",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+                &format!("{SPLIT_KID}\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({{\"results\": [r.status for r in results]}})"),
             )),
+            { "text": SPARE_GONE },
             { "text": "after the abort" },
         ]),
     );
@@ -735,8 +748,9 @@ fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
         &json!([
             tool_call(&lane.cell(
                 "wait",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({\"results\": [r.status for r in results]})",
+                &format!("{SPLIT_KID}\nresults = await rlm.collect(handle, timeout_ms=1800000)\nrecord({{\"results\": [r.status for r in results]}})"),
             )),
+            { "text": SPARE_GONE },
             tool_call(&lane.cell("read", READ_CANCELLED_KID)),
             { "text": "read the kid" },
         ]),
@@ -797,8 +811,8 @@ fn cancelling_a_running_child_as_a_job_returns_it_aborted() {
             tool_call(&lane.cell(
                 "kill",
                 &format!(
-                    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nwhile not os.path.exists({:?}):\n    await asyncio.sleep(0.05)\njob = await jobs.cancel(handle)\nrecord({{\"job\": [job.kind, job.state], \"after\": [row.session_name for row in await rlm.list_subagents()]}})",
-                    sleeping.display().to_string()
+                    "{SPLIT_KID}\nwhile not os.path.exists({sleeping:?}):\n    await asyncio.sleep(0.05)\njob = await jobs.cancel(handle)\nrecord({{\"job\": [job.kind, job.state], \"after\": [row.session_name for row in await rlm.list_subagents()]}})",
+                    sleeping = sleeping.display().to_string()
                 ),
             )),
             { "text": "killed the kid" },
@@ -819,11 +833,12 @@ fn cancelling_a_running_child_as_a_job_returns_it_aborted() {
     });
 }
 
-/// A wait an earlier cell left running in a task is not the aborted
-/// cell's: Esc on a later cell leaves the child that task waits on running
-/// (an abort ends only the waits of the cancelled run).
+/// Esc reaches the whole agent tree below the parent, not only the
+/// children the aborted cell waited on: Esc on a later cell cancels the
+/// child an earlier cell's task still waits on, its `sleep` ends with it,
+/// and the parent's next prompt runs.
 #[test]
-fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
+fn aborting_a_later_cell_cancels_a_background_wait_s_child_too() {
     const SLEEP_SECS: u32 = 1794;
     let lane = Lane::new();
     let sleeping = lane.path().join("kid-sleeping");
@@ -834,9 +849,10 @@ fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
         &json!([
             tool_call(&lane.cell(
                 "watch",
-                "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nasync def watch():\n    while not (await rlm.collect(handle, timeout_ms=1000))[0].settled:\n        pass\nwatcher = asyncio.create_task(watch())\nrecord({\"id\": handle.rlm_child_id})",
+                &format!("{SPLIT_KID}\nasync def watch():\n    while not (await rlm.collect(handle, timeout_ms=1000))[0].settled:\n        pass\nwatcher = asyncio.create_task(watch())\nrecord({{\"id\": handle.rlm_child_id}})"),
             )),
             { "text": "watching" },
+            { "text": SPARE_GONE },
             tool_call(&lane.cell(
                 "hold",
                 &format!(
@@ -871,12 +887,10 @@ fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
         &json!({ "type": "abort", "activeSessionId": parent.active }),
     );
     client.wait_idle(&parent.active);
-    std::thread::sleep(Duration::from_secs(5));
-    assert_eq!(
-        kid_status(&mut client, &parent.active),
-        Some(json!("running"))
-    );
-    assert!(kid_sleeping(SLEEP_SECS), "the abort reached the kid");
+    wait_until(Duration::from_secs(60), "the kid cancelled", || {
+        (kid_status(&mut client, &parent.active)? == "cancelled" && !kid_sleeping(SLEEP_SECS))
+            .then_some(())
+    });
     client.run_turn(&parent.active, "what now?");
     let messages = client.messages(&parent.active);
     assert_eq!(
@@ -884,20 +898,7 @@ fn aborting_a_later_cell_leaves_a_background_wait_s_child_running() {
         Some("after the abort"),
         "{messages:?}"
     );
-
-    // Stop the kid through the surface built for it, so its sleep ends.
-    let kid = client
-        .rlm_children(&parent.active)
-        .into_iter()
-        .find(|child| child["sessionName"] == "kid")
-        .expect("the kid row");
-    client.request(
-        "cancel",
-        &json!({ "type": "cancel_rlm_child", "activeSessionId": parent.active, "childId": kid["id"] }),
-    );
-    wait_until(Duration::from_secs(60), "the kid's sleep to end", || {
-        (!kid_sleeping(SLEEP_SECS)).then_some(())
-    });
+    assert_eq!(kid_reports(&messages), Vec::<String>::new());
 }
 
 /// How the daemon restarts.

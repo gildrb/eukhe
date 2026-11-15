@@ -84,6 +84,8 @@ pub(crate) struct SessionCore {
     /// The parent's session file (create `parentSessionPath`): the
     /// subagent's file-bound parent edge (summary `parentSessionPath`).
     pub(crate) parent_session_path: Option<String>,
+    /// The node's place in the agent tree (create `runtimeMetadata`).
+    pub(crate) tree: Option<eukhe_types::daemon::agent_tree::TreePlace>,
     /// The create command's `childScript` (scripted RLM children).
     pub(crate) child_script: Option<String>,
     /// The service-tier preference (`None` = settings default "auto").
@@ -148,6 +150,7 @@ impl SessionCore {
             parent_active_session_id: None,
             parent_session_id: None,
             parent_session_path: None,
+            tree: None,
             child_script: None,
             service_tier: None,
             active_service_tier: None,

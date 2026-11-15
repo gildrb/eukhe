@@ -18,10 +18,8 @@
 //! agent_dir)`), and the client's memory-model picker showed the global
 //! value. Every other setting is read through a session's cwd (the merged
 //! global + project document), so it stays Local: a value per agent keeps
-//! that behavior. `subagentMaxConcurrency` is daemon-wide in effect but
-//! read with the spawning session's cwd (`rlm_children/durable_host.rs`),
-//! and `sessionDir` is read with the cwd at startup (`eukhe-cli` `lib.rs`),
-//! so both stay Local.
+//! that behavior. `sessionDir` is read with the cwd at startup (`eukhe-cli`
+//! `lib.rs`), so it stays Local.
 //!
 //! Persist is off for the settings an untrusted project may not set
 //! (`settings::trust`: programs, commands, code sources, execution gates,
@@ -1111,6 +1109,30 @@ pub const WORKFLOW_SIZE: Decl = Decl {
     init: Init::Text("medium"),
 };
 
+/// The command an agent tree's node runs as its check (in a child's
+/// checkout before it reports, in the parent's workspace after
+/// integration), under `sh -c`; `""`: the narrowest check detected for
+/// the touched files. A command: an untrusted project may not set it.
+pub const AGENT_TREE_CHECK_COMMAND: Decl = Decl {
+    id: "agentTree.checkCommand",
+    ty: CvarType::Text,
+    scope: CvarScope::Local,
+    persist: false,
+    replicate: false,
+    init: Init::Text(""),
+};
+
+/// Seconds a node's check may run before it is killed and reported timed
+/// out (`0` takes the default, 15 minutes).
+pub const AGENT_TREE_CHECK_TIMEOUT_SECS: Decl = Decl {
+    id: "agentTree.checkTimeoutSecs",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(900),
+};
+
 pub const WARNINGS_ANTHROPIC_EXTRA_USAGE: Decl = Decl {
     id: "warnings.anthropicExtraUsage",
     ty: CvarType::Bool,
@@ -1481,6 +1503,8 @@ pub const DECLS: &[Decl] = &[
     MARKDOWN_CODE_BLOCK_INDENT,
     MARKDOWN_MERMAID,
     WORKFLOW_SIZE,
+    AGENT_TREE_CHECK_COMMAND,
+    AGENT_TREE_CHECK_TIMEOUT_SECS,
     WARNINGS_ANTHROPIC_EXTRA_USAGE,
     SESSION_DIR,
     REQUEST_TIMING,

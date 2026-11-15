@@ -218,8 +218,6 @@ pub enum Entry {
     Optchat = 422,
     /// `bend/ffi_autoresearch.bend`: a stepper.
     Autoresearch = 430,
-    /// `bend/ffi_family.bend`: a call.
-    Family = 431,
     /// `bend/ffi_task_life.bend`: a call.
     TaskLife = 432,
     /// `bend/ffi_rlm_query.bend`: a call.
@@ -264,8 +262,8 @@ pub enum Entry {
     Verify = 458,
     /// `bend/ffi_budget_share.bend`: a call.
     BudgetShare = 459,
-    /// `bend/ffi_server_peer.bend`: a call.
-    ServerPeer = 460,
+    /// `bend/ffi_agent_tree.bend`: a call.
+    AgentTree = 460,
 }
 
 impl Entry {
@@ -377,7 +375,6 @@ impl Entry {
         Entry::ToolCall,
         Entry::Optchat,
         Entry::Autoresearch,
-        Entry::Family,
         Entry::TaskLife,
         Entry::RlmQuery,
         Entry::ArgRepair,
@@ -400,7 +397,7 @@ impl Entry {
         Entry::Budget,
         Entry::Verify,
         Entry::BudgetShare,
-        Entry::ServerPeer,
+        Entry::AgentTree,
     ];
 
     /// The id `bend/core.bend` dispatches on.

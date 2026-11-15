@@ -299,9 +299,13 @@ fn report_cell(receipt: &Path) -> String {
     )
 }
 
-/// The kernel cell of the parent's spawn turn.
+/// The kernel cell of the parent's spawn turn. The kid runs code (its
+/// report cell), which a read-only help leaf cannot: a split whose `kid`
+/// writes in its own copy, the other half deleted at once (every child
+/// runs the one child script), so `kid` is the one child that reports.
+/// Deleting the running `spare` tells the parent it was cancelled.
 fn spawn_cell() -> &'static str {
-    "handle = await rlm.spawn(\"find the number\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)"
+    "handle, spare = await rlm.split({\"scope\": [\"kid\"], \"task\": \"find the number\", \"name\": \"kid\"}, {\"scope\": [\"spare\"], \"task\": \"stand by\", \"name\": \"spare\"})\nawait rlm.delete_subagent(spare)\nprint(handle.rlm_child_id)"
 }
 
 /// A child that reported to its parent (an agent message) exits passively:
@@ -317,8 +321,9 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
     let _daemon = spawn_supervisor(&socket, &agent_dir);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
-    // The report waits out the parent's spawn turn, so it answers in a
-    // turn of its own; a notice turn would consume "notice seen".
+    // The spare's cancel notice answers in the turn after the spawn turn;
+    // the report waits out both, so it answers in a turn of its own; a
+    // no-reply notice turn for the kid would consume "notice seen".
     let parent = create_session(
         &mut client,
         dir.path(),
@@ -330,6 +335,7 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
                     { "type": "toolCall", "name": "python", "arguments": { "code": spawn_cell() } },
                 ] },
                 { "text": "spawn turn done" },
+                { "text": "spare cancel seen" },
                 { "text": "report seen" },
                 { "text": "notice seen" },
             ],
@@ -379,8 +385,12 @@ fn a_child_that_reported_exits_without_waking_its_parent() {
     let rows = messages(&mut client, "parent-messages", &parent);
     assert_eq!(
         answers(&rows),
-        vec!["spawn turn done".to_string(), "report seen".to_string()],
-        "one turn for the report, none for a notice: {rows:?}"
+        vec![
+            "spawn turn done".to_string(),
+            "spare cancel seen".to_string(),
+            "report seen".to_string()
+        ],
+        "one turn for the spare's cancel, one for the report, none for a notice: {rows:?}"
     );
     assert_eq!(
         rows.iter()

@@ -4,9 +4,11 @@
 //! model's choice of tool (no code picks it):
 //!
 //! - `worker_assign {note?, worker?, fresh?}`: a new task. The first one
-//!   creates the worker (`worker`, shared workspace, report `inbox`, a
-//!   chat of its own); later ones re-task it ([`super::assign`]) when it is idle.
-//!   `fresh` starts another worker (`worker-2`, ...) for unrelated work.
+//!   creates the worker: the agent tree's root (the whole workspace, shared
+//!   with main, which writes nothing; report `inbox`, a chat of its own);
+//!   later ones re-task it ([`super::assign`]) when it is idle. One root
+//!   runs at a time: `fresh` names another worker (`worker-2`, ...) for
+//!   unrelated work once the running one settled.
 //! - `worker_forward {kind, note?, worker?}`: the user's words for the
 //!   running work, as `context` (fold it in) or `redirect` (re-plan), placed
 //!   at the worker's next boundary (never inside a tool call). A paused tree
@@ -56,10 +58,9 @@ use super::host::{
 };
 use super::pause::RunPause;
 use super::registry::{read_children, ChildRow, ChildStatus, CHILDREN_DOC};
-use super::requests::{admit_spawns, SpawnKwargs, SpawnSpec};
+use super::spawn::{admit_spawns, Admission, SpawnKwargs, SpawnSpec};
 use super::task::ReportMode;
 use super::Children;
-use crate::child_workspace::WorkspaceMode;
 use crate::durable::deps::HostCall;
 use crate::durable::optchat::{user_images, user_text};
 use crate::durable::tool_contract;
@@ -644,13 +645,9 @@ async fn assign_call(
             let spec = SpawnSpec {
                 prompt: handed.body.clone(),
                 kwargs: SpawnKwargs {
-                    // Main's roster holds only read tools and the worker
-                    // tools; the worker needs the full tool set.
-                    why: Some("tools".to_owned()),
                     name: Some(name.clone()),
                     model: children.services.settings.manager().get_worker_model(),
                     thinking: None,
-                    workspace: Some(WorkspaceMode::Shared),
                     label: None,
                     phase: None,
                     report: ReportMode::Inbox,
@@ -667,9 +664,18 @@ async fn assign_call(
                 call: Some(Arc::clone(&api)),
                 signal: None,
             };
-            admit_spawns(&children, &call, vec![spec], Some(handed.cursor))
-                .await
-                .map_err(|error| SessionError::error(format!("{error:#}")))?;
+            // The worker is the agent tree's root: the whole workspace,
+            // one at a time.
+            admit_spawns(
+                &children,
+                &call,
+                vec![spec],
+                Admission::Root {
+                    forward_cursor: handed.cursor,
+                },
+            )
+            .await
+            .map_err(|error| SessionError::error(format!("{error:#}")))?;
             "created it"
         }
         Some(row) if row.settled && row.status.is_terminal() => {

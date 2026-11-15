@@ -364,6 +364,7 @@ async fn subscribe_after_spawn_then_shutdown_seeds_the_passive_child() {
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
             acceptance: None,
+            tree: None,
         })
         .await
         .expect("spawn child");

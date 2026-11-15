@@ -4,8 +4,7 @@
 //! plus the `eukhe.child-usage-attributed` rows that name the spawning
 //! assistant row.
 
-use super::host::{RlmChildIdentity, RlmChildVerdict};
-use crate::child_workspace::Handback;
+use super::host::{RlmChildHandback, RlmChildIdentity, RlmChildVerdict};
 use crate::durable::observe::rlm_usage::{
     attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
 };
@@ -170,9 +169,14 @@ pub(crate) struct ChildRow {
     /// harness read when its run settled. `None`: the child has no checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) acceptance: Option<RlmChildVerdict>,
+    /// A writing node that failed or was cancelled: its partial patch over
+    /// its units, measured and not applied (its workspace keeps the work).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) patch: Option<eukhe_bend::rules::agent_tree::Patch>,
 }
 
-/// The persisted result of handing an isolated child's workspace back.
+/// The persisted result of handing an isolated child's workspace back. A
+/// done hand-back is boxed: it carries the scoped hand-back and its patch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -180,7 +184,7 @@ pub(crate) struct ChildRow {
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum HandbackOutcome {
-    Done { handback: Handback },
+    Done { handback: Box<RlmChildHandback> },
     Failed { error: String },
 }
 

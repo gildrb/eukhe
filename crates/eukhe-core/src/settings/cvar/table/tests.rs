@@ -166,6 +166,10 @@ fn populated() -> Settings {
         workflow: Some(crate::settings::types::WorkflowSettings {
             size: Some(eukhe_types::workflow::WorkflowSize::Large),
         }),
+        agent_tree: Some(crate::settings::types::AgentTreeSettings {
+            check_command: Some("make check".into()),
+            check_timeout_secs: Some(60),
+        }),
         warnings: Some(WarningSettings {
             anthropic_extra_usage: Some(true),
         }),

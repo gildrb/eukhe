@@ -20,21 +20,37 @@ type AgentOptions = {
   schema?: object;
   model?: string;
   effort?: string;
-  isolation?: "shared" | "worktree" | "isolated";
+  /** The files and directories a writing agent writes; none: a read-only agent. */
+  scope?: string[];
 };
 
 /** One stage of `pipeline`: the previous stage's value, the item, and the item's index. */
 type PipelineStage = (value: unknown, item: unknown, index: number) => unknown;
 
+/** One `agent()` call as the host reads it. */
+type AgentRequest = {
+  ordinal: number;
+  /** How many earlier calls had the same prompt and options. */
+  occurrence: number;
+  prompt: string;
+  options: AgentOptions;
+};
+
+/** What the host answers for one agent. */
+type AgentAnswer = { result: unknown; cached: boolean };
+
+/** A writing agent waiting for its batch to start. */
+type AgentWriter = {
+  request: AgentRequest;
+  resolve: (answer: AgentAnswer) => void;
+  reject: (error: unknown) => void;
+};
+
 declare const wf: Readonly<{
+  /** Admits the writing agents called together as one batch of the agent tree, all or none. */
+  batch(request: { agents: AgentRequest[] }): Promise<null>;
   /** Runs (or serves from an earlier run) the agent of the `ordinal`th call. */
-  agent(request: {
-    ordinal: number;
-    /** How many earlier calls had the same prompt and options. */
-    occurrence: number;
-    prompt: string;
-    options: AgentOptions;
-  }): Promise<{ result: unknown; cached: boolean }>;
+  agent(request: AgentRequest): Promise<AgentAnswer>;
   phase(update: { title: string }): Promise<undefined>;
   log(update: { message: string }): Promise<undefined>;
 }>;

@@ -41,20 +41,22 @@ use serde_json::{json, Value};
 mod budget;
 mod report_delivery;
 mod silent;
+mod tree;
 mod watch;
 mod worker;
 mod workspace;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
+use super::RlmChildHandback;
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
     RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildListing, RlmChildObservation,
     RlmChildPauseRequest, RlmChildPromptRequest, RlmChildRunState, RlmChildSession,
     RlmChildSpawnRequest, RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest,
-    RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost, RunPause,
+    RlmRenameTarget, RlmSubagentHost, RunPause,
 };
-use crate::child_workspace::Handback;
+use crate::child_workspace::{CheckRun, ScopedHandback};
 use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{
     HarnessCell, HostCall, HostRequestRegistry, SessionClosing, SessionShape,
@@ -64,6 +66,7 @@ use crate::durable::observe::rlm_usage::{
     CHILD_USAGE_ATTRIBUTED_KIND,
 };
 use crate::durable::settings::EukheSettings;
+use eukhe_bend::rules::agent_tree::Patch;
 use report_delivery::{spawn_collect_hold_tool, HeldSpawn};
 
 const PARENT_SESSION_ID: &str = "parent-session";
@@ -93,9 +96,8 @@ struct FakeState {
     renames: Vec<RlmRenameRequest>,
     /// The error the next renames answer with (the host refused).
     rename_error: Option<String>,
-    /// The spawn cap the host reports (`0` = unlimited) and the family's
-    /// active subagents outside this parent.
-    capacity: Option<RlmSpawnCapacity>,
+    /// The hand-back and measure requests, in order.
+    handbacks: Vec<RlmChildHandbackRequest>,
     /// Polls that fail before the next one is answered (a live child whose
     /// routes are overloaded or slow).
     failing_waits: usize,
@@ -105,8 +107,10 @@ struct FakeState {
     tokens: HashMap<String, u64>,
     /// Whether every poll advances the tokens (the children progress).
     ticking: bool,
-    /// The hand-back every child reports (`None`: the shared workspace).
-    handback: Option<Handback>,
+    /// The hand-back every writer reports (`None`: no isolated copy).
+    handback: Option<RlmChildHandback>,
+    /// The partial patch every writer that did not finish reports.
+    patch: Option<Patch>,
     /// The full final answer each child reports once it settles.
     answers: HashMap<String, String>,
     /// Pauses and resumes of children's trees, in order.
@@ -178,7 +182,15 @@ impl RlmSubagentHost for FakeHost {
     }
 
     fn prompt(&self, request: RlmChildPromptRequest) -> RlmHostFuture<'_, ()> {
-        lock(&self.state).prompts.push(request);
+        let mut fake = lock(&self.state);
+        // A prompt to a failed child starts its next run, as the daemon's
+        // admission does: the watch never reads the old failure again.
+        if let Some(state @ RlmChildRunState::Failed { .. }) =
+            fake.outcomes.get_mut(&request.session_id)
+        {
+            *state = RlmChildRunState::Running;
+        }
+        fake.prompts.push(request);
         Box::pin(async { Ok(()) })
     }
 
@@ -269,20 +281,25 @@ impl RlmSubagentHost for FakeHost {
         })
     }
 
-    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity> {
-        let capacity = lock(&self.state)
-            .capacity
-            .clone()
-            .unwrap_or(RlmSpawnCapacity {
-                max_concurrency: 0,
-                active_session_ids: Vec::new(),
-            });
-        Box::pin(async move { Ok(capacity) })
+    fn hand_back(
+        &self,
+        request: RlmChildHandbackRequest,
+    ) -> RlmHostFuture<'_, Option<RlmChildHandback>> {
+        let handback = {
+            let mut fake = lock(&self.state);
+            fake.handbacks.push(request);
+            fake.handback.clone()
+        };
+        Box::pin(async move { Ok(handback) })
     }
 
-    fn hand_back(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>> {
-        let handback = lock(&self.state).handback.clone();
-        Box::pin(async move { Ok(handback) })
+    fn measure(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>> {
+        let patch = {
+            let mut fake = lock(&self.state);
+            fake.handbacks.push(request);
+            fake.patch.clone()
+        };
+        Box::pin(async move { Ok(patch) })
     }
 
     fn pause(&self, request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()> {
@@ -512,33 +529,40 @@ struct Opened {
     harness: Harness,
     root: Conversation,
     requests: HostRequestRegistry,
-    /// The `rlm.run_batch` payload the `spawn_batch` tool sends next, and
-    /// every reply it got (`error: ...` for a refusal).
-    batch: Arc<Mutex<(Value, Vec<String>)>>,
+    /// The host request the `request` tool sends next (its type and
+    /// payload), and every reply it got (`error: ...` for a refusal).
+    staged: Arc<Mutex<Staged>>,
     held: Arc<HeldSpawn>,
     /// The session's closing gate (the worker begins it before its close's
     /// abort).
     closing: SessionClosing,
 }
 
-/// A tool whose call runs the kernel's `rlm.spawn_batch` host request with
-/// the payload the test staged in `batch`.
-fn spawn_batch_tool(
-    requests: HostRequestRegistry,
-    batch: Arc<Mutex<(Value, Vec<String>)>>,
-) -> Arc<Extension> {
+/// The host request a test stages for the `request` tool.
+#[derive(Default)]
+struct Staged {
+    request: String,
+    data: Value,
+    replies: Vec<String>,
+}
+
+/// A tool whose call runs the host request the test staged.
+fn request_tool(requests: HostRequestRegistry, staged: Arc<Mutex<Staged>>) -> Arc<Extension> {
     let parameters: TSchema = Type::object(Vec::<(String, TSchema)>::new());
     let tool = define_tool(ToolRegistration::new(
-        "spawn_batch",
-        "Spawn several RLM children",
+        "request",
+        "Run a staged host request",
         parameters,
         move |_args, api, _cx| {
+            let (request, data) = {
+                let staged = lock(&staged);
+                (staged.request.clone(), staged.data.clone())
+            };
             let handler = requests
-                .get("rlm.run_batch")
-                .expect("rlm.run_batch is registered");
-            let batch = Arc::clone(&batch);
+                .get(&request)
+                .unwrap_or_else(|| panic!("{request} is registered"));
+            let staged = Arc::clone(&staged);
             async move {
-                let data = lock(&batch).0.clone();
                 let reply = handler(HostCall {
                     data,
                     cell_source_code: None,
@@ -550,7 +574,7 @@ fn spawn_batch_tool(
                     Ok(value) => value.to_string(),
                     Err(error) => format!("error: {error:#}"),
                 };
-                lock(&batch).1.push(text.clone());
+                lock(&staged).replies.push(text.clone());
                 Ok(ToolExecutionResult {
                     output: Some(vec![UserContentBlock::Text(TextContent::new(text))]),
                     ..ToolExecutionResult::default()
@@ -560,7 +584,7 @@ fn spawn_batch_tool(
     ));
     define_extension(Extension {
         tools: vec![tool],
-        ..Extension::named("test.spawn_batch")
+        ..Extension::named("test.request")
     })
 }
 
@@ -575,7 +599,7 @@ fn spawn_tool(requests: HostRequestRegistry) -> Arc<Extension> {
             let handler = requests.get("rlm.run").expect("rlm.run is registered");
             async move {
                 let reply = handler(HostCall {
-                    data: json!({ "prompt": PROMPT, "kwargs": { "why": "parallel" } }),
+                    data: json!({ "prompt": PROMPT, "kwargs": {} }),
                     cell_source_code: None,
                     call: Some(api),
                     signal: None,
@@ -623,14 +647,16 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(cell.clone())),
         budget: Arc::clone(&setup.budget),
+        // The fixture's session is the tree's root.
+        place: Some(super::tree::root_place()),
     });
-    let batch = Arc::new(Mutex::new((Value::Null, Vec::new())));
+    let staged = Arc::new(Mutex::new(Staged::default()));
     let held = Arc::new(HeldSpawn::default());
     let registry = create_registry();
     registry.install(children.install(&requests)).unwrap();
     registry.install(spawn_tool(requests.clone())).unwrap();
     registry
-        .install(spawn_batch_tool(requests.clone(), Arc::clone(&batch)))
+        .install(request_tool(requests.clone(), Arc::clone(&staged)))
         .unwrap();
     registry
         .install(spawn_collect_hold_tool(requests.clone(), Arc::clone(&held)))
@@ -662,7 +688,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         harness,
         root,
         requests,
-        batch,
+        staged,
         held,
         closing,
     }
@@ -1320,54 +1346,10 @@ async fn a_child_run_ended_by_a_provider_error_reports_a_typed_failure() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+/// A spawn's kwargs are checked first, then the session's child runtime.
 #[tokio::test]
-async fn spawn_at_the_depth_limit_errors_as_today() {
+async fn a_spawn_checks_its_kwargs_then_the_child_runtime() {
     let setup = setup();
-    let requests = HostRequestRegistry::default();
-    Children::new(ChildrenConfig {
-        host: Some(FakeHost::new()),
-        parent_session_id: PARENT_SESSION_ID.to_owned(),
-        rlm_depth: 2,
-        rlm_max_depth: 2,
-        harness: HarnessCell::default(),
-        models: setup.models.clone(),
-        semantic_edges: None,
-        progress_note: None,
-        settings: default_settings(),
-        closing: SessionClosing::default(),
-        shape: SessionShape::Single,
-        pause: Arc::new(RunPause::new(HarnessCell::default())),
-        budget: Arc::clone(&setup.budget),
-    })
-    .install(&requests);
-    let handler = requests.get("rlm.run").unwrap();
-    let spawn = |kwargs: Value| {
-        handler(HostCall {
-            data: json!({ "prompt": PROMPT, "kwargs": kwargs }),
-            cell_source_code: None,
-            call: None,
-            signal: None,
-        })
-    };
-    // The compiled core (entry 431) refuses at the bound; a spawn without
-    // an allowed reason is refused first, naming the rule.
-    let at_bound = spawn(json!({ "why": "parallel" })).await.unwrap_err();
-    let no_why = spawn(json!({})).await.unwrap_err();
-    let other_why = spawn(json!({ "why": "curious" })).await.unwrap_err();
-    let rule = "rlm.spawn task 0 has no allowed why: why must be \"parallel\" (independent tasks run at once), \"isolate\" (the work would bloat this context; only a compact result comes back), \"tools\" (the task needs a tool set or instructions that conflict with this agent's) or \"user\" (the user asked for a subagent); otherwise do the work in this loop";
-    assert_eq!(
-        [
-            at_bound.to_string(),
-            no_why.to_string(),
-            other_why.to_string()
-        ],
-        [
-            "RLM recursion depth limit reached (RLM_DEPTH=2, RLM_MAX_DEPTH=2)".to_owned(),
-            rule.to_owned(),
-            rule.to_owned(),
-        ]
-    );
-
     let requests = HostRequestRegistry::default();
     Children::new(ChildrenConfig {
         host: None,
@@ -1383,6 +1365,7 @@ async fn spawn_at_the_depth_limit_errors_as_today() {
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
         budget: Arc::clone(&setup.budget),
+        place: Some(super::tree::root_place()),
     })
     .install(&requests);
     let handler = requests.get("rlm.run").unwrap();
@@ -1763,19 +1746,23 @@ async fn rename_keeps_sibling_names_unique_and_restores_a_refused_rename() {
     opened.harness.close(cx()).await.unwrap();
 }
 
-/// Run one parent turn whose tool call sends `rlm.run_batch` with `tasks`;
-/// returns the tool's reply text.
-async fn spawn_batch_turn(opened: &Opened, setup: &Setup, tasks: Value) -> String {
-    lock(&opened.batch).0 = json!({ "tasks": tasks });
+/// Run one parent turn whose tool call sends the host request `request`
+/// with `data`; returns the tool's reply text.
+async fn request_turn(opened: &Opened, setup: &Setup, request: &str, data: Value) -> String {
+    {
+        let mut staged = lock(&opened.staged);
+        staged.request = request.to_owned();
+        staged.data = data;
+    }
     setup.faux.append_responses(vec![
         FauxResponseStep::Message(Box::new(faux_assistant_message(
-            faux_tool_call("spawn_batch", JsonObject::new(), None),
+            faux_tool_call("request", JsonObject::new(), None),
             FauxAssistantMessageOptions {
                 stop_reason: Some(StopReason::ToolUse),
                 ..FauxAssistantMessageOptions::default()
             },
         ))),
-        answer("batched"),
+        answer("requested"),
     ]);
     let submission = opened
         .root
@@ -1792,68 +1779,55 @@ async fn spawn_batch_turn(opened: &Opened, setup: &Setup, tasks: Value) -> Strin
         .await
         .unwrap();
     submission.wait(cx()).await.unwrap();
-    lock(&opened.batch)
-        .1
+    lock(&opened.staged)
+        .replies
         .last()
         .cloned()
-        .expect("the batch tool ran")
+        .expect("the request tool ran")
 }
 
-/// The spawn cap (omp2 `sv_task_max_concurrency`): the family's active
-/// subagents (the host's view unioned with this parent's live children)
-/// plus the batch must fit `subagentMaxConcurrency`, else the whole batch
-/// is refused and nothing admits.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_spawn_batch_over_the_concurrency_cap_admits_nothing() {
-    let setup = setup();
-    let host = FakeHost::new();
-    lock(&host.state).capacity = Some(RlmSpawnCapacity {
-        max_concurrency: 3,
-        active_session_ids: vec!["cousin-session".to_owned()],
-    });
-    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name, "why": "parallel" } });
-    let rows = || async {
-        let mut rows: Vec<(String, ChildStatus)> =
-            read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
-                .await
-                .unwrap()
-                .children
-                .values()
-                .map(|row| (row.session_name.clone(), row.status))
-                .collect();
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        rows
-    };
+/// Run one parent turn that asks a help leaf (`rlm.run`) with `prompt`
+/// and `kwargs`; returns the tool's reply text.
+async fn spawn_turn(opened: &Opened, setup: &Setup, prompt: &str, kwargs: Value) -> String {
+    request_turn(
+        opened,
+        setup,
+        "rlm.run",
+        json!({ "prompt": prompt, "kwargs": kwargs }),
+    )
+    .await
+}
 
-    let over = spawn_batch_turn(&opened, &setup, json!([task("a"), task("b"), task("c")])).await;
-    let after_refusal = rows().await;
-    let within = spawn_batch_turn(&opened, &setup, json!([task("a"), task("b")])).await;
-    let full = spawn_batch_turn(&opened, &setup, json!([task("c")])).await;
-    let handles: Vec<String> = serde_json::from_str::<Value>(&within).unwrap()["handles"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|handle| handle["name"].as_str().unwrap().to_owned())
-        .collect();
-
-    let refusal = "error: subagent concurrency limit 3 is already full".to_owned();
-    assert_eq!(
-        (over, after_refusal, handles, full, rows().await),
-        (
-            refusal.clone(),
-            Vec::new(),
-            vec!["a".to_owned(), "b".to_owned()],
-            refusal,
-            vec![
-                ("a".to_owned(), ChildStatus::Running),
-                ("b".to_owned(), ChildStatus::Running),
-            ],
-        )
-    );
-    assert_eq!(host.spawn_keys().len(), 2);
-    opened.root.wait_for_idle(cx()).await.unwrap();
-    opened.harness.close(cx()).await.unwrap();
+/// Run one parent turn that splits its scope: `left` and `right` to the
+/// children named so; returns their registry rows, left then right.
+async fn split_children(
+    opened: &Opened,
+    setup: &Setup,
+    left: &[&str],
+    right: &[&str],
+) -> [ChildRow; 2] {
+    let reply = request_turn(
+        opened,
+        setup,
+        "rlm.split",
+        json!({
+            "left": { "scope": left, "task": "do the left half", "name": "left" },
+            "right": { "scope": right, "task": "do the right half", "name": "right" },
+        }),
+    )
+    .await;
+    assert!(!reply.starts_with("error:"), "{reply}");
+    let state = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap();
+    ["left", "right"].map(|name| {
+        state
+            .children
+            .values()
+            .find(|row| row.session_name == name)
+            .cloned()
+            .expect("the split admitted the child")
+    })
 }
 
 /// A worker started by an older binary answers `get_run_outcome` without
@@ -1995,25 +1969,25 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
 
     // A check of no known shape fails the spawn, naming the kwarg.
-    let refused = spawn_batch_turn(
+    let refused = spawn_turn(
         &opened,
         &setup,
-        json!([{ "prompt": PROMPT, "kwargs": {
-            "why": "parallel", "name": "broken",
+        PROMPT,
+        json!({
+            "name": "broken",
             "accept": [{ "kind": "command", "cmd": "pytest -q" }],
-        } }]),
+        }),
     )
     .await;
     assert!(
         refused.starts_with("error: rlm.spawn accept[0] has the unknown key \"cmd\""),
         "{refused}"
     );
-    let refused = spawn_batch_turn(
+    let refused = spawn_turn(
         &opened,
         &setup,
-        json!([{ "prompt": PROMPT, "kwargs": {
-            "why": "parallel", "name": "broken", "accept_returns": 2,
-        } }]),
+        PROMPT,
+        json!({ "name": "broken", "accept_returns": 2 }),
     )
     .await;
     assert!(
@@ -2024,14 +1998,15 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
 
     // The parent spawns a child with one command check and no intent
     // check; the host gets them for the child's create config.
-    let spawned = spawn_batch_turn(
+    let spawned = spawn_turn(
         &opened,
         &setup,
-        json!([{ "prompt": PROMPT, "kwargs": {
-            "why": "parallel", "name": "fixer",
+        PROMPT,
+        json!({
+            "name": "fixer",
             "accept": [{ "kind": "command", "command": "pytest -q", "timeout_ms": 60000 }],
             "accept_intent": false, "accept_returns": 1,
-        } }]),
+        }),
     )
     .await;
     assert!(!spawned.starts_with("error:"), "{spawned}");

@@ -1600,6 +1600,7 @@ async fn the_read_tool_serves_internal_urls() {
         task: None,
         worker: false,
         acceptance: None,
+        patch: None,
     };
     let root = session.root().id();
     session
@@ -1790,6 +1791,7 @@ async fn root_and_subagent_configs(fixture: &Fixture) -> (SessionConfig, Session
             spawned_by_request_id: None,
         }),
         worker: false,
+        tree: None,
     };
     child.cvar_agent = CvarAgent::Subagent {
         inherited: Vec::new(),

@@ -20,7 +20,9 @@ mod progress;
 mod registry;
 mod rename;
 mod requests;
+mod spawn;
 mod task;
+mod tree;
 mod watch;
 mod wire;
 mod work;
@@ -43,17 +45,17 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
 pub use commands::{
-    cancel_child, delete_inactive_child, find_child, list_children, mark_child_replied,
-    DeleteChildOutcome, RlmChildRecord,
+    cancel_child, cancel_tree, delete_inactive_child, find_child, list_children,
+    mark_child_replied, DeleteChildOutcome, RlmChildRecord,
 };
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
     ChildMessageKind, NoRlmChildren, PauseAction, RlmChildActivityKind, RlmChildCancelRequest,
-    RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
-    RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
+    RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandback, RlmChildHandbackRequest,
+    RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
     RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
     RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
-    RlmSpawnCapacity, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
+    RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub(crate) use registry::children_verdicts;
 pub use registry::{
@@ -113,6 +115,8 @@ pub(crate) struct ChildrenConfig {
     pub(crate) closing: SessionClosing,
     pub(crate) shape: SessionShape,
     pub(crate) pause: Arc<RunPause>,
+    /// The session's place in the agent tree; `None`: outside or above it.
+    pub(crate) place: Option<eukhe_types::daemon::agent_tree::TreePlace>,
     /// The session's budget: a child's allotment is carved out of it.
     pub(crate) budget: Arc<BudgetGate>,
 }
@@ -130,6 +134,8 @@ impl Children {
             settings: config.settings,
             budget: config.budget,
             polled: std::sync::Mutex::default(),
+            harness: config.harness.clone(),
+            place: config.place,
         });
         let task = child_task(&services);
         Arc::new(Self {
@@ -179,6 +185,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         closing: deps.closing.clone(),
         shape: deps.shape,
         pause: Arc::clone(&deps.run_pause),
+        place: tree::place_of(&deps.role, deps.shape),
         budget: Arc::clone(&deps.budget),
     })
     .install(&deps.host_requests)

@@ -18,7 +18,8 @@ use super::host::ChildMessageKind;
 use super::notice::rlm_child_label;
 use super::registry::{resolve, tx_children, tx_put_row, ChildStatus, Resolved};
 use super::requests::cx;
-use super::task::{ChildTaskInput, ReportMode};
+use super::spawn::root_running;
+use super::task::{ChildTaskInput, ReportMode, TreeSpawn};
 use super::Children;
 
 /// One re-task: the prompt, what it is to the child, its row details, and
@@ -86,6 +87,14 @@ pub(crate) async fn assign(
             if !row.settled || !row.status.is_terminal() {
                 return Err(SessionError::error(child_busy(&row.session_name)));
             }
+            // A worker is the agent tree's root: one runs at a time.
+            if row.worker {
+                if let Some(root) = state.children.values().find(|other| {
+                    other.worker && !other.is_deleted() && !other.status.is_terminal()
+                }) {
+                    return Err(SessionError::error(root_running(&root.session_name)));
+                }
+            }
             let label = rlm_child_label(&assignment.prompt);
             let input = ChildTaskInput {
                 prompt: assignment.prompt,
@@ -93,7 +102,7 @@ pub(crate) async fn assign(
                 thinking: None,
                 spawned_by_request_id: Some(spawned_by_request_id),
                 max_depth: Some(max_depth),
-                workspace: None,
+                tree: row.worker.then(TreeSpawn::root),
                 owed: None,
                 report: ReportMode::Inbox,
                 child: Some(row.task_id),

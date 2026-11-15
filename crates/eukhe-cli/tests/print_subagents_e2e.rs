@@ -110,15 +110,22 @@ fn headless_command(
     command
 }
 
-/// The kernel cell a parent spawns its child with.
-const SPAWN_CELL: &str = "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)";
+/// The kernel cell a parent spawns its read-only child with.
+const SPAWN_CELL: &str =
+    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nprint(handle.rlm_child_id)";
 
-/// The parent's script: the spawn turn, then a text answer for each turn
-/// a report or a message wakes.
-fn spawn_script(answers: &[&str]) -> Value {
+/// The kernel cell a parent starts a child that runs code with (a
+/// read-only help leaf cannot): a split whose `kid` writes in its own
+/// copy, the other half deleted at once (every child runs the one child
+/// script), so `kid` is the one running child.
+const SPLIT_CELL: &str = "handle, spare = await rlm.split({\"scope\": [\"kid\"], \"task\": \"run the lane task\", \"name\": \"kid\"}, {\"scope\": [\"spare\"], \"task\": \"stand by\", \"name\": \"spare\"})\nawait rlm.delete_subagent(spare)\nprint(handle.rlm_child_id)";
+
+/// The parent's script: the spawn turn running `cell`, then a text answer
+/// for each turn a report or a message wakes.
+fn spawn_script(cell: &str, answers: &[&str]) -> Value {
     let mut responses = vec![
         json!({ "content": [
-            { "type": "toolCall", "name": "python", "arguments": { "code": SPAWN_CELL } },
+            { "type": "toolCall", "name": "python", "arguments": { "code": cell } },
         ] }),
         json!({ "text": "spawn turn done" }),
     ];
@@ -199,7 +206,7 @@ fn print_json_spawn_reports_back_and_wakes_the_parent() {
         home.path(),
         &json!({ "responses": [{ "text": "kid report: lane done" }] }),
     );
-    let script = spawn_script(&["report seen"]);
+    let script = spawn_script(SPAWN_CELL, &["report seen"]);
 
     let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
 
@@ -252,7 +259,7 @@ fn print_json_child_messages_its_headless_parent() {
         socket: socket.clone(),
     };
     let child_script = write_child_script(home.path(), &messaging_child_script());
-    let script = spawn_script(&["woken once", "woken twice", "woken thrice"]);
+    let script = spawn_script(SPLIT_CELL, &["woken once", "woken twice", "woken thrice"]);
 
     let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
 
@@ -345,7 +352,7 @@ fn print_run_leaves_no_process_behind() {
         socket: socket.clone(),
     };
     let child_script = write_child_script(home.path(), &messaging_child_script());
-    let script = spawn_script(&["woken once", "woken twice", "woken thrice"]);
+    let script = spawn_script(SPLIT_CELL, &["woken once", "woken twice", "woken thrice"]);
 
     let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
 
@@ -367,7 +374,7 @@ fn rpc_session_leaves_no_process_behind() {
         home.path(),
         &json!({ "responses": [{ "text": "kid report: lane done" }] }),
     );
-    let script = spawn_script(&["report seen", "nothing more"]);
+    let script = spawn_script(SPAWN_CELL, &["report seen", "nothing more"]);
     let mut rpc = headless_command(home.path(), &socket, &script, &child_script)
         .args(["--mode", "rpc"])
         .stdin(Stdio::piped())
@@ -443,7 +450,7 @@ fn print_run_keeps_a_running_daemon_and_stops_its_children() {
         home.path(),
         &json!({ "responses": [{ "text": "kid report: lane done" }] }),
     );
-    let script = spawn_script(&["report seen"]);
+    let script = spawn_script(SPAWN_CELL, &["report seen"]);
 
     let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
 

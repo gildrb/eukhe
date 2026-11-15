@@ -1,5 +1,7 @@
 //! Copy-on-write child workspaces (S3; model
-//! `bend/sandbox.bend`, `back`, and its per-path `plan`).
+//! `bend/sandbox.bend`, `back`, and its per-path `plan`) and the hand-back
+//! of an agent tree's writing child by its scope (`bend/agent_tree.bend`,
+//! `overlay`).
 //!
 //! An isolated child works on its own copy of its parent's workspace. At
 //! its spawn the host copies the parent's tracked and untracked, not
@@ -9,12 +11,18 @@
 //! XFS, APFS); elsewhere it copies the bytes and logs that it did.
 //!
 //! At the child's end the host takes the child's changes back into the
-//! parent's workspace, path by path, with the plan of each path
-//! ([`merge::plan`], run by the compiled Bend core): a path the child did
-//! not change keeps the parent's content; a path only the child changed
-//! gets the child's; a path both changed to the same content keeps it; a
-//! path both changed differently keeps the parent's and is a conflict, and
-//! the child's version stays under `conflicts/`.
+//! parent's workspace by the child's scope
+//! ([`ChildWorkspace::hand_back_scoped`]):
+//! - the child's patch: per unit ([`unit_of`]), whether the child added,
+//!   modified or removed a file in it (its copy against `base/`);
+//! - the core's `overlay` of that patch by the child's scope: a changed
+//!   path in a unit outside the scope, or in no unit, is never applied; the
+//!   child's version stays under `conflicts/`;
+//! - each path inside the scope takes the plan of its parent, base and
+//!   child contents ([`merge::plan`]): a path only the child changed gets
+//!   the child's content; a path both changed to the same content keeps
+//!   it; a path both changed differently keeps the parent's and is a
+//!   conflict, the child's version under `conflicts/`.
 //!
 //! Each path is replaced in one rename, and the hand-back is idempotent: a
 //! path already taken reads as changed by both to the same content, so a
@@ -28,13 +36,19 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use eukhe_bend::rules::agent_tree::{self, Patch};
 use serde::{Deserialize, Serialize};
 
+mod check;
 mod files;
 mod merge;
+mod units;
 
 #[cfg(test)]
 mod tests;
+
+pub use check::{run_check, CheckConfig, CheckOutcome, CheckRun};
+pub use units::{unit_of, unit_patch};
 
 use files::{Copied, Listing};
 use merge::Plan;
@@ -71,22 +85,28 @@ pub struct CopyReport {
     pub copied: u64,
 }
 
-/// What a hand-back did.
+/// What a scoped hand-back did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Handback {
+pub struct ScopedHandback {
     /// The paths the child changed whose content the parent's workspace
     /// now has.
     pub taken: Vec<String>,
-    /// The paths both changed differently: the parent's content stayed.
+    /// The paths the child changed outside its scope: never applied.
+    pub outside: Vec<String>,
+    /// The paths in the child's scope both changed differently (or whose
+    /// place in the parent is blocked): the parent's content stayed.
     pub conflicts: Vec<String>,
-    /// The directory that keeps the child's versions of the conflicts;
-    /// `None` without conflicts.
+    /// The directory that keeps the child's versions of `outside` and
+    /// `conflicts`; `None` when both are empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<String>,
+    /// The child's patch per unit (`Some(1)`: changed), for the crown's
+    /// `Finish` event.
+    pub patch: Patch,
 }
 
-impl Handback {
+impl ScopedHandback {
     /// The hand-back as the parent reads it.
     #[must_use]
     pub fn text(&self) -> String {
@@ -97,15 +117,22 @@ impl Handback {
             self.taken.join(", ")
         };
         let mut text = format!("Workspace hand-back: took the child's changes to {taken}.");
+        if !self.outside.is_empty() {
+            let _ = write!(
+                text,
+                " Outside the child's scope (not applied): {}.",
+                self.outside.join(", ")
+            );
+        }
         if !self.conflicts.is_empty() {
             let _ = write!(
                 text,
                 " Conflicts (both changed; the parent's content stays): {}.",
                 self.conflicts.join(", ")
             );
-            if let Some(kept) = &self.kept {
-                let _ = write!(text, " The child's versions are in {kept}.");
-            }
+        }
+        if let Some(kept) = &self.kept {
+            let _ = write!(text, " The child's versions are in {kept}.");
         }
         text
     }
@@ -197,17 +224,42 @@ impl ChildWorkspace {
         Ok(report)
     }
 
-    /// Take the child's changes back into the parent's workspace; see the
-    /// module doc. Idempotent and resumable.
+    /// The paths the child added, modified or removed since its start,
+    /// relative to the workspace (the files its check covers).
     ///
     /// # Errors
     ///
-    /// The workspace has no manifest, or a path cannot be read or
-    /// replaced (the hand-back can run again).
+    /// The workspace has no copies (not created, or handed back), or a
+    /// path cannot be read.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
-    pub async fn hand_back(&self) -> anyhow::Result<Handback> {
+    pub async fn changed(&self) -> anyhow::Result<Vec<PathBuf>> {
+        if !self.is_created() || self.is_handed_back() {
+            anyhow::bail!("{} holds no child copy", self.root.display());
+        }
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || hand_back_at(&root)).await?
+        Ok(
+            tokio::task::spawn_blocking(move || changes(&root.join(BASE), &root.join(TREE)))
+                .await??,
+        )
+    }
+
+    /// Take the child's changes inside `scope` (a mask over `units`) back
+    /// into the parent's workspace; see the module doc. Idempotent and
+    /// resumable.
+    ///
+    /// # Errors
+    ///
+    /// `scope` and `units` differ in length, the workspace has no
+    /// manifest, or a path cannot be read or replaced (the hand-back can
+    /// run again).
+    #[tracing::instrument(skip(self, units, scope), fields(root = %self.root.display()))]
+    pub async fn hand_back_scoped(
+        &self,
+        units: &[String],
+        scope: &[bool],
+    ) -> anyhow::Result<ScopedHandback> {
+        let (root, units, scope) = (self.root.clone(), units.to_vec(), scope.to_vec());
+        tokio::task::spawn_blocking(move || hand_back_at(&root, &units, &scope)).await?
     }
 
     /// Remove the workspace and everything under it.
@@ -297,8 +349,52 @@ fn copy_in(root: &Path, parent: &Path, paths: &BTreeSet<PathBuf>) -> anyhow::Res
     Ok(report)
 }
 
-/// The hand-back of the workspace at `root`.
-fn hand_back_at(root: &Path) -> anyhow::Result<Handback> {
+/// The paths the child added, modified or removed, relative to the
+/// workspace: every path of the base (ignored or not: the child may not
+/// drop a path a .gitignore of its own hides) and every path of the
+/// child's copy its .gitignore files do not ignore (its build output
+/// stays), whose content in the copy differs from the base's.
+fn changes(base: &Path, tree: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut paths = files::walk(base, Listing::All)?;
+    paths.extend(files::walk(tree, Listing::NotIgnored)?);
+    let mut changed = Vec::new();
+    for path in paths {
+        if files::content(&base.join(&path))? != files::content(&tree.join(&path))? {
+            changed.push(path);
+        }
+    }
+    Ok(changed)
+}
+
+/// `path`'s place in `parent` cannot take the child's file: a directory
+/// there, or a file or symlink where one of its directories goes.
+fn blocked(parent: &Path, path: &Path) -> io::Result<bool> {
+    if fs::symlink_metadata(parent.join(path)).is_ok_and(|meta| meta.is_dir()) {
+        return Ok(true);
+    }
+    for dir in path.ancestors().skip(1) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(parent.join(dir)) {
+            Ok(meta) if !meta.is_dir() => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+/// The scoped hand-back of the workspace at `root`.
+fn hand_back_at(root: &Path, units: &[String], scope: &[bool]) -> anyhow::Result<ScopedHandback> {
+    if units.len() != scope.len() {
+        anyhow::bail!(
+            "a scope of {} entries over {} units",
+            scope.len(),
+            units.len()
+        );
+    }
     let Some(manifest) = read_json::<Manifest>(&root.join(MANIFEST))? else {
         anyhow::bail!(
             "{} is not a child workspace (no {MANIFEST})",
@@ -306,66 +402,56 @@ fn hand_back_at(root: &Path) -> anyhow::Result<Handback> {
         );
     };
     let parent = manifest.parent;
-    if let Some(done) = read_json::<Handback>(&root.join(HANDBACK))? {
+    if let Some(done) = read_json::<ScopedHandback>(&root.join(HANDBACK))? {
         finish(root, &parent)?;
         return Ok(done);
     }
     let (base, tree) = (root.join(BASE), root.join(TREE));
-    // Every path of the base (ignored or not: the child may not drop a
-    // path a .gitignore of its own hides) and every path of the child's
-    // copy its .gitignore files do not ignore (its build output stays).
-    let mut paths = files::walk(&base, Listing::All)?;
-    paths.extend(files::walk(&tree, Listing::NotIgnored)?);
-    let mut handback = Handback {
+    let changed = changes(&base, &tree)?;
+    let patch = unit_patch(units, &changed);
+    let overlay = agent_tree::overlay(&vec![None; units.len()], &patch, scope);
+    let keep = |path: &Path| files::replace(&tree.join(path), &root.join(CONFLICTS).join(path));
+    let mut handback = ScopedHandback {
         taken: Vec::new(),
+        outside: Vec::new(),
         conflicts: Vec::new(),
         kept: None,
+        patch,
     };
-    for path in &paths {
+    for path in &changed {
+        let name = path.to_string_lossy().into_owned();
+        let applies = unit_of(units, path)
+            .and_then(|unit| overlay.patch.get(unit))
+            .is_some_and(Option::is_some);
+        if !applies {
+            keep(path)?;
+            handback.outside.push(name);
+            continue;
+        }
         let ours = files::content(&parent.join(path))?;
         let found = files::content(&base.join(path))?;
         let theirs = files::content(&tree.join(path))?;
-        let name = path.to_string_lossy().into_owned();
-        let conflict = |handback: &mut Handback, name: String| -> anyhow::Result<()> {
-            files::replace(&tree.join(path), &root.join(CONFLICTS).join(path))?;
-            handback.conflicts.push(name);
-            Ok(())
-        };
-        // A path whose place in the parent cannot take the child's file
-        // (a directory there, or a file or symlink where one of its
-        // directories goes) is a conflict too: the parent's entry stays.
-        let blocked = || -> io::Result<bool> {
-            if fs::symlink_metadata(parent.join(path)).is_ok_and(|meta| meta.is_dir()) {
-                return Ok(true);
-            }
-            for dir in path.ancestors().skip(1) {
-                if dir.as_os_str().is_empty() {
-                    continue;
-                }
-                match fs::symlink_metadata(parent.join(dir)) {
-                    Ok(meta) if !meta.is_dir() => return Ok(true),
-                    Ok(_) => {}
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            Ok(false)
-        };
         match merge::plan(ours.as_ref(), found.as_ref(), theirs.as_ref()) {
             Plan::Keep { taken } => {
                 if taken {
                     handback.taken.push(name);
                 }
             }
-            Plan::Clash => conflict(&mut handback, name)?,
-            Plan::Take if blocked()? => conflict(&mut handback, name)?,
+            Plan::Clash => {
+                keep(path)?;
+                handback.conflicts.push(name);
+            }
+            Plan::Take if blocked(&parent, path)? => {
+                keep(path)?;
+                handback.conflicts.push(name);
+            }
             Plan::Take | Plan::Drop => {
                 files::replace(&tree.join(path), &parent.join(path))?;
                 handback.taken.push(name);
             }
         }
     }
-    if !handback.conflicts.is_empty() {
+    if !(handback.outside.is_empty() && handback.conflicts.is_empty()) {
         handback.kept = Some(root.join(CONFLICTS).to_string_lossy().into_owned());
     }
     write_json(&root.join(HANDBACK), &handback)?;

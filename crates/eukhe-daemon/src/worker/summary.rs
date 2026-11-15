@@ -15,13 +15,14 @@ use super::{
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::jobs::JobKind;
 use eukhe_core::durable::pending::{pending_work, PendingWorkError};
-use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
+use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::usage::UsageState;
+use eukhe_types::daemon::agent_tree::TreeStatus;
 use eukhe_types::daemon::{
     CurrentTool, QueuedItem, QuotaPark, RetryWait, SessionEvent, WaitingJob, WaitingJobKind,
     WaitingOn,
 };
-use eukhe_types::pi_ai::Model;
+use eukhe_types::pi_ai::{AssistantMessage, Message, Model, StopReason};
 use serde_json::json;
 
 use crate::session_usage::SessionUsageSummary;
@@ -623,6 +624,46 @@ pub(crate) fn queued_inputs(core: &SessionCore) -> usize {
     core.view.as_ref().map_or(0, |view| view.inbox.len()) + core.suspended.len() + core.held.len()
 }
 
+/// The shown conversation's last assistant message: the last run's
+/// terminal once no run is in flight.
+pub(crate) fn last_assistant(core: &SessionCore) -> Option<&AssistantMessage> {
+    core.view.as_ref().and_then(|view| {
+        view.translator
+            .mirror()
+            .entries
+            .iter()
+            .rev()
+            .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
+            .find_map(|entry| {
+                entry
+                    .model
+                    .as_deref()
+                    .and_then(<[Message]>::first)
+                    .and_then(Message::as_assistant)
+            })
+    })
+}
+
+/// A tree node's status: running while it works or waits on work, else
+/// how its last run ended.
+fn tree_status(working: bool, last: Option<&AssistantMessage>) -> TreeStatus {
+    if working {
+        return TreeStatus::Running;
+    }
+    match last.map(|message| message.stop_reason) {
+        Some(StopReason::Error) => TreeStatus::Failed,
+        Some(StopReason::Aborted) => TreeStatus::Cancelled,
+        Some(
+            StopReason::Stop
+            | StopReason::Length
+            | StopReason::ToolUse
+            | StopReason::Pending
+            | StopReason::Deferred,
+        )
+        | None => TreeStatus::Finished,
+    }
+}
+
 pub(crate) fn session_summary(
     core: &SessionCore,
     thinking_level: &str,
@@ -708,6 +749,15 @@ pub(crate) fn session_summary(
         parent_active_session_id: core.parent_active_session_id.clone(),
         parent_session_id: core.parent_session_id.clone(),
         rlm_child_id: core.rlm_child_id.clone(),
+        tree_role: core.tree.as_ref().map(|place| place.role),
+        tree_scope: core.tree.as_ref().map(|place| place.scope.clone()),
+        tree_path: core.tree.as_ref().map(|place| place.path.clone()),
+        tree_status: core.tree.as_ref().map(|_| {
+            tree_status(
+                streaming || compacting || queued > 0 || core.waiting_on.is_some(),
+                last_assistant(core),
+            )
+        }),
         usage: view
             .and_then(|view| usage_summary(&view.translator.mirror().usage))
             .map(|usage| json!(usage)),

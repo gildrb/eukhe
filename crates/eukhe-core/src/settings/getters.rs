@@ -390,6 +390,18 @@ impl SettingsManager {
         std::time::Duration::from_millis(self.nonzero_nat(&table::SUBAGENT_STALL_MS))
     }
 
+    /// `agentTree.checkCommand` and `agentTree.checkTimeoutSecs`: how an
+    /// agent tree's node runs its check (`0` takes the default timeout).
+    #[must_use]
+    pub fn get_agent_tree_check(&self) -> crate::child_workspace::CheckConfig {
+        crate::child_workspace::CheckConfig {
+            command: self.raw_text(&table::AGENT_TREE_CHECK_COMMAND),
+            timeout: std::time::Duration::from_secs(
+                self.nonzero_nat(&table::AGENT_TREE_CHECK_TIMEOUT_SECS),
+            ),
+        }
+    }
+
     /// `rlm.queryConcurrency`: `rlm.query` calls of one session in flight
     /// at once (`0` takes the default).
     #[must_use]

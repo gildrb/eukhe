@@ -26,6 +26,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::Entry;
 use eukhe_chord::context::Context;
@@ -33,17 +34,18 @@ use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::harness::types::{
     ConversationHandle, InputSubmissionDraft, Submission, SubmissionAbort, WhenBusy,
 };
-use eukhe_durable::session::{SessionError, SessionResult};
+use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::tasks::{
     define_task, AnyTask, Migrated, NextTaskState, RunningTask, Task, TaskDefinition, TaskRuntime,
 };
 use eukhe_durable::types::{
-    EntryId, SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome, TaskOutcomeError,
-    TaskOwnership,
+    ConversationId, EntryId, SubmissionState, SubmissionStatus, TaskId, TaskOptions, TaskOutcome,
+    TaskOutcomeError, TaskOwnership,
 };
 use eukhe_types::acceptance::AcceptanceSeed;
+use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::input_origin::ChildFailure;
-use eukhe_types::pi_ai::UserContent;
+use eukhe_types::pi_ai::{Usage, UserContent};
 use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
@@ -57,10 +59,12 @@ use super::registry::{
     child_identity, read_children, tx_attribute_usage, tx_remove_row, tx_row, tx_update_row,
     ChildRow, ChildStatus, HandbackOutcome,
 };
+use super::requests::whole_ms;
+use super::tree::{self, End, Local, Slot};
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
 use crate::child_workspace::WorkspaceMode;
 use crate::durable::budget::BudgetGate;
-use crate::durable::deps::SessionClosing;
+use crate::durable::deps::{HarnessCell, SessionClosing};
 use crate::durable::observe::semantic_edges::{
     last_committed_request_id, SemanticEdgeRecorder, SEMANTIC_EDGES_LEDGER_FILENAME,
 };
@@ -102,6 +106,63 @@ pub(crate) struct ChildrenServices {
     /// The child tasks whose watch polled since this session opened (by
     /// task id): the pause before a re-poll is this session's own.
     pub(crate) polled: Mutex<HashSet<u64>>,
+    /// The session's Harness: a tick of the tree aborts the tasks of the
+    /// children past their deadline.
+    pub(crate) harness: HarnessCell,
+    /// The session's place in the agent tree; `None`: outside or above it.
+    pub(crate) place: Option<TreePlace>,
+}
+
+/// Where a child task's child sits in the agent tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TreeSpawn {
+    /// The child's place, as its session reads it.
+    pub(crate) place: TreePlace,
+    /// The units its scope masks (paths relative to the workspace root).
+    pub(crate) units: Vec<String>,
+    pub(crate) scope: Vec<bool>,
+    pub(crate) slot: Slot,
+}
+
+impl TreeSpawn {
+    /// Main's root: the whole workspace, outside main's (absent) crown.
+    pub(crate) fn root() -> Self {
+        Self {
+            place: tree::root_place(),
+            units: vec![String::new()],
+            scope: vec![true],
+            slot: Slot::Root,
+        }
+    }
+
+    /// Where the child works: a writer of a split in its own
+    /// copy-on-write copy; a help leaf (read-only) and main's root (main
+    /// writes nothing) in the parent's directory.
+    pub(crate) fn workspace(&self) -> WorkspaceMode {
+        match self.slot {
+            Slot::Side { .. } | Slot::External => WorkspaceMode::Isolated,
+            Slot::Help { .. } | Slot::Root => WorkspaceMode::Shared,
+        }
+    }
+
+    /// The hand-back (or measure) request of the child `session_id`.
+    fn handback(&self, session_id: &str, rlm_child_id: &str) -> RlmChildHandbackRequest {
+        RlmChildHandbackRequest {
+            session_id: session_id.to_owned(),
+            rlm_child_id: rlm_child_id.to_owned(),
+            units: self.units.clone(),
+            scope: self.scope.clone(),
+        }
+    }
+}
+
+/// What the child spent in the session crown's dimension.
+fn tree_spent(local: &Local, usage: Option<&Usage>) -> u64 {
+    match (local.dimension, usage) {
+        (Some(dimension), Some(usage)) => tree::spent(usage, dimension),
+        (None, _) | (_, None) => 0,
+    }
 }
 
 /// Input of one child task (the validated `rlm.spawn` request).
@@ -119,10 +180,11 @@ pub(crate) struct ChildTaskInput {
     /// configured bound); `None` on tasks admitted before it was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) max_depth: Option<u32>,
-    /// Where the child works; `None` when the caller did not choose (the
-    /// shared workspace).
+    /// The child's place in the agent tree (its workspace follows from
+    /// it); `None` on tasks admitted before the tree (the shared
+    /// workspace, no hand-back).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) workspace: Option<WorkspaceMode>,
+    pub(crate) tree: Option<TreeSpawn>,
     /// Set on a task that carries the report an aborted child task owed:
     /// it starts in the report phase. An abort cannot wait for the parent
     /// to place a report, so it hands the report to this task, which the
@@ -617,9 +679,14 @@ async fn spawn(
         max_depth: task.input.max_depth.unwrap_or(services.rlm_max_depth),
         spawned_by_request_id: task.input.spawned_by_request_id.clone(),
         parent_task_id: task_id.to_string(),
-        workspace: task.input.workspace.unwrap_or_default(),
+        workspace: task
+            .input
+            .tree
+            .as_ref()
+            .map_or(WorkspaceMode::Shared, TreeSpawn::workspace),
         worker: task.input.worker,
         acceptance: task.input.accept.clone(),
+        tree: task.input.tree.as_ref().map(|tree| tree.place.clone()),
     };
     kill_point("spawn", "started");
     let spawned = services.host.spawn(request).await;
@@ -633,6 +700,7 @@ async fn spawn(
         runtime.report(error)?;
     }
     let conversation_id = task.conversation_id;
+    let tree = task.input.tree.clone();
     runtime
         .commit(
             move |tx, _current| async move {
@@ -652,6 +720,8 @@ async fn spawn(
                     }
                     Err(error) => {
                         tx_remove_row(&tx, conversation_id, task_id).await?;
+                        tx_settle(&tx, conversation_id, tree.as_ref(), None, &End::Cancelled)
+                            .await?;
                         Ok(Some(failed(format!("{error:#}"))))
                     }
                 }
@@ -660,6 +730,30 @@ async fn spawn(
         )
         .await?;
     kill_point("spawn", "finished");
+    Ok(())
+}
+
+/// Record the end of the child of `tree` in the session's local crown:
+/// what `usage` says it spent, then `end`. A child outside the session's
+/// crown (main's root, a node of a crown its spawner keeps) records
+/// nothing.
+async fn tx_settle(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    tree: Option<&TreeSpawn>,
+    usage: Option<&Usage>,
+    end: &End,
+) -> SessionResult<()> {
+    let Some(tree) = tree else {
+        return Ok(());
+    };
+    let Some(local) = tree::tx_local(tx, conversation_id).await? else {
+        return Ok(());
+    };
+    let settled = local.settle(tree.slot, tree_spent(&local, usage), end);
+    if settled != local {
+        tree::tx_put_local(tx, conversation_id, &settled).await?;
+    }
     Ok(())
 }
 
@@ -741,6 +835,7 @@ async fn prompt(
     let now = runtime.now()?;
     let conversation_id = task.conversation_id;
     let report = task.input.report;
+    let tree = task.input.tree.clone();
     runtime
         .commit(
             move |tx, _current| async move {
@@ -761,6 +856,14 @@ async fn prompt(
                     // row, never to the inbox.
                     row.settled = report == ReportMode::Silent;
                 })
+                .await?;
+                tx_settle(
+                    &tx,
+                    conversation_id,
+                    tree.as_ref(),
+                    None,
+                    &End::Failed(Vec::new()),
+                )
                 .await?;
                 Ok(Some(match report {
                     ReportMode::Inbox => report_next(ChildReport::Failed {
@@ -1120,26 +1223,94 @@ async fn watch(
             }
         }
     }
-    let handback = match &called {
-        Some(Call::Watches(_)) => None,
-        Some(Call::Reports(_) | Call::Settles(_)) | None => {
-            // The child ended: its budget goes back to this session's
-            // account (an allotment's spend becomes this session's, a
-            // shared member leaves the account), before the commit that
-            // ends the watch (a rerun gives back nothing twice; after a
-            // failure the next open asks again).
-            if let Err(error) =
-                super::budget::give_back(&services.budget, &identity.session_id).await
-            {
-                runtime.report(error)?;
-            }
+    let ended = !matches!(called, Some(Call::Watches(_)));
+    let answered = matches!(seen, Seen::Answered { .. });
+    let tree_spawn = task.input.tree.clone();
+    // A failed split child runs again once, from its partial work, when
+    // the core admits the redo (T11).
+    let redone = match (&tree_spawn, ended && !answered) {
+        (
+            Some(
+                spawn @ TreeSpawn {
+                    slot: Slot::Side { dir },
+                    ..
+                },
+            ),
+            true,
+        ) => {
+            let redo = Redo {
+                spawn,
+                dir: (*dir).into(),
+                usage: usage.as_ref(),
+                failure: failure_text(&seen),
+            };
             tokio::select! {
-                outcome = hand_back(services.host.as_ref(), &identity.session_id, &identity.rlm_child_id) => outcome,
+                redone = redo_child(&services, &runtime, &task, &redo, &cx) => redone?,
                 reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
             }
         }
+        _ => None,
+    };
+    let ending = ended && redone.is_none();
+    let (handback, patch) = if ending {
+        // The child ended: its budget goes back to this session's
+        // account (an allotment's spend becomes this session's, a shared
+        // member leaves the account), before the commit that ends the
+        // watch (a rerun gives back nothing twice; after a failure the
+        // next open asks again).
+        if let Err(error) = super::budget::give_back(&services.budget, &identity.session_id).await {
+            runtime.report(error)?;
+        }
+        // A writer that finished hands its scope's writes back; one that
+        // failed keeps its partial work in its workspace (applied only
+        // when the parent absorbs it), and its run is cancelled so its own
+        // subtree is too.
+        let writer = tree_spawn
+            .as_ref()
+            .filter(|spawn| spawn.workspace() == WorkspaceMode::Isolated);
+        match (writer, answered) {
+            (None, _) => (None, None),
+            (Some(spawn), true) => {
+                let request = spawn.handback(&identity.session_id, &identity.rlm_child_id);
+                tokio::select! {
+                    outcome = hand_back(services.host.as_ref(), request) => (outcome, None),
+                    reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                }
+            }
+            (Some(spawn), false) => {
+                let request = spawn.handback(&identity.session_id, &identity.rlm_child_id);
+                let patch = tokio::select! {
+                    patch = measure(services.host.as_ref(), request) => patch,
+                    reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                };
+                if matches!(seen, Seen::Failed { .. }) {
+                    let cancel = RlmChildCancelRequest {
+                        idempotency_key: format!("rlm:{task_id}:cancel"),
+                        session_id: identity.session_id.clone(),
+                    };
+                    if let Err(error) = services.host.cancel(cancel).await {
+                        runtime.report(SessionError::error(format!(
+                            "RLM child {task_id} cancel after its run failed: {error:#}"
+                        )))?;
+                    }
+                }
+                (None, Some(patch))
+            }
+        }
+    } else {
+        (None, None)
+    };
+    let end = match (&handback, answered) {
+        (Some(HandbackOutcome::Done { handback }), true) => {
+            End::Finished(handback.handback.patch.clone())
+        }
+        (Some(HandbackOutcome::Failed { .. }) | None, true) => End::Finished(Vec::new()),
+        (_, false) => End::Failed(patch.clone().unwrap_or_default()),
     };
     let conversation_id = task.conversation_id;
+    let tick_now = whole_ms(super::requests::now_ms());
+    let late = Arc::new(Mutex::new(Vec::new()));
+    let late_tasks = Arc::clone(&late);
     runtime
         .commit(
             move |tx, _current| async move {
@@ -1153,7 +1324,39 @@ async fn watch(
                     tx_attribute_usage(&tx, conversation_id, &mut row, usage).await?;
                 }
                 row.progress = progress.or(row.progress);
-                row.handback = handback;
+                if let Some(local) = redone {
+                    // The child runs again: its watch starts over.
+                    tree::tx_put_local(&tx, conversation_id, &local).await?;
+                    super::registry::tx_put_row(&tx, conversation_id, &row).await?;
+                    return Ok(Some(NextTaskState::Running {
+                        checkpoint: ChildCheckpoint::Watch {
+                            poll: poll + 1,
+                            next_poll_at: now,
+                            vigil: Vigil::default(),
+                        },
+                    }));
+                }
+                if ending {
+                    row.handback = handback;
+                    row.patch = patch;
+                    tx_settle(
+                        &tx,
+                        conversation_id,
+                        tree_spawn.as_ref(),
+                        usage.as_ref(),
+                        &end,
+                    )
+                    .await?;
+                }
+                if tree_spawn.is_some() {
+                    if let Some(local) = tree::tx_local(&tx, conversation_id).await? {
+                        let (ticked, cancelled) = local.tick(tick_now);
+                        if ticked != local {
+                            tree::tx_put_local(&tx, conversation_id, &ticked).await?;
+                        }
+                        *late_tasks.lock().unwrap_or_else(PoisonError::into_inner) = cancelled;
+                    }
+                }
                 if report == ReportMode::Silent && matches!(seen, Seen::Answered { .. }) {
                     row.answer = answer;
                 }
@@ -1167,29 +1370,125 @@ async fn watch(
             },
             &cx,
         )
-        .await
+        .await?;
+    // A tick cancelled the children past their deadline (and those under
+    // them): their tasks abort.
+    let late = std::mem::take(&mut *late.lock().unwrap_or_else(PoisonError::into_inner));
+    if !late.is_empty() {
+        if let Some(harness) = services.harness.get() {
+            for id in late {
+                harness.abort_task(TaskId::from_number(id), &cx).await?;
+            }
+        }
+    }
+    Ok(())
 }
 
-/// Hand an ended child's workspace back into the parent's; `None` for a
-/// child in the shared workspace.
+/// A failed split child the watch asks to run again.
+struct Redo<'a> {
+    spawn: &'a TreeSpawn,
+    dir: eukhe_bend::rules::agent_tree::Dir,
+    usage: Option<&'a Usage>,
+    failure: String,
+}
+
+/// What a child's failure says, for its redo prompt.
+fn failure_text(seen: &Seen) -> String {
+    match seen {
+        Seen::Failed { error, .. } => error.clone(),
+        Seen::Unreached { error } => format!("{error:#}"),
+        Seen::Unsettled => "it showed no progress and was stopped".to_owned(),
+        Seen::Answered { .. } => String::new(),
+    }
+}
+
+/// Run the failed split child of `redo` again when the core admits it
+/// (once per side, with the child's limit again to spend): its failure
+/// is recorded with its partial patch, then the redo, and the child is
+/// told to continue from its partial work. `None`: no redo (the side
+/// already ran again, the core refused it, or the prompt did not reach
+/// the child); the failure is reported.
+async fn redo_child(
+    services: &ChildrenServices,
+    runtime: &Runtime,
+    task: &Running,
+    redo: &Redo<'_>,
+    cx: &Context,
+) -> SessionResult<Option<Local>> {
+    let Some(local) = tree::read_local(&runtime.hook_api(), task.conversation_id, cx).await? else {
+        return Ok(None);
+    };
+    let identity = child_identity(&services.parent_session_id, row_task_id(task));
+    let request = redo
+        .spawn
+        .handback(&identity.session_id, &identity.rlm_child_id);
+    let patch = measure(services.host.as_ref(), request).await;
+    let failed = local.settle(
+        redo.spawn.slot,
+        tree_spent(&local, redo.usage),
+        &End::Failed(patch),
+    );
+    let extra = match local
+        .crown()
+        .tree
+        .at(&[redo.dir])
+        .map(|node| node.info().limit)
+    {
+        Some(eukhe_bend::rules::agent_tree::Lim::Value(limit)) => limit,
+        Some(eukhe_bend::rules::agent_tree::Lim::Unlimited) | None => 0,
+    };
+    let Ok(redone) = failed.redo(redo.dir, extra) else {
+        return Ok(None);
+    };
+    let prompt = RlmChildPromptRequest::task(
+        format!("rlm:{}:redo", task.id),
+        identity.session_id,
+        identity.rlm_child_id,
+        format!(
+            "Your previous run failed: {}\nYour workspace keeps your partial work. Continue the task from there:\n\n{}",
+            redo.failure, task.input.prompt
+        ),
+    );
+    match services.host.prompt(prompt).await {
+        Ok(()) => Ok(Some(redone)),
+        Err(error) => {
+            runtime.report(SessionError::error(format!(
+                "RLM child {} redo prompt: {error:#}",
+                task.id
+            )))?;
+            Ok(None)
+        }
+    }
+}
+
+/// Hand an ended writer's workspace back into the parent's by its
+/// scope; `None` for a child in the shared workspace.
 #[tracing::instrument(skip(host))]
 async fn hand_back(
     host: &dyn RlmSubagentHost,
-    session_id: &str,
-    rlm_child_id: &str,
+    request: RlmChildHandbackRequest,
 ) -> Option<HandbackOutcome> {
-    match host
-        .hand_back(RlmChildHandbackRequest {
-            session_id: session_id.to_owned(),
-            rlm_child_id: rlm_child_id.to_owned(),
-        })
-        .await
-    {
-        Ok(Some(handback)) => Some(HandbackOutcome::Done { handback }),
+    match host.hand_back(request).await {
+        Ok(Some(handback)) => Some(HandbackOutcome::Done {
+            handback: Box::new(handback),
+        }),
         Ok(None) => None,
         Err(error) => Some(HandbackOutcome::Failed {
             error: format!("{error:#}"),
         }),
+    }
+}
+
+/// The patch of a writer that did not finish, taking nothing back; empty
+/// when it cannot be read (the workspace keeps the work either way).
+#[tracing::instrument(skip(host))]
+async fn measure(host: &dyn RlmSubagentHost, request: RlmChildHandbackRequest) -> Patch {
+    match host.measure(request).await {
+        Ok(patch) => patch.unwrap_or_default(),
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "measuring a child's partial patch");
+            Vec::new()
+        }
     }
 }
 
@@ -1377,7 +1676,7 @@ async fn abort(
     runtime: Runtime,
     cx: Context,
 ) -> SessionResult<()> {
-    let mut row = require_row(&runtime, &task, &cx).await?;
+    let row = require_row(&runtime, &task, &cx).await?;
     let task_id = report_task_id(&task);
     let row_id = row_task_id(&task);
     let running = !row.status.is_terminal();
@@ -1405,16 +1704,23 @@ async fn abort(
     if let Err(error) = returned {
         runtime.report(error)?;
     }
-    // A spawned child not handed back yet (the watch hands back an ended
-    // one) hands its workspace back now, after its run was cancelled.
-    let handback = if prompt_admissible && row.handback.is_none() {
-        hand_back(services.host.as_ref(), &row.session_id, &row.rlm_child_id).await
-    } else {
-        None
+    // A cancelled writer keeps its partial work in its workspace (applied
+    // only when the parent absorbs it): its patch is measured, nothing is
+    // taken back.
+    let tree_spawn = task.input.tree.clone();
+    let writer = tree_spawn
+        .as_ref()
+        .filter(|spawn| spawn.workspace() == WorkspaceMode::Isolated);
+    let patch = match writer {
+        Some(spawn) if prompt_admissible && running => Some(
+            measure(
+                services.host.as_ref(),
+                spawn.handback(&row.session_id, &row.rlm_child_id),
+            )
+            .await,
+        ),
+        Some(_) | None => None,
     };
-    if let Some(outcome) = &handback {
-        row.handback = Some(outcome.clone());
-    }
     let owed = match task.input.report {
         ReportMode::Inbox => owed_on_abort(&task.checkpoint, task_id, &row)?,
         ReportMode::Silent => None,
@@ -1440,6 +1746,7 @@ async fn abort(
         CANCELLED_BY_USER
     };
     let conversation_id = task.conversation_id;
+    let usage = row.usage;
     runtime
         .commit(
             move |tx, _current| async move {
@@ -1459,13 +1766,23 @@ async fn abort(
                     ),
                     None => None,
                 };
+                if running {
+                    tx_settle(
+                        &tx,
+                        conversation_id,
+                        tree_spawn.as_ref(),
+                        usage.as_ref(),
+                        &End::Cancelled,
+                    )
+                    .await?;
+                }
                 let row = tx_update_row(&tx, conversation_id, row_id, |row| {
                     if !row.status.is_terminal() {
                         row.status = ChildStatus::Cancelled;
                         row.error = Some(reason.to_owned());
                     }
-                    if let Some(outcome) = &handback {
-                        row.handback = Some(outcome.clone());
+                    if patch.is_some() {
+                        row.patch.clone_from(&patch);
                     }
                     match reporter {
                         // The new task settles the row once it admits the

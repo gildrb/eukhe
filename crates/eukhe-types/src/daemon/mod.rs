@@ -114,6 +114,7 @@ pub struct DaemonEventMeta {
 }
 
 pub mod agent_roster;
+pub mod agent_tree;
 mod budget;
 mod chat_view;
 mod command;

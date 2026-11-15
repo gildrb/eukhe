@@ -20,6 +20,7 @@ use eukhe_types::workflow::{
 use serde::{Deserialize, Serialize};
 
 use super::meta::WorkflowMeta;
+use super::tree::lend_key;
 
 /// Runs of one conversation, keyed by the run task's id.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -57,6 +58,10 @@ pub(crate) struct AgentRow {
     pub(crate) note: Option<String>,
     /// Whether the agent counts against the run's `max_agents`.
     pub(crate) counted: bool,
+    /// The writing batch that holds the agent (the batch's key); `None`:
+    /// a read-only agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) batch: Option<u32>,
 }
 
 impl AgentRow {
@@ -161,6 +166,21 @@ impl RunRecord {
                 agent.status = WorkflowAgentStatus::Cancelled;
             }
         }
+    }
+
+    /// The keys of the run's writing batches (`batch_doc`), in order.
+    pub(crate) fn batch_keys(&self, run_id: &str) -> Vec<String> {
+        let mut firsts: Vec<u32> = self
+            .agents
+            .values()
+            .filter_map(|agent| agent.batch)
+            .collect();
+        firsts.sort_unstable();
+        firsts.dedup();
+        firsts
+            .into_iter()
+            .map(|first| lend_key(run_id, first))
+            .collect()
     }
 
     /// The answers of the agents that finished, one `label: answer` line
@@ -325,6 +345,15 @@ pub(crate) async fn tx_run(
     }
 }
 
+/// Every run of `conversation_id` inside a commit.
+pub(crate) async fn tx_runs(
+    tx: &Tx,
+    conversation_id: ConversationId,
+) -> SessionResult<WorkflowRuns> {
+    let runs = tx.doc(&WORKFLOW_RUNS_DOC, conversation_id).await?;
+    Ok(from_json(&runs.value()?)?)
+}
+
 /// The run that the `workflow` call of task `call_task` started, inside a
 /// commit: its id and record.
 pub(crate) async fn tx_run_of_call(
@@ -332,9 +361,8 @@ pub(crate) async fn tx_run_of_call(
     conversation_id: ConversationId,
     call_task: &str,
 ) -> SessionResult<Option<(String, RunRecord)>> {
-    let runs = tx.doc(&WORKFLOW_RUNS_DOC, conversation_id).await?;
-    let runs: WorkflowRuns = from_json(&runs.value()?)?;
-    Ok(runs
+    Ok(tx_runs(tx, conversation_id)
+        .await?
         .runs
         .into_iter()
         .find(|(_, record)| record.call_task == call_task))

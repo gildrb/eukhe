@@ -176,6 +176,45 @@ async fn assign_creates_then_re_tasks_the_worker_with_the_users_words_once() {
     opened.harness.close(cx()).await.unwrap();
 }
 
+/// The worker is the agent tree's root: the whole workspace, shared with
+/// main; a second root while it runs is refused naming it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_worker_is_the_one_root_while_it_runs() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    setup
+        .faux
+        .append_responses(vec![call_tool("worker_assign"), answer("handed")]);
+    say(&opened, "build it").await;
+    let mut fresh = JsonObject::new();
+    fresh.insert("fresh".to_owned(), json!(true));
+    setup.faux.append_responses(vec![
+        call_tool_with("worker_assign", fresh),
+        answer("refused"),
+    ]);
+    say(&opened, "and something else").await;
+    let rows: Vec<String> = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .map(|row| row.session_name.clone())
+        .collect();
+    let spawn = lock(&host.state).spawns[0].clone();
+    assert_eq!(
+        (rows, host.spawn_keys().len(), spawn.tree, spawn.workspace),
+        (
+            vec!["worker".to_owned()],
+            1,
+            Some(crate::durable::children::tree::root_place()),
+            crate::child_workspace::WorkspaceMode::Shared,
+        )
+    );
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}
+
 fn image(data: &str, mime_type: &str) -> ImageContent {
     ImageContent {
         data: data.to_owned(),

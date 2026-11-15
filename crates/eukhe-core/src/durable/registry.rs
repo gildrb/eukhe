@@ -12,7 +12,8 @@
 //! in the `main-worker` shape, [`SessionShape::Main`]) offers only the
 //! compiled core's main roster (`eukhe_bend::rules::runners::main_roster`):
 //! read-only tools and the worker tools; every other session offers no
-//! worker tool.
+//! worker tool. A help leaf of the agent tree offers that roster too, so
+//! it holds only the read-only tools: it writes nothing.
 
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use eukhe_bend::rules::runners::{self, ChatMemory};
 use eukhe_durable::harness::registry::{create_registry, Registry};
 use eukhe_durable::harness::types::{Extension, ToolRegistration};
 use eukhe_durable::session::SessionResult;
+use eukhe_types::daemon::agent_tree::TreeRole;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
@@ -35,11 +37,23 @@ use super::{
 /// An extension fails to install (duplicate names).
 pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let registry = create_registry();
-    // Main offers only the tools of its roster; any other session offers
-    // every tool its extensions bring.
-    let offered: Option<Vec<String>> = match deps.shape {
-        SessionShape::Single => None,
-        SessionShape::Main => {
+    // Main and a help leaf offer only the tools of main's roster (a help
+    // leaf installs no worker tool, so it keeps the read-only ones); any
+    // other session offers every tool its extensions bring.
+    let help_leaf = deps
+        .role
+        .tree
+        .as_ref()
+        .is_some_and(|place| place.role == TreeRole::Help);
+    let offered: Option<Vec<String>> = match (deps.shape, help_leaf) {
+        (SessionShape::Single, false) => None,
+        (SessionShape::Single, true) => Some(
+            runners::main_roster(ChatMemory::Off)
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect(),
+        ),
+        (SessionShape::Main, _) => {
             // `eukhe.optchat` installs in every session; main's roster
             // takes its tools when main has chat memory.
             let chat = if deps.memory.is_some() {

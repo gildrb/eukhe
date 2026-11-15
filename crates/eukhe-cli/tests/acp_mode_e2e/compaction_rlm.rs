@@ -302,7 +302,7 @@ fn acp_overflow_recovery_compacts_and_retries_the_turn() {
 /// `rlm_quiescence_barrier_e2e` lane): spawn one RLM child through the
 /// product `rlm.spawn` surface and record its child id.
 fn spawn_cell() -> &'static str {
-    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\", why=\"isolate\")\nprint(handle.rlm_child_id)"
+    "handle = await rlm.spawn(\"run the lane task\", name=\"kid\")\nprint(handle.rlm_child_id)"
 }
 
 /// The parent faux script whose turns run the spawn cell; the third

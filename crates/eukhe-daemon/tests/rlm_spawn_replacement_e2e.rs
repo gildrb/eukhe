@@ -259,6 +259,7 @@ fn spawn_request(index: usize, name: &str, prompt: &str) -> RlmChildSpawnRequest
         workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
         worker: false,
         acceptance: None,
+        tree: None,
     }
 }
 

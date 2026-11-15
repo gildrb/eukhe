@@ -1031,19 +1031,6 @@ async fn a_subagent_reaches_only_its_parent_and_children() {
     }
 }
 
-/// The spawn cap's family view: the running subagents of the caller's
-/// whole family (its own row included), never another root's, never an
-/// idle one or a root.
-#[test]
-fn running_family_subagents_cover_the_whole_family() {
-    let roster = mesh_roster();
-    let rows = roster["sessions"].as_array().unwrap();
-    assert_eq!(
-        running_family_subagents(rows, "aaa111"),
-        vec!["sess-c".to_string(), "sess-a".to_string()]
-    );
-}
-
 /// The observe roster is the caller's parent and children: from `kid-b`,
 /// the root, its own row and its child carrying the roster note; its
 /// sibling and the other root's family stay out.

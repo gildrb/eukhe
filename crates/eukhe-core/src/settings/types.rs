@@ -392,6 +392,16 @@ pub struct WorkflowSettings {
     pub size: Option<eukhe_types::workflow::WorkflowSize>,
 }
 
+/// `agentTree`: the check of an agent tree's nodes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTreeSettings {
+    /// The check command (run under `sh -c`); absent: detected.
+    pub check_command: Option<String>,
+    /// Seconds a check may run (default 900).
+    pub check_timeout_secs: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WarningSettings {
@@ -576,6 +586,7 @@ pub struct Settings {
     pub show_hardware_cursor: Option<bool>,
     pub markdown: Option<MarkdownSettings>,
     pub workflow: Option<WorkflowSettings>,
+    pub agent_tree: Option<AgentTreeSettings>,
     pub warnings: Option<WarningSettings>,
     pub session_dir: Option<String>,
     /// Log per-request provider timing phases to the diagnostic log (TS

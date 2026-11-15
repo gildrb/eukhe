@@ -8,9 +8,11 @@
 //! explicit idempotency key; a rerun after a crash repeats the call with the
 //! same key and must observe the first call's effect, never a second one.
 
-use crate::child_workspace::{Handback, WorkspaceMode};
+use crate::child_workspace::{CheckRun, ScopedHandback, WorkspaceMode};
 use crate::durable::acceptance::describe;
+use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckVerdict};
+use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{ImageContent, Usage};
 use futures::future::BoxFuture;
@@ -69,6 +71,10 @@ pub struct RlmChildSpawnRequest {
     /// them. The host puts them in the child's create config, which sets
     /// them before the child's first run. `None`: the child has no checks.
     pub acceptance: Option<AcceptanceSeed>,
+    /// The child's place in the agent tree: the host sets it as the child
+    /// session's `treeRole`, `treeScope`, `treePath`, `treeAllowance` and
+    /// `treeDeadline` runtime metadata, from which the child reads it.
+    pub tree: Option<TreePlace>,
 }
 
 /// The created (or, on a repeated key, the previously created) child.
@@ -184,11 +190,41 @@ impl ChildMessageKind {
     }
 }
 
-/// Take an isolated child's workspace changes back into the parent's.
+/// Take an isolated child's workspace changes back into the parent's, by
+/// the child's scope: `scope` masks `units` (paths relative to the
+/// workspace root); a write outside it is returned, never applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RlmChildHandbackRequest {
     pub session_id: String,
     pub rlm_child_id: String,
+    pub units: Vec<String>,
+    pub scope: Vec<bool>,
+}
+
+/// A writer's hand-back with its checks: the project's check in the
+/// child's checkout before the hand-back, then in the parent's workspace
+/// after integration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RlmChildHandback {
+    pub handback: ScopedHandback,
+    /// The check in the child's checkout over what it changed.
+    pub child_check: CheckRun,
+    /// The check in the parent's workspace over what was taken.
+    pub parent_check: CheckRun,
+}
+
+impl RlmChildHandback {
+    /// The hand-back and both checks as the parent reads them.
+    #[must_use]
+    pub fn text(&self) -> String {
+        format!(
+            "{}\nIn the child's checkout: {}\nAfter integration: {}",
+            self.handback.text(),
+            self.child_check.text(),
+            self.parent_check.text()
+        )
+    }
 }
 
 /// Long-poll one child until its run settles or the budget ends.
@@ -490,18 +526,6 @@ pub struct RlmRenameRequest {
     pub target: RlmRenameTarget,
 }
 
-/// The family-wide inputs of the spawn cap (omp2 `sv_task_max_concurrency`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RlmSpawnCapacity {
-    /// `subagentMaxConcurrency`: running or starting subagents the family
-    /// may hold at once; `0` is unlimited.
-    pub max_concurrency: u32,
-    /// Durable session ids of the family's subagents that are running or
-    /// starting right now, as the host sees them (the caller unions its
-    /// own not-yet-visible children in).
-    pub active_session_ids: Vec<String>,
-}
-
 /// The supervisor child-session machinery the daemon supplies to a parent
 /// session.
 ///
@@ -540,14 +564,19 @@ pub trait RlmSubagentHost: Send + Sync {
     /// reservation across the agent family; a parent-directed rename marks
     /// the child's transcript notice with the parent.
     fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()>;
-    /// The spawn cap's bound and the family's active subagents, read
-    /// before a spawn admits.
-    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity>;
-    /// Stop an isolated child (its session stays), then take its
-    /// workspace changes back into the parent's workspace (idempotent: a
-    /// repeat returns the first hand-back's record and stops nothing).
-    /// `None`: the child works in the shared workspace.
-    fn hand_back(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>>;
+    /// Stop an isolated child (its session stays), then take the writes
+    /// of its workspace inside its scope back into the parent's workspace
+    /// (idempotent: a repeat returns the first hand-back's record and
+    /// stops nothing). `None`: the child works in the shared workspace.
+    fn hand_back(
+        &self,
+        request: RlmChildHandbackRequest,
+    ) -> RlmHostFuture<'_, Option<RlmChildHandback>>;
+    /// The patch of an isolated child's workspace over `units` (what it
+    /// changed since its start), taking nothing back: a failed child's
+    /// partial work stays in its workspace. `None`: the child works in the
+    /// shared workspace.
+    fn measure(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>>;
     /// Pause or resume a child's tree (idempotent: pausing a paused tree
     /// or resuming a running one changes nothing).
     fn pause(&self, request: RlmChildPauseRequest) -> RlmHostFuture<'_, ()>;
@@ -615,11 +644,14 @@ impl RlmSubagentHost for NoRlmChildren {
         })
     }
 
-    fn spawn_capacity(&self) -> RlmHostFuture<'_, RlmSpawnCapacity> {
-        Box::pin(async { anyhow::bail!("{NO_CHILD_RUNTIME}") })
+    fn hand_back(
+        &self,
+        _request: RlmChildHandbackRequest,
+    ) -> RlmHostFuture<'_, Option<RlmChildHandback>> {
+        Box::pin(async { Ok(None) })
     }
 
-    fn hand_back(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Handback>> {
+    fn measure(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>> {
         Box::pin(async { Ok(None) })
     }
 }

@@ -3,6 +3,7 @@
 import Base
 import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
+import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
@@ -47,7 +48,6 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_err_text.bend as ffi_err_text
 import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
-import ./ffi_family.bend as ffi_family
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
@@ -101,7 +101,6 @@ import ./ffi_scan.bend as ffi_scan
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
-import ./ffi_server_peer.bend as ffi_server_peer
 import ./ffi_shape.bend as ffi_shape
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
@@ -327,8 +326,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_shape.ffi(input)
     case 421:
       ffi_tool_call.ffi(input)
-    case 431:
-      ffi_family.ffi(input)
     case 432:
       ffi_task_life.ffi(input)
     case 433:
@@ -374,7 +371,7 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 459:
       ffi_budget_share.ffi(input)
     case 460:
-      ffi_server_peer.ffi(input)
+      ffi_agent_tree.ffi(input)
     case _:
       W.err("unknown entry")
 

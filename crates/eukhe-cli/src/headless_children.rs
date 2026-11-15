@@ -24,8 +24,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
 use anyhow::Context as _;
+use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::child_workspace::Handback;
+use eukhe_core::durable::children::RlmChildHandback;
 use eukhe_core::durable::children::{self as durable, RlmSubagentHost};
 use eukhe_core::durable::{EukheSession, SessionConfig};
 use eukhe_core::kernel::HostRequestHandlers;
@@ -76,7 +77,7 @@ impl HeadlessChildren {
     /// `cwd` (its persisted storage at `session_file`; `None` for a memory
     /// session) at `rlm_depth` under the bound `rlm_max_depth`. The
     /// session id is also its active session id: the children's parent
-    /// edge (`parentActiveSessionId`) and the spawn cap's family root.
+    /// edge (`parentActiveSessionId`).
     pub(crate) fn new(
         options: &RunOptions,
         session_id: &str,
@@ -305,15 +306,18 @@ impl RlmSubagentHost for HeadlessChildHost {
         })
     }
 
-    fn spawn_capacity(&self) -> durable::RlmHostFuture<'_, durable::RlmSpawnCapacity> {
-        Box::pin(async move { self.supervised().await?.spawn_capacity().await })
-    }
-
     fn hand_back(
         &self,
         request: durable::RlmChildHandbackRequest,
-    ) -> durable::RlmHostFuture<'_, Option<Handback>> {
+    ) -> durable::RlmHostFuture<'_, Option<RlmChildHandback>> {
         Box::pin(async move { self.supervised().await?.hand_back(request).await })
+    }
+
+    fn measure(
+        &self,
+        request: durable::RlmChildHandbackRequest,
+    ) -> durable::RlmHostFuture<'_, Option<Patch>> {
+        Box::pin(async move { self.supervised().await?.measure(request).await })
     }
 
     fn pause(&self, request: durable::RlmChildPauseRequest) -> durable::RlmHostFuture<'_, ()> {

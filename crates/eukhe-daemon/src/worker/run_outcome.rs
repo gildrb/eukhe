@@ -31,14 +31,11 @@ use eukhe_core::durable::children::{
 };
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
 use eukhe_core::durable::workflow::unsettled_runs;
-use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_types::input_origin::ChildFailure;
-use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, Message, StopReason, StreamFailureKind,
-};
+use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, StopReason, StreamFailureKind};
 
 use super::session_core::SessionCore;
-use super::summary::queued_inputs;
+use super::summary::{last_assistant, queued_inputs};
 use super::{response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
 
@@ -77,29 +74,10 @@ impl Worker {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let busy = core.is_busy() || core.is_compacting() || queued_inputs(&core) > 0;
             let work = work_progress(&mut core);
-            let last = core.view.as_ref().and_then(|view| {
-                view.translator
-                    .mirror()
-                    .entries
-                    .iter()
-                    .rev()
-                    .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
-                    .find_map(|entry| {
-                        entry
-                            .model
-                            .as_deref()
-                            .and_then(<[Message]>::first)
-                            .and_then(Message::as_assistant)
-                            .cloned()
-                    })
-            });
-            let state = run_outcome(
-                busy,
-                u32::try_from(pending_jobs).unwrap_or(u32::MAX),
-                last.as_ref(),
-            );
+            let last = last_assistant(&core);
+            let state = run_outcome(busy, u32::try_from(pending_jobs).unwrap_or(u32::MAX), last);
             let answer = match &state {
-                RlmChildRunState::Answered { .. } => last.as_ref().and_then(full_answer),
+                RlmChildRunState::Answered { .. } => last.and_then(full_answer),
                 RlmChildRunState::Running
                 | RlmChildRunState::Idle { .. }
                 | RlmChildRunState::Failed { .. } => None,

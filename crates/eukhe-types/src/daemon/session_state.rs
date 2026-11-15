@@ -111,6 +111,17 @@ pub struct SessionSummary {
     /// roster agent id qualifies it with the parent path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rlm_child_id: Option<String>,
+    /// A tree node's role, scope and path (its spawn's `treeRole`,
+    /// `treeScope`, `treePath`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_role: Option<super::agent_tree::TreeRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_scope: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_path: Option<String>,
+    /// A tree node's status: running, or how its last run ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_status: Option<super::agent_tree::TreeStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

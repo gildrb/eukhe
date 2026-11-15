@@ -1,9 +1,11 @@
-//! The `wf.*` host globals behind the script API: `wf.agent` (admit,
-//! spawn a silent child through `rlm.run`, wait through `rlm.collect`,
-//! read the answer through `rlm.answer`), `wf.phase`, and `wf.log`. Each
-//! result is journaled by code mode, so a replay never calls one twice;
-//! a global cut off by a restart runs again and finds its agent row and
-//! its child by name.
+//! The `wf.*` host globals behind the script API: `wf.batch` (admit the
+//! writing agents a script starts together as one batch on the agent
+//! tree, [`super::tree`]), `wf.agent` (admit, spawn a silent child
+//! through `rlm.run`: a read-only help leaf, or a writing batch's leaf;
+//! wait through `rlm.collect`, read the answer through `rlm.answer`),
+//! `wf.phase`, and `wf.log`. Each result is journaled by code mode, so a
+//! replay never calls one twice; a global cut off by a restart runs again
+//! and finds its batch, its agent row and its child by name.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,11 +20,14 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::workflow::WorkflowAgentStatus;
 use futures::FutureExt;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::run_doc::{tx_put_run, tx_run, AgentRow, RunRecord};
+use super::batch::{crown as batch_crown, place, Outcome, NEEDS_FILES};
+use super::batch_doc::{tx_batches, tx_end, tx_put_batch, tx_remove_batch};
+use super::run_doc::{tx_put_run, tx_run, tx_runs, AgentRow, RunRecord};
 use super::schema::{extract_json, validate, SchemaMismatch};
+use super::tree::{self, Written};
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 
 /// What the globals need from the session.
@@ -30,24 +35,40 @@ pub(super) struct WorkflowServices {
     pub(super) host_requests: HostRequestRegistry,
 }
 
+/// What a child's spawn and wait run on: the session's host requests,
+/// the calling `workflow` run, and its context.
+#[derive(Clone, Copy)]
+struct Host<'a> {
+    services: &'a WorkflowServices,
+    api: &'a Arc<dyn ToolExecutionApi>,
+    cx: &'a Context,
+}
+
 /// The longest one `rlm.collect` wait asks for (the runtime caps it at 30
 /// minutes); the run checks its abort between two.
 const COLLECT_WAIT_MS: u64 = 30_000;
-/// The pause before a spawn refused by the family's concurrency cap is
-/// tried again, and how many times it is.
-const SPAWN_RETRY_PAUSE: Duration = Duration::from_secs(2);
-const SPAWN_RETRIES: u32 = 300;
 /// How `rlm.answer` refuses a name no live child holds.
 const NO_SUCH_CHILD: &str = "No direct RLM child matches";
 /// Characters of an answer or error a row's note keeps.
 const NOTE_CHARS: usize = 160;
 
 const AGENT_PREAMBLE: &str = "You are one agent of a dynamic workflow. Do the task below completely. Your final message is returned verbatim to the orchestrating script, so end with the full result, not a summary of your process.\n\n";
+const READ_ONLY: &str =
+    "You are read-only: read, run read-only commands, and report; write no file.\n\n";
 
 /// The `wf.*` globals.
 pub(super) fn globals(services: &Arc<WorkflowServices>) -> Vec<CodemodeGlobal> {
     let agent_services = Arc::clone(services);
+    let batch_services = Arc::clone(services);
     vec![
+        CodemodeGlobal {
+            name: "wf.batch".to_owned(),
+            spread: false,
+            execute: Arc::new(move |args, api, cx| {
+                let services = Arc::clone(&batch_services);
+                async move { batch(&services, args, api, cx).await }.boxed()
+            }),
+        },
         CodemodeGlobal {
             name: "wf.agent".to_owned(),
             spread: false,
@@ -136,7 +157,16 @@ pub(super) struct AgentOptions {
     pub(super) schema: Option<Value>,
     pub(super) model: Option<String>,
     pub(super) thinking: Option<String>,
-    pub(super) isolated: bool,
+    pub(super) access: Access,
+}
+
+/// What an agent may change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Access {
+    /// A help leaf: reads, writes nothing.
+    ReadOnly,
+    /// A leaf of a writing batch: writes these files and directories.
+    Writes(Vec<String>),
 }
 
 /// Why `agent(prompt, opts)`'s `opts` are refused.
@@ -145,24 +175,25 @@ pub(super) enum WorkflowOptionError {
     #[error("agent(prompt, opts): opts must be an object")]
     NotObject,
     #[error(
-        "agent(prompt, opts): unknown option {key} (label, phase, schema, model, effort, isolation)"
+        "agent(prompt, opts): unknown option {key} (label, phase, schema, model, effort, scope)"
     )]
     UnknownOption { key: String },
     #[error("agent(prompt, opts): {key} must be a non-empty string")]
     NotNonEmptyString { key: &'static str },
     #[error("agent(prompt, opts): schema must be a JSON Schema object")]
     SchemaNotObject,
-    #[error("agent(prompt, opts): isolation must be \"worktree\" or \"shared\", not {other}")]
-    Isolation { other: String },
+    #[error("{}", NEEDS_FILES)]
+    NoScope,
 }
 
 /// Validate `agent(prompt, opts)`'s `opts`.
 ///
 /// # Errors
 ///
-/// An unknown key or a value of the wrong type.
+/// An unknown key, a value of the wrong type, or a `scope` that names no
+/// file.
 pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, WorkflowOptionError> {
-    const KEYS: [&str; 6] = ["label", "phase", "schema", "model", "effort", "isolation"];
+    const KEYS: [&str; 6] = ["label", "phase", "schema", "model", "effort", "scope"];
     let Value::Object(object) = options else {
         return Err(WorkflowOptionError::NotObject);
     };
@@ -179,14 +210,18 @@ pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, WorkflowOpt
         Some(schema @ Value::Object(_)) => Some(schema.clone()),
         Some(_) => return Err(WorkflowOptionError::SchemaNotObject),
     };
-    let isolated = match text("isolation")?.as_deref() {
-        None | Some("shared") => false,
-        Some("worktree" | "isolated") => true,
-        Some(other) => {
-            return Err(WorkflowOptionError::Isolation {
-                other: other.to_owned(),
-            })
-        }
+    let access = match object.get("scope") {
+        None | Some(Value::Null) => Access::ReadOnly,
+        Some(Value::Array(paths)) if !paths.is_empty() => Access::Writes(
+            paths
+                .iter()
+                .map(|path| match path {
+                    Value::String(path) if !path.trim().is_empty() => Ok(path.trim().to_owned()),
+                    _ => Err(WorkflowOptionError::NoScope),
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        Some(_) => return Err(WorkflowOptionError::NoScope),
     };
     Ok(AgentOptions {
         label: text("label")?,
@@ -194,7 +229,7 @@ pub(super) fn agent_options(options: &Value) -> Result<AgentOptions, WorkflowOpt
         schema,
         model: text("model")?,
         thinking: text("effort")?,
-        isolated,
+        access,
     })
 }
 
@@ -395,56 +430,226 @@ fn note_of(text: &str) -> String {
     format!("{kept}…")
 }
 
-/// `wf.agent({ordinal, occurrence, prompt, options})`: `{result, cached}`.
-async fn agent(
+/// One `agent()` call as the script sends it.
+struct Call {
+    ordinal: u32,
+    occurrence: u32,
+    prompt: String,
+    raw_options: Value,
+    options: AgentOptions,
+}
+
+/// The call `args` of global `global` names.
+fn call_of(args: &Value, global: &str) -> SessionResult<Call> {
+    let number = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_u64)
+            .and_then(|number| u32::try_from(number).ok())
+            .ok_or_else(|| {
+                SessionError::type_error(format!("{global}: {key} must be a whole number"))
+            })
+    };
+    let prompt = match args.get("prompt") {
+        Some(Value::String(text)) => text.clone(),
+        Some(_) | None => {
+            return Err(SessionError::type_error(format!(
+                "{global}: prompt must be a string"
+            )))
+        }
+    };
+    let raw_options = args.get("options").cloned().unwrap_or_else(|| json!({}));
+    // The script sees the option error as a TypeError message.
+    let options =
+        agent_options(&raw_options).map_err(|error| SessionError::type_error(error.to_string()))?;
+    Ok(Call {
+        ordinal: number("ordinal")?,
+        occurrence: number("occurrence")?,
+        prompt,
+        raw_options,
+        options,
+    })
+}
+
+/// The row a call that spawns gets.
+fn fresh_row(run_id: &str, call: &Call) -> AgentRow {
+    AgentRow {
+        ordinal: call.ordinal,
+        label: call
+            .options
+            .label
+            .clone()
+            .unwrap_or_else(|| note_of(&call.prompt).chars().take(48).collect()),
+        phase: call.options.phase.clone(),
+        status: WorkflowAgentStatus::Queued,
+        key: resume_key(&call.prompt, &call.raw_options, call.occurrence),
+        child_name: Some(format!("wf{run_id}-{}", call.ordinal)),
+        retries: Vec::new(),
+        child_session_id: None,
+        result: None,
+        note: None,
+        counted: true,
+        batch: None,
+    }
+}
+
+fn exhausted(max_agents: u32) -> String {
+    format!("WorkflowBudgetExhausted: this run may spawn at most {max_agents} agents")
+}
+
+fn no_record(run_id: &str) -> SessionError {
+    SessionError::error(format!("workflow run {run_id} has no record"))
+}
+
+/// `wf.batch({agents})`: admit the writing agents a script started
+/// together as one batch of the agent tree, all or none: plan the
+/// balanced tree over the agents that run (an earlier run's answers serve
+/// the rest), then lend the batch its nodes. `null`; a refusal throws.
+async fn batch(
     services: &WorkflowServices,
     args: Option<JsonValue>,
     api: Arc<dyn ToolExecutionApi>,
     cx: Context,
 ) -> SessionResult<Option<JsonValue>> {
     let args = to_serde(args.as_ref())?;
-    let ordinal = args
-        .get("ordinal")
-        .and_then(Value::as_u64)
-        .and_then(|ordinal| u32::try_from(ordinal).ok())
-        .ok_or_else(|| SessionError::type_error("wf.agent: ordinal must be a whole number"))?;
-    let occurrence = args
-        .get("occurrence")
-        .and_then(Value::as_u64)
-        .and_then(|occurrence| u32::try_from(occurrence).ok())
-        .ok_or_else(|| SessionError::type_error("wf.agent: occurrence must be a whole number"))?;
-    let prompt = string_field_of(&args, "prompt")?;
-    let raw_options = args.get("options").cloned().unwrap_or_else(|| json!({}));
-    // The script sees the option error as a TypeError message.
-    let options =
-        agent_options(&raw_options).map_err(|error| SessionError::type_error(error.to_string()))?;
+    let calls = match args.get("agents") {
+        Some(Value::Array(agents)) if !agents.is_empty() => agents
+            .iter()
+            .map(|agent| call_of(agent, "wf.batch"))
+            .collect::<SessionResult<Vec<_>>>()?,
+        Some(_) | None => {
+            return Err(SessionError::type_error(
+                "wf.batch: agents must be a non-empty list",
+            ))
+        }
+    };
+    let key = calls[0].ordinal;
     let run_id = api.task_id().to_string();
     let conversation_id = api.conversation_id();
-    let fresh = AgentRow {
-        ordinal,
-        label: options
-            .label
-            .clone()
-            .unwrap_or_else(|| note_of(&prompt).chars().take(48).collect()),
-        phase: options.phase.clone(),
-        status: WorkflowAgentStatus::Queued,
-        key: resume_key(&prompt, &raw_options, occurrence),
-        child_name: Some(format!("wf{run_id}-{ordinal}")),
-        retries: Vec::new(),
-        child_session_id: None,
-        result: None,
-        note: None,
-        counted: true,
+    let mut writers = Vec::with_capacity(calls.len());
+    for call in &calls {
+        match &call.options.access {
+            Access::Writes(scope) => writers.push((fresh_row(&run_id, call), scope.clone())),
+            Access::ReadOnly => return Err(SessionError::type_error(NEEDS_FILES)),
+        }
+    }
+    let facts = host_call(services, &api, "rlm.tree_facts", json!({}))
+        .await
+        .map_err(|error| SessionError::error(format!("{error:#}")))
+        .and_then(|reply| {
+            tree::facts(&reply).map_err(|error| SessionError::error(error.to_string()))
+        })?;
+    let planned = {
+        let run_id = run_id.clone();
+        api.commit(
+            move |tx| async move {
+                let runs = tx_runs(&tx, conversation_id).await?;
+                let batches = tx_batches(&tx, conversation_id).await?;
+                let run = runs.runs.get(&run_id).ok_or_else(|| no_record(&run_id))?;
+                let lent = tree::lend_key(&run_id, key);
+                if let Some(batch) = batches.batches.get(&lent) {
+                    return Ok(Ok(Some(tree::nodes(batch.leaves.len()))));
+                }
+                let resumed = run
+                    .resume_from
+                    .as_ref()
+                    .and_then(|from| runs.runs.get(from));
+                let cache = match resumed {
+                    Some(earlier) => Resumed::From(earlier),
+                    None => Resumed::Fresh,
+                };
+                let mut trial = run.clone();
+                let mut agents = Vec::new();
+                for (row, scope) in writers {
+                    let ordinal = row.ordinal;
+                    match admit(&mut trial, cache, ordinal, row) {
+                        Admission::Exhausted(max_agents) => return Ok(Err(exhausted(max_agents))),
+                        Admission::Run(_) => agents.push((ordinal, scope)),
+                        Admission::Cached(_) | Admission::Ended(_) => {}
+                    }
+                }
+                if !agents.is_empty() {
+                    let batch = match batches.admit(&facts, &agents) {
+                        Ok(batch) => batch,
+                        Err(refusal) => return Ok(Err(refusal.to_string())),
+                    };
+                    for (ordinal, _) in &agents {
+                        if let Some(row) = trial.agents.get_mut(ordinal) {
+                            row.batch = Some(key);
+                        }
+                    }
+                    tx_put_batch(&tx, conversation_id, &lent, &batch).await?;
+                }
+                tx_put_run(&tx, conversation_id, &run_id, &mut trial).await?;
+                Ok(Ok((!agents.is_empty()).then(|| tree::nodes(agents.len()))))
+            },
+            &cx,
+        )
+        .await?
     };
-    let admission = {
+    let nodes = match planned {
+        Err(refusal) => return Err(SessionError::error(refusal)),
+        Ok(None) => return Ok(None),
+        Ok(Some(nodes)) => nodes,
+    };
+    let lent = tree::lend_key(&run_id, key);
+    let lent_reply = host_call(
+        services,
+        &api,
+        "rlm.tree_lend",
+        json!({ "key": lent, "nodes": nodes }),
+    )
+    .await;
+    if let Err(error) = lent_reply {
+        api.commit(
+            move |tx| async move {
+                tx_remove_batch(&tx, conversation_id, &lent).await?;
+                let mut run = tx_run(&tx, conversation_id, &run_id)
+                    .await?
+                    .ok_or_else(|| no_record(&run_id))?;
+                run.agents.retain(|_, row| row.batch != Some(key));
+                tx_put_run(&tx, conversation_id, &run_id, &mut run).await
+            },
+            &cx,
+        )
+        .await?;
+        return Err(SessionError::error(format!("{error:#}")));
+    }
+    Ok(None)
+}
+
+/// How an agent's child spawns.
+pub(super) enum Spawn {
+    /// A read-only help leaf of the session.
+    Help,
+    /// A leaf of writing batch `batch`, with these spawn kwargs.
+    Leaf {
+        /// The batch's key (`batch_doc`).
+        batch: String,
+        units: usize,
+        kwargs: Map<String, Value>,
+    },
+}
+
+/// `wf.agent({ordinal, occurrence, prompt, options})`: `{result, cached}`.
+/// A writing agent's result is `{result, conflicts}`.
+async fn agent(
+    services: &WorkflowServices,
+    args: Option<JsonValue>,
+    api: Arc<dyn ToolExecutionApi>,
+    cx: Context,
+) -> SessionResult<Option<JsonValue>> {
+    let call = call_of(&to_serde(args.as_ref())?, "wf.agent")?;
+    let run_id = api.task_id().to_string();
+    let conversation_id = api.conversation_id();
+    let fresh = fresh_row(&run_id, &call);
+    let ordinal = call.ordinal;
+    let (admission, batch) = {
         let run_id = run_id.clone();
         api.commit(
             move |tx| async move {
                 let mut run = tx_run(&tx, conversation_id, &run_id)
                     .await?
-                    .ok_or_else(|| {
-                        SessionError::error(format!("workflow run {run_id} has no record"))
-                    })?;
+                    .ok_or_else(|| no_record(&run_id))?;
                 let resumed = match &run.resume_from {
                     Some(from) => tx_run(&tx, conversation_id, from).await?,
                     None => None,
@@ -455,18 +660,27 @@ async fn agent(
                 };
                 let admission = admit(&mut run, cache, ordinal, fresh);
                 tx_put_run(&tx, conversation_id, &run_id, &mut run).await?;
-                Ok(admission)
+                let key = run.agents.get(&ordinal).and_then(|row| row.batch);
+                let batch = match key {
+                    Some(first) => {
+                        let key = tree::lend_key(&run_id, first);
+                        let batch = tx_batches(&tx, conversation_id)
+                            .await?
+                            .batches
+                            .get(&key)
+                            .cloned();
+                        batch.map(|batch| (key, batch))
+                    }
+                    None => None,
+                };
+                Ok((admission, batch))
             },
             &cx,
         )
         .await?
     };
     let row = match admission {
-        Admission::Exhausted(max_agents) => {
-            return Err(SessionError::error(format!(
-                "WorkflowBudgetExhausted: this run may spawn at most {max_agents} agents"
-            )));
-        }
+        Admission::Exhausted(max_agents) => return Err(SessionError::error(exhausted(max_agents))),
         Admission::Cached(row) => return Ok(Some(answer_value(row.result, Source::Cached)?)),
         Admission::Ended(row) => {
             let source = match row.status {
@@ -481,17 +695,31 @@ async fn agent(
         }
         Admission::Run(row) => row,
     };
-    let result = run_agent(services, &api, &cx, &row, &prompt, &options).await?;
+    let spawn = match (&call.options.access, batch) {
+        (Access::ReadOnly, None) => Spawn::Help,
+        (Access::Writes(_), Some((key, batch))) => {
+            let place = batch_crown(&batch)
+                .ok()
+                .and_then(|crown| place(&batch, &crown, ordinal))
+                .ok_or_else(|| {
+                    SessionError::error(format!(
+                        "wf.agent: agent {ordinal} has no place in its batch"
+                    ))
+                })?;
+            Spawn::Leaf {
+                batch: key,
+                units: batch.units.len(),
+                kwargs: tree::leaf_kwargs(&batch, &place),
+            }
+        }
+        (Access::Writes(_), None) | (Access::ReadOnly, Some(_)) => {
+            return Err(SessionError::error(format!(
+                "wf.agent: agent {ordinal} was not admitted in a writing batch"
+            )))
+        }
+    };
+    let result = run_agent(services, &api, &cx, &row, &call, &spawn).await?;
     Ok(Some(answer_value(result, Source::Ran)?))
-}
-
-fn string_field_of(args: &Value, key: &str) -> SessionResult<String> {
-    match args.get(key) {
-        Some(Value::String(text)) => Ok(text.clone()),
-        Some(_) | None => Err(SessionError::type_error(format!(
-            "wf.agent: {key} must be a string"
-        ))),
-    }
 }
 
 /// Whether an agent's answer came from an earlier run's cache.
@@ -512,46 +740,68 @@ fn answer_value(result: Option<Value>, source: Source) -> SessionResult<JsonValu
     serde_json::from_value(value).map_err(|error| SessionError::error(error.to_string()))
 }
 
+/// The task line that tells an agent what it may change.
+pub(super) fn access_line(access: &Access) -> String {
+    match access {
+        Access::ReadOnly => READ_ONLY.to_owned(),
+        Access::Writes(scope) => format!(
+            "Write only inside: {}. Changes elsewhere return to the workflow as conflicts and are not applied.\n\n",
+            scope.join(", ")
+        ),
+    }
+}
+
 /// Run the child of `row` to its end; what the script gets (`None`:
-/// `null`).
+/// `null`). A writing agent's end goes into its batch, whose integrators
+/// it completes; its result carries the paths that came back as
+/// conflicts.
 async fn run_agent(
     services: &WorkflowServices,
     api: &Arc<dyn ToolExecutionApi>,
     cx: &Context,
     row: &AgentRow,
-    prompt: &str,
-    options: &AgentOptions,
+    call: &Call,
+    spawn: &Spawn,
 ) -> SessionResult<Option<Value>> {
     let Some(name) = row.child_name.clone() else {
         return Ok(row.result.clone());
     };
+    let options = &call.options;
+    let head = format!(
+        "{AGENT_PREAMBLE}{}{}",
+        access_line(&options.access),
+        call.prompt
+    );
     let full_prompt = match &options.schema {
-        None => format!("{AGENT_PREAMBLE}{prompt}"),
+        None => head,
         Some(schema) => format!(
-            "{AGENT_PREAMBLE}{prompt}\n\nEnd your final message with one ```json fenced block holding a JSON value that matches this JSON Schema:\n{schema}"
+            "{head}\n\nEnd your final message with one ```json fenced block holding a JSON value that matches this JSON Schema:\n{schema}"
         ),
     };
     let ordinal = row.ordinal;
-    let outcome = match answer_of(services, api, cx, &name, &full_prompt, options, ordinal).await? {
+    let host = Host { services, api, cx };
+    let (first, wrote) = answer_of(host, &name, &full_prompt, options, spawn, ordinal).await?;
+    let (outcome, written) = match first {
         Ok(answer) => match &options.schema {
-            None => Ok(Value::String(answer)),
+            None => (Ok(Value::String(answer)), wrote),
             Some(schema) => match checked(&answer, schema) {
-                Ok(value) => Ok(value),
+                Ok(value) => (Ok(value), wrote),
                 Err(mismatch) => {
                     let retry = format!(
                         "{full_prompt}\n\nAn earlier attempt answered this, which does not match the schema ({mismatch}):\n{answer}\n\nAnswer again; end with the matching ```json block."
                     );
                     let retry_name = format!("{name}r");
                     record_child(api, cx, ordinal, retry_name.clone()).await?;
-                    answer_of(services, api, cx, &retry_name, &retry, options, ordinal)
-                        .await?
-                        .and_then(|second| {
-                            checked(&second, schema).map_err(AgentFailure::MismatchAfterRetry)
-                        })
+                    let (second, again) =
+                        answer_of(host, &retry_name, &retry, options, spawn, ordinal).await?;
+                    let checked = second.and_then(|second| {
+                        checked(&second, schema).map_err(AgentFailure::MismatchAfterRetry)
+                    });
+                    (checked, wrote.then(again))
                 }
             },
         },
-        Err(error) => Err(error),
+        Err(error) => (Err(error), wrote),
     };
     let (status, result, note) = match outcome {
         Ok(value) => {
@@ -559,7 +809,11 @@ async fn run_agent(
                 Value::String(text) => note_of(text),
                 other => note_of(&other.to_string()),
             };
-            (WorkflowAgentStatus::Done, Some(value), note)
+            let result = match spawn {
+                Spawn::Help => value,
+                Spawn::Leaf { .. } => json!({ "result": value, "conflicts": written.conflicts }),
+            };
+            (WorkflowAgentStatus::Done, Some(result), note)
         }
         // The row's note is where the failure becomes text.
         Err(error) => (
@@ -568,15 +822,52 @@ async fn run_agent(
             note_of(&error.to_string()),
         ),
     };
-    let stored = result.clone();
-    update_run(api, cx, move |run| {
-        if let Some(agent) = run.agents.get_mut(&ordinal) {
-            agent.status = status;
-            agent.result = stored;
-            agent.note = Some(note);
+    let end = match spawn {
+        Spawn::Help => None,
+        Spawn::Leaf { batch, units, .. } => {
+            let outcome = match status {
+                WorkflowAgentStatus::Done => Outcome::Finished,
+                WorkflowAgentStatus::Queued
+                | WorkflowAgentStatus::Running
+                | WorkflowAgentStatus::Failed
+                | WorkflowAgentStatus::Cancelled
+                | WorkflowAgentStatus::Cached => Outcome::Failed,
+            };
+            Some((batch.clone(), outcome, written.patch_over(*units)))
         }
-    })
-    .await?;
+    };
+    let stored = result.clone();
+    let run_id = api.task_id().to_string();
+    let conversation_id = api.conversation_id();
+    let settled = api
+        .commit(
+            move |tx| async move {
+                let mut run = tx_run(&tx, conversation_id, &run_id)
+                    .await?
+                    .ok_or_else(|| no_record(&run_id))?;
+                if let Some(agent) = run.agents.get_mut(&ordinal) {
+                    agent.status = status;
+                    agent.result = stored;
+                    agent.note = Some(note);
+                }
+                tx_put_run(&tx, conversation_id, &run_id, &mut run).await?;
+                match end {
+                    Some((key, outcome, patch)) => {
+                        let settled =
+                            tx_end(&tx, conversation_id, &key, ordinal, outcome, patch).await?;
+                        Ok(settled.then_some(key))
+                    }
+                    None => Ok(None),
+                }
+            },
+            cx,
+        )
+        .await?;
+    if let Some(key) = settled {
+        host_call(services, api, "rlm.tree_return", json!({ "key": key }))
+            .await
+            .map_err(|error| SessionError::error(format!("{error:#}")))?;
+    }
     Ok(result)
 }
 
@@ -598,35 +889,35 @@ async fn record_child(
     .await
 }
 
-/// The answer of the agent's child `name`, or why it has none. A child
-/// interrupted from outside (its parent's worker crashed, or its own
-/// worker died) runs once more as `<name>i`.
+/// The answer of the agent's child `name`, or why it has none, and what
+/// its children wrote. A child interrupted from outside (its parent's
+/// worker crashed, or its own worker died) runs once more as `<name>i`.
 async fn answer_of(
-    services: &WorkflowServices,
-    api: &Arc<dyn ToolExecutionApi>,
-    cx: &Context,
+    host: Host<'_>,
     name: &str,
     prompt: &str,
     options: &AgentOptions,
+    spawn: &Spawn,
     ordinal: u32,
-) -> SessionResult<Result<String, AgentFailure>> {
-    let interrupted = match settle_child(services, api, cx, name, prompt, options, ordinal).await? {
-        ChildEnd::Answered(answer) => return Ok(Ok(answer)),
-        ChildEnd::Failed(error) => return Ok(Err(error)),
-        ChildEnd::Interrupted(error) => error,
-    };
+) -> SessionResult<(Result<String, AgentFailure>, Written)> {
+    let (interrupted, wrote) =
+        match settle_child(host, name, prompt, options, spawn, ordinal).await? {
+            (ChildEnd::Answered(answer), wrote) => return Ok((Ok(answer), wrote)),
+            (ChildEnd::Failed(error), wrote) => return Ok((Err(error), wrote)),
+            (ChildEnd::Interrupted(error), wrote) => (error, wrote),
+        };
     let restart = format!("{name}i");
-    record_child(api, cx, ordinal, restart.clone()).await?;
-    Ok(
-        match settle_child(services, api, cx, &restart, prompt, options, ordinal).await? {
-            ChildEnd::Answered(answer) => Ok(answer),
-            ChildEnd::Failed(error) => Err(error),
-            ChildEnd::Interrupted(again) => Err(AgentFailure::InterruptedTwice {
-                first: Box::new(interrupted),
-                again: Box::new(again),
-            }),
-        },
-    )
+    record_child(host.api, host.cx, ordinal, restart.clone()).await?;
+    let (end, again) = settle_child(host, &restart, prompt, options, spawn, ordinal).await?;
+    let answer = match end {
+        ChildEnd::Answered(answer) => Ok(answer),
+        ChildEnd::Failed(error) => Err(error),
+        ChildEnd::Interrupted(again) => Err(AgentFailure::InterruptedTwice {
+            first: Box::new(interrupted),
+            again: Box::new(again),
+        }),
+    };
+    Ok((answer, wrote.then(again)))
 }
 
 fn checked(answer: &str, schema: &Value) -> Result<Value, AnswerCheckError> {
@@ -709,63 +1000,73 @@ fn aborted(cx: &Context) -> Option<SessionError> {
 }
 
 /// Spawn (or find, after a restart) the silent child `name` and wait for
-/// its end.
+/// its end: how it ended and what it wrote.
 async fn settle_child(
-    services: &WorkflowServices,
-    api: &Arc<dyn ToolExecutionApi>,
-    cx: &Context,
+    host: Host<'_>,
     name: &str,
     prompt: &str,
     options: &AgentOptions,
+    spawn: &Spawn,
     ordinal: u32,
-) -> SessionResult<ChildEnd> {
-    // The child exists when an earlier attempt of this call spawned it
-    // (a restart cut the call off): the call reattaches to it.
-    let found = match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
+) -> SessionResult<(ChildEnd, Written)> {
+    Ok(
+        match settled_state(host, name, prompt, options, spawn, ordinal).await? {
+            Err(failure) => (ChildEnd::Failed(failure), Written::default()),
+            Ok(state) => (end_of(name, &state)?, tree::written(&state)),
+        },
+    )
+}
+
+/// The spawn kwargs of the child `name`: a help leaf's, or a writing
+/// leaf's with its place in the batch.
+pub(super) fn spawn_kwargs(name: &str, options: &AgentOptions, spawn: &Spawn) -> Value {
+    let mut kwargs = Map::new();
+    kwargs.insert("name".to_owned(), json!(name));
+    kwargs.insert("label".to_owned(), json!(options.label));
+    kwargs.insert("phase".to_owned(), json!(options.phase));
+    kwargs.insert("model".to_owned(), json!(options.model));
+    kwargs.insert("thinking".to_owned(), json!(options.thinking));
+    kwargs.insert("report".to_owned(), json!("silent"));
+    match spawn {
+        Spawn::Help => {}
+        Spawn::Leaf { kwargs: leaf, .. } => kwargs.extend(leaf.clone()),
+    }
+    Value::Object(kwargs)
+}
+
+/// The settled `rlm.answer` state of the child `name`, spawned unless an
+/// earlier attempt of this call did (a restart cut the call off: the
+/// call reattaches to it); a host failure on the way.
+async fn settled_state(
+    host: Host<'_>,
+    name: &str,
+    prompt: &str,
+    options: &AgentOptions,
+    spawn: &Spawn,
+    ordinal: u32,
+) -> SessionResult<Result<Value, AgentFailure>> {
+    let Host { services, api, cx } = host;
+    let answer = || host_call(services, api, "rlm.answer", json!({ "target": name }));
+    let found = match answer().await {
         Ok(found) => found,
         Err(error) if !format!("{error:#}").starts_with(NO_SUCH_CHILD) => {
-            return Ok(ChildEnd::Failed(AgentFailure::Host(error)));
+            return Ok(Err(AgentFailure::Host(error)));
         }
         Err(_) => {
-            // A workflow's agents run at once: the spawn's reason is
-            // `parallel` (laws/family.bend).
-            let kwargs = json!({
-                "why": "parallel",
-                "name": name,
-                "label": options.label,
-                "phase": options.phase,
-                "model": options.model,
-                "thinking": options.thinking,
-                "workspace": if options.isolated { "isolated" } else { "shared" },
-                "report": "silent",
-            });
-            let mut tries = 0;
-            loop {
-                match host_call(
-                    services,
-                    api,
-                    "rlm.run",
-                    json!({ "prompt": prompt, "kwargs": kwargs }),
-                )
-                .await
-                {
-                    Ok(_) => break,
-                    Err(error)
-                        if format!("{error:#}").contains("concurrency limit")
-                            && tries < SPAWN_RETRIES =>
-                    {
-                        tries += 1;
-                        if let Some(error) = aborted(cx) {
-                            return Err(error);
-                        }
-                        tokio::time::sleep(SPAWN_RETRY_PAUSE).await;
-                    }
-                    Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
-                }
+            let kwargs = spawn_kwargs(name, options, spawn);
+            let spawned = host_call(
+                services,
+                api,
+                "rlm.run",
+                json!({ "prompt": prompt, "kwargs": kwargs }),
+            )
+            .await;
+            if let Err(error) = spawned {
+                return Ok(Err(AgentFailure::Host(error)));
             }
-            match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
+            match answer().await {
                 Ok(found) => found,
-                Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
+                Err(error) => return Ok(Err(AgentFailure::Host(error))),
             }
         }
     };
@@ -785,7 +1086,7 @@ async fn settle_child(
     let mut state = found;
     loop {
         if state.get("settled") == Some(&Value::Bool(true)) {
-            break;
+            return Ok(Ok(state));
         }
         if let Some(error) = aborted(cx) {
             return Err(error);
@@ -799,20 +1100,25 @@ async fn settle_child(
         )
         .await
         {
-            return Ok(ChildEnd::Failed(AgentFailure::Host(error)));
+            return Ok(Err(AgentFailure::Host(error)));
         }
-        state = match host_call(services, api, "rlm.answer", json!({ "target": name })).await {
+        state = match answer().await {
             Ok(state) => state,
-            Err(error) => return Ok(ChildEnd::Failed(AgentFailure::Host(error))),
+            Err(error) => return Ok(Err(AgentFailure::Host(error))),
         };
         // A collect that answers at once (its row settled, the answer not
-        // yet kept): pace the polls.
+        // yet kept, or a user message waits for the session's turn): pace
+        // the polls.
         if started.elapsed() < Duration::from_millis(500)
             && state.get("settled") != Some(&Value::Bool(true))
         {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
+}
+
+/// How the child `name` of the settled `state` ended.
+fn end_of(name: &str, state: &Value) -> SessionResult<ChildEnd> {
     let Some(status) = state.get("status").and_then(Value::as_str) else {
         return Ok(ChildEnd::Failed(AgentFailure::NoStatus {
             name: name.to_owned(),

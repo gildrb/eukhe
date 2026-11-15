@@ -1,6 +1,5 @@
 //! The limits a run works under: the size's, with the concurrency capped
-//! by `subagentMaxConcurrency` (the family-wide spawn cap, which refuses a
-//! spawn over it). The rule is the Bend model's `effective`
+//! by `subagentMaxConcurrency`. The rule is the Bend model's `effective`
 //! (`bend/workflow.bend`, law `wf_limits_effective`), run by the compiled
 //! core.
 

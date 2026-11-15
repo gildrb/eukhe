@@ -1,8 +1,9 @@
 //! A child's task prompt and report delivery around a busy spawning call:
-//! a call that spawns and then waits on the child sees it run, a queued
-//! report an abort withdraws is delivered again, once, and one a close's
-//! abort withdraws is left to the reopened session; a report the parent
-//! read itself never wakes it.
+//! a call that spawns and then waits on the child sees it run, a user
+//! message ends that wait while the child runs on, a queued report an
+//! abort withdraws is delivered again, once, and one a close's abort
+//! withdraws is left to the reopened session; a report the parent read
+//! itself never wakes it.
 
 use eukhe_chord::json::from_json;
 
@@ -42,7 +43,7 @@ pub(super) fn spawn_collect_hold_tool(
             let held = Arc::clone(&held);
             async move {
                 let handle = spawn(HostCall {
-                    data: json!({ "prompt": PROMPT, "kwargs": { "why": "isolate" } }),
+                    data: json!({ "prompt": PROMPT, "kwargs": {} }),
                     cell_source_code: None,
                     call: Some(api.clone()),
                     signal: None,
@@ -175,6 +176,75 @@ async fn a_call_that_spawns_then_waits_sees_the_child_settle() {
             "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
             row.session_name
         )]
+    );
+    opened.harness.close(cx()).await.unwrap();
+}
+
+/// T10: a user message queued while the parent waits on a running child
+/// (`rlm.collect`, which `jobs.wait(child)` runs) ends the wait with
+/// `end: "message"`. The child keeps running, unread, and its report
+/// reaches the parent once it settles.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_user_message_ends_the_wait_and_the_child_reports_later() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    setup.faux.append_responses(vec![
+        call_spawn_collect_hold(),
+        answer("heard"),
+        answer("noted"),
+    ]);
+    submit_input(&opened, "go").await;
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    submit_input(&opened, "how is it going?").await;
+    eventually(|| async { lock(&opened.held.collected).is_some() }).await;
+    let collected = lock(&opened.held.collected).clone().unwrap();
+    assert_eq!(
+        (
+            &collected["end"],
+            &collected["arrived"],
+            &collected["results"][0]["status"],
+            &collected["results"][0]["settled"],
+        ),
+        (
+            &json!("message"),
+            &json!([]),
+            &json!("running"),
+            &json!(false)
+        ),
+        "{collected}"
+    );
+    let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .last()
+        .cloned()
+        .expect("the spawn admitted a child");
+    assert_eq!((row.status, row.read), (ChildStatus::Running, false));
+
+    host.settle(
+        &row.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("found it".to_owned()),
+        },
+        None,
+    );
+    opened.held.gate.notify_one();
+    let task = TaskId::<Value>::from_number(row.task_id);
+    opened.harness.wait_for_task(task, cx()).await.unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        user_texts(&opened.root, "[child-exited").await,
+        [format!(
+            "[child-exited: no-reply child:{}]\n\nResume your work using the result below.\n\nLast assistant text: found it",
+            row.session_name
+        )]
+    );
+    assert_eq!(
+        user_texts(&opened.root, "how is it going?").await,
+        ["how is it going?"]
     );
     opened.harness.close(cx()).await.unwrap();
 }

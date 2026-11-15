@@ -1,10 +1,11 @@
-//! A child's budget (spec/README.md B4): a child spawned without a budget
-//! carves nothing and draws from its parent's account as a shared member;
-//! a spawn batch that names budgets is carved all or none before a child
-//! starts; a child that ended gives its budget back (an allotment returns
-//! what it left and its spend, a shared member leaves the account); a
-//! child tasked again joins again; a parent that opens gives back what no
-//! task serves; and a parent with no budget spawns as before.
+//! A child's budget (spec/README.md B4) in the agent tree: a help leaf is
+//! carved its limit (the budget it names, else a tenth of what the parent
+//! may spend); a split carves each half its share of the room, both or
+//! none; a child that ended gives its budget back (an allotment returns
+//! what it left and its spend, a shared member leaves the account); main's
+//! root draws from main's account and joins again when tasked; a parent
+//! that opens gives back what no task serves; and a parent with no budget
+//! spawns as before.
 
 use eukhe_budget::{CarveOutcome, Ledger, Member, Reserved, Use, REQUEST_MIN_MS};
 use eukhe_types::budget::{BudgetAmounts, BudgetLimits, BudgetPhase, BudgetReport};
@@ -77,20 +78,18 @@ fn answered() -> RlmChildRunState {
     }
 }
 
-/// B4: children spawned without a budget carve nothing: the parent lends
-/// nothing, no child gets an account of its own, and a child's session
-/// joins the parent's account when it opens (it sees the account's free
-/// amount as its own).
+/// B4: a help leaf that names no budget is carved a tenth of what its
+/// parent may spend: the parent lends it, the child's own account holds
+/// it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn children_without_a_budget_draw_from_the_parents_account() {
+async fn a_help_leaf_is_carved_a_tenth_of_what_is_free() {
     let agent_dir = tempfile::tempdir().unwrap();
     let setup = setup_in(agent_dir.path());
     setup.budget.set(cost_limit(1_000_000)).unwrap();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name, "why": "parallel" } });
 
-    spawn_batch_turn(&opened, &setup, json!([task("a"), task("b")])).await;
+    spawn_turn(&opened, &setup, "do a", json!({ "name": "a" })).await;
 
     let rows: Vec<ChildRow> = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
@@ -98,26 +97,24 @@ async fn children_without_a_budget_draw_from_the_parents_account() {
         .children
         .into_values()
         .collect();
-    let first = &rows[0].session_id;
-    let child = BudgetGate::open(agent_dir.path(), first, Some(PARENT_SESSION_ID));
+    let child = &rows[0].session_id;
     assert_eq!(
         (
             rows.iter()
                 .map(|row| row.session_name.as_str())
                 .collect::<Vec<_>>(),
             ledger_report(agent_dir.path(), PARENT_SESSION_ID),
-            ledger(agent_dir.path(), first).is_owner(),
-            child.report(),
+            ledger_report(agent_dir.path(), child),
         ),
         (
-            vec!["a", "b"],
-            Some(parent_report(1_000_000, 1_000_000, 0, 0)),
-            false,
+            vec!["a"],
+            Some(parent_report(1_000_000, 900_000, 0, 100_000)),
             Some(BudgetReport {
-                session_id: PARENT_SESSION_ID.to_owned(),
-                agent_session_id: first.clone(),
-                limits: cost_limit(1_000_000),
-                free: cost(1_000_000),
+                session_id: child.clone(),
+                agent_session_id: child.clone(),
+                limits: cost_limit(100_000),
+                free: cost(100_000),
+                parent_session_id: Some(PARENT_SESSION_ID.to_owned()),
                 ..BudgetReport::default()
             }),
         )
@@ -136,9 +133,13 @@ async fn a_named_budget_is_carved_for_its_child() {
     setup.budget.set(cost_limit(1_000_000)).unwrap();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = json!({ "prompt": "do a", "kwargs": { "name": "a", "why": "parallel", "budget": { "cost_usd": 0.25 } } });
-
-    spawn_batch_turn(&opened, &setup, json!([task])).await;
+    spawn_turn(
+        &opened,
+        &setup,
+        "do a",
+        json!({ "name": "a", "budget": { "cost_usd": 0.25 } }),
+    )
+    .await;
 
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
@@ -168,40 +169,49 @@ async fn a_named_budget_is_carved_for_its_child() {
     opened.harness.close(cx()).await.unwrap();
 }
 
-/// B4: a batch whose named allotments do not fit is refused with the
-/// budget text; nothing stays carved and no child is admitted.
+/// B4: a split carves each half its share of the room (after the hold the
+/// parent keeps), both in one commit; a split whose hold leaves no room is
+/// refused by the core and carves nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_batch_that_does_not_fit_carves_nothing_and_is_refused() {
+async fn a_split_carves_each_half_its_share_or_nothing() {
     let agent_dir = tempfile::tempdir().unwrap();
     let setup = setup_in(agent_dir.path());
     let set = setup.budget.set(cost_limit(1_000_000)).unwrap();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    // Each names 0.60 dollars of the parent's 1.00: the first fits, the
-    // second does not, so the first goes back.
-    let task = |name: &str| json!({ "prompt": format!("do {name}"), "kwargs": { "name": name, "why": "parallel", "budget": { "cost_usd": 0.6 } } });
+    let split = |hold: u64| {
+        json!({
+            "left": { "scope": ["a"], "task": "do a", "name": "left" },
+            "right": { "scope": ["b"], "task": "do b", "name": "right" },
+            "hold": hold,
+        })
+    };
 
-    let reply = spawn_batch_turn(&opened, &setup, json!([task("a"), task("b")])).await;
-
-    let admitted: Vec<String> = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
-        .await
-        .unwrap()
-        .children
-        .values()
-        .map(|row| row.session_name.clone())
-        .collect();
+    let refused = request_turn(&opened, &setup, "rlm.split", split(2_000_000)).await;
+    let after_refusal = ledger_report(agent_dir.path(), PARENT_SESSION_ID);
+    let admitted = request_turn(&opened, &setup, "rlm.split", split(100_000)).await;
+    let halves: Vec<Option<BudgetLimits>> =
+        read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+            .await
+            .unwrap()
+            .children
+            .values()
+            .map(|row| ledger_report(agent_dir.path(), &row.session_id).map(|report| report.limits))
+            .collect();
     assert_eq!(
         (
-            reply,
-            admitted,
-            host.spawn_keys(),
+            refused,
+            after_refusal,
+            admitted.starts_with("error:"),
+            halves,
             ledger_report(agent_dir.path(), PARENT_SESSION_ID),
         ),
         (
-            "error: Budget: the children's allotments do not fit what is left (cost)".to_owned(),
-            Vec::new(),
-            Vec::new(),
+            "error: not enough budget left".to_owned(),
             Some(set),
+            false,
+            vec![Some(cost_limit(450_000)), Some(cost_limit(450_000))],
+            Some(parent_report(1_000_000, 100_000, 0, 900_000)),
         )
     );
     opened.root.wait_for_idle(cx()).await.unwrap();
@@ -217,8 +227,13 @@ async fn a_carved_child_that_ended_returns_what_it_left_and_its_spend() {
     setup.budget.set(cost_limit(1_000_000)).unwrap();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = json!({ "prompt": "do a", "kwargs": { "name": "a", "why": "parallel", "budget": { "cost_usd": 0.5 } } });
-    spawn_batch_turn(&opened, &setup, json!([task])).await;
+    spawn_turn(
+        &opened,
+        &setup,
+        "do a",
+        json!({ "name": "a", "budget": { "cost_usd": 0.5 } }),
+    )
+    .await;
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
         .unwrap()
@@ -350,8 +365,13 @@ async fn an_open_gives_back_what_children_no_task_serves_hold() {
     setup.budget.set(cost_limit(1_000_000)).unwrap();
     let host = FakeHost::new();
     let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
-    let task = json!({ "prompt": "do a", "kwargs": { "name": "a", "why": "parallel", "budget": { "cost_usd": 0.5 } } });
-    spawn_batch_turn(&opened, &setup, json!([task])).await;
+    spawn_turn(
+        &opened,
+        &setup,
+        "do a",
+        json!({ "name": "a", "budget": { "cost_usd": 0.5 } }),
+    )
+    .await;
     let row = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
         .await
         .unwrap()

@@ -55,6 +55,9 @@ pub struct SessionRole {
     /// its own, kept as a top-level session keeps its chat (it never reads
     /// main's), and the worker doctrine.
     pub worker: bool,
+    /// The session's place in the agent tree, from its spawn; `None`: a
+    /// session outside the tree (a top-level session, an older child).
+    pub tree: Option<eukhe_types::daemon::agent_tree::TreePlace>,
 }
 
 impl SessionRole {

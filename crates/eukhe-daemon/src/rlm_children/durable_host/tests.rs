@@ -5,18 +5,18 @@
 //! whose run was interrupted (without waking one no worker hosts), the
 //! task prompt lands as the parent's spawn kickoff row (waiting out a
 //! supervisor restart), `rlm.rename` routes self and child renames, and an
-//! isolated child works on a copy of the parent's workspace handed back at
-//! its end.
+//! isolated child works on a copy of the parent's workspace handed back by
+//! its scope.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use eukhe_core::child_workspace::{Handback, WorkspaceMode};
+use eukhe_core::child_workspace::{CheckRun, ScopedHandback, WorkspaceMode};
 use eukhe_core::durable::children::{
-    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildIdentity,
-    RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest,
-    RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSpawnCapacity, RlmSubagentHost,
+    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildHandback, RlmChildHandbackRequest,
+    RlmChildIdentity, RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState,
+    RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
 };
 use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
@@ -30,16 +30,14 @@ use crate::protocol::{response_failure, response_success};
 
 const CHILD_SESSION: &str = "0192a000-0000-7000-8000-00000000c001";
 
-/// What the fake supervisor saw, the resident sessions it lists, the
-/// roster entries its `roster_subscribe` snapshot answers, whether no
-/// worker hosts the child (its non-waking probes answer the
+/// What the fake supervisor saw, the resident sessions it lists, whether
+/// no worker hosts the child (its non-waking probes answer the
 /// unknown-session error), and the run outcome the child answers (an
 /// answered run when unset).
 #[derive(Default)]
 struct Supervisor {
     commands: Vec<Value>,
     resident: Vec<Value>,
-    roster: Vec<Value>,
     child_unhosted: bool,
     outcome: Option<RlmChildRunState>,
     overloaded_child: Option<WorkerLiveness>,
@@ -64,10 +62,6 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                 command_type,
                 Some(json!({ "sessions": sessions })),
             )
-        }
-        "roster_subscribe" => {
-            let roster = lock(shared).roster.clone();
-            response_success(Some(id), command_type, Some(json!({ "roster": roster })))
         }
         "create" => response_success(
             Some(id),
@@ -230,6 +224,7 @@ fn spawn_request() -> RlmChildSpawnRequest {
         workspace: WorkspaceMode::Shared,
         worker: false,
         acceptance: None,
+        tree: None,
     }
 }
 
@@ -284,63 +279,6 @@ async fn spawn_carries_the_parents_cvar_family() {
         creates[0]["config"]["cvarFamily"],
         serde_json::to_value(family).unwrap()
     );
-}
-
-/// A parent without a worker token (a headless `-p` session no supervisor
-/// hosts) still gets the spawn cap's family view: the running subagents
-/// of the plain-client roster snapshot whose parent chain reaches its
-/// active session id (a grandchild included), never an idle child or
-/// another family's subagent.
-#[tokio::test]
-async fn a_token_less_parent_counts_its_familys_running_subagents() {
-    let dir = tempfile::tempdir().unwrap();
-    let shared = Shared::default();
-    let entry = |agent: &str, status: &str, summary: Value| json!({ "agentId": agent, "status": status, "summary": summary });
-    lock(&shared).roster = vec![
-        entry(
-            "kid",
-            "running",
-            json!({ "activeSessionId": "kid-live", "sessionId": "sess-kid",
-                    "runtimeKind": "subagent", "rlmDepth": 1,
-                    "parentActiveSessionId": "parent-live" }),
-        ),
-        entry(
-            "idle-kid",
-            "idle",
-            json!({ "activeSessionId": "idle-live", "sessionId": "sess-idle",
-                    "runtimeKind": "subagent", "rlmDepth": 1,
-                    "parentActiveSessionId": "parent-live" }),
-        ),
-        entry(
-            "grandkid",
-            "running",
-            json!({ "activeSessionId": "grandkid-live", "sessionId": "sess-grandkid",
-                    "runtimeKind": "subagent", "rlmDepth": 2,
-                    "parentActiveSessionId": "kid-live", "parentSessionId": "sess-kid" }),
-        ),
-        entry(
-            "other-root",
-            "running",
-            json!({ "activeSessionId": "other-live", "sessionId": "sess-other" }),
-        ),
-        entry(
-            "stranger",
-            "running",
-            json!({ "activeSessionId": "stranger-live", "sessionId": "sess-stranger",
-                    "runtimeKind": "subagent", "rlmDepth": 1,
-                    "parentActiveSessionId": "other-live", "parentSessionId": "sess-other" }),
-        ),
-    ];
-    let sessions = host(&shared, dir.path()).await;
-    let capacity = sessions.spawn_capacity().await.unwrap();
-    assert_eq!(
-        capacity,
-        RlmSpawnCapacity {
-            max_concurrency: 32,
-            active_session_ids: vec!["sess-kid".to_owned(), "sess-grandkid".to_owned()],
-        }
-    );
-    assert!(commands_of(&shared, "list_agent_peers").is_empty());
 }
 
 #[tokio::test]
@@ -900,11 +838,24 @@ async fn spawn_isolated(
     (sessions, root)
 }
 
+/// The hand-back of `sub-0192a000` over the parent's three files, all in
+/// its scope.
 fn handback_request() -> RlmChildHandbackRequest {
     RlmChildHandbackRequest {
         session_id: CHILD_SESSION.to_owned(),
         rlm_child_id: "sub-0192a000".to_owned(),
+        units: vec!["a.txt".to_owned(), "b.txt".to_owned(), "c.txt".to_owned()],
+        scope: vec![true, true, true],
     }
+}
+
+/// A hand-back over files no check is detected for.
+fn unchecked(handback: ScopedHandback) -> Option<RlmChildHandback> {
+    Some(RlmChildHandback {
+        handback,
+        child_check: CheckRun::None,
+        parent_check: CheckRun::None,
+    })
 }
 
 /// S3: an isolated child works in its own copy of the parent's workspace
@@ -926,10 +877,12 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
     let conflicts = root.join("conflicts");
     assert_eq!(
         handback,
-        Some(Handback {
+        unchecked(ScopedHandback {
             taken: vec!["a.txt".to_owned()],
+            outside: Vec::new(),
             conflicts: vec!["c.txt".to_owned()],
             kept: Some(conflicts.to_string_lossy().into_owned()),
+            patch: vec![Some(1), None, Some(1)],
         })
     );
     assert_eq!(
@@ -952,6 +905,7 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
             .hand_back(RlmChildHandbackRequest {
                 session_id: "shared-child".to_owned(),
                 rlm_child_id: "sub-shared".to_owned(),
+                ..handback_request()
             })
             .await
             .unwrap(),
@@ -959,11 +913,11 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
     );
 }
 
-/// `rlm.delete_subagent` deletes before the task's hand-back: the delete
-/// takes the isolated child's changes back first, and the later hand-back
-/// returns that record.
+/// A deleted isolated child's workspace stays as it is: the delete takes
+/// nothing back, and the parent's later hand-back takes the child's
+/// changes in its scope.
 #[tokio::test]
-async fn deleting_an_isolated_child_hands_its_workspace_back_first() {
+async fn deleting_an_isolated_child_leaves_its_workspace_for_the_hand_back() {
     let dir = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();
     let (sessions, root) = spawn_isolated(&dir.path().join("agent"), parent.path()).await;
@@ -976,24 +930,33 @@ async fn deleting_an_isolated_child_hands_its_workspace_back_first() {
         })
         .await
         .unwrap();
-    std::fs::write(parent.path().join("a.txt"), "a-parent-after").unwrap();
+    let untouched = files_under(parent.path());
+    let handback = sessions.hand_back(handback_request()).await.unwrap();
     assert_eq!(
-        sessions.hand_back(handback_request()).await.unwrap(),
-        Some(Handback {
-            taken: vec!["a.txt".to_owned()],
-            conflicts: Vec::new(),
-            kept: None,
-        })
-    );
-    assert_eq!(
-        files_under(parent.path()),
-        file_map(&[
-            (".gitignore", "target/\n"),
-            ("a.txt", "a-parent-after"),
-            ("b.txt", "b0"),
-            ("c.txt", "c0"),
-            ("target/x", "build output"),
-        ])
+        (untouched, handback, files_under(parent.path())),
+        (
+            file_map(&[
+                (".gitignore", "target/\n"),
+                ("a.txt", "a0"),
+                ("b.txt", "b0"),
+                ("c.txt", "c0"),
+                ("target/x", "build output"),
+            ]),
+            unchecked(ScopedHandback {
+                taken: vec!["a.txt".to_owned()],
+                outside: Vec::new(),
+                conflicts: Vec::new(),
+                kept: None,
+                patch: vec![Some(1), None, None],
+            }),
+            file_map(&[
+                (".gitignore", "target/\n"),
+                ("a.txt", "a-child"),
+                ("b.txt", "b0"),
+                ("c.txt", "c0"),
+                ("target/x", "build output"),
+            ]),
+        )
     );
 }
 

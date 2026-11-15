@@ -210,6 +210,7 @@ async fn a_subagent_step_runs_when_the_root_client_approves() {
             workspace: eukhe_core::child_workspace::WorkspaceMode::Shared,
             worker: false,
             acceptance: None,
+            tree: None,
         })
         .await
         .expect("spawn the subagent");

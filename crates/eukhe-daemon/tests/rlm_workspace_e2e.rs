@@ -1,13 +1,16 @@
 //! Copy-on-write subagent workspaces (S3) e2e through the product surfaces.
 //!
-//! One real supervisor, a real parent worker whose faux model spawns an
-//! `isolated` child through the kernel `rlm.spawn`, and a real scripted
-//! child worker. The parent's workspace holds `a.txt`, `b.txt` and `c.txt`;
-//! after the spawn the parent edits `b.txt` and `c.txt`, the child (in its
-//! own copy) edits `a.txt` and `c.txt`. At the child's end its changes come
-//! back into the parent's workspace: `a.txt` is taken, `b.txt` keeps the
-//! parent's edit, and `c.txt` is a conflict that keeps the parent's content
-//! while the child's version stays under the workspace's `conflicts/`.
+//! One real supervisor, a real parent worker whose faux model splits its
+//! work through the kernel `rlm.split`, and a real scripted child worker
+//! per half (the other half, given a scope the test never touches, is
+//! deleted at once: every child runs the one child script). The parent's
+//! workspace holds `a.txt`, `b.txt` and `c.txt`; after the split the
+//! parent edits `b.txt` and `c.txt`, the child (in its own copy, its
+//! scope `a.txt` and `c.txt`) edits `a.txt` and `c.txt`. At the child's
+//! end its changes come back into the parent's workspace: `a.txt` is
+//! taken, `b.txt` keeps the parent's edit, and `c.txt` is a conflict that
+//! keeps the parent's content while the child's version stays under the
+//! workspace's `conflicts/`.
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
@@ -224,7 +227,7 @@ fn tool_call(code: &str) -> Value {
     ] })
 }
 
-/// An isolated child edits its copy while the parent edits the original;
+/// A split child edits its copy while the parent edits the original;
 /// the child's end takes its changes back and reports the conflict.
 #[test]
 // One scenario, read top to bottom.
@@ -256,7 +259,7 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
             tool_call(&lane.cell(
                 "parent",
                 &format!(
-                    "handle = await rlm.spawn(\"edit the workspace\", name=\"iso\", why=\"isolate\", workspace=\"isolated\")\nfor name, body in [(\"b.txt\", \"b-parent\"), (\"c.txt\", \"c-parent\")]:\n    open(os.path.join({work:?}, name), \"w\").write(body)\nopen({marker:?}, \"w\").write(\"edited\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nfiles = {{name: open(os.path.join({work:?}, name)).read() for name in sorted(os.listdir({work:?}))}}\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"files\": files}})",
+                    "handle, spare = await rlm.split({{\"scope\": [\"a.txt\", \"c.txt\"], \"task\": \"edit the workspace\", \"name\": \"iso\"}}, {{\"scope\": [\"spare\"], \"task\": \"stand by\", \"name\": \"spare\"}})\nawait rlm.delete_subagent(spare)\nfor name, body in [(\"b.txt\", \"b-parent\"), (\"c.txt\", \"c-parent\")]:\n    open(os.path.join({work:?}, name), \"w\").write(body)\nopen({marker:?}, \"w\").write(\"edited\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nfiles = {{name: open(os.path.join({work:?}, name)).read() for name in sorted(os.listdir({work:?}))}}\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"files\": files}})",
                     work = lane.work().display().to_string(),
                     marker = marker.display().to_string(),
                 ),
@@ -311,7 +314,7 @@ fn an_isolated_subagent_hands_its_changes_back_with_conflicts() {
             "results": [{
                 "status": "done",
                 "handback": format!(
-                    "Workspace hand-back: took the child's changes to a.txt. Conflicts (both changed; the parent's content stays): c.txt. The child's versions are in {}.",
+                    "Workspace hand-back: took the child's changes to a.txt. Conflicts (both changed; the parent's content stays): c.txt. The child's versions are in {}.\nIn the child's checkout: Check: none configured or detected.\nAfter integration: Check: none configured or detected.",
                     conflicts.display()
                 ),
             }],
@@ -367,7 +370,7 @@ fn a_child_still_writing_at_its_end_stops_before_its_hand_back() {
             tool_call(&lane.cell(
                 "parent",
                 &format!(
-                    "handle = await rlm.spawn(\"tick\", name=\"ticker\", why=\"isolate\", workspace=\"isolated\")\nresults = await rlm.collect(handle, timeout_ms=60000)\nticks = os.path.join({work:?}, \"ticks.txt\")\nfirst = open(ticks).read()\nawait asyncio.sleep(1)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"unchanged\": open(ticks).read() == first}})",
+                    "handle, spare = await rlm.split({{\"scope\": [\"ticks.txt\"], \"task\": \"tick\", \"name\": \"ticker\"}}, {{\"scope\": [\"spare\"], \"task\": \"stand by\", \"name\": \"spare\"}})\nawait rlm.delete_subagent(spare)\nresults = await rlm.collect(handle, timeout_ms=60000)\nticks = os.path.join({work:?}, \"ticks.txt\")\nfirst = open(ticks).read()\nawait asyncio.sleep(1)\nrecord({{\"id\": handle.rlm_child_id, \"results\": [{{\"status\": r.status, \"handback\": r.handback}} for r in results], \"unchanged\": open(ticks).read() == first}})",
                     work = lane.work().display().to_string(),
                 ),
             )),
@@ -434,7 +437,7 @@ fn a_child_still_writing_at_its_end_stops_before_its_hand_back() {
             "id": child_id,
             "results": [{
                 "status": "done",
-                "handback": "Workspace hand-back: took the child's changes to ticks.txt.",
+                "handback": "Workspace hand-back: took the child's changes to ticks.txt.\nIn the child's checkout: Check: none configured or detected.\nAfter integration: Check: none configured or detected.",
             }],
             "unchanged": true,
         }),
