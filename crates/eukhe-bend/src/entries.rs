@@ -262,8 +262,10 @@ pub enum Entry {
     Verify = 458,
     /// `bend/ffi_budget_share.bend`: a call.
     BudgetShare = 459,
+    /// `bend/ffi_server_peer.bend`: a call.
+    ServerPeer = 460,
     /// `bend/ffi_agent_tree.bend`: a call.
-    AgentTree = 460,
+    AgentTree = 461,
 }
 
 impl Entry {
@@ -397,6 +399,7 @@ impl Entry {
         Entry::Budget,
         Entry::Verify,
         Entry::BudgetShare,
+        Entry::ServerPeer,
         Entry::AgentTree,
     ];
 

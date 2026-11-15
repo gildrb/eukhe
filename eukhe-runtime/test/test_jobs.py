@@ -151,7 +151,14 @@ class JobsApiTest(unittest.TestCase):
         )
         self.assertEqual(
             job,
-            rlm_module.Job("message", "message", "ok", 0, "A message arrived for this session; it follows this result."),
+            rlm_module.Job(
+                "message",
+                "message",
+                "ok",
+                0,
+                "A message arrived and ended this wait; it follows this result. Answer or act on it"
+                " before waiting again: the jobs keep running and their results arrive on their own.",
+            ),
         )
 
     def test_a_wait_on_subagents_returns_the_child_whose_result_arrived(self) -> None:

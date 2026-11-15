@@ -983,10 +983,12 @@ async fn a_workspace_in_the_agent_dir_moves_to_the_work_root() {
             std::fs::read_link(&old).ok()
         ),
         (
-            Some(Handback {
+            unchecked(ScopedHandback {
                 taken: vec!["a.txt".to_owned()],
+                outside: Vec::new(),
                 conflicts: Vec::new(),
                 kept: None,
+                patch: vec![Some(1), None, None],
             }),
             file_map(&[
                 (".gitignore", "target/\n"),
@@ -1020,10 +1022,12 @@ async fn a_workspace_move_cut_before_its_link_ends_on_next_use() {
             old.with_file_name("sub-0192a000.link").exists(),
         ),
         (
-            Some(Handback {
+            unchecked(ScopedHandback {
                 taken: Vec::new(),
+                outside: Vec::new(),
                 conflicts: Vec::new(),
                 kept: None,
+                patch: vec![None, None, None],
             }),
             Some::<PathBuf>(root),
             false

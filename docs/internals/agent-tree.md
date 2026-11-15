@@ -205,7 +205,7 @@ that costs against a wider split, as information:
 
 ## 9. Rust
 
-1. Core entry `bend/ffi_agent_tree.bend`, id 460 `agent_tree` in
+1. Core entry `bend/ffi_agent_tree.bend`, id 461 `agent_tree` in
    `bend/core_entries.txt` (T13), called through
    `crates/eukhe-bend/src/rules/agent_tree.rs`: the crown's `hstep`,
    `overlay` and `conflicts`, `next`, `cfree`.
@@ -248,7 +248,7 @@ that costs against a wider split, as information:
 |T9|`agent_tree_depth_bound`, `agent_tree_nodes_bound`, `agent_tree_depth_configured`, `agent_tree_nodes_configured`, `agent_tree_split_reads_bounds`, `agent_tree_split_margin_both`, `agent_tree_depth_reads_config`, `agent_tree_nodes_reads_config`, `agent_tree_margin_reads_config`|reachable trees stay within both bounds as configured; the configured bounds and margin apply to both children; every split check reads the bounds as configured, so deeper splits the configuration allows are admitted|
 |T10|`agent_tree_next_waits_iff_idle`, `agent_tree_next_message_first`, `agent_tree_next_integrates_first`, `agent_tree_next_works_own`|the next action's order; a wait only with nothing to do|
 |T11|`agent_tree_redo_is_spec`|a redo is decided exactly as the spec|
-|T13|`agent_tree_entry_answers`, `agent_tree_entry_reads`, `agent_tree_entry_exact`, `agent_tree_entry_refuses`, `agent_tree_entry_example`|the core entry `bend/ffi_agent_tree.bend` (id 460) answers every request Rust spells (a step of the crown, an overlay, a next, a free) with the model's decision and refuses any other input with `E agent_tree: malformed request`|
+|T13|`agent_tree_entry_answers`, `agent_tree_entry_reads`, `agent_tree_entry_exact`, `agent_tree_entry_refuses`, `agent_tree_entry_example`|the core entry `bend/ffi_agent_tree.bend` (id 461) answers every request Rust spells (a step of the crown, an overlay, a next, a free) with the model's decision and refuses any other input with `E agent_tree: malformed request`|
 |T14|`crown_help_is_spec`, `crown_free_is_spec`, `crown_help_spend_is_spec`, `crown_help_end_is_spec`|a help, the free reported at a node, a help leaf's spend and its end are decided exactly as the spec: checks in order, the help leaf appended or changed, the tree unchanged; the free is the view's room|
 |T14|`crown_tree_is_spec`, `crown_tree_alone`, `crown_init_steps_as_tree`, `crown_init_root`|a tree event is the tree's step on the view under `max_nodes` less the help leaves, the charges taken off again, orphaned or late help leaves cancelled; with no help leaf exactly the tree's step; a run starts from one running root with the configured scope, limit and deadline and no help leaf|
 |T14|`crown_help_overlay_nothing`|a help leaf's patch applies nothing; every unit it wrote is a conflict|

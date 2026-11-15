@@ -759,7 +759,7 @@ fn a_split_tree_renders_one_row_per_node() {
     assert_eq!(
         texts(&panel, PinnedAgents::Full, anchor),
         vec![
-            " Agents  3 running - 3 settled".to_string(),
+            " agents 6 (3 settled), jobs 0".to_string(),
             format!(" . `- tree-root  root  .  -  Thinking - {}", elapsed(600)),
             format!(
                 " ok    |- tree-l  L  crates/eukhe-tui  -  finished {}  $0.12",

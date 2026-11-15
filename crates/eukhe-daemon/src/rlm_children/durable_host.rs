@@ -1032,7 +1032,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         Box::pin(async move {
             let root = {
                 let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
-                this.workspace_root(&request.rlm_child_id, &identity)
+                this.workspace_root(&request.rlm_child_id, &identity)?
             };
             let workspace = ChildWorkspace::at(root);
             if !workspace.is_created() || workspace.is_handed_back() {

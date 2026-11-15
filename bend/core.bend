@@ -101,6 +101,7 @@ import ./ffi_scan.bend as ffi_scan
 import ./ffi_screen.bend as ffi_screen
 import ./ffi_selection.bend as ffi_selection
 import ./ffi_semver.bend as ffi_semver
+import ./ffi_server_peer.bend as ffi_server_peer
 import ./ffi_shape.bend as ffi_shape
 import ./ffi_shell.bend as ffi_shell
 import ./ffi_skill_load.bend as ffi_skill_load
@@ -371,6 +372,8 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 459:
       ffi_budget_share.ffi(input)
     case 460:
+      ffi_server_peer.ffi(input)
+    case 461:
       ffi_agent_tree.ffi(input)
     case _:
       W.err("unknown entry")
