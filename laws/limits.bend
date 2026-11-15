@@ -914,8 +914,10 @@ law limits_entry_exact:
   {s == sp_w_req(q, "") : String} & {sp_fit_req(q) == True{} : Bool}
 
 # LAW limits_entry_example (R8): anchor: wire strings Rust sends and the
-# replies it reads; an unknown tag, input left over
+# replies it reads; an unknown tag, input left over. The fill and preset
+# strings are pinned by the Rust test of `rules/limits.rs`: their replies
+# read the profile table, past the kernel's fuel for unary `Nat`
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law limits_entry_example:
-  {[FL.ffi("0,T0,1,0,0,0,0,0,0,0,0,0,0,0,"), FL.ffi("0,F0,1,1,5,0,0,0,0,0,0,0,0,0,0,"), FL.ffi("2,0,3,1,"), FL.ffi("3,3,10,800,900,200,"), FL.ffi("4,2,2,5h900,2,7d100,200,1,2,7d"), FL.ffi("7,23,/b quick 2h after lunch1,5,quick")] == ["2,2,1,14400000,1,4000,1,3200,0,0,2,2,2,", "1,5,2,2,2,2,1,0,0,0,0,", "0,0,1,900000,1,1000,1,800,", "1,1,", "1,0,1,2,5h", "0,1,0,0,14,2h after lunch"] : List<&2, String>} &
+  {[FL.ffi("3,3,10,800,900,200,"), FL.ffi("4,2,2,5h900,2,7d100,200,1,2,7d"), FL.ffi("7,23,/b quick 2h after lunch1,5,quick")] == ["1,1,", "1,0,1,2,5h", "0,1,0,0,14,2h after lunch"] : List<&2, String>} &
   {[FL.ffi("8,"), FL.ffi("1,0,0,x"), FL.ffi("1,6,0,")] == [Wr.err("limits: malformed request"), Wr.err("limits: malformed request"), Wr.err("limits: malformed request")] : List<&2, String>}

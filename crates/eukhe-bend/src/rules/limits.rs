@@ -697,4 +697,25 @@ mod tests {
             ]
         );
     }
+
+    /// The fill and preset wire strings Rust sends and the replies it
+    /// reads, pinned here and not in LAW `limits_entry_example`: their
+    /// replies read the profile table, past the proof kernel's fuel for
+    /// unary `Nat`.
+    #[test]
+    fn the_fill_and_preset_wire_strings_and_replies() {
+        assert_eq!(
+            [
+                "0,T0,1,0,0,0,0,0,0,0,0,0,0,0,",
+                "0,F0,1,1,5,0,0,0,0,0,0,0,0,0,0,",
+                "2,0,3,1,",
+            ]
+            .map(|request| call(Entry::Limits, request).unwrap()),
+            [
+                "2,2,1,14400000,1,4000,1,3200,0,0,2,2,2,",
+                "1,5,2,2,2,2,1,0,0,0,0,",
+                "0,0,1,900000,1,1000,1,800,",
+            ]
+        );
+    }
 }

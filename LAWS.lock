@@ -2152,7 +2152,7 @@
     "laws/launcher.bend::launcher_stopped_is_final": "35ef9d87a4d08604003e0c108b9fd50c1ba38a5c7322bfc89b998f7ab4c17e96",
     "laws/limits.bend::limits_entry_answers": "27a08c14f650d853480e7eacb4a8d23318fbe5d5c8e54f1fb838cb1694377940",
     "laws/limits.bend::limits_entry_exact": "6e28df0374e5aee7bac09782183c00d58c17a785104f4ea06f2bc0fe341ef685",
-    "laws/limits.bend::limits_entry_example": "8d0b7ce54058e312f6fc30a6ad5cd1280ab4d2a3e05f97ec37db1bff91109e68",
+    "laws/limits.bend::limits_entry_example": "476d8c513f20a7e5fcd26db4ddced58a986a32313eb1043171ded8b4f90cc550",
     "laws/limits.bend::limits_entry_left_over": "4dc8fab04923e3674924f5d0471ab0cca660b59c6c66e62eae678228ec1c569e",
     "laws/limits.bend::limits_entry_refuses": "5bad40d25b39c8420da8e9a2cfbfbaebeb34177efad9b8aa0922dae78c9d6ed2",
     "laws/limits.bend::limits_entry_tag_anywhere": "8ee73be57f00d56d265ac3d77bc5796a57456caa298ddf63db0743e403bcc242",
