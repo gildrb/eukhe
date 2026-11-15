@@ -140,7 +140,7 @@ jobs:
         shell: bash
     permissions:
       contents: read
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -249,7 +249,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: read
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
