@@ -191,7 +191,8 @@ pub struct Model {
     /// Compatibility overrides. If not set, auto-detected from `base_url`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compat: Option<ModelCompat>,
-    /// eukhe addition: the Prime Inference model picker's featured flag.
+    /// eukhe addition: the model picker lists a featured model first within
+    /// its provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub featured: Option<bool>,
 }

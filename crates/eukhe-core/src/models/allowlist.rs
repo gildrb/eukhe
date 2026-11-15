@@ -43,8 +43,8 @@ impl std::error::Error for ModelAllowlistRefusal {}
 /// Whether a resolved model selector is allowed by the `allowedModels`
 /// patterns. Patterns use the `--models` CLI scope grammar, matched
 /// case-insensitively (both sides lowercased) against the full selector
-/// `provider/model-id` and against the bare model id (whose
-/// `prime-inference` ids may carry slashes, e.g. `internal/glm-5.3-fast`):
+/// `provider/model-id` and against the bare model id (whose `openrouter`
+/// ids carry slashes, e.g. `openai/gpt-5.4`):
 /// a pattern with wildcards (`*`, `?`, `[`) globs, a plain pattern must
 /// match exactly. An empty pattern list allows nothing. The compiled core
 /// decides (`eukhe_bend::rules::glob::model_allowed`).
@@ -64,31 +64,28 @@ pub fn model_allowed(selector: &str, allowlist: &[String]) -> bool {
 mod tests {
     use super::*;
 
-    const SELECTOR: &str = "prime-inference/internal/glm-5.3-fast";
+    const SELECTOR: &str = "openrouter/openai/gpt-5.4";
 
     #[test]
     fn exact_and_bare_id_patterns_match_case_insensitively() {
         // Full selector, exact.
         assert!(model_allowed(
             SELECTOR,
-            &["prime-inference/internal/glm-5.3-fast".to_string()]
+            &["openrouter/openai/gpt-5.4".to_string()]
         ));
         // Case folds both sides.
         assert!(model_allowed(
             SELECTOR,
-            &["Prime-Inference/Internal/GLM-5.3-Fast".to_string()]
+            &["OpenRouter/OpenAI/GPT-5.4".to_string()]
         ));
-        // The bare id (prime-inference ids carry slashes) matches without
-        // the provider.
-        assert!(model_allowed(
-            SELECTOR,
-            &["internal/glm-5.3-fast".to_string()]
-        ));
-        assert!(!model_allowed(SELECTOR, &["glm-5.3-fast".to_string()]));
+        // The bare id (openrouter ids carry slashes) matches without the
+        // provider.
+        assert!(model_allowed(SELECTOR, &["openai/gpt-5.4".to_string()]));
+        assert!(!model_allowed(SELECTOR, &["gpt-5.4".to_string()]));
         // A different model does not.
         assert!(!model_allowed(
             SELECTOR,
-            &["prime-inference/internal/glm-5.3-turbo".to_string()]
+            &["openrouter/openai/gpt-5.4-mini".to_string()]
         ));
     }
 

@@ -47,7 +47,7 @@ fn models_fixture(dir: &Path) {
         dir.join("agent").join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": "http://127.0.0.1:9/v1",
                     "apiKey": "sk-test",
@@ -301,7 +301,7 @@ async fn set_model_refuses_an_unsigned_in_provider_with_the_typed_sign_in_error(
     let response = worker
         .dispatch(
             "set_model",
-            &json!({ "provider": "prime-inference", "modelId": "mock-1" }),
+            &json!({ "provider": "local-inference", "modelId": "mock-1" }),
         )
         .await;
     assert!(response.success, "signed-in switch: {response:?}");

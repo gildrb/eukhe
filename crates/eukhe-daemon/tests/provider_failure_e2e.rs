@@ -63,11 +63,11 @@ struct FailingMock {
 enum MockRejection {
     /// A plain 500 with an OpenAI-style server-error body.
     ServerError,
-    /// The prime-inference storm shape: 429 with `Retry-After` and the
+    /// The rate-limit storm shape: 429 with `Retry-After` and the
     /// "Too many concurrent requests" body.
     RateLimit { retry_after_secs: u64 },
     /// THE 402 REGRESSION (the diagnosis's variant B): a wallet-drain
-    /// 402 whose body carries the prime-inference `invalid_request_error`
+    /// 402 whose body carries the `invalid_request_error`
     /// type text — the shape that classified permanent on the first
     /// attempt and settled SILENTLY (no retry episode, so no outcome
     /// row) before the failure-scoped disclosure.
@@ -258,7 +258,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
@@ -423,7 +422,7 @@ fn setup_with_rejection(
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": mock.url(),
                     "apiKey": "sk-battery",
@@ -440,7 +439,7 @@ fn setup_with_rejection(
                 // The chat-memory compactor's provider: the supervisor
                 // summarizes every logged message, and without
                 // `memory.model` it runs on the default model — this
-                // mock's prime-inference route — so its requests would
+                // mock's local-inference route — so its requests would
                 // land in the session's provider accounting.
                 "chat-memory": {
                     "api": "openai-completions",
@@ -484,7 +483,7 @@ fn setup_with_rejection(
             "config": {
                 "cwd": dir.path().to_string_lossy(),
                 "sessionDir": session_dir.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),

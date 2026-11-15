@@ -414,7 +414,7 @@ mod tests {
         let models = [
             model("local", "qwen3.8-27b", true, None),
             model("local", "qwen3-32b", true, None),
-            model("prime-inference", "qwen3.8-27b", true, None),
+            model("groq", "qwen3.8-27b", true, None),
             model("local", "llama-4", true, None),
             model("local", "qwen3.8-27b", false, None),
             model(

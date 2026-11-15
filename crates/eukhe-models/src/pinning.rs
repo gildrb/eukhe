@@ -4,8 +4,7 @@
 //! `provider-model-catalog.ts`: every catalog model must match a compiled
 //! `(provider, api, baseUrl)` tuple. Non-matching entries drop silently;
 //! request headers come from the compiled transport templates
-//! (`template?.headers ?? transport.headers`), never from catalog data;
-//! prime-inference entries are skipped (that domain ships compiled).
+//! (`template?.headers ?? transport.headers`), never from catalog data.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -103,11 +102,6 @@ pub fn pin_catalog_models(
 ) -> Result<Vec<Model>, NoSupportedModels> {
     let mut models = Vec::with_capacity(catalog_models.len());
     for model in catalog_models {
-        // Prime Inference ships compiled; the provider catalog never
-        // carries it.
-        if model.provider == "prime-inference" {
-            continue;
-        }
         let key = (
             model.provider.clone(),
             model.api.clone(),
@@ -209,7 +203,6 @@ mod tests {
         let payload = json!({"schemaVersion": 1, "models": [
             catalog_entry("known", "openai-completions", "prov", "https://prov.example"),
             catalog_entry("unknown", "openai-completions", "prov", "https://elsewhere.example"),
-            catalog_entry("prime", "openai-completions", "prime-inference", "https://api.pinference.ai/api/v1"),
         ]});
         let models = parse_provider_model_catalog(&payload, &templates).expect("pinned");
         assert_eq!(models.len(), 1);

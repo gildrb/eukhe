@@ -33,7 +33,6 @@ impl Supervisor {
         let mut command = super::daemon::supervisor_command(socket, agent_dir);
         command
             .stderr(log)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             // Orphaned workers of a failed run exit soon instead of after
             // the 5-minute default.

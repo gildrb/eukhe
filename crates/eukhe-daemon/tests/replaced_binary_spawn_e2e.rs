@@ -26,7 +26,6 @@ fn spawn_supervisor(binary: &Path, socket: &Path, agent_dir: &Path) -> Daemon {
     let mut command = Command::new(binary);
     Daemon::spawn_bound(
         supervisor_args(daemon_env(&mut command), socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries.

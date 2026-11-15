@@ -221,7 +221,7 @@ fn model_unavailable_error(
         "Requested {target} model \"{reference}\" is unavailable, unauthenticated, or expired"
     );
     let hint =
-        "selectors use the form \"provider/model-id\" (e.g. \"prime-inference/z-ai/glm-5.3\")";
+        "selectors use the form \"provider/model-id\" (e.g. \"anthropic/claude-sonnet-4-5\")";
     let close_matches = find_rlm_model_matches(reference, candidates, MODEL_ERROR_SUGGESTION_LIMIT);
     if close_matches.is_empty() {
         anyhow!("{base}; {hint}")
@@ -344,7 +344,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         write_catalog(dir.path());
         let allow =
-            crate::model_allowlist::DaemonAllowlist::Allowed(vec!["prime-inference/*".to_string()]);
+            crate::model_allowlist::DaemonAllowlist::Allowed(vec!["local-inference/*".to_string()]);
         // An explicit reference that resolves but sits outside the
         // allowlist fails with the typed refusal, never a fallback.
         let error = resolve_child_model(

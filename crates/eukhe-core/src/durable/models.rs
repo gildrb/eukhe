@@ -339,7 +339,7 @@ pub fn compose_models_json(models: &Models, agent_dir: &Path) -> Vec<String> {
 ///    (`find_initial_model`): the settings `enabledModels` scope (the saved
 ///    chat model when in scope, else the first scoped model), the saved
 ///    chat model (the chat role's: `defaultProvider`/`defaultModel`, else
-///    `modelRoles.all`), the featured default, the first available model.
+///    `modelRoles.all`), a provider default, the first available model.
 ///    A saved model that is not in the catalog (a `modelRoles.all` without
 ///    `/` never is) or not in the scope gives the next startup default
 ///    with the [`Substitution`]; a saved model whose provider has no

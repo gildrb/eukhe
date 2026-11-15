@@ -142,12 +142,12 @@ fn session_model_reads_every_wire_shape() {
     let bare = json!({"model": "internal/glm-5.3-fast", "thinkingLevel": "high"});
     assert_eq!(session_model(&bare), "glm-5.3-fast:high");
     let live = json!({
-        "model": {"id": "internal/glm-5.3-fast", "name": "GLM", "provider": "prime-inference"},
+        "model": {"id": "internal/glm-5.3-fast", "name": "GLM", "provider": "local-inference"},
         "thinkingLevel": "high",
     });
     assert_eq!(session_model(&live), "glm-5.3-fast:high");
     let seeded = json!({
-        "model": {"provider": "prime-inference", "modelId": "internal/glm-5.3-fast"},
+        "model": {"provider": "local-inference", "modelId": "internal/glm-5.3-fast"},
         "thinkingLevel": "high",
     });
     assert_eq!(session_model(&seeded), "glm-5.3-fast:high");

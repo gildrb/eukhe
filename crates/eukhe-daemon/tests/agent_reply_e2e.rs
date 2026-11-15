@@ -32,7 +32,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // Hermetic agent dir: the ambient environment exports a real
             // agent dir; point every fallback at the test sandbox instead.
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
             // `exitIfSupervisorOrphanedForTooLong`) runs on this short window

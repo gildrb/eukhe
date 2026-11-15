@@ -40,7 +40,6 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path, kernel_python: &Path) -> Daemon
             socket,
             agent_dir,
         )
-        .env_remove("PRIME_API_KEY")
         .env("EUKHE_CODING_AGENT_DIR", agent_dir)
         .env("EUKHE_KERNEL_PYTHON", kernel_python)
         // A supervisor killed at teardown must not leak its session worker.
@@ -255,7 +254,7 @@ fn write_agent_config(agent_dir: &Path, url: &str) {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": url,
                     "apiKey": "sk-detach",
@@ -299,7 +298,7 @@ fn a_cell_past_the_blocking_budget_ends_the_turn_and_its_end_wakes_the_session()
             "config": {
                 "cwd": dir.to_string_lossy(),
                 "sessionDir": agent_dir.join("sessions").to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),

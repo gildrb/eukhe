@@ -252,7 +252,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
@@ -381,7 +380,7 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": mock.url(),
                     "apiKey": "sk-battery",
@@ -421,7 +420,7 @@ fn threshold_compaction_streams_summary_deltas_to_attached_clients() {
             "config": {
                 "cwd": dir.path().to_string_lossy(),
                 "sessionDir": session_dir.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
                 // A chat-memory root starts every turn fresh and never
                 // threshold-compacts; a depth-1 session keeps its context.

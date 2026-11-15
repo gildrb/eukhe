@@ -43,21 +43,6 @@ async fn forwards_service_tier_for_openrouter() {
 }
 
 #[tokio::test]
-async fn does_not_forward_service_tier_for_prime_inference() {
-    let payload = capture_payload(
-        &test_model(json!({
-            "provider": "prime-inference",
-            "baseUrl": "https://api.pinference.ai/api/v1",
-        })),
-        &user_context("hi"),
-        options_with_tier(ServiceTier::Flex),
-    )
-    .await;
-
-    assert_eq!(payload.get("service_tier"), None);
-}
-
-#[tokio::test]
 async fn omits_service_tier_when_not_requested() {
     let payload = capture_payload(
         &test_model(json!({ "provider": "openai" })),

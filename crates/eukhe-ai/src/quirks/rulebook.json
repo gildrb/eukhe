@@ -48,7 +48,6 @@
     { "id": "opencode-go", "providers": ["opencode-go"] },
     { "id": "openrouter", "providers": ["openrouter"] },
     { "id": "openrouter-url", "urls": ["openrouter.ai"] },
-    { "id": "prime-inference", "providers": ["prime-inference"], "urls": ["api.pinference.ai"] },
     { "id": "together", "providers": ["together"], "urls": ["api.together.ai", "api.together.xyz"] },
     { "id": "xai", "providers": ["xai"], "urls": ["api.x.ai"] },
     { "id": "zai", "providers": ["zai", "zai-coding-cn"], "urls": ["api.z.ai", "open.bigmodel.cn"] }
@@ -138,7 +137,6 @@
     { "layer": "host", "target": "opencode-go", "set": { "stops_output_at_window": false, "store": false, "developer_role": false, "reasoning_content_signature": true, "disabled_thinking": false } },
     { "layer": "host", "target": "openrouter", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "default_output_cap": false, "default_output_cap_prefixes": ["moonshotai/kimi-"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "anthropic_cache_control_prefixes": ["anthropic/", "~anthropic/"], "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
     { "layer": "host", "target": "openrouter-url", "set": { "developer_role": false, "developer_role_prefixes": ["anthropic/", "openai/"], "default_output_cap": false, "default_output_cap_prefixes": ["moonshotai/kimi-"], "thinking_format": "openrouter", "session_affinity_headers": true, "session_affinity_format": "openrouter", "list_models": "openai", "usage": "openrouter", "generate_image": "openrouter" } },
-    { "layer": "host", "target": "prime-inference", "set": { "store": false, "developer_role": false, "max_tokens_field": "max_tokens", "anthropic_cache_control_prefixes": ["anthropic/"], "list_models": "openai" } },
     { "layer": "host", "target": "together", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "thinking_format": "together", "long_cache_retention": false } },
     { "layer": "host", "target": "xai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "list_models": "openai", "tokenize": "xai", "generate_image": "openai", "encrypted_reasoning": true, "reasoning_summary": false } },
     { "layer": "host", "target": "zai", "set": { "store": false, "developer_role": false, "reasoning_effort": false, "max_tokens_field": "max_tokens", "clamp_output_to_model_max": true, "thinking_format": "zai" } }
@@ -191,7 +189,6 @@
     "opencode": "kimi-k2.6",
     "opencode-go": "kimi-k3",
     "openrouter": "moonshotai/kimi-k2.6",
-    "prime-inference": "z-ai/glm-5.3",
     "vercel-ai-gateway": "zai/glm-5.1",
     "xai": "grok-4.20-0309-reasoning",
     "xiaomi": "mimo-v2.5-pro",

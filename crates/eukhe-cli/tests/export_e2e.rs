@@ -82,7 +82,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
     daemon_mode_args(&mut command, &socket, &agent_dir);
-    scrub_provider_keys(&mut command).env_remove("PRIME_TEAM_ID");
+    scrub_provider_keys(&mut command);
     Supervisor(Daemon::spawn_bound(
         &mut command,
         &socket,

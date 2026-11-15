@@ -131,7 +131,7 @@ fn serve(mut stream: TcpStream, answer: &str) -> std::io::Result<()> {
 fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
     Daemon::spawn(
         supervisor_command(socket, agent_dir)
-            .env("EUKHE_MODEL_PROVIDER", "prime-inference")
+            .env("EUKHE_MODEL_PROVIDER", "local-inference")
             .env("EUKHE_MODEL", "mock-1")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
@@ -400,7 +400,7 @@ fn an_archived_session_resumes_through_the_wake() {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": url.to_string_lossy(),
                     "apiKey": "sk-archive",
@@ -434,7 +434,7 @@ fn an_archived_session_resumes_through_the_wake() {
                 "config": {
                     "cwd": dir.path().to_string_lossy(),
                     "sessionDir": sessions.to_string_lossy(),
-                    "provider": "prime-inference",
+                    "provider": "local-inference",
                     "model": "mock-1",
                 },
             }),

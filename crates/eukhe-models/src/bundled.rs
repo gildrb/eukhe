@@ -12,7 +12,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::pinning::{pin_catalog_models, NoSupportedModels, PinnedTemplates};
-use crate::prime_inference::is_private_prime_inference_model_id;
 use crate::schema::{parse_model_catalog, InvalidEntries, ModelCatalogError};
 use crate::Model;
 
@@ -139,21 +138,7 @@ pub fn load_bundled_models(
         serde_json::from_str(asset).map_err(BundledModelsDefect::InvalidJson)?;
     let catalog = parse_model_catalog(&payload, InvalidEntries::Reject)
         .map_err(BundledModelsDefect::InvalidCatalog)?;
-    let mut models = pin_catalog_models(catalog.models.clone(), templates)
-        .map_err(BundledModelsDefect::Unpinnable)?;
-    // Pinning skips Prime Inference (that domain ships compiled). Keep the
-    // asset's public entries on the compiled Prime Inference transport.
-    for model in catalog.models {
-        if model.provider != "prime-inference"
-            || model.api != "openai-completions"
-            || model.base_url != crate::prime_inference::PRIME_INFERENCE_BASE_URL
-            || is_private_prime_inference_model_id(&model.id)
-        {
-            continue;
-        }
-        models.push(model);
-    }
-    Ok(models)
+    pin_catalog_models(catalog.models, templates).map_err(BundledModelsDefect::Unpinnable)
 }
 
 #[cfg(test)]

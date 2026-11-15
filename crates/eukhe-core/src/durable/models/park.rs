@@ -408,12 +408,12 @@ mod tests {
         let resume_at = 1_768_000_000_000_u64;
         let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
         assert_eq!(
-            park_entry_data(resume_at, 2, Some("job-7"), Some("prime-inference")),
+            park_entry_data(resume_at, 2, Some("job-7"), Some("local-inference")),
             serde_json::json!({
                 "resumeAt": iso,
                 "parkCount": 2,
                 "jobId": "job-7",
-                "provider": "prime-inference",
+                "provider": "local-inference",
             })
         );
         assert_eq!(

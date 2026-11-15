@@ -60,7 +60,6 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
             // A supervisor killed at teardown must not leak its session
             // workers into later test binaries: the worker's supervisor-lost
@@ -306,7 +305,7 @@ fn create_session(client: &mut Client, id: &str, dir: &Path, agent_dir: &Path) -
             "config": {
                 "cwd": dir.to_string_lossy(),
                 "sessionDir": sessions.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),
@@ -337,7 +336,7 @@ fn a_detached_bash_completion_wakes_the_idle_session_across_a_supervisor_restart
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": url.to_string_lossy(),
                     "apiKey": "sk-wake",

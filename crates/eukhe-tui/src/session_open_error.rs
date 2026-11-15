@@ -332,7 +332,7 @@ mod tests {
         let file = std::env::temp_dir().join("holder-model.jsonl");
         std::fs::write(&file, "{}").unwrap();
         let mut row = row(&file.display().to_string(), "h1", None, None);
-        row["model"] = json!({"id": "z-ai/glm-5.3", "provider": "prime-inference"});
+        row["model"] = json!({"id": "z-ai/glm-5.3", "provider": "local-inference"});
         let holder =
             holder_from_roster(std::slice::from_ref(&row), &file).expect("the row answers");
         assert_eq!(holder.model.as_deref(), Some("z-ai/glm-5.3"));

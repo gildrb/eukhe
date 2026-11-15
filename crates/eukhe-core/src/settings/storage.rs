@@ -631,12 +631,12 @@ mod tests {
         storage
             .with_lock(SettingsScope::Global, &mut |current| {
                 assert_eq!(current, None);
-                Some(r#"{ "defaultProvider": "prime-inference" }"#.to_string())
+                Some(r#"{ "defaultProvider": "local-inference" }"#.to_string())
             })
             .unwrap();
         let path = dir.path().join("agent").join("settings.json");
         let content = fs::read_to_string(&path).unwrap();
-        assert!(content.contains("prime-inference"));
+        assert!(content.contains("local-inference"));
         // Owner-only mode.
         assert_eq!(crate::platform::perms::file_mode(&path), Some(0o600));
     }
@@ -682,7 +682,7 @@ mod tests {
     fn settings_write_takes_exactly_one_fsync() {
         let dir = tempfile::tempdir().unwrap();
         let storage = FileSettingsStorage::new(dir.path().join("cwd"), dir.path().join("agent"));
-        let document = "{ \"defaultProvider\": \"prime-inference\" }";
+        let document = "{ \"defaultProvider\": \"local-inference\" }";
         let before = opt_in_fsync_calls();
         storage
             .with_lock(SettingsScope::Global, &mut |_| Some(document.to_string()))

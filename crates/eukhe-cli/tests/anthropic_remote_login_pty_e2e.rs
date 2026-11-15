@@ -379,8 +379,8 @@ struct Client {
 }
 
 impl Client {
-    /// `/login`, then the Anthropic subscription row; returns the sign-in
-    /// URL read whole from the byte stream.
+    /// `/login`, then the Anthropic subscription row (the first row);
+    /// returns the sign-in URL read whole from the byte stream.
     fn open_anthropic_login(&mut self) -> url::Url {
         // The path segment is `[T]` when the fixture lives under a temp
         // dir (CI's TMPDIR) and `[D]` elsewhere.
@@ -390,8 +390,6 @@ impl Client {
         self.pty.write(b"\r");
         self.pty
             .wait_for("Anthropic (Claude Pro", "the provider rows");
-        self.pty.write(b"\x1b[B");
-        std::thread::sleep(Duration::from_millis(200));
         self.pty.write(b"\r");
         self.pty.wait_for("Paste value", "the paste field");
         let text = strip_escapes(&self.pty.output);

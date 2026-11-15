@@ -34,7 +34,6 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{provider_default_model, provider_defaults};
-    use crate::providers::prime_inference::PRIME_INFERENCE_PROVIDER_ID;
 
     /// The table that the rulebook replaced (a match over provider ids),
     /// kept here only as the oracle of
@@ -45,7 +44,6 @@ mod tests {
             "anthropic" => "claude-opus-4-7",
             "openai" | "azure-openai-responses" | "github-copilot" => "gpt-5.4",
             "openai-codex" => "gpt-5.5",
-            "prime-inference" => "z-ai/glm-5.3",
             "deepseek" => "deepseek-v4-pro",
             "google" | "google-vertex" => "gemini-3.1-pro-preview",
             "openrouter" => "moonshotai/kimi-k2.6",
@@ -71,15 +69,13 @@ mod tests {
         })
     }
 
-    /// Every provider of the compiled catalog, Prime Inference and every
-    /// provider of the table: the table answers as the former function
-    /// did.
+    /// Every provider of the compiled catalog and every provider of the
+    /// table: the table answers as the former function did.
     #[test]
     fn the_table_keeps_every_answer_of_the_former_function() {
         let providers: BTreeSet<&str> = crate::models_generated::MODELS
             .keys()
             .copied()
-            .chain([PRIME_INFERENCE_PROVIDER_ID])
             .chain(provider_defaults().map(|(provider, _)| provider))
             .collect();
         let differences: Vec<(&str, Option<&str>, Option<&str>)> = providers

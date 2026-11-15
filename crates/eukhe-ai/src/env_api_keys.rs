@@ -81,8 +81,6 @@ const PROVIDER_API_KEY_ENV_VARS: &[(&str, &[&str])] = &[
     ("xiaomi-token-plan-cn", &["XIAOMI_TOKEN_PLAN_CN_API_KEY"]),
     ("xiaomi-token-plan-ams", &["XIAOMI_TOKEN_PLAN_AMS_API_KEY"]),
     ("xiaomi-token-plan-sgp", &["XIAOMI_TOKEN_PLAN_SGP_API_KEY"]),
-    // eukhe addition: the Prime Inference provider.
-    ("prime-inference", &["PRIME_API_KEY"]),
 ];
 
 /// The other credentials the providers read from the environment: AWS

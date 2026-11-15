@@ -371,18 +371,18 @@ fn a_cursorless_attach_reconstructs_as_unkeyed_for_the_layout_handoff() {
 /// The attach state's model block carries the provider next to the id
 /// (TS `state.model.provider`): both reconstruct, so the picker's
 /// current-model match disambiguates the same id across providers
-/// (prime-inference and openrouter both list `z-ai/glm-5.3`). The
+/// (local-inference and openrouter both list `z-ai/glm-5.3`). The
 /// display-string form and a provider-less object keep `None` (older
 /// daemons).
 #[test]
 fn reconstructs_the_model_provider_alongside_the_id() {
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["model"] =
-        json!({ "id": "z-ai/glm-5.3", "provider": "prime-inference" });
+        json!({ "id": "z-ai/glm-5.3", "provider": "local-inference" });
     let data = attach_data_from_response(attach).unwrap();
     let view = reconstruct(&data).expect("reconstructs");
     assert_eq!(view.model_id.as_deref(), Some("z-ai/glm-5.3"));
-    assert_eq!(view.model_provider.as_deref(), Some("prime-inference"));
+    assert_eq!(view.model_provider.as_deref(), Some("local-inference"));
 
     let mut attach = slim_attach();
     attach["snapshot"]["state"]["model"] = json!({ "id": "z-ai/glm-5.3" });
@@ -907,7 +907,7 @@ fn decodes_auto_retry_events() {
         "delayMs": 0,
         "errorMessage": "provider down",
         "reason": "backup",
-        "backupModel": "prime-inference/glm-5.3",
+        "backupModel": "local-inference/glm-5.3",
     })));
     assert_eq!(
         backup,
@@ -917,7 +917,7 @@ fn decodes_auto_retry_events() {
             delay_ms: 0,
             error_message: "provider down".to_string(),
             reason: RetryStartReason::Backup {
-                backup_model: "prime-inference/glm-5.3".to_string()
+                backup_model: "local-inference/glm-5.3".to_string()
             },
         }
     );
@@ -940,7 +940,7 @@ fn decodes_auto_retry_events() {
         "type": "auto_retry_end",
         "success": true,
         "attempt": 2,
-        "restoredModel": "prime-inference/glm-5.3",
+        "restoredModel": "local-inference/glm-5.3",
     })));
     assert_eq!(
         settled,
@@ -948,7 +948,7 @@ fn decodes_auto_retry_events() {
             success: true,
             attempt: 2,
             final_error: None,
-            restored_model: Some("prime-inference/glm-5.3".to_string()),
+            restored_model: Some("local-inference/glm-5.3".to_string()),
         }
     );
 }
@@ -1354,7 +1354,7 @@ fn transcript_replay_stacks_provider_failure_rows() {
         json!({
             "role": "assistant",
             "content": [],
-            "provider": "prime-inference", "model": "mock-1",
+            "provider": "local-inference", "model": "mock-1",
             "stopReason": "error",
             "errorMessage": "Connection error.",
             "timestamp": timestamp,
@@ -1365,7 +1365,7 @@ fn transcript_replay_stacks_provider_failure_rows() {
         json!({
             "role": "assistant",
             "content": [{ "type": "text", "text": "battery hello from mock" }],
-            "provider": "prime-inference", "model": "mock-1",
+            "provider": "local-inference", "model": "mock-1",
             "usage": { "input": 10, "output": 2 }, "stopReason": "stop",
             "timestamp": 2,
         }),

@@ -1,5 +1,5 @@
 //! The `OpenAI` dialect, served by `OpenAI` and the hosts that copy its shape
-//! (Mistral, xAI, `DeepSeek`, `OpenRouter`, Prime, llama.cpp): every endpoint
+//! (Mistral, xAI, `DeepSeek`, `OpenRouter`, llama.cpp): every endpoint
 //! sits under the base URL's `/v1` root.
 
 use eukhe_types::pi_ai::{JsonObject, JsonValue, ProviderHeaders, TranscriptContext};

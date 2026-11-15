@@ -305,18 +305,18 @@ mod tests {
             ("glm-5.3*", "internal/glm-5.3-fast", true),
             (
                 "internal/glm-5.3*",
-                "prime-inference/internal/glm-5.3-fast",
+                "openrouter/internal/glm-5.3-fast",
                 true,
             ),
             ("internal/glm-5.3*", "z-ai/glm-5.3-fast", false),
-            ("internal/*", "prime-inference/internal/glm-5.3", true),
+            ("internal/*", "openrouter/internal/glm-5.3", true),
             (
-                "prime-inference/anthropic/claude-fable-5.1",
-                "prime-inference/anthropic/claude-fable-5.1",
+                "openrouter/anthropic/claude-fable-5.1",
+                "openrouter/anthropic/claude-fable-5.1",
                 true,
             ),
             (
-                "prime-inference/anthropic/claude-fable-5.1",
+                "openrouter/anthropic/claude-fable-5.1",
                 "anthropic/claude-fable-5.1",
                 false,
             ),
@@ -327,7 +327,7 @@ mod tests {
             ),
             (
                 "anthropic/claude-sonnet-4",
-                "prime-inference/anthropic/claude-sonnet-4",
+                "openrouter/anthropic/claude-sonnet-4",
                 true,
             ),
             // case-insensitive

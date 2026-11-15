@@ -1,7 +1,7 @@
 # ACP differential corpus (slice 1)
 
 Captures of the installed TS binary (`eukhe --mode acp --no-session
---provider prime-inference --model z-ai/glm-5.3-flash`) speaking ACP over
+--provider local-inference --model z-ai/glm-5.3-flash`) speaking ACP over
 stdio, one file per scenario. Every file is line-delimited JSON:
 
     {"scenario": ..., "direction": "in"|"out", "frame": {jsonrpc frame}}

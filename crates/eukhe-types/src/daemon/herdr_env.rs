@@ -118,7 +118,7 @@ mod tests {
     fn the_daemon_re_filters_to_the_allowlist() {
         let received = BTreeMap::from([
             ("HERDR_PANE_ID".to_string(), "w1:payload".to_string()),
-            ("PRIME_API_KEY".to_string(), "leak".to_string()),
+            ("OPENAI_API_KEY".to_string(), "leak".to_string()),
             ("HERDR_ENV".to_string(), String::new()),
             ("HERDR_PI_IDLE_DEBOUNCE_MS".to_string(), "10".to_string()),
             ("HERDR_PI_RETRY_GRACE_MS".to_string(), "30".to_string()),

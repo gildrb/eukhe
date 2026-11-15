@@ -915,7 +915,7 @@ fn current_model_from_selector(selector: &str) -> Option<CurrentModel> {
 /// `modelsAreEqual` key: provider plus id). The daemon reports the
 /// provider next to the id; when it does, ONLY the session's own
 /// provider's entry matches -- two providers can carry the same id
-/// (prime-inference and openrouter both list `z-ai/glm-5.3`), and the
+/// (a models.json provider and openrouter can both list `z-ai/glm-5.3`), and the
 /// first same-id entry in the catalog is a different model. A missing
 /// provider (older daemons) falls back to the id alone, and a provider
 /// whose entry the catalog lacks resolves nothing rather than another
@@ -956,7 +956,7 @@ mod tests {
     }
 
     /// The operator's duplicate-id repro: a session on
-    /// `prime-inference/z-ai/glm-5.3` must resolve the prime-inference
+    /// `local-inference/z-ai/glm-5.3` must resolve the local-inference
     /// entry even though openrouter's same-id entry sits FIRST in the
     /// catalog -- the id-only find the picker previously used adopted
     /// openrouter's row as the current model.
@@ -964,12 +964,12 @@ mod tests {
     fn the_provider_disambiguates_duplicate_ids() {
         let catalog = vec![
             entry("openrouter", "z-ai/glm-5.3"),
-            entry("prime-inference", "z-ai/glm-5.3"),
+            entry("local-inference", "z-ai/glm-5.3"),
         ];
-        let resolved = find_current_model_entry(&catalog, Some("prime-inference"), "z-ai/glm-5.3");
+        let resolved = find_current_model_entry(&catalog, Some("local-inference"), "z-ai/glm-5.3");
         assert_eq!(
             resolved.map(|entry| entry.model.provider.as_str()),
-            Some("prime-inference"),
+            Some("local-inference"),
             "the session's own provider's entry wins, not the first same-id entry"
         );
     }
@@ -980,7 +980,7 @@ mod tests {
     #[test]
     fn a_known_provider_never_adopts_another_providers_same_id() {
         let catalog = vec![entry("openrouter", "z-ai/glm-5.3")];
-        let resolved = find_current_model_entry(&catalog, Some("prime-inference"), "z-ai/glm-5.3");
+        let resolved = find_current_model_entry(&catalog, Some("local-inference"), "z-ai/glm-5.3");
         assert!(
             resolved.is_none(),
             "a missing own-provider entry must resolve no current model"
@@ -993,7 +993,7 @@ mod tests {
     fn a_missing_provider_falls_back_to_the_id() {
         let catalog = vec![
             entry("openrouter", "z-ai/glm-5.3"),
-            entry("prime-inference", "z-ai/glm-5.3"),
+            entry("local-inference", "z-ai/glm-5.3"),
         ];
         let resolved = find_current_model_entry(&catalog, None, "z-ai/glm-5.3");
         assert_eq!(

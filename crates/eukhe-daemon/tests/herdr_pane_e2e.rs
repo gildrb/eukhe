@@ -52,7 +52,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, herdr_socket: &Path) -> Dae
     Daemon::spawn_listening(
         supervisor_command(socket, agent_dir)
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
             // THE HOSTILE BOOT CONTEXT: a Herdr pane identity in the daemon's
             // own process env. If the reporter ever read the ambient env (the
             // TS bug class), every report would carry `w0:boot`.

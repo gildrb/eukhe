@@ -3,10 +3,8 @@
 use eukhe_ai::quirks::provider_default_model;
 use eukhe_bend::rules::glob::{self, GlobOptions};
 use eukhe_bend::{expect_core, Entry};
-use eukhe_types::ai::{Model, PRIME_INFERENCE_PROVIDER_ID};
+use eukhe_types::ai::Model;
 use eukhe_types::pi_ai::ModelThinkingLevel;
-
-use super::prime_inference::is_private_prime_inference_model;
 
 /// A resolved model plus an explicit thinking level from the pattern.
 #[derive(Debug, Clone)]
@@ -156,54 +154,22 @@ pub fn build_fallback_model(
     if provider_models.is_empty() {
         return None;
     }
-    // Private ids must inherit a private-route template.
-    let template = if is_private_prime_inference_model(&Model {
-        id: model_id.to_string(),
-        provider: provider.to_string(),
-        ..wire_skeleton()
-    }) {
-        provider_models.iter().copied().find(|model| {
-            is_private_prime_inference_model(&Model {
-                id: model.id.clone(),
-                provider: model.provider.clone(),
-                ..wire_skeleton()
-            })
-        })?
-    } else {
-        let default_id = provider_default_model(provider)?;
-        provider_models
-            .iter()
-            .copied()
-            .find(|model| model.id == default_id)
-            .unwrap_or(provider_models[0])
-    };
+    let default_id = provider_default_model(provider)?;
+    let template = provider_models
+        .iter()
+        .copied()
+        .find(|model| model.id == default_id)
+        .unwrap_or(provider_models[0]);
     let mut model = template.clone();
     model.id = model_id.to_string();
     model.name = model_id.to_string();
     Some(model)
 }
 
-fn wire_skeleton() -> Model {
-    serde_json::from_value(serde_json::json!({
-        "id": "", "name": "", "api": "openai-completions", "provider": "",
-        "baseUrl": "", "reasoning": false, "input": [], "cost": {
-            "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0
-        },
-        "contextWindow": 0, "maxTokens": 0
-    }))
-    .expect("skeleton model serializes")
-}
-
-/// Preferred default: the Prime Inference default first, then the default
-/// of each provider (the quirks rulebook's `provider_defaults`).
+/// Preferred default: the first available model that is its provider's
+/// default (the quirks rulebook's `provider_defaults`).
 #[must_use]
 pub fn find_preferred_default_model(available_models: &[Model]) -> Option<&Model> {
-    let prime_default = provider_default_model(PRIME_INFERENCE_PROVIDER_ID);
-    if let Some(model) = available_models.iter().find(|model| {
-        model.provider == PRIME_INFERENCE_PROVIDER_ID && Some(model.id.as_str()) == prime_default
-    }) {
-        return Some(model);
-    }
     available_models
         .iter()
         .find(|model| provider_default_model(&model.provider) == Some(model.id.as_str()))
@@ -618,7 +584,7 @@ pub struct InitialModelOptions<'a> {
 /// The startup model, in the TS priority order:
 /// 1. CLI flags (`--provider` + `--model`, resolved against the full catalog;
 ///    an unresolved flagged model resolves to `None`, the caller's error)
-/// 2. `--provider` alone: that provider's saved default, else its featured
+/// 2. `--provider` alone: that provider's saved default, else its provider
 ///    default, else its first model — authenticated models first, then the
 ///    full catalog (an `--api-key` run); an unknown provider resolves to
 ///    `None`
@@ -626,7 +592,7 @@ pub struct InitialModelOptions<'a> {
 ///    first scoped model (skipped for a continued session)
 /// 4. The saved settings default, rebuilt from the provider template when the
 ///    saved id is missing from the catalog
-/// 5. The featured default (prime-inference glm-5.3, then per-provider ids)
+/// 5. The first available model that is its provider's default
 /// 6. The first available model.
 ///
 /// `None` past step 2 means no model has credentials; it never falls back
@@ -690,12 +656,9 @@ pub fn find_initial_model(options: &InitialModelOptions<'_>) -> Option<Model> {
             return Some(found.clone());
         }
         // A saved id missing from this build's snapshot survives on the
-        // provider template — except private Prime Inference ids, whose
-        // template route is authorized per team.
-        if !is_private_prime_inference_reference(provider, id) {
-            if let Some(rebuilt) = build_fallback_model(provider, id, options.available_models) {
-                return Some(rebuilt);
-            }
+        // provider template.
+        if let Some(rebuilt) = build_fallback_model(provider, id, options.available_models) {
+            return Some(rebuilt);
         }
     }
     find_preferred_default_model(options.available_models)
@@ -884,16 +847,8 @@ pub fn initial_model_unavailable_message(options: &InitialModelOptions<'_>) -> S
     }
 }
 
-/// The private-model predicate without a full `Model` value (TS
-/// `isPrivatePrimeInferenceModel({ provider, id })`).
-fn is_private_prime_inference_reference(provider: &str, model_id: &str) -> bool {
-    provider == "prime-inference"
-        && super::prime_inference::is_private_prime_inference_model_id(model_id)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::super::prime_inference::private_prime_inference_models;
     use super::*;
 
     fn model(provider: &str, id: &str, name: &str) -> Model {
@@ -911,7 +866,7 @@ mod tests {
         vec![
             model("anthropic", "claude-sonnet-4-5", "Sonnet"),
             model("anthropic", "claude-sonnet-4-5-20250929", "Sonnet dated"),
-            model("prime-inference", "z-ai/glm-5.3", "GLM"),
+            model("local-inference", "z-ai/glm-5.3", "GLM"),
             model("openrouter", "openai/gpt-4o", "GPT-4o"),
         ]
     }
@@ -921,10 +876,10 @@ mod tests {
         let mut catalog = catalog();
         catalog.push(model("zai", "z-ai/glm-5.3", "GLM via zai"));
         catalog.push(model("openrouter", "z-ai/glm-5.3", "GLM via openrouter"));
-        // The prime-inference entry (provider at catalog position 2)
+        // The local-inference entry (provider at catalog position 2)
         // fails over to the providers after it in catalog order
         // (openrouter's provider first appears at position 3, zai at 4).
-        let current = model("prime-inference", "z-ai/glm-5.3", "GLM");
+        let current = model("local-inference", "z-ai/glm-5.3", "GLM");
         let candidates = failover_candidates(&current, &catalog);
         assert_eq!(
             candidates
@@ -941,7 +896,7 @@ mod tests {
                 .iter()
                 .map(|model| model.provider.as_str())
                 .collect::<Vec<_>>(),
-            vec!["zai", "prime-inference"]
+            vec!["zai", "local-inference"]
         );
         // No other provider serves the model: no candidates, no failover.
         let current = model("anthropic", "claude-sonnet-4-5", "Sonnet");
@@ -1211,50 +1166,6 @@ mod tests {
     }
 
     #[test]
-    fn fallback_model_prefers_private_template_for_private_ids() {
-        let mut catalog = catalog();
-        catalog.extend(private_prime_inference_models());
-        let fallback = build_fallback_model("prime-inference", "internal/glm-5.9-turbo", &catalog);
-        let fallback = fallback.expect("private template exists");
-        assert_eq!(fallback.id, "internal/glm-5.9-turbo");
-        // Inherited the private template's compat (max_tokens field).
-        assert!(fallback.compat.is_some());
-        // Inherited the private template's ZERO pricing: an unknown
-        // internal id must never bill the public provider default's rate.
-        assert_eq!(fallback.cost.input.0, 0.0);
-        assert_eq!(fallback.cost.output.0, 0.0);
-    }
-
-    /// Port of the TS regression (#2459): Prime Inference rejects
-    /// `enable_thinking` with a 400, so a fallback model — public or
-    /// private — must never inherit the zai thinking format from its
-    /// template.
-    #[test]
-    fn fallback_models_never_inherit_the_zai_thinking_format() {
-        use eukhe_types::ai::{CompatKind, ModelCompat, ThinkingFormat};
-        let mut catalog: Vec<Model> = vec![eukhe_models::transports::compiled_models()
-            .iter()
-            .find(|model| model.provider == "prime-inference" && model.id == "z-ai/glm-5.3")
-            .expect("the compiled prime-inference default")
-            .clone()];
-        catalog.extend(private_prime_inference_models());
-        for model_id in ["z-ai/glm-9", "internal/glm-5.9-turbo"] {
-            let fallback = build_fallback_model("prime-inference", model_id, &catalog)
-                .unwrap_or_else(|| panic!("{model_id} has a fallback template"));
-            let Some(Ok(CompatKind::OpenAiCompletions(compat))) =
-                fallback.compat.as_ref().map(ModelCompat::kind)
-            else {
-                panic!("{model_id}: fallback inherits a compat object");
-            };
-            assert_ne!(
-                compat.thinking_format,
-                Some(ThinkingFormat::Zai),
-                "{model_id}: fallback must not inherit the zai thinking format"
-            );
-        }
-    }
-
-    #[test]
     fn initial_model_prefers_cli_flags() {
         let catalog = catalog();
         let options = InitialModelOptions {
@@ -1273,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_model_saved_default_wins_over_featured_default() {
+    fn initial_model_saved_default_wins_over_provider_default() {
         let catalog = catalog();
         let options = InitialModelOptions {
             cli_provider: None,
@@ -1309,9 +1220,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_model_falls_back_to_featured_then_first_available() {
-        let catalog = catalog();
-        // The featured default (prime-inference glm-5.3) wins when present.
+    fn initial_model_falls_back_to_a_provider_default_then_first_available() {
+        let mut catalog = catalog();
+        catalog.push(model("zai", "glm-5.3", "GLM"));
+        // The first available provider default (zai's glm-5.3) wins.
         let options = InitialModelOptions {
             cli_provider: None,
             cli_model: None,
@@ -1322,10 +1234,12 @@ mod tests {
             all_models: &catalog,
             available_models: &catalog,
         };
-        let model = find_initial_model(&options).expect("featured default resolves");
-        assert_eq!(model.provider, "prime-inference");
-        assert_eq!(model.id, "z-ai/glm-5.3");
-        // Without it, the first available model takes over.
+        let model = find_initial_model(&options).expect("provider default resolves");
+        assert_eq!(
+            (model.provider.as_str(), model.id.as_str()),
+            ("zai", "glm-5.3")
+        );
+        // Without one, the first available model takes over.
         let available: Vec<Model> = catalog
             .iter()
             .filter(|model| model.provider == "anthropic")
@@ -1358,13 +1272,13 @@ mod tests {
             cli_model: None,
             scoped_models: &scoped,
             is_continuing: false,
-            default_provider: Some("prime-inference"),
+            default_provider: Some("local-inference"),
             default_model_id: Some("z-ai/glm-5.3"),
             all_models: &catalog,
             available_models: &catalog,
         };
         let model = find_initial_model(&options).expect("scoped model resolves");
-        assert_eq!(model.provider, "prime-inference");
+        assert_eq!(model.provider, "local-inference");
         // The saved default is in scope and wins over scoped order.
         assert_eq!(model.id, "z-ai/glm-5.3");
         // A continued session skips the scope entirely.
@@ -1373,7 +1287,7 @@ mod tests {
             ..options
         };
         let model = find_initial_model(&continued).expect("saved default resolves");
-        assert_eq!(model.provider, "prime-inference");
+        assert_eq!(model.provider, "local-inference");
         assert_eq!(model.id, "z-ai/glm-5.3");
     }
 }

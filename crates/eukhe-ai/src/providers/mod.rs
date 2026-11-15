@@ -66,8 +66,6 @@ pub mod opencode_headers;
 pub mod opencode_models;
 pub mod openrouter;
 pub mod openrouter_models;
-pub mod prime_inference;
-pub mod prime_inference_models;
 pub mod qwen_token_plan;
 pub mod qwen_token_plan_cn;
 pub mod qwen_token_plan_cn_models;

@@ -1305,7 +1305,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                         "arguments": { "code": format!("print('corpus {turn}')") },
                     }],
                     "api": "openai-completions",
-                    "provider": "prime-inference",
+                    "provider": "local-inference",
                     "model": "mock-1",
                     "usage": {
                         "input": 100, "output": 20, "cacheRead": 10, "cacheWrite": 0,
@@ -1374,7 +1374,7 @@ fn write_corpus_fixture(path: &std::path::Path, size_mib: usize) {
                     { "type": "text", "text": "CVIS-E2E-TAIL end of corpus." },
                 ],
                 "api": "openai-completions",
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
                 "usage": {
                     "input": 100, "output": 20, "cacheRead": 10, "cacheWrite": 0,

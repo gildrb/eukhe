@@ -226,11 +226,11 @@ mod tests {
         // The exact daemon wording.
         assert_eq!(
             format_inline_login_recovery_message(
-                "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable.\n\nRun /login to update credentials."
+                "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable.\n\nRun /login to update credentials."
             )
             .as_deref(),
             Some(
-                "Authentication failed for \"prime-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials."
+                "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials."
             )
         );
         // The base is suffix-stripped and end-trimmed; ANSI and CRLF
@@ -248,7 +248,7 @@ mod tests {
     fn inline_login_recovery_keeps_the_normal_error_paths() {
         // No suffix at all.
         assert_eq!(
-            format_inline_login_recovery_message("Authentication failed for \"prime-inference\"."),
+            format_inline_login_recovery_message("Authentication failed for \"local-inference\"."),
             None
         );
         // Suffix not at the end.

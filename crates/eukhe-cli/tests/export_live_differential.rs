@@ -54,7 +54,6 @@ const SCRUB_ENV: &[&str] = &[
     "EUKHE_INTERNAL_ORPHAN_PROCESS_JOURNAL",
     "EUKHE_INTERNAL_SESSION_LEASES",
     "EUKHE_INTERNAL_SESSION_LEASE_OWNER_ID",
-    "PRIME_TEAM_ID",
 ];
 
 fn ts_binary() -> Option<PathBuf> {

@@ -30,7 +30,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             socket,
             agent_dir,
         )
-        .env_remove("PRIME_API_KEY")
         .env_remove("EUKHE_CODING_AGENT_DIR")
         // A supervisor killed at teardown must not leak its workers.
         .env(

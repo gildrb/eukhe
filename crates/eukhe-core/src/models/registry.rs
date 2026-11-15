@@ -18,7 +18,6 @@ use crate::auth::manager::AuthStorage;
 use crate::auth::types::AuthCredential;
 
 use super::custom::{ModelsConfig, ModelsJsonError, ModelsJsonLoad, ProviderConfig, ProviderError};
-use super::prime_inference::{is_private_prime_inference_model, private_prime_inference_models};
 
 /// The process-wide built-in catalog: the union of the packaged bundled
 /// snapshot and the compiled catalog. The install's assets never change
@@ -180,9 +179,8 @@ impl ModelRegistry {
     }
 
     /// The built-in catalog's models (the bundled snapshot's union with the
-    /// compiled catalog), without the private Prime Inference table: the
-    /// models a session serves beside its compiled providers
-    /// (`durable::models`).
+    /// compiled catalog): the models a session serves beside its compiled
+    /// providers (`durable::models`).
     #[must_use]
     pub fn built_in_catalog_models() -> &'static [Model] {
         BUILT_IN_CATALOG.models()
@@ -193,9 +191,8 @@ impl ModelRegistry {
         self.models.iter().map(AsRef::as_ref)
     }
 
-    /// Models whose provider has configured auth, with private Prime
-    /// Inference models gated out unless models.json declares them (TS
-    /// `getAvailable`). The per-model
+    /// Models whose provider has configured auth (TS `getAvailable`). The
+    /// per-model
     /// auth probe is answered once per provider (the port of TS #2479's
     /// `getAvailable` memo): the catalog walks hundreds of models over a
     /// few dozen providers and each probe rebuilds the provider's
@@ -205,11 +202,9 @@ impl ModelRegistry {
         let mut auth_by_provider: HashMap<&str, bool> = HashMap::new();
         self.get_all()
             .filter(|model| {
-                (!is_private_prime_inference_model(model)
-                    || self.is_authorized_private_model(model))
-                    && *auth_by_provider
-                        .entry(model.provider.as_str())
-                        .or_insert_with(|| self.has_configured_auth(model))
+                *auth_by_provider
+                    .entry(model.provider.as_str())
+                    .or_insert_with(|| self.has_configured_auth(model))
             })
             .collect()
     }
@@ -302,15 +297,6 @@ impl ModelRegistry {
         }
     }
 
-    /// Private Prime Inference models are usable only when models.json
-    /// declares them.
-    fn is_authorized_private_model(&self, model: &Model) -> bool {
-        self.config
-            .providers
-            .get(&model.provider)
-            .is_some_and(|provider| provider.definition(&model.id).is_some())
-    }
-
     /// Resolve request auth for `model` (TS `getApiKeyAndHeaders`): the
     /// stored credential (an expired OAuth token refreshes), else the
     /// models.json `apiKey`. Headers merge in precedence order: auth
@@ -360,16 +346,13 @@ impl ModelRegistry {
 }
 
 /// The built-in catalog (bundled snapshot and compiled catalog), borrowed,
-/// then the `refreshed` models (the overlay's models the catalog lacks),
-/// then the bundled private Prime Inference table (listed, but gated out
-/// of `get_available` unless models.json declares the id).
+/// then the `refreshed` models (the overlay's models the catalog lacks).
 fn built_in_models(refreshed: Vec<Model>) -> Vec<Cow<'static, Model>> {
     BUILT_IN_CATALOG
         .models()
         .iter()
         .map(Cow::Borrowed)
         .chain(refreshed.into_iter().map(Cow::Owned))
-        .chain(private_prime_inference_models().into_iter().map(Cow::Owned))
         .collect()
 }
 

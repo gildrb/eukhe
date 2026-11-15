@@ -5,11 +5,10 @@
 //! under their TS names: `toolChoice`, `reasoningEffort`, `thinkingBudgets`
 //! (see [`OpenAICompletionsOptions`]).
 //!
-//! eukhe additions on top of v1.0.4: the `prime-inference` gateway
-//! detection (compat), explicit prompt-cache breakpoints on marked user text
-//! blocks under the Anthropic cache-control format with the four-mark
-//! budget, the `service_tier` request field and response-tier pricing, and
-//! the `provider_stream_failure` diagnostic on failed streams.
+//! eukhe additions on top of v1.0.4: explicit prompt-cache breakpoints on
+//! marked user text blocks under the Anthropic cache-control format with the
+//! four-mark budget, the `service_tier` request field and response-tier
+//! pricing, and the `provider_stream_failure` diagnostic on failed streams.
 
 pub(crate) mod compat;
 pub(crate) mod convert;

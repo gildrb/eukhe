@@ -31,7 +31,6 @@ use super::openai_codex::openai_codex_provider;
 use super::opencode::opencode_provider;
 use super::opencode_go::opencode_go_provider;
 use super::openrouter::openrouter_provider;
-use super::prime_inference::prime_inference_provider;
 use super::qwen_token_plan::qwen_token_plan_provider;
 use super::qwen_token_plan_cn::qwen_token_plan_cn_provider;
 use super::qwen_token_plan_individual::qwen_token_plan_individual_provider;
@@ -122,8 +121,7 @@ pub fn get_all_builtin_models(provider: &str) -> Vec<AnyModel> {
     models
 }
 
-/// All built-in providers, freshly constructed. Includes the eukhe
-/// `prime-inference` provider.
+/// All built-in providers, freshly constructed.
 #[must_use]
 pub fn builtin_providers() -> Vec<Provider> {
     vec![
@@ -155,8 +153,6 @@ pub fn builtin_providers() -> Vec<Provider> {
         opencode_provider(),
         opencode_go_provider(),
         openrouter_provider(),
-        // eukhe addition: the Prime Inference provider.
-        prime_inference_provider(),
         qwen_token_plan_provider(),
         qwen_token_plan_cn_provider(),
         qwen_token_plan_individual_provider(),

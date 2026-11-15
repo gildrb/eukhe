@@ -154,7 +154,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             } else {
                 Stdio::null()
             })
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR"),
         socket,
         Duration::from_secs(10),
@@ -283,7 +282,7 @@ fn setup(
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": primary.url(),
                     "apiKey": "sk-primary",
@@ -297,7 +296,7 @@ fn setup(
                         }
                     ]
                 },
-                "prime-backup": {
+                "local-backup": {
                     "api": "openai-completions",
                     "baseUrl": backup.url(),
                     "apiKey": "sk-backup",
@@ -346,7 +345,7 @@ fn setup(
             "config": {
                 "cwd": dir.path().to_string_lossy(),
                 "sessionDir": session_dir.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),
@@ -410,7 +409,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     assert_eq!(starts[0]["attempt"], 1);
     assert_eq!(starts[0]["maxAttempts"], 1);
     assert_eq!(starts[0]["reason"], "backup");
-    assert_eq!(starts[0]["backupModel"], "prime-backup/mock-1");
+    assert_eq!(starts[0]["backupModel"], "local-backup/mock-1");
     assert_eq!(starts[0]["delayMs"], 0);
     assert!(starts[0]["errorMessage"]
         .as_str()
@@ -421,7 +420,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     let end = retry_end(&client.events);
     assert_eq!(end["success"], true);
     assert_eq!(end["attempt"], 1);
-    assert_eq!(end["restoredModel"], "prime-inference/mock-1");
+    assert_eq!(end["restoredModel"], "local-inference/mock-1");
 
     // The switched turn's assistant message reached the transcript.
     let answer = client
@@ -440,7 +439,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
                     })
         })
         .expect("backup assistant message_end");
-    assert_eq!(answer["message"]["provider"], "prime-backup");
+    assert_eq!(answer["message"]["provider"], "local-backup");
 
     // The turn ends clean with the TS `turn_end` payload: the terminal
     // assistant message (the backup provider's answer) and the turn's
@@ -454,7 +453,7 @@ fn provider_failure_fails_over_to_the_next_provider_and_recovers() {
     assert_eq!(turn_end.get("error"), None, "turn_end: {turn_end}");
     assert_eq!(turn_end["message"]["role"], "assistant");
     assert_eq!(turn_end["message"]["stopReason"], "stop");
-    assert_eq!(turn_end["message"]["provider"], "prime-backup");
+    assert_eq!(turn_end["message"]["provider"], "local-backup");
     assert!(
         turn_end["message"]["content"]
             .as_array()
@@ -495,7 +494,7 @@ fn every_provider_failing_surfaces_the_final_error() {
     let starts = retry_starts(&client.events);
     assert_eq!(starts.len(), 3, "events: {:?}", client.events);
     assert_eq!(starts[0]["reason"], "backup");
-    assert_eq!(starts[0]["backupModel"], "prime-backup/mock-1");
+    assert_eq!(starts[0]["backupModel"], "local-backup/mock-1");
     assert_eq!(
         starts[1].get("reason"),
         None,

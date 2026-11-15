@@ -64,7 +64,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,

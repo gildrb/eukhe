@@ -5,8 +5,7 @@
 //!
 //! 1. the packaged bundled snapshot (`models.bundled.json` beside the
 //!    executable, strict-parsed and pinned);
-//! 2. the compiled catalog (the pi-ai tables plus the Prime Inference
-//!    entries compiled into the binary).
+//! 2. the compiled catalog (the pi-ai tables compiled into the binary).
 //!
 //! The built-in catalog is their union ([`effective_catalog`]): every
 //! model of either source, the bundled entry winning the fields it states.

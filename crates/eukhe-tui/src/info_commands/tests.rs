@@ -200,7 +200,7 @@ fn context_tree_full_shape_matches_ts() {
     let tree = json(
         r#"{
                 "id": "root", "label": "my session", "status": "active",
-                "model": {"provider": "prime-inference", "id": "z-ai/glm-5.3"},
+                "model": {"provider": "local-inference", "id": "z-ai/glm-5.3"},
                 "ownUsage": {"input": 1234567, "output": 2345, "cacheRead": 12345,
                              "cacheWrite": 678, "cost": {"total": 1.2345}},
                 "totalUsage": {"input": 1234567, "output": 2345, "cacheRead": 12345,
@@ -208,7 +208,7 @@ fn context_tree_full_shape_matches_ts() {
                 "contextUsage": {"tokens": 1250000, "contextWindow": 131072,
                                  "percent": 95.42},
                 "ownUsageByModel": [
-                    {"provider": "prime-inference", "id": "z-ai/glm-5.3",
+                    {"provider": "local-inference", "id": "z-ai/glm-5.3",
                      "ownUsage": {"input": 1234567, "output": 2345, "cacheRead": 12345,
                                   "cacheWrite": 678, "cost": {"total": 1.2345}}}
                 ],
@@ -253,7 +253,7 @@ fn context_tree_full_shape_matches_ts() {
         vec![
             "Context",
             "",
-            "Model: prime-inference/z-ai/glm-5.3",
+            "Model: local-inference/z-ai/glm-5.3",
             "",
             "  agent                                         model            tokens   cost  context",
             "* my session                                    glm-5.3            1.2M  $1.23  ########## 95% (1.2M/131k)",
@@ -317,12 +317,12 @@ fn context_tree_shows_per_model_costs_across_a_switch() {
                                  "percent": 22.1},
                 "children": [
                     {"id": "sub-1", "label": "scan the pricing tables", "status": "done",
-                     "model": {"provider": "prime-inference", "id": "internal/glm-5.3-fast"},
+                     "model": {"provider": "local-inference", "id": "internal/glm-5.3-fast"},
                      "ownUsage": {"input": 1000, "output": 400, "cacheRead": 0,
                                   "cacheWrite": 0, "totalTokens": 1400,
                                   "cost": {"total": 0.023}},
                      "ownUsageByModel": [
-                        {"provider": "prime-inference", "id": "internal/glm-5.3-fast",
+                        {"provider": "local-inference", "id": "internal/glm-5.3-fast",
                          "ownUsage": {"input": 1000, "output": 400, "cacheRead": 0,
                                       "cacheWrite": 0, "totalTokens": 1400,
                                       "cost": {"total": 0.023}}}
@@ -355,7 +355,7 @@ fn context_tree_shows_per_model_costs_across_a_switch() {
             "Total: $1.2405",
             "anthropic/claude-opus-4-6: $0.7775",
             "openai/gpt-5.6-sol: $0.4400",
-            "prime-inference/internal/glm-5.3-fast: $0.0230",
+            "local-inference/internal/glm-5.3-fast: $0.0230",
             "",
             "Context",
             "Current: 221,000 / 1,000,000 (22.1%)",
@@ -394,7 +394,7 @@ fn context_tree_ten_rows_render_the_full_shape() {
     let tree = json(
         r#"{
                 "id": "root", "label": "fleet lead", "status": "active",
-                "model": {"provider": "prime-inference", "id": "z-ai/glm-5.3"},
+                "model": {"provider": "local-inference", "id": "z-ai/glm-5.3"},
                 "ownUsage": {"input": 9000, "output": 900, "cacheRead": 0,
                              "cacheWrite": 100, "cost": {"total": 0.5}},
                 "totalUsage": {"input": 13500, "output": 900, "cacheRead": 0,
@@ -464,7 +464,7 @@ fn context_tree_ten_rows_render_the_full_shape() {
         vec![
             "Context",
             "",
-            "Model: prime-inference/z-ai/glm-5.3",
+            "Model: local-inference/z-ai/glm-5.3",
             "",
             "  agent             model    tokens   cost  context",
             "* fleet lead        glm-5.3     10k  $0.50  #......... 6% (12k/200k)",
@@ -507,7 +507,7 @@ fn context_tree_collapses_over_the_budget_to_top_usage_rows() {
     let tree = json(
         r#"{
                 "id": "root", "label": "fleet lead", "status": "active",
-                "model": {"provider": "prime-inference", "id": "z-ai/glm-5.3"},
+                "model": {"provider": "local-inference", "id": "z-ai/glm-5.3"},
                 "ownUsage": {"input": 90000, "output": 9000, "cacheRead": 0,
                              "cacheWrite": 1000, "cost": {"total": 0.9}},
                 "totalUsage": {"input": 131300, "output": 9000, "cacheRead": 0,
@@ -582,7 +582,7 @@ fn context_tree_collapses_over_the_budget_to_top_usage_rows() {
                                    "cacheWrite": 0, "cost": {"total": 0.007}},
                      "children": []},
                     {"id": "worker-12", "label": "worker-12", "status": "done",
-                     "model": {"provider": "prime-inference", "id": "glm-5.3-fast"},
+                     "model": {"provider": "local-inference", "id": "glm-5.3-fast"},
                      "ownUsage": {"input": 20000, "output": 0, "cacheRead": 0,
                                   "cacheWrite": 0, "cost": {"total": 0.2}},
                      "totalUsage": {"input": 20000, "output": 0, "cacheRead": 0,
@@ -596,7 +596,7 @@ fn context_tree_collapses_over_the_budget_to_top_usage_rows() {
         vec![
             "Context",
             "",
-            "Model: prime-inference/z-ai/glm-5.3",
+            "Model: local-inference/z-ai/glm-5.3",
             "",
             "  agent             model         tokens   cost  context",
             "* fleet lead        glm-5.3         100k  $0.90  #####..... 50% (100k/200k)",
@@ -636,7 +636,7 @@ fn context_tree_all_renders_every_row() {
     let tree = json(
         r#"{
                 "id": "root", "label": "fleet lead", "status": "active",
-                "model": {"provider": "prime-inference", "id": "z-ai/glm-5.3"},
+                "model": {"provider": "local-inference", "id": "z-ai/glm-5.3"},
                 "ownUsage": {"input": 90000, "output": 9000, "cacheRead": 0,
                              "cacheWrite": 1000, "cost": {"total": 0.9}},
                 "totalUsage": {"input": 131300, "output": 9000, "cacheRead": 0,
@@ -711,7 +711,7 @@ fn context_tree_all_renders_every_row() {
                                    "cacheWrite": 0, "cost": {"total": 0.007}},
                      "children": []},
                     {"id": "worker-12", "label": "worker-12", "status": "done",
-                     "model": {"provider": "prime-inference", "id": "glm-5.3-fast"},
+                     "model": {"provider": "local-inference", "id": "glm-5.3-fast"},
                      "ownUsage": {"input": 20000, "output": 0, "cacheRead": 0,
                                   "cacheWrite": 0, "cost": {"total": 0.2}},
                      "totalUsage": {"input": 20000, "output": 0, "cacheRead": 0,
@@ -725,7 +725,7 @@ fn context_tree_all_renders_every_row() {
         vec![
             "Context",
             "",
-            "Model: prime-inference/z-ai/glm-5.3",
+            "Model: local-inference/z-ai/glm-5.3",
             "",
             "  agent             model         tokens   cost  context",
             "* fleet lead        glm-5.3         100k  $0.90  #####..... 50% (100k/200k)",

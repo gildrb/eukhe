@@ -590,8 +590,8 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     // carries the flagged model. The picker catalog is a client-side
     // snapshot (the same seam the composition root injects).
     let glm: eukhe_types::ai::CatalogModel = serde_json::from_value(serde_json::json!({
-        "id": "z-ai/glm-5.3", "name": "GLM 5.3", "api": "openai-completions",
-        "provider": "prime-inference", "baseUrl": "https://inference.example/v1",
+        "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "api": "anthropic-messages",
+        "provider": "anthropic", "baseUrl": "https://api.anthropic.com",
         "reasoning": true, "input": ["text"],
         "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
         "contextWindow": 128_000, "maxTokens": 8192,
@@ -607,8 +607,8 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         session_dir: Some(session_dir.clone()),
         script_path: None,
         model_selection: eukhe_tui::interactive::ModelSelection {
-            provider: Some("prime-inference".to_string()),
-            model: Some("z-ai/glm-5.3".to_string()),
+            provider: Some("anthropic".to_string()),
+            model: Some("claude-sonnet-4-5".to_string()),
             ..Default::default()
         },
         model_catalog: vec![glm],
@@ -640,7 +640,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         steps: vec![
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
             eukhe_tui::interactive::HeadlessStep::Submit("/model chat".to_string()),
-            eukhe_tui::interactive::HeadlessStep::Type("glm".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Type("sonnet".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::Submit("hello".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 60_000 },
@@ -653,7 +653,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
         .expect("interactive run");
     let rendered = outcome.frames.join("\n");
     assert!(
-        rendered.contains("must be configured externally") && rendered.contains("prime-inference"),
+        rendered.contains("must be configured externally") && rendered.contains("anthropic"),
         "the pick against the empty auth-scoped catalog routes the sign-in flow (no provider-auth hook in this composition, so the TS external-config error):\n{rendered}"
     );
     assert!(
@@ -665,7 +665,7 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     // and its request fails at pi-ai's auth resolution, which reports the
     // unconfigured provider.
     assert!(
-        rendered.contains("Provider is not configured: prime-inference"),
+        rendered.contains("Provider is not configured: anthropic"),
         "the turn resolves the flagged model from the full catalog and fails at the request's auth resolution:\n{rendered}"
     );
     assert!(
@@ -675,9 +675,9 @@ async fn tui_flagged_model_turn_reports_the_unconfigured_provider_without_creden
     let last = outcome.frames.last().expect("a final frame");
     // The reasoning fixture renders its live thinking label (TS
     // `getModelContextLabel`): the label the failed pick must hold is
-    // the model with the daemon's effective level for glm-5.3.
+    // the model with the daemon's effective level for claude-sonnet-4-5.
     assert!(
-        last.contains("[M] z-ai/glm-5.3 - [high]"),
+        last.contains("[M] claude-sonnet-4-5 - [med]"),
         "the status line holds the resolved flagged model (the failed pick switched nothing):\n{last}"
     );
     drop(supervisor);

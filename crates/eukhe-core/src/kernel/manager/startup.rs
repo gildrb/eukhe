@@ -784,7 +784,7 @@ mod tests {
             "KEYTIMEOUT",
             "AWS_PROFILE",
             "AWS_REGION",
-            "PRIME_TEAM_ID",
+            "COLORTERM",
         ];
         let big = "é".repeat(100_000);
         let base: Vec<(String, String)> = names
@@ -828,7 +828,7 @@ mod tests {
                 ("KEYTIMEOUT", false, false),
                 ("AWS_PROFILE", false, false),
                 ("AWS_REGION", false, false),
-                ("PRIME_TEAM_ID", false, false),
+                ("COLORTERM", false, false),
             ]
         );
         assert_eq!(none.get("PATH"), Some(&big));

@@ -27,7 +27,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, package_dir: &Path) -> Daem
     std::fs::create_dir_all(package_dir).expect("package dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("ANTHROPIC_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             .env("EUKHE_PACKAGE_DIR", package_dir),
@@ -103,7 +102,7 @@ fn write_models_json(agent_dir: &Path, base_url: &str) {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     let models = json!({
         "providers": {
-            "prime-inference": {
+            "local-inference": {
                 "api": "openai-completions",
                 "baseUrl": base_url,
                 "apiKey": "sk-catalog-e2e",
@@ -258,18 +257,7 @@ fn daemon_serves_the_local_catalog() {
     // The models.json custom model is part of the catalog.
     assert!(models
         .iter()
-        .any(|model| model["id"] == "mock-1" && model["provider"] == "prime-inference"));
-    // A bundled public prime-inference model is present with its catalog
-    // fields (name, cost, context window).
-    let fable = models
-        .iter()
-        .find(|model| {
-            model["id"] == "anthropic/claude-fable-5" && model["provider"] == "prime-inference"
-        })
-        .expect("a bundled featured model");
-    assert_eq!(fable["name"], "Claude Fable 5");
-    assert_eq!(fable["cost"]["input"], 10);
-    assert_eq!(fable["contextWindow"], 1_000_000);
+        .any(|model| model["id"] == "mock-1" && model["provider"] == "local-inference"));
     // Every model object carries the levels and tiers it offers, read from
     // the eukhe-ai quirks rulebook (the `CatalogModel` shape).
     for model in models {
@@ -289,10 +277,10 @@ fn daemon_serves_the_local_catalog() {
     // The non-reasoning models.json model offers "off" only.
     let mock = models
         .iter()
-        .find(|model| model["id"] == "mock-1" && model["provider"] == "prime-inference")
+        .find(|model| model["id"] == "mock-1" && model["provider"] == "local-inference")
         .expect("the models.json model");
     assert_eq!(mock["thinkingLevels"], json!(["off"]));
-    // The configured providers: prime-inference (the models.json key) and
+    // The configured providers: local-inference (the models.json key) and
     // nothing else — no ambient credentials authorize other providers.
     let providers: Vec<&str> = data["configuredProviders"]
         .as_array()
@@ -300,13 +288,7 @@ fn daemon_serves_the_local_catalog() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
-    assert_eq!(providers, vec!["prime-inference"]);
-    // Private Prime Inference models stay out unless models.json declares
-    // them.
-    assert!(models.iter().all(|model| !model["id"]
-        .as_str()
-        .unwrap_or_default()
-        .starts_with("internal/")));
+    assert_eq!(providers, vec!["local-inference"]);
     drop(client);
     drop(supervisor);
 }

@@ -135,7 +135,7 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
             // A resumed worker has no create-config model: it falls back to
             // the process pair, exactly like the TS daemon's default session
             // config.
-            .env("EUKHE_MODEL_PROVIDER", "prime-inference")
+            .env("EUKHE_MODEL_PROVIDER", "local-inference")
             .env("EUKHE_MODEL", "mock-1")
             // A supervisor killed at teardown must not leak its session
             // workers into later test binaries: the worker's supervisor-lost
@@ -369,7 +369,7 @@ fn write_models_json(agent_dir: &Path, url: &Path) {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": url.to_string_lossy(),
                     "apiKey": "sk-dormant",

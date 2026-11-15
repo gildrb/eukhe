@@ -343,7 +343,7 @@ mod tests {
             json!({
                 "type": "model_change", "id": "c0", "parentId": null,
                 "timestamp": "2026-09-22T00:00:00.500Z",
-                "provider": "prime-inference", "modelId": "internal/glm-5.3-fast",
+                "provider": "local-inference", "modelId": "internal/glm-5.3-fast",
             }),
             json!({
                 "type": "message", "id": "c1", "parentId": "c0",
@@ -356,7 +356,7 @@ mod tests {
                 "message": {
                     "role": "assistant",
                     "content": [{ "type": "text", "text": "done" }],
-                    "provider": "prime-inference", "model": "internal/glm-5.3-fast",
+                    "provider": "local-inference", "model": "internal/glm-5.3-fast",
                     "stopReason": stop,
                     "usage": {
                         "input": 10, "output": 5, "cacheRead": 0, "cacheWrite": 0,
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(node["ownUsage"]["totalTokens"], json!(15));
         assert_eq!(
             node["model"],
-            json!({ "provider": "prime-inference", "id": "internal/glm-5.3-fast" })
+            json!({ "provider": "local-inference", "id": "internal/glm-5.3-fast" })
         );
 
         // An errored child renders as errored; an aborted one as cancelled.
@@ -694,8 +694,8 @@ mod tests {
         std::fs::create_dir_all(&child_dir).unwrap();
         let lines = [
             json!({"type": "session", "version": 3, "id": "01a0child-0000", "timestamp": "2026-09-22T00:00:00.000Z", "cwd": "/tmp"}),
-            json!({"type": "model_change", "id": "m0", "parentId": null, "timestamp": "2026-09-22T00:00:00.100Z", "provider": "prime-inference", "modelId": "internal/glm-5.3-fast"}),
-            json!({"type": "message", "id": "g1", "parentId": "m0", "timestamp": "2026-09-22T00:00:01.000Z", "message": {"role": "assistant", "content": [{ "type": "text", "text": "hi" }], "provider": "prime-inference", "model": "internal/glm-5.3-fast", "usage": {"input": 7, "output": 2, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 9, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}),
+            json!({"type": "model_change", "id": "m0", "parentId": null, "timestamp": "2026-09-22T00:00:00.100Z", "provider": "local-inference", "modelId": "internal/glm-5.3-fast"}),
+            json!({"type": "message", "id": "g1", "parentId": "m0", "timestamp": "2026-09-22T00:00:01.000Z", "message": {"role": "assistant", "content": [{ "type": "text", "text": "hi" }], "provider": "local-inference", "model": "internal/glm-5.3-fast", "usage": {"input": 7, "output": 2, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 9, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}),
             json!({"type": "message", "id": "g2", "parentId": "8b5f0d21", "timestamp": "2026-09-22T00:00:02.000Z", "message": {"role": "user", "content": "after the gap"}}),
         ];
         let content = lines
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(node["status"], json!("done"));
         assert_eq!(
             node["model"],
-            json!({ "provider": "prime-inference", "id": "internal/glm-5.3-fast" })
+            json!({ "provider": "local-inference", "id": "internal/glm-5.3-fast" })
         );
         let _ = std::fs::remove_dir_all(&root);
     }

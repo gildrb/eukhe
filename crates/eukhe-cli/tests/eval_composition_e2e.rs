@@ -54,7 +54,6 @@ fn run(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
         .env_remove("EUKHE_SESSION_DIR")
         .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
         .env_remove("EUKHE_DAEMON_SOCKET")
-        .env_remove("PRIME_API_KEY")
         .current_dir(home)
         .output()
         .expect("binary present");

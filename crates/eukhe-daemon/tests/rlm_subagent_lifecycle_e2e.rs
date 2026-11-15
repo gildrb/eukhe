@@ -78,7 +78,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
                 "EUKHE_PACKAGE_DIR",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
-            .env_remove("PRIME_API_KEY")
             // Workers orphaned by a supervisor `kill -9` must outlive the
             // restart window, yet never leak into later test binaries.
             .env(

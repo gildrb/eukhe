@@ -50,58 +50,58 @@ fn opus_levels() -> &'static [&'static str] {
 /// Claude ladder.
 fn battery_catalog() -> Vec<CatalogModel> {
     vec![
-        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model("local-inference", "mock-1", "Mock 1", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-fable-5",
             "Claude Fable 5",
             true,
             Some(fable_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-haiku-4.5",
             "Claude Haiku 4.5",
             true,
             Some(high_only_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.6",
             "Claude Opus 4.6",
             true,
             Some(opus_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             true,
             Some(opus_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.8",
             "Claude Opus 4.8",
             true,
             Some(opus_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-sonnet-4.5",
             "Claude Sonnet 4.5",
             true,
             Some(high_only_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-sonnet-4.6",
             "Claude Sonnet 4.6",
             true,
             Some(opus_levels()),
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "deepseek/deepseek-v4",
             "Deepseek V4",
             false,
@@ -112,13 +112,13 @@ fn battery_catalog() -> Vec<CatalogModel> {
 
 fn current() -> CurrentModel {
     CurrentModel {
-        provider: "prime-inference".to_string(),
+        provider: "local-inference".to_string(),
         model_id: "mock-1".to_string(),
     }
 }
 
 fn configured() -> HashSet<String> {
-    ["prime-inference".to_string()].into_iter().collect()
+    ["local-inference".to_string()].into_iter().collect()
 }
 
 fn picker_options(catalog: Vec<CatalogModel>) -> ModelPickerOptions {
@@ -218,7 +218,7 @@ fn scope_toggles_between_the_scoped_list_and_the_catalog() {
 fn a_scope_the_catalog_cannot_resolve_still_scopes() {
     let catalog = battery_catalog();
     let mut options = picker_options(catalog);
-    options.scoped_models = vec!["prime-inference/mock-9".to_string()];
+    options.scoped_models = vec!["local-inference/mock-9".to_string()];
     let mut picker = ModelPicker::new(options);
     assert!(picker.has_scoped_models(), "the session's scope counts");
     assert_eq!(picker.filtered_len(), 0, "the scoped side has no rows yet");
@@ -232,7 +232,7 @@ fn a_scope_the_catalog_cannot_resolve_still_scopes() {
     assert_eq!(picker.handle_key("alt+s", &kb()), ModelPickerAction::None);
     assert!(picker.scoped_side(), "alt+s returns to the scoped side");
     let mut refreshed = battery_catalog();
-    refreshed.push(model("prime-inference", "mock-9", "Mock 9", false, None));
+    refreshed.push(model("local-inference", "mock-9", "Mock 9", false, None));
     picker.update_state(None, refreshed, configured());
     assert_eq!(
         picker.filtered_len(),
@@ -263,7 +263,7 @@ fn renders_the_ts_inline_panel_shape() {
     // right.
     assert_eq!(
         rows[3],
-        format!("> Mock 1{}current - prime-inference", " ".repeat(87))
+        format!("> Mock 1{}current - local-inference", " ".repeat(87))
     );
     // The effort cluster: name cell (17), centered gap (33), arrow
     // slots, squares, label cell (6), then the trailing provider.
@@ -271,7 +271,7 @@ fn renders_the_ts_inline_panel_shape() {
         let name_pad = " ".repeat(17 - name.chars().count());
         let label_pad = " ".repeat(6 - label.chars().count());
         format!(
-            "  {name}{name_pad}{}  {squares}   {label}{label_pad}{}prime-inference",
+            "  {name}{name_pad}{}  {squares}   {label}{label_pad}{}local-inference",
             " ".repeat(33),
             " ".repeat(37),
         )
@@ -323,7 +323,7 @@ fn enter_applies_the_selection() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "mock-1".to_string(),
             effort: None,
         }))
@@ -338,7 +338,7 @@ fn typed_filter_selects_the_match_and_enter_applies_it() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "anthropic/claude-haiku-4.5".to_string(),
             effort: None,
         }))
@@ -370,7 +370,7 @@ fn typing_into_the_picker_filters_and_resets_the_selection() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "mock-1".to_string(),
             effort: None,
         }))
@@ -398,7 +398,7 @@ fn navigation_wraps_and_enter_applies_the_moved_selection() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "deepseek/deepseek-v4".to_string(),
             effort: None,
         }))
@@ -408,7 +408,7 @@ fn navigation_wraps_and_enter_applies_the_moved_selection() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "anthropic/claude-fable-5".to_string(),
             effort: None,
         }))
@@ -427,7 +427,7 @@ fn left_right_adjust_the_selected_effort_and_enter_carries_it() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "anthropic/claude-fable-5".to_string(),
             effort: Some("low".to_string()),
         }))
@@ -453,7 +453,7 @@ fn a_nonempty_filter_keeps_arrows_on_the_search_cursor() {
 #[test]
 fn unconfigured_providers_mark_require_sign_in_and_sort_last() {
     let catalog = vec![
-        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model("local-inference", "mock-1", "Mock 1", false, None),
         model(
             "other",
             "unconfigured-model",
@@ -482,7 +482,7 @@ fn update_state_keeps_the_selection_on_the_surviving_model() {
     // The refresh drops one model and adds another.
     catalog.pop();
     catalog.push(model(
-        "prime-inference",
+        "local-inference",
         "new/model",
         "New Model",
         false,
@@ -496,9 +496,9 @@ fn update_state_keeps_the_selection_on_the_surviving_model() {
 #[test]
 fn the_effort_seed_clamps_to_the_model_levels() {
     let catalog = vec![
-        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model("local-inference", "mock-1", "Mock 1", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-haiku-4.5",
             "Claude Haiku 4.5",
             true,
@@ -514,7 +514,7 @@ fn the_effort_seed_clamps_to_the_model_levels() {
 #[test]
 fn the_effort_seed_takes_the_next_lower_served_level_without_a_higher_one() {
     let catalog = vec![model(
-        "prime-inference",
+        "local-inference",
         "anthropic/claude-haiku-4.5",
         "Claude Haiku 4.5",
         true,
@@ -532,7 +532,7 @@ fn paging_moves_by_the_visible_window() {
     let mut catalog = battery_catalog();
     for extra in 0..20 {
         catalog.push(model(
-            "prime-inference",
+            "local-inference",
             &format!("extra/{extra}"),
             "Extra",
             false,
@@ -556,9 +556,9 @@ fn the_sorted_order_matches_the_ts_chain() {
     // compare numerically.
     let catalog = vec![
         model("other", "b-model", "B", false, None),
-        model("prime-inference", "z-model-2", "Z2", false, None),
-        model("prime-inference", "z-model-10", "Z10", false, None),
-        model("prime-inference", "mock-1", "Mock 1", false, None),
+        model("local-inference", "z-model-2", "Z2", false, None),
+        model("local-inference", "z-model-10", "Z10", false, None),
+        model("local-inference", "mock-1", "Mock 1", false, None),
     ];
     let mut options = picker_options(catalog);
     options.current = Some(current());
@@ -597,7 +597,7 @@ fn paste_edits_the_filter_like_the_ts_input() {
     assert_eq!(
         picker.handle_key("enter", &kb()),
         ModelPickerAction::Apply(Box::new(ModelSelectionApplied {
-            provider: "prime-inference".to_string(),
+            provider: "local-inference".to_string(),
             model_id: "mock-1".to_string(),
             effort: None,
         }))
@@ -700,28 +700,28 @@ fn search_ranks_version_descending() {
     // 4.5 stays below the newer 4.7.
     let catalog = vec![
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             false,
             None,
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-5.5",
             "Claude Opus 5.5",
             false,
             None,
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-5-5",
             "Claude Opus 5 5",
             false,
             None,
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4-5-20251101",
             "Claude Opus 4.5 Snapshot",
             false,
@@ -748,7 +748,7 @@ fn search_keeps_logged_in_providers_above_newer_matches() {
     // provider's newer, better-scoring match.
     let catalog = vec![
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             false,
@@ -772,14 +772,14 @@ fn search_ranks_version_above_the_current_model() {
     // `opus` lists 4.8 first even when 4.7 is the session's model.
     let catalog = vec![
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             false,
             None,
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.8",
             "Claude Opus 4.8",
             false,
@@ -788,7 +788,7 @@ fn search_ranks_version_above_the_current_model() {
     ];
     let mut options = picker_options(catalog);
     options.current = Some(CurrentModel {
-        provider: "prime-inference".to_string(),
+        provider: "local-inference".to_string(),
         model_id: "anthropic/claude-opus-4.7".to_string(),
     });
     let mut picker = ModelPicker::new(options);
@@ -805,14 +805,14 @@ fn search_keeps_recent_use_within_an_equal_version() {
     // rank leads `4.7` over the id-sorted-first `4-7` spelling.
     let catalog = vec![
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4-7",
             "Claude Opus 4 7",
             false,
             None,
         ),
         model(
-            "prime-inference",
+            "local-inference",
             "anthropic/claude-opus-4.7",
             "Claude Opus 4.7",
             false,
@@ -821,7 +821,7 @@ fn search_keeps_recent_use_within_an_equal_version() {
     ];
     let mut options = picker_options(catalog);
     options.current = None;
-    options.recent_models = vec!["prime-inference/anthropic/claude-opus-4.7".to_string()];
+    options.recent_models = vec!["local-inference/anthropic/claude-opus-4.7".to_string()];
     let mut picker = ModelPicker::new(options);
     picker.set_query("opus");
     assert_eq!(
@@ -835,10 +835,10 @@ fn search_compares_version_numbers_and_leaves_unversioned_ids_last() {
     // Digit runs compare by value (10 over 2) and ids without a
     // version trail every versioned match.
     let catalog = vec![
-        model("prime-inference", "z-model-2", "Z Model 2", false, None),
-        model("prime-inference", "z-model-10", "Z Model 10", false, None),
+        model("local-inference", "z-model-2", "Z Model 2", false, None),
+        model("local-inference", "z-model-10", "Z Model 10", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "z-model-next",
             "Z Model Next",
             false,
@@ -858,9 +858,9 @@ fn search_ranks_preview_suffixed_ids_by_their_version() {
     // A prerelease suffix never hides the version: `hy4-preview`
     // outranks `hy3`.
     let catalog = vec![
-        model("prime-inference", "tencent/hy3", "HY3", false, None),
+        model("local-inference", "tencent/hy3", "HY3", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "tencent/hy4-preview",
             "HY4 Preview",
             false,
@@ -880,9 +880,9 @@ fn search_preserves_overlong_version_runs() {
     // A digit run beyond `u64` is a version like any other: the
     // oversized newer release leads, not trails, when text scores tie.
     let catalog = vec![
-        model("prime-inference", "model-2", "Model Two", false, None),
+        model("local-inference", "model-2", "Model Two", false, None),
         model(
-            "prime-inference",
+            "local-inference",
             "model-18446744073709551616",
             "Model Oversized",
             false,

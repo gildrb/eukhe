@@ -114,17 +114,17 @@ mod tests {
             DaemonAllowlist::Unrestricted
         ));
         // The global scope carries the allowlist.
-        write_settings(&agent_dir, r#"{"allowedModels": ["prime-inference/*"]}"#);
+        write_settings(&agent_dir, r#"{"allowedModels": ["local-inference/*"]}"#);
         assert_eq!(
             load(dir.path(), &agent_dir),
-            DaemonAllowlist::Allowed(vec!["prime-inference/*".to_string()])
+            DaemonAllowlist::Allowed(vec!["local-inference/*".to_string()])
         );
         // A project scope cannot weaken the global pin: the project dir is
         // the temp dir itself.
         write_settings(&dir.path().join(".eukhe"), r#"{"allowedModels": []}"#);
         assert_eq!(
             load(dir.path(), &agent_dir),
-            DaemonAllowlist::Allowed(vec!["prime-inference/*".to_string()])
+            DaemonAllowlist::Allowed(vec!["local-inference/*".to_string()])
         );
     }
 
@@ -134,11 +134,11 @@ mod tests {
         let agent_dir = dir.path().join("agent");
         write_settings(
             &agent_dir,
-            r#"{"allowedModels": ["  prime-inference/internal/*  ", ""]}"#,
+            r#"{"allowedModels": ["  local-inference/internal/*  ", ""]}"#,
         );
         assert_eq!(
             load(dir.path(), &agent_dir),
-            DaemonAllowlist::Allowed(vec!["prime-inference/internal/*".to_string()])
+            DaemonAllowlist::Allowed(vec!["local-inference/internal/*".to_string()])
         );
         // A list that trims to empty behaves as unset.
         write_settings(&agent_dir, r#"{"allowedModels": [" ", ""]}"#);
@@ -153,8 +153,8 @@ mod tests {
         // No allowlist: everything passes (TS parity).
         assert_allowed(&DaemonAllowlist::Unrestricted, "anything/model").unwrap();
         // Allowed by the allowlist.
-        let allow = DaemonAllowlist::Allowed(vec!["prime-inference/*".to_string()]);
-        assert_allowed(&allow, "prime-inference/internal/glm-5.3-fast").unwrap();
+        let allow = DaemonAllowlist::Allowed(vec!["local-inference/*".to_string()]);
+        assert_allowed(&allow, "local-inference/internal/glm-5.3-fast").unwrap();
         // Refused: the typed error downcasts for callers.
         let error = assert_allowed(&allow, "zai/glm-5.3").expect_err("refused");
         let refusal = error
@@ -175,7 +175,7 @@ mod tests {
         let state = load(dir.path(), &agent_dir);
         assert!(matches!(state, DaemonAllowlist::Unreadable(_)));
         // The gate refuses a would-be-allowed model while unreadable...
-        let error = assert_allowed(&state, "prime-inference/mock-1").expect_err("fail closed");
+        let error = assert_allowed(&state, "local-inference/mock-1").expect_err("fail closed");
         let message = error.to_string();
         assert!(message.contains("could not be read"), "{message}");
         assert!(message.contains("fails closed"), "{message}");
@@ -199,7 +199,7 @@ mod tests {
         std::fs::create_dir_all(&agent_dir).unwrap();
         std::fs::write(
             agent_dir.join("settings.json"),
-            r#"{"allowedModels": "prime-inference/*"}"#,
+            r#"{"allowedModels": "local-inference/*"}"#,
         )
         .unwrap();
         assert!(matches!(
@@ -208,7 +208,7 @@ mod tests {
         ));
         std::fs::write(
             agent_dir.join("settings.json"),
-            r#"{"allowedModels": ["prime-inference/*", 42]}"#,
+            r#"{"allowedModels": ["local-inference/*", 42]}"#,
         )
         .unwrap();
         assert!(matches!(
@@ -251,7 +251,7 @@ mod tests {
             );
             // The gate refuses every resolution while the document is
             // shapeless — never the typed pattern refusal.
-            let error = assert_allowed(&state, "prime-inference/mock-1").expect_err("closed");
+            let error = assert_allowed(&state, "local-inference/mock-1").expect_err("closed");
             assert!(
                 error.downcast_ref::<ModelAllowlistRefusal>().is_none(),
                 "fail-closed is not a pattern refusal"

@@ -583,7 +583,7 @@ mod tests {
                 Ok((
                     (),
                     Some(
-                        r#"{ "prime-inference": { "type": "api_key", "key": "sk" } }"#.to_string(),
+                        r#"{ "local-inference": { "type": "api_key", "key": "sk" } }"#.to_string(),
                     ),
                 ))
             })
@@ -592,7 +592,7 @@ mod tests {
         // Owner-only mode.
         assert_eq!(crate::platform::perms::file_mode(&path), Some(0o600));
         let data = parse_storage_data(Some(&fs::read_to_string(&path).unwrap())).unwrap();
-        assert!(data.credential("prime-inference").is_some());
+        assert!(data.credential("local-inference").is_some());
     }
 
     /// Per-call-site served-path oracle: the auth save goes through the
@@ -603,7 +603,7 @@ mod tests {
     fn auth_write_takes_exactly_one_fsync() {
         let dir = tempfile::tempdir().unwrap();
         let backend = FileAuthStorageBackend::new(dir.path().join("auth.json"));
-        let document = r#"{ "prime-inference": { "type": "api_key", "key": "sk" } }"#;
+        let document = r#"{ "local-inference": { "type": "api_key", "key": "sk" } }"#;
         let before = crate::settings::storage::opt_in_fsync_calls();
         backend
             .with_lock(&mut |_| Ok(((), Some(document.to_string()))))

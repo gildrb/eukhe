@@ -146,9 +146,7 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
     daemon_mode_args(&mut command, &socket, &agent_dir)
         .env("EUKHE_KERNEL_DIR", dir.join("kernel"))
         .env("EUKHE_OFFLINE", "1");
-    scrub_provider_keys(&mut command)
-        .env_remove("PRIME_TEAM_ID")
-        .env_remove("PRIME_API_KEY");
+    scrub_provider_keys(&mut command);
     Supervisor(Daemon::spawn_bound(
         &mut command,
         &socket,

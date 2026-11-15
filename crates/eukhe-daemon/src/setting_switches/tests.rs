@@ -59,7 +59,7 @@ fn models_fixture(dir: &Path, count: usize) {
         dir.join("agent").join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": "http://127.0.0.1:9/v1",
                     "apiKey": "sk-test",
@@ -159,8 +159,8 @@ async fn cycle_model_refuses_models_outside_the_allowlist() {
             "set_scoped_models",
             &json!({
                 "scopedModels": [
-                    { "model": { "provider": "prime-inference", "id": "mock-1" } },
-                    { "model": { "provider": "prime-inference", "id": "mock-2" } }
+                    { "model": { "provider": "local-inference", "id": "mock-1" } },
+                    { "model": { "provider": "local-inference", "id": "mock-2" } }
                 ]
             }),
         )
@@ -197,9 +197,9 @@ async fn cycle_model_applies_the_scoped_thinking_level() {
             "set_scoped_models",
             &json!({
                 "scopedModels": [
-                    { "model": { "provider": "prime-inference", "id": current } },
+                    { "model": { "provider": "local-inference", "id": current } },
                     {
-                        "model": { "provider": "prime-inference", "id": other },
+                        "model": { "provider": "local-inference", "id": other },
                         "thinkingLevel": "high",
                     }
                 ]
@@ -230,7 +230,7 @@ async fn create_resolves_the_models_scope_for_the_session() {
         &json!({
             "noSession": true,
             "cwd": dir.path(),
-            "models": ["prime-inference/mock-2:high", "prime-inference/mock-1"],
+            "models": ["local-inference/mock-2:high", "local-inference/mock-1"],
         }),
     )
     .await;
@@ -246,7 +246,7 @@ async fn create_resolves_the_models_scope_for_the_session() {
 
     std::fs::write(
         dir.path().join("agent").join("settings.json"),
-        json!({ "enabledModels": ["prime-inference/mock-1", "prime-inference/mock-2"] })
+        json!({ "enabledModels": ["local-inference/mock-1", "local-inference/mock-2"] })
             .to_string(),
     )
     .expect("write settings.json");
@@ -269,9 +269,9 @@ async fn set_scoped_models_stores_and_validates() {
     let dir = tempfile::tempdir().expect("tempdir");
     let worker = created_worker(dir.path(), Some(faux_script(false))).await;
     let scoped = json!([
-        { "model": { "provider": "prime-inference", "id": "mock-1" } },
+        { "model": { "provider": "local-inference", "id": "mock-1" } },
         {
-            "model": { "provider": "prime-inference", "id": "mock-2" },
+            "model": { "provider": "local-inference", "id": "mock-2" },
             "thinkingLevel": "high",
         },
     ]);

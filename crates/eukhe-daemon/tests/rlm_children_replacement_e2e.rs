@@ -85,7 +85,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
                 "EUKHE_PACKAGE_DIR",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
-            .env_remove("PRIME_API_KEY")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
             // `exitIfSupervisorOrphanedForTooLong`) runs on this short window

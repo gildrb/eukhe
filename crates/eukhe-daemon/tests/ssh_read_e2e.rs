@@ -147,7 +147,6 @@ exit 255
         supervisor_command(&socket, &agent_dir)
             .env("EUKHE_CODING_AGENT_DIR", &agent_dir)
             .env("PATH", path)
-            .env_remove("PRIME_API_KEY")
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
                 "15000",

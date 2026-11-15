@@ -127,7 +127,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // Hermetic agent dir: the ambient environment may export a real
             // agent dir; point every fallback at the test sandbox instead.
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
                 "15000",

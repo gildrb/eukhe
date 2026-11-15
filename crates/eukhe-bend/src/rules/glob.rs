@@ -347,12 +347,12 @@ mod tests {
     /// `*` crosses `/`, blank and refused patterns never match.
     #[test]
     fn the_core_decides_the_model_allowlist() {
-        let selector = "prime-inference/internal/glm-5.3-fast";
+        let selector = "openrouter/openai/gpt-5.4";
         let verdicts = [
-            &["internal/glm-5.3-fast"][..],
-            &["glm-5.3-fast"],
-            &["prime-inference/*"],
-            &["  internal/*  "],
+            &["openai/gpt-5.4"][..],
+            &["gpt-5.4"],
+            &["openrouter/*"],
+            &["  openai/*  "],
             &["  "],
             &["["],
             &[],

@@ -419,14 +419,13 @@ fn spawn_supervisor_with(dir: &Path, configure: impl FnOnce(&mut Command)) -> Su
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
     let mut command = eukhe_command();
     daemon_mode_args(&mut command, &socket, &agent_dir);
-    // Ambient provider credentials (PRIME_API_KEY on the dev box, or any
-    // other provider key variable) must not leak into the daemon's catalog:
+    // Ambient provider credentials (any provider key variable on the dev
+    // box) must not leak into the daemon's catalog:
     // every spawned supervisor in this verifier serves fixtures whose only
     // configured model comes from a models.json file, so the ambient
     // catalog cannot widen a test's scope. The supervisor strips these from
     // the session workers it spawns too (they inherit its environment).
     scrub_provider_keys(&mut command)
-        .env_remove("PRIME_TEAM_ID")
         // A full workspace run around this suite (the battery) can starve a
         // freshly-launched session worker's boot far past the 30s default
         // connect budget; the generous override keeps the suite's session

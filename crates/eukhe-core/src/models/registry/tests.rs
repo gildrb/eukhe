@@ -10,9 +10,9 @@ fn auth_with(data: &serde_json::Value) -> AuthStorage {
     AuthStorage::in_memory(&data, Arc::new(NoOAuth))
 }
 
-/// Like [`auth_with`] but with ambient `PRIME_API_KEY`/`PRIME_TEAM_ID`
-/// ignored: the stored credential is the only source, so credential
-/// tests are hermetic on boxes that carry Prime Inference env vars.
+/// Like [`auth_with`] but with ambient provider API-key variables ignored:
+/// the stored credential is the only source, so credential tests are
+/// hermetic on boxes that carry provider env vars.
 fn auth_without_env(data: &serde_json::Value) -> AuthStorage {
     let data = AuthStorageData(data.as_object().cloned().unwrap_or_default());
     AuthStorage::in_memory_without_env(&data, Arc::new(NoOAuth))
@@ -33,8 +33,6 @@ fn in_memory_loads_built_in_catalog() {
     let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
     assert_eq!(registry.diagnostics(), [] as [String; 0]);
     assert!(registry.get_all().next().is_some());
-    // Bundled private model is present in the unfiltered catalog.
-    assert!(registry.get_all().any(|m| m.id == "internal/glm-5.2-fast"));
 }
 
 /// TS `755-configured-max-tokens.test.ts`: built-in catalog models stay
@@ -170,13 +168,6 @@ fn header_precedence_model_over_provider() {
     assert_eq!(headers["X-Model"], "model");
     assert_eq!(headers["X-Provider"], "p");
     assert_eq!(headers["X-Override"], "o");
-}
-
-#[test]
-fn undeclared_private_ids_are_not_authorized() {
-    let registry = ModelRegistry::in_memory(auth_with(&serde_json::json!({})));
-    let private_model = model("internal/custom-private", "prime-inference");
-    assert!(!registry.is_authorized_private_model(&private_model));
 }
 
 #[test]

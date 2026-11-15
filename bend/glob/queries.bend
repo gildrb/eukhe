@@ -282,8 +282,8 @@ def bare.k(s: String, m: Maybe<&2, String>) -> String:
     case Some{t}:
       t
 
-# the bare id of a selector: the text after its first `/` (prime-inference
-# ids carry more slashes); the selector itself with none
+# the bare id of a selector: the text after its first `/` (openrouter ids
+# carry more slashes); the selector itself with none
 def bare(+s: String) -> String:
   bare.k(s, after_slash(s))
 

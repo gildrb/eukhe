@@ -54,9 +54,7 @@ use process::Daemon;
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_listening(
-        supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
-            .env_remove("EUKHE_CODING_AGENT_DIR"),
+        supervisor_command(socket, agent_dir).env_remove("EUKHE_CODING_AGENT_DIR"),
         socket,
         Duration::from_secs(10),
     )

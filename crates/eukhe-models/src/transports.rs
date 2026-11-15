@@ -1,26 +1,22 @@
 //! The compiled transport table.
 //!
 //! The compiled model catalog (`eukhe_ai::models_generated::MODELS`, the
-//! pi-ai port of the TS `models.generated.ts`, plus the
-//! `eukhe_ai::providers::prime_inference_models` entries) is the
-//! hand-maintained table of transports the client implements: the
-//! `(provider, api, baseUrl)` tuples of the public providers, plus the
-//! offline Prime Inference entries (one transport tuple of their own). It
-//! only changes with a client release — the catalog can select among these
-//! transports but never introduce one.
+//! pi-ai port of the TS `models.generated.ts`) is the hand-maintained table
+//! of transports the client implements: the `(provider, api, baseUrl)`
+//! tuples of the public providers. It only changes with a client release —
+//! the catalog can select among these transports but never introduce one.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use eukhe_ai::models_generated::MODELS;
-use eukhe_ai::providers::prime_inference_models::PRIME_INFERENCE_MODELS;
 
 use crate::pi_ai_model::registry_model;
 use crate::Model;
 
 /// The compiled catalog, shared as one immutable list (the TS
 /// `installedModels`): every built-in provider's pi-ai models in provider
-/// order, then the Prime Inference entries, in the registry's model form.
+/// order, in the registry's model form.
 ///
 /// # Panics
 ///
@@ -33,7 +29,6 @@ pub fn compiled_models() -> &'static [Model] {
         let mut models: Vec<Model> = MODELS
             .values()
             .flat_map(|catalog| catalog.values())
-            .chain(PRIME_INFERENCE_MODELS.values())
             .map(|model| {
                 registry_model(model)
                     .unwrap_or_else(|error| panic!("the compiled pi-ai catalog converts: {error}"))
@@ -55,22 +50,18 @@ pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 1] =
     [("azure-openai-responses", "azure-openai-responses", "")];
 
 /// Distinct compiled `(provider, api, baseUrl)` tuples: the compiled
-/// catalog's, then [`SUPPLEMENTAL_TRANSPORTS`] (Prime Inference excluded —
-/// its entries ship as their own compiled section).
+/// catalog's, then [`SUPPLEMENTAL_TRANSPORTS`].
 #[must_use]
 pub fn compiled_transport_tuples() -> Vec<(&'static str, &'static str, &'static str)> {
     let mut tuples: Vec<(&'static str, &'static str, &'static str)> = Vec::new();
     let mut seen: HashSet<(&str, &str, &str)> = HashSet::new();
-    let compiled = compiled_models()
-        .iter()
-        .filter(|model| model.provider != "prime-inference")
-        .map(|model| {
-            (
-                model.provider.as_str(),
-                model.api.as_str(),
-                model.base_url.as_str(),
-            )
-        });
+    let compiled = compiled_models().iter().map(|model| {
+        (
+            model.provider.as_str(),
+            model.api.as_str(),
+            model.base_url.as_str(),
+        )
+    });
     for tuple in compiled.chain(SUPPLEMENTAL_TRANSPORTS) {
         if seen.insert(tuple) {
             tuples.push(tuple);
@@ -80,8 +71,7 @@ pub fn compiled_transport_tuples() -> Vec<(&'static str, &'static str, &'static 
 }
 
 /// The provider ids the client compiles in: every compiled catalog
-/// provider (Prime Inference included) and the supplemental transports'
-/// providers.
+/// provider and the supplemental transports' providers.
 #[must_use]
 pub fn compiled_provider_ids() -> std::collections::BTreeSet<&'static str> {
     compiled_models()
@@ -101,12 +91,8 @@ mod tests {
 
     #[test]
     fn the_compiled_catalog_converts_every_pi_ai_entry() {
-        let pi_ai_entries: usize = MODELS.values().map(|catalog| catalog.len()).sum::<usize>()
-            + PRIME_INFERENCE_MODELS.len();
+        let pi_ai_entries: usize = MODELS.values().map(|catalog| catalog.len()).sum();
         assert_eq!(compiled_models().len(), pi_ai_entries);
-        assert!(compiled_models()
-            .iter()
-            .any(|model| model.provider == "prime-inference"));
     }
 
     /// The supplement carries only transports the pi-ai table lacks: a
@@ -132,6 +118,5 @@ mod tests {
             assert!(tuples.contains(&tuple), "{tuple:?}");
             assert!(providers.contains(tuple.0), "{tuple:?}");
         }
-        assert!(providers.contains("prime-inference"));
     }
 }

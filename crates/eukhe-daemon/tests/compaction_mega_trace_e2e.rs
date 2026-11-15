@@ -236,7 +236,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, trace_path: &Path) -> Daemo
     std::fs::create_dir_all(agent_dir).expect("agent dir");
     Daemon::spawn_bound(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             .env("EUKHE_COMPACTION_TRACE", trace_path)
             .env(
@@ -351,7 +350,7 @@ fn mega_session_threshold_compaction_phase_measurement() {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": mock.url(),
                     "apiKey": "sk-battery",
@@ -392,7 +391,7 @@ fn mega_session_threshold_compaction_phase_measurement() {
             "config": {
                 "cwd": dir.path().to_string_lossy(),
                 "sessionDir": session_dir.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),

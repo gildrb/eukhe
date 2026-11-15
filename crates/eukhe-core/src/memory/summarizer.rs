@@ -1,7 +1,7 @@
 //! The compactor's model, resolved from settings on every call so a
 //! settings change applies without a restart: `memory.model`
 //! (`provider/model-id`), else `auxiliaryModel`, else the default model —
-//! the agent's startup chain (saved default, featured default, first model
+//! the agent's startup chain (saved default, provider default, first model
 //! with credentials) — at the `memory.thinking` effort (default medium).
 //! The `allowedModels` pin applies like everywhere else; an unusable model
 //! fails the call (the owner reports it and retries) instead of silently

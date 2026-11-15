@@ -36,7 +36,6 @@ use process::Daemon;
 fn spawn_supervisor(socket: &Path, agent_dir: &Path, tmp_dir: &Path) -> Daemon {
     Daemon::spawn_listening(
         supervisor_command(socket, agent_dir)
-            .env_remove("PRIME_API_KEY")
             .env_remove("EUKHE_CODING_AGENT_DIR")
             .env_remove("EUKHE_DAEMON_SOCKET")
             .env("TMPDIR", tmp_dir),

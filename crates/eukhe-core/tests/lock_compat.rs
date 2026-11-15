@@ -78,7 +78,7 @@ fn settings_write_leaves_no_lock_artifact() {
     storage
         .with_lock(SettingsScope::Global, &mut |current| {
             assert_eq!(current, None);
-            Some(r#"{ "defaultProvider": "prime-inference" }"#.to_string())
+            Some(r#"{ "defaultProvider": "local-inference" }"#.to_string())
         })
         .unwrap();
     let settings = dir.path().join("agent").join("settings.json");
@@ -144,7 +144,7 @@ fn auth_write_heals_a_pre_compat_lock_file_artifact() {
             assert_eq!(current.as_deref(), Some("{}"));
             Ok((
                 (),
-                Some(r#"{ "prime": { "type": "api_key", "key": "sk" } }"#.to_string()),
+                Some(r#"{ "local-inference": { "type": "api_key", "key": "sk" } }"#.to_string()),
             ))
         })
         .unwrap();
@@ -186,7 +186,7 @@ fn auth_write_waits_on_a_live_legacy_flock_holder() {
             assert_eq!(current.as_deref(), Some("{}"));
             Ok((
                 (),
-                Some(r#"{ "prime": { "type": "api_key", "key": "sk" } }"#.to_string()),
+                Some(r#"{ "local-inference": { "type": "api_key", "key": "sk" } }"#.to_string()),
             ))
         })
         .unwrap();

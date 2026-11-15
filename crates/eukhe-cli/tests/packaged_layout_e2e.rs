@@ -174,7 +174,6 @@ impl Sandbox {
             .env_remove("EUKHE_OFFLINE")
             .env_remove("EUKHE_SESSION_DIR")
             .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
-            .env_remove("PRIME_API_KEY")
             .current_dir(&self.cwd);
         command
     }

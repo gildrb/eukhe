@@ -1,6 +1,6 @@
 //! Model subsystem: the local registry (bundled/compiled catalog plus the
-//! user's models.json), the resolver, Prime Inference private models, and
-//! the model source of every role (`roles`).
+//! user's models.json), the resolver, and the model source of every role
+//! (`roles`).
 
 pub use allowlist::{model_allowed, ModelAllowlistRefusal};
 pub use registry::{ModelRegistry, ResolvedRequestAuth, SetModelSelectionError};
@@ -8,7 +8,6 @@ pub use registry::{ModelRegistry, ResolvedRequestAuth, SetModelSelectionError};
 pub mod allowlist;
 pub(crate) mod custom;
 pub mod image_model_routing;
-pub(crate) mod prime_inference;
 pub(crate) mod reference;
 pub mod refresh;
 pub(crate) mod registry;
@@ -17,10 +16,6 @@ pub mod roles;
 
 pub use image_model_routing::{
     resolve_image_model_override, ImageModelRoutingInputs, ResolvedImageModel,
-};
-pub use prime_inference::{
-    is_private_prime_inference_model, is_private_prime_inference_model_id,
-    private_prime_inference_models, PRIME_INFERENCE_BASE_URL,
 };
 pub use resolver::{
     build_fallback_model, failover_candidates, find_exact_model_reference_match,

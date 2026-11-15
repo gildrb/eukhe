@@ -144,7 +144,7 @@ fn rewrite(config: &ProviderConfig, model: &Model) -> Result<Model, ModelBuildEr
 
 /// The models of a composed provider: the built-in chat models rewritten,
 /// then the custom models upserted by id, then the built-in non-chat models.
-/// Recomputed per call so a dynamic base (Prime Inference) stays live.
+/// Recomputed per call so a dynamic base stays live.
 fn composed_models(
     base: Option<Arc<Provider>>,
     config: Arc<ProviderConfig>,

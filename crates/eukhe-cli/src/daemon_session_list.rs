@@ -401,7 +401,7 @@ mod tests {
             "messageCount": 3,
             "unfinishedActionCount": 0,
             "modified": "2026-09-16T18:30:26.272Z",
-            "model": { "id": "z-ai/glm-5.3", "provider": "prime-inference" },
+            "model": { "id": "z-ai/glm-5.3", "provider": "local-inference" },
             "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
         })
     }
@@ -420,7 +420,7 @@ mod tests {
             "{lines:?}"
         );
         assert!(
-            lines[1].contains("prime-inference/z-ai/glm-5.3"),
+            lines[1].contains("local-inference/z-ai/glm-5.3"),
             "{lines:?}"
         );
     }

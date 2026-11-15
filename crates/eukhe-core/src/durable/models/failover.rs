@@ -177,8 +177,8 @@ mod tests {
     #[test]
     fn the_model_reference_is_the_wire_vocabulary() {
         assert_eq!(
-            model_reference(&catalog_model("prime-inference", "glm-5.3")),
-            "prime-inference/glm-5.3"
+            model_reference(&catalog_model("local-inference", "glm-5.3")),
+            "local-inference/glm-5.3"
         );
     }
 }

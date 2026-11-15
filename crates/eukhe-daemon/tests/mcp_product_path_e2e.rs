@@ -56,7 +56,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // reads it (supervisor, worker, kernel) resolves inside the test
             // sandbox instead of the shared real agent dir.
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
             // `exitIfSupervisorOrphanedForTooLong`) runs on this short window

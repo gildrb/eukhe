@@ -130,7 +130,7 @@ fn spawn_daemon(socket: &Path, agent_dir: &Path) -> Daemon {
         supervisor_command(socket, agent_dir)
             // The woken worker has no create-config model: it falls back to the
             // process pair, exactly like the TS daemon's default session config.
-            .env("EUKHE_MODEL_PROVIDER", "prime-inference")
+            .env("EUKHE_MODEL_PROVIDER", "local-inference")
             .env("EUKHE_MODEL", "mock-1")
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS
@@ -252,7 +252,7 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
         agent_dir.join("models.json"),
         json!({
             "providers": {
-                "prime-inference": {
+                "local-inference": {
                     "api": "openai-completions",
                     "baseUrl": url.to_string_lossy(),
                     "apiKey": "sk-wake",
@@ -286,7 +286,7 @@ fn send_to_a_saved_session_wakes_it_and_runs_the_turn() {
             "config": {
                 "cwd": dir.path().to_string_lossy(),
                 "sessionDir": sessions.to_string_lossy(),
-                "provider": "prime-inference",
+                "provider": "local-inference",
                 "model": "mock-1",
             },
         }),

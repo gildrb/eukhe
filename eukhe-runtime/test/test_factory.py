@@ -2557,7 +2557,7 @@ class FactorySettingReadTest(unittest.TestCase):
         # factory key is shaped exactly like the other feature toggles.
         # /factory on writes enabled true over the same document...
         document = {
-            "defaultProvider": "prime-inference",
+            "defaultProvider": "local-inference",
             "defaultModel": "internal/glm-5.3-fast",
             "rlmMaxDepth": 2,
             "theme": "dark",

@@ -406,7 +406,7 @@ mod tests {
         // dim/gated treatment) alongside the text, and flags its tool calls
         // for the trailing spacer -- one Assistant item before the ToolCall
         // items, TS `buildConversationComponents` order.
-        let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"probe the replay trace","thinkingSignature":"sig-1"},{"type":"text","text":"body after thinking"},{"type":"toolCall","id":"toolu_1","name":"bash","arguments":{"command":"ls"}}],"api":"openai-completions","provider":"prime-inference","model":"m","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},"id":"e1"}"#;
+        let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"probe the replay trace","thinkingSignature":"sig-1"},{"type":"text","text":"body after thinking"},{"type":"toolCall","id":"toolu_1","name":"bash","arguments":{"command":"ls"}}],"api":"openai-completions","provider":"local-inference","model":"m","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},"id":"e1"}"#;
         let entries = parse_jsonl(line).unwrap();
         let items = entry_to_items(&entries[0]);
         let [TranscriptItem::Assistant {
@@ -432,7 +432,7 @@ mod tests {
         // The persisted thinking block's provider signature survives the
         // replay round-trip verbatim, so a resumed session can replay its
         // reasoning context to the provider unchanged.
-        let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"keep my signature","thinkingSignature":"sig-abc","redacted":false},{"type":"text","text":"done"}],"api":"openai-completions","provider":"prime-inference","model":"m","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1},"id":"e1"}"#;
+        let line = r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"keep my signature","thinkingSignature":"sig-abc","redacted":false},{"type":"text","text":"done"}],"api":"openai-completions","provider":"local-inference","model":"m","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1},"id":"e1"}"#;
         let entries = parse_jsonl(line).unwrap();
         let wire = serde_json::to_string(&entries[0]).unwrap();
         let reloaded: FileEntry = serde_json::from_str(&wire).unwrap();

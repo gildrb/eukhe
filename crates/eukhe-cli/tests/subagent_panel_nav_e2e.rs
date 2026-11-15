@@ -129,7 +129,7 @@ fn append_billed_turn(path: &Path, id: &str, input: u64, output: u64, cost: f64)
         leaf_id(&stem, 0),
         assistant_message(
             "work complete",
-            "prime-inference",
+            "local-inference",
             "internal/glm-5.3-fast",
             input,
             output,

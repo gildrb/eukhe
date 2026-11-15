@@ -1070,7 +1070,7 @@ mod tests {
     fn in_memory_loads_merges_and_saves() {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         manager
-            .set_default_model_and_provider("prime-inference", "z-ai/glm-5.3")
+            .set_default_model_and_provider("local-inference", "z-ai/glm-5.3")
             .unwrap()
             .applied()
             .expect("the value applies");
@@ -1083,16 +1083,16 @@ mod tests {
         };
         assert_eq!(
             chat(&manager).as_deref(),
-            Some("prime-inference/z-ai/glm-5.3")
+            Some("local-inference/z-ai/glm-5.3")
         );
         assert_eq!(
             manager.get_recent_models(),
-            vec!["prime-inference/z-ai/glm-5.3".to_string()]
+            vec!["local-inference/z-ai/glm-5.3".to_string()]
         );
         manager.reload().unwrap();
         assert_eq!(
             chat(&manager).as_deref(),
-            Some("prime-inference/z-ai/glm-5.3")
+            Some("local-inference/z-ai/glm-5.3")
         );
     }
 

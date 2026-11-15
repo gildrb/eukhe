@@ -30,7 +30,7 @@
 //! ```text
 //! $ eukhe list            # one live session named "research"
 //! name      id            status  age  model                         messages  clients
-//! research  b72ad7009b11  idle    3s   prime-inference/z-ai/glm-5.3  0         0
+//! research  b72ad7009b11  idle    3s   local-inference/z-ai/glm-5.3  0         0
 //!
 //! $ eukhe list           # no live sessions
 //! No active agents.

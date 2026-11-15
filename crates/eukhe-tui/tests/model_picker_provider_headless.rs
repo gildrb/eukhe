@@ -1,12 +1,12 @@
 //! Headless e2e for the `/model` hub's chat picker: current-model
 //! resolution across providers (the operator's onboarding report): a mock supervisor serves
 //! one attached session whose state reports
-//! `prime-inference/z-ai/glm-5.3` — while the catalog lists the SAME id
+//! `local-inference/z-ai/glm-5.3` — while the catalog lists the SAME id
 //! under openrouter too, openrouter's entry first.
 //!
 //! Verifies the provider-aware current-model contract: the picker's
 //! `current_model` resolves the session's OWN provider's entry (the
-//! prime-inference row carries the `current` marker and the selection
+//! local-inference row carries the `current` marker and the selection
 //! band), and the openrouter same-id row is NOT selected — the id-only
 //! catalog find previously adopted openrouter's row as the current model.
 // Pedantic-gate exceptions (every other pedantic warning in this crate is
@@ -60,22 +60,22 @@ fn duplicate_id_model(provider: &str, name: &str) -> CatalogModel {
 }
 
 /// The catalog the daemon serves and the run opens with: openrouter's
-/// z-ai/glm-5.3 entry FIRST, prime-inference's second — the first-match
+/// z-ai/glm-5.3 entry FIRST, local-inference's second — the first-match
 /// order the id-only find resolved from before the fix. BOTH providers
 /// are configured (the operator's real setup: the session runs
-/// prime-inference while openrouter carries the same id signed in too),
+/// local-inference while openrouter carries the same id signed in too),
 /// so the resolution is not a sign-in artifact.
 fn duplicate_id_catalog() -> Vec<CatalogModel> {
     vec![
         duplicate_id_model("openrouter", "GLM 5.3 Open"),
-        duplicate_id_model("prime-inference", "GLM 5.3 Prime"),
+        duplicate_id_model("local-inference", "GLM 5.3 Local"),
     ]
 }
 
 /// The mock supervisor: one attached session whose state reports
-/// `prime-inference/z-ai/glm-5.3` (the operator's onboarding outcome:
-/// logged into Prime Inference only, the session genuinely runs the
-/// prime-inference variant), serving the duplicate-id catalog to both
+/// `local-inference/z-ai/glm-5.3` (the operator's onboarding outcome:
+/// signed into local-inference only, the session genuinely runs the
+/// local-inference variant), serving the duplicate-id catalog to both
 /// the startup snapshot and the `get_model_catalog` refresh.
 struct MockSupervisor {
     listener: UnixListener,
@@ -90,7 +90,7 @@ impl MockSupervisor {
         }
     }
 
-    /// Serve one connection: the attach (with the prime-inference model
+    /// Serve one connection: the attach (with the local-inference model
     /// identity in its state), then the loop's requests.
     fn serve(self) {
         let (stream, _) = self.listener.accept().expect("accept");
@@ -154,7 +154,7 @@ impl MockSupervisor {
                             "success": true,
                             "data": {
                                 "models": self.catalog,
-                                "configuredProviders": ["prime-inference", "openrouter"],
+                                "configuredProviders": ["local-inference", "openrouter"],
                             },
                         }),
                     );
@@ -203,7 +203,7 @@ impl MockSupervisor {
     /// The slim attach result: one empty session whose state carries the
     /// current model identity the daemon reports — the id AND the
     /// provider (`state.model.provider`), exactly as the onboarding's
-    /// Prime Inference login leaves the session.
+    /// local-inference sign-in leaves the session.
     fn attach_data(id: &str) -> Value {
         json!({
             "type": "response",
@@ -221,7 +221,7 @@ impl MockSupervisor {
                         "cwd": "/tmp",
                         "sessionId": "sess-1",
                         "sessionName": "provider session",
-                        "model": { "id": "z-ai/glm-5.3", "provider": "prime-inference" },
+                        "model": { "id": "z-ai/glm-5.3", "provider": "local-inference" },
                         "isStreaming": false,
                         "isCompacting": false,
                         "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
@@ -237,7 +237,7 @@ impl MockSupervisor {
         })
     }
 
-    /// The live session state: the same prime-inference model identity.
+    /// The live session state: the same local-inference model identity.
     fn state_data(id: &str, command: &str) -> Value {
         json!({
             "type": "response",
@@ -245,7 +245,7 @@ impl MockSupervisor {
             "command": command,
             "success": true,
             "data": {
-                "model": { "id": "z-ai/glm-5.3", "provider": "prime-inference" },
+                "model": { "id": "z-ai/glm-5.3", "provider": "local-inference" },
                 "isStreaming": false,
                 "isCompacting": false,
                 "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
@@ -267,7 +267,7 @@ fn options(socket: PathBuf, catalog: Vec<CatalogModel>) -> InteractiveOptions {
     // configured): the background refresh can land before or after the
     // picker opens, and either snapshot must render the same rows.
     let mut configured_providers = std::collections::HashSet::new();
-    configured_providers.insert("prime-inference".to_string());
+    configured_providers.insert("local-inference".to_string());
     configured_providers.insert("openrouter".to_string());
     InteractiveOptions {
         budget: None,
@@ -333,32 +333,32 @@ fn run_plan(steps: Vec<HeadlessStep>) -> Vec<String> {
 }
 
 /// The operator's duplicate-id repro: the session runs
-/// `prime-inference/z-ai/glm-5.3`, the catalog lists the same id under
+/// `local-inference/z-ai/glm-5.3`, the catalog lists the same id under
 /// openrouter FIRST, and `/model chat` opens the hub at the chat role's
-/// models -- the prime-inference row must carry the `current` marker AND
+/// models -- the local-inference row must carry the `current` marker AND
 /// the selection band, and the openrouter row must carry neither.
 #[test]
 fn the_picker_marks_the_sessions_own_provider_current() {
     let frames = run_plan(vec![
         HeadlessStep::Submit("/model chat".to_string()),
         HeadlessStep::WaitRender {
-            needle: "GLM 5.3 Prime".to_string(),
+            needle: "GLM 5.3 Local".to_string(),
             timeout_ms: 30_000,
         },
     ]);
     let last = frames.last().expect("a frame with the picker open");
     let rows: Vec<&str> = last.split('\n').collect();
-    let prime_row = rows
+    let local_row = rows
         .iter()
-        .find(|row| row.contains("GLM 5.3 Prime"))
-        .expect("the prime-inference row renders");
+        .find(|row| row.contains("GLM 5.3 Local"))
+        .expect("the local-inference row renders");
     assert!(
-        prime_row.contains("current") && prime_row.contains("prime-inference"),
-        "the session's own provider's row is the current model: {prime_row}"
+        local_row.contains("current") && local_row.contains("local-inference"),
+        "the session's own provider's row is the current model: {local_row}"
     );
     assert!(
-        prime_row.starts_with('>'),
-        "the selection band lands on the session's own provider's row: {prime_row}"
+        local_row.starts_with('>'),
+        "the selection band lands on the session's own provider's row: {local_row}"
     );
     let open_row = rows
         .iter()

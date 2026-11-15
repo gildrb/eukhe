@@ -472,8 +472,8 @@ async fn tui_model_picker_applies_and_effort_reports() {
     // The catalog snapshot the composition root injects (available models
     // over the same registry). The registry scope is pinned hermetically:
     // the auth storage reads no ambient environment, so an ambient provider
-    // credential (PRIME_API_KEY on the dev box makes every bundled
-    // prime-inference model available) cannot leak the bundled catalog in —
+    // credential (a provider key on the dev box makes that provider's
+    // bundled models available) cannot leak the bundled catalog in —
     // the models.json mock is the ONLY available model, per the assertion's
     // intent. `spawn_supervisor` strips the same variables from the daemon
     // side.

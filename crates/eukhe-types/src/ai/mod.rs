@@ -16,10 +16,6 @@ use crate::{JsNumber, JsonMap};
 /// TS `Api`: the wire value is an arbitrary string.
 pub type Api = String;
 
-/// The Prime Inference provider id (the bundled/live catalog's provider
-/// key; a wire identifier shared by every crate that names it).
-pub const PRIME_INFERENCE_PROVIDER_ID: &str = "prime-inference";
-
 /// TS `Provider`: the wire value is an arbitrary string.
 pub type Provider = String;
 

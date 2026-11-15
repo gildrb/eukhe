@@ -101,7 +101,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path, lost_window_ms: &str) -> Da
             // Hermetic agent dir: the ambient environment may export a real
             // agent dir; point every fallback at the test sandbox instead.
             .env("EUKHE_CODING_AGENT_DIR", agent_dir)
-            .env_remove("PRIME_API_KEY")
             // The supervisor-lost exit window its workers inherit (TS
             // `workerSupervisorLostExitMs`; the env flows to the workers the
             // supervisor spawns).

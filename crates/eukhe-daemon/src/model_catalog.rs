@@ -40,13 +40,12 @@ pub(crate) fn catalog_snapshot(agent_dir: &std::path::Path) -> Value {
 }
 
 /// The wire payload of one catalog snapshot (TS `refreshModelCatalog`'s
-/// `{models, configuredProviders}`): the full catalog minus private Prime
-/// Inference models models.json does not declare, plus the sorted providers
-/// with configured auth. Each model object carries its `thinkingLevels`
-/// and `serviceTiers` (the `CatalogModel` shape). `modelsJsonErrors` names
-/// each bad models.json entry (the catalog drops that provider), or the
-/// file when it cannot be read or parsed; it is empty when the file is
-/// good or absent.
+/// `{models, configuredProviders}`): the full catalog plus the sorted
+/// providers with configured auth. Each model object carries its
+/// `thinkingLevels` and `serviceTiers` (the `CatalogModel` shape).
+/// `modelsJsonErrors` names each bad models.json entry (the catalog drops
+/// that provider), or the file when it cannot be read or parsed; it is
+/// empty when the file is good or absent.
 fn catalog_payload(
     registry: &eukhe_core::models::ModelRegistry,
     available: &[eukhe_types::ai::Model],
@@ -57,20 +56,9 @@ fn catalog_payload(
         .collect();
     providers.sort();
     providers.dedup();
-    let available_keys: std::collections::HashSet<String> = available
-        .iter()
-        .map(|model| format!("{}/{}", model.provider, model.id))
-        .collect();
-    // The catalog keeps every model except private Prime Inference models
-    // models.json does not declare, in a canonical (provider, id) order so
-    // an open picker's rows never reorder between identical answers.
-    let mut entries: Vec<&eukhe_types::ai::Model> = registry
-        .get_all()
-        .filter(|model| {
-            !eukhe_core::models::is_private_prime_inference_model(model)
-                || available_keys.contains(&format!("{}/{}", model.provider, model.id))
-        })
-        .collect();
+    // The full catalog, in a canonical (provider, id) order so an open
+    // picker's rows never reorder between identical answers.
+    let mut entries: Vec<&eukhe_types::ai::Model> = registry.get_all().collect();
     entries.sort_by(|a, b| (&a.provider, &a.id).cmp(&(&b.provider, &b.id)));
     let models: Vec<Value> = entries
         .into_iter()

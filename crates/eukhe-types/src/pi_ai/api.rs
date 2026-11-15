@@ -92,8 +92,6 @@ string_enum! {
         XiaomiTokenPlanCn => "xiaomi-token-plan-cn",
         XiaomiTokenPlanAms => "xiaomi-token-plan-ams",
         XiaomiTokenPlanSgp => "xiaomi-token-plan-sgp",
-        /// eukhe addition: the Prime Inference provider.
-        PrimeInference => "prime-inference",
     }
 }
 

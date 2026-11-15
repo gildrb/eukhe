@@ -57,7 +57,6 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
                 "EUKHE_PACKAGE_DIR",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
-            .env_remove("PRIME_API_KEY")
             .stderr(Stdio::from(log)),
         socket,
     )
