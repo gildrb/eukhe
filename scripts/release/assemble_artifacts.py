@@ -14,14 +14,10 @@ Usage:
         [--out-dir <dir>] [--catalog-assets <dir>]
 
 `--catalog-assets` is the directory holding the generated bundled catalog
-assets (`models.bundled.json` + `mcp-services.bundled.json`); the packer
-hard-fails without VALIDATED assets (version gates + >= 20 transport tuples +
->= 68 services — see scripts/release/bundle_catalog.py, the catalog spec §3.2
-no-cold-start layer 2). The models asset is made from the committed models.dev
-snapshot; the release workflow fetches the MCP services at the catalog commit
-pinned in catalog-pin.json (`bundle_catalog.py generate --network`,
-sha256-checked); the Nix source build copies the repository's services
-fixture (`--catalog-dir`).
+asset (`models.bundled.json`, made from the committed models.dev snapshot by
+scripts/release/bundle_catalog.py, the catalog spec §3.2 no-cold-start layer
+2); the packer hard-fails without a VALIDATED asset (version gate + >= 20
+transport tuples).
 
 `--binary` defaults to `<repo>/target/<target>/release/eukhe` (cross builds)
 and falls back to `<repo>/target/release/eukhe` (host builds).
@@ -65,10 +61,9 @@ STAGED_ENTRIES = [
     "skills",
     "LICENSE",
     "README.md",
-    # The bundled catalog assets (spec §3.2 layer 2): staged at the tarball
+    # The bundled catalog asset (spec §3.2 layer 2): staged at the tarball
     # root beside the binary — the runtime resolves <packageDir>/<name>.
     "models.bundled.json",
-    "mcp-services.bundled.json",
 ]
 
 
@@ -175,8 +170,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-dir", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--catalog-assets", type=Path, default=None,
-                        help="directory with models.bundled.json + "
-                             "mcp-services.bundled.json (see "
+                        help="directory with models.bundled.json (see "
                              "scripts/release/bundle_catalog.py)")
     return parser.parse_args()
 
@@ -263,17 +257,14 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     # Executable for the `--version` probes (the tar member filter re-pins
     # the mode in the archive).
     os.chmod(staging / BINARY_NAME, 0o755)
-    # The bundled catalog assets gate (spec §3.9): the release packer FAILS
-    # without validated assets — generate them first (the live catalog repo
-    # the release workflow uses, or a local catalog checkout) via
+    # The bundled catalog asset gate (spec §3.9): the release packer FAILS
+    # without a validated asset — generate it first via
     # scripts/release/bundle_catalog.py.
     if args.catalog_assets is None:
         fail(
             "missing bundled catalog assets: run "
-            "`python3 scripts/release/bundle_catalog.py generate "
-            "--catalog-dir <prime-agent-catalog>` (live repo: --network) "
-            "and pass "
-            "--catalog-assets <dir>"
+            "`python3 scripts/release/bundle_catalog.py generate --out <dir>` "
+            "and pass --catalog-assets <dir>"
         )
     catalog_assets = Path(args.catalog_assets)
     catalog_facts = validate_bundled_catalog_dir(catalog_assets)

@@ -1,103 +1,43 @@
 #!/usr/bin/env python3
-"""Generate and validate the bundled catalog assets for eukhe releases.
+"""Generate and validate the bundled catalog asset for eukhe releases.
 
-The two assets are the client's no-cold-start layer 2 (spec §3.2):
+The asset is the client's no-cold-start layer 2 (spec §3.2):
 
-  models.bundled.json        Eukhe's model catalog ({schemaVersion, models}),
-                             mapped from the pinned models.dev snapshot in
-                             crates/eukhe-models/catalog (models_dev.py)
-  mcp-services.bundled.json  byte-identical copy of the catalog repo's
-                             plugins/catalog.v2.json ({version, counts, entries})
+  models.bundled.json  Eukhe's model catalog ({schemaVersion, models}),
+                       mapped from the pinned models.dev snapshot in
+                       crates/eukhe-models/catalog (models_dev.py)
 
-They are generated at BUILD time and never committed. The models asset is
-made offline in every mode, from the committed snapshot and its overrides.
-The MCP services asset comes from the source mode: `--catalog-dir` copies
-it from a local catalog checkout, the network mode fetches the catalog repo
-at the commit pinned in catalog-pin.json for CI/packaging, and `--fixture`
-emits a synthetic service list that still passes the full validation gates
-so offline builds work end to end.
+It is generated offline at BUILD time from the committed snapshot and its
+overrides, and never committed.
 
 Validation (the release packer runs the same functions before packing):
-  models   schemaVersion == 1, models is an array, and at least
-           MIN_MODEL_TRANSPORT_TUPLES distinct (provider, api, baseUrl) tuples
-  plugins  version == 2, entries is an array, at least MIN_MCP_SERVICES entries
+  models  schemaVersion == 1, models is an array, and at least
+          MIN_MODEL_TRANSPORT_TUPLES distinct (provider, api, baseUrl) tuples
 
 Usage:
-    python3 scripts/release/bundle_catalog.py generate \
-        [--catalog-dir DIR | --network | --fixture] [--out DIR] [--pin FILE] \
-        [--mcp-services-url URL] [--allow-small-fixture]
+    python3 scripts/release/bundle_catalog.py generate [--out DIR] [--allow-small-fixture]
     python3 scripts/release/bundle_catalog.py verify [--out DIR] [--allow-small-fixture]
-    python3 scripts/release/bundle_catalog.py pin [--ref REF] [--pin FILE]
-
-Network mode fetches `raw.githubusercontent.com/<repository>/<commit>/<path>`
-for the pinned commit and fails unless the body matches the pinned sha256
-(also for a --mcp-services-url override). `pin` resolves REF (default main)
-to a commit, fetches and validates the services file at that commit, and
-rewrites the pin file. Fetches read GITHUB_TOKEN / PRIME_CATALOG_REPO_TOKEN
-(optional Bearer, sent to GitHub URLs only; the catalog repo is public), abort
-after 5 s, refuse redirects, and cap responses at MAX_REMOTE_CATALOG_BYTES.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
-import os
-import re
 import sys
-import tempfile
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import models_dev  # same release-scripts directory
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-# The two bundled asset names (spec §3.2; TS bundledCatalogFiles).
-BUNDLED_CATALOG_FILES = ("models.bundled.json", "mcp-services.bundled.json")
+# The bundled asset names (spec §3.2; TS bundledCatalogFiles).
+BUNDLED_CATALOG_FILES = ("models.bundled.json",)
 
-# Release-gate minimums (spec §3.2/§3.9): the models asset carries the
+# Release-gate minimum (spec §3.2/§3.9): the models asset carries the
 # models.dev models the compiled catalog lacks, over 29 distinct transport
-# tuples at the pinned snapshot (the gate catches a truncated asset), and
-# the verified services contract.
+# tuples at the pinned snapshot (the gate catches a truncated asset).
 MIN_MODEL_TRANSPORT_TUPLES = 20
-MIN_MCP_SERVICES = 68
-
-# The catalog repo pin: repository, commit, and the sha256 of the services
-# file at that commit. `pin` rewrites it; network mode never fetches a
-# moving ref.
-CATALOG_PIN = Path(__file__).resolve().parent / "catalog-pin.json"
-RAW_BASE_URL = "https://raw.githubusercontent.com"
-GITHUB_API_URL = "https://api.github.com"
-MCP_SERVICES_SOURCE = "plugins/catalog.v2.json"
-_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
-_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-
-# Build-time fetch limits (TS parity: 20 MiB cap, 5 s hard timeout, no
-# redirects — a moved catalog must be a client change).
-MAX_REMOTE_CATALOG_BYTES = 20 * 1024 * 1024
-FETCH_TIMEOUT_SECONDS = 5
-
-# The 14 derived count keys of the plugins v2 envelope (spec §1.2).
-COUNTS_KEYS = (
-    "total", "http", "httpTemplate", "sse", "stdio",
-    "ready", "requiresSetup", "metadataReviewed",
-    "oauthStrategy", "apiKeyStrategy",
-    "readinessOauthReady", "readinessUserSetup",
-    "readinessPrimeRestricted", "readinessUnknown",
-)
-READINESS_TO_COUNTS_KEY = {
-    "oauth-ready": "readinessOauthReady",
-    "user-setup": "readinessUserSetup",
-    "prime-restricted": "readinessPrimeRestricted",
-    "unknown": "readinessUnknown",
-}
 
 
 def fail(message: str) -> None:
@@ -195,204 +135,8 @@ def validate_bundled_model_catalog(path: Path, allow_small_fixture: bool = False
     return {"models": len(catalog["models"]), "transportTuples": len(tuples)}
 
 
-# The runtime parse_plugins_catalog mirror (catalog_schema.rs): the entry,
-# transport, and sub-struct key sets (deny_unknown_fields) and the enum
-# values the runtime accepts. A shape the runtime rejects must never pass the
-# packaging gate: fail-closed there drops the WHOLE asset.
-_PLUGIN_SERVER_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-_PLUGIN_ENTRY_KEYS = {
-    "server", "service", "label", "url", "description", "category", "publisher",
-    "homepage", "docsUrl", "privacyUrl", "supportUrl", "aliases", "transport",
-    "auth", "setup", "verification", "legacyBuiltin", "provenance", "oauth",
-}
-_PLUGIN_TRANSPORT_KEYS = {
-    "http": {"type", "url"},
-    "http-template": {"type", "template", "variables"},
-    "sse": {"type", "url"},
-    "stdio": {"type", "servers"},
-}
-_PLUGIN_AUTH_KEYS = {"strategy", "clientRegistration", "reviewedScopes"}
-_PLUGIN_AUTH_STRATEGIES = {"oauth", "api_key", "none", "unknown"}
-_PLUGIN_CLIENT_REGISTRATIONS = {"dynamic", "pre-registered", "unknown"}
-_PLUGIN_SETUP_KEYS = {"status", "reason", "fields", "readiness", "requirement"}
-_PLUGIN_SETUP_STATUSES = {"ready", "requires-setup"}
-_PLUGIN_READINESS = {"oauth-ready", "user-setup", "prime-restricted", "unknown"}
-_PLUGIN_SETUP_REQUIREMENTS = {
-    "api-key", "bearer-token", "registered-client", "tenant",
-    "unsupported-transport", "local-runtime",
-}
-_PLUGIN_FIELD_KEYS = {"id", "label", "description", "required", "kind", "credentialSet"}
-_PLUGIN_FIELD_KINDS = {
-    "env-var", "url", "client-id", "client-secret", "bearer-token", "api-key",
-}
-_PLUGIN_VERIFICATION_STATUSES = {"metadata-reviewed", "unverified"}
-_PLUGIN_PROVENANCE_KEYS = {
-    "source", "repository", "commit", "path", "url", "license", "note",
-}
-_PLUGIN_PROVENANCE_SOURCES = {
-    "openai-plugins", "claude-plugins-official", "prime", "user",
-}
-
-
-def validate_bundled_mcp_catalog(path: Path, allow_small_fixture: bool = False) -> dict:
-    """Gate the bundled MCP service catalog: envelope, per-entry schema, and
-    the entry minimum.
-
-    The per-entry checks mirror the runtime's parse_plugins_catalog +
-    McpServiceEntry::validate: unknown keys are rejected (the runtime's
-    deny_unknown_fields), transport/url consistency is enforced per
-    transport kind, template variables must be {name, description} objects,
-    requires-setup entries need a reason, and server ids must be unique.
-    """
-    try:
-        catalog = json.loads(Path(path).read_text())
-    except (OSError, ValueError) as error:
-        fail(f"Invalid bundled MCP service catalog {path}: {error}")
-    if not isinstance(catalog, dict) or catalog.get("version") != 2 \
-            or not isinstance(catalog.get("entries"), list):
-        fail(f"Invalid bundled MCP service catalog: {path}")
-    counts = catalog.get("counts")
-    if not isinstance(counts, dict) or set(counts) - set(COUNTS_KEYS):
-        fail(f"Invalid bundled MCP service catalog: {path} (counts must carry "
-             "only the derived count keys)")
-    seen = set()
-    for index, raw in enumerate(catalog["entries"]):
-        entry = f"MCP catalog entry [{index}]"
-        if not isinstance(raw, dict):
-            fail(f"Invalid bundled {entry}: entries must be objects")
-        if set(raw) - _PLUGIN_ENTRY_KEYS:
-            fail(f"Invalid bundled {entry}: unknown keys "
-                 f"{sorted(set(raw) - _PLUGIN_ENTRY_KEYS)}")
-        for key in ("server", "service", "label"):
-            if not isinstance(raw.get(key), str) or not raw[key]:
-                fail(f"Invalid bundled {entry}: {key} must be a non-empty string")
-        if not _PLUGIN_SERVER_ID.match(raw["server"]):
-            fail(f"Invalid bundled {entry}: server id must match "
-                 "^[a-z0-9][a-z0-9-]{0,63}$")
-        if raw["server"] in seen:
-            fail(f"Invalid bundled {entry}: duplicate server id {raw['server']}")
-        seen.add(raw["server"])
-        if not isinstance(raw.get("url"), str):
-            fail(f"Invalid bundled {entry}: url must be a string")
-        aliases = raw.get("aliases")
-        if not isinstance(aliases, list) \
-                or not all(isinstance(alias, str) and alias == alias.lower()
-                           for alias in aliases):
-            fail(f"Invalid bundled {entry}: aliases must be lowercase strings")
-        transport = raw.get("transport")
-        if not isinstance(transport, dict):
-            fail(f"Invalid bundled {entry}: transport must be an object")
-        kind = transport.get("type")
-        if kind not in _PLUGIN_TRANSPORT_KEYS:
-            fail(f"Invalid bundled {entry}: transport.type must be one of "
-                 f"{sorted(_PLUGIN_TRANSPORT_KEYS)}")
-        if set(transport) != _PLUGIN_TRANSPORT_KEYS[kind]:
-            fail(f"Invalid bundled {entry}: {kind} transports carry exactly "
-                 f"{sorted(_PLUGIN_TRANSPORT_KEYS[kind])}")
-        if kind in ("http", "sse"):
-            if not isinstance(transport.get("url"), str) \
-                    or not transport["url"].startswith("https://"):
-                fail(f"Invalid bundled {entry}: transport.url must be an https URL")
-            if raw["url"] != transport["url"]:
-                fail(f"Invalid bundled {entry}: url must equal transport.url")
-        elif kind == "http-template":
-            if not isinstance(transport.get("template"), str) or not transport["template"]:
-                fail(f"Invalid bundled {entry}: transport.template must be a "
-                     "non-empty string")
-            variables = transport.get("variables")
-            if not isinstance(variables, list) or not variables:
-                fail(f"Invalid bundled {entry}: http-template transports need at "
-                     "least one variable")
-            for variable in variables:
-                if not isinstance(variable, dict) or set(variable) != {"name", "description"} \
-                        or not all(isinstance(variable[key], str) and variable[key]
-                                   for key in ("name", "description")):
-                    fail(f"Invalid bundled {entry}: transport.variables[] must be "
-                         "{name, description} objects with non-empty strings")
-            if raw["url"]:
-                fail(f"Invalid bundled {entry}: url must be empty for "
-                     "http-template transports")
-        else:
-            servers = transport.get("servers")
-            if not isinstance(servers, list) or not servers:
-                fail(f"Invalid bundled {entry}: stdio transports need at least "
-                     "one server")
-            for server in servers:
-                if not isinstance(server, dict) \
-                        or not set(server) <= {"name", "command", "args", "env"} \
-                        or not all(isinstance(server.get(key), str) and server[key]
-                                   for key in ("name", "command")):
-                    fail(f"Invalid bundled {entry}: transport.servers[] must carry "
-                         "name and command strings")
-            if raw["url"]:
-                fail(f"Invalid bundled {entry}: url must be empty for stdio "
-                     "transports")
-        auth = raw.get("auth")
-        if not isinstance(auth, dict) or set(auth) - _PLUGIN_AUTH_KEYS \
-                or auth.get("strategy") not in _PLUGIN_AUTH_STRATEGIES \
-                or auth.get("clientRegistration") not in _PLUGIN_CLIENT_REGISTRATIONS:
-            fail(f"Invalid bundled {entry}: auth must carry strategy and "
-                 "clientRegistration with known values")
-        setup = raw.get("setup")
-        if not isinstance(setup, dict) or set(setup) - _PLUGIN_SETUP_KEYS \
-                or setup.get("status") not in _PLUGIN_SETUP_STATUSES:
-            fail(f"Invalid bundled {entry}: setup.status must be ready or "
-                 "requires-setup")
-        if setup["status"] == "requires-setup" \
-                and not (isinstance(setup.get("reason"), str) and setup["reason"]):
-            fail(f"Invalid bundled {entry}: requires-setup entries need a reason")
-        if "readiness" in setup and setup["readiness"] not in _PLUGIN_READINESS:
-            fail(f"Invalid bundled {entry}: unknown setup.readiness")
-        if "requirement" in setup \
-                and setup["requirement"] not in _PLUGIN_SETUP_REQUIREMENTS:
-            fail(f"Invalid bundled {entry}: unknown setup.requirement")
-        fields = setup.get("fields")
-        if fields is not None:
-            if not isinstance(fields, list):
-                fail(f"Invalid bundled {entry}: setup.fields must be a list")
-            for field in fields:
-                if not isinstance(field, dict) or set(field) - _PLUGIN_FIELD_KEYS \
-                        or not all(isinstance(field.get(key), str) and field[key]
-                                   for key in ("id", "label")) \
-                        or not isinstance(field.get("required"), bool):
-                    fail(f"Invalid bundled {entry}: setup.fields[] must carry "
-                         "id/label strings and a boolean required")
-                if "kind" in field and field["kind"] not in _PLUGIN_FIELD_KINDS:
-                    fail(f"Invalid bundled {entry}: unknown setup.fields[].kind")
-        verification = raw.get("verification")
-        if not isinstance(verification, dict) or set(verification) != {"status"} \
-                or verification.get("status") not in _PLUGIN_VERIFICATION_STATUSES:
-            fail(f"Invalid bundled {entry}: verification must be a "
-                 "{status: metadata-reviewed | unverified} object")
-        if not isinstance(raw.get("legacyBuiltin"), bool):
-            fail(f"Invalid bundled {entry}: legacyBuiltin must be a boolean")
-        provenance = raw.get("provenance")
-        if not isinstance(provenance, list) or not provenance:
-            fail(f"Invalid bundled {entry}: provenance must be a non-empty list")
-        for item in provenance:
-            if not isinstance(item, dict) or set(item) - _PLUGIN_PROVENANCE_KEYS \
-                    or item.get("source") not in _PLUGIN_PROVENANCE_SOURCES:
-                fail(f"Invalid bundled {entry}: provenance[] must carry a known "
-                     "source")
-        oauth = raw.get("oauth")
-        if oauth is not None:
-            if not isinstance(oauth, dict) or set(oauth) - {"kind", "scopes"} \
-                    or oauth.get("kind") != "oauth":
-                fail(f"Invalid bundled {entry}: oauth must carry "
-                     '{kind: "oauth"}')
-            if auth["strategy"] != "oauth":
-                fail(f"Invalid bundled {entry}: oauth is only allowed on "
-                     "oauth-strategy entries")
-    if not allow_small_fixture and len(catalog["entries"]) < MIN_MCP_SERVICES:
-        fail(
-            f"Bundled MCP service catalog has {len(catalog['entries'])} entries; "
-            f"expected at least {MIN_MCP_SERVICES}"
-        )
-    return {"services": len(catalog["entries"])}
-
-
 def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -> dict:
-    """Validate both bundled assets in a directory (the release packer gate)."""
+    """Validate the bundled assets in a directory (the release packer gate)."""
     directory = Path(directory)
     for name in BUNDLED_CATALOG_FILES:
         if not (directory / name).is_file():
@@ -400,433 +144,39 @@ def validate_bundled_catalog_dir(directory, allow_small_fixture: bool = False) -
     return {
         "models": validate_bundled_model_catalog(
             directory / "models.bundled.json", allow_small_fixture),
-        "mcpServices": validate_bundled_mcp_catalog(
-            directory / "mcp-services.bundled.json", allow_small_fixture),
     }
 
 
 # --------------------------------------------------------------------------
-# Fixture: synthetic MCP services that pass the FULL gates (offline builds)
+# Generation
 # --------------------------------------------------------------------------
-
-
-def fixture_service(index: int, transport_kind: str, auth_strategy: str,
-                     setup_status: str, readiness: str, verified: bool) -> dict:
-    server = f"fixture-svc-{index:02d}"
-    url = f"https://mcp-{server}.example.com/mcp"
-    auth = {
-        "oauth": {"strategy": "oauth", "clientRegistration": "dynamic"},
-        "api_key": {"strategy": "api_key", "clientRegistration": "unknown"},
-        "none": {"strategy": "none", "clientRegistration": "unknown"},
-        "unknown": {"strategy": "unknown", "clientRegistration": "unknown"},
-    }[auth_strategy]
-    if auth_strategy == "oauth" and index % 8 == 0:
-        auth["reviewedScopes"] = ["mcp:fixture"]
-    transport = {
-        "http": {"type": "http", "url": url},
-        "http-template": {
-            "type": "http-template",
-            "template": f"https://mcp-{server}.example.com/{{region}}/mcp",
-            "variables": [{
-                "name": "region",
-                "description": f"Fixture region segment for service {index:02d}.",
-            }],
-        },
-        "sse": {"type": "sse", "url": url},
-        "stdio": {
-            "type": "stdio",
-            "servers": [{"name": server, "command": f"{server}-mcp"}],
-        },
-    }[transport_kind]
-    setup = {"status": setup_status, "readiness": readiness}
-    if setup_status == "requires-setup":
-        setup["reason"] = f"Fixture service {index} needs its fixture credential."
-        if auth_strategy == "api_key":
-            setup["requirement"] = "bearer-token"
-            setup["fields"] = [{
-                "id": f"FIXTURE_SVC_{index:02d}_TOKEN",
-                "label": f"Fixture service {index} token",
-                "required": True,
-                "kind": "bearer-token",
-                "credentialSet": f"fixture-svc-{index:02d}",
-            }]
-        elif transport_kind == "stdio":
-            setup["requirement"] = "local-runtime"
-    return {
-        "server": server,
-        "service": "fixture",
-        "label": f"Fixture Service {index:02d}",
-        "url": "" if transport_kind in ("stdio", "http-template") else url,
-        "description": f"Synthetic fixture MCP service {index:02d} for offline builds.",
-        "category": "Fixture",
-        "aliases": [] if index % 5 else [f"fixture service {index:02d}"],
-        "publisher": "Prime Intellect",
-        "transport": transport,
-        "auth": auth,
-        "setup": setup,
-        "verification": {"status": "metadata-reviewed" if verified else "unverified"},
-        "legacyBuiltin": False,
-        "provenance": [{"source": "prime"}],
-        **({"oauth": {"kind": "oauth"}} if auth_strategy == "oauth" else {}),
-    }
-
-
-def fixture_special_services() -> list:
-    """Hand-shaped entries exercising the paste-flow and builtin-shadow
-    semantics (spec §1.2/§3.6) that the runtime lane's tests consume:
-
-    - a pasteable bearer-token service whose two alternative credential
-      field ids share one credentialSet (alias names, one credential);
-    - a bearer-token service with TWO distinct credential sets (fail-closed:
-      NOT pasteable — no single credential resolves);
-    - a requires-setup api-key service (kind "api-key" field);
-    - the legacy builtin ids (linear, notion) with legacyBuiltin: true.
-    """
-    def entry(server, label, auth, setup, **extra):
-        service = fixture_service(
-            99, "http", auth, setup, "user-setup", False)
-        service.update({
-            "server": server,
-            "label": label,
-            "url": f"https://mcp-{server}.example.com/mcp",
-            "description": f"Synthetic fixture MCP service for offline builds.",
-            "setup": setup,
-        })
-        service["transport"] = {"type": "http", "url": service["url"]}
-        service.update(extra)
-        return service
-
-    def field(field_id, label, kind, credential_set):
-        return {
-            "id": field_id,
-            "label": label,
-            "required": True,
-            "kind": kind,
-            "credentialSet": credential_set,
-        }
-
-    paste_setup = {
-        "status": "requires-setup",
-        "readiness": "user-setup",
-        "reason": "Paste a fixture personal access token.",
-        "requirement": "bearer-token",
-        "fields": [
-            field("FIXTURE_PAT_TOKEN", "Fixture personal access token",
-                  "bearer-token", "fixture-pat"),
-            field("FIXTURE_PERSONAL_ACCESS_TOKEN", "Fixture personal access token (alias)",
-                  "bearer-token", "fixture-pat"),
-        ],
-    }
-    two_cred_setup = {
-        "status": "requires-setup",
-        "readiness": "user-setup",
-        "reason": "Requires two distinct credentials (never pasteable).",
-        "requirement": "bearer-token",
-        "fields": [
-            field("FIXTURE_CLIENT_ID", "Fixture client id", "client-id", "fixture-cred-a"),
-            field("FIXTURE_CLIENT_SECRET", "Fixture client secret",
-                  "client-secret", "fixture-cred-b"),
-        ],
-    }
-    api_key_setup = {
-        "status": "requires-setup",
-        "readiness": "user-setup",
-        "reason": "Requires a fixture API key.",
-        "requirement": "api-key",
-        "fields": [
-            field("FIXTURE_API_KEY", "Fixture API key", "api-key", "fixture-api-key"),
-        ],
-    }
-    return [
-        entry("fixture-paste-single", "Fixture Pasteable (single credential)",
-              "api_key", paste_setup),
-        entry("fixture-paste-multi-cred", "Fixture Two-Credential (not pasteable)",
-              "api_key", two_cred_setup),
-        entry("fixture-api-key", "Fixture API Key (requires-setup)", "api_key", api_key_setup),
-        entry("linear", "Linear", "oauth", {"status": "ready", "readiness": "oauth-ready"},
-              legacyBuiltin=True, service="linear", category="Developer tools"),
-        entry("notion", "Notion", "oauth", {"status": "ready", "readiness": "oauth-ready"},
-              legacyBuiltin=True, service="notion", category="Developer tools"),
-    ]
-
-
-def fixture_mcp_services() -> list:
-    """68 services covering every transport kind, auth strategy, setup
-    status, readiness value, and verification status, plus the special
-    paste-flow/builtin-shadow entries the runtime lane consumes."""
-    entries = []
-    # (transport, auth, setup status, readiness, verified) round-robin so the
-    # full shape matrix is exercised deterministically.
-    matrix = [
-        ("http", "oauth", "ready", "oauth-ready", True),
-        ("http-template", "api_key", "requires-setup", "user-setup", False),
-        ("sse", "none", "requires-setup", "unknown", False),
-        ("stdio", "unknown", "requires-setup", "prime-restricted", False),
-    ]
-    for index in range(MIN_MCP_SERVICES):
-        transport_kind, auth_strategy, setup_status, readiness, verified = \
-            matrix[index % len(matrix)]
-        entries.append(fixture_service(
-            index, transport_kind, auth_strategy, setup_status, readiness, verified))
-    return entries + fixture_special_services()
-
-
-def fixture_counts(entries: list) -> dict:
-    counts = dict.fromkeys(COUNTS_KEYS, 0)
-    counts["total"] = len(entries)
-    for entry in entries:
-        transport_key = {"http": "http", "http-template": "httpTemplate",
-                           "sse": "sse", "stdio": "stdio"}[entry["transport"]["type"]]
-        counts[transport_key] += 1
-        counts["ready" if entry["setup"]["status"] == "ready" else "requiresSetup"] += 1
-        if entry["verification"]["status"] == "metadata-reviewed":
-            counts["metadataReviewed"] += 1
-        auth_strategy = entry["auth"]["strategy"]
-        strategy_key = {"oauth": "oauthStrategy",
-                        "api_key": "apiKeyStrategy"}.get(auth_strategy)
-        if strategy_key is not None:
-            counts[strategy_key] += 1
-        readiness_key = READINESS_TO_COUNTS_KEY[entry["setup"]["readiness"]]
-        counts[readiness_key] += 1
-    return counts
-
 
 def models_body() -> str:
     """The models asset: the pinned models.dev snapshot mapped through its
-    overrides (models_dev.py). The same bytes in every source mode."""
+    overrides (models_dev.py)."""
     return models_dev.bundled_catalog_text()
-
-
-def fixture_catalog_bodies() -> dict:
-    """The offline asset bodies: the models asset and the synthetic MCP
-    services (2-space JSON, trailing newline — the TS fixture formatting)."""
-    services = fixture_mcp_services()
-    plugins = {
-        "version": 2,
-        "counts": fixture_counts(services),
-        "entries": services,
-    }
-    return {
-        "models.bundled.json": models_body(),
-        "mcp-services.bundled.json": json.dumps(plugins, indent=2) + "\n",
-    }
-
-
-# --------------------------------------------------------------------------
-# Source modes
-# --------------------------------------------------------------------------
-
-def catalog_source_path(catalog_dir: Path) -> Path:
-    return catalog_dir / MCP_SERVICES_SOURCE
-
-
-def bundled_targets(out_dir: Path) -> dict:
-    return {name: out_dir / name for name in BUNDLED_CATALOG_FILES}
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise urllib.error.HTTPError(
-            req.full_url, code,
-            f"refused redirect to {newurl} (catalog moves require a client change)",
-            headers, fp)
-
-
-def fetch_bytes(url: str, label: str) -> bytes:
-    # The token only goes to GitHub: an override URL never receives it.
-    github = url.startswith((f"{RAW_BASE_URL}/", f"{GITHUB_API_URL}/"))
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("PRIME_CATALOG_REPO_TOKEN")
-    request = urllib.request.Request(url, headers={
-        "accept": "application/json",
-        "cache-control": "no-cache",
-        **({"authorization": f"Bearer {token}"} if token and github else {}),
-    })
-    opener = urllib.request.build_opener(_NoRedirect)
-    try:
-        response = opener.open(request, timeout=FETCH_TIMEOUT_SECONDS)
-    except urllib.error.HTTPError as error:
-        hint = ""
-        if error.code in (401, 404):
-            hint = (" The catalog repo is private or absent; set GITHUB_TOKEN "
-                    "or PRIME_CATALOG_REPO_TOKEN.")
-        elif 300 <= error.code < 400:
-            hint = f" ({error.reason})"
-        fail(f"Failed to fetch {label} catalog from {url}: HTTP {error.code}.{hint}")
-    except (urllib.error.URLError, OSError, TimeoutError) as error:
-        fail(f"Failed to fetch {label} catalog from {url}: {error}")
-    with response:
-        content_length = response.headers.get("content-length")
-        if content_length is not None:
-            try:
-                if int(content_length) > MAX_REMOTE_CATALOG_BYTES:
-                    fail(
-                        f"{label} catalog is too large: {content_length} bytes "
-                        f"exceeds {MAX_REMOTE_CATALOG_BYTES}"
-                    )
-            except ValueError:
-                pass
-        body = bytearray()
-        # The 5 s timeout is the TOTAL fetch budget, not per blocking op:
-        # a slow-drip server that always delivers a chunk just before the
-        # socket timeout would otherwise keep the read loop alive until the
-        # size cap. read1 returns whatever is available (no waiting for the
-        # full buffer) so the absolute deadline is checked between chunks.
-        deadline = time.monotonic() + FETCH_TIMEOUT_SECONDS
-        while True:
-            if time.monotonic() >= deadline:
-                fail(
-                    f"{label} catalog fetch exceeded the "
-                    f"{FETCH_TIMEOUT_SECONDS}s hard timeout"
-                )
-            chunk = response.read1(64 * 1024)
-            if not chunk:
-                break
-            body.extend(chunk)
-            if len(body) > MAX_REMOTE_CATALOG_BYTES:
-                fail(
-                    f"{label} catalog is too large: exceeds "
-                    f"{MAX_REMOTE_CATALOG_BYTES} bytes"
-                )
-    return bytes(body)
-
-
-def catalog_text(body: bytes) -> str:
-    """The asset body: the fetched bytes as UTF-8, newline-terminated."""
-    text = body.decode("utf-8")
-    return text if text.endswith("\n") else f"{text}\n"
-
-
-def load_catalog_pin(path: Path) -> dict:
-    """The validated pin file: repository, 40-hex commit, and the sha256 of
-    exactly the services file."""
-    try:
-        pin = json.loads(Path(path).read_text())
-    except (OSError, ValueError) as error:
-        fail(f"cannot read catalog pin {path}: {error}")
-    if not isinstance(pin, dict) or set(pin) != {"repository", "commit", "files"}:
-        fail(f"catalog pin {path}: expected keys repository, commit, files")
-    if not isinstance(pin["repository"], str) or not _REPOSITORY_RE.match(pin["repository"]):
-        fail(f"catalog pin {path}: invalid repository {pin['repository']!r}")
-    if not isinstance(pin["commit"], str) or not _COMMIT_RE.match(pin["commit"]):
-        fail(f"catalog pin {path}: commit must be a full 40-hex sha")
-    files = pin["files"]
-    if not isinstance(files, dict) or set(files) != {MCP_SERVICES_SOURCE}:
-        fail(f"catalog pin {path}: files must list exactly {MCP_SERVICES_SOURCE}")
-    for source, digest in files.items():
-        if not isinstance(digest, str) or not _SHA256_RE.match(digest):
-            fail(f"catalog pin {path}: {source} needs a 64-hex sha256")
-    return pin
-
-
-def pinned_url(repository: str, commit: str, source: str) -> str:
-    return f"{RAW_BASE_URL}/{repository}/{commit}/{source}"
-
-
-def fetch_pinned(url: str, label: str, expected_sha256: str) -> str:
-    """Fetch one catalog file and fail unless its bytes match the pin."""
-    body = fetch_bytes(url, label)
-    actual = hashlib.sha256(body).hexdigest()
-    if actual != expected_sha256:
-        fail(
-            f"{label} catalog from {url}: sha256 mismatch "
-            f"(pinned {expected_sha256}, got {actual}); "
-            "run `make catalog-pin` to review and move the pin"
-        )
-    return catalog_text(body)
 
 
 def generate_bundled_catalog_assets(options) -> dict:
     out_dir = Path(options.out_dir).resolve() if options.out_dir \
         else (ROOT / "target" / "catalog-assets")
     out_dir.mkdir(parents=True, exist_ok=True)
-    targets = bundled_targets(out_dir)
-    modes = [mode for mode, chosen in (
-        ("--fixture", options.fixture),
-        ("--catalog-dir", options.catalog_dir is not None),
-        ("--network", options.network),
-    ) if chosen]
-    if len(modes) > 1:
-        fail(f"pick one source mode ({', '.join(modes)} are mutually exclusive)")
-    # The services body comes first: a failed fetch or a missing file leaves
-    # both targets as they were (a fresh models file beside the previous
-    # services file would pack together).
-    if options.fixture:
-        mcp_body = fixture_catalog_bodies()["mcp-services.bundled.json"]
-    elif options.catalog_dir is not None:
-        source = catalog_source_path(Path(options.catalog_dir))
-        if not source.is_file():
-            fail(f"catalog checkout missing {source}; pass a valid --catalog-dir")
-        mcp_body = source.read_text()
-    else:
-        # Network mode is the default for CI/packaging: fetch the services
-        # file at the pinned commit, check it against its pinned sha256, and
-        # write the body verbatim.
-        pin = load_catalog_pin(options.pin)
-        mcp_body = fetch_pinned(
-            options.mcp_services_url
-            or pinned_url(pin["repository"], pin["commit"], MCP_SERVICES_SOURCE),
-            "MCP service", pin["files"][MCP_SERVICES_SOURCE])
-    model_body = models_body()
-    targets["models.bundled.json"].write_text(model_body)
-    targets["mcp-services.bundled.json"].write_text(mcp_body)
-    allow_small = options.allow_small_fixture or options.fixture
-    result = validate_bundled_catalog_dir(out_dir, allow_small_fixture=allow_small)
+    (out_dir / "models.bundled.json").write_text(models_body())
+    result = validate_bundled_catalog_dir(
+        out_dir, allow_small_fixture=options.allow_small_fixture)
     result["outDir"] = str(out_dir)
-    return result
-
-
-def bump_catalog_pin(options) -> dict:
-    """Resolve --ref to a commit, fetch the services file at it, run the full
-    validation gates, and rewrite the pin with the commit and its sha256."""
-    repository = load_catalog_pin(options.pin)["repository"]
-    commit_info = json.loads(fetch_bytes(
-        f"{GITHUB_API_URL}/repos/{repository}/commits/"
-        f"{urllib.parse.quote(options.ref, safe='')}", "commit"))
-    commit = commit_info.get("sha") if isinstance(commit_info, dict) else None
-    if not isinstance(commit, str) or not _COMMIT_RE.match(commit):
-        fail(f"GitHub returned no commit sha for {repository}@{options.ref}")
-    body = fetch_bytes(pinned_url(repository, commit, MCP_SERVICES_SOURCE),
-                       MCP_SERVICES_SOURCE)
-    with tempfile.TemporaryDirectory() as scratch:
-        scratch_dir = Path(scratch)
-        targets = bundled_targets(scratch_dir)
-        targets["models.bundled.json"].write_text(models_body())
-        targets["mcp-services.bundled.json"].write_text(catalog_text(body))
-        result = validate_bundled_catalog_dir(scratch_dir)
-    pin = {
-        "repository": repository,
-        "commit": commit,
-        "files": {MCP_SERVICES_SOURCE: hashlib.sha256(body).hexdigest()},
-    }
-    Path(options.pin).write_text(json.dumps(pin, indent=2) + "\n")
-    result["pin"] = pin
     return result
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", nargs="?", default="generate",
-                        choices=("generate", "verify", "pin"),
-                        help="generate (default), verify an existing --out dir, "
-                             "or pin (move the catalog pin to --ref)")
+                        choices=("generate", "verify"),
+                        help="generate (default) or verify an existing --out dir")
     parser.add_argument("--out", dest="out_dir", default=None,
                         help="asset output directory (default: target/catalog-assets)")
-    parser.add_argument("--catalog-dir", default=None,
-                        help="copy the MCP services from a local "
-                             "prime-agent-catalog checkout")
-    parser.add_argument("--network", action="store_true",
-                        help="fetch the pinned catalog commit (CI/packaging default)")
-    parser.add_argument("--fixture", action="store_true",
-                        help="emit the synthetic full-gate services (offline builds)")
-    parser.add_argument("--mcp-services-url", default=None,
-                        help="override the MCP service catalog URL (body still "
-                             "checked against the pinned sha256)")
-    parser.add_argument("--pin", type=Path, default=CATALOG_PIN,
-                        help="catalog pin file (default: scripts/release/catalog-pin.json)")
-    parser.add_argument("--ref", default="main",
-                        help="pin: the catalog repo ref to pin (default: main)")
     parser.add_argument("--allow-small-fixture", action="store_true",
-                        help="skip the minimum-count gates (smoke fixtures only)")
+                        help="skip the minimum-count gate (smoke fixtures only)")
     return parser.parse_args(argv)
 
 
@@ -838,9 +188,6 @@ def main(argv=None) -> int:
             out_dir, allow_small_fixture=args.allow_small_fixture)
         result["outDir"] = str(out_dir)
         print(json.dumps(result, indent=2))
-        return 0
-    if args.command == "pin":
-        print(json.dumps(bump_catalog_pin(args), indent=2))
         return 0
     print(json.dumps(generate_bundled_catalog_assets(args), indent=2))
     return 0

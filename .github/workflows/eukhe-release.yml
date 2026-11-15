@@ -28,9 +28,7 @@
 # tag=jammy-<YYYYMMDD>` and pin the digest its merge job prints; rustup-init is
 # a pinned version checked against committed sha256; the bundled models
 # come from the committed models.dev snapshot (sha256-pinned in
-# crates/eukhe-models/catalog/models-dev.pin.json), the bundled MCP
-# services from the commit pinned in scripts/release/catalog-pin.json,
-# hash-checked;
+# crates/eukhe-models/catalog/models-dev.pin.json);
 # builds set SOURCE_DATE_EPOCH and remap the workspace and cargo home
 # paths; crates are fetched first (registry crates checked against the
 # Cargo.lock checksums, the crossterm fork at its locked commit) and the
@@ -222,8 +220,8 @@ jobs:
           max_glibc="$(printf '%s\n' "${syms}" | sort -Vu | tail -1)"
           top="$(printf '%s\nGLIBC_2.35\n' "${max_glibc}" | sort -Vu | tail -1)"
           [[ "${top}" == "GLIBC_2.35" ]] || { echo "::error::binary requires ${max_glibc}"; exit 1; }
-      - name: Generate bundled catalog assets (pinned catalog commit, sha256-checked)
-        run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
+      - name: Generate bundled catalog asset (committed models.dev snapshot)
+        run: python3 scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail
@@ -296,8 +294,8 @@ jobs:
           set -euo pipefail
           out="$("target/${TARGET}/release/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
-      - name: Generate bundled catalog assets (pinned catalog commit, sha256-checked)
-        run: python3 scripts/release/bundle_catalog.py generate --network --out "target/${TARGET}/catalog-assets"
+      - name: Generate bundled catalog asset (committed models.dev snapshot)
+        run: python3 scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail

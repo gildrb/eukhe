@@ -92,7 +92,6 @@ fn payload_files(version: &str) -> Vec<(&'static str, String)> {
         ("eukhe", format!("#!/bin/sh\necho {version}\n")),
         ("package.json", format!("{{\"version\": \"{version}\"}}\n")),
         ("models.bundled.json", format!("models {version}\n")),
-        ("mcp-services.bundled.json", format!("services {version}\n")),
         (
             "eukhe-runtime/pyproject.toml",
             format!("runtime {version}\n"),

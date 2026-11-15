@@ -42,7 +42,7 @@ stdenv.mkDerivation {
     runHook preInstall
     payload="$out/libexec/eukhe"
     mkdir -p "$payload" "$out/bin"
-    cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json mcp-services.bundled.json "$payload/"
+    cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json "$payload/"
     # git commits the chat memory after every turn; a user's own git
     # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
     # fetches its own pinned uv and Python. The tiny-model worker loads

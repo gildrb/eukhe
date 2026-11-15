@@ -41,7 +41,7 @@ class DecoderManifest(unittest.TestCase):
             (repo / "LICENSE").write_text("fixture\n")
             (repo / "README.md").write_text("fixture\n")
             catalog = root / "catalog"
-            run(sys.executable, str(CATALOG), "generate", "--fixture", "--out", str(catalog))
+            run(sys.executable, str(CATALOG), "generate", "--out", str(catalog))
             dist = root / "dist"
             binary = root / "unstripped"
             for target, alias in TARGETS:

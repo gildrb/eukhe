@@ -17,8 +17,8 @@ runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
   package.json           version manifest ({"version": <version>})
   README.md
   LICENSE
-  models.bundled.json       bundled catalog assets (spec §3.2 layer 2),
-  mcp-services.bundled.json staged beside the executable
+  models.bundled.json    bundled model catalog (spec §3.2 layer 2), staged
+                         beside the executable
   eukhe-runtime/   the kernel runtime sidecar (dev caches excluded)
   skills/                built-in skills
 
@@ -28,10 +28,9 @@ native default splits the Cargo ELF into a separate shipped image and decoder;
 an explicit --binary requires its paired --decoder. The decoder stays outside
 the tarball and binaries.json. No network publishing happens here.
 
-`--catalog-assets <dir>` supplies the generated bundled catalog assets
-(scripts/release/bundle_catalog.py generates them); the packer hard-fails
-without VALIDATED assets (version gates + >= 20 transport tuples + >= 68
-services).
+`--catalog-assets <dir>` supplies the generated bundled catalog asset
+(scripts/release/bundle_catalog.py generates it); the packer hard-fails
+without a VALIDATED asset (version gate + >= 20 transport tuples).
 """
 
 import argparse
@@ -95,7 +94,6 @@ REQUIRED_FILES = (
     "README.md",
     "LICENSE",
     "models.bundled.json",
-    "mcp-services.bundled.json",
     "eukhe-runtime/pyproject.toml",
     # Eukhe's package lock: what a kernel installs on demand, with hashes.
     "eukhe-runtime/requirements-kernel.txt",
@@ -119,8 +117,7 @@ def parse_args(argv):
     parser.add_argument("--root", type=Path, default=ROOT,
                         help="package assets from this tree (default: the repo root)")
     parser.add_argument("--catalog-assets", type=Path, default=None,
-                        help="directory with models.bundled.json + "
-                             "mcp-services.bundled.json (see "
+                        help="directory with models.bundled.json (see "
                              "scripts/release/bundle_catalog.py)")
     args = parser.parse_args(argv)
     return args
@@ -192,16 +189,14 @@ def copy_tree(source, target, extra_excluded_names=frozenset(),
 
 
 def resolve_catalog_assets(args):
-    """The bundled catalog assets (spec §3.2 layer 2): the packer
-    hard-fails without validated assets — generate them first (network for
-    CI, a local catalog checkout, or the offline --fixture snapshot) via
+    """The bundled catalog asset (spec §3.2 layer 2): the packer hard-fails
+    without a validated asset — generate it first via
     scripts/release/bundle_catalog.py."""
     if args.catalog_assets is None:
         raise SystemExit(
             "error: missing bundled catalog assets: run "
-            "`python3 scripts/release/bundle_catalog.py generate "
-            "--catalog-dir <prime-agent-catalog>` (CI: --network; offline "
-            "builds: --fixture) and pass --catalog-assets <dir>"
+            "`python3 scripts/release/bundle_catalog.py generate --out <dir>` "
+            "and pass --catalog-assets <dir>"
         )
     validate_bundled_catalog_dir(args.catalog_assets)
     return args.catalog_assets

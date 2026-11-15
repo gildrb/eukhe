@@ -1,8 +1,7 @@
 # eukhe built from source, in the same layout as the prebuilt release (see
 # package.nix): the binary, its Python runtime, the bundled skills, and the
-# bundled catalog: the models asset made from the pinned models.dev snapshot
-# kept in the repository, the MCP services from the repository's services
-# fixture (the build has no network; eukhe reads only the bundled catalog
+# bundled model catalog made from the pinned models.dev snapshot kept in the
+# repository (the build has no network; eukhe reads only the bundled catalog
 # and its compiled-in fallback, and never fetches one). A source build is no
 # release: it reports <workspace version>-dev (eukhe-build-info), and so does
 # its package version.
@@ -52,11 +51,7 @@ rustPlatform.buildRustPackage {
     cp -R eukhe-runtime/pyproject.toml eukhe-runtime/requirements-kernel.txt eukhe-runtime/src "$payload/eukhe-runtime/"
     cp -R skills "$payload/skills"
     cp LICENSE "$payload/"
-    catalog="$(mktemp -d)"
-    mkdir -p "$catalog/plugins"
-    cp crates/eukhe-core/tests/fixtures/mcp/plugins-catalog.v2.json "$catalog/plugins/catalog.v2.json"
-    python3 scripts/release/bundle_catalog.py generate --catalog-dir "$catalog" --out "$payload"
-    rm -r "$catalog"
+    python3 scripts/release/bundle_catalog.py generate --out "$payload"
     # git commits the chat memory after every turn; a user's own git
     # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
     # fetches its own pinned uv and Python. The tiny-model worker loads

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Test battery for the bundled-catalog build assets (catalog spec §5 gates).
+"""Test battery for the bundled-catalog build asset (catalog spec §5 gates).
 
-Offline: the fixture mode must produce assets that pass the FULL validation
+Offline: `generate` must produce an asset that passes the FULL validation
 gates, the packer must hard-fail on missing/invalid assets (negative tests),
-network mode is verified against a local HTTP server (byte parity, auth
-header, redirect refusal, size cap), and the assets must land in the release
-tarball layout (assemble + verify against a synthetic repo tree, the
-eukhe-release.yml pipeline shape).
+and the asset must land in the release tarball layout (assemble + verify
+against a synthetic repo tree, the eukhe-release.yml pipeline shape).
 
 Run: python3 scripts/release/test_catalog_assets.py  (or: make catalog-assets-gates)
 """
@@ -15,17 +13,14 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import http.server
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
-import threading
 import time
 import unittest
 from pathlib import Path
@@ -50,101 +45,12 @@ HOST_ARCHIVE_PLATFORM = TARGET_ALIASES[HOST_TARGET]
 
 def run_cli(script, args, env_extra=None, cwd=None):
     env = dict(os.environ)
-    env.pop("GITHUB_TOKEN", None)
-    env.pop("PRIME_CATALOG_REPO_TOKEN", None)
     if env_extra:
         env.update(env_extra)
     return subprocess.run(
         [sys.executable, str(script), *args],
         capture_output=True, text=True, env=env, cwd=cwd or REPO, check=False,
     )
-
-
-class RecordingServer:
-    """A local HTTP stand-in for the catalog repo (never touches the network)."""
-
-    def __init__(self, routes):
-        self.seen_headers = []
-        handler = self._make_handler(routes)
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-
-    def _make_handler(self, routes):
-        seen = self.seen_headers
-        outer = self
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                seen.append(dict(self.headers))
-                route = routes.get(self.path)
-                if route is None:
-                    self.send_response(404)
-                    self.send_header("content-length", "0")
-                    self.end_headers()
-                    return
-                body, headers, status = route
-                self.send_response(status)
-                for name, value in headers.items():
-                    self.send_header(name, value)
-                self.send_header("content-length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args):
-                pass
-
-        return Handler
-
-    @property
-    def base(self):
-        return f"http://127.0.0.1:{self.port}"
-
-    def stop(self):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=5)
-
-
-class DripServer:
-    """A response that always has another chunk on the way (the slow-drip
-    shape): individual reads never hit the socket timeout, so only a TOTAL
-    deadline can stop the fetch."""
-
-    def __init__(self, interval=0.3, chunk=b"x" * 1024):
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                # Under the 20 MiB cap so the size pre-check passes and the
-                # read loop actually runs: only the deadline can end it (the
-                # drip never reaches the advertised length in time).
-                self.send_header("content-length", str(4 * 1024 * 1024))
-                self.end_headers()
-                try:
-                    while True:
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
-                        time.sleep(interval)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-
-            def log_message(self, *args):
-                pass
-
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-
-    @property
-    def base(self):
-        return f"http://127.0.0.1:{self.port}"
-
-    def stop(self):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=5)
 
 
 # A one-pin hash-locked runtime requirements file (the assembler's gate).
@@ -202,28 +108,23 @@ class SyntheticRepo:
 
 class ValidationGates(unittest.TestCase):
 
-    def test_fixture_passes_the_full_gates(self):
-        """Offline build verifier: --fixture produces a VALIDATED snapshot
-        (>= 20 transport tuples, >= 68 services) without any network."""
+    def test_generate_passes_the_full_gates(self):
+        """Offline build verifier: `generate` produces a VALIDATED asset
+        (>= 20 transport tuples) without any network."""
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "assets"
-            result = run_cli(BUNDLER, ["generate", "--fixture", "--out", str(out)])
+            result = run_cli(BUNDLER, ["generate", "--out", str(out)])
             self.assertEqual(result.returncode, 0, result.stderr)
             facts = json.loads(result.stdout)
             self.assertGreaterEqual(facts["models"]["transportTuples"],
                                     bundle_catalog.MIN_MODEL_TRANSPORT_TUPLES)
-            self.assertGreaterEqual(facts["mcpServices"]["services"],
-                                    bundle_catalog.MIN_MCP_SERVICES)
             # The verify command (no small-fixture waiver) agrees.
             verify = run_cli(BUNDLER, ["verify", "--out", str(out)])
             self.assertEqual(verify.returncode, 0, verify.stderr)
-            self.assertGreaterEqual(
-                json.loads(verify.stdout)["mcpServices"]["services"],
-                bundle_catalog.MIN_MCP_SERVICES)
+            self.assertEqual(json.loads(verify.stdout)["models"], facts["models"])
 
-    def test_fixture_shapes_match_the_catalog_contract(self):
-        bodies = bundle_catalog.fixture_catalog_bodies()
-        models = json.loads(bodies["models.bundled.json"])
+    def test_models_body_matches_the_catalog_contract(self):
+        models = json.loads(bundle_catalog.models_body())
         self.assertEqual(set(models), {"schemaVersion", "models"})
         self.assertEqual(models["schemaVersion"], 1)
         seen_tuples = set()
@@ -249,89 +150,30 @@ class ValidationGates(unittest.TestCase):
             seen_tuples.add((model["provider"], model["api"], model["baseUrl"]))
         self.assertGreaterEqual(len(seen_tuples), bundle_catalog.MIN_MODEL_TRANSPORT_TUPLES)
 
-        plugins = json.loads(bodies["mcp-services.bundled.json"])
-        # Envelope: exactly version, counts, entries, in order.
-        self.assertEqual(list(plugins), ["version", "counts", "entries"])
-        self.assertEqual(plugins["version"], 2)
-        self.assertEqual(set(plugins["counts"]), set(bundle_catalog.COUNTS_KEYS))
-        transports = {"http", "http-template", "sse", "stdio"}
-        auths = {"oauth", "api_key", "none", "unknown"}
-        readiness = {"oauth-ready", "user-setup", "prime-restricted", "unknown"}
-        setups, verifications = set(), set()
-        for entry in plugins["entries"]:
-            self.assertRegex(entry["server"], r"^[a-z0-9][a-z0-9-]{0,63}$")
-            self.assertIn(entry["transport"]["type"], transports)
-            self.assertIn(entry["auth"]["strategy"], auths)
-            self.assertIn(entry["setup"]["readiness"], readiness)
-            setups.add(entry["setup"]["status"])
-            verifications.add(entry["verification"]["status"])
-            self.assertEqual(entry["aliases"],
-                             sorted(a.lower() for a in entry["aliases"]))
-            self.assertNotIn(entry["server"], entry["aliases"])
-            self.assertNotIn("clientId", json.dumps(entry))
-            self.assertNotIn("clientSecret", json.dumps(entry))
-        # Every shape branch is exercised.
-        self.assertEqual(setups, {"ready", "requires-setup"})
-        self.assertEqual(verifications, {"metadata-reviewed", "unverified"})
-        self.assertEqual(plugins["counts"]["total"], len(plugins["entries"]))
-        self.assertGreaterEqual(len(plugins["entries"]), 68)
-
     def test_validation_rejects_bad_envelopes_and_minimums(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            good = json.loads(bundle_catalog.fixture_catalog_bodies()
-                              ["mcp-services.bundled.json"])
             (out / "models.bundled.json").write_text(
                 json.dumps({"schemaVersion": 1, "models": []}))
-            (out / "mcp-services.bundled.json").write_text(json.dumps(good))
             with self.assertRaises(SystemExit):
                 bundle_catalog.validate_bundled_model_catalog(
-                    out / "models.bundled.json")  # 0 tuples < 42
+                    out / "models.bundled.json")  # 0 tuples < 20
             small = {"schemaVersion": 1, "models": [json.loads(
-                bundle_catalog.fixture_catalog_bodies()["models.bundled.json"]
-            )["models"][0]]}
+                bundle_catalog.models_body())["models"][0]]}
             (out / "models.bundled.json").write_text(json.dumps(small))
             # The small-fixture waiver skips the minimum-count gate only.
             bundle_catalog.validate_bundled_model_catalog(
                 out / "models.bundled.json", allow_small_fixture=True)
-            bad_version = dict(good, version=3)
-            (out / "mcp-services.bundled.json").write_text(json.dumps(bad_version))
+            (out / "models.bundled.json").write_text(
+                json.dumps(dict(small, schemaVersion=2)))
             with self.assertRaises(SystemExit):
-                bundle_catalog.validate_bundled_mcp_catalog(
-                    out / "mcp-services.bundled.json", allow_small_fixture=True)
-            (out / "mcp-services.bundled.json").write_text("{not json")
-            with self.assertRaises(SystemExit):
-                bundle_catalog.validate_bundled_mcp_catalog(
-                    out / "mcp-services.bundled.json", allow_small_fixture=True)
+                bundle_catalog.validate_bundled_model_catalog(
+                    out / "models.bundled.json", allow_small_fixture=True)
             # A missing asset fails the dir gate with an actionable message.
             with contextlib.redirect_stderr(io.StringIO()) as captured, \
                     self.assertRaises(SystemExit):
                 bundle_catalog.validate_bundled_catalog_dir(out / "nowhere")
             self.assertIn("Missing bundled catalog asset", captured.getvalue())
-
-    def test_fixture_covers_paste_flow_and_builtin_shapes(self):
-        """The special entries the runtime MCP lane consumes: one shared
-        credentialSet alias pair (pasteable), two distinct credential sets
-        (never pasteable), an api-key setup field, and the legacy builtins."""
-        plugins = json.loads(
-            bundle_catalog.fixture_catalog_bodies()["mcp-services.bundled.json"])
-        by_server = {entry["server"]: entry for entry in plugins["entries"]}
-        pasteable = by_server["fixture-paste-single"]
-        sets = {field["credentialSet"] for field in pasteable["setup"]["fields"]}
-        self.assertEqual(len(pasteable["setup"]["fields"]), 2)
-        self.assertEqual(sets, {"fixture-pat"})  # alias names, one credential
-        multi = by_server["fixture-paste-multi-cred"]
-        sets = {field["credentialSet"] for field in multi["setup"]["fields"]}
-        self.assertEqual(len(sets), 2)  # fail-closed: NOT pasteable
-        api_key = by_server["fixture-api-key"]
-        self.assertEqual(api_key["setup"]["fields"][0]["kind"], "api-key")
-        for builtin in ("linear", "notion"):
-            self.assertTrue(by_server[builtin]["legacyBuiltin"])
-        # Counts stay derived: total counts every entry including specials.
-        self.assertEqual(plugins["counts"]["total"], len(plugins["entries"]))
-        self.assertEqual(
-            plugins["counts"]["total"],
-            bundle_catalog.MIN_MCP_SERVICES + 5)
 
     def test_small_fixture_verify_waiver(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -343,9 +185,7 @@ class ValidationGates(unittest.TestCase):
                  "reasoning": False, "input": ["text"],
                  "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
                  "contextWindow": 128000, "maxTokens": 4096}]}
-            small_plugins = {"version": 2, "counts": {}, "entries": []}
             (out / "models.bundled.json").write_text(json.dumps(small_models))
-            (out / "mcp-services.bundled.json").write_text(json.dumps(small_plugins))
             strict = run_cli(BUNDLER, ["verify", "--out", str(out)])
             self.assertNotEqual(strict.returncode, 0)
             self.assertIn("transport tuples", strict.stderr)
@@ -353,49 +193,13 @@ class ValidationGates(unittest.TestCase):
                              ["verify", "--out", str(out), "--allow-small-fixture"])
             self.assertEqual(waived.returncode, 0, waived.stderr)
 
-    def test_fixture_http_template_entries_match_the_runtime_schema(self):
-        """Regression (Cursor Bugbot): the fixture's http-template entries
-        must parse under the runtime's strict catalog_schema — template
-        variables are {name, description} objects and the entry url is empty
-        (a fail-closed runtime parse drops the whole asset otherwise)."""
-        plugins = json.loads(bundle_catalog.fixture_catalog_bodies()
-                             ["mcp-services.bundled.json"])
-        templates = [entry for entry in plugins["entries"]
-                     if entry["transport"]["type"] == "http-template"]
-        self.assertTrue(templates, "the fixture must exercise the http-template shape")
-        for entry in templates:
-            transport = entry["transport"]
-            self.assertEqual(set(transport), {"type", "template", "variables"})
-            self.assertTrue(transport["template"])
-            self.assertTrue(transport["variables"])
-            for variable in transport["variables"]:
-                self.assertEqual(set(variable), {"name", "description"})
-                self.assertTrue(variable["name"])
-                self.assertTrue(variable["description"])
-            self.assertEqual(entry["url"], "")
-
-    def test_validator_rejects_runtime_invalid_plugin_shapes(self):
-        """The packaging gate must reject shapes the runtime rejects (the
-        pre-fix fixture bug: string template variables + non-empty url)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            catalog = json.loads(bundle_catalog.fixture_catalog_bodies()
-                                 ["mcp-services.bundled.json"])
-            entry = next(item for item in catalog["entries"]
-                         if item["transport"]["type"] == "http-template")
-            entry["transport"]["variables"] = ["region"]
-            path = Path(tmp) / "mcp-services.bundled.json"
-            path.write_text(json.dumps(catalog))
-            with self.assertRaises(SystemExit):
-                bundle_catalog.validate_bundled_mcp_catalog(path)
-
     def test_validator_rejects_models_missing_required_fields(self):
         """The packaging gate must reject model entries the runtime's strict
         parse would drop (missing cost/contextWindow pass the tuple count but
         fail the runtime schema)."""
         with tempfile.TemporaryDirectory() as tmp:
             models = {"schemaVersion": 1, "models": [json.loads(
-                bundle_catalog.fixture_catalog_bodies()["models.bundled.json"]
-            )["models"][0]]}
+                bundle_catalog.models_body())["models"][0]]}
             del models["models"][0]["cost"]
             del models["models"][0]["contextWindow"]
             path = Path(tmp) / "models.bundled.json"
@@ -403,207 +207,6 @@ class ValidationGates(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 bundle_catalog.validate_bundled_model_catalog(
                     path, allow_small_fixture=True)
-
-
-class CatalogDirMode(unittest.TestCase):
-
-    def test_catalog_dir_copies_the_services_and_maps_the_models(self):
-        bodies = bundle_catalog.fixture_catalog_bodies()
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            checkout = tmp / "prime-agent-catalog"
-            (checkout / "plugins").mkdir(parents=True)
-            (checkout / "plugins" / "catalog.v2.json").write_text(
-                bodies["mcp-services.bundled.json"])
-            out = tmp / "assets"
-            result = run_cli(
-                BUNDLER, ["generate", "--catalog-dir", str(checkout),
-                          "--out", str(out)])
-            self.assertEqual(result.returncode, 0, result.stderr)
-            # The models asset is the mapped models.dev snapshot, whatever
-            # the source mode.
-            self.assertEqual(
-                (out / "models.bundled.json").read_text(),
-                bundle_catalog.models_body())
-            self.assertEqual(
-                (out / "mcp-services.bundled.json").read_bytes(),
-                (checkout / "plugins" / "catalog.v2.json").read_bytes())
-            # A checkout missing the services file fails loudly.
-            (checkout / "plugins" / "catalog.v2.json").unlink()
-            broken = run_cli(BUNDLER, ["generate", "--catalog-dir", str(checkout),
-                                      "--out", str(tmp / "assets2")])
-            self.assertNotEqual(broken.returncode, 0)
-            self.assertIn("missing", broken.stderr)
-            self.assertFalse((tmp / "assets2" / "models.bundled.json").exists())
-
-
-def write_pin(path: Path, mcp_body: bytes) -> Path:
-    """A pin file whose sha256 entry matches the given served body."""
-    path.write_text(json.dumps({
-        "repository": "PrimeIntellect-ai/prime-agent-catalog",
-        "commit": "0" * 40,
-        "files": {
-            bundle_catalog.MCP_SERVICES_SOURCE: hashlib.sha256(mcp_body).hexdigest(),
-        },
-    }))
-    return path
-
-
-class NetworkMode(unittest.TestCase):
-
-    def setUp(self):
-        bodies = bundle_catalog.fixture_catalog_bodies()
-        self.mcp_body = bodies["mcp-services.bundled.json"].rstrip("\n").encode()
-        self.server = RecordingServer({
-            "/plugins/catalog.v2.json": (self.mcp_body, {}, 200),
-            "/moved": (b"gone", {"location": "/plugins/catalog.v2.json"}, 302),
-            "/huge": (b"x" * 1024,
-                      {"content-length": str(bundle_catalog.MAX_REMOTE_CATALOG_BYTES + 1)},
-                      200),
-        })
-        self._tmp = tempfile.TemporaryDirectory()
-        self.pin = write_pin(Path(self._tmp.name) / "pin.json", self.mcp_body)
-
-    def tearDown(self):
-        self.server.stop()
-        self._tmp.cleanup()
-
-    def _generate(self, out, env_extra=None, extra=()):
-        return run_cli(BUNDLER, [
-            "generate", "--network", "--pin", str(self.pin),
-            "--mcp-services-url", f"{self.server.base}/plugins/catalog.v2.json",
-            "--out", str(out), *extra,
-        ], env_extra=env_extra)
-
-    def test_network_fetch_rejects_a_body_that_does_not_match_the_pin(self):
-        """A catalog body that differs from the pinned sha256 is a hard
-        failure and leaves no asset behind."""
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "assets"
-            stale_pin = write_pin(Path(tmp) / "stale.json", self.mcp_body + b" ")
-            result = run_cli(BUNDLER, [
-                "generate", "--network", "--pin", str(stale_pin),
-                "--mcp-services-url", f"{self.server.base}/plugins/catalog.v2.json",
-                "--out", str(out)])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("sha256 mismatch", result.stderr)
-            self.assertFalse((out / "models.bundled.json").exists())
-            self.assertFalse((out / "mcp-services.bundled.json").exists())
-
-    def test_network_mode_rejects_a_moving_ref_pin(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            pin = Path(tmp) / "pin.json"
-            pin.write_text(json.dumps({
-                "repository": "PrimeIntellect-ai/prime-agent-catalog",
-                "commit": "main",
-                "files": json.loads(self.pin.read_text())["files"],
-            }))
-            result = run_cli(BUNDLER, ["generate", "--network", "--pin", str(pin),
-                                       "--out", str(Path(tmp) / "assets")])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("commit must be a full 40-hex sha", result.stderr)
-
-    def test_network_fetch_is_byte_identical_and_normalizes_newlines(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "assets"
-            result = self._generate(out)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                (out / "models.bundled.json").read_text(),
-                bundle_catalog.models_body())
-            self.assertEqual(
-                (out / "mcp-services.bundled.json").read_text(),
-                bundle_catalog.fixture_catalog_bodies()["mcp-services.bundled.json"])
-
-    def test_network_never_sends_the_token_to_a_non_github_url(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.server.seen_headers.clear()
-            result = self._generate(Path(tmp) / "assets",
-                                    env_extra={"GITHUB_TOKEN": "sekrit"})
-            self.assertEqual(result.returncode, 0, result.stderr)
-            auth_headers = [h.get("Authorization") for h in self.server.seen_headers]
-            self.assertEqual(auth_headers, [None])
-
-    def test_network_failures_are_hard_failures(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "assets"
-            # 404 -> hard fail with the private-repo hint.
-            result = run_cli(BUNDLER, ["generate", "--network",
-                                       "--mcp-services-url", f"{self.server.base}/missing",
-                                       "--out", str(out)])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("HTTP 404", result.stderr)
-            # Redirects are refused (a moved catalog is a client change).
-            result = run_cli(BUNDLER, ["generate", "--network",
-                                       "--mcp-services-url", f"{self.server.base}/moved",
-                                       "--out", str(out)])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("refused redirect", result.stderr)
-            # Oversized content-length is refused up front.
-            result = run_cli(BUNDLER, ["generate", "--network",
-                                       "--mcp-services-url", f"{self.server.base}/huge",
-                                       "--out", str(out)])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("too large", result.stderr)
-            # No partial output may be left behind by a failed fetch.
-            self.assertFalse((out / "models.bundled.json").exists())
-            self.assertFalse((out / "mcp-services.bundled.json").exists())
-
-    def test_conflicting_modes_are_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            result = run_cli(BUNDLER, ["generate", "--fixture", "--network",
-                                      "--out", str(Path(tmp) / "assets")])
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("mutually exclusive", result.stderr)
-
-    def test_failed_mcp_fetch_leaves_the_previous_snapshot_intact(self):
-        """The services body is fetched before either target is replaced:
-        a failed fetch must not leave a mixed snapshot (a fresh models file
-        beside the previous services file)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "assets"
-            first = self._generate(out)
-            self.assertEqual(first.returncode, 0, first.stderr)
-            (out / "models.bundled.json").write_text("previous models\n")
-            services_before = (out / "mcp-services.bundled.json").read_text()
-            broken = RecordingServer({
-                "/plugins/catalog.v2.json": (b"gone", {}, 404),
-            })
-            try:
-                result = run_cli(BUNDLER, [
-                    "generate", "--network",
-                    "--pin", str(write_pin(Path(tmp) / "broken-pin.json", self.mcp_body)),
-                    "--mcp-services-url", f"{broken.base}/plugins/catalog.v2.json",
-                    "--out", str(out)])
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("HTTP 404", result.stderr)
-            finally:
-                broken.stop()
-            self.assertEqual((out / "models.bundled.json").read_text(),
-                             "previous models\n")
-            self.assertEqual((out / "mcp-services.bundled.json").read_text(),
-                             services_before)
-
-    def test_network_fetch_enforces_a_total_deadline(self):
-        """The 5 s timeout is the TOTAL fetch budget, not per blocking op: a
-        slow-drip server that always delivers another chunk keeps every
-        individual read alive, so only the absolute deadline ends it."""
-        drip = DripServer()
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                out = Path(tmp) / "assets"
-                started = time.monotonic()
-                result = run_cli(BUNDLER, [
-                    "generate", "--network",
-                    "--mcp-services-url", f"{drip.base}/plugins/catalog.v2.json",
-                    "--out", str(out)])
-                elapsed = time.monotonic() - started
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("hard timeout", result.stderr)
-                self.assertLess(elapsed, 60,
-                                "the deadline must bound the total fetch time")
-        finally:
-            drip.stop()
 
 
 class PackerGates(unittest.TestCase):
@@ -614,7 +217,7 @@ class PackerGates(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.assets = self.tmp / "catalog-assets"
-        result = run_cli(BUNDLER, ["generate", "--fixture", "--out", str(self.assets)])
+        result = run_cli(BUNDLER, ["generate", "--out", str(self.assets)])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.repo = SyntheticRepo(self.tmp / "synrepo")
 
@@ -671,16 +274,13 @@ class PackerGates(unittest.TestCase):
 
     def test_packer_fails_on_invalid_assets(self):
         cases = {
-            "corrupt-json": ("{\n", "{\n"),
-            "wrong-versions": (
-                json.dumps({"schemaVersion": 2, "models": []}),
-                json.dumps({"version": 3, "entries": []})),
+            "corrupt-json": "{\n",
+            "wrong-version": json.dumps({"schemaVersion": 2, "models": []}),
         }
-        for label, (models_body, plugins_body) in cases.items():
+        for label, models_body in cases.items():
             bad = self.tmp / f"assets-{label}"
             bad.mkdir()
             (bad / "models.bundled.json").write_text(models_body)
-            (bad / "mcp-services.bundled.json").write_text(plugins_body)
             result = self.repo.assemble(self.tmp / f"dist-{label}", catalog_assets=bad)
             self.assertNotEqual(result.returncode, 0, label)
             self.assertIn("Invalid bundled", result.stderr, label)
@@ -689,18 +289,13 @@ class PackerGates(unittest.TestCase):
         small.mkdir()
         (small / "models.bundled.json").write_text(
             json.dumps({"schemaVersion": 1, "models": []}))
-        good_plugins = json.loads(
-            bundle_catalog.fixture_catalog_bodies()["mcp-services.bundled.json"])
-        (small / "mcp-services.bundled.json").write_text(json.dumps(good_plugins))
         result = self.repo.assemble(self.tmp / "dist-small", catalog_assets=small)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("transport tuples", result.stderr)
-        # Missing one of the two files fails too.
-        half = self.tmp / "assets-half"
-        half.mkdir()
-        shutil.copyfile(self.assets / "models.bundled.json",
-                        half / "models.bundled.json")
-        result = self.repo.assemble(self.tmp / "dist-half", catalog_assets=half)
+        # A missing asset fails too.
+        empty = self.tmp / "assets-empty"
+        empty.mkdir()
+        result = self.repo.assemble(self.tmp / "dist-empty", catalog_assets=empty)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing bundled catalog asset", result.stderr)
 
@@ -714,12 +309,10 @@ class PackerGates(unittest.TestCase):
         with tarfile.open(archive) as tar:
             names = tar.getnames()
             self.assertIn("models.bundled.json", names)
-            self.assertIn("mcp-services.bundled.json", names)
-            # The staged assets are byte-identical to the generated ones.
-            for name in ("models.bundled.json", "mcp-services.bundled.json"):
-                member = tar.extractfile(name)
-                self.assertEqual(member.read(),
-                                 (self.assets / name).read_bytes(), name)
+            # The staged asset is byte-identical to the generated one.
+            member = tar.extractfile("models.bundled.json")
+            self.assertEqual(member.read(),
+                             (self.assets / "models.bundled.json").read_bytes())
         # The full end-to-end verifier (payload shape, checksums, manifest,
         # extracted catalog assets, livecheck) passes on the synthetic tree.
         verify = run_cli(VERIFIER, ["--dist-dir", str(out), "--version", "9.9.9",
@@ -799,7 +392,6 @@ class PackerGates(unittest.TestCase):
         self.assertEqual(with_assets.returncode, 0, with_assets.stderr)
         staged = self.tmp / "release-package" / "eukhe-9.9.9-linux-x64"
         self.assertTrue((staged / "models.bundled.json").is_file())
-        self.assertTrue((staged / "mcp-services.bundled.json").is_file())
 
     def test_kernel_packer_rejects_decoder_leak(self):
         leaked = self.repo.root / "eukhe-runtime" / "leak.debug.gz"

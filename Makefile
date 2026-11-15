@@ -162,17 +162,10 @@ TARGET := $(shell rustc -vV | sed -n 's/^host: //p')
 RUNTIME_DIR ?=
 RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
 
-# Bundled catalog assets (catalog spec §3.2 layer 2): generated at build
-# time, never committed. The models asset is always made offline from the
-# pinned models.dev snapshot in crates/eukhe-models/catalog
-# (scripts/release/models_dev.py). The release workflow fetches the MCP
-# services at the catalog commit pinned in scripts/release/catalog-pin.json
-# and checks its sha256 (`--network`). The local dry-runs default to the
-# synthetic services fixture (it passes the full packer gates: >= 20
-# transport tuples, >= 68 services); CATALOG_ASSETS_MODE=network switches
-# them to the pinned fetch for packaging parity.
+# Bundled catalog asset (catalog spec §3.2 layer 2): generated at build
+# time, never committed, offline from the pinned models.dev snapshot in
+# crates/eukhe-models/catalog (scripts/release/models_dev.py).
 CATALOG_ASSETS_DIR = target/catalog-assets
-CATALOG_ASSETS_MODE ?= fixture
 CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
 
 # Mirror the Linux CI split: Cargo's executable remains unstripped and the
@@ -205,22 +198,9 @@ CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
 RELEASE_RUSTFLAGS = --remap-path-prefix=$(CURDIR)=/eukhe --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo $(RELEASE_LINK_FLAGS)
 RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS="$(RELEASE_RUSTFLAGS)" cargo build --release --locked --workspace
 
-# Pinned-catalog asset generation (network fetch of the catalog-pin.json
-# commit, sha256-checked; the release workflow's mode).
+# Asset generation (the release workflow's step).
 catalog-assets:
-	python3 scripts/release/bundle_catalog.py generate --network --out $(CATALOG_ASSETS_DIR)
-
-# Offline asset generation: the synthetic full-gate services fixture.
-catalog-assets-fixture:
-	python3 scripts/release/bundle_catalog.py generate --fixture --out $(CATALOG_ASSETS_DIR)
-
-# Move the catalog pin (scripts/release/catalog-pin.json) to the catalog
-# repo's current CATALOG_REF (default main): resolves the commit, fetches
-# the services file at it, runs the full validation gates, and records the
-# commit and its sha256. Review the diff before committing it.
-CATALOG_REF ?= main
-catalog-pin:
-	python3 scripts/release/bundle_catalog.py pin --ref $(CATALOG_REF)
+	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
 
 # Move the models.dev snapshot (crates/eukhe-models/catalog) to MODELS_DEV_REF
 # (default main; needs git and bun): builds models.dev's v1 API at that
@@ -235,7 +215,7 @@ release-dry-run:
 	$(RELEASE_CARGO_BUILD)
 	$(RELEASE_SPLIT)
 	$(MAKE) glibc-gate
-	python3 scripts/release/bundle_catalog.py generate --$(CATALOG_ASSETS_MODE) --out $(CATALOG_ASSETS_DIR)
+	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
 	python3 scripts/release/assemble_artifacts.py \
 		--repo-root . --version "$(VERSION)" --target "$(TARGET)" $(RUNTIME_FLAG) \
 		$(RELEASE_ASSEMBLE_FLAGS) $(CATALOG_ASSETS_FLAG) --out-dir target/release/dist
@@ -251,19 +231,18 @@ audit-build:
 
 # Packaging dry-run: stage the exe-adjacent release layout, version-pin,
 # hash, and tar the artifact under target/release-package. Generates the
-# bundled catalog assets first (same modes as the dry-runs above).
+# bundled catalog asset first.
 package:
 	$(RELEASE_PACKAGE_BUILD)
 	$(RELEASE_SPLIT)
-	python3 scripts/release/bundle_catalog.py generate --$(CATALOG_ASSETS_MODE) --out $(CATALOG_ASSETS_DIR)
+	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
 	python3 scripts/package_release.py $(RELEASE_PACKAGE_FLAGS) $(CATALOG_ASSETS_FLAG)
 
 # Bundled-catalog gates (scripts/release/test_catalog_assets.py and
-# test_models_dev.py): the offline fixture passes the full packer
-# validation, the packer hard-fails on missing/invalid assets, network mode
-# is verified against a local HTTP server (including the pinned-sha256
-# check), the assets land in the tarball layout the binary expects, and the
-# models.dev mapping and its committed fixture agree.
+# test_models_dev.py): the generated asset passes the full packer
+# validation, the packer hard-fails on missing/invalid assets, the asset
+# lands in the tarball layout the binary expects, and the models.dev
+# mapping and its committed fixture agree.
 catalog-assets-gates:
 	python3 scripts/release/test_catalog_assets.py
 	python3 scripts/release/test_models_dev.py
@@ -306,4 +285,4 @@ site-check:
 site-deploy:
 	cd site && npm ci --no-audit --no-fund && npm run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets catalog-assets-fixture catalog-pin models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
