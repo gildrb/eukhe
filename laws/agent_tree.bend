@@ -906,6 +906,18 @@ law agent_tree_result_integrates:
   for +f: List<&2, Nat>
   {T.apply(f, T.result(T.Split{i, own, l, r})) == T.apply(T.apply(T.apply(f, S.restrict(T.result(l), T.scope_of(T.info(l)))), S.restrict(T.result(r), T.scope_of(T.info(r)))), T.patch_of(i)) : List<&2, Nat>}
 
+# LAW agent_tree_result_leaf (T3, T5): for every leaf with the info i and
+# every files f, the files with the leaf's integrated patch are the files
+# after its own patch: a leaf hands up all its work, and its parent's
+# integration alone decides which writes land (a write outside its scope
+# is a conflict there, never a reason to drop the others)
+# EXCLUDES: a leaf's result emptied when one write strays outside its
+#   scope; a leaf's result that drops or rewrites writes
+law agent_tree_result_leaf:
+  for +i: T.Info
+  for +f: List<&2, Nat>
+  {T.apply(f, T.result(T.Leaf{i})) == T.apply(f, T.patch_of(i)) : List<&2, Nat>}
+
 # Laws: settle (T6)
 # -----------------
 
@@ -1102,6 +1114,28 @@ law agent_tree_cancel_shape:
   for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
   {unstatus_of(S.node_at(p, landed(T.step(b, t, T.EvCancel{p}), t))) == Some{unstatus(n)} : Maybe<&2, T.Node>}
 
+# LAW agent_tree_cancel_needs_node (T7): a cancel at a path where no node
+# is is refused NoNode, the tree unchanged
+# EXCLUDES: a cancel at a missing path that cancels the nearest node above
+#   it (a stale child path stopping its parent or the whole run)
+law agent_tree_cancel_needs_node:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for e: {S.node_at(p, t) == None{} : Maybe<&2, T.Node>}
+  {T.step(b, t, T.EvCancel{p}) == T.Refused{T.NoNode{}} : T.Step}
+
+# LAW agent_tree_fail_needs_node (T7): a fail at a path where no node is
+# is refused NoNode, the tree unchanged
+# EXCLUDES: a fail at a missing path that fails the nearest node above it
+law agent_tree_fail_needs_node:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +q: List<&2, Maybe<&2, Nat>>
+  for e: {S.node_at(p, t) == None{} : Maybe<&2, T.Node>}
+  {T.step(b, t, T.EvFail{p, q}) == T.Refused{T.NoNode{}} : T.Step}
+
 # LAW agent_tree_fail_quiets (T7): for every tree t with a running node at
 # p, after a fail at p with the patch q the node is Failed with q and no
 # node below it runs
@@ -1130,6 +1164,61 @@ law agent_tree_fail_frame:
   for +n: T.Node
   for e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
   {S.put(p, landed(T.step(b, t, T.EvFail{p, q}), t), n) == t : T.Node}
+
+# T7: the info i with its patch set to q, everything else as it is
+def patch_info(i: T.Info, q: List<&2, Maybe<&2, Nat>>) -> T.Info:
+  match i:
+    case T.Info{st, s, lim, sp, dl, p}:
+      T.Info{st, s, lim, sp, dl, q}
+
+# T7: the node n with its own patch set to q, its children as they are
+def with_patch(n: T.Node, q: List<&2, Maybe<&2, Nat>>) -> T.Node:
+  match n:
+    case T.Leaf{i}:
+      T.Leaf{patch_info(i, q)}
+    case T.Split{i, own, l, r}:
+      T.Split{patch_info(i, q), own, l, r}
+
+# LAW agent_tree_fail_shape (T7, T8, T11): for every tree t with a running
+# node n at p, after a fail at p with the patch q the subtree at p differs
+# from n in statuses and n's own patch only: the same leaves and splits,
+# each split's own scope, and every node's scope, limit, spend and
+# deadline, so the money a failed node spent stays counted against its
+# parent's room and a redo restarts it with that spend
+# EXCLUDES: a fail that resets or rewrites the spend, limit, deadline or
+#   scope of the failed node or of any node below it, drops a child, or
+#   rewrites a child's patch
+# WITNESS: t = n = init(s, lim, dl), p = [].
+law agent_tree_fail_shape:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +q: List<&2, Maybe<&2, Nat>>
+  for +n: T.Node
+  for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  for r: {S.is_running(n) == True{} : Bool}
+  {unstatus_of(S.node_at(p, landed(T.step(b, t, T.EvFail{p, q}), t))) == Some{unstatus(with_patch(n, q))} : Maybe<&2, T.Node>}
+
+# LAW agent_tree_fail_marks (T7, T11): for every tree t with a running node
+# n at p and the node m at the path d :: rest below n, after a fail at p
+# the node there is Cancelled when m ran and keeps m's status when it had
+# settled: a fail stops the subtree below as a cancel does
+# EXCLUDES: a fail that marks a running child Finished or Failed (a
+#   stopped child read as done, never redoable); one that rewrites a
+#   settled child's status
+law agent_tree_fail_marks:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +p: List<&2, T.Dir>
+  for +q: List<&2, Maybe<&2, Nat>>
+  for +n: T.Node
+  for +d: T.Dir
+  for +rest: List<&2, T.Dir>
+  for m: T.Node
+  for +e: {S.node_at(p, t) == Some{n} : Maybe<&2, T.Node>}
+  for r: {S.is_running(n) == True{} : Bool}
+  for f: {S.node_at(Con{d, rest}, n) == Some{m} : Maybe<&2, T.Node>}
+  {status_below(S.node_at(p, landed(T.step(b, t, T.EvFail{p, q}), t)), Con{d, rest}) == Some{cancel_status(T.st_of(T.info(m)))} : Maybe<&2, T.Status>}
 
 # LAW agent_tree_fail_needs_running (T7): a fail at a node that does not
 # run is refused NotRunning
@@ -1272,6 +1361,77 @@ law agent_tree_tick_shape:
   for +now: Nat
   {unstatus(landed(T.step(b, t, T.EvTick{now}), t)) == unstatus(t) : T.Node}
 
+# T8: a tick may move a node from the status old to x: x is old, or
+# Cancelled when old was Running
+def tick_move(old: T.Status, x: T.Status) -> Bool:
+  match old:
+    case T.Running{}:
+      match x:
+        case T.Running{}:
+          True{}
+        case T.Finished{}:
+          False{}
+        case T.Failed{}:
+          False{}
+        case T.Cancelled{}:
+          True{}
+    case T.Finished{}:
+      match x:
+        case T.Running{}:
+          False{}
+        case T.Finished{}:
+          True{}
+        case T.Failed{}:
+          False{}
+        case T.Cancelled{}:
+          False{}
+    case T.Failed{}:
+      match x:
+        case T.Running{}:
+          False{}
+        case T.Finished{}:
+          False{}
+        case T.Failed{}:
+          True{}
+        case T.Cancelled{}:
+          False{}
+    case T.Cancelled{}:
+      match x:
+        case T.Running{}:
+          False{}
+        case T.Finished{}:
+          False{}
+        case T.Failed{}:
+          False{}
+        case T.Cancelled{}:
+          True{}
+
+# T8: the status new a tick may leave a node whose status was old, as
+# tick_move says (no node: none allowed)
+def tick_moves(new: Maybe<&2, T.Status>, old: T.Status) -> Bool:
+  match new:
+    case None{}:
+      False{}
+    case Some{x}:
+      tick_move(old, x)
+
+# LAW agent_tree_tick_marks (T8, T7, T11): for every tree t with the node m
+# at q, after a tick at now the node at q keeps m's status or, when m ran,
+# is Cancelled: a node a tick stops is marked as a cancel marks it, so a
+# redo can restart it (which nodes stop: agent_tree_tick_none_late,
+# agent_tree_tick_cancels_only_late)
+# EXCLUDES: a tick that marks a late node Finished or Failed (a timed-out
+#   child read as done, never redoable); a tick that rewrites or revives a
+#   settled node's status
+law agent_tree_tick_marks:
+  for +b: T.Bounds
+  for +t: T.Node
+  for +now: Nat
+  for +q: List<&2, T.Dir>
+  for +m: T.Node
+  for e: {S.node_at(q, t) == Some{m} : Maybe<&2, T.Node>}
+  {tick_moves(status_of(S.node_at(q, landed(T.step(b, t, T.EvTick{now}), t))), T.st_of(T.info(m))) == True{} : Bool}
+
 # Laws: bounds (T9)
 # -----------------
 
@@ -1326,6 +1486,36 @@ law agent_tree_nodes_configured:
   for lim: T.Lim
   for dl: T.Lim
   {Nat.is_le(S.nodes(T.run(evs, T.Bounds{d, 1n+n, m}, T.init(s, lim, dl))), 1n+n) == True{} : Bool}
+
+# LAW agent_tree_depth_reads_config (T9, T1): the depth bound every split
+# check uses (agent_tree_split_is_spec) is the configured max_depth, so a
+# split at any depth the configured bounds allow is admitted
+# EXCLUDES: max_depth read capped (at one level, or any smaller number),
+#   refusing deeper splits the configuration allows
+law agent_tree_depth_reads_config:
+  for +d: Nat
+  for n: Nat
+  for m: Nat
+  {T.bound_depth(T.Bounds{d, n, m}) == d : Nat}
+
+# LAW agent_tree_nodes_reads_config (T9, T1): the node bound every split
+# check uses is the configured max_nodes
+# EXCLUDES: max_nodes read smaller, refusing splits the configuration
+#   allows
+law agent_tree_nodes_reads_config:
+  for d: Nat
+  for +n: Nat
+  for m: Nat
+  {T.bound_nodes(T.Bounds{d, n, m}) == n : Nat}
+
+# LAW agent_tree_margin_reads_config (T9, T1): the deadline margin every
+# split gives its children is the configured margin
+# EXCLUDES: the margin read as another number below the root
+law agent_tree_margin_reads_config:
+  for d: Nat
+  for n: Nat
+  for +m: Nat
+  {T.bound_margin(T.Bounds{d, n, m}) == m : Nat}
 
 # Laws: never idle (T10)
 # ----------------------

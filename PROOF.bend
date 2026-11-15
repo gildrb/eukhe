@@ -3719,7 +3719,16 @@ import ./proof/agent_tree/agent_tree_init_deadline.bend as PAgentTreeInitDeadlin
 import ./proof/agent_tree/agent_tree_cancel_marks.bend as PAgentTreeCancelMarks
 import ./proof/agent_tree/agent_tree_cancel_keeps.bend as PAgentTreeCancelKeeps
 import ./proof/agent_tree/agent_tree_cancel_shape.bend as PAgentTreeCancelShape
+import ./proof/agent_tree/agent_tree_cancel_needs_node.bend as PAgentTreeCancelNeedsNode
+import ./proof/agent_tree/agent_tree_fail_needs_node.bend as PAgentTreeFailNeedsNode
+import ./proof/agent_tree/agent_tree_fail_shape.bend as PAgentTreeFailShape
 import ./proof/agent_tree/agent_tree_tick_shape.bend as PAgentTreeTickShape
+import ./proof/agent_tree/agent_tree_tick_marks.bend as PAgentTreeTickMarks
+import ./proof/agent_tree/agent_tree_result_leaf.bend as PAgentTreeResultLeaf
+import ./proof/agent_tree/agent_tree_depth_reads_config.bend as PAgentTreeDepthReadsConfig
+import ./proof/agent_tree/agent_tree_nodes_reads_config.bend as PAgentTreeNodesReadsConfig
+import ./proof/agent_tree/agent_tree_margin_reads_config.bend as PAgentTreeMarginReadsConfig
+import ./proof/agent_tree/agent_tree_fail_marks.bend as PAgentTreeFailMarks
 import ./proof/agent_tree/agent_tree_split_reads_bounds.bend as PAgentTreeSplitReadsBounds
 import ./proof/agent_tree/agent_tree_apply_lands.bend as PAgentTreeApplyLands
 import ./proof/agent_tree/agent_tree_result_integrates.bend as PAgentTreeResultIntegrates
