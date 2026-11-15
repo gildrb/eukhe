@@ -115,11 +115,8 @@ tool calls, the tree of agents and subagents, settings and themes.
 ## WHO MAKES IT
 
 Eukhe is made by Gil Rodrigues ([gildrb.com](https://gildrb.com)), a
-designer and developer. It is a fork of Prime Intellect's
-[Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), and its
-chat memory follows Victor Taelin's OptChat and
-[OptMem](https://github.com/VictorTaelin/OptMem). It is not affiliated
-with Prime Intellect, Victor Taelin or Earendil.
+designer and developer. Its chat memory follows Victor Taelin's OptChat
+and [OptMem](https://github.com/VictorTaelin/OptMem).
 
 ## SOURCE
 
