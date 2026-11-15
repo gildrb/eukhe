@@ -85,15 +85,15 @@ struct RunFill {
 
 /// The runs of a gate: how they fill, one start at a time, the model of
 /// the session's last request, whether the current run's first work
-/// request is still to come, the plan notices, and what the principal set
-/// or added for the next run while the session was idle.
+/// request is still to come, whether the session's account has a run (its
+/// first effect starts none), and the plan notices.
 pub(super) struct Runs {
     fill: OnceLock<RunFill>,
     starting: Mutex<()>,
     seen: Mutex<Option<SeenModel>>,
     fresh: AtomicBool,
+    ran: AtomicBool,
     notices: broadcast::Sender<PlanNotice>,
-    pub(super) next: Mutex<NextRun>,
 }
 
 impl Default for Runs {
@@ -103,8 +103,8 @@ impl Default for Runs {
             starting: Mutex::new(()),
             seen: Mutex::new(None),
             fresh: AtomicBool::new(false),
+            ran: AtomicBool::new(false),
             notices: broadcast::Sender::new(16),
-            next: Mutex::new(NextRun::default()),
         }
     }
 }
@@ -444,78 +444,57 @@ impl BudgetGate {
     /// Sets limits for the session's next run, as the principal asks them
     /// while the session runs nothing (`/budget set` while idle) over what
     /// was set for it before: the next run starts with them, the `/b`
-    /// pairs of its message over them. Returns the report that shows them.
-    /// Blocking file IO.
+    /// pairs of its message over them. They are in the ledger before this
+    /// returns, so a restart keeps them. Returns the report that shows
+    /// them ([`BudgetReport::next`]). Blocking file IO.
     ///
     /// # Errors
     ///
-    /// The ledger does not read.
+    /// [`LedgerError::NotRoot`] for a session that draws from another
+    /// account, and the ledger's failures.
     pub fn set_next(&self, limits: RunLimits) -> Result<BudgetReport, LedgerError> {
-        self.change_next(|next| next.limits = limits.over(next.limits))
+        self.change_next(|next| NextRun {
+            limits: limits.over(next.limits),
+            added: next.added,
+        })
     }
 
     /// Adds `amounts` to the session's next run (`/budget add` while
     /// idle): a dimension the run leaves unlimited takes the amount as its
-    /// limit. Returns the report that shows them. Blocking file IO.
+    /// limit. Kept in the ledger as [`Self::set_next`]. Returns the report
+    /// that shows them. Blocking file IO.
     ///
     /// # Errors
     ///
-    /// The ledger does not read.
+    /// As [`Self::set_next`].
     pub fn add_next(&self, amounts: BudgetAmounts) -> Result<BudgetReport, LedgerError> {
-        self.change_next(|next| {
-            next.added = BudgetDimension::ALL
+        self.change_next(|next| NextRun {
+            limits: next.limits,
+            added: BudgetDimension::ALL
                 .into_iter()
                 .fold(next.added, |sum, dimension| {
                     sum.with(
                         dimension,
                         sum.get(dimension).saturating_add(amounts.get(dimension)),
                     )
-                });
+                }),
         })
     }
 
     /// Change what the next run starts with while no run starts; the
-    /// report that shows it ([`Self::shown_report`]), published.
-    fn change_next(&self, change: impl FnOnce(&mut NextRun)) -> Result<BudgetReport, LedgerError> {
-        {
-            let _serial = self
-                .runs
-                .starting
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            change(
-                &mut self
-                    .runs
-                    .next
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner),
-            );
-        }
-        if let Some(report) = self.read()? {
-            return Ok(report);
-        }
-        let report = self.next_only();
+    /// report that shows it, published.
+    fn change_next(
+        &self,
+        change: impl FnOnce(&NextRun) -> NextRun,
+    ) -> Result<BudgetReport, LedgerError> {
+        let _serial = self
+            .runs
+            .starting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let report = self.ledger.change_next_run(change)?;
         self.publish(&report);
         Ok(report)
-    }
-
-    /// What `/budget` shows: the budget's report ([`Self::report`]), or,
-    /// for a session without a budget yet, a report of nothing but the
-    /// limits set or added for its next run; `None` without either.
-    /// Blocking file IO.
-    #[must_use]
-    pub fn shown_report(&self) -> Option<BudgetReport> {
-        self.report()
-            .or_else(|| Some(self.next_only()).filter(|report| report.next.is_some()))
-    }
-
-    /// A report of nothing but what the next run starts with.
-    fn next_only(&self) -> BudgetReport {
-        self.with_next(BudgetReport {
-            session_id: self.agent().to_owned(),
-            agent_session_id: self.agent().to_owned(),
-            ..BudgetReport::default()
-        })
     }
 
     fn set_current(
@@ -557,15 +536,10 @@ impl BudgetGate {
             .or_else(|| current.as_ref().map(|run| run.standing))
             .unwrap_or_default();
         // A new run starts with what the principal set or added while the
-        // session was idle (its message's `/b` pairs over it); it is used
-        // up once the run started.
+        // session was idle (its message's `/b` pairs over it); the ledger
+        // record that starts it uses them up.
         let next = match begin {
-            Begin::New => self
-                .runs
-                .next
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
+            Begin::New => self.ledger.next_run()?,
             Begin::Current => NextRun::default(),
         };
         let (mut asked, names) = match (begin, &current) {
@@ -662,13 +636,6 @@ impl BudgetGate {
         };
         match started {
             Ok(report) => {
-                if begin == Begin::New {
-                    *self
-                        .runs
-                        .next
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = NextRun::default();
-                }
                 if begin == Begin::New || first {
                     self.runs.fresh.store(true, Ordering::Relaxed);
                 }
@@ -681,16 +648,20 @@ impl BudgetGate {
         }
     }
 
-    /// The first effect of a session that fills its runs and has no
-    /// budget starts its first run. Blocking file IO.
+    /// The first effect of a session that fills its runs and has no run
+    /// yet starts its first run. Blocking file IO until the session's
+    /// account has a run.
     pub(super) fn ensure_run(&self) -> Result<(), RunError> {
         if let Some(fill) = self.runs.fill.get() {
+            if self.runs.ran.load(Ordering::Relaxed) {
+                return Ok(());
+            }
             let _serial = self
                 .runs
                 .starting
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            if !self.ledger.exists() {
+            if self.ledger.awaits_run()? {
                 self.begin(
                     RunStart {
                         kind: fill.kind,
@@ -699,6 +670,7 @@ impl BudgetGate {
                     Begin::New,
                 )?;
             }
+            self.runs.ran.store(true, Ordering::Relaxed);
         }
         Ok(())
     }

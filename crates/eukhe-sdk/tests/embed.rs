@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 use eukhe_sdk::budget::{
-    BudgetAmounts, BudgetLimits, BudgetReport, BudgetSources, LimitSource, RunKind,
+    BudgetAmounts, BudgetLimits, BudgetReport, BudgetSources, LimitSource, LimitValue, RunKind,
 };
 use eukhe_sdk::context::BACKGROUND_CONTEXT;
 use eukhe_sdk::{
     add_budget, audit_budget, available_models, budget_report, new_session_id, open_session,
-    prompt, set_budget, watch, watch_budget, AgentEvent, BudgetAudit, ModelRequest, SessionConfig,
-    SessionStorage,
+    prompt, set_budget, watch, watch_budget, AgentEvent, BudgetAudit, BudgetScope, ModelRequest,
+    SessionConfig, SessionStorage,
 };
 
 #[tokio::test]
@@ -89,10 +89,10 @@ async fn a_host_opens_a_session_prompts_it_and_reads_its_events() {
     );
 }
 
-/// A budget set through the facade is the session's: it reads back with
-/// its limits free as the principal's for an SDK run, its change reaches
-/// the watch, a second set replaces it, added budget raises it, and its
-/// ledger replays exactly (B1, B6, B8, B9, B15, B19).
+/// A standing budget set through the facade is the session's: it reads
+/// back with its limits free as the principal's for an SDK run, its change
+/// reaches the watch, a second set replaces it, added budget raises it, and
+/// its ledger replays exactly (B1, B6, B8, B9, B15, B19).
 #[tokio::test]
 async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
     let cx = &*BACKGROUND_CONTEXT;
@@ -125,13 +125,17 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
     };
     let mut changes = watch_budget(&session);
     let before = budget_report(&session).await.unwrap();
-    let set = set_budget(&session, limits(100_000)).await.unwrap();
+    let set = set_budget(&session, limits(100_000), BudgetScope::Standing, cx)
+        .await
+        .unwrap();
     tokio::time::timeout(Duration::from_secs(20), changes.changed())
         .await
         .expect("the set budget reaches the watch")
         .unwrap();
     let watched = changes.borrow_and_update().clone();
-    let again = set_budget(&session, limits(7)).await.unwrap();
+    let again = set_budget(&session, limits(7), BudgetScope::Standing, cx)
+        .await
+        .unwrap();
     let added = add_budget(&session, amounts(25_000)).await.unwrap();
     let read = budget_report(&session).await.unwrap();
     let audit = audit_budget(&session).await.unwrap();
@@ -165,6 +169,78 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
                 exact: true,
                 first_mismatch: None,
             },
+        )
+    );
+}
+
+/// One meaning per scope (B15): [`BudgetScope::Run`] while the session is
+/// idle limits the next prompt's run only, as `/budget set` does, and shows
+/// as the next run's until then; [`BudgetScope::Standing`] limits every
+/// prompt's run from then on, as a create's budget does.
+#[tokio::test]
+async fn a_run_budget_set_while_idle_caps_the_next_prompt_and_a_standing_one_every_prompt() {
+    let cx = &*BACKGROUND_CONTEXT;
+    let dir = tempfile::TempDir::new().unwrap();
+    let script = parse_faux_script(
+        &serde_json::json!({ "responses": ["ok"], "repeatLastResponse": true }).to_string(),
+    )
+    .unwrap();
+    let model_id = script.model.id.clone();
+    let (models, _provider) = create_faux_script_models(script);
+    let mut config = SessionConfig::new(
+        dir.path().join("agent"),
+        dir.path(),
+        new_session_id(),
+        SessionStorage::Memory,
+    );
+    config.models = Some(models);
+    config.model = Some(ModelRequest {
+        provider: Some("faux".to_owned()),
+        pattern: model_id,
+    });
+    let session = open_session(config, cx).await.unwrap();
+    let conversation = session.main();
+    let calls = |calls| BudgetLimits {
+        tool_calls: Some(calls),
+        ..BudgetLimits::default()
+    };
+    let mut ran = Vec::new();
+    let next = set_budget(&session, calls(40), BudgetScope::Run, cx)
+        .await
+        .unwrap();
+    for text in ["one", "two"] {
+        prompt(&session, &conversation, text, cx).await.unwrap();
+        ran.push(budget_report(&session).await.unwrap().expect("a budget"));
+    }
+    set_budget(&session, calls(30), BudgetScope::Standing, cx)
+        .await
+        .unwrap();
+    for text in ["three", "four"] {
+        prompt(&session, &conversation, text, cx).await.unwrap();
+        ran.push(budget_report(&session).await.unwrap().expect("a budget"));
+    }
+    session.close(cx).await.unwrap();
+    assert_eq!(
+        (
+            next.limits,
+            next.next.map(|next| next.limits.tool_calls),
+            ran.iter()
+                .map(|report| (
+                    report.limits.tool_calls,
+                    report.sources.tool_calls.clone(),
+                    report.next.is_some()
+                ))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            BudgetLimits::default(),
+            Some(Some(LimitValue::At(40))),
+            vec![
+                (Some(40), LimitSource::Set, false),
+                (None, LimitSource::UntilFinished, false),
+                (Some(30), LimitSource::Set, false),
+                (Some(30), LimitSource::Set, false),
+            ],
         )
     );
 }

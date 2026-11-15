@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use eukhe_bend::rules::budget::{Acct, Hold};
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources, PlanShare, RunKind,
-    RunLimits,
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources, NextRun, PlanShare,
+    RunKind, RunLimits,
 };
 use serde::{Deserialize, Serialize};
 
@@ -209,7 +209,9 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<ParentRef>,
         /// The run the budget is for; `None` in a ledger written before
-        /// runs were recorded, and for a child's allotment.
+        /// runs were recorded, for a child's allotment, and for an account
+        /// opened by limits set for a session's first run while it was
+        /// idle ([`Op::NextRun`] follows).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<RunRecord>,
     },
@@ -226,7 +228,15 @@ pub enum Op {
         mark: BudgetAmounts,
         #[serde(default, skip_serializing_if = "is_zero")]
         program_runs: u64,
+        /// What stays set for the next run: nothing after a new run (it
+        /// took them), the account's after a set of the current run.
+        #[serde(default, skip_serializing_if = "NextRun::is_empty")]
+        next_run: NextRun,
     },
+    /// The principal set or added limits for the account's next run while
+    /// the session ran nothing (`/budget set`, `/budget add`): they replace
+    /// what was set for it before, until a new run takes them.
+    NextRun { next_run: NextRun },
     /// The agent's run reached its share of a plan's quota: it wraps up.
     PlanWrap { agent: String, plan: PlanShare },
     /// A child without a budget of its own draws from this account, below
@@ -365,6 +375,10 @@ pub struct State {
     /// The plan share the run ended at.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<PlanShare>,
+    /// What the principal set or added for the next run while the session
+    /// ran nothing; the next run takes them.
+    #[serde(skip_serializing_if = "NextRun::is_empty")]
+    pub next_run: NextRun,
 }
 
 /// One line of a ledger file.

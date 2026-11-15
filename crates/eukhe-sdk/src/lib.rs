@@ -48,17 +48,22 @@
 //!   follows the ledger (its current state first, then every change).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
-//! - [`set_budget`] sets the [`budget`] limits of every run of the
-//!   session (a number or `unlimited` per dimension: money, tokens, tool
-//!   calls, model requests, and a wall-clock time per run) that nothing
-//!   the session or the agents beneath it spend can pass; each model
-//!   request and tool call reserves its worst case first, and a provider
-//!   that reports more than the reserve leaves an overrun. [`add_budget`]
-//!   adds to the current run (time moves the deadline; an exhausted
-//!   session works again), [`budget_report`] reads what is free, held,
-//!   spent and lent, each limit's source and the time left,
-//!   [`watch_budget`] follows every change, [`watch_plan_notices`] the
-//!   plan usage notices, and [`audit_budget`] replays the budget's ledger.
+//! - [`set_budget`] sets the [`budget`] limits of the session's runs (a
+//!   number or `unlimited` per dimension: money, tokens, tool calls, model
+//!   requests, and a wall-clock time per run) that nothing the session or
+//!   the agents beneath it spend can pass; each model request and tool
+//!   call reserves its worst case first, and a provider that reports more
+//!   than the reserve leaves an overrun. Its [`BudgetScope`] says which
+//!   runs: [`BudgetScope::Run`] is `/budget set` (the running run, or,
+//!   while the session is idle, the next prompt's run only),
+//!   [`BudgetScope::Standing`] is a create's `budget` config (every run
+//!   from now on, the running one included). [`add_budget`] adds to the
+//!   current run (time moves the deadline; an exhausted session works
+//!   again), [`budget_report`] reads what is free, held, spent and lent,
+//!   each limit's source, the time left and the limits set for the next
+//!   run, [`watch_budget`] follows every change, [`watch_plan_notices`]
+//!   the plan usage notices, and [`audit_budget`] replays the budget's
+//!   ledger.
 //! - [`set_acceptance`] sets the acceptance checks of a conversation's
 //!   task as its owner (pass [`owner_checks`] of the explicit
 //!   [`CheckSpec`]s to add the intent check);
@@ -105,7 +110,9 @@ pub use eukhe_types::pi_ai::Model;
 
 use budget::{BudgetAmounts, BudgetReport, PlanNotice, RunKind, RunLimits};
 use context::Context;
+use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::harness::types::InputSubmissionDraft;
+use eukhe_durable::harness::{LiveState, LIVE_DOC};
 
 /// A new session id (a `UUIDv7`, the form the engine stores).
 #[must_use]
@@ -128,11 +135,12 @@ pub async fn open_session(
 }
 
 /// Submit `text` to `conversation` of `session` as the user's input, as a
-/// new run of the session (its limits renewed: [`set_budget`]; a `/b`
-/// prefix of `text` fills it with the presets and limits it asks, and the
-/// model gets what follows the prefix), wait until its run settles, then
-/// until the conversation is idle (continuations, queued input and
-/// compaction included).
+/// new run of the session (its limits renewed: [`set_budget`], the limits
+/// set for it while the session was idle used up; a `/b` prefix of `text`
+/// fills it with the presets and limits it asks, and the model gets what
+/// follows the prefix), wait until its run settles, then until the
+/// conversation is idle (continuations, queued input and compaction
+/// included).
 ///
 /// # Errors
 ///
@@ -267,23 +275,67 @@ pub fn watch_unknown_effects(
     )?)
 }
 
-/// Give every run of `session` the limits `limits` (each prompt is a run):
-/// a dimension `limits` leaves unset fills as the session's runs do
-/// (`budget.limits` off: unlimited, until finished). The current run takes
-/// them at once; answers the budget's state.
+/// Which runs of a session [`set_budget`] limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetScope {
+    /// As `/budget set`: the limits of the running run, or, while the
+    /// session runs nothing, of its next run only (a `/b` pair of that
+    /// prompt going over them). Limits set for the next run are in the
+    /// budget's ledger before [`set_budget`] answers: a session opened
+    /// again after a crash still starts its next run with them.
+    Run,
+    /// The session's standing limits, as a create's `budget` config: every
+    /// run's from now on, the running run's included.
+    Standing,
+}
+
+/// Set the limits of `session`'s runs that `scope` names (each prompt is
+/// a run): a dimension `limits` leaves unset fills as the session's runs
+/// do (`budget.limits` off: unlimited, until finished). Answers the
+/// budget's state; limits for the next run show in its `next`.
 ///
 /// # Errors
 ///
 /// The session draws from another session's budget (the [`BudgetError`]
-/// `NotRoot`), a `budget.*` setting is no limit, or the ledger cannot be
-/// written.
+/// `NotRoot`), a `budget.*` setting is no limit, the session's live state
+/// does not read, or the ledger cannot be written.
 pub async fn set_budget(
     session: &EukheSession,
     limits: impl Into<RunLimits>,
+    scope: BudgetScope,
+    cx: &Context,
 ) -> anyhow::Result<BudgetReport> {
     let gate = session.budget();
     let limits = limits.into();
-    Ok(tokio::task::spawn_blocking(move || gate.set_standing(limits)).await??)
+    let live = match scope {
+        BudgetScope::Run => run_live(session, cx).await?,
+        BudgetScope::Standing => false,
+    };
+    tokio::task::spawn_blocking(move || -> anyhow::Result<BudgetReport> {
+        Ok(match (scope, live) {
+            (BudgetScope::Standing, _) => gate.set_standing(limits)?,
+            (BudgetScope::Run, true) => gate.set(limits)?,
+            (BudgetScope::Run, false) => gate.set_next(limits)?,
+        })
+    })
+    .await?
+}
+
+/// Whether a run is live on `session`'s main conversation (its `pi.live`
+/// document's run): limits set meanwhile are that run's.
+async fn run_live(session: &EukheSession, cx: &Context) -> anyhow::Result<bool> {
+    Ok(
+        match session
+            .harness()
+            .snapshot(&LIVE_DOC, session.main().id(), cx)
+            .await?
+        {
+            Some(value) => from_json::<LiveState>(&JsonValue::Object(value))?
+                .run
+                .is_some(),
+            None => false,
+        },
+    )
 }
 
 /// Add `amounts` to `session`'s budget; answers the budget's state. A

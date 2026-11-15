@@ -162,7 +162,7 @@ impl Worker {
     pub(crate) async fn handle_get_budget(&self) -> DaemonResponse {
         self.answer_budget("get_budget", |gate| {
             Ok::<_, BudgetError>(BudgetReply {
-                budget: gate.shown_report(),
+                budget: gate.report(),
             })
         })
         .await

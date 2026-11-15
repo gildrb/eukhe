@@ -24,7 +24,7 @@ use super::reads::{is_busy, rpc_context};
 pub(crate) async fn get_budget(state: &Arc<RpcState>) -> Result<ResponseData, RpcCommandError> {
     reply(state, |gate| {
         Ok::<_, eukhe_core::durable::budget::BudgetError>(BudgetReply {
-            budget: gate.shown_report(),
+            budget: gate.report(),
         })
     })
     .await

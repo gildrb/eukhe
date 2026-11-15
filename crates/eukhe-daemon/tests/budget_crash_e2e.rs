@@ -6,7 +6,9 @@
 //! (`<agent dir>/budgets/<session>.jsonl`) shows the reservation that was
 //! in flight charged in full exactly once, no hold left open, the next
 //! request reserved and settled normally (no double spend), and an audit
-//! that replays exactly.
+//! that replays exactly. Limits set while the session is idle (B15) are
+//! acknowledged only once on disk: a worker killed right after keeps them
+//! for the next task.
 #![allow(clippy::too_many_lines)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -366,5 +368,130 @@ fn a_worker_killed_mid_request_is_charged_its_reservation_once() {
             }),
         ),
         "the ledger replays exactly"
+    );
+}
+
+/// The limits `set_budget` sets while the session is idle are the next
+/// run's, on disk once acknowledged (B5, B15): the worker `SIGKILLed` right
+/// after the set, the respawned one shows them as the next run's and the
+/// next task runs capped by them, which uses them up.
+#[test]
+fn limits_set_while_idle_survive_a_worker_killed_before_the_next_task() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let agent_dir = dir.path().join("agent");
+    let sessions_dir = agent_dir.join("sessions");
+    std::fs::create_dir_all(&sessions_dir).expect("sessions dir");
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        json!({ "titles": { "generate": false } }).to_string(),
+    )
+    .expect("write settings.json");
+    let script = dir.path().join("faux.json");
+    std::fs::write(
+        &script,
+        json!({
+            "engine": "faux",
+            "repeatLastResponse": true,
+            "responses": [{ "text": "answered" }],
+        })
+        .to_string(),
+    )
+    .expect("write the faux script");
+
+    let socket = dir.path().join("idle-set-crash.sock");
+    let _supervisor = spawn_supervisor(&socket, &agent_dir);
+    let mut client = Client::connect(&socket);
+    let created = client.request(
+        "c1",
+        &json!({
+            "type": "create",
+            "config": {
+                "cwd": dir.path().to_string_lossy(),
+                "sessionDir": sessions_dir.to_string_lossy(),
+                "script": script.to_string_lossy(),
+                "name": "idle-set-crash",
+            },
+        }),
+    );
+    assert_eq!(created["success"], true, "create failed: {created}");
+    let active = created["data"]["activeSessionId"]
+        .as_str()
+        .expect("active session id")
+        .to_string();
+    // A first task: the session has run, and is idle.
+    let first = client.request(
+        "p1",
+        &json!({ "type": "prompt_and_wait", "activeSessionId": active, "message": "first" }),
+    );
+    assert_eq!(first["success"], true, "the first task failed: {first}");
+    let limits = json!({ "costMicros": 5_000_000, "toolCalls": 40 });
+    let set = client.request(
+        "s1",
+        &json!({ "type": "set_budget", "activeSessionId": active, "limits": limits }),
+    );
+    assert_eq!(set["success"], true, "set_budget failed: {set}");
+
+    // Kill the worker the moment the set is acknowledged.
+    let state = client.request(
+        "st1",
+        &json!({ "type": "get_state", "activeSessionId": active }),
+    );
+    let worker_pid = state["data"]["workerPid"].as_u64().expect("worker pid");
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &worker_pid.to_string()])
+        .status()
+        .expect("kill");
+    assert!(killed.success(), "kill -9 {worker_pid}");
+
+    // A command sent before the respawned worker serves it fails; it is
+    // sent again until one is served.
+    let deadline = Instant::now() + WAIT;
+    let pending = loop {
+        let read = client.request(
+            "g1",
+            &json!({ "type": "get_budget", "activeSessionId": active }),
+        );
+        let pid = client.request(
+            "st2",
+            &json!({ "type": "get_state", "activeSessionId": active }),
+        )["data"]["workerPid"]
+            .as_u64();
+        if read["success"] == true && pid.is_some_and(|pid| pid != worker_pid) {
+            break read;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the session never came back: {read}"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let ran = client.request(
+        "p2",
+        &json!({ "type": "prompt_and_wait", "activeSessionId": active, "message": "after the crash" }),
+    );
+    assert_eq!(ran["success"], true, "the next task failed: {ran}");
+    let after = client.request(
+        "g2",
+        &json!({ "type": "get_budget", "activeSessionId": active }),
+    );
+    let budget = &after["data"]["budget"];
+    assert_eq!(
+        (
+            set["data"]["budget"]["next"].clone(),
+            pending["data"]["budget"]["next"].clone(),
+            budget["limits"].clone(),
+            budget["sources"]["costMicros"].clone(),
+            budget["sources"]["toolCalls"].clone(),
+            budget.get("next").cloned(),
+        ),
+        (
+            json!({ "limits": limits }),
+            json!({ "limits": limits }),
+            limits,
+            json!({ "source": "set" }),
+            json!({ "source": "set" }),
+            None,
+        ),
+        "the limits set while idle outlive the worker and cap the next task"
     );
 }

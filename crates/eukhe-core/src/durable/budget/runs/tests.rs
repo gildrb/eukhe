@@ -3,6 +3,7 @@
 //! limits off an unset dimension goes until finished. A plan window past
 //! its share wraps the run up (limits on) or is told once (limits off).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use eukhe_ai::quota::{CredentialId, PlanQuota, QuotaBoard, QuotaSource, QuotaWindow};
@@ -22,7 +23,19 @@ const HOUR: u64 = 3_600_000;
 /// with the principal's `profile`.
 fn gate(limits: BudgetLimitsMode, auth: AuthClass, profile: Value) -> (TempDir, Arc<BudgetGate>) {
     let dir = TempDir::new().unwrap();
-    let gate = BudgetGate::open(dir.path(), "session", None);
+    let gate = gate_at(dir.path(), limits, auth, profile);
+    (dir, gate)
+}
+
+/// [`gate`] over the budgets of `dir`: a session opened again sees what
+/// its ledger kept.
+fn gate_at(
+    dir: &Path,
+    limits: BudgetLimitsMode,
+    auth: AuthClass,
+    profile: Value,
+) -> Arc<BudgetGate> {
+    let gate = BudgetGate::open(dir, "session", None);
     gate.fill_runs(
         RunKind::Interactive,
         Arc::new(move |_| RunFacts {
@@ -33,7 +46,7 @@ fn gate(limits: BudgetLimitsMode, auth: AuthClass, profile: Value) -> (TempDir, 
             presets: json!({ "tight": { "requests": 7 } }),
         }),
     );
-    (dir, gate)
+    gate
 }
 
 fn start(
@@ -301,6 +314,55 @@ fn limits_set_while_idle_apply_to_the_next_run_only() {
             },
             None,
             BudgetLimits::default()
+        )
+    );
+}
+
+/// B15, B5: limits set or added while the session runs nothing are in its
+/// ledger once acknowledged: a session opened again (after a crash) shows
+/// them and its next run starts with them, here a session that never ran
+/// whose first effect starts that run; once taken they stay used up.
+#[test]
+fn limits_set_while_idle_survive_a_reopen() {
+    let dir = TempDir::new().unwrap();
+    let open = || {
+        gate_at(
+            dir.path(),
+            BudgetLimitsMode::Off,
+            AuthClass::ApiKey,
+            Value::Null,
+        )
+    };
+    let set = open();
+    set.set_next(RunLimits {
+        tool_calls: Some(LimitValue::At(9)),
+        ..RunLimits::default()
+    })
+    .unwrap();
+    set.add_next(one_request()).unwrap();
+    drop(set);
+    let reopened = open();
+    let shown = reopened.report().and_then(|report| report.next);
+    reopened.ensure_run().unwrap();
+    let ran = reopened.report().expect("the run's budget");
+    drop(reopened);
+    let after = open().report().expect("the run's budget");
+    assert_eq!(
+        (
+            shown.map(|next| (next.limits.tool_calls, next.added.requests)),
+            ran.limits,
+            (ran.sources.tool_calls, ran.sources.requests),
+            after.next,
+        ),
+        (
+            Some((Some(LimitValue::At(9)), 1)),
+            BudgetLimits {
+                tool_calls: Some(9),
+                requests: Some(1),
+                ..BudgetLimits::default()
+            },
+            (LimitSource::Set, LimitSource::Set),
+            None,
         )
     );
 }

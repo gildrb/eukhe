@@ -117,8 +117,9 @@ async fn next_budget_update(events: &mut broadcast::Receiver<Arc<OutboundFrame>>
     }
 }
 
-/// The report of a session without a budget yet that shows only what its
-/// next run starts with (`next`).
+/// The report of a session that has not run yet: the account its limits
+/// for the next run opened, without limits, showing only what that run
+/// starts with (`next`).
 fn next_only(session_id: &str, next: &Value) -> Value {
     let zero = amounts(0, 0, 0);
     json!({

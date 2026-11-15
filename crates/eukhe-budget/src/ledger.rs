@@ -457,8 +457,16 @@ fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
                 now_ms,
                 mark,
                 program_runs,
+                next_run,
             } => {
-                next = runs::renewed(state, limits, run, *now_ms, *mark, *program_runs)?;
+                next = State {
+                    next_run: next_run.clone(),
+                    ..runs::renewed(state, limits, run, *now_ms, *mark, *program_runs)?
+                };
+                Outcome::Done
+            }
+            Op::NextRun { next_run } => {
+                next.next_run = next_run.clone();
                 Outcome::Done
             }
             Op::PlanWrap { agent, plan } => {
@@ -939,8 +947,7 @@ impl Locked {
                 .unwrap_or_default(),
             program_runs: state.program_runs,
             plan: state.plan.clone(),
-            // The gate keeps what the next run starts with.
-            next: None,
+            next: Some(state.next_run.clone()).filter(|next| !next.is_empty()),
         }
     }
 
@@ -969,6 +976,13 @@ impl Locked {
         }
         self.file.write_all(&line).map_err(|e| self.io(e))?;
         self.file.sync_data().map_err(|e| self.io(e))?;
+        // The file's first record: its directory entry is made durable
+        // too, or a crash could lose the file with what it acknowledged.
+        if let (0, Some(dir)) = (self.end, self.path.parent()) {
+            File::open(dir)
+                .and_then(|dir| dir.sync_all())
+                .map_err(|e| self.io(e))?;
+        }
         self.end += line.len() as u64;
         self.last = Some(record);
         Ok(outcome)
@@ -1938,6 +1952,7 @@ impl Ledger {
                 | Op::Reclaim { .. }
                 | Op::Fund { .. }
                 | Op::Limit { .. }
+                | Op::NextRun { .. }
                 | Op::PlanWrap { .. } => settled,
             };
             state = record.state;

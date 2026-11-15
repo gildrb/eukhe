@@ -5,7 +5,7 @@
 
 use eukhe_bend::rules::limits::{self as limits_core, renew, Lims, Val};
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, LimitSource,
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, LimitSource, NextRun,
     PlanShare, BUDGET_AMOUNT_MAX,
 };
 
@@ -198,9 +198,11 @@ impl Ledger {
                 return Err(LedgerError::NotRoot(self.session_id.clone()));
             }
             Some(state) => {
-                let (mark, program_runs) = match mark {
-                    Mark::Now => (add(state.account.spent, state.tally), 0),
-                    Mark::Kept => (state.mark, state.program_runs),
+                // A new run takes what was set for it; a set of the
+                // current run leaves that for the next one.
+                let (mark, program_runs, next_run) = match mark {
+                    Mark::Now => (add(state.account.spent, state.tally), 0, NextRun::default()),
+                    Mark::Kept => (state.mark, state.program_runs, state.next_run.clone()),
                 };
                 Op::Renew {
                     limits,
@@ -208,6 +210,7 @@ impl Ledger {
                     now_ms: now,
                     mark,
                     program_runs,
+                    next_run,
                 }
             }
         };
@@ -223,6 +226,86 @@ impl Ledger {
     pub fn run(&self) -> Result<Option<RunRecord>, LedgerError> {
         Ok(Locked::open(&self.path(), false)?
             .and_then(|locked| locked.state().and_then(|state| state.run.clone())))
+    }
+
+    /// What the principal set or added for the session's next run, as its
+    /// own account records it; nothing without one.
+    ///
+    /// # Errors
+    ///
+    /// The file's failures.
+    pub fn next_run(&self) -> Result<NextRun, LedgerError> {
+        Ok(Locked::open(&self.path(), false)?
+            .and_then(|locked| locked.state().map(|state| state.next_run.clone()))
+            .unwrap_or_default())
+    }
+
+    /// Whether the session's first effect starts a run: it has no budget,
+    /// or owns a root account that no run started yet (one opened by
+    /// limits set for its next run while it was idle, or written before
+    /// runs were recorded).
+    ///
+    /// # Errors
+    ///
+    /// The file's failures.
+    pub fn awaits_run(&self) -> Result<bool, LedgerError> {
+        if self.link_path().is_file() {
+            return Ok(false);
+        }
+        Ok(Locked::open(&self.path(), false)?
+            .and_then(|locked| {
+                locked.state().map(|state| {
+                    state.run.is_none() && state.parent.is_none() && state.returned.is_none()
+                })
+            })
+            .unwrap_or(true))
+    }
+
+    /// Sets what the session's next run starts with to `change` of what
+    /// was set for it before, while the session runs nothing; a session
+    /// without a budget first opens its account, unlimited and without a
+    /// run. The record is on disk before this returns: a crash before the
+    /// next run never loses it, and the run that starts takes it in its own
+    /// record ([`Self::start_run`]).
+    ///
+    /// # Errors
+    ///
+    /// [`LedgerError::NotRoot`] for a session that draws from another
+    /// account or was given a budget by its parent, and the file's or the
+    /// core's failures.
+    pub fn change_next_run(
+        &self,
+        change: impl FnOnce(&NextRun) -> NextRun,
+    ) -> Result<BudgetReport, LedgerError> {
+        if self.link_path().is_file() {
+            return Err(LedgerError::NotRoot(self.session_id.clone()));
+        }
+        let Some(mut locked) = Locked::open(&self.path(), true)? else {
+            return Err(LedgerError::NoBudget(self.session_id.clone()));
+        };
+        let now = (self.clock)();
+        let set = match locked.state() {
+            None => None,
+            Some(state) if state.parent.is_some() || state.returned.is_some() => {
+                return Err(LedgerError::NotRoot(self.session_id.clone()));
+            }
+            Some(state) => Some(state.next_run.clone()),
+        };
+        if set.is_none() {
+            locked.apply(
+                Op::Open {
+                    agent: self.session_id.clone(),
+                    limits: BudgetLimits::default(),
+                    deadline_ms: None,
+                    parent: None,
+                    run: None,
+                },
+                now,
+            )?;
+        }
+        let next_run = change(&set.unwrap_or_default());
+        locked.apply(Op::NextRun { next_run }, now)?;
+        Ok(locked.report(&self.session_id, &self.session_id, now))
     }
 
     /// `agent`'s run reached its share of a plan's quota (`plan`): the
