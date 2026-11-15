@@ -30,6 +30,8 @@ rustPlatform.buildRustPackage {
     lockFile = src + "/Cargo.lock";
     outputHashes."crossterm-0.28.1" = "sha256-E0HlWhiJiaINnY3ev05AHKOwEV8VI4D/GCbHSEwmqSo=";
   };
+  # The shipping profile of the release builds (root Cargo.toml [profile.dist]).
+  buildType = "dist";
   cargoBuildFlags = [
     "-p"
     "eukhe-cli"

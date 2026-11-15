@@ -152,36 +152,45 @@ unnecessary_literal_bound = "warn"
 unnecessary_semicolon = "warn"
 used_underscore_binding = "warn"
 
-# Dev and test builds keep file:line in backtraces and drop the rest of the
-# debug info (variables, types): smaller objects, faster links. A debugger
-# session that needs locals: CARGO_PROFILE_DEV_DEBUG=full.
+# Dev and test builds keep file:line in backtraces of eukhe's own crates and
+# drop the rest of the debug info (variables, types): smaller objects, faster
+# links. Dependencies build without debug info (their frames keep function
+# names): measured on an M4 (median of 3, -j4), clean dev build 89.0 -> 85.4 s,
+# `cargo test --no-run` after a one-line eukhe-core edit 64.2 -> 62.6 s, the
+# binary after that edit 10.9 -> 10.4 s. A debugger session that needs
+# locals: CARGO_PROFILE_DEV_DEBUG=full.
 [profile.dev]
 debug = "line-tables-only"
 
-# Shipping posture: fat LTO in one codegen unit (it was thin LTO with 4
-# units for cross-crate inlining in the hot render path; fat LTO inlines
-# across all crates too). The per-unit copies of generic and inline code
-# go (static symbols 200k -> 104k). Measured on linux-x64 (0.10.75
-# sources): the shipped binary 124.4 -> 96.1 MB, its .tar.xz 30.2 -> 27.1
-# MB, startup unchanged; the release build takes about 40% longer. Builds emit line
-# tables and do NOT strip at link: the release pipeline's split_debug step
-# produces the SHIPPED binary (objcopy --strip-debug — DWARF gone, function
-# names stay) and the split-debug decoder sidecar (objcopy
-# --only-keep-debug, gzipped) from the SAME linked image, so the decoder's
-# addresses match the shipped binary exactly. A second unstripped build
-# would NOT match: link-stage layout differs when stripping runs at link
-# (measured: .text sha256 differs between the link-strip and no-strip
-# builds of the same source). TRADEOFF, stated explicitly: the shipped
-# binary's panic backtraces keep function names but lose file:line; the
-# decoder restores file:line offline and ships as a SEPARATE release
-# asset, never install payload (assemble_artifacts.py hard-fails on
-# decoder sidecars). .dynsym survives stripping, so dynamic linking and
-# the release GLIBC baseline gate are unaffected. macOS: the linker leaves
-# the DWARF in the object files and the executable only a debug map naming
-# them, which no user machine has; the release workflow builds darwin with
-# CARGO_PROFILE_RELEASE_STRIP=debuginfo (`strip -S`: the map goes, function
-# names stay; a dSYM decoder is a documented follow-up).
-[profile.release]
+[profile.dev.package."*"]
+debug = false
+
+# `cargo build --release` is the local optimized build: cargo's defaults (no
+# cross-crate LTO, 16 codegen units, no debug info). Measured on an M4 against
+# fat LTO in one unit with line tables: clean 573 -> 283 s, a one-line
+# eukhe-core edit 611 -> 179 s or less. The shipped binary is the dist profile.
+
+# The shipped build: eukhe-release.yml, nix/source.nix, `make
+# release-dry-run`/`package` (`cargo build --profile dist`). Fat LTO in one
+# codegen unit. Measured in the release jobs (median of 3): linux-x64 16.3 min
+# against 11.9 (thin LTO, 16 units) for a .tar.xz of 27.6 MB against 31.9 and
+# 99 MB unpacked against 144; linux-arm64 17.5 against 11.3 min, 22.8 against
+# 26.8 MB, 92 against 141 MB unpacked. Fat LTO in 16 units is slower than in
+# one and runs out of memory on the runners. Builds emit line tables and do
+# NOT strip at link: the release pipeline's split_debug step produces the
+# SHIPPED binary (objcopy --strip-debug: DWARF gone, function names stay) and
+# the split-debug decoder sidecar (objcopy --only-keep-debug, gzipped) from
+# the SAME linked image, so the decoder's addresses match the shipped binary
+# exactly (link-stage layout differs when stripping runs at link). The
+# shipped binary's panic backtraces keep function names but lose file:line;
+# the decoder restores file:line offline and ships as a SEPARATE release
+# asset, never install payload (assemble_artifacts.py hard-fails on decoder
+# sidecars). .dynsym survives stripping, so dynamic linking and the GLIBC
+# baseline gate are unaffected. macOS: the release workflow builds darwin
+# with CARGO_PROFILE_DIST_STRIP=debuginfo (the debug map naming the runner's
+# object files goes, function names stay).
+[profile.dist]
+inherits = "release"
 lto = "fat"
 codegen-units = 1
 debug = "line-tables-only"

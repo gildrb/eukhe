@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Produce the shipped binary and its split-debug decoder from one build.
 
-Kevin's Option C shipping posture: the release build emits line tables and
-does not strip at link (see [profile.release] in Cargo.toml). This step
+Kevin's Option C shipping posture: the dist build emits line tables and
+does not strip at link (see [profile.dist] in Cargo.toml). This step
 splits that ONE linked image so the decoder's DWARF addresses match the
 shipped binary exactly:
 
@@ -21,9 +21,9 @@ shipped binary's backtraces or ``nm``/``objdump -t``.
 
 Usage:
     python3 scripts/release/split_debug.py \
-        --binary target/x86_64-unknown-linux-gnu/release/eukhe \
-        --shipped target/x86_64-unknown-linux-gnu/dist/eukhe \
-        --out target/x86_64-unknown-linux-gnu/dist \
+        --binary target/x86_64-unknown-linux-gnu/dist/eukhe \
+        --shipped target/x86_64-unknown-linux-gnu/package/eukhe \
+        --out target/x86_64-unknown-linux-gnu/package \
         --version 0.1.0 --target x86_64-unknown-linux-gnu
 
 The unstripped Cargo binary is never modified. The decoder and shipped ELF

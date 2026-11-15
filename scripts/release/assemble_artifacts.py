@@ -19,8 +19,8 @@ scripts/release/bundle_catalog.py, the catalog spec §3.2 no-cold-start layer
 2); the packer hard-fails without a VALIDATED asset (version gate + >= 20
 transport tuples).
 
-`--binary` defaults to `<repo>/target/<target>/release/eukhe` (cross builds)
-and falls back to `<repo>/target/release/eukhe` (host builds).
+`--binary` defaults to `<repo>/target/<target>/dist/eukhe` (cross builds of
+the dist profile) and falls back to `<repo>/target/dist/eukhe` (host builds).
 `--decoder` is the split-debug sidecar from split_debug.py, required (with an
 explicit `--binary`) on Linux targets and rejected elsewhere.
 `--runtime-dir` defaults to `<repo>/eukhe-runtime` (the vendored sidecar
@@ -180,8 +180,8 @@ def resolve_binary(args: argparse.Namespace) -> Path:
     if args.binary is not None:
         candidates.append(args.binary)
     else:
-        candidates.append(args.repo_root / "target" / args.target / "release" / BINARY_NAME)
-        candidates.append(args.repo_root / "target" / "release" / BINARY_NAME)
+        candidates.append(args.repo_root / "target" / args.target / "dist" / BINARY_NAME)
+        candidates.append(args.repo_root / "target" / "dist" / BINARY_NAME)
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
@@ -390,7 +390,7 @@ def main() -> int:
         fail(f"unknown release target {args.target!r} (known: {', '.join(TARGET_ALIASES)})")
 
     decoder = decoder_facts(args)
-    out_dir = (args.out_dir or args.repo_root / "target" / "release" / "dist").resolve()
+    out_dir = (args.out_dir or args.repo_root / "target" / "package").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix="eukhe-archive-"))
     try:

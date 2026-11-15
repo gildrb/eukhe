@@ -168,14 +168,15 @@ RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
 CATALOG_ASSETS_DIR = target/catalog-assets
 CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
 
-# Mirror the Linux CI split: Cargo's executable remains unstripped and the
-# archive receives a separate shipped ELF plus its detached decoder.
+# Mirror the Linux CI split: Cargo's executable (the dist profile's) remains
+# unstripped and the archive receives a separate shipped ELF plus its
+# detached decoder, both under target/package.
 ifneq ($(filter %-unknown-linux-gnu,$(TARGET)),)
-RELEASE_BINARY = target/release/dist/eukhe
-RELEASE_DECODER = target/release/dist/eukhe-$(VERSION)-$(if $(filter aarch64-%,$(TARGET)),linux-arm64,linux-x64).debug.gz
+RELEASE_BINARY = target/package/eukhe
+RELEASE_DECODER = target/package/eukhe-$(VERSION)-$(if $(filter aarch64-%,$(TARGET)),linux-arm64,linux-x64).debug.gz
 RELEASE_ASSEMBLE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER)
-RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/release/eukhe --shipped $(RELEASE_BINARY) --out target/release/dist --version "$(VERSION)" --target "$(TARGET)"
-RELEASE_VERIFY_DECODER = python3 scripts/release/verify_decoders.py target/release/dist
+RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/dist/eukhe --shipped $(RELEASE_BINARY) --out target/package --version "$(VERSION)" --target "$(TARGET)"
+RELEASE_VERIFY_DECODER = python3 scripts/release/verify_decoders.py target/package
 RELEASE_PACKAGE_BUILD = $(RELEASE_CARGO_BUILD)
 RELEASE_PACKAGE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER) --skip-build
 GLIBC_BINARY = $(RELEASE_BINARY)
@@ -196,7 +197,7 @@ endif
 # checkout path give the same bytes (Cargo's symbol hashes include the path).
 CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
 RELEASE_RUSTFLAGS = --remap-path-prefix=$(CURDIR)=/eukhe --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo $(RELEASE_LINK_FLAGS)
-RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS="$(RELEASE_RUSTFLAGS)" cargo build --release --locked --workspace
+RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS="$(RELEASE_RUSTFLAGS)" cargo build --profile dist --locked --workspace
 
 # Asset generation (the release workflow's step).
 catalog-assets:
@@ -218,16 +219,16 @@ release-dry-run:
 	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
 	python3 scripts/release/assemble_artifacts.py \
 		--repo-root . --version "$(VERSION)" --target "$(TARGET)" $(RUNTIME_FLAG) \
-		$(RELEASE_ASSEMBLE_FLAGS) $(CATALOG_ASSETS_FLAG) --out-dir target/release/dist
+		$(RELEASE_ASSEMBLE_FLAGS) $(CATALOG_ASSETS_FLAG) --out-dir target/package
 	$(RELEASE_VERIFY_DECODER)
 	python3 scripts/release/verify_release.py \
-		--dist-dir target/release/dist --version "$(VERSION)" --target "$(TARGET)"
+		--dist-dir target/package --version "$(VERSION)" --target "$(TARGET)"
 
 # Optional hardening: embed the dependency list in the binary for incident
 # response.
 audit-build:
 	@command -v cargo-auditable >/dev/null 2>&1 || { echo "cargo-auditable not installed (cargo install cargo-auditable --locked)"; exit 1; }
-	cargo auditable build --release --locked --workspace
+	cargo auditable build --profile dist --locked --workspace
 
 # Packaging dry-run: stage the exe-adjacent release layout, version-pin,
 # hash, and tar the artifact under target/release-package. Generates the

@@ -111,7 +111,7 @@ def parse_args(argv):
     parser.add_argument("--binary", type=Path, help="stage this binary instead of building")
     parser.add_argument("--decoder", type=Path, help="separate Linux decoder for --binary")
     parser.add_argument("--skip-build", action="store_true",
-                        help="reuse target/release/eukhe without building")
+                        help="reuse target/dist/eukhe (the dist profile's) without building")
     parser.add_argument("--out-dir", type=Path, help="output directory (default: target/release-package)")
     parser.add_argument("--platform", help="platform tag (default: derived from this machine)")
     parser.add_argument("--root", type=Path, default=ROOT,
@@ -334,13 +334,13 @@ def main(argv=None):
         if not binary.is_file():
             raise SystemExit(f"error: binary not found: {binary}")
     elif args.skip_build:
-        binary = root / "target" / "release" / binary_name
+        binary = root / "target" / "dist" / binary_name
         if not binary.is_file():
             raise SystemExit(f"error: no prebuilt binary at {binary}; drop --skip-build")
     else:
-        print("building the release binary (cargo build --release --locked -p eukhe-cli)…")
-        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eukhe-cli"], cwd=ROOT, check=True)
-        binary = root / "target" / "release" / binary_name
+        print("building the release binary (cargo build --profile dist --locked -p eukhe-cli)…")
+        subprocess.run(["cargo", "build", "--profile", "dist", "--locked", "-p", "eukhe-cli"], cwd=ROOT, check=True)
+        binary = root / "target" / "dist" / binary_name
 
     if tag.startswith("linux-"):
         if tag != release_platform():
@@ -350,7 +350,7 @@ def main(argv=None):
         if tag not in targets:
             raise SystemExit(f"error: unsupported Linux platform: {tag}")
         if not args.binary:
-            shipped_dir = root / "target" / "release" / "dist"
+            shipped_dir = root / "target" / "package"
             shipped = shipped_dir / "eukhe"
             target = targets[tag]
             subprocess.run([sys.executable, str(ROOT / "scripts/release/split_debug.py"),

@@ -193,29 +193,29 @@ jobs:
       # its locked commit), then the build runs offline (--frozen).
       - name: Fetch dependencies (locked, checksummed)
         run: cargo fetch --locked --target "${TARGET}"
-      - name: Build (release, frozen, offline)
+      - name: Build (dist profile, frozen, offline)
         # The build identity names the released commit.
         env:
           EUKHE_BUILD_COMMIT: ${{ needs.version.outputs.sha }}
-        run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
+        run: cargo build --profile dist --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: Split the shipped binary and its debug decoder
         run: |
           set -euo pipefail
           python3 scripts/release/split_debug.py \
-            --binary "target/${TARGET}/release/eukhe" \
-            --shipped "target/${TARGET}/dist/eukhe" \
-            --out "target/${TARGET}/dist" \
+            --binary "target/${TARGET}/dist/eukhe" \
+            --shipped "target/${TARGET}/package/eukhe" \
+            --out "target/${TARGET}/package" \
             --version "${VERSION}" \
             --target "${TARGET}"
       - name: "Livecheck: --version prints the release version"
         run: |
           set -euo pipefail
-          out="$("target/${TARGET}/dist/eukhe" --version)"
+          out="$("target/${TARGET}/package/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
       - name: "GLIBC baseline: no symbol above GLIBC_2.35"
         run: |
           set -euo pipefail
-          syms="$(objdump -T "target/${TARGET}/dist/eukhe" | grep -o 'GLIBC_[0-9.]*' || true)"
+          syms="$(objdump -T "target/${TARGET}/package/eukhe" | grep -o 'GLIBC_[0-9.]*' || true)"
           [[ -n "${syms}" ]] || { echo "::error::no GLIBC symbols found"; exit 1; }
           max_glibc="$(printf '%s\n' "${syms}" | sort -Vu | tail -1)"
           top="$(printf '%s\nGLIBC_2.35\n' "${max_glibc}" | sort -Vu | tail -1)"
@@ -229,18 +229,18 @@ jobs:
             --repo-root . \
             --version "${VERSION}" \
             --target "${TARGET}" \
-            --binary "target/${TARGET}/dist/eukhe" \
-            --decoder "target/${TARGET}/dist/eukhe-${VERSION}-${{ matrix.alias }}.debug.gz" \
+            --binary "target/${TARGET}/package/eukhe" \
+            --decoder "target/${TARGET}/package/eukhe-${VERSION}-${{ matrix.alias }}.debug.gz" \
             --catalog-assets "target/${TARGET}/catalog-assets" \
-            --out-dir "target/${TARGET}/dist"
-          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/dist" --version "${VERSION}" --target "${TARGET}"
+            --out-dir "target/${TARGET}/package"
+          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: artifacts-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/dist/eukhe-*
-            target/${{ matrix.target }}/dist/SHA256SUMS
-            target/${{ matrix.target }}/dist/manifest.json
+            target/${{ matrix.target }}/package/eukhe-*
+            target/${{ matrix.target }}/package/SHA256SUMS
+            target/${{ matrix.target }}/package/manifest.json
           if-no-files-found: error
 
   build-darwin:
@@ -284,18 +284,18 @@ jobs:
           } >> "${GITHUB_ENV}"
       - name: Fetch dependencies (locked, checksummed)
         run: cargo fetch --locked --target "${TARGET}"
-      - name: Build (release, frozen, offline)
+      - name: Build (dist profile, frozen, offline)
         # The build identity names the released commit. STRIP=debuginfo
         # drops the debug map (stabs naming the runner's object files, which
         # no user machine has): 7.8 MB of the executable; function names stay.
         env:
           EUKHE_BUILD_COMMIT: ${{ needs.version.outputs.sha }}
-          CARGO_PROFILE_RELEASE_STRIP: debuginfo
-        run: cargo build --release --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
+          CARGO_PROFILE_DIST_STRIP: debuginfo
+        run: cargo build --profile dist --frozen --target "${TARGET}" -j 4 -p eukhe-cli --bin eukhe
       - name: "Livecheck: --version prints the release version"
         run: |
           set -euo pipefail
-          out="$("target/${TARGET}/release/eukhe" --version)"
+          out="$("target/${TARGET}/dist/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
       - name: Generate bundled catalog asset (committed models.dev snapshot)
         run: python3 scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
@@ -306,17 +306,17 @@ jobs:
             --repo-root . \
             --version "${VERSION}" \
             --target "${TARGET}" \
-            --binary "target/${TARGET}/release/eukhe" \
+            --binary "target/${TARGET}/dist/eukhe" \
             --catalog-assets "target/${TARGET}/catalog-assets" \
-            --out-dir "target/${TARGET}/dist"
-          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/dist" --version "${VERSION}" --target "${TARGET}"
+            --out-dir "target/${TARGET}/package"
+          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: artifacts-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/dist/eukhe-*
-            target/${{ matrix.target }}/dist/SHA256SUMS
-            target/${{ matrix.target }}/dist/manifest.json
+            target/${{ matrix.target }}/package/eukhe-*
+            target/${{ matrix.target }}/package/SHA256SUMS
+            target/${{ matrix.target }}/package/manifest.json
           if-no-files-found: error
 
   publish:
