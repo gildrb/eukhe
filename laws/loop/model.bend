@@ -17,7 +17,8 @@ import ../../spec/loop/loop.bend as S
 #                     loop_enter_first_turn, loop_enter_arms,
 #                     loop_enter_sets_bounds, loop_enter_starts_fresh,
 #                     loop_enter_ends_running,
-#                     loop_stop_ends, loop_stop_never_starts
+#                     loop_stop_ends, loop_stop_never_starts,
+#                     loop_user_end_keeps
 #      The text after `--until` / `--while` is a command (its first word)
 #      only when that word was quoted or the shell finds it (an executable
 #      on PATH or a builtin); otherwise the whole text is a stated
@@ -86,7 +87,8 @@ import ../../spec/loop/loop.bend as S
 #      read after (why it is still running), and only a check or a new
 #      `/loop` changes it.
 #                     loop_records_evidence, loop_evidence_only_from_checks,
-#                     loop_report_names_the_end, loop_end_keeps_iteration
+#                     loop_report_names_the_end, loop_end_keeps_iteration,
+#                     loop_user_end_keeps
 #
 # Every law is about Lp.step, Lp.judge, Lp.said or Lp.classify, the defs
 # the entry (bend/ffi_loop.bend) calls. Inputs are free unless a premise says
@@ -417,6 +419,32 @@ law loop_stop_ends:
   for +s: Lp.St
   for on: {S.is_on(S.phase(s)) == True{} : Bool}
   {(S.does(s, Lp.Stop{}), S.phase(S.next(s, Lp.Stop{}))) == (Lp.Report{Lp.Stopped{}}, Lp.Ended{Lp.Stopped{}}) : Lp.Act & Lp.Phase}
+
+# LAW loop_user_end_keeps (L1, L9): `/loop` (whatever its limit, condition
+# and prompt) or `/loop --stop` while a loop is on (armed, in a turn,
+# judging, paused) ends it as stopped, reports it, and stores it with its
+# iteration, count left, deadline, condition, prompt, failed turns and
+# last evidence as they were: an end by the user reads no check, takes
+# nothing of the new `/loop` and starts nothing
+# EXCLUDES: an end that invents, moves or clears the evidence (a check
+#   that never ran shown as the last result), stores the new `/loop`'s
+#   condition, bounds or prompt, or counts an iteration
+law loop_user_end_keeps:
+  for +p: Lp.Phase
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for lim: Lp.Limit
+  for c2: Lp.Cond
+  for pr: Maybe<&2, String>
+  for now: Nat
+  for on: {S.is_on(p) == True{} : Bool}
+  {Lp.step(Lp.St{p, i, l, d, c, b, f, x}, Lp.Enter{lim, c2, pr, now}) == (Lp.St{Lp.Ended{Lp.Stopped{}}, i, l, d, c, b, f, x}, Lp.Report{Lp.Stopped{}}) : Lp.St & Lp.Act} &
+  {Lp.step(Lp.St{p, i, l, d, c, b, f, x}, Lp.Stop{}) == (Lp.St{Lp.Ended{Lp.Stopped{}}, i, l, d, c, b, f, x}, Lp.Report{Lp.Stopped{}}) : Lp.St & Lp.Act}
 
 # LAW loop_stop_never_starts (L1): `/loop --stop` with no loop on changes
 # nothing and reports nothing

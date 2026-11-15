@@ -4304,6 +4304,7 @@ import ./proof/loop/loop_enter_sets_bounds.bend as PLoopEnterSetsBounds
 import ./proof/loop/loop_enter_starts_fresh.bend as PLoopEnterStartsFresh
 import ./proof/loop/loop_enter_ends_running.bend as PLoopEnterEndsRunning
 import ./proof/loop/loop_stop_ends.bend as PLoopStopEnds
+import ./proof/loop/loop_user_end_keeps.bend as PLoopUserEndKeeps
 import ./proof/loop/loop_stop_never_starts.bend as PLoopStopNeverStarts
 import ./proof/loop/loop_resends_body.bend as PLoopResendsBody
 import ./proof/loop/loop_prompt_adopted.bend as PLoopPromptAdopted
