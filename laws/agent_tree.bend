@@ -858,6 +858,16 @@ law agent_tree_apply_ends:
   for +f: List<&2, Nat>
   {T.apply(f, []) == f : List<&2, Nat>}
 
+# LAW agent_tree_apply_past_end (T3): a patch longer than the files adds
+# no unit: applying any patch to no files gives no files (with
+# apply_lands and apply_ends: the files keep their length, and the patch's
+# units past their end are dropped)
+# EXCLUDES: an apply that grows the files past their end, with bytes nobody
+#   wrote (padding a 0 or 1 unit) or with the patch's own writes there
+law agent_tree_apply_past_end:
+  for +p: List<&2, Maybe<&2, Nat>>
+  {T.apply([], p) == [] : List<&2, Nat>}
+
 # LAW agent_tree_overlay_applies (T3): for every files f, parent patch c,
 # child patch a and child scope s, the files with the integrated patch
 # are the files with c and then a's writes inside s
