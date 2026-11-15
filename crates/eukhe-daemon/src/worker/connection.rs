@@ -1,13 +1,13 @@
 //! Client connections: accept, authenticate, and the frame/event plumbing
 //! between the worker and its supervisor.
 use super::{
-    active_session_id_of, anyhow, bind_transport, broadcast, create_daemon_replay_info,
-    current_protocol_info, default_client_capabilities, json, normalize_client_capabilities,
-    peer_command_allowed, response_failure, response_success, worker_peer_command_allowed,
-    worker_server_capabilities, write_frame, write_frame_segments, Arc, AtomicU64, ConnectionRole,
-    Context, DaemonOutbound, DaemonResponse, DaemonResumeCursor, Map, Ordering, Result,
-    TransportStream, Value, Worker, WorkerRecoveryJournal, DAEMON_APP_VERSION, DAEMON_SCHEMA_ID,
-    DAEMON_SCHEMA_REVISION, DEFAULT_PRIVATE_FRAME_LIMITS, PEER_COMMAND_NOT_ALLOWED,
+    active_session_id_of, anyhow, broadcast, create_daemon_replay_info, current_protocol_info,
+    default_client_capabilities, json, normalize_client_capabilities, peer_command_allowed,
+    response_failure, response_success, worker_peer_command_allowed, worker_server_capabilities,
+    write_frame, write_frame_segments, Arc, AtomicU64, ConnectionRole, Context, DaemonOutbound,
+    DaemonResponse, DaemonResumeCursor, Map, Ordering, Result, TransportStream, Value, Worker,
+    WorkerRecoveryJournal, DAEMON_APP_VERSION, DAEMON_SCHEMA_ID, DAEMON_SCHEMA_REVISION,
+    DEFAULT_PRIVATE_FRAME_LIMITS, PEER_COMMAND_NOT_ALLOWED,
 };
 use std::collections::HashMap;
 
@@ -323,22 +323,20 @@ impl Worker {
             self.listener_closed.notify_one();
             return Err(error);
         }
-        let listener = match bind_transport(
-            &self.config.socket_path,
-            eukhe_bend::rules::fsmode::peer_verdict,
-        )
-        .await
-        {
-            Ok(listener) => listener,
-            Err(error) => {
-                let error = error.context(format!(
-                    "bind worker socket {}",
-                    self.config.socket_path.display()
-                ));
-                self.listener_closed.notify_one();
-                return Err(error);
-            }
-        };
+        // A path too long to name an endpoint binds at a short one it
+        // links to; the socket file (macOS) is private from the bind on.
+        let listener =
+            match eukhe_core::platform::endpoint::bind_endpoint(&self.config.socket_path).await {
+                Ok(listener) => listener,
+                Err(error) => {
+                    let error = error.context(format!(
+                        "bind worker socket {}",
+                        self.config.socket_path.display()
+                    ));
+                    self.listener_closed.notify_one();
+                    return Err(error);
+                }
+            };
         // From the bind on, the close handshake is fully asynchronous:
         // an exit path firing anywhere in the setup below (a
         // registration refusal parked in the capture gap, the orphan
@@ -352,19 +350,11 @@ impl Worker {
         // never reads the gap's `None` identity.
         crate::socket::bind_capture_gap().await;
         // Capture the bound file's identity before anything can replace
-        // it (TS daemon-mode.ts:718, the listen callback, between the
-        // identity capture and `restrictDaemonSocketPath`): the exit
+        // it (TS daemon-mode.ts:718, the listen callback): the exit
         // cleanups compare against THIS value, never a fresh read, so a
         // successor's file at the same path survives this worker's exit.
         *self.bound_socket_identity.lock().unwrap() =
             crate::socket::socket_identity(&self.config.socket_path);
-        if let Err(error) = crate::socket::restrict_socket_path(&self.config.socket_path) {
-            // The bind's own failure path: no accept loop runs, so this
-            // task closes the listener and confirms the close.
-            drop(listener);
-            self.listener_closed.notify_one();
-            return Err(error);
-        }
         // This loop owns the bound listener and hands its close to the
         // exit paths (TS daemon-mode.ts:8011-8018 awaits `server.close()`
         // FIRST and cleans the socket path after): an exiting path

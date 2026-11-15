@@ -63,7 +63,7 @@ use eukhe_types::daemon::{
     DaemonCommand, DaemonOutbound, DaemonSessionLifecycle, DaemonWorkerDescriptor,
     DaemonWorkerLifecycle, DurableDaemonCreateCommand, SnapshotPurpose,
 };
-use eukhe_types::platform::transport::{bind_transport, connect_transport, TransportStream};
+use eukhe_types::platform::transport::{connect_transport, TransportStream};
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
@@ -369,26 +369,24 @@ impl Supervisor {
         // the accept loop makes it exit on entry) and a later signal
         // force-exits.
         tokio::spawn(crate::signal_drain::install(Arc::clone(&self)));
-        let listener = bind_transport(
-            &self.options.socket_path,
-            eukhe_bend::rules::fsmode::peer_verdict,
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "bind supervisor socket {}",
-                self.options.socket_path.display()
-            )
-        })?;
+        // A path too long to name an endpoint binds at a short one it
+        // links to; the socket file (macOS) is private from the bind on.
+        let listener = eukhe_core::platform::endpoint::bind_endpoint(&self.options.socket_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "bind supervisor socket {}",
+                    self.options.socket_path.display()
+                )
+            })?;
         socket::bind_capture_gap().await;
         // Capture the bound file's identity before anything can replace
-        // it (TS daemon-supervisor.ts:879, between `listen` and
-        // `restrictDaemonSocketPath`): the exit cleanup below compares
-        // against THIS value, never a fresh read, so a successor's file
-        // at the same path survives this supervisor's exit.
+        // it (TS daemon-supervisor.ts:879, after `listen`): the exit
+        // cleanup below compares against THIS value, never a fresh read,
+        // so a successor's file at the same path survives this
+        // supervisor's exit.
         *self.bound_socket_identity.lock().unwrap() =
             socket::socket_identity(&self.options.socket_path);
-        socket::restrict_socket_path(&self.options.socket_path)?;
         // The socket serves from here on: a launcher's startup pipe has
         // carried every failure this start could print, and the launcher
         // lets go of it once this daemon answers, which it does only

@@ -5,6 +5,7 @@
 
 pub mod browser;
 pub mod dir_move;
+pub mod endpoint;
 pub mod fs;
 pub mod local_time;
 pub mod lock_dir;

@@ -69,7 +69,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use eukhe_types::platform::transport::{bind_transport, TransportStream};
+use eukhe_types::platform::transport::TransportStream;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 

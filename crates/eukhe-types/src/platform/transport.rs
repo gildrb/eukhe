@@ -261,6 +261,26 @@ pub fn is_addressable(path: &Path) -> bool {
     path.as_os_str().len() <= ENDPOINT_NAME_LIMIT
 }
 
+/// The endpoint `path` names: `path` itself, or, when `path` is too long
+/// to name one and is a symbolic link, the short endpoint it links to.
+/// Eukhe binds the endpoint of such a path at a short path and links the
+/// long one to it (`eukhe_core::platform::endpoint`); every connect,
+/// probe and listing here goes through the link.
+#[must_use]
+pub fn endpoint_behind(path: &Path) -> std::borrow::Cow<'_, Path> {
+    if is_addressable(path) {
+        return std::borrow::Cow::Borrowed(path);
+    }
+    match std::fs::read_link(path) {
+        Ok(target) => std::borrow::Cow::Owned(match path.parent() {
+            Some(parent) if target.is_relative() => parent.join(target),
+            _ => target,
+        }),
+        // Not a link (or gone): the path names itself.
+        Err(_) => std::borrow::Cow::Borrowed(path),
+    }
+}
+
 /// Bind a listening endpoint at `path` whose accept applies `peers` to
 /// each connected peer. An abstract endpoint (Linux) records this
 /// process's pid at [`record_path`] once bound; the record goes when the
@@ -367,19 +387,24 @@ fn write_record(path: &Path) -> std::io::Result<()> {
     std::fs::rename(&staged, &record)
 }
 
-/// Connect to the endpoint at `path`: its abstract socket (Linux), else a
-/// socket file there. No rule: the caller checks the peer, or is a test or
-/// a probe that sends nothing.
+/// Connect to the endpoint at `path` ([`endpoint_behind`]): its abstract
+/// socket (Linux), else a socket file there. No rule: the caller checks
+/// the peer, or is a test or a probe that sends nothing.
 ///
 /// # Errors
 ///
 /// Nothing listens at `path`, or the connect fails.
 pub async fn connect_tokio(path: &Path) -> std::io::Result<tokio::net::UnixStream> {
-    connect_tokio_reached(path).await.map(|(stream, _)| stream)
+    connect_tokio_reached(&endpoint_behind(path))
+        .await
+        .map(|(stream, _)| stream)
 }
 
 /// [`connect_tokio`], and whether it reached an abstract socket.
 async fn connect_tokio_reached(path: &Path) -> std::io::Result<(tokio::net::UnixStream, bool)> {
+    if !is_addressable(path) && !super::endpoints::is_socket_file(path) {
+        return Err(unnameable(path));
+    }
     #[cfg(target_os = "linux")]
     {
         let abstract_error = match abstract_address(path) {
@@ -395,6 +420,20 @@ async fn connect_tokio_reached(path: &Path) -> std::io::Result<(tokio::net::Unix
     }
     let stream = tokio::net::UnixStream::connect(UnixSocketAddress::new(path)?.effective()).await?;
     Ok((stream, false))
+}
+
+/// The error of a connect at a path too long to name an endpoint with no
+/// socket file there and no link to a short one ([`endpoint_behind`]):
+/// nothing can listen at it, reported as a missing socket file is
+/// (`NotFound`).
+fn unnameable(path: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "nothing listens at {}: the path is too long to name an endpoint",
+            path.display()
+        ),
+    )
 }
 
 /// The error of an abstract connect at a path with no socket file: a
@@ -415,11 +454,14 @@ fn no_endpoint(error: std::io::Error) -> std::io::Error {
 ///
 /// Nothing listens at `path`, or the connect fails.
 pub fn connect_std(path: &Path) -> std::io::Result<std::os::unix::net::UnixStream> {
-    connect_std_reached(path).map(|(stream, _)| stream)
+    connect_std_reached(&endpoint_behind(path)).map(|(stream, _)| stream)
 }
 
 /// [`connect_std`], and whether it reached an abstract socket.
 fn connect_std_reached(path: &Path) -> std::io::Result<(std::os::unix::net::UnixStream, bool)> {
+    if !is_addressable(path) && !super::endpoints::is_socket_file(path) {
+        return Err(unnameable(path));
+    }
     #[cfg(target_os = "linux")]
     {
         let abstract_error = match abstract_std_address(path) {
@@ -584,13 +626,15 @@ pub async fn listener_pid(path: &Path, rules: PeerRules) -> std::io::Result<Opti
     }
 }
 
-/// Connect to the endpoint at `path` and apply `rules` to its listener;
-/// the stream and the listener's pid (0 where the platform does not
-/// report it).
+/// Connect to the endpoint at `path` ([`endpoint_behind`]) and apply
+/// `rules` to its listener; the stream and the listener's pid (0 where the
+/// platform does not report it).
 async fn connect_checked(
     path: &Path,
     rules: PeerRules,
 ) -> std::io::Result<(tokio::net::UnixStream, u32)> {
+    let endpoint = endpoint_behind(path);
+    let path = endpoint.as_ref();
     let (stream, is_abstract) = connect_tokio_reached(path).await?;
     let credentials = stream.peer_cred()?;
     let pid = credentials
@@ -694,8 +738,8 @@ impl BlockingTransportStream for std::os::unix::net::UnixStream {
     }
 }
 
-/// Connect to the endpoint at `path`, blocking until connected; a listener
-/// `rules` do not accept is refused before a frame.
+/// Connect to the endpoint at `path` ([`endpoint_behind`]), blocking until
+/// connected; a listener `rules` do not accept is refused before a frame.
 ///
 /// # Errors
 ///
@@ -705,6 +749,8 @@ pub fn connect_blocking(
     path: &Path,
     rules: PeerRules,
 ) -> std::io::Result<Box<dyn BlockingTransportStream>> {
+    let endpoint = endpoint_behind(path);
+    let path = endpoint.as_ref();
     let (stream, is_abstract) = connect_std_reached(path)?;
     let (uid, pid) = std_peer_credentials(&stream)?;
     check_listener_blocking(path, rules, is_abstract, uid, pid)?;

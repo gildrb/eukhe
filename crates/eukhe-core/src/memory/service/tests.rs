@@ -637,7 +637,7 @@ async fn a_chat_with_a_long_lock_path_has_one_reachable_owner() {
             .unwrap()
             .parent()
             .map(std::path::Path::to_path_buf),
-        Some(agent.path().join("run").join("chat"))
+        Some(agent.path().join("run").join("sock"))
     );
     assert_eq!(
         client.append(Kind::User, "from the client").await.unwrap(),

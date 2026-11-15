@@ -1,11 +1,10 @@
 //! The client side of the chat's `lock` socket: claiming the socket (own
 //! it, or reach its live owner), the request connection, and the update
-//! subscription connection. A `lock` too long to name an endpoint (an
-//! abstract name on Linux: 107 bytes; a socket file on macOS: 103) is a
-//! symbolic link to a short endpoint ([`short_endpoint`]).
+//! subscription connection. A `lock` too long to name an endpoint is a
+//! symbolic link to a short endpoint (`crate::platform::endpoint`).
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,10 +12,9 @@ use std::time::Duration;
 use eukhe_types::daemon::MemoryUpdate;
 use eukhe_types::platform::endpoints::is_socket_file;
 use eukhe_types::platform::transport::{
-    bind_transport, connect_transport, is_addressable, AsyncReadHalf, AsyncWriteHalf,
-    TransportListener, TransportStream, ENDPOINTS_ARE_FILES,
+    connect_transport, AsyncReadHalf, AsyncWriteHalf, TransportListener, TransportStream,
+    ENDPOINTS_ARE_FILES,
 };
-use sha2::Digest as _;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::sync::oneshot;
 
@@ -84,7 +82,7 @@ async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
         }
         remove_if_present(lock)?;
     }
-    match bind_lock(lock).await {
+    match crate::platform::endpoint::bind_endpoint(lock).await {
         Ok(listener) => return Ok(Claim::Owned(listener)),
         Err(bind_error) => {
             if io_kind(&bind_error) != Some(std::io::ErrorKind::AddrInUse) {
@@ -97,93 +95,20 @@ async fn claim_locked(lock: &Path) -> anyhow::Result<Claim> {
         Err(connect_error) => match io_kind(&connect_error) {
             Some(std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound) => {
                 remove_if_present(lock)?;
-                Ok(Claim::Owned(bind_lock(lock).await?))
+                Ok(Claim::Owned(
+                    crate::platform::endpoint::bind_endpoint(lock).await?,
+                ))
             }
             _ => Err(connect_error),
         },
     }
 }
 
-/// Bind the chat's endpoint at `lock`, or, for a `lock` too long to name
-/// one, at its short endpoint with `lock` a symbolic link to it. An
-/// existing `lock` link is in use, as for a bind.
-async fn bind_lock(lock: &Path) -> anyhow::Result<Box<dyn TransportListener>> {
-    if is_addressable(lock) {
-        let listener = bind_transport(lock, eukhe_bend::rules::fsmode::peer_verdict).await?;
-        if ENDPOINTS_ARE_FILES {
-            crate::platform::restrict_file(lock)?;
-        }
-        return Ok(listener);
-    }
-    match std::fs::symlink_metadata(lock) {
-        Ok(_) => return Err(std::io::Error::from(std::io::ErrorKind::AddrInUse).into()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    let endpoint = short_endpoint(lock)?;
-    // No `lock` links to the endpoint: a socket file there is a dead owner's.
-    remove_if_present(&endpoint)?;
-    let listener = bind_transport(&endpoint, eukhe_bend::rules::fsmode::peer_verdict).await?;
-    if ENDPOINTS_ARE_FILES {
-        crate::platform::restrict_file(&endpoint)?;
-    }
-    std::os::unix::fs::symlink(&endpoint, lock)?;
-    Ok(listener)
-}
-
 /// Connect to the owner behind `lock`: its endpoint, an earlier release's
 /// socket file there (Linux binds a long one through its directory), or
 /// the short endpoint a `lock` too long to name one links to.
 pub(super) async fn connect_lock(lock: &Path) -> anyhow::Result<Box<dyn TransportStream>> {
-    let rules = eukhe_bend::rules::server_peer::PEER_RULES;
-    if is_addressable(lock) || is_socket_file(lock) {
-        return connect_transport(lock, rules).await;
-    }
-    match std::fs::read_link(lock) {
-        Ok(endpoint) => connect_transport(&endpoint, rules).await,
-        // Neither a socket file nor a link: nothing listens there.
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
-            Err(std::io::Error::from(std::io::ErrorKind::ConnectionRefused).into())
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-/// The short endpoint of a `lock` too long to name one: `chat/<hash of the
-/// lock's canonical path>` in the run dir (the daemon's socket dir), else
-/// in `/tmp/eukhe-<uid>` when even that path is too long (a deep agent
-/// dir). Both dirs pass the socket dir check.
-fn short_endpoint(lock: &Path) -> anyhow::Result<PathBuf> {
-    let dir = lock
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("the chat lock {} has no directory", lock.display()))?;
-    let canonical = std::fs::canonicalize(dir)?.join("lock");
-    let digest = sha2::Sha256::digest(canonical.as_os_str().as_encoded_bytes());
-    let name = digest[..8]
-        .iter()
-        .fold(String::with_capacity(16), |mut name, byte| {
-            use std::fmt::Write as _;
-            // Writing to a String cannot fail.
-            let _ = write!(name, "{byte:02x}");
-            name
-        });
-    let fallback = Path::new("/tmp").join(format!(
-        "eukhe-{}",
-        eukhe_types::platform::access::current_uid()
-    ));
-    let base = [eukhe_types::platform::daemon_socket::socket_dir(), fallback]
-        .into_iter()
-        .find(|base| is_addressable(&base.join("chat").join(&name)))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no socket dir is short enough for the chat lock {}",
-                lock.display()
-            )
-        })?;
-    let chat = base.join("chat");
-    crate::platform::socket_dir::prepare_socket_dir(&base)?;
-    crate::platform::socket_dir::prepare_socket_dir(&chat)?;
-    Ok(chat.join(name))
+    connect_transport(lock, eukhe_bend::rules::server_peer::PEER_RULES).await
 }
 
 fn remove_if_present(path: &Path) -> std::io::Result<()> {

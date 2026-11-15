@@ -104,12 +104,22 @@ pub async fn prepare_socket_path(path: &Path) -> Result<()> {
 }
 
 /// Probe + grace wait + unlink for a probed-stale socket file (TS
-/// `prepareUnixDaemonSocketPath`); the caller owns the cleanup lock.
+/// `prepareUnixDaemonSocketPath`), or the removal of a link to a short
+/// endpoint nothing serves (a path too long to name one,
+/// `eukhe_core::platform::endpoint`); the caller owns the cleanup lock.
 async fn prepare_locked_socket_path(path: &Path) -> Result<()> {
     use std::os::unix::fs::FileTypeExt;
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return Ok(());
     };
+    if eukhe_types::platform::endpoints::is_endpoint_link(path) {
+        if can_connect(path, Duration::from_millis(250)).await {
+            return Err(anyhow!("Daemon socket already in use: {}", path.display()));
+        }
+        eukhe_core::platform::endpoint::remove_link(path)
+            .with_context(|| format!("remove the stale socket link {}", path.display()))?;
+        return Ok(());
+    }
     if !metadata.file_type().is_socket() {
         return Err(anyhow!(
             "Daemon socket path exists and is not a socket: {}",
@@ -212,29 +222,39 @@ pub fn cleanup_socket_path(path: &Path, expected_identity: Option<SocketIdentity
 /// reads its own captured identity; `None` reaches here only from exits
 /// before the bind (no listener, no file), and the cleanup stays a no-op.
 pub fn cleanup_socket_path_after_close(path: &Path, expected_identity: Option<SocketIdentity>) {
-    if expected_identity.is_none()
-        || !path.exists()
-        || !eukhe_types::platform::transport::unix_listener_definitely_closed(path)
-    {
+    let Some(expected) = &expected_identity else {
+        return;
+    };
+    if eukhe_types::platform::endpoints::is_endpoint_link(path) {
+        cleanup_link_after_close(path, expected);
+        return;
+    }
+    if !path.exists() || !eukhe_types::platform::transport::unix_listener_definitely_closed(path) {
         return;
     }
     cleanup_socket_path(path, expected_identity);
 }
 
-/// Restrict the bound socket file to its owner (mode 0o600). The checked
-/// 0700 dir already hides it; the mode keeps it private if the dir ever
-/// opens up. An abstract endpoint (Linux) has no file: nothing to do, the
-/// peer rule alone keeps other uids out.
-///
-/// # Errors
-///
-/// Returns an error that names the socket when the mode cannot be set.
-pub fn restrict_socket_path(path: &Path) -> Result<()> {
-    if !eukhe_types::platform::transport::ENDPOINTS_ARE_FILES {
-        return Ok(());
+/// The exit cleanup of a link to a short endpoint (a path too long to name
+/// one): the link goes once nothing listens at its abstract endpoint (the
+/// kernel's census, Linux) and it is still the link this owner made. A
+/// socket file endpoint (macOS) stays, as a socket file at the path does
+/// (a refused connect there is not definitive): the next bind's prepare
+/// removes both.
+fn cleanup_link_after_close(path: &Path, expected: &SocketIdentity) {
+    if eukhe_types::platform::transport::ENDPOINTS_ARE_FILES {
+        return;
     }
-    eukhe_core::platform::perms::restrict_file(path)
-        .with_context(|| format!("set mode 0600 on the socket {}", path.display()))
+    let endpoint = eukhe_types::platform::transport::endpoint_behind(path);
+    if eukhe_types::platform::endpoints::listening_abstract(&endpoint).is_some() {
+        return;
+    }
+    let Ok(_cleanup_lock) = eukhe_core::platform::LockDir::acquire(path, LOCK_STALE_AFTER) else {
+        return;
+    };
+    if socket_identity(path).as_ref() == Some(expected) {
+        let _ = eukhe_core::platform::endpoint::remove_link(path);
+    }
 }
 
 /// The bind-capture gap seam (the `EUKHE_DAEMON_EVENT_LOG` seam family): a
@@ -267,9 +287,9 @@ pub async fn bind_capture_gap() {
 /// considered. Each endpoint's cleanup lock is taken without waiting: a
 /// fresh lock means a live process is preparing or cleaning it, so the
 /// file stays its business; taking it reclaims a crashed holder's stale
-/// lock dir, and releasing it removes the dir. Only socket files are
-/// unlinked, and only the inode that was probed dead. Returns how many
-/// socket files were removed.
+/// lock dir, and releasing it removes the dir. Only socket files and links
+/// to a short endpoint (a path too long to name one) are unlinked, and
+/// only the inode that was probed dead. Returns how many were removed.
 pub(crate) async fn reap_stale_worker_sockets(supervisor_socket: &Path) -> usize {
     use std::os::unix::fs::FileTypeExt;
     let dir = match supervisor_socket.parent() {
@@ -298,14 +318,20 @@ pub(crate) async fn reap_stale_worker_sockets(supervisor_socket: &Path) -> usize
         else {
             continue;
         };
-        let is_socket = std::fs::symlink_metadata(&endpoint)
-            .is_ok_and(|metadata| metadata.file_type().is_socket());
-        let Some(probed) = socket_identity(&endpoint).filter(|_| is_socket) else {
+        let is_link = eukhe_types::platform::endpoints::is_endpoint_link(&endpoint);
+        let reapable = is_link
+            || std::fs::symlink_metadata(&endpoint)
+                .is_ok_and(|metadata| metadata.file_type().is_socket());
+        let Some(probed) = socket_identity(&endpoint).filter(|_| reapable) else {
             continue;
         };
         if !can_connect(&endpoint, Duration::from_millis(250)).await
             && socket_identity(&endpoint) == Some(probed)
-            && std::fs::remove_file(&endpoint).is_ok()
+            && if is_link {
+                eukhe_core::platform::endpoint::remove_link(&endpoint).is_ok()
+            } else {
+                std::fs::remove_file(&endpoint).is_ok()
+            }
         {
             removed += 1;
         }
@@ -769,5 +795,85 @@ mod tests {
         let mut expected = vec![live_entry, held, held_lock, foreign, not_a_socket];
         expected.sort();
         assert_eq!(remaining, expected);
+    }
+
+    /// A dir past every endpoint name limit (108 bytes with a socket name),
+    /// with the agent dir (whose run dir holds the short endpoints) a fresh
+    /// short dir. Nextest runs each test in its own process.
+    fn deep_dir() -> (tempfile::TempDir, tempfile::TempDir, std::path::PathBuf) {
+        let root = tempfile::TempDir::new().unwrap();
+        let deep = root.path().join("d".repeat(60)).join("e".repeat(60));
+        let agent = tempfile::Builder::new().tempdir_in("/tmp").unwrap();
+        std::env::set_var(eukhe_types::platform::dirs::ENV_AGENT_DIR, agent.path());
+        (root, agent, deep)
+    }
+
+    /// A socket path past the endpoint name limit binds at a short endpoint
+    /// in the run dir it links to and takes connections through the link;
+    /// a live owner keeps it, and once the owner is gone the link goes (at
+    /// the owner's exit cleanup on Linux, at the next prepare everywhere)
+    /// and the path binds again.
+    #[tokio::test]
+    async fn a_socket_past_the_name_limit_binds_through_a_link() {
+        let (_root, agent, deep) = deep_dir();
+        let socket = deep.join("daemon.sock");
+        assert!(!eukhe_types::platform::transport::is_addressable(&socket));
+        prepare_socket_path(&socket).await.unwrap();
+        let owner = eukhe_core::platform::endpoint::bind_endpoint(&socket)
+            .await
+            .unwrap();
+        let identity = socket_identity(&socket);
+        assert_eq!(
+            std::fs::read_link(&socket)
+                .unwrap()
+                .parent()
+                .map(Path::to_path_buf),
+            Some(agent.path().join("run").join("sock"))
+        );
+        assert!(can_connect(&socket, Duration::from_secs(5)).await);
+        assert!(eukhe_types::platform::endpoints::endpoint_exists(&socket));
+        assert_eq!(
+            eukhe_types::platform::endpoints::endpoints_in(&deep),
+            vec![socket.clone()]
+        );
+        let in_use = prepare_socket_path(&socket).await.unwrap_err();
+        assert!(in_use.to_string().contains("already in use"), "{in_use:#}");
+
+        drop(owner);
+        cleanup_socket_path_after_close(&socket, identity);
+        assert_eq!(
+            std::fs::symlink_metadata(&socket).is_ok(),
+            eukhe_types::platform::transport::ENDPOINTS_ARE_FILES,
+            "the exit cleanup removes the link where the endpoint's close is definite"
+        );
+        prepare_socket_path(&socket).await.unwrap();
+        assert!(std::fs::symlink_metadata(&socket).is_err());
+        let _successor = eukhe_core::platform::endpoint::bind_endpoint(&socket)
+            .await
+            .unwrap();
+        assert!(can_connect(&socket, Duration::from_secs(5)).await);
+    }
+
+    /// The start sweep reaps a dead worker's link (a worker socket past the
+    /// name limit) and keeps a live one's.
+    #[tokio::test]
+    async fn the_start_sweep_reaps_a_dead_workers_link() {
+        let (_root, _agent, deep) = deep_dir();
+        let supervisor = deep.join("daemon.sock");
+        crate::platform::prepare_socket_dir(&deep).unwrap();
+        let dead = worker_socket_path(&supervisor, "dead00000000");
+        let live = worker_socket_path(&supervisor, "live00000000");
+        drop(
+            eukhe_core::platform::endpoint::bind_endpoint(&dead)
+                .await
+                .unwrap(),
+        );
+        let _live = eukhe_core::platform::endpoint::bind_endpoint(&live)
+            .await
+            .unwrap();
+
+        assert_eq!(reap_stale_worker_sockets(&supervisor).await, 1);
+        assert!(std::fs::symlink_metadata(&dead).is_err());
+        assert!(can_connect(&live, Duration::from_secs(5)).await);
     }
 }

@@ -127,16 +127,27 @@ pub fn is_socket_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
 }
 
-/// Whether an endpoint is at `path`: a listening abstract socket named by
-/// it, or a socket file there (live or left by a crashed listener).
+/// Whether an endpoint is at `path` ([`super::transport::endpoint_behind`]:
+/// through a link at a path too long to name one): a listening abstract
+/// socket named by it, or a socket file there (live or left by a crashed
+/// listener).
 #[must_use]
 pub fn endpoint_exists(path: &Path) -> bool {
-    is_socket_file(path) || listening_abstract(path).is_some()
+    let endpoint = super::transport::endpoint_behind(path);
+    is_socket_file(&endpoint) || listening_abstract(&endpoint).is_some()
 }
 
-/// The endpoints directly in `dir`: socket files there, and listening
-/// abstract sockets whose path's parent is `dir`. Sorted, without
-/// duplicates.
+/// Whether `path` is too long to name an endpoint and is a symbolic link:
+/// the link to the short endpoint eukhe bound for it.
+#[must_use]
+pub fn is_endpoint_link(path: &Path) -> bool {
+    !super::transport::is_addressable(path)
+        && std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// The endpoints directly in `dir`: socket files there, links there to an
+/// endpoint ([`is_endpoint_link`]), and listening abstract sockets whose
+/// path's parent is `dir`. Sorted, without duplicates.
 #[must_use]
 pub fn endpoints_in(dir: &Path) -> Vec<PathBuf> {
     let mut endpoints: Vec<PathBuf> = listening()
@@ -147,12 +158,9 @@ pub fn endpoints_in(dir: &Path) -> Vec<PathBuf> {
         .map(|listener| listener.path)
         .collect();
     if let Ok(entries) = std::fs::read_dir(dir) {
-        endpoints.extend(
-            entries
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| is_socket_file(path)),
-        );
+        endpoints.extend(entries.flatten().map(|entry| entry.path()).filter(|path| {
+            is_socket_file(path) || (is_endpoint_link(path) && endpoint_exists(path))
+        }));
     }
     endpoints.sort();
     endpoints.dedup();
