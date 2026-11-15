@@ -84,7 +84,31 @@ case "${os}:${machine}" in
     die "unsupported architecture '${machine}' on ${os}" ;;
 esac
 
+# --- archive format ----------------------------------------------------
+# The .tar.xz is a third smaller than the .tar.gz; it needs an xz that tar
+# can use (Linux: the xz command; macOS: tar's own liblzma). The arm64
+# archives use xz's ARM64 filter, which xz 5.4 and later decode.
+xz_unpacks() {
+  if [ "$os" = Darwin ]; then
+    v="$(tar --version 2>/dev/null | sed -n 's|.*liblzma/\([0-9]*\.[0-9]*\).*|\1|p')"
+  elif command -v xz >/dev/null 2>&1; then
+    v="$(xz --version 2>/dev/null | sed -n '1s|^xz (XZ Utils) \([0-9]*\.[0-9]*\).*|\1|p')"
+  else
+    return 1
+  fi
+  [ -n "$v" ] || return 1
+  [ "$alias" = linux-x64 ] && return 0
+  major=${v%%.*}
+  minor=${v#*.}
+  [ "$major" -gt 5 ] || { [ "$major" -eq 5 ] && [ "$minor" -ge 4 ]; }
+}
+
 # --- version -----------------------------------------------------------
+# SHA256SUMS names every archive of its release, so the newest release's
+# list (latest/download/SHA256SUMS) also gives its version.
+work="$(mktemp -d "${TMPDIR:-/tmp}/eukhe-install.XXXXXX")"
+trap 'rm -rf "$work"' EXIT INT TERM
+
 if [ $# -eq 1 ]; then
   case "$1" in
     eukhe-v*) version=${1#eukhe-v} ;;
@@ -93,31 +117,35 @@ if [ $# -eq 1 ]; then
   esac
   printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
     || die "not a release version: '$1' (expected X.Y.Z)"
+  fetch "${RELEASES}/download/eukhe-v${version}/SHA256SUMS" "${work}/SHA256SUMS" \
+    || die "download failed: SHA256SUMS of ${version}"
 else
-  # github.com/<repo>/releases/latest redirects to .../tag/<tag>.
-  effective="$(curl -fsSL --proto '=https' --tlsv1.2 --retry 3 \
-    -o /dev/null -w '%{url_effective}' "${RELEASES}/latest")" \
+  fetch "${RELEASES}/latest/download/SHA256SUMS" "${work}/SHA256SUMS" \
     || die "cannot resolve the newest release; pass a version (see --help)"
-  tag="${effective##*/}"
-  case "$tag" in
-    eukhe-v*) version=${tag#eukhe-v} ;;
-    *) die "newest release tag looks wrong: '${tag}'" ;;
-  esac
+  version="$(awk -v alias="${alias}" '
+    { name = $2; sub(/^\*/, "", name) }
+    name ~ ("^eukhe-[0-9]+\\.[0-9]+\\.[0-9]+-" alias "\\.tar\\.gz$") {
+      sub(/^eukhe-/, "", name); sub("-" alias "\\.tar\\.gz$", "", name); print name; exit
+    }' "${work}/SHA256SUMS")"
+  [ -n "$version" ] || die "the newest release lists no archive for ${alias}"
 fi
 tag="eukhe-v${version}"
-tarball="eukhe-${version}-${alias}.tar.gz"
 base="${RELEASES}/download/${tag}"
+tarball="eukhe-${version}-${alias}.tar.gz"
+unpack=-xzf
+if xz_unpacks && awk -v name="eukhe-${version}-${alias}.tar.xz" '$2 == name { found = 1 } END { exit !found }' "${work}/SHA256SUMS"; then
+  tarball="eukhe-${version}-${alias}.tar.xz"
+  unpack=-xJf
+fi
 
 # --- download ----------------------------------------------------------
-work="$(mktemp -d "${TMPDIR:-/tmp}/eukhe-install.XXXXXX")"
-trap 'rm -rf "$work"' EXIT INT TERM
-
+# The pin on main (nix/release.json, checked below) downloads alongside.
 log "eukhe ${version} for ${alias}"
 log "downloading ${base}/${tarball}"
+fetch "${RAW}/nix/release.json" "${work}/release.json" 2>/dev/null &
+pin_fetch=$!
 fetch "${base}/${tarball}" "${work}/${tarball}" \
   || die "download failed: ${tarball}"
-fetch "${base}/SHA256SUMS" "${work}/SHA256SUMS" \
-  || die "download failed: SHA256SUMS"
 
 # --- verify ------------------------------------------------------------
 expected="$(awk -v name="${tarball}" '$2 == name { print $1 }' "${work}/SHA256SUMS")"
@@ -136,7 +164,7 @@ fi
 # Cross-check against the hash the repository pins on main. The newest
 # release must match; older pinned versions predate it.
 json_version=""
-if fetch "${RAW}/nix/release.json" "${work}/release.json"; then
+if wait "$pin_fetch"; then
   json_version="$(awk -F'"' '/^  "version":/ { print $4; exit }' "${work}/release.json")"
 else
   warn "could not fetch nix/release.json: SHA256SUMS verification only"
@@ -171,7 +199,7 @@ payload="${root}/eukhe-${version}"
 stage="${root}/.stage-eukhe-${version}.$$"
 
 mkdir -p "${root}" "${bin_dir}" "${stage}"
-tar -xzf "${work}/${tarball}" -C "${stage}" || die "extract failed"
+tar "$unpack" "${work}/${tarball}" -C "${stage}" || die "extract failed"
 [ -x "${stage}/eukhe" ] || die "the tarball has no eukhe binary"
 
 # Livecheck before anything is replaced, as the release workflow does.

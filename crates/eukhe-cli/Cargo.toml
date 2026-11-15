@@ -38,10 +38,11 @@ thiserror = { workspace = true }
 # the code query the flow receives).
 url = "2"
 # `eukhe update`: the release download (the client and TLS stack the
-# workspace already builds), its sha256 check, and unpacking its tarball.
+# workspace already builds), its sha256 check, and unpacking its `.tar.xz`
+# (liblzma built from its bundled source: no system library at run time).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sha2 = "0.10"
-flate2 = "1"
+liblzma = { version = "0.4", default-features = false, features = ["static"] }
 tar = { version = "0.4", default-features = false }
 # The SRI hash (`sha256-<base64>`) of the nix/release.json pin.
 base64 = "0.22"

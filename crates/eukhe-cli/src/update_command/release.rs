@@ -1,6 +1,8 @@
 //! The newest release as the release workflow publishes it: `release.json`
 //! (version and tag) on the latest `eukhe-v*` release, `SHA256SUMS` and
-//! the platform tarballs `eukhe-<version>-<platform>.tar.gz` beside it.
+//! the platform archives `eukhe-<version>-<platform>.tar.xz` beside it (the
+//! `.tar.gz` twins stay for the Nix flake, installers without xz and the
+//! updaters of releases before the xz archives).
 
 use std::path::Path;
 use std::time::Duration;
@@ -37,9 +39,9 @@ pub(super) struct Release {
 }
 
 impl Release {
-    /// The tarball of `platform`.
-    pub(super) fn tarball(&self, platform: &str) -> String {
-        format!("eukhe-{}-{platform}.tar.gz", self.version)
+    /// The xz archive of `platform`.
+    pub(super) fn archive(&self, platform: &str) -> String {
+        format!("eukhe-{}-{platform}.tar.xz", self.version)
     }
 }
 
@@ -57,8 +59,17 @@ struct PinJson {
     assets: std::collections::BTreeMap<String, PinAsset>,
 }
 
+/// One system's entry: the `.tar.gz` archive (the flake's source), and its
+/// `.tar.xz` twin under `xz`.
 #[derive(serde::Deserialize)]
 struct PinAsset {
+    #[serde(flatten)]
+    gz: PinArchive,
+    xz: Option<PinArchive>,
+}
+
+#[derive(serde::Deserialize)]
+struct PinArchive {
     url: String,
     /// `sha256-<base64>`.
     hash: String,
@@ -128,8 +139,9 @@ impl Releases {
         let hash = json
             .assets
             .into_values()
-            .find(|asset| asset.url.rsplit('/').next() == Some(file))
-            .map(|asset| asset.hash)
+            .flat_map(|asset| std::iter::once(asset.gz).chain(asset.xz))
+            .find(|archive| archive.url.rsplit('/').next() == Some(file))
+            .map(|archive| archive.hash)
             .ok_or_else(|| anyhow!("{url} pins {} without a hash for {file}", release.version))?;
         let pinned = hash
             .strip_prefix("sha256-")

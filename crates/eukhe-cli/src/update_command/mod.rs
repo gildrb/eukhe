@@ -147,11 +147,19 @@ async fn apply(
     platform: &str,
     install: &Installer,
 ) -> Result<()> {
-    let tarball = latest.tarball(platform);
-    let sha256 = releases.checksum(latest, &tarball).await?;
+    let name = latest.archive(platform);
+    let sha256 = releases.checksum(latest, &name).await?;
+    let stage = swap::Stage::create(install, &latest.version)?;
+    let archive = stage.path(&name);
+    println!("Downloading {name}");
+    // The pin is fetched while the archive downloads; it is judged first.
     // The download is checked against `sha256`, so a pin that agrees with
-    // it agrees with the tarball.
-    let verified = match releases.pin(latest, &tarball, &sha256).await? {
+    // it agrees with the archive.
+    let (pin, download) = tokio::join!(
+        releases.pin(latest, &name, &sha256),
+        releases.download(latest, &name, &sha256, &archive),
+    );
+    let verified = match pin? {
         Pin::Same => "SHA256SUMS and nix/release.json".to_string(),
         Pin::OtherVersion(version) => format!("SHA256SUMS (nix/release.json pins {version})"),
         Pin::Unavailable(why) => {
@@ -159,12 +167,7 @@ async fn apply(
             "SHA256SUMS".to_string()
         }
     };
-    let stage = swap::Stage::create(install, &latest.version)?;
-    let archive = stage.path(&tarball);
-    println!("Downloading {tarball}");
-    releases
-        .download(latest, &tarball, &sha256, &archive)
-        .await?;
+    download?;
     println!("Verified sha256 {sha256} against {verified}");
     let staged = swap::unpack(&stage, &archive, &latest.version)?;
     let payload = swap::switch(&stage, &staged, install, &latest.version)?;

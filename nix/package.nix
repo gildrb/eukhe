@@ -22,7 +22,9 @@ stdenv.mkDerivation {
   pname = "eukhe";
   inherit (release) version;
 
-  src = fetchurl { inherit (asset) url hash; };
+  # The .tar.xz twin when the release lists one (a third smaller than the
+  # .tar.gz; stdenv unpacks both).
+  src = fetchurl { inherit (asset.xz or asset) url hash; };
   # The archive's files sit at its root.
   sourceRoot = ".";
 

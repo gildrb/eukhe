@@ -19,7 +19,7 @@ Include the affected version (`eukhe --version`), the steps to reproduce, and th
 
 ## Verify a release
 
-Each release has the archives, `SHA256SUMS`, and `release.json`. The release workflow attests the build provenance of each asset.
+Each release has the archives (`.tar.xz`, and a `.tar.gz` twin holding the same tar), `SHA256SUMS`, and `release.json`. The release workflow attests the build provenance of each asset.
 
 1. Download the archive and `SHA256SUMS` from the release.
 2. Verify the checksum:
@@ -33,7 +33,7 @@ Each release has the archives, `SHA256SUMS`, and `release.json`. The release wor
 3. Verify the provenance attestation (GitHub CLI 2.49 or later):
 
    ```sh
-   gh attestation verify eukhe-<version>-<platform>.tar.gz --repo gildrb/eukhe
+   gh attestation verify eukhe-<version>-<platform>.tar.xz --repo gildrb/eukhe
    ```
 
 Do not use an asset if one of these checks fails.

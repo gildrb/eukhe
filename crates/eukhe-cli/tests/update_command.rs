@@ -100,10 +100,10 @@ fn payload_files(version: &str) -> Vec<(&'static str, String)> {
     ]
 }
 
-/// The release tarball of `version`: the payload at the archive root.
+/// The release `.tar.xz` of `version`: the payload at the archive root.
 fn tarball(version: &str) -> Vec<u8> {
-    let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-    let mut archive = tar::Builder::new(gz);
+    let xz = liblzma::write::XzEncoder::new(Vec::new(), 0);
+    let mut archive = tar::Builder::new(xz);
     for (name, content) in payload_files(version) {
         let mut header = tar::Header::new_gnu();
         header.set_size(content.len() as u64);
@@ -135,18 +135,23 @@ fn release(version: &str, sum: Option<&str>, sent: Option<usize>) -> HashMap<Str
     routes
 }
 
-/// The `nix/release.json` of `version` pinning the tarball by `hash`
-/// (base64 sha256).
+/// The `nix/release.json` of `version` pinning the `.tar.xz` by `hash`
+/// (base64 sha256), beside a `.tar.gz` twin of another hash, as the release
+/// workflow writes it.
 fn pin(version: &str, hash: &str) -> String {
+    let gz = base64::engine::general_purpose::STANDARD.encode([1u8; 32]);
+    let url = format!(
+        "https://example.invalid/releases/download/eukhe-v{version}/eukhe-{version}-{PLATFORM}"
+    );
     format!(
-        "{{\"version\": \"{version}\", \"tag\": \"eukhe-v{version}\", \"assets\": {{\"system\": {{\"url\": \"https://example.invalid/releases/download/eukhe-v{version}/eukhe-{version}-{PLATFORM}.tar.gz\", \"hash\": \"sha256-{hash}\"}}}}}}\n"
+        "{{\"version\": \"{version}\", \"tag\": \"eukhe-v{version}\", \"assets\": {{\"system\": {{\"url\": \"{url}.tar.gz\", \"hash\": \"sha256-{gz}\", \"xz\": {{\"url\": \"{url}.tar.xz\", \"hash\": \"sha256-{hash}\"}}}}}}}}\n"
     )
 }
 
 /// The release routes alone (see [`release`]).
 fn unpinned(version: &str, sum: Option<&str>, sent: Option<usize>) -> HashMap<String, Route> {
     let tag = format!("eukhe-v{version}");
-    let name = format!("eukhe-{version}-{PLATFORM}.tar.gz");
+    let name = format!("eukhe-{version}-{PLATFORM}.tar.xz");
     let archive = tarball(version);
     let sums = format!(
         "{}  {name}\n",
@@ -312,7 +317,7 @@ fn an_update_installs_the_new_payload_and_switches_the_launcher() {
             held.extend(stream.ok());
         }
     });
-    let name = format!("eukhe-{NEW}-{PLATFORM}.tar.gz");
+    let name = format!("eukhe-{NEW}-{PLATFORM}.tar.xz");
     let sum = sha256(&tarball(NEW));
     let new_payload = install.root().join(format!("eukhe-{NEW}"));
     assert_eq!(
@@ -397,7 +402,7 @@ fn a_checksum_mismatch_leaves_the_install_untouched() {
         (
             1,
             Some(format!(
-                "Error: checksum mismatch for eukhe-{NEW}-{PLATFORM}.tar.gz"
+                "Error: checksum mismatch for eukhe-{NEW}-{PLATFORM}.tar.xz"
             ))
         )
     );
@@ -422,7 +427,7 @@ fn a_hash_other_than_the_pinned_one_leaves_the_install_untouched() {
         (
             1,
             Some(format!(
-                "Error: eukhe-{NEW}-{PLATFORM}.tar.gz: the hash differs from {url}"
+                "Error: eukhe-{NEW}-{PLATFORM}.tar.xz: the hash differs from {url}"
             ))
         )
     );
@@ -462,7 +467,7 @@ fn an_interrupted_download_leaves_the_install_untouched() {
     let before = install.tree();
     let (code, _, stderr) = install.update(&[], &stub.url());
     let url = format!(
-        "{}/download/eukhe-v{NEW}/eukhe-{NEW}-{PLATFORM}.tar.gz",
+        "{}/download/eukhe-v{NEW}/eukhe-{NEW}-{PLATFORM}.tar.xz",
         stub.url()
     );
     assert_eq!(

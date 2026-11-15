@@ -339,18 +339,28 @@ jobs:
           path: incoming
           pattern: artifacts-*
       # The installer of the released commit (https://eukhe.com/install
-      # redirects to releases/latest/download/install.sh).
+      # redirects to releases/latest/download/install.sh), and the script
+      # that writes the .tar.xz twins.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.version.outputs.sha }}
           path: src
-          sparse-checkout: install.sh
+          sparse-checkout: |
+            install.sh
+            scripts/release/xz_archives.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Verify the archives, merge SHA256SUMS, write release.json
+      # Each .tar.gz gets its .tar.xz twin (scripts/release/xz_archives.py:
+      # the same tar, a third smaller), which install.sh and `eukhe update`
+      # download; release.json lists it under the system's `xz`. The .tar.gz
+      # stays the system's `url`: the updaters of earlier releases look it up
+      # there.
+      - name: Verify the archives, write the xz twins, merge SHA256SUMS, write release.json
         shell: python3 {0}
         run: |
-          import base64, hashlib, json, os, pathlib, shutil, sys
+          import base64, concurrent.futures, hashlib, json, os, pathlib, shutil, sys
+          sys.path.insert(0, "src/scripts/release")
+          from xz_archives import check_xz, twin
           systems = {
               "linux-x64": "x86_64-linux",
               "linux-arm64": "aarch64-linux",
@@ -359,7 +369,15 @@ jobs:
           repo, tag, version = os.environ["GH_REPO"], os.environ["TAG"], os.environ["VERSION"]
           out = pathlib.Path("release-out")
           out.mkdir()
-          sums, assets = [], {}
+          check_xz()
+
+          def asset(path):
+              return {
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{path.name}",
+                  "hash": "sha256-" + base64.b64encode(hashlib.sha256(path.read_bytes()).digest()).decode(),
+              }
+
+          sums, assets, archives = [], {}, {}
           for directory in sorted(p for p in pathlib.Path("incoming").iterdir() if p.is_dir()):
               manifest = json.loads((directory / "manifest.json").read_text())
               for binary in manifest["binaries"]:
@@ -367,13 +385,16 @@ jobs:
                   if hashlib.sha256(data).hexdigest() != binary["sha256"]:
                       sys.exit(f"{binary['file']}: sha256 mismatch")
                   shutil.copy2(directory / binary["file"], out / binary["file"])
-                  assets[systems[binary["platform"]]] = {
-                      "url": f"https://github.com/{repo}/releases/download/{tag}/{binary['file']}",
-                      "hash": "sha256-" + base64.b64encode(hashlib.sha256(data).digest()).decode(),
-                  }
+                  archives[systems[binary["platform"]]] = out / binary["file"]
               for decoder in manifest.get("decoders", []):
                   shutil.copy2(directory / decoder["file"], out / decoder["file"])
               sums += [line for line in (directory / "SHA256SUMS").read_text().splitlines() if line.strip()]
+          with concurrent.futures.ThreadPoolExecutor() as pool:
+              twins = dict(zip(archives, pool.map(twin, archives.values())))
+          for system, gz in archives.items():
+              xz = twins[system]
+              assets[system] = {**asset(gz), "xz": asset(xz)}
+              sums.append(f"{hashlib.sha256(xz.read_bytes()).hexdigest()}  {xz.name}")
           missing = sorted(set(systems.values()) - set(assets))
           if missing:
               sys.exit(f"missing systems: {missing}")

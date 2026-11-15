@@ -616,9 +616,9 @@ dependencies = [
  "eukhe-tiny-onnx",
  "eukhe-tui",
  "eukhe-types",
- "flate2",
  "futures",
  "libc",
+ "liblzma",
  "mimalloc",
  "nix",
  "reqwest",
@@ -1648,6 +1648,26 @@ checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
 dependencies = [
  "cfg-if",
  "windows-link",
+]
+
+[[package]]
+name = "liblzma"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa980ea6744074a5b5e0ac6b164aca94fc970121869b3e78ae12a2b0097dbea7"
+dependencies = [
+ "liblzma-sys",
+]
+
+[[package]]
+name = "liblzma-sys"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c7e3581f367a78d7b7e7ae948d023310556f0cfc13156c2e4e00e25616492b9"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
 ]
 
 [[package]]

@@ -42,13 +42,13 @@ impl Drop for Stage {
     }
 }
 
-/// Unpacks the verified `tarball` into the stage and checks that its
+/// Unpacks the verified `.tar.xz` `tarball` into the stage and checks that its
 /// `eukhe` runs and reports `version`; returns the staged payload.
 pub(super) fn unpack(stage: &Stage, tarball: &Path, version: &str) -> Result<PathBuf> {
     let payload = stage.path("payload");
     let file = std::fs::File::open(tarball)
         .with_context(|| format!("cannot open {}", tarball.display()))?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let mut archive = tar::Archive::new(liblzma::read::XzDecoder::new(file));
     archive.set_preserve_permissions(true);
     archive
         .unpack(&payload)
