@@ -6,12 +6,14 @@ work is this kernel's ``bash()`` handles and its subagents.
 
 ``await jobs.wait()`` blocks until the first of that work settles and returns
 it as a :class:`Job`; ``jobs.wait(target)`` waits on the named work only.
-An input queued for this session meanwhile (a user steer, a peer's message,
-a subagent's report, a job notice) ends the wait as a ``message`` job; the
-message follows the cell's result. A result the wait returns is not
-delivered again as a ``[job-settled]`` notice. The wait lasts ``timeout_s``
-seconds, at most 30 minutes (the default), and returns ``None`` when nothing
-settled in that time; with nothing to wait for it raises ``RuntimeError``.
+An input queued for this session meanwhile (a user message or steer, a
+peer's message, a job notice, a subagent's report; a wait on subagents
+takes their reports as their results) ends any wait first as a ``message``
+job, and the message follows the cell's result; the work keeps running. A
+result the wait returns is not delivered again as a ``[job-settled]``
+notice. The wait lasts ``timeout_s`` seconds, at most 30 minutes (the
+default), and returns ``None`` when nothing settled in that
+time; with nothing to wait for it raises ``RuntimeError``.
 A cell inside the wait does not detach at the blocking budget, and a cell
 whose whole code is one ``await jobs.wait(...)`` with literal arguments runs
 even while a detached cell holds the kernel.
@@ -179,10 +181,13 @@ class _JobsNamespace:
         ``targets`` is ``None`` (all of the agent's work), or a job id, a
         :class:`Job`, a ``bash()`` handle, a subagent (spawn handle or row),
         or a list of them; subagents are waited on alone, like
-        ``rlm.collect``. An input queued for this session ends the wait as a
-        ``message`` job. ``timeout_s`` (default and cap: 1800) bounds the
-        wait; ``None`` when nothing settled in time. Raises ``RuntimeError``
-        when nothing is running or ready."""
+        ``rlm.collect``. An input queued for this session (a user message
+        or steer, a peer's message, a job notice, a subagent's report; a
+        wait on subagents takes their reports as their results) ends the
+        wait first as a ``message`` job, and the waited work keeps running.
+        ``timeout_s`` (default and cap: 1800) bounds the wait; ``None`` when
+        nothing settled in time. Raises ``RuntimeError`` when nothing is
+        running or ready."""
         from .bash import BashHandle
 
         seconds = _timeout_s(timeout_s)
@@ -274,19 +279,31 @@ async def _wait(local: list[Any], named: list[str] | None, seconds: int | None) 
         handle._note_result_consumed()
         return _bash_job(handle)
     if end == "message":
-        return Job(id="message", kind="message", state="ok", elapsed_ms=0, output=_MESSAGE_TEXT)
+        return _message_job()
     if end in ("timeout", "cancelled"):
         return None
     raise RuntimeError("jobs.wait returned an invalid end")
 
 
 async def _wait_children(children: list[Any], seconds: int | None) -> Job | None:
-    from . import collect
+    from . import _child_result_from_payload, _collect_target_selector, host_request
 
     # The host caps the wait at its 30 minutes.
     timeout_ms = _UNBOUNDED_MS if seconds is None else seconds * 1000
-    results = await collect(children, timeout_ms=timeout_ms)
-    for result in results:
+    payload = await host_request(
+        "rlm.collect",
+        {"targets": [_collect_target_selector(child) for child in children], "timeout_ms": timeout_ms},
+    )
+    if payload.get("end") == "message":
+        return _message_job()
+    entries = payload.get("results")
+    arrived = payload.get("arrived")
+    if not isinstance(entries, list) or not isinstance(arrived, list):
+        raise RuntimeError("rlm.collect returned an invalid results list")
+    results = [_child_result_from_payload(entry) for entry in entries]
+    # The child whose result arrived in this wait comes first; a child
+    # settled before it is the fallback.
+    for result in sorted(results, key=lambda result: result.rlm_child_id not in arrived):
         if result.settled:
             return Job(
                 id=result.rlm_child_id,
@@ -296,6 +313,10 @@ async def _wait_children(children: list[Any], seconds: int | None) -> Job | None
                 output=result.answer_preview if result.error is None else result.error,
             )
     return None
+
+
+def _message_job() -> Job:
+    return Job(id="message", kind="message", state="ok", elapsed_ms=0, output=_MESSAGE_TEXT)
 
 
 jobs = _JobsNamespace()

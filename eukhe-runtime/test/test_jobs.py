@@ -25,6 +25,12 @@ def _host(replies: dict[str, Any]) -> AsyncMock:
     return AsyncMock(side_effect=answer)
 
 
+def _child(child_id: str) -> Any:
+    return rlm_module.RLMSpawnHandle(
+        rlm_child_id=child_id, name=child_id, session_dir=Path("/tmp") / child_id, model="faux-1"
+    )
+
+
 class JobsApiTest(unittest.TestCase):
     def setUp(self) -> None:
         # This kernel's bash() handles of other tests are no work of these.
@@ -131,6 +137,35 @@ class JobsApiTest(unittest.TestCase):
                 " before waiting again: the jobs keep running and their results arrive on their own.",
             ),
         )
+
+    def test_a_queued_message_ends_a_wait_on_a_subagent(self) -> None:
+        running = {"rlm_child_id": "child-1", "status": "running", "settled": False}
+        host_request = _host({"rlm.collect": {"results": [running], "arrived": [], "end": "message"}})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            job = asyncio.run(rlm_module.jobs.wait(_child("child-1")))
+
+        self.assertEqual(
+            host_request.await_args.args,
+            ("rlm.collect", {"targets": ["child-1"], "timeout_ms": 2**53}),
+        )
+        self.assertEqual(
+            job,
+            rlm_module.Job("message", "message", "ok", 0, "A message arrived for this session; it follows this result."),
+        )
+
+    def test_a_wait_on_subagents_returns_the_child_whose_result_arrived(self) -> None:
+        # child-1 settled and was read before this wait; child-2's result
+        # arrived in it.
+        read = {"rlm_child_id": "child-1", "status": "done", "settled": True, "answer_preview": "old"}
+        fresh = {"rlm_child_id": "child-2", "status": "error", "settled": True, "error": "boom", "duration_ms": 900}
+        host_request = _host({"rlm.collect": {"results": [read, fresh], "arrived": ["child-2"]}})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            job = asyncio.run(rlm_module.jobs.wait([_child("child-1"), _child("child-2")], timeout_s=5))
+
+        self.assertEqual(host_request.await_args.args[1]["timeout_ms"], 5000)
+        self.assertEqual(job, rlm_module.Job("child-2", "child", "error", 900, "boom"))
 
     def test_cancel_returns_the_settled_job(self) -> None:
         killed = {"id": "cell-1", "kind": "cell", "state": "killed", "elapsed_ms": 3000, "output": ""}

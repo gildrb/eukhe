@@ -300,6 +300,19 @@ class ValidateFactorySpecTest(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("lifecycle must be 'task' or 'resident'", errors[0])
 
+    def test_a_writing_node_names_its_files(self) -> None:
+        self.assertEqual(validate_factory_spec({"nodes": [node("a", scope=["src/a", "docs/{topic}.md"])]}), [])
+        for bad in ([], [""], ["  "], "src", None, [5]):
+            self.assertEqual(
+                validate_factory_spec({"nodes": [node("a", scope=bad)]}),
+                ["node a: a writing agent needs its files"],
+                repr(bad),
+            )
+        self.assertEqual(
+            validate_factory_spec({"nodes": [node("a", lifecycle="resident", scope=["src"])]}),
+            ["node a: a resident state is read-only (it never settles, so it never hands its files back)"],
+        )
+
     def test_run_budget_and_node_budget(self) -> None:
         ok = {
             "run": {"budget_ms": 1000},
@@ -2711,6 +2724,20 @@ class FakeHost:
         self.gates: dict[tuple[str, int], asyncio.Event] = {}
         self.gate_entries: dict[tuple[str, int], asyncio.Event] = {}
         self._call_indices: dict[str, int] = {}
+        # The agent tree: the session's facts, the paths each node's
+        # children write outside their files, the collect polls a queued
+        # user message ends, and the ended ordinals per writing batch.
+        self.tree_facts: dict[str, Any] = {
+            "writeScope": [""],
+            "depth": 0,
+            "remaining": 15,
+            "free": None,
+            "deadlineMs": None,
+        }
+        self.outside: dict[str, list[str]] = {}
+        self.message_collects: set[int] = set()
+        self.batches: dict[str, int] = {}
+        self.batch_ends: dict[str, set[int]] = {}
 
     def gate(self, request_type: str, call_number: int) -> asyncio.Event:
         """Suspend the call_number-th call of that type on a returned event."""
@@ -2829,7 +2856,44 @@ class FakeHost:
                         error=outcome.get("error"),
                     )
                 )
-            return {"results": results}
+            reply: dict[str, Any] = {"results": results}
+            if self.collects in self.message_collects:
+                reply["end"] = "message"
+            return reply
+        if request_type == "rlm.tree_facts":
+            return dict(self.tree_facts)
+        if request_type == "tree.batch":
+            agents = payload["agents"]
+            self.batches[payload["key"]] = len(agents)
+            return {
+                "key": payload["key"],
+                "nodes": 2 * len(agents) - 1,
+                "leaves": [
+                    {
+                        "kwargs": {"node": {"path": f"P{ordinal}", "scope": agent["scope"]}},
+                        "head": f"Write only inside: {', '.join(agent['scope'])}.\n\n",
+                    }
+                    for ordinal, agent in enumerate(agents, start=1)
+                ],
+            }
+        if request_type == "rlm.answer":
+            child = self.children[payload["target"]]
+            outcome = self.outcomes.get(child["node"]) or {"status": "done"}
+            return {
+                "settled": True,
+                "status": outcome["status"],
+                "scopedHandback": {"outside": self.outside.get(child["node"], []), "conflicts": [], "patch": []},
+            }
+        if request_type == "tree.batch_end":
+            ended = self.batch_ends.setdefault(payload["key"], set())
+            ended.add(payload["ordinal"])
+            handback = payload["state"].get("scopedHandback") or {}
+            return {
+                "conflicts": handback.get("outside", []),
+                "settled": len(ended) == self.batches[payload["key"]],
+            }
+        if request_type in ("rlm.tree_lend", "rlm.tree_return", "tree.batch_drop"):
+            return {}
         if request_type == "rlm.delete_subagent":
             target = payload["target"]
             child = self.children.pop(target, None)
@@ -3232,8 +3296,8 @@ class FactoryExecutorTest(_ExecutorTestCase):
         status = await self.settle(result)
         self.assertEqual(status["state"], "done")
         self.assertEqual(
-            [(p["kwargs"]["name"], p["kwargs"]["why"]) for p in self.host.calls_of("rlm.run")],
-            [("reviewer", "isolate")],
+            [(p["kwargs"]["name"], "node" in p["kwargs"]) for p in self.host.calls_of("rlm.run")],
+            [("reviewer", False)],
         )
         self.assertEqual(
             [event["name"] for event in self.all_events_of(result, "spawned")],
@@ -3304,6 +3368,110 @@ class FactoryExecutorTest(_ExecutorTestCase):
             ],
             ["expander", "expander-i1"],
         )
+
+    @async_test
+    async def test_a_writing_foreach_state_starts_one_batch_and_returns_conflicts(self) -> None:
+        # A writing state's instances start together as one batch of the
+        # agent tree, each a leaf over its own rendered files; a read-only
+        # state's child is a help leaf. A write outside an instance's files
+        # comes back on its answer, and the batch's nodes return once every
+        # leaf ended.
+        self.host.outcomes["src"] = {
+            "status": "done",
+            "answer": 'Here.\n```json\n{"items": ["a", "b"]}\n```',
+        }
+        self.host.outside["fan"] = ["README.md"]
+        self.store_factory(
+            {
+                "run": {"failure_policy": "continue", "max_parallel": 1},
+                "nodes": [
+                    {"id": "src", "subagent": "worker", "outputs": [{"name": "items", "type": "json"}]},
+                    {
+                        "id": "fan",
+                        "subagent": {"prompt": "Write the {items} page."},
+                        "depends_on": ["src"],
+                        "inputs": [{"name": "items", "type": "json", "from": "src.items"}],
+                        "foreach": {"over": "items", "max": 4},
+                        "scope": ["docs/{items}.md"],
+                    },
+                ],
+            }
+        )
+        result = await self.start()
+        status = await self.settle(result)
+        self.assertEqual(status["state"], "done")
+        [batch] = self.host.calls_of("tree.batch")
+        key = batch["key"]
+        self.assertEqual(
+            batch["agents"],
+            [{"scope": ["docs/a.md"]}, {"scope": ["docs/b.md"]}],
+        )
+        self.assertEqual(
+            [
+                (p["kwargs"].get("node"), p["prompt"])
+                for p in self.host.calls_of("rlm.run")
+            ],
+            [
+                (None, self.host.calls_of("rlm.run")[0]["prompt"]),
+                ({"path": "P1", "scope": ["docs/a.md"]}, "Write only inside: docs/a.md.\n\nWrite the a page."),
+                ({"path": "P2", "scope": ["docs/b.md"]}, "Write only inside: docs/b.md.\n\nWrite the b page."),
+            ],
+        )
+        self.assertEqual(
+            (
+                self.host.calls_of("rlm.tree_lend"),
+                [(p["key"], p["ordinal"]) for p in self.host.calls_of("tree.batch_end")],
+                self.host.calls_of("rlm.tree_return"),
+            ),
+            ([{"key": key, "nodes": 3}], [(key, 1), (key, 2)], [{"key": key}]),
+        )
+        run = self.executor._runs[result["run_id"]]
+        self.assertEqual(
+            [instance.answer for instance in run.states["fan"].entries[0].instances],
+            ["answer-fan\nConflicts (not applied): README.md"] * 2,
+        )
+
+    @async_test
+    async def test_a_refused_writing_batch_fails_its_instances(self) -> None:
+        async def refuse(request_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            if request_type == "tree.batch":
+                raise RuntimeError("the writing agents started together must name disjoint files")
+            return await host(request_type, payload)
+
+        host = self.host
+        patcher = patch.object(rlm_module, "host_request", refuse)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.store_factory(
+            {
+                "run": {"failure_policy": "continue"},
+                "nodes": [{"id": "a", "subagent": "worker", "scope": ["src"]}],
+            }
+        )
+        result = await self.start()
+        await self.settle(result)
+        instance = self.executor._runs[result["run_id"]].states["a"].entries[0].instances[0]
+        self.assertEqual(
+            (instance.status, instance.error, host.calls_of("rlm.run")),
+            (
+                "error",
+                "writing batch refused: the writing agents started together must name disjoint files",
+                [],
+            ),
+        )
+
+    @async_test
+    async def test_a_queued_user_message_paces_the_collect_loop(self) -> None:
+        # A queued user message ends every collect at once until the
+        # session's turn reads it: the lane sleeps one poll interval per
+        # such collect instead of spinning.
+        self.host.outcomes["a"] = {"status": "running"}
+        self.host.message_collects = {1, 2}
+        self.store_factory({"nodes": [{"id": "a", "subagent": "worker"}]})
+        result = await self.start()
+        await self.wait_until(lambda: self.host.collects >= 3)
+        self.assertEqual(self.sleeps.sleeps, [factory_module.POLL_TIMEOUT_MS / 1000] * 2)
+        await rlm_module.rlm.factory.stop(result["run_id"])
 
     @async_test
     async def test_run_starts_ready_nodes_and_reports_counts(self) -> None:

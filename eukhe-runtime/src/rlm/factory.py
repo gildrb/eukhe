@@ -17,13 +17,18 @@ validator, the dag-to-machine compiler, the unified entry point
 (``validate_factory_spec`` detects the form), and a canonicalizer that
 applies defaults and returns the canonical MACHINE form -- plus the
 executor (``FactoryExecutor`` and the ``rlm.factory`` namespace:
-run/status/stop/resume) that runs canonicalized machines through the
-existing RLM supervisor: states are admitted with ``rlm.spawn``, settled
-through ``rlm.collect``, and cancelled with ``rlm.delete_subagent``. The
-supervisor owns the children; the executor owns the run state in kernel
-memory. Runs do not survive a kernel restart (the registry lives in this
-module's state); children are supervisor-owned and keep running, so
-``rlm.list_subagents`` can still see them after a restart.
+run/status/stop/resume) that runs canonicalized machines on the session's
+agent tree: a read-only state's instances are help leaves (``rlm.spawn``);
+a writing state (``scope``: its files) admits its pending instances as one
+writing batch (``tree.batch``, then ``rlm.run`` per leaf), a balanced
+binary tree whose integrators the harness runs, each instance a leaf over
+its own files. Instances settle through ``rlm.collect`` (a writing leaf's
+end and conflicts through ``rlm.answer`` and ``tree.batch_end``) and are
+cancelled with ``rlm.delete_subagent``. The supervisor owns the children;
+the executor owns the run state in kernel memory. Runs do not survive a
+kernel restart (the registry lives in this module's state); children are
+supervisor-owned and keep running, so ``rlm.list_subagents`` can still see
+them after a restart.
 
 The full agent-facing reference — authoring rules, guards/joins/cycles,
 foreach, budgets, stall detectors, and the ``rlm.factory`` API with worked
@@ -56,6 +61,8 @@ from uuid import uuid4
 FAILURE_POLICIES: tuple[str, ...] = ("fail_fast", "continue", "escalate")
 PORT_TYPES: tuple[str, ...] = ("text", "json")
 LIFECYCLES: tuple[str, ...] = ("task", "resident")
+NEEDS_FILES = "a writing agent needs its files"
+"""The refusal of a writing state whose ``scope`` names no file."""
 TRANSITION_ON_KINDS: tuple[str, ...] = ("settled",)
 GUARD_OPS: tuple[str, ...] = ("eq", "ne", "gt", "gte", "lt", "lte", "exists", "contains")
 MAX_NODES = 1024
@@ -274,6 +281,14 @@ def _validate_state_fields(
     if "lifecycle" in state and lifecycle not in LIFECYCLES:
         errors.append(f"{noun} {ref} lifecycle must be 'task' or 'resident', got {lifecycle!r}")
     is_resident = lifecycle == "resident"
+    if "scope" in state:
+        # A writing state names its files (input placeholders allowed:
+        # "docs/{topic}.md"); without a scope a state is read-only.
+        scope = state["scope"]
+        if not (isinstance(scope, list) and scope and all(isinstance(path, str) and path.strip() for path in scope)):
+            errors.append(f"{noun} {ref}: {NEEDS_FILES}")
+        elif is_resident:
+            errors.append(f"{noun} {ref}: a resident state is read-only (it never settles, so it never hands its files back)")
 
     if state.get("wait") is not None:
         # Gated: the watch host handlers (rlm.watch.*) arrive with the
@@ -777,7 +792,7 @@ def compile_factory_dag(dag: Any) -> "tuple[dict[str, Any] | None, list[str]]":
     for node in nodes:
         edges = _effective_dag_edges(node)
         state: dict[str, Any] = {"id": node["id"], "entry": not edges, "max_entries": STATE_MAX_ENTRIES_DEFAULT}
-        for key in ("subagent", "lifecycle", "budget_ms", "retries", "failure_policy", "inputs", "outputs", "foreach"):
+        for key in ("subagent", "lifecycle", "budget_ms", "retries", "failure_policy", "inputs", "outputs", "foreach", "scope"):
             if key in node:
                 state[key] = copy.deepcopy(node[key])
         machine["states"].append(state)
@@ -855,7 +870,7 @@ def _canonicalize_machine(machine: dict[str, Any]) -> dict[str, Any]:
             "failure_policy": state.get("failure_policy", run_policy),
             "subagent": copy.deepcopy(state["subagent"]),
         }
-        for key in ("budget_ms", "inputs", "outputs", "foreach"):
+        for key in ("budget_ms", "inputs", "outputs", "foreach", "scope"):
             if key in state:
                 state_out[key] = copy.deepcopy(state[key])
         states_out.append(state_out)
@@ -1184,29 +1199,43 @@ def _parse_json_output(answer: str, output_name: str) -> tuple[Any, str | None]:
     return None, f"no JSON object containing output {output_name!r} in the upstream answer"
 
 
-def _render_prompt(template: str, values: dict[str, str]) -> str:
-    """Render bound input values into a prompt template.
-
-    Each ``{input_name}`` placeholder is replaced in a single pass (a value
-    that itself looks like a placeholder is never re-substituted). Inputs
-    without a placeholder are appended in a trailing ``## Inputs`` section,
-    so no bound value is dropped.
-    """
+def _substitute(template: str, values: dict[str, str]) -> tuple[str, set[str]]:
+    """Replace each ``{input_name}`` placeholder of ``template`` in a single
+    pass (a value that itself looks like a placeholder is never
+    re-substituted); the rendered text and the names it used."""
     if not values:
-        return template
+        return template, set()
     pattern = re.compile("|".join(re.escape("{" + name + "}") for name in values))
     used: set[str] = set()
 
-    def _substitute(match: "re.Match[str]") -> str:
+    def _value(match: "re.Match[str]") -> str:
         name = match.group(0)[1:-1]
         used.add(name)
         return values[name]
 
-    rendered = pattern.sub(_substitute, template)
+    return pattern.sub(_value, template), used
+
+
+def _render_prompt(template: str, values: dict[str, str]) -> str:
+    """Render bound input values into a prompt template.
+
+    Inputs without a placeholder are appended in a trailing ``## Inputs``
+    section, so no bound value is dropped.
+    """
+    rendered, used = _substitute(template, values)
     unplaced = [(name, value) for name, value in values.items() if name not in used]
     if unplaced:
         rendered += "\n\n## Inputs\n" + "".join(f"- {name}: {value}\n" for name, value in unplaced)
     return rendered
+
+
+def _render_scope(scope: list[str] | None, values: dict[str, str]) -> list[str] | None:
+    """A writing state's files for one instance: each path with its input
+    placeholders filled (``docs/{topic}.md``); ``None`` for a read-only
+    state."""
+    if scope is None:
+        return None
+    return [_substitute(path, values)[0] for path in scope]
 
 
 def _json_equal(actual: Any, expected: Any) -> bool:
@@ -1313,6 +1342,11 @@ class _NodeInstance:
     answer: str | None = None  # capped collect preview (ANSWER_CAPTURE_CAP)
     error: str | None = None
     tool_uses: int = 0
+    scope: list[str] | None = None  # a writing state's files for this instance; None: read-only
+    batch: str | None = None  # the writing batch (tree.batch key) of the current attempt
+    ordinal: int = 0  # the instance's agent ordinal in that batch
+    leaf: dict[str, Any] | None = None  # its leaf in that batch: spawn kwargs and task head
+    conflicts: list[str] = field(default_factory=list)  # paths written outside its scope
 
 
 @dataclass
@@ -1357,6 +1391,11 @@ class _StateRun:
     @property
     def lifecycle(self) -> str:
         return self.spec.get("lifecycle", NODE_LIFECYCLE_DEFAULT)
+
+    @property
+    def scope(self) -> list[str] | None:
+        """The files a writing state's instances write; None: read-only."""
+        return self.spec.get("scope")
 
     @property
     def status(self) -> str:
@@ -1433,7 +1472,8 @@ class FactoryExecutor:
     """Runs canonicalized state-machine factories through the existing RLM supervisor.
 
     Ownership split: the supervisor owns the children (admission via
-    ``rlm.spawn``, settlement via ``rlm.collect``, cancellation via
+    ``rlm.spawn`` for read-only states and ``tree.batch`` + ``rlm.run`` for
+    writing ones, settlement via ``rlm.collect``, cancellation via
     ``rlm.delete_subagent``); this executor owns the run state in kernel
     memory. Every host call resolves through the module-level ``rlm``
     functions and ``host_request`` at call time, so tests can patch
@@ -1479,8 +1519,8 @@ class FactoryExecutor:
         subagent reference, reporting ALL failures in one ``ValueError`` and
         starting nothing on any failure. The resolved state count and
         ``max_parallel`` are reported in the result; actual admission limits
-        (concurrency, tree depth, provider rate limits) are enforced at
-        spawn time through the backoff path. Admission enters every entry
+        (the agent tree's depth, node and budget bounds, provider rate
+        limits) are enforced at spawn time. Admission enters every entry
         state up to ``max_parallel``, records handles, and returns; a
         background asyncio task continues the run, so the calling model turn
         ends immediately (nonblocking).
@@ -2358,16 +2398,21 @@ class FactoryExecutor:
                 break
             if run.admission_backoff_until is not None and self._now_fn() < run.admission_backoff_until:
                 break  # the loop waits out the deadline in bounded slices
-            if self._running_instance_count(run) >= run.max_parallel:
-                break
             pair = self._next_pending_instance(run)
             if pair is None:
+                break
+            state, entry, instance = pair
+            # Writing instances start together as one batch of the agent
+            # tree and take no max_parallel slot; read-only ones do.
+            if instance.scope is None and self._running_instance_count(run) >= run.max_parallel:
                 break
             if self._children_budget_exceeded(run):
                 await self._pause_for_children(run)
                 break
-            state, entry, instance = pair
-            outcome = await self._admit(run, state, entry, instance, allow_backoff=allow_backoff)
+            if instance.scope is None:
+                outcome = await self._admit(run, state, entry, instance, allow_backoff=allow_backoff)
+            else:
+                outcome = await self._admit_batch(run, state, entry, allow_backoff=allow_backoff)
             if outcome == "admitted" and state.state_id not in started:
                 started.append(state.state_id)
             if outcome == "stopped":
@@ -2543,7 +2588,11 @@ class FactoryExecutor:
             values[name] = json.dumps(value)
         if foreach is None:
             assert state.prompt_template is not None
-            instance = _NodeInstance(index=state.instance_counter, prompt=_render_prompt(state.prompt_template, values))
+            instance = _NodeInstance(
+                index=state.instance_counter,
+                prompt=_render_prompt(state.prompt_template, values),
+                scope=_render_scope(state.scope, values),
+            )
             state.instance_counter += 1
             return [instance], None
         if items is None:
@@ -2551,10 +2600,12 @@ class FactoryExecutor:
         instances = []
         for item in items[: foreach["max"]]:
             instance_value = item if isinstance(item, str) else json.dumps(item)
+            item_values = {**values, foreach["over"]: instance_value}
             instances.append(
                 _NodeInstance(
                     index=state.instance_counter + len(instances),
-                    prompt=_render_prompt(state.prompt_template, {**values, foreach["over"]: instance_value}),
+                    prompt=_render_prompt(state.prompt_template, item_values),
+                    scope=_render_scope(state.scope, item_values),
                 )
             )
         state.instance_counter += len(instances)
@@ -2598,22 +2649,38 @@ class FactoryExecutor:
         Every await re-checks the run state: a spawn that lands after
         ``stop()`` is retracted (deleted and cancelled) instead of
         registered running.
+
+        A read-only state's instance is a help leaf (``rlm.spawn``); a
+        writing state's instance is the leaf ``_admit_batch`` placed in its
+        batch (``rlm.run`` with the leaf's ``node`` kwargs). A writing
+        admission that does not land ends its leaf failed.
         """
-        from . import spawn
+        from . import _spawn_handle_from_payload, host_request, spawn
 
         instance.attempt += 1
         child_name = _spawn_label(state.name, run.run_id, state.state_id, instance.index, instance.attempt)
         try:
             # A factory state's work stays out of the orchestrator's context:
             # only its compact result comes back.
-            handle = await spawn(
-                instance.prompt,
-                name=child_name,
-                why="isolate",
-                model=state.model,
-                thinking=state.thinking,
-            )
+            if instance.leaf is None:
+                handle = await spawn(
+                    instance.prompt,
+                    name=child_name,
+                    model=state.model,
+                    thinking=state.thinking,
+                )
+            else:
+                kwargs = {"name": child_name, **instance.leaf["kwargs"]}
+                if state.model is not None:
+                    kwargs["model"] = state.model
+                if state.thinking is not None:
+                    kwargs["thinking"] = state.thinking
+                payload = await host_request(
+                    "rlm.run", {"prompt": instance.leaf["head"] + instance.prompt, "kwargs": kwargs}
+                )
+                handle = _spawn_handle_from_payload(payload)
         except RuntimeError as exc:
+            await self._release_leaf(run, state.state_id, entry.index, instance)
             last_error = str(exc)
             if _is_rate_limit_error(last_error):
                 if allow_backoff:
@@ -2676,6 +2743,74 @@ class FactoryExecutor:
         )
         return "admitted"
 
+    async def _admit_batch(
+        self, run: FactoryRun, state: _StateRun, entry: _StateEntry, *, allow_backoff: bool
+    ) -> str:
+        """Admit a writing state's pending instances of ``entry`` as one
+        writing batch of the agent tree, all or none (``tree.batch``): the
+        harness builds a balanced binary tree over them, each instance a
+        leaf over its own files, and integrates their writes; writes outside
+        an instance's files come back as its conflicts. The batch's nodes
+        are lent from the session (``rlm.tree_lend``) and return once every
+        leaf ended. Then each leaf spawns through ``_admit``. Returns
+        "admitted", "failed", or the first leaf's "deferred"/"stopped".
+        """
+        from . import host_request
+
+        pending = [instance for instance in entry.instances if instance.status == "pending"]
+        first = pending[0]
+        key = f"factory:{run.run_id}:{state.state_id}:{entry.index}:{first.index}:{first.attempt + 1}"
+        try:
+            facts = await host_request("rlm.tree_facts", {})
+            plan = await host_request(
+                "tree.batch",
+                {"key": key, "facts": facts, "agents": [{"scope": instance.scope} for instance in pending]},
+            )
+            try:
+                await host_request("rlm.tree_lend", {"key": key, "nodes": plan["nodes"]})
+            except RuntimeError:
+                await host_request("tree.batch_drop", {"key": key})
+                raise
+        except RuntimeError as exc:
+            for instance in pending:
+                instance.attempt += 1
+                await self._apply_instance_failure(
+                    run, state, entry, instance, f"writing batch refused: {exc}", retry=False
+                )
+            return "failed"
+        self._event(run, "batch_admitted", node=state.state_id, entry=entry.index, batch=key, agents=len(pending))
+        for ordinal, (instance, leaf) in enumerate(zip(pending, plan["leaves"]), start=1):
+            instance.batch, instance.ordinal, instance.leaf = key, ordinal, leaf
+        outcome = "admitted"
+        for instance in pending:
+            if run.state != "running":
+                # stop() landed between two leaves: the rest never spawn,
+                # and their leaves end so the batch settles.
+                await self._release_leaf(run, state.state_id, entry.index, instance)
+                outcome = "stopped"
+                continue
+            admitted = await self._admit(run, state, entry, instance, allow_backoff=allow_backoff)
+            if admitted != "admitted" and outcome == "admitted":
+                outcome = admitted
+        return outcome
+
+    async def _end_leaf(self, instance: _NodeInstance, answer: dict[str, Any] | None) -> None:
+        """Record a writing instance's end in its batch (``tree.batch_end``)
+        from its settled ``rlm.answer`` state (``None``: it never ran or was
+        cancelled): its conflicts, and the batch's nodes back to the
+        session once every leaf ended. A read-only instance has no leaf."""
+        from . import host_request
+
+        if instance.batch is None:
+            return
+        key, ordinal = instance.batch, instance.ordinal
+        instance.batch, instance.leaf = None, None
+        state = answer if answer is not None else {"settled": True, "status": "cancelled"}
+        end = await host_request("tree.batch_end", {"key": key, "ordinal": ordinal, "state": state})
+        instance.conflicts = [str(path) for path in end.get("conflicts") or []]
+        if end.get("settled"):
+            await host_request("rlm.tree_return", {"key": key})
+
     # -- settlement, retries, policies ---------------------------------------
 
     async def _apply_settlement(
@@ -2716,6 +2851,19 @@ class FactoryExecutor:
                 return
         instance.status = "done"
         instance.answer = (result.answer_preview or "")[:ANSWER_CAPTURE_CAP] or None
+        if instance.conflicts:
+            # A writing instance's writes outside its files were not
+            # applied: the run (and every state reading this answer) sees them.
+            conflicts = "Conflicts (not applied): " + ", ".join(instance.conflicts)
+            instance.answer = f"{instance.answer}\n{conflicts}" if instance.answer else conflicts
+            self._event(
+                run,
+                "conflicts",
+                node=state.state_id,
+                entry=entry.index,
+                instance=instance.index,
+                paths=list(instance.conflicts),
+            )
         self._event(
             run,
             "settled",
@@ -2949,6 +3097,7 @@ class FactoryExecutor:
         # The child is supervisor-owned; a failed delete leaves it running
         # there, but the executor treats its slot as released.
         instance.status = "cancelled"
+        await self._release_leaf(run, state.state_id, entry.index, instance)
 
     async def _cancel_running(self, run: FactoryRun) -> None:
         from . import delete_subagent
@@ -2981,6 +3130,15 @@ class FactoryExecutor:
                         self._event(run, "cancelled", node=state_id, entry=entry.index, instance=instance.index, child=child_id)
                     # The child is supervisor-owned; a failed delete leaves it
                     # running there, but the executor treats its slot as released.
+                    await self._release_leaf(run, state_id, entry.index, instance)
+
+    async def _release_leaf(self, run: FactoryRun, state_id: str, entry_index: int, instance: _NodeInstance) -> None:
+        """End a cancelled writing instance's leaf; a host failure is a
+        ledger event (the cancel itself already happened)."""
+        try:
+            await self._end_leaf(instance, None)
+        except Exception as exc:
+            self._event(run, "batch_end_failed", node=state_id, entry=entry_index, instance=instance.index, error=str(exc))
 
     # -- completion ----------------------------------------------------------
 
@@ -3075,7 +3233,7 @@ class FactoryExecutor:
     async def _loop_body(self, run: FactoryRun, generation: int) -> None:
         import asyncio
 
-        from . import collect
+        from . import _child_result_from_payload, host_request
 
         # The generation re-checks after every await are the resume-race
         # fix: a resume() that lands while this task is suspended at an
@@ -3091,9 +3249,14 @@ class FactoryExecutor:
                 if instance.status == "running" and instance.child_id is not None
             ]
             if in_flight:
-                results = await collect(
-                    [instance.child_id for _, _, instance in in_flight], timeout_ms=POLL_TIMEOUT_MS
+                reply = await host_request(
+                    "rlm.collect",
+                    {
+                        "targets": [instance.child_id for _, _, instance in in_flight],
+                        "timeout_ms": POLL_TIMEOUT_MS,
+                    },
                 )
+                results = [_child_result_from_payload(entry) for entry in reply.get("results") or []]
                 settled = {entry.rlm_child_id: entry for entry in results if entry.settled}
                 for state, entry, instance in in_flight:
                     # A GENERATION bump mid-batch drops this collect's
@@ -3108,7 +3271,15 @@ class FactoryExecutor:
                         return
                     result = settled.get(instance.child_id or "")
                     if result is not None:
+                        if instance.batch is not None and instance.status == "running":
+                            answer = await host_request("rlm.answer", {"target": instance.child_id})
+                            await self._end_leaf(instance, answer)
                         await self._apply_settlement(run, state, entry, instance, result)
+                if reply.get("end") == "message":
+                    # A user message waits for the session's turn: every
+                    # collect returns at once until the turn reads it, so the
+                    # lane paces at the poll interval instead of spinning.
+                    await self._sleep_fn(POLL_TIMEOUT_MS / 1000)
             # Re-check state before completion: stop() (or a policy transition)
             # can land while the collect above was in flight, and a run that
             # was stopped must never finalize as done.
@@ -4550,6 +4721,20 @@ bind.
   foreach, and no outgoing transitions, nothing reads from them, and their
   instance stays alive under the parent session after the run completes
   (stop the run to retire it).
+- **Writing states**: a state without `scope` is read-only: each instance
+  reads and reports; its writes are refused. A writing state names its
+  files: `"scope": ["docs/{topic}.md"]` (paths or directories; input
+  placeholders render per instance, so each foreach item gets its own
+  files). An empty `scope` is refused: `a writing agent needs its files`;
+  residents are read-only. A writing entry's pending instances start
+  together as one batch, all or none, outside `max_parallel`: a balanced
+  binary tree whose pairs the harness merges, each instance's changes
+  landing in its files. Changes outside them are not applied: they come
+  back on the instance's answer as `Conflicts (not applied): <paths>` and
+  as a `conflicts` ledger event. A batch is refused when two instances
+  share a file, a path lies outside this session's scope or in a running
+  batch, or it holds more instances than the remaining tree depth allows
+  (2, 4 or 8); a refused batch fails its instances (no retry).
 - **Bounds and policies**: `run.max_parallel` (1..64, default 8) is the
   run's global budget of simultaneously running instances — not a
   per-node limit. `run.max_children` (default 10,000, capped at

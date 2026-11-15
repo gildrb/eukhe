@@ -112,7 +112,6 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 rlm_module.rlm.spawn(
                     "check the API",
                     name="api-reviewer",
-                    why="isolate",
                     model="deepseek/deepseek-v4-flash",
                 )
             )
@@ -123,7 +122,6 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 "prompt": "check the API",
                 "kwargs": {
                     "name": "api-reviewer",
-                    "why": "isolate",
                     "model": "deepseek/deepseek-v4-flash",
                 },
             },
@@ -132,31 +130,29 @@ class RlmSubagentRegistryTest(unittest.TestCase):
         self.assertEqual(result.name, "api-reviewer")
         self.assertEqual(result.model, "deepseek/deepseek-v4-flash")
 
-    def test_forwards_the_childs_budget_to_host(self) -> None:
+    def test_forwards_the_leafs_budget_and_the_split_hold_to_host(self) -> None:
         host_request = AsyncMock(
             side_effect=[
                 {"rlm_child_id": "sub-1", "name": "reader", "session_dir": "/tmp/parent/sub-1", "model": "m/a"},
-                {"handles": [{"rlm_child_id": "sub-2", "name": "writer", "session_dir": "/tmp/parent/sub-2", "model": "m/a"}]},
+                {
+                    "left": {"rlm_child_id": "sub-2", "name": "api", "session_dir": "/tmp/parent/sub-2", "model": "m/a"},
+                    "right": {"rlm_child_id": "sub-3", "name": "cli", "session_dir": "/tmp/parent/sub-3", "model": "m/a"},
+                },
             ]
         )
         budget = {"cost_usd": 0.5, "tool_calls": 20, "requests": 30}
+        left = {"scope": ["src/api"], "task": "validate the handlers"}
+        right = {"scope": ["src/cli"], "task": "match the flags"}
 
         with patch.object(rlm_module, "host_request", host_request):
-            asyncio.run(rlm_module.rlm.spawn("read the spec", name="reader", why="parallel", budget=budget))
-            asyncio.run(
-                rlm_module.rlm.spawn_batch(
-                    [{"prompt": "write the patch", "name": "writer", "why": "parallel", "budget": budget}]
-                )
-            )
+            asyncio.run(rlm_module.rlm.spawn("read the spec", name="reader", budget=budget))
+            asyncio.run(rlm_module.rlm.split(left, right, hold=1000))
 
         self.assertEqual(
             [call.args for call in host_request.await_args_list],
             [
-                ("rlm.run", {"prompt": "read the spec", "kwargs": {"name": "reader", "why": "parallel", "budget": budget}}),
-                (
-                    "rlm.run_batch",
-                    {"tasks": [{"prompt": "write the patch", "kwargs": {"name": "writer", "why": "parallel", "budget": budget}}]},
-                ),
+                ("rlm.run", {"prompt": "read the spec", "kwargs": {"name": "reader", "budget": budget}}),
+                ("rlm.split", {"left": left, "right": right, "hold": 1000}),
             ],
         )
 
@@ -167,48 +163,49 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 asyncio.run(rlm_module.rlm.spawn("check the API"))
         host_request.assert_not_awaited()
 
-    def test_spawn_batch_sends_one_request_for_every_task(self) -> None:
+    def test_split_sends_one_request_for_both_halves(self) -> None:
         host_request = AsyncMock(
             return_value={
-                "handles": [
-                    {"rlm_child_id": "sub-1", "name": "reader", "session_dir": "/tmp/p/sub-1", "model": "m/a"},
-                    {"rlm_child_id": "sub-2", "name": "writer", "session_dir": "/tmp/p/sub-2", "model": "m/b"},
-                ]
+                "left": {"rlm_child_id": "sub-1", "name": "api", "session_dir": "/tmp/p/sub-1", "model": "m/a"},
+                "right": {"rlm_child_id": "sub-2", "name": "cli", "session_dir": "/tmp/p/sub-2", "model": "m/b"},
             }
         )
         with patch.object(rlm_module, "host_request", host_request):
             handles = asyncio.run(
-                rlm_module.rlm.spawn_batch(
-                    [
-                        {"prompt": "read the spec", "name": "reader", "why": "parallel"},
-                        {"prompt": "write the patch", "name": "writer", "why": "parallel", "model": "m/b", "thinking": None},
-                    ]
+                rlm_module.rlm.split(
+                    left={"scope": ["src/api"], "task": "validate the handlers", "name": "api"},
+                    right={"scope": ["src/cli"], "task": "match the flags", "name": "cli", "model": "m/b", "thinking": None},
+                    own=["Cargo.lock"],
                 )
             )
         host_request.assert_awaited_once_with(
-            "rlm.run_batch",
+            "rlm.split",
             {
-                "tasks": [
-                    {"prompt": "read the spec", "kwargs": {"name": "reader", "why": "parallel"}},
-                    {"prompt": "write the patch", "kwargs": {"name": "writer", "why": "parallel", "model": "m/b"}},
-                ]
+                "left": {"scope": ["src/api"], "task": "validate the handlers", "name": "api"},
+                "right": {"scope": ["src/cli"], "task": "match the flags", "name": "cli", "model": "m/b"},
+                "own": ["Cargo.lock"],
             },
         )
-        self.assertEqual([(handle.rlm_child_id, handle.name) for handle in handles], [("sub-1", "reader"), ("sub-2", "writer")])
+        self.assertEqual([(handle.rlm_child_id, handle.name) for handle in handles], [("sub-1", "api"), ("sub-2", "cli")])
 
-    def test_spawn_batch_rejects_unknown_keys_before_any_request(self) -> None:
+    def test_split_rejects_unknown_keys_before_any_request(self) -> None:
         host_request = AsyncMock()
         with patch.object(rlm_module, "host_request", host_request):
-            with self.assertRaisesRegex(TypeError, "unsupported task keys: cwd"):
-                asyncio.run(rlm_module.rlm.spawn_batch([{"prompt": "x", "name": "a", "cwd": "/"}]))
+            with self.assertRaisesRegex(TypeError, "unsupported left keys: cwd"):
+                asyncio.run(
+                    rlm_module.rlm.split(
+                        {"scope": ["a"], "task": "x", "cwd": "/"},
+                        {"scope": ["b"], "task": "y"},
+                    )
+                )
         host_request.assert_not_awaited()
 
-    def test_rejects_calling_rlm_directly_with_spawn_guidance(self) -> None:
+    def test_rejects_calling_rlm_directly_with_split_guidance(self) -> None:
         for target in (rlm_module.rlm, rlm_module):
-            with self.assertRaisesRegex(TypeError, r"not callable; spawn a child with: handle = await rlm\.spawn\("):
+            with self.assertRaisesRegex(TypeError, r"not callable; split work with: left, right = await rlm\.split\("):
                 target("check the API")
         for target in (rlm_module, rlm_module.rlm):
-            with self.assertRaisesRegex(AttributeError, r"rlm\.run was renamed; spawn a child with: handle = await rlm\.spawn\("):
+            with self.assertRaisesRegex(AttributeError, r"rlm\.run was renamed; ask a read-only helper with: handle = await rlm\.spawn\("):
                 target.run
             self.assertFalse(hasattr(target, "run"))
 

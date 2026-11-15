@@ -33,8 +33,8 @@ from .jobs import Job, jobs
 from .query import RLMQueryError, RLMText, query, query_batch
 from .remote import remote
 
-_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
-_RENAMED_RUN_MESSAGE = "rlm.run was renamed; spawn a child with: handle = await rlm.spawn('sub-task', name='worker', why='isolate')"
+_NOT_CALLABLE_MESSAGE = "'rlm' is not callable; split work with: left, right = await rlm.split(left={'scope': ['src/a'], 'task': '...'}, right={'scope': ['src/b'], 'task': '...'}), or ask a read-only helper with: handle = await rlm.spawn('question', name='helper')"
+_RENAMED_RUN_MESSAGE = "rlm.run was renamed; ask a read-only helper with: handle = await rlm.spawn('question', name='helper')"
 
 
 @dataclass(frozen=True)
@@ -185,36 +185,27 @@ async def spawn(
     prompt: str,
     *,
     name: str,
-    why: str | None = None,
     model: str | None = None,
     thinking: str | None = None,
-    workspace: str | None = None,
     budget: dict[str, Any] | None = None,
     accept: list[dict[str, Any]] | None = None,
     accept_intent: bool | None = None,
     accept_returns: int | None = None,
 ) -> RLMSpawnHandle:
-    """Spawn a recursive Eukhe child and return once its task is admitted.
+    """Ask a read-only help leaf and return once its task is admitted.
 
+    A help leaf reads, searches and answers; it writes nothing (its tools are
+    read-only, in this agent's workspace). It counts as one node of this
+    agent's tree, takes its limit from this agent's free budget, is cancelled
+    with this agent's subtree, and its result arrives like a child's report.
+    To have work written by other agents, use :func:`split`.
     ``name`` is required and must be unique among siblings.
-    ``why`` is required: the reason for a subagent, one of ``"parallel"``
-    (independent tasks run at once), ``"isolate"`` (the work would bloat
-    this context; only a compact result comes back), ``"tools"`` (the task
-    needs a tool set or instructions that conflict with this agent's) or
-    ``"user"`` (the user asked for a subagent). The host refuses a spawn
-    without one of these with an error that states the rule.
     ``model`` selects a child with an exact ``provider/model`` selector.
     ``thinking`` sets the child reasoning level (e.g. 'off', 'low', 'medium', 'high');
     defaults to the parent level; levels invalid for the resolved model fail the spawn.
-    ``workspace``: 'shared' (default) works in the parent's directory; 'isolated'
-    works in a copy-on-write copy of the parent's workspace whose changes come back
-    when the child ends; conflicts are reported.
-    ``budget``: a budget of the child's own, a dict with any of ``cost_usd``,
-    ``tokens``, ``time_s``, ``tool_calls``, ``requests``; it leaves this task's
-    budget at once and what the child does not spend returns when it ends. Without
-    one the child draws from this task's budget, which the whole tree shares; the
-    reserve this agent keeps for its final answer stays out of its reach. A spawn
-    whose budget does not fit is refused.
+    ``budget``: the leaf's limit, a dict with any of ``cost_usd``, ``tokens``,
+    ``time_s``, ``tool_calls``, ``requests``; default: a tenth of what this agent
+    may still spend. A leaf the tree has no room or budget for is refused.
     ``accept``: the child's acceptance checks, this agent their owner (only
     this agent sets them): a list of ``{"kind": "command", "command": "pytest -q",
     "expect": 0, "timeout_ms"?: int, "protect"?: [paths]}``,
@@ -231,14 +222,10 @@ async def spawn(
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
     kwargs: dict[str, Any] = {"name": name}
-    if why is not None:
-        kwargs["why"] = why
     if model is not None:
         kwargs["model"] = model
     if thinking is not None:
         kwargs["thinking"] = thinking
-    if workspace is not None:
-        kwargs["workspace"] = workspace
     if budget is not None:
         kwargs["budget"] = budget
     if accept is not None:
@@ -247,57 +234,86 @@ async def spawn(
         kwargs["accept_intent"] = accept_intent
     if accept_returns is not None:
         kwargs["accept_returns"] = accept_returns
-    # Wire type stays "rlm.run" so kernels and hosts of different versions stay compatible.
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
 
 
-_SPAWN_TASK_KWARGS = (
+_SPLIT_HALF_KEYS = (
+    "scope",
+    "task",
     "name",
-    "why",
     "model",
     "thinking",
-    "workspace",
-    "budget",
     "accept",
     "accept_intent",
     "accept_returns",
 )
 
 
-async def spawn_batch(tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
-    """Spawn several recursive Eukhe children together, all or none.
+def _split_half(half: Any, side: str) -> dict[str, Any]:
+    if not isinstance(half, dict):
+        raise TypeError(f"{side} must be a dict {{'scope': [paths], 'task': str}}")
+    unknown = sorted(set(half) - set(_SPLIT_HALF_KEYS))
+    if unknown:
+        raise TypeError(f"unsupported {side} keys: {', '.join(unknown)}")
+    scope = half.get("scope")
+    if not isinstance(scope, list) or not scope or not all(isinstance(path, str) for path in scope):
+        raise TypeError(f"{side} scope must be a non-empty list of path strings")
+    if not isinstance(half.get("task"), str):
+        raise TypeError(f"{side} task must be str")
+    return {key: value for key, value in half.items() if value is not None}
 
-    Each task is a dict ``{"prompt": str, "name": str, "why": str, "model"?: str,
-    "thinking"?: str, "workspace"?: str, "budget"?: dict, "accept"?: list[dict], "accept_intent"?: bool,
-    "accept_returns"?: int}`` with the same rules as :func:`spawn`. The batch admits
-    atomically: when a task has no allowed ``why``, or the batch would exceed
-    the family's running-subagent cap (``subagentMaxConcurrency``), nothing is
-    spawned and the call fails (for the cap with ``subagent concurrency limit
-    N is already full``). The budgets the tasks name are carved together: when
-    they do not fit, nothing is spawned.
+
+async def split(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    own: list[str] | None = None,
+    hold: int | None = None,
+) -> tuple[RLMSpawnHandle, RLMSpawnHandle]:
+    """Split this agent's work into two children; return their handles.
+
+    Split when the work has two halves that write disjoint files and each is
+    worth its own planning (several edits or files); otherwise do it yourself.
+    Never split sequential work (one half needs the other's result).
+
+    ``left`` and ``right``: ``{"scope": [paths], "task": str, "name"?: str,
+    "model"?: str, "thinking"?: str, "accept"?: list[dict], "accept_intent"?: bool,
+    "accept_returns"?: int}``. A scope names files or directories relative to
+    the workspace root; a child writes only there, in its own copy of this
+    agent's workspace (uncommitted edits included). When a child finishes, its
+    writes inside its scope are applied to this agent's workspace; its writes
+    outside return as conflicts, never applied. A failed child runs again once
+    from its partial work; a child that fails again reports its failure and its
+    partial work stays in its own copy.
+    ``own``: the paths this agent keeps writing; default: the rest of its scope.
+    Keep shared files (lockfiles, mod.rs, index files, generated code) in ``own``.
+    ``own``, ``left`` and ``right`` must split this agent's scope exactly, each
+    half non-empty. ``hold``: budget this agent keeps for itself; default: two
+    worst-case requests or a tenth of what it may spend, whichever is more. Each
+    child gets half of the rest; what a child leaves unspent returns when it settles.
+    The tree is at most 3 levels deep and 15 agents in all. A refused split names
+    its first failing check and starts nothing.
+
+    While children run, work on ``own``; integrate each result as it arrives
+    (its report comes as a message), run the check, report.
     """
-    if not isinstance(tasks, list) or not tasks:
-        raise TypeError("tasks must be a non-empty list of dicts")
-    entries: list[dict[str, Any]] = []
-    for task in tasks:
-        if not isinstance(task, dict):
-            raise TypeError(f"each task must be a dict, got {type(task).__name__}")
-        unknown = sorted(set(task) - {"prompt", *_SPAWN_TASK_KWARGS})
-        if unknown:
-            raise TypeError(f"unsupported task keys: {', '.join(unknown)}")
-        prompt = task.get("prompt")
-        if not isinstance(prompt, str):
-            raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
-        if "name" not in task:
-            raise TypeError("each task needs a name")
-        kwargs = {key: task[key] for key in _SPAWN_TASK_KWARGS if task.get(key) is not None}
-        entries.append({"prompt": prompt, "kwargs": kwargs})
-    payload = await host_request("rlm.run_batch", {"tasks": entries})
-    handles = payload.get("handles")
-    if not isinstance(handles, list):
-        raise RuntimeError("rlm.run_batch returned no handles")
-    return [_spawn_handle_from_payload(handle) for handle in handles]
+    payload: dict[str, Any] = {
+        "left": _split_half(left, "left"),
+        "right": _split_half(right, "right"),
+    }
+    if own is not None:
+        if not isinstance(own, list) or not all(isinstance(path, str) for path in own):
+            raise TypeError("own must be a list of path strings or None")
+        payload["own"] = own
+    if hold is not None:
+        if not isinstance(hold, int) or hold < 0:
+            raise TypeError("hold must be a non-negative int or None")
+        payload["hold"] = hold
+    reply = await host_request("rlm.split", payload)
+    return (
+        _spawn_handle_from_payload(reply.get("left")),
+        _spawn_handle_from_payload(reply.get("right")),
+    )
 
 
 def _model_from_payload(payload: Any) -> RLMModel:
@@ -490,12 +506,16 @@ async def collect(
     or a list mixing all three. ``None`` (or an empty list) selects every
     direct child that is not being deleted.
 
-    ``timeout_ms`` bounds the wait for the selected children to settle:
-    0 returns a non-blocking snapshot immediately; a positive value blocks
-    only this kernel call until the runs settle or the timeout elapses —
-    a timeout returns current snapshots, never an error, and the parent
-    session is never steered. Completed children keep their result until
-    deleted, so a later ``collect`` re-reads them without waiting.
+    ``timeout_ms`` bounds the wait: 0 returns a non-blocking snapshot
+    immediately; a positive value blocks only this kernel call until the
+    first selected child settles (its result is the one to integrate) or
+    the timeout elapses, and returns every selected child's current
+    snapshot. A timeout is never an error. An input queued for this
+    session meanwhile (a user message or steer, a peer's message) ends the
+    wait first: the children keep running, their reports arrive later, and
+    the message follows the cell's result. Completed children keep their
+    result until deleted, so a later ``collect`` re-reads them without
+    waiting.
     """
     if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or timeout_ms < 0:
         raise TypeError("timeout_ms must be a non-negative int")
@@ -716,10 +736,8 @@ class _RLMNamespace:
         prompt: str,
         *,
         name: str,
-        why: str | None = None,
         model: str | None = None,
         thinking: str | None = None,
-        workspace: str | None = None,
         budget: dict[str, Any] | None = None,
         accept: list[dict[str, Any]] | None = None,
         accept_intent: bool | None = None,
@@ -728,18 +746,22 @@ class _RLMNamespace:
         return await spawn(
             prompt,
             name=name,
-            why=why,
             model=model,
             thinking=thinking,
-            workspace=workspace,
             budget=budget,
             accept=accept,
             accept_intent=accept_intent,
             accept_returns=accept_returns,
         )
 
-    async def spawn_batch(self, tasks: list[dict[str, Any]]) -> list[RLMSpawnHandle]:
-        return await spawn_batch(tasks)
+    async def split(
+        self,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        own: list[str] | None = None,
+        hold: int | None = None,
+    ) -> tuple[RLMSpawnHandle, RLMSpawnHandle]:
+        return await split(left, right, own=own, hold=hold)
 
     async def find_models(self, query: str = "", limit: int = 8) -> list[RLMModel]:
         return await find_models(query, limit)
@@ -843,7 +865,7 @@ __all__ = [
     "rename",
     "rlm",
     "spawn",
-    "spawn_batch",
+    "split",
 ]
 
 # Lazily re-export the MCP base class. Kept lazy so `import rlm` never requires
