@@ -164,3 +164,21 @@ fn target_of(exe: &Path) -> Result<Target, String> {
         identity: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_notice_shows_once_and_only_after_an_update_is_staged() {
+        let restarter = InstallRestarter::new(None);
+        let before = restarter.take_notice();
+        restarter.stage("0.10.2".to_string());
+        let first = restarter.take_notice();
+        let second = restarter.take_notice();
+        assert_eq!(
+            [before, first, second],
+            [None, Some(STAGED_NOTICE.to_string()), None]
+        );
+    }
+}

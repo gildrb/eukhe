@@ -125,6 +125,25 @@ pub enum Plan {
     Blocked { daemon_version: String },
 }
 
+impl Plan {
+    /// What a client says when the plan keeps it running on `target`'s
+    /// restart; `None` when it starts the target.
+    #[must_use]
+    pub fn stay_message(&self, target: &Target) -> Option<String> {
+        match self {
+            Plan::Start | Plan::StartBesideBusyDaemon { .. } => None,
+            Plan::WaitForIdle { daemon_version } => Some(format!(
+                "eukhe {} is installed. Work is running in the background service (eukhe {daemon_version}), which it cannot attach to: /restart once the work finishes",
+                target.version
+            )),
+            Plan::Blocked { daemon_version } => Some(format!(
+                "eukhe {} cannot attach to the running background service (eukhe {daemon_version}): run `eukhe shutdown`, then /restart",
+                target.version
+            )),
+        }
+    }
+}
+
 /// What an idle shutdown left.
 enum IdleStop {
     Stopped,

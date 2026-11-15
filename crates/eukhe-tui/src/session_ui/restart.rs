@@ -6,7 +6,7 @@
 //! root starts it on this session once the terminal is restored. A busy
 //! daemon is never stopped.
 
-use eukhe_client::restart::{plan, Plan};
+use eukhe_client::restart::plan;
 
 use super::{AgentView, SessionUi};
 
@@ -42,26 +42,14 @@ impl SessionUi {
                 return;
             }
         };
-        match plan(&self.client, &target, restarter.release_wait()).await {
-            Plan::Start | Plan::StartBesideBusyDaemon { .. } => {
+        let decided = plan(&self.client, &target, restarter.release_wait()).await;
+        match decided.stay_message(&target) {
+            None => {
                 self.note(&format!("Restarting on eukhe {}", target.version), view);
                 self.restart_target = Some(target);
                 self.exit_requested = true;
             }
-            Plan::WaitForIdle { daemon_version } => self.note(
-                &format!(
-                    "eukhe {} is installed. Work is running in the background service (eukhe {daemon_version}), which it cannot attach to: /restart once the work finishes",
-                    target.version
-                ),
-                view,
-            ),
-            Plan::Blocked { daemon_version } => self.error_row(
-                &format!(
-                    "eukhe {} cannot attach to the running background service (eukhe {daemon_version}): run `eukhe shutdown`, then /restart",
-                    target.version
-                ),
-                view,
-            ),
+            Some(message) => self.note(&message, view),
         }
     }
 

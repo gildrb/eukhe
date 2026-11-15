@@ -30,6 +30,8 @@ eukhe --help  # all commands
 
 Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
+Updates: on an install made by the install command, `eukhe` checks for a newer release in the background at each start, downloads it and checks it as `eukhe update` does, and shows `/restart to apply the downloaded update`. `/restart` switches to it and reopens the session; a background service with running work keeps running it and moves at a later start. Nix, mise and other managed installs, CI runs and `--offline` are not checked. `"update": {"autoDownload": false}` in `~/.eukhe/settings.json` turns the download off.
+
 ## Capabilities
 
 - Budgets: runs go until finished by default, their spend shown live and in the report. `/budget set cost=5 time=2h` caps a task and its subagents at $5 and 2 hours; `/b quick fix the test` caps one message. Caps cover money, tokens, tool calls, model requests and time. `/budget on` (or `eukhe budget on`) turns on limits for every run: 4 hours, 4,000 tool calls and 3,200 requests per message, and 80 % of each plan window. The agent is told when a budget runs low and still gives a final answer when it runs out. `eukhe usage` shows each plan login's quota.
