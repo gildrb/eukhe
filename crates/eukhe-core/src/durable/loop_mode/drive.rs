@@ -479,12 +479,7 @@ impl LoopHost {
         text: String,
         cx: &Context,
     ) -> SessionResult<bool> {
-        let loop_id = doc.loop_id.as_deref().unwrap_or("0");
-        let request_id = if doc.resends == 0 {
-            format!("loop:{loop_id}:{iteration}")
-        } else {
-            format!("loop:{loop_id}:{iteration}:{}", doc.resends)
-        };
+        let request_id = turn_request_id(doc, iteration, doc.resends);
         let submission = conversation
             .submit(
                 InputSubmissionDraft {
@@ -618,5 +613,16 @@ impl LoopHost {
             return self.halt(conversation, cx).await;
         }
         Ok(())
+    }
+}
+
+/// The request id of iteration `iteration`'s turn of `doc`'s loop, sent
+/// again `resends` times before (a cut turn is sent again under a new id).
+pub(super) fn turn_request_id(doc: &LoopDoc, iteration: u64, resends: u64) -> String {
+    let loop_id = doc.loop_id.as_deref().unwrap_or("0");
+    if resends == 0 {
+        format!("loop:{loop_id}:{iteration}")
+    } else {
+        format!("loop:{loop_id}:{iteration}:{resends}")
     }
 }
