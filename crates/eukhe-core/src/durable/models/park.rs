@@ -188,8 +188,8 @@ pub fn span_text(ms: u64) -> String {
 }
 
 /// One park as its status text reports it: the provider's wait, the
-/// bounded wait it exceeded, and the park applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// bounded wait it exceeded, the park applied, and what wakes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParkedWait {
     /// The provider-reported wait (ms).
     pub reset_ms: u64,
@@ -201,6 +201,21 @@ pub struct ParkedWait {
     pub end: ParkEnd,
     /// Wall-clock wake time (epoch ms).
     pub resume_at_ms: u64,
+    /// What wakes the session at the park's end.
+    pub wake: ParkWake,
+}
+
+/// What wakes a parked session: the embedding's scheduler, or nothing in
+/// this process (a headless run hosts no scheduler).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParkWake {
+    /// The scheduler fires the wake job at the park's end.
+    Scheduled,
+    /// No scheduler: the saved session (this id) continues on a later
+    /// `eukhe --resume <id>`.
+    Resume(String),
+    /// No scheduler and no saved session: nothing continues it.
+    Unsaved,
 }
 
 /// The `provider_stream_failure` diagnostic of a failed assistant message,
@@ -253,19 +268,34 @@ fn park_end_text(wait: &ParkedWait) -> String {
     }
 }
 
+/// How the parked session continues, for the parked sentence.
+fn park_wake_text(wake: &ParkWake) -> String {
+    match wake {
+        ParkWake::Scheduled => "and will resume automatically".to_owned(),
+        ParkWake::Resume(id) => format!(
+            "and stays parked: no scheduler runs here to wake it; `eukhe --resume {id}` continues it after then"
+        ),
+        ParkWake::Unsaved => {
+            "and stays parked: no scheduler runs here to wake it, and the session is not saved"
+                .to_owned()
+        }
+    }
+}
+
 /// The parked status text surfaced as the chain's final error (TS
 /// `_parkForQuotaReset`: `"<abort>. Session parked until <time> and will
 /// resume automatically (…): <error>"`): the provider's wait, the park
-/// applied, and why it ends then.
+/// applied, why it ends then, and what wakes it.
 #[must_use]
 pub fn quota_parked_final_error(wait: &ParkedWait, error: &str) -> String {
     format!(
-        "Provider requested a {} wait ({}s) before retrying, above retry.provider.maxRetryDelayMs={}ms. Session parked until {} ({}) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): {error}",
+        "Provider requested a {} wait ({}s) before retrying, above retry.provider.maxRetryDelayMs={}ms. Session parked until {} ({}) {} (retry.provider.waitForUsage.pauseUntilReset): {error}",
         span_text(wait.reset_ms),
         wait.reset_ms.div_ceil(1000),
         wait.retry_cap_ms,
         iso_ms(wait.resume_at_ms),
         park_end_text(wait),
+        park_wake_text(&wait.wake),
     )
 }
 
@@ -500,10 +530,33 @@ mod tests {
             park_ms: 86_400_000,
             end: ParkEnd::MaxPause,
             resume_at_ms: 1_794_866_255_894,
+            wake: ParkWake::Scheduled,
         };
         assert_eq!(
             quota_parked_final_error(&wait, "429 rate limit"),
             "Provider requested a 5 d 5 h wait (450144s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until 2026-11-16T21:57:35.894Z (1 d: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"
+        );
+    }
+
+    /// A park no scheduler wakes (a headless run) says it stays parked and
+    /// how the session continues; never that it resumes on its own.
+    #[test]
+    fn an_unscheduled_park_says_how_the_session_continues() {
+        let wait = |wake| ParkedWait {
+            reset_ms: 3_600_000,
+            retry_cap_ms: 60_000,
+            park_ms: 3_630_000,
+            end: ParkEnd::Reset,
+            resume_at_ms: 1_794_866_255_894,
+            wake,
+        };
+        assert_eq!(
+            [ParkWake::Resume("0198f000".to_owned()), ParkWake::Unsaved]
+                .map(|wake| quota_parked_final_error(&wait(wake), "429")),
+            [
+                "Provider requested a 1 h wait (3600s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until 2026-11-16T21:57:35.894Z (the reset plus 30 s) and stays parked: no scheduler runs here to wake it; `eukhe --resume 0198f000` continues it after then (retry.provider.waitForUsage.pauseUntilReset): 429",
+                "Provider requested a 1 h wait (3600s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until 2026-11-16T21:57:35.894Z (the reset plus 30 s) and stays parked: no scheduler runs here to wake it, and the session is not saved (retry.provider.waitForUsage.pauseUntilReset): 429",
+            ]
         );
     }
 
@@ -517,6 +570,7 @@ mod tests {
             park_ms: 1_800_000,
             end,
             resume_at_ms: resume_at,
+            wake: ParkWake::Scheduled,
         };
         assert_eq!(
             [ParkEnd::Reset, ParkEnd::Deadline].map(|end| quota_parked_final_error(&wait(end), "429")),

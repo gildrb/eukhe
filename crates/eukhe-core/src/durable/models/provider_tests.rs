@@ -36,6 +36,16 @@ fn fixture_with(text_only: bool, second_model_id: &str) -> Fixture {
 
 /// [`fixture_with`] whose global `settings.json` holds `settings`.
 fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Value) -> Fixture {
+    fixture_wired(text_only, second_model_id, settings, None)
+}
+
+/// [`fixture_set`] whose session carries the embedding's `cron` wiring.
+fn fixture_wired(
+    text_only: bool,
+    second_model_id: &str,
+    settings: &serde_json::Value,
+    cron: Option<crate::cron::rlm_heartbeat::KernelCronWiring>,
+) -> Fixture {
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");
     let cwd = dir.path().join("cwd");
@@ -60,8 +70,10 @@ fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Va
     models.set_provider(faux_a.provider.clone());
     models.set_provider(faux_b.provider.clone());
     let settings = Arc::new(EukheSettings::new(&cwd, &agent_dir));
+    let mut config = SessionConfig::new(&agent_dir, &cwd, "session-test", SessionStorage::Memory);
+    config.cron = cron;
     let deps = Arc::new(HostDeps::new(
-        &SessionConfig::new(&agent_dir, &cwd, "session-test", SessionStorage::Memory),
+        &config,
         ResolvedServices {
             storage_dir: None,
             budget: crate::durable::budget::BudgetGate::open(&agent_dir, "session-test", None),
@@ -714,7 +726,7 @@ async fn a_quota_failure_with_a_far_reset_parks_until_the_reset() {
     let parked = message.error_message.as_deref().unwrap_or_default();
     assert!(
             parked.contains("Session parked until")
-                && parked.contains("will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"),
+                && parked.contains("and stays parked: no scheduler runs here to wake it, and the session is not saved (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"),
             "{parked}"
         );
     assert!(fixture.runtime.quota_park().is_some());
@@ -749,6 +761,36 @@ async fn a_quota_failure_with_a_far_reset_parks_until_the_reset() {
             Some(3_600_000.0),
             false
         )
+    );
+}
+
+/// A session whose embedding wired a scheduler (the daemon worker's hook
+/// arms the wake job's timer) says the park resumes on its own.
+#[tokio::test]
+async fn a_park_a_scheduler_wakes_will_resume_automatically() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let hook: crate::cron::rlm_heartbeat::RlmHeartbeatMutationHook =
+        Arc::new(|_| Box::pin(async {}));
+    let cron = crate::cron::rlm_heartbeat::KernelCronWiring {
+        store: Arc::new(AgentCronJobStore::new(dir.path().join("cron-jobs.json"))),
+        binding: None,
+        mutation_hook: Some(hook),
+    };
+    let fixture = fixture_wired(false, "other-1", &serde_json::json!({}), Some(cron));
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![quota_step(3_600_000)]);
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    let parked = message.error_message.as_deref().unwrap_or_default();
+    assert!(
+        parked.contains(
+            "(the reset plus 30 s) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"
+        ),
+        "{parked}"
     );
 }
 

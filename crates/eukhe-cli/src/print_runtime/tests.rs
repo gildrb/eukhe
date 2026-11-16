@@ -497,7 +497,8 @@ fn quota_step(reset_ms: u64) -> eukhe_ai::providers::faux::FauxResponseStep {
 
 /// A `-p` run the provider's usage limit parks exits 1 (`headless_exit`:
 /// an unanswered run is a failure), and its stderr line leads with the
-/// park: until when, and the command that continues the saved session.
+/// park: until when, that no scheduler wakes it here, and the command that
+/// continues the saved session.
 #[tokio::test]
 async fn a_parked_run_exits_one_and_says_until_when() {
     let dir = tempfile::TempDir::new().expect("tempdir");
@@ -530,6 +531,7 @@ async fn a_parked_run_exits_one_and_says_until_when() {
     let ended = drive_prompts(&opened, &conversation, &watch, &options, cx)
         .await
         .expect("the prompt loop runs");
+    let (_, detail) = watch.last_run(&opened, cx).await.expect("the last run");
     let exit = run_exit(&opened, &conversation, watch, ended, &options, cx)
         .await
         .expect("the exit");
@@ -544,13 +546,13 @@ async fn a_parked_run_exits_one_and_says_until_when() {
     let stop = run_stop(&opened, eukhe_tui::budget_text::now_ms());
     let until = eukhe_daemon::util::iso_from_unix_ms(until_ms);
     assert_eq!(
-        (exit, unanswered_line(&stop, Some("429 rate limit"))),
+        (exit, unanswered_line(&stop, detail.as_deref())),
         (
             Exit {
                 code: 1,
                 cause: ExitCause::RunFailed(Unanswered::ModelError)
             },
-            Some(format!("eukhe: the provider's usage limit parked the session until {until}; `eukhe --resume {session_id}` continues it after then: 429 rate limit"))
+            Some(format!("eukhe: the provider's usage limit parked the session until {until}: Provider requested a 5 d 5 h wait (450144s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until {until} (1 d: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds) and stays parked: no scheduler runs here to wake it; `eukhe --resume {session_id}` continues it after then (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"))
         )
     );
     drop(conversation);

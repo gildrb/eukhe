@@ -73,7 +73,7 @@ use super::image_route::{self, ImageRoute};
 use super::park::{
     is_quota_block_failure, park_entry_data, provider_park_decision,
     quota_already_parked_final_error, quota_failure_reset_ms, quota_parked_final_error,
-    resume_entry_data, NoParkReason, ParkDocState, ParkedWait, ProviderParkDecision,
+    resume_entry_data, NoParkReason, ParkDocState, ParkWake, ParkedWait, ProviderParkDecision,
     ProviderParkPolicy, DEFAULT_PROVIDER_PARK_POLICY, PARK_DOC, PROVIDER_QUOTA_PARK_ENTRY,
     PROVIDER_QUOTA_RESUME_ENTRY, QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
 };
@@ -1089,8 +1089,25 @@ async fn park_for_quota_reset(
         park_ms: resume_after_ms,
         end,
         resume_at_ms,
+        wake: park_wake(inner),
     };
     Some((quota_parked_final_error(&wait, &error), resume_at_ms))
+}
+
+/// What wakes this session's park: the embedding's scheduler when it wired
+/// one (its post-mutation hook arms the wake job's timer); without one, a
+/// later `--resume` of the saved session, or nothing for an unsaved one.
+fn park_wake(inner: &Inner) -> ParkWake {
+    let scheduler = inner
+        .deps
+        .cron
+        .as_ref()
+        .and_then(|cron| cron.mutation_hook.as_ref());
+    match (scheduler, &inner.deps.storage_dir) {
+        (Some(_), _) => ParkWake::Scheduled,
+        (None, Some(_)) => ParkWake::Resume(inner.deps.session_id.clone()),
+        (None, None) => ParkWake::Unsaved,
+    }
 }
 
 /// A parked session completed a model call: the quota is back. Clear the

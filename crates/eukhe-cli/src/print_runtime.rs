@@ -727,58 +727,40 @@ enum RunStop {
     Ended,
     /// The provider's usage limit parked the session until `until_ms`
     /// (epoch ms).
-    Parked { until_ms: u64, session: Saved },
-}
-
-/// Whether a session is saved, so a later run can continue it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Saved {
-    /// Saved under this id (`eukhe --resume <id>`).
-    Id(String),
-    /// In memory only (`--no-session`).
-    Memory,
+    Parked { until_ms: u64 },
 }
 
 /// How the run left its session at `now_ms`: parked while its quota park
 /// (`retry.provider.waitForUsage`) still holds.
 fn run_stop(opened: &HeadlessSession, now_ms: u64) -> RunStop {
-    let deps = opened.session.deps();
-    match deps
+    match opened
+        .session
+        .deps()
         .provider_runtime
         .get()
         .and_then(|runtime| runtime.quota_park())
     {
         Some(park) if park.resume_at_ms > now_ms => RunStop::Parked {
             until_ms: park.resume_at_ms,
-            session: match deps.storage_dir {
-                Some(_) => Saved::Id(opened.session_id.clone()),
-                None => Saved::Memory,
-            },
         },
         Some(_) | None => RunStop::Ended,
     }
 }
 
 /// The stderr line of a run that ended without an answer: the park first
-/// when its session parked, then the recorded reason (`detail`; `None`
-/// when the failed primary already printed it).
+/// when its session parked, then the recorded reason (`detail`, the park's
+/// own text saying how the session continues; `None` when the failed
+/// primary already printed it).
 fn unanswered_line(stop: &RunStop, detail: Option<&str>) -> Option<String> {
     let reason = detail
         .map(|detail| format!(": {detail}"))
         .unwrap_or_default();
     match stop {
         RunStop::Ended => detail.map(|_| format!("eukhe: the run ended without an answer{reason}")),
-        RunStop::Parked { until_ms, session } => {
-            let until = eukhe_daemon::util::iso_from_unix_ms(*until_ms);
-            Some(match session {
-                Saved::Id(id) => format!(
-                    "eukhe: the provider's usage limit parked the session until {until}; `eukhe --resume {id}` continues it after then{reason}"
-                ),
-                Saved::Memory => format!(
-                    "eukhe: the provider's usage limit parked the session until {until}{reason}"
-                ),
-            })
-        }
+        RunStop::Parked { until_ms } => Some(format!(
+            "eukhe: the provider's usage limit parked the session until {}{reason}",
+            eukhe_daemon::util::iso_from_unix_ms(*until_ms)
+        )),
     }
 }
 
