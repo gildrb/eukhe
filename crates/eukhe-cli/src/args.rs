@@ -825,6 +825,31 @@ mod tests {
     }
 
     #[test]
+    fn the_removed_list_models_flag_points_at_model_list() {
+        let refusal = "--list-models was removed. Use \"eukhe model list [search]\".";
+        let outcome = |args: &[&str]| {
+            let parsed = parse(args);
+            (
+                last_error(&parsed).to_owned(),
+                parsed.list_models,
+                parsed.messages,
+            )
+        };
+        assert_eq!(
+            [
+                outcome(&["--list-models"]),
+                outcome(&["--list-models", "codex"]),
+                outcome(&["--list-models=codex"]),
+            ],
+            [
+                (refusal.to_owned(), None, Vec::new()),
+                (refusal.to_owned(), None, Vec::new()),
+                (refusal.to_owned(), None, Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
     fn a_close_option_typo_suggests_the_real_one() {
         let parsed = parse(&["--providr"]);
         assert_eq!(
