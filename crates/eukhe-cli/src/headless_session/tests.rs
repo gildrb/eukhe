@@ -72,8 +72,19 @@ async fn the_started_session_gets_the_budget_of_the_flags() {
     let mut options = run_options(dir.path());
     options.session.no_session = true;
     options.config.budget = Some(limits.into());
-    // The scripted provider (nextest runs each test in its own process).
-    std::env::set_var("EUKHE_FAUX_SCRIPT", r#"{ "responses": ["done"] }"#);
+    // A configured model, not `EUKHE_FAUX_SCRIPT`: a process-wide variable
+    // would reach the other tests of a `cargo test` run (one process).
+    std::fs::create_dir_all(&options.config.agent_dir).expect("agent dir");
+    std::fs::write(
+        options.config.agent_dir.join("models.json"),
+        r#"{ "providers": { "battery": {
+            "baseUrl": "http://127.0.0.1:9/v1", "apiKey": "battery-key", "api": "openai-completions",
+            "models": [ { "id": "think-a" } ]
+        } } }"#,
+    )
+    .expect("write models.json");
+    options.config.provider = Some("battery".to_owned());
+    options.config.model = Some("think-a".to_owned());
 
     let opened = open_headless_session(&options, HeadlessTarget::Selected, &BACKGROUND_CONTEXT)
         .await
