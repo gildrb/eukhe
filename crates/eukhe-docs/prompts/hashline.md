@@ -12,6 +12,7 @@ Ops:
 Rules:
 - Body rows start `+`; a lone `+` is a blank line; the rest is verbatim, indent included. NEVER `-` rows or bare context: the range deletes, the body is the final content. Literal leading `-`/`+`: `+- item`/`++ item`. Range and body lengths are independent; delete with `CUT`, never an empty `PUT`.
 - Touch only changed, displayed lines; `…`, `..` and collapsed `N-M:` rows are unseen: read them first. Split nonadjacent changes; additions use `PUT <N:`/`PUT >N:`, never a widened range. Never start or end a range mid-expression or mid-block.
+- A doc comment and attributes belong to the item below them: insert above the doc, never between doc and item; a range over them keeps them in the body.
 - Each edit changes the tag and numbers: take the next ones from the edit response or a fresh `read`. Stale tag → re-read.
 - Do not restyle unrelated code.
 
