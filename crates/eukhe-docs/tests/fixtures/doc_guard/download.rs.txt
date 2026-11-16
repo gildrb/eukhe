@@ -1,0 +1,32 @@
+    }
+}
+
+/// Fetches and verifies every file into `staging`, fsyncing files and the
+/// directories that hold them.
+async fn fetch_all(
+    staging: &Path,
+    files: &[ModelFile],
+    base_url: &str,
+    progress: &mut (dyn FnMut(Progress) + Send),
+) -> Result<(), DownloadError> {
+    let client = reqwest::Client::builder()
+        .read_timeout(READ_TIMEOUT)
+        .build()
+        .map_err(DownloadError::Client)?;
+    let mut dirs = vec![staging.to_path_buf()];
+    for file in files {
+        let target = staging.join(file.path);
+        for dir in target.ancestors().skip(1).take_while(|dir| *dir != staging) {
+            if !dirs.iter().any(|known| known == dir) {
+                create_dir_all(dir).await?;
+                dirs.push(dir.to_path_buf());
+            }
+        }
+        let prefix = match file.repo_kind {
+            RepoKind::Model => "",
+            RepoKind::Dataset => "datasets/",
+        };
+        let url = format!(
+            "{base_url}/{prefix}{}/resolve/{}/{}",
+            file.repo, file.revision, file.path
+        );

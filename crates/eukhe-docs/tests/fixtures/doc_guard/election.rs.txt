@@ -1,0 +1,39 @@
+        let mut stepped = || -> Result<Do, Error> {
+            let reply = self.core.step(&writer.finish()?)?;
+            Ok(read_do(&reply)?)
+        };
+        expect_core(Entry::TinyRun, stepped())
+    }
+}
+
+/// A connection to the worker of `model` with launch tag `tag`, and how
+/// the election got it: join a live worker with `tag`, else shut down a
+/// live worker of another tag, else start one with `launcher`.
+///
+/// # Errors
+///
+/// The launcher's [`TinyError::Spawn`]; [`TinyError::Spawn`] too when the
+/// started worker is not reachable with `tag`; [`TinyError::Io`] and
+/// [`TinyError::Protocol`] for a socket that fails or answers out of
+/// protocol.
+#[tracing::instrument(level = "debug", skip(home, model, launcher), fields(model = model.id))]
+pub(crate) async fn ensure(
+    home: &TinyHome,
+    model: &'static CatalogModel,
+    tag: &str,
+    launcher: &impl Launcher,
+) -> Result<(Connection, Got), TinyError> {
+    let socket = home.socket(model.id, BACKEND);
+    let (mut run, mut next) = Run::need(tag);
+    // What the outcomes left to act on: the last ping's (a shutdown takes
+    // its connection), the shutdown's answer, the launch's failure.
+    let mut met = None;
+    let mut heard = None;
+    let mut spawn_failure = None;
+    loop {
+        next = match next {
+            Do::Ping => {
+                let pinged = probe(&socket).await;
+                let next = run.step(&Seen::Pinged(&pinged));
+                met = Some(pinged);
+                next

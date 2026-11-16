@@ -11,7 +11,7 @@ use super::{
     apply::{apply_edits, diff_origins},
     block::reject_block_edits,
     clipboard::validate_clipboard_sequence,
-    endings,
+    doc_guard, endings,
     input::PatchSection,
     messages::{
         already_landed_message, anchored_context_lines, missing_snapshot_tag_message,
@@ -642,6 +642,13 @@ pub(crate) fn stage_patch(
             store,
             enforce_seen_lines,
         )?;
+        let rust = resolved
+            .absolute
+            .extension()
+            .is_some_and(|extension| extension == "rs");
+        if rust && apply.landing == Landing::Fresh {
+            doc_guard::check(&section.path, &read.text, &apply.text, &apply.origins)?;
+        }
         let mut warnings = parsed.warnings;
         if section.path != original.path {
             warnings.push(path_recovered_from_tag_message(

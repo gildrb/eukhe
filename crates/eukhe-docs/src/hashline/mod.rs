@@ -23,6 +23,7 @@
 mod apply;
 mod block;
 mod clipboard;
+mod doc_guard;
 mod endings;
 mod input;
 mod messages;

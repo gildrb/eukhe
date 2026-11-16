@@ -1,0 +1,52 @@
+fn remove_socket(socket: &std::path::Path) -> io::Result<()> {
+    match std::fs::remove_file(socket) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// When the worker last finished a request, and how many are in flight.
+struct Activity {
+    last: Instant,
+    busy: u32,
+}
+
+/// What every connection of one worker shares.
+struct Shared {
+    tag: String,
+    socket: PathBuf,
+    engine: Mutex<Box<dyn Engine>>,
+    activity: Mutex<Activity>,
+    /// Set by a [`Request::Shutdown`]: the worker takes no new connection
+    /// or request, and exits once the requests in flight are answered.
+    closing: watch::Sender<bool>,
+}
+
+impl Shared {
+    fn activity(&self) -> std::sync::MutexGuard<'_, Activity> {
+        self.activity.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Runs `infer` on the engine on the blocking pool, one at a time.
+    async fn infer(
+        self: &Arc<Shared>,
+        infer: impl FnOnce(&mut dyn Engine) -> Result<Reply, WorkerFailure> + Send + 'static,
+    ) -> Response {
+        let shared = Arc::clone(self);
+        let ran = tokio::task::spawn_blocking(move || {
+            let mut engine = shared.engine.lock().unwrap_or_else(PoisonError::into_inner);
+            infer(engine.as_mut())
+        })
+        .await;
+        match ran {
+            Ok(Ok(reply)) => Response::Ok { reply },
+            Ok(Err(error)) => Response::Err { error },
+            Err(error) => Response::Err {
+                error: WorkerFailure::Inference {
+                    message: format!("the engine stopped: {error}"),
+                },
+            },
+        }
+    }
+}
