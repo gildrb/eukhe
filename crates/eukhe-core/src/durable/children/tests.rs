@@ -899,7 +899,22 @@ async fn spawn_reports_once_across_a_reopen_between_submit_and_terminal() {
         .await
         .unwrap()
         .is_some());
-    let failed = first.root.wait_for_idle(cx()).await.unwrap_err();
+    // The refused commit fails the Session once its error comes back, a
+    // moment after the storage counted the refusal: a wait that finds the
+    // scope idle before that ends at once, so wait for the failure itself.
+    let failed = {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Err(failed) = first.root.wait_for_idle(cx()).await {
+                break failed;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the refused commit never failed the Session"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
     assert!(
         failed
             .to_string()
