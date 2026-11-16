@@ -30,7 +30,7 @@ eukhe --help  # all commands
 
 Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
 
-Updates: on an install made by the install command, `eukhe` checks for a newer release in the background at each start, downloads it and checks it as `eukhe update` does, and shows `/restart to apply the downloaded update`. `/restart` switches to it and reopens the session; a background service with running work keeps running it and moves at a later start. Nix, mise and other managed installs, CI runs and `--offline` are not checked. `"update": {"autoDownload": false}` in `~/.eukhe/settings.json` turns the download off.
+`/restart to apply the downloaded update` appears when a newer release has downloaded and verified in the background; `/restart` switches to it and reopens the session.
 
 ## Capabilities
 
