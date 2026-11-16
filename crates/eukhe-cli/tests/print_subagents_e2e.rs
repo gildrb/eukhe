@@ -236,6 +236,86 @@ fn print_json_spawn_reports_back_and_wakes_the_parent() {
     );
 }
 
+/// The project rule the AGENTS.md of the reach test carries.
+const PROJECT_RULE: &str = "Run tests with nextest, never plain cargo test (rule 7f3a).";
+
+/// Every session file (`main.jsonl`) under `dir` whose path names a child
+/// (`sub-<id>`), with its text.
+fn child_session_files(dir: &Path) -> Vec<(PathBuf, String)> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(child_session_files(&path));
+        } else if path.file_name().is_some_and(|name| name == "main.jsonl")
+            && path.to_string_lossy().contains("/sub-")
+        {
+            found.push((
+                path.clone(),
+                std::fs::read_to_string(&path).unwrap_or_default(),
+            ));
+        }
+    }
+    found
+}
+
+/// The project's AGENTS.md reaches the model in a headless run: the root's
+/// request carries it (the scripted root echoes its system prompt), and so
+/// does the request of a child working in its own isolated copy, from the
+/// copy's AGENTS.md (the child's session records its prompt sections).
+#[test]
+fn print_json_the_project_agents_md_reaches_the_root_and_its_isolated_child() {
+    let home = tempfile::TempDir::new().unwrap();
+    let socket = home.path().join("daemon.sock");
+    let _daemon = SandboxedDaemon {
+        socket: socket.clone(),
+    };
+    std::fs::write(
+        home.path().join("AGENTS.md"),
+        format!("# Rules\n\n{PROJECT_RULE}\n"),
+    )
+    .unwrap();
+    let child_script = write_child_script(
+        home.path(),
+        &json!({ "responses": [{ "text": "kid report: lane done" }] }),
+    );
+    let script = json!({ "responses": [
+        { "content": [
+            { "type": "toolCall", "name": "python", "arguments": { "code": SPLIT_CELL } },
+        ] },
+        { "systemPrompt": true },
+        { "text": "report seen" },
+        { "text": "woken twice" },
+    ] });
+
+    let (stdout, stderr, code) = run_json(home.path(), &socket, &script, &child_script);
+
+    assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
+    let agents_md = home.path().canonicalize().unwrap().join("AGENTS.md");
+    let root_heading = format!("## {}\n\n# Rules\n\n{PROJECT_RULE}", agents_md.display());
+    assert!(
+        ended_messages(&stdout)
+            .iter()
+            .any(|message| message["role"] == "assistant"
+                && message["content"][0]["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains(&root_heading))),
+        "the root's system prompt carries the project's AGENTS.md: {stdout}\nstderr: {stderr}"
+    );
+    // The kid ran a request; its deleted sibling may have run none.
+    let children = child_session_files(&home.path().join("agent"));
+    assert!(
+        children
+            .iter()
+            .any(|(_, text)| text.contains("/tree/AGENTS.md") && text.contains(PROJECT_RULE)),
+        "the child's prompt carries its copy's AGENTS.md: {:?}",
+        children.iter().map(|(path, _)| path).collect::<Vec<_>>()
+    );
+}
+
 /// The children's script of the messaging runs: the child messages its
 /// parent from its kernel, then reports.
 fn messaging_child_script() -> Value {
