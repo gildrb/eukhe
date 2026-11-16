@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -62,6 +62,10 @@ fn cx() -> &'static Context {
 /// One scripted run of a check's command.
 enum Scripted {
     Ends(ChildProcessResult),
+    /// The run writes a file the workspace never held, then ends: a build
+    /// whose output is new at every run (a `cargo test` that fails to link
+    /// leaves a new incremental session directory each time).
+    Writes(PathBuf, ChildProcessResult),
     /// The run never ends: a crash strikes mid-check.
     Hangs,
 }
@@ -135,6 +139,11 @@ impl GateCommandRunner for ScriptedRunner {
             match next {
                 None => Err(anyhow::anyhow!("no scripted check result")),
                 Some(Scripted::Ends(result)) => Ok(result),
+                Some(Scripted::Writes(path, result)) => {
+                    std::fs::create_dir_all(path.parent().expect("a parent"))?;
+                    std::fs::write(&path, "build output")?;
+                    Ok(result)
+                }
                 Some(Scripted::Hangs) => {
                     self.hung.send_replace(true);
                     futures::future::pending().await
@@ -1113,6 +1122,63 @@ async fn a_broken_check_goes_back_to_the_worker_up_to_the_cap_then_ends_unverifi
             .expect("exit"),
         1
     );
+    harness.close(cx()).await.expect("close");
+}
+
+/// A check whose own run changes the workspace (a build that writes new
+/// output at every run, like a `cargo test` that fails to link) judges the
+/// state its run left: its verdict settles the claim instead of going
+/// stale on arrival, so a claim never stays waiting with nothing running.
+#[tokio::test]
+async fn a_check_that_writes_to_the_workspace_judges_the_state_it_left() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![command("cargo test")], Some(2))
+        .await;
+    // A `target` directory is skipped by the walk of a non-git workspace
+    // (the session's here); an untracked one in a git workspace is not.
+    let link = |n: usize| {
+        Scripted::Writes(
+            setup.cwd().join(format!("build/incremental/s-{n}")),
+            exited(101, "error: linker `cc` not found"),
+        )
+    };
+    // The test fails; after the fix every build writes new output and
+    // fails to link.
+    *setup.runner.script.lock().expect("script") = std::iter::once(Scripted::Ends(exited(
+        101,
+        "test total_counts_every_line ... FAILED",
+    )))
+    .chain((0..16).map(link))
+    .collect();
+    setup.faux.set_responses(vec![
+        answer("done"),
+        call("work", "w1"),
+        answer("fixed"),
+        call("work", "w2"),
+        answer("fixed again"),
+    ]);
+
+    run(&harness, &root, "do it").await;
+
+    let got = state(&harness, &root).await;
+    assert!(!got.claimed, "the claim still waits: {got:?}");
+    assert_eq!(got.label, AcceptanceLabel::Failed, "{got:?}");
+    let rows: Vec<String> = verdict_rows(&entries(&root).await)
+        .into_iter()
+        .map(|(text, _, _)| text)
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            "Acceptance not verified: check 1 refuted (exited with code 101). Returned to the worker (1 of 2).".to_owned(),
+            "Acceptance not verified: check 1 refuted (exited with code 101). Returned to the worker (2 of 2).".to_owned(),
+            "Acceptance failed: check 1 refuted (exited with code 101).".to_owned(),
+        ]
+    );
+    // One run per claim: each verdict counts for the state its run left.
+    assert_eq!(setup.runner.commands().len(), 3);
     harness.close(cx()).await.expect("close");
 }
 

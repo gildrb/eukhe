@@ -15,6 +15,9 @@
 //!   harness observed; the decision of a final answer is recorded by its
 //!   generation task, so a rerun after a crash repeats it and a check
 //!   whose verdict was not committed runs again.
+//! - A verdict judges the state its check's run left when only the
+//!   workspace moved while it ran (the check's own output), else the
+//!   state before the run, which then no longer counts.
 //! - The worker's next effect clears the recorded end: the result has to
 //!   be earned again on the new state. Until then a further final answer
 //!   is no new claim: the verdict of that state stands.
@@ -40,7 +43,7 @@ use serde_json::json;
 
 use super::docs::{AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
 use super::evidence::Gatherer;
-use super::ops::{core_error, doc_state, label_of};
+use super::ops::{core_error, doc_parts, doc_state, label_of};
 use super::ACCEPTANCE_CUSTOM_TYPE;
 use crate::autonomous::now_millis;
 use crate::durable::children::has_unsettled_children;
@@ -186,7 +189,8 @@ impl Verifier {
             let current = read_doc(&harness, &ACCEPTANCE_DOC, conversation_id, cx)
                 .await?
                 .unwrap_or_default();
-            let now = doc_state(conversation, &current, cx).await?;
+            let before = doc_parts(conversation, &current, cx).await?;
+            let now = before.state();
             let step = conversation
                 .commit(
                     move |tx| async move {
@@ -289,10 +293,24 @@ impl Verifier {
             if runs > round.len().saturating_mul(2).saturating_add(4) {
                 return Ok(None);
             }
-            let (verdict, result) = self
+            let (verdict, mut result) = self
                 .gatherer
                 .check(conversation, &check, &round, now, cx)
                 .await?;
+            // The run itself may have written to the workspace (a build's
+            // output, new at every run when a link fails): with no new
+            // effect and no new message of the user meanwhile, the verdict
+            // judges the state the run left, else that of every next run
+            // would be stale on arrival and the claim would wait forever.
+            // A new effect or message leaves it on the state before, which
+            // no longer counts: the check runs again.
+            let after = doc_parts(conversation, &current, cx).await?;
+            let at = if after.moved_in_workspace_only(&before) {
+                after.state()
+            } else {
+                now
+            };
+            result.at = at;
             conversation
                 .commit(
                     move |tx| async move {
@@ -302,7 +320,7 @@ impl Verifier {
                             revision,
                             index: u64::try_from(index).unwrap_or(u64::MAX),
                             verdict,
-                            at: now,
+                            at,
                         };
                         let (admitted, next) = verify::act(Actor::Verifier, record, &doc.core())
                             .map_err(core_error)?;

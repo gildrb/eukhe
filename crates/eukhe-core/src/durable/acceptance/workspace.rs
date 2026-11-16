@@ -12,6 +12,12 @@
 //! modification time), so a check that rewrites a file with the same bytes
 //! (a `touch`, a regenerated report) leaves the state where it was. Both
 //! read the disk only: no index lock is taken and nothing is written.
+//!
+//! A check's own run may still write new files (a build's output, new at
+//! every run when a link fails): when only the workspace moved while it
+//! ran, its verdict judges the state the run left
+//! ([`StateParts::moved_in_workspace_only`]), so such a check still
+//! settles a claim.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -115,34 +121,59 @@ async fn marks(conversation: &Conversation, cx: &Context) -> SessionResult<Marks
     }
 }
 
-/// The state of `conversation` now, with `workspace` fingerprinted when
-/// given: a number from 1 to 99999999999999 that changes with the newest
-/// effect, the newest user message and the workspace; 0 while there is
-/// none of them (no effect, no user message, no workspace), the state of
-/// a conversation that never had an acceptance or a turn.
+/// What a state is made of: the conversation's newest effect and newest
+/// user message, and the workspace's fingerprint when there is one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StateParts {
+    marks: Marks,
+    print: Option<[u8; 32]>,
+}
+
+impl StateParts {
+    /// The state: a number from 1 to 99999999999999 that changes with the
+    /// newest effect, the newest user message and the workspace; 0 while
+    /// there is none of them (no effect, no user message, no workspace),
+    /// the state of a conversation that never had an acceptance or a turn.
+    pub(crate) fn state(&self) -> u64 {
+        let print = match self.print {
+            Some(print) => print,
+            None if self.marks == Marks::default() => return 0,
+            None => [0; 32],
+        };
+        let mut hasher = Sha256::new();
+        hasher.update(self.marks.effect.to_le_bytes());
+        hasher.update(self.marks.user.to_le_bytes());
+        hasher.update(print);
+        let digest = hasher.finalize();
+        let mut head = [0_u8; 8];
+        head.copy_from_slice(&digest[..8]);
+        u64::from_le_bytes(head) % MAX_STATE + 1
+    }
+
+    /// Whether these parts, read after `earlier`, differ from it in the
+    /// workspace alone: no new effect, no new message of the user.
+    pub(crate) fn moved_in_workspace_only(&self, earlier: &Self) -> bool {
+        self.marks == earlier.marks
+    }
+}
+
+/// What the state of `conversation` is made of now, with `workspace`
+/// fingerprinted when given ([`StateParts::state`]).
 ///
 /// # Errors
 ///
 /// Read failures.
-pub(crate) async fn state_now(
+pub(crate) async fn state_parts(
     conversation: &Conversation,
     workspace: Option<&Path>,
     cx: &Context,
-) -> SessionResult<u64> {
+) -> SessionResult<StateParts> {
     let marks = marks(conversation, cx).await?;
     let print = match workspace {
-        Some(cwd) => fingerprint(cwd).await,
-        None if marks == Marks::default() => return Ok(0),
-        None => [0; 32],
+        Some(cwd) => Some(fingerprint(cwd).await),
+        None => None,
     };
-    let mut hasher = Sha256::new();
-    hasher.update(marks.effect.to_le_bytes());
-    hasher.update(marks.user.to_le_bytes());
-    hasher.update(print);
-    let digest = hasher.finalize();
-    let mut head = [0_u8; 8];
-    head.copy_from_slice(&digest[..8]);
-    Ok(u64::from_le_bytes(head) % MAX_STATE + 1)
+    Ok(StateParts { marks, print })
 }
 
 /// The fingerprint of the workspace at `cwd`.

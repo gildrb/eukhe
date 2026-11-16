@@ -16,7 +16,7 @@ use eukhe_types::acceptance::{
 
 use super::docs::{AcceptanceDoc, ACCEPTANCE_DOC};
 use super::evidence::protect;
-use super::workspace::state_now;
+use super::workspace::{state_parts, StateParts};
 use crate::durable::goals::{conversation_of, open_doc, read_doc, write_doc};
 
 pub(crate) fn core_error(error: eukhe_bend::Error) -> SessionError {
@@ -34,7 +34,7 @@ pub(crate) fn label_of(label: Label) -> AcceptanceLabel {
 
 /// The state of `conversation` now for `doc`: its newest effect, its
 /// newest user message and the fingerprint of the workspace the checks
-/// judge ([`state_now`]).
+/// judge ([`StateParts::state`]).
 ///
 /// # Errors
 ///
@@ -44,7 +44,20 @@ pub(crate) async fn doc_state(
     doc: &AcceptanceDoc,
     cx: &Context,
 ) -> SessionResult<u64> {
-    state_now(conversation, doc.workspace.as_deref(), cx).await
+    Ok(doc_parts(conversation, doc, cx).await?.state())
+}
+
+/// What the state of `conversation` now for `doc` is made of.
+///
+/// # Errors
+///
+/// Read failures.
+pub(crate) async fn doc_parts(
+    conversation: &Conversation,
+    doc: &AcceptanceDoc,
+    cx: &Context,
+) -> SessionResult<StateParts> {
+    state_parts(conversation, doc.workspace.as_deref(), cx).await
 }
 
 /// `doc` as every surface reads it on the state `now`: its label is the
