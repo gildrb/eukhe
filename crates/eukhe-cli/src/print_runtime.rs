@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_bend::rules::headless::{
-    Exit, ExitCause, ExitFacts, Primary, Report, RunEnd, RunGoal, Task, TaskExit, Unanswered, Wait,
+    Exit, ExitCause, ExitFacts, Primary, Report, RunEnd, Task, TaskExit, Unanswered, Wait,
     UNJUDGED_CODE,
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
@@ -17,7 +17,7 @@ use eukhe_core::durable::acceptance::{
     seed_acceptance, session_judge, AnswerReading, Judge,
 };
 use eukhe_core::durable::goals::{
-    autonomous_state, budget_report, configure_autonomous, goal_state, seed_initial_goal,
+    autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
 };
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
@@ -31,7 +31,6 @@ use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
-use eukhe_types::goal::{GoalState, GoalStatus};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
@@ -472,8 +471,8 @@ enum PromptsEnd {
 /// settled job or subagent wakes) or the wait limit elapses. Text mode
 /// prints the terminal result; both modes print failures to stderr. The
 /// compiled Bend core decides the exit code (`headless_exit`, then
-/// `headless_task`): 0 only for a run that answered, and with a goal only
-/// when the agent claimed it complete.
+/// `headless_task`): 0 only for a run that answered, and after acting only
+/// when the judge reads its final answer as stating no work left.
 async fn run_prompts(
     opened: &HeadlessSession,
     options: &RunOptions,
@@ -731,13 +730,11 @@ async fn run_exit(
 }
 
 /// Whether the run's `exit` stands for its task (`headless_task`, in the
-/// compiled core), from the run's goal and whether it acted: an answer
-/// while the goal is open is incomplete; an answer without an open goal
-/// after acting is the judge's to read (the core asks, one request, then
-/// decides again with the reading): work left is incomplete (exit 1), no
-/// verdict is unjudged (exit [`UNJUDGED_CODE`]). Both say why on stderr,
-/// and in json mode as the stream's last record. A run that did not act
-/// is never judged.
+/// compiled core), from whether it acted: an answer after acting is the
+/// judge's to read (the core asks, one request, then decides again with
+/// the reading): work left is incomplete (exit 1), no verdict is unjudged
+/// (exit [`UNJUDGED_CODE`]). Both say why on stderr, and in json mode as
+/// the stream's last record. A run that did not act is never judged.
 async fn task_exit(
     opened: &HeadlessSession,
     conversation: &Conversation,
@@ -746,11 +743,9 @@ async fn task_exit(
     json_mode: bool,
     cx: &Context,
 ) -> Result<TaskExit, HeadlessModeError> {
-    let goal = goal_state(opened.session.harness(), conversation.id(), cx).await?;
-    let run_goal = run_goal(&goal);
-    let activity = activity::run_activity(conversation, since, &goal, cx).await?;
+    let activity = activity::run_activity(conversation, since, cx).await?;
     let decide = |report| {
-        eukhe_bend::rules::headless::task(exit.cause, run_goal, activity, report)
+        eukhe_bend::rules::headless::task(exit.cause, activity, report)
             .map_err(HeadlessModeError::Exit)
     };
     let first = decide(Report::Unasked)?;
@@ -774,15 +769,15 @@ async fn task_exit(
     };
     match task.task {
         Task::Stands => {}
-        // The run answered with work left: what remains goes to stderr,
-        // and in json mode it is the stream's last record.
+        // The run answered with work left: the items the judge read go to
+        // stderr, and in json mode they are the stream's last record.
         Task::Incomplete => {
-            let remaining = remaining_items(&goal, run_goal, reading.as_ref());
-            eprintln!("{}", incomplete_text(&goal, run_goal, &remaining));
+            let remaining = remaining_items(reading.as_ref());
+            eprintln!("{}", incomplete_text(&remaining));
             if json_mode {
                 println!(
                     "{}",
-                    serde_json::json!({ "type": "task_incomplete", "remaining": remaining, "goal": goal })
+                    serde_json::json!({ "type": "task_incomplete", "remaining": remaining })
                 );
             }
         }
@@ -830,62 +825,23 @@ fn final_answer_judge(opened: &HeadlessSession) -> std::sync::Arc<dyn Judge> {
     }
 }
 
-/// What remains of an incomplete task: with its goal open, the agent's
-/// report (`goal.remaining`), else the goal; without, the items the judge
-/// read in the final answer. The texts are the model's: remote data, so
-/// the escapes and controls come out.
-fn remaining_items(
-    goal: &GoalState,
-    run_goal: RunGoal,
-    reading: Option<&AnswerReading>,
-) -> Vec<String> {
-    let items = match run_goal {
-        RunGoal::Open => match (&goal.remaining, &goal.objective) {
-            (Some(remaining), _) => vec![remaining.clone()],
-            (None, Some(objective)) => vec![format!("not reported; the goal: {objective}")],
-            (None, None) => Vec::new(),
-        },
-        RunGoal::None | RunGoal::Complete => match reading {
-            Some(AnswerReading::Left(items)) => items.clone(),
-            Some(AnswerReading::Done | AnswerReading::Unjudged(_)) | None => Vec::new(),
-        },
-    };
-    items
-        .iter()
-        .map(|item| crate::sanitize::text(item))
-        .collect()
-}
-
-/// The run's goal as the task rule reads it: none (no objective, or idle),
-/// complete, or open.
-fn run_goal(goal: &GoalState) -> RunGoal {
-    if goal.objective.is_none() {
-        return RunGoal::None;
-    }
-    match goal.status {
-        GoalStatus::Idle => RunGoal::None,
-        GoalStatus::Complete => RunGoal::Complete,
-        GoalStatus::Active | GoalStatus::Paused | GoalStatus::BudgetLimited | GoalStatus::Error => {
-            RunGoal::Open
-        }
+/// What remains of an incomplete task: the items the judge read in the
+/// final answer. The texts are the model's: remote data, so the escapes
+/// and controls come out.
+fn remaining_items(reading: Option<&AnswerReading>) -> Vec<String> {
+    match reading {
+        Some(AnswerReading::Left(items)) => items
+            .iter()
+            .map(|item| crate::sanitize::text(item))
+            .collect(),
+        Some(AnswerReading::Done | AnswerReading::Unjudged(_)) | None => Vec::new(),
     }
 }
 
-/// The stderr text of an incomplete task: why (its goal open, with the
-/// goal's status and reason; or its final answer stating work left), then
-/// what remains, one item per line.
-fn incomplete_text(goal: &GoalState, run_goal: RunGoal, remaining: &[String]) -> String {
-    let why = match run_goal {
-        RunGoal::Open => format!(
-            "its goal is {}{}",
-            goal.status.slug(),
-            goal.last_reason
-                .as_deref()
-                .map(|reason| format!(" ({})", crate::sanitize::text(reason)))
-                .unwrap_or_default()
-        ),
-        RunGoal::None | RunGoal::Complete => "its final answer states work left".to_owned(),
-    };
+/// The stderr text of an incomplete task: why, then what remains, one
+/// item per line.
+fn incomplete_text(remaining: &[String]) -> String {
+    let why = "its final answer states work left";
     let remaining = match remaining {
         [] => "eukhe: remaining: not listed; see the final answer".to_owned(),
         [item] => format!("eukhe: remaining: {item}"),

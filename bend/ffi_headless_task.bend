@@ -5,10 +5,9 @@
 #
 #   request  the exit's cause as ffi_headless_exit replies it (0 answered
 #            .. 11 budget unanswered; 3 run failed is followed by its
-#            reason), the goal: 0 none | 1 complete | 2 open, whether
-#            the run acted (a Bool), then the judge's reading of the
-#            final answer: 0 not asked | 1 no work left | 2 work left |
-#            3 no verdict
+#            reason), whether the run acted (a Bool), then the judge's
+#            reading of the final answer: 0 not asked | 1 no work left |
+#            2 work left | 3 no verdict
 #   reply    the code (Nat), then the task: 0 the exit stands |
 #            1 incomplete | 2 unjudged | 3 ask the judge
 #
@@ -65,21 +64,6 @@ def get_cause(r: W.Dec<Nat>) -> W.Dec<Hx.Cause>:
     case W.Bad{}:
       W.Bad{}
 
-def get_goal(r: W.Dec<Nat>) -> W.Dec<Ht.Goal>:
-  match r:
-    case W.Got{t, s}:
-      match t:
-        case 0n:
-          W.Got{Ht.NoGoal{}, s}
-        case 1n:
-          W.Got{Ht.Complete{}, s}
-        case 2n:
-          W.Got{Ht.Open{}, s}
-        case 3n+u:
-          W.Bad{}
-    case W.Bad{}:
-      W.Bad{}
-
 def get_report(r: W.Dec<Nat>) -> W.Dec<Ht.Report>:
   match r:
     case W.Got{t, s}:
@@ -97,31 +81,24 @@ def get_report(r: W.Dec<Nat>) -> W.Dec<Ht.Report>:
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.report(c: Hx.Cause, g: Ht.Goal, a: Bool, d: W.Dec<Ht.Report>) -> W.Dec<Ht.Facts>:
+def get_facts.report(c: Hx.Cause, a: Bool, d: W.Dec<Ht.Report>) -> W.Dec<Ht.Facts>:
   match d:
     case W.Got{r, s}:
-      W.Got{Ht.Facts{c, g, a, r}, s}
+      W.Got{Ht.Facts{c, a, r}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.acted(c: Hx.Cause, g: Ht.Goal, d: W.Dec<Bool>) -> W.Dec<Ht.Facts>:
+def get_facts.acted(c: Hx.Cause, d: W.Dec<Bool>) -> W.Dec<Ht.Facts>:
   match d:
     case W.Got{a, s}:
-      get_facts.report(c, g, a, get_report(W.get_nat(s)))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_facts.goal(c: Hx.Cause, d: W.Dec<Ht.Goal>) -> W.Dec<Ht.Facts>:
-  match d:
-    case W.Got{g, s}:
-      get_facts.acted(c, g, W.get_bool(s))
+      get_facts.report(c, a, get_report(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
 def get_facts.cause(d: W.Dec<Hx.Cause>) -> W.Dec<Ht.Facts>:
   match d:
     case W.Got{c, s}:
-      get_facts.goal(c, get_goal(W.get_nat(s)))
+      get_facts.acted(c, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
