@@ -35,7 +35,10 @@ use eukhe_core::kernel::state_snapshot::{manifest_path_in, snapshot_path_in};
 mod kernel_runtime;
 use kernel_runtime::kernel_python;
 
-/// Options with a snapshot dir.
+/// Options with a snapshot dir. The debounced auto-snapshot a settled cell
+/// schedules never fires within a test: under load its 1.5 s default lands
+/// between a test's own captures and rewrites the manifest the oracles
+/// compare byte for byte. Every capture here is the test's own.
 fn test_options(snapshot_dir: Option<&Path>) -> KernelManagerOptions {
     let python = kernel_python();
     KernelManagerOptions {
@@ -50,7 +53,7 @@ fn test_options(snapshot_dir: Option<&Path>) -> KernelManagerOptions {
             manifest_path: manifest_path_in(dir),
             max_bytes: None,
             max_variable_bytes: None,
-            debounce_ms: None,
+            debounce_ms: Some(3_600_000),
         }),
         bootstrap_code: Some(build_rlm_bootstrap_code(&[])),
         stderr_log_path: None,
