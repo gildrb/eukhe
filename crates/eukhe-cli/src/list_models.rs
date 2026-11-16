@@ -1,6 +1,10 @@
 //! `eukhe model list [search]`: the models catalog table. Port of
 //! `cli/list-models.ts` -- the local registry's available models, fuzzy
-//! search, and the provider/model/context/max-out/thinking/images table.
+//! search, and the provider/model/context/max-out/thinking/images table,
+//! plus an `account` column marking the models the provider's own listing
+//! left out at the last `eukhe model refresh`.
+
+use eukhe_models::overlay::{account_offer, AccountOffer, RefreshOverlay};
 
 use crate::mode::RunOptions;
 
@@ -44,7 +48,10 @@ pub fn run(options: &RunOptions) {
         None => models,
     };
     filtered.sort_by(|a, b| a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id)));
-    print_table(&filtered);
+    let overlay = eukhe_core::models::refresh::load_overlay(&config.agent_dir);
+    for line in table_lines(&filtered, &overlay) {
+        println!("{line}");
+    }
 }
 
 /// The TS `formatNoModelsAvailableMessage`: guidance plus the bundled docs
@@ -81,10 +88,11 @@ struct Row {
     max_out: String,
     thinking: String,
     images: String,
+    offer: AccountOffer,
 }
 
 impl Row {
-    fn from_model(model: &eukhe_types::ai::Model) -> Self {
+    fn from_model(model: &eukhe_types::ai::Model, offer: AccountOffer) -> Self {
         Row {
             provider: model.provider.clone(),
             model: model.id.clone(),
@@ -97,10 +105,11 @@ impl Row {
                     .iter()
                     .any(|input| matches!(input, eukhe_types::ai::ModelInput::Image)),
             ),
+            offer,
         }
     }
 
-    fn cells(&self) -> [&str; 6] {
+    fn cells(&self) -> [&str; 7] {
         [
             &self.provider,
             &self.model,
@@ -108,7 +117,17 @@ impl Row {
             &self.max_out,
             &self.thinking,
             &self.images,
+            account_cell(self.offer),
         ]
+    }
+}
+
+/// The `account` cell: `unavailable` for a model the provider's listing
+/// left out, empty otherwise.
+fn account_cell(offer: AccountOffer) -> &'static str {
+    match offer {
+        AccountOffer::NotOffered => "unavailable",
+        AccountOffer::Offered | AccountOffer::NotRefreshed => "",
     }
 }
 
@@ -138,15 +157,29 @@ pub(crate) fn format_token_count(count: u64) -> String {
     }
 }
 
+/// The line under a table with an `account` column.
+const NOT_OFFERED_NOTE: &str =
+    "unavailable: missing from this account's model list at the last \"eukhe model refresh\".";
+
 /// The catalog table: two-space gutters and every column padded to its
 /// widest value (trailing padding included, like the TS `padEnd` render),
-/// on a terminal and piped alike.
-fn print_table(models: &[eukhe_types::ai::Model]) {
-    const HEADERS: [&str; 6] = [
-        "provider", "model", "context", "max-out", "thinking", "images",
+/// on a terminal and piped alike. The `account` column and its note show
+/// only when a model is unavailable for the account (`overlay`).
+fn table_lines(models: &[eukhe_types::ai::Model], overlay: &RefreshOverlay) -> Vec<String> {
+    const HEADERS: [&str; 7] = [
+        "provider", "model", "context", "max-out", "thinking", "images", "account",
     ];
-    let rows: Vec<Row> = models.iter().map(Row::from_model).collect();
-    let mut widths = [0usize; 6];
+    let rows: Vec<Row> = models
+        .iter()
+        .map(|model| Row::from_model(model, account_offer(overlay, &model.provider, &model.id)))
+        .collect();
+    let marked = rows.iter().any(|row| row.offer == AccountOffer::NotOffered);
+    let columns = if marked {
+        HEADERS.len()
+    } else {
+        HEADERS.len() - 1
+    };
+    let mut widths = [0usize; 7];
     for (index, header) in HEADERS.iter().enumerate() {
         widths[index] = header.chars().count();
     }
@@ -155,18 +188,19 @@ fn print_table(models: &[eukhe_types::ai::Model]) {
             widths[index] = widths[index].max(cell.chars().count());
         }
     }
-    let line = |cells: [&str; 6]| -> String {
-        cells
+    let line = |cells: [&str; 7]| -> String {
+        cells[..columns]
             .iter()
             .zip(widths)
             .map(|(cell, width)| pad_end(cell, width))
             .collect::<Vec<_>>()
             .join("  ")
     };
-    println!("{}", line(HEADERS));
-    for row in &rows {
-        println!("{}", line(row.cells()));
-    }
+    let note = marked.then(|| ["", NOT_OFFERED_NOTE].map(str::to_owned));
+    std::iter::once(line(HEADERS))
+        .chain(rows.iter().map(|row| line(row.cells())))
+        .chain(note.into_iter().flatten())
+        .collect()
 }
 
 pub(crate) fn pad_end(value: &str, width: usize) -> String {
@@ -196,5 +230,57 @@ mod tests {
     fn pad_end_pads_to_width() {
         assert_eq!(pad_end("yes", 6), "yes   ");
         assert_eq!(pad_end("images", 6), "images");
+    }
+
+    fn codex_model(id: &str) -> eukhe_types::ai::Model {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": id,
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "baseUrl": "https://chatgpt.com/backend-api",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": {"input": 5, "output": 30, "cacheRead": 0.5, "cacheWrite": 0},
+            "contextWindow": 272_000,
+            "maxTokens": 128_000,
+        }))
+        .expect("a model")
+    }
+
+    #[test]
+    fn models_the_account_listing_left_out_read_unavailable() {
+        let models = [codex_model("gpt-6-luna"), codex_model("gpt-6-sol")];
+        let refreshed: RefreshOverlay = serde_json::from_value(serde_json::json!({
+            "refreshedAt": "2026-11-16T00:56:50.550Z",
+            "providers": {},
+            "offered": { "openai-codex": ["gpt-6-luna", "gpt-5.6-luna"] },
+        }))
+        .expect("an overlay");
+        assert_eq!(
+            (
+                table_lines(&models, &refreshed),
+                table_lines(&models, &RefreshOverlay::default()),
+            ),
+            (
+                vec![
+                    "provider      model       context  max-out  thinking  images  account    "
+                        .to_owned(),
+                    format!(
+                        "openai-codex  gpt-6-luna  272K     128K     yes       yes     {:11}",
+                        ""
+                    ),
+                    "openai-codex  gpt-6-sol   272K     128K     yes       yes     unavailable"
+                        .to_owned(),
+                    String::new(),
+                    NOT_OFFERED_NOTE.to_owned(),
+                ],
+                vec![
+                    "provider      model       context  max-out  thinking  images".to_owned(),
+                    "openai-codex  gpt-6-luna  272K     128K     yes       yes   ".to_owned(),
+                    "openai-codex  gpt-6-sol   272K     128K     yes       yes   ".to_owned(),
+                ],
+            )
+        );
     }
 }

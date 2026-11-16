@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -34,6 +34,7 @@ fn write_overlay(dir: &Path, models: Vec<Model>) {
     let overlay = RefreshOverlay {
         refreshed_at: "2026-11-13T09:00:00.000Z".to_owned(),
         providers: BTreeMap::from([("anthropic".to_owned(), models)]),
+        offered: BTreeMap::new(),
     };
     std::fs::write(
         dir.join(OVERLAY_FILE_NAME),
@@ -220,6 +221,13 @@ async fn a_refresh_saves_the_new_models_and_reports_each_provider() {
             RefreshOverlay {
                 refreshed_at: "2026-11-14T10:00:00.000Z".to_owned(),
                 providers: BTreeMap::from([("anthropic".to_owned(), vec![added])]),
+                offered: BTreeMap::from([(
+                    "anthropic".to_owned(),
+                    BTreeSet::from([
+                        "claude-haiku-5-5".to_owned(),
+                        "claude-haiku-5-5-refresh".to_owned(),
+                    ]),
+                )]),
             }
         )
     );

@@ -1,9 +1,11 @@
 //! The explicit model-list refresh (`eukhe model refresh`, the daemon's
 //! `refresh_models`): each selected provider's own listing endpoint is
 //! asked for the models it offers now; the chat models the built-in
-//! catalog lacks land in the overlay `<agent_dir>/models-refresh.json`
-//! (`eukhe_models::overlay`), which every catalog build reads beside the
-//! built-in catalog (the registry's `compose`, the session collection).
+//! catalog lacks and every id the listing named land in the overlay
+//! `<agent_dir>/models-refresh.json` (`eukhe_models::overlay`), which every
+//! catalog build reads beside the built-in catalog (the registry's
+//! `compose`, the session collection) and `eukhe model list` reads to mark
+//! the models the account is not offered.
 //! Only the commands call [`refresh_models`]; nothing refreshes on its own.
 
 use std::collections::BTreeSet;
@@ -236,18 +238,20 @@ pub async fn refresh_models(
             .map(|(provider, credentials)| ask_provider(models, pinned, provider, *credentials)),
     )
     .await;
-    let refreshed_at = iso(now);
-    let answered: Vec<(&str, Vec<Model>)> = providers
+    let rows: Vec<ProviderRefresh> = providers
         .iter()
         .zip(&asked)
+        .map(|((provider, _), asked)| ProviderRefresh {
+            provider: provider.clone(),
+            outcome: outcome(asked),
+        })
+        .collect();
+    let refreshed_at = iso(now);
+    let answered: Vec<(&str, Option<ProviderListing>)> = providers
+        .iter()
+        .zip(asked)
         .filter_map(|((provider, _), asked)| match asked {
-            Asked::Listing(listing) => Some((
-                provider.as_str(),
-                listing
-                    .as_ref()
-                    .map(|listing| listing.added.clone())
-                    .unwrap_or_default(),
-            )),
+            Asked::Listing(listing) => Some((provider.as_str(), listing)),
             Asked::Skipped(_) | Asked::Failed(_) => None,
         })
         .collect();
@@ -257,25 +261,17 @@ pub async fn refresh_models(
     } else {
         let overlay = answered
             .into_iter()
-            .fold(previous, |overlay, (provider, added)| {
-                with_provider_listing(overlay, provider, added, &refreshed_at)
+            .fold(previous, |overlay, (provider, listing)| {
+                with_provider_listing(overlay, provider, listing, &refreshed_at)
             });
         save_overlay(agent_dir, &overlay)?;
         overlay
     };
-    let report = ModelsRefreshReport {
-        refreshed_at,
-        providers: providers
-            .iter()
-            .zip(&asked)
-            .map(|((provider, _), asked)| ProviderRefresh {
-                provider: provider.clone(),
-                outcome: outcome(asked),
-            })
-            .collect(),
-    };
     Ok(Refreshed {
-        report,
+        report: ModelsRefreshReport {
+            refreshed_at,
+            providers: rows,
+        },
         models: overlay_models(pinned, &overlay),
     })
 }

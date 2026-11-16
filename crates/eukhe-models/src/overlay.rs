@@ -11,8 +11,12 @@
 //! the longest prefix with it): api, base URL, headers, compat, cost and
 //! thinking map from the sibling; context window, output cap, reasoning
 //! and input from the listing when it gives them, else the sibling's.
+//!
+//! The overlay also keeps, per provider, every id its listing named: the
+//! models the provider offers the signed-in account. A catalog model of a
+//! listed provider missing from that set is one the account cannot use.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use eukhe_ai::capabilities::ListedModel;
 use eukhe_types::ai::ModelInput;
@@ -21,13 +25,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::Model;
 
-/// The overlay document: when it was last refreshed (UTC ISO 8601) and,
-/// per provider, the models its listing added.
+/// The overlay document: when it was last refreshed (UTC ISO 8601), per
+/// provider the models its listing added, and per provider every id its
+/// listing named (absent in files written before the field existed).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshOverlay {
     pub refreshed_at: String,
     pub providers: BTreeMap<String, Vec<Model>>,
+    #[serde(default)]
+    pub offered: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// What one provider's listing gives against the built-in catalog.
@@ -37,6 +44,19 @@ pub struct ProviderListing {
     pub added: Vec<Model>,
     /// How many listed chat models the catalog already has.
     pub known: usize,
+    /// Every id the listing named, chat model or not.
+    pub offered: BTreeSet<String>,
+}
+
+/// What the provider's listing at the last refresh says of one model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountOffer {
+    /// The listing named the model.
+    Offered,
+    /// The listing answered without the model: the account cannot use it.
+    NotOffered,
+    /// No refresh has recorded the provider's listing.
+    NotRefreshed,
 }
 
 /// Parts of an id that mark a model other than a chat model (embedding,
@@ -164,25 +184,44 @@ pub fn provider_listing(
     Some(ProviderListing {
         added,
         known: known.len(),
+        offered: listed.iter().map(|entry| entry.id.clone()).collect(),
     })
 }
 
-/// `overlay` with `provider`'s added models replaced by `added` (an empty
-/// list removes the provider) and the refresh date set.
+/// `overlay` with `provider`'s added models and offered ids replaced by
+/// `listing`'s (`None` or an empty list removes them) and the refresh date
+/// set.
 #[must_use]
 pub fn with_provider_listing(
     mut overlay: RefreshOverlay,
     provider: &str,
-    added: Vec<Model>,
+    listing: Option<ProviderListing>,
     refreshed_at: &str,
 ) -> RefreshOverlay {
+    let (added, offered) =
+        listing.map_or_else(Default::default, |listing| (listing.added, listing.offered));
     if added.is_empty() {
         overlay.providers.remove(provider);
     } else {
         overlay.providers.insert(provider.to_owned(), added);
     }
+    if offered.is_empty() {
+        overlay.offered.remove(provider);
+    } else {
+        overlay.offered.insert(provider.to_owned(), offered);
+    }
     refreshed_at.clone_into(&mut overlay.refreshed_at);
     overlay
+}
+
+/// Whether `provider`'s last recorded listing named model `id`.
+#[must_use]
+pub fn account_offer(overlay: &RefreshOverlay, provider: &str, id: &str) -> AccountOffer {
+    match overlay.offered.get(provider) {
+        None => AccountOffer::NotRefreshed,
+        Some(ids) if ids.contains(id) => AccountOffer::Offered,
+        Some(_) => AccountOffer::NotOffered,
+    }
 }
 
 /// The overlay's models the built-in catalog `pinned` lacks, each
@@ -280,6 +319,7 @@ mod tests {
             Some(ProviderListing {
                 added: vec![expected],
                 known: 1,
+                offered: BTreeSet::from(["gpt-5.5".to_owned(), "gpt-6-sol-pro".to_owned()]),
             })
         );
     }
@@ -348,6 +388,7 @@ mod tests {
                     vec![model("anthropic", "claude-x", &json!({}))],
                 ),
             ]),
+            offered: BTreeMap::new(),
         };
         assert_eq!(
             overlay_models(&pinned, &overlay),
@@ -359,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_listing_replaces_its_models_and_an_empty_one_removes_them() {
+    fn a_provider_listing_replaces_its_models_and_offers_and_none_removes_them() {
         let overlay = RefreshOverlay {
             refreshed_at: "old".to_owned(),
             providers: BTreeMap::from([
@@ -372,14 +413,29 @@ mod tests {
                     vec![model("anthropic", "claude-x", &json!({}))],
                 ),
             ]),
+            offered: BTreeMap::from([
+                (
+                    "openai-codex".to_owned(),
+                    BTreeSet::from(["gpt-6.1".to_owned()]),
+                ),
+                (
+                    "anthropic".to_owned(),
+                    BTreeSet::from(["claude-x".to_owned()]),
+                ),
+            ]),
         };
         let replaced = with_provider_listing(
             overlay,
             "openai-codex",
-            vec![model("openai-codex", "gpt-6.2", &json!({}))],
+            Some(ProviderListing {
+                added: vec![model("openai-codex", "gpt-6.2", &json!({}))],
+                known: 1,
+                offered: BTreeSet::from(["gpt-6-luna".to_owned(), "gpt-6.2".to_owned()]),
+            }),
             "new",
         );
-        let removed = with_provider_listing(replaced.clone(), "anthropic", Vec::new(), "newer");
+        let removed = with_provider_listing(replaced.clone(), "anthropic", None, "newer");
+        let codex_offered = BTreeSet::from(["gpt-6-luna".to_owned(), "gpt-6.2".to_owned()]);
         assert_eq!(
             (replaced, removed),
             (
@@ -395,6 +451,13 @@ mod tests {
                             vec![model("anthropic", "claude-x", &json!({}))],
                         ),
                     ]),
+                    offered: BTreeMap::from([
+                        ("openai-codex".to_owned(), codex_offered.clone()),
+                        (
+                            "anthropic".to_owned(),
+                            BTreeSet::from(["claude-x".to_owned()]),
+                        ),
+                    ]),
                 },
                 RefreshOverlay {
                     refreshed_at: "newer".to_owned(),
@@ -402,8 +465,38 @@ mod tests {
                         "openai-codex".to_owned(),
                         vec![model("openai-codex", "gpt-6.2", &json!({}))],
                     )]),
+                    offered: BTreeMap::from([("openai-codex".to_owned(), codex_offered)]),
                 },
             )
+        );
+    }
+
+    #[test]
+    fn a_model_missing_from_its_providers_listing_is_not_offered() {
+        let overlay: RefreshOverlay = serde_json::from_value(json!({
+            "refreshedAt": "2026-11-14T10:00:00.000Z",
+            "providers": {},
+            "offered": { "openai-codex": ["gpt-6-luna"] },
+        }))
+        .expect("an overlay");
+        let written_before_offers: RefreshOverlay = serde_json::from_value(json!({
+            "refreshedAt": "2026-11-14T10:00:00.000Z",
+            "providers": {},
+        }))
+        .expect("an overlay");
+        assert_eq!(
+            [
+                account_offer(&overlay, "openai-codex", "gpt-6-luna"),
+                account_offer(&overlay, "openai-codex", "gpt-6-sol"),
+                account_offer(&overlay, "anthropic", "claude-haiku-5-5"),
+                account_offer(&written_before_offers, "openai-codex", "gpt-6-sol"),
+            ],
+            [
+                AccountOffer::Offered,
+                AccountOffer::NotOffered,
+                AccountOffer::NotRefreshed,
+                AccountOffer::NotRefreshed,
+            ]
         );
     }
 }
