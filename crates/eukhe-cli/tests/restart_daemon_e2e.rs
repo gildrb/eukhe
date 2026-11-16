@@ -18,9 +18,10 @@
 //! hello and `wait_for_idle`; a turn is held at the faux provider's
 //! `holdUntilReleased` gate (the request connected to a socket the test
 //! owns) until the test closes it. A session reopened on a new daemon is
-//! woken there by the supervisor, which hands it `EUKHE_FAUX_SCRIPT` (the
-//! daemon's verification seam in its wake create), read when the worker
-//! starts: the test rewrites the script before such a start.
+//! woken there by the supervisor on the faux script file the client's
+//! attach names (`recoveryConfig.script`, as a create's `script`), read
+//! when the worker starts: the test rewrites the script before such a
+//! start.
 //!
 //! - Idle daemon: `/restart` onto the new version stops the old daemon,
 //!   the new version serves the socket, and the session reopens from

@@ -124,6 +124,7 @@ impl Supervisor {
                                 .as_ref()
                                 .map(|(resident, summary)| (resident, summary)),
                             kin.as_ref(),
+                            /*script*/ None,
                         )
                         .await
                     {
@@ -279,13 +280,16 @@ impl Supervisor {
     /// the wake's own error (a catalog ambiguity outranks the miss, like
     /// the TS `Ambiguous session selector` propagation). An agent sender's
     /// `kin` view refuses a session that is not its parent or child before
-    /// anything wakes.
+    /// anything wakes. `script` is the faux script file an attach's
+    /// `recoveryConfig` names (a scripted client's create config, the
+    /// verification seam): the woken worker runs it as a create's would.
     pub(crate) async fn wake_saved_target(
         self: &Arc<Self>,
         resolve_error: &anyhow::Error,
         selector: &str,
         source: Option<(&Arc<ResidentWorker>, &Value)>,
         kin: Option<&crate::kin_gate::KinView>,
+        script: Option<&str>,
     ) -> WakeOutcome {
         let rendered = resolve_error.to_string();
         if !rendered.starts_with("Unknown active session:") {
@@ -368,13 +372,8 @@ impl Supervisor {
         // supervisor's parent-owned passivation fence reads it (a root's
         // header depth of 0 restates its rootness).
         let mut config = json!({ "cwd": info.cwd, "rlmDepth": info.rlm_depth });
-        // Verification seam: a supervisor started with `EUKHE_FAUX_SCRIPT`
-        // (the scripted faux provider of the e2es; the product never sets
-        // it) wakes a saved session on that script file, as the client's
-        // create would name it, so a session reopened on another daemon
-        // (`/restart`) still has its scripted model.
-        if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
-            config["script"] = json!(script.to_string_lossy());
+        if let Some(script) = script {
+            config["script"] = json!(script);
         }
         let create = DaemonCommand::Create {
             id: None,

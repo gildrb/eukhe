@@ -604,7 +604,24 @@ impl Supervisor {
                             | DaemonCommand::Rename { .. }
                             | DaemonCommand::WaitForIdle { .. }
                     ) {
-                        match self.wake_saved_session(&selector).await {
+                        // An attach names the faux script of a scripted
+                        // client in its `recoveryConfig` (the verification
+                        // seam of a create's `script`).
+                        let script = if let DaemonCommand::Attach {
+                            recovery_config, ..
+                        }
+                        | DaemonCommand::Reattach {
+                            recovery_config, ..
+                        } = &command
+                        {
+                            recovery_config
+                                .as_ref()
+                                .and_then(|config| config.get("script"))
+                                .and_then(Value::as_str)
+                        } else {
+                            None
+                        };
+                        match self.wake_saved_session(&selector, script).await {
                             WakeRoute::Woken(resident) => {
                                 rebound_to = Some(
                                     self.rebind_connection(&selector, &resident, attached).await,
@@ -1141,11 +1158,16 @@ impl Supervisor {
     /// messaging wake's resolution and reuse-or-launch; a selector that
     /// resolves to no saved session (or a ledger miss) falls through to
     /// the caller's unknown-session error, so only resolvable sessions
-    /// ever wake.
-    pub(super) async fn wake_saved_session(self: &Arc<Self>, selector: &str) -> WakeRoute {
+    /// ever wake. `script`: the attach's faux script
+    /// ([`Supervisor::wake_saved_target`]).
+    pub(super) async fn wake_saved_session(
+        self: &Arc<Self>,
+        selector: &str,
+        script: Option<&str>,
+    ) -> WakeRoute {
         let resolve_error = anyhow!("Unknown active session: {selector}");
         match self
-            .wake_saved_target(&resolve_error, selector, None, None)
+            .wake_saved_target(&resolve_error, selector, None, None, script)
             .await
         {
             crate::messaging::WakeOutcome::Woken(resident) => WakeRoute::Woken(resident),

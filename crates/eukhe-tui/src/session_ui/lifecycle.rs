@@ -417,6 +417,13 @@ impl SessionUi {
                 eukhe_types::daemon::herdr_env::collect_client_env(|key| std::env::var(key).ok());
             (!env.is_empty()).then_some(env)
         };
+        // A scripted client (the faux verification seam) names its script
+        // for the daemon that wakes a saved session on this attach, as its
+        // create's config does; every other client sends none.
+        let recovery_config = self
+            .script_path
+            .as_ref()
+            .map(|script| serde_json::json!({ "script": script.display().to_string() }));
         let attach_command = |session_id: &str| DaemonCommand::Attach {
             id: None,
             active_session_id: session_id.to_string(),
@@ -433,7 +440,7 @@ impl SessionUi {
                 "elide_snapshot_images".to_string(),
             ]),
             resume_cursor: None,
-            recovery_config: None,
+            recovery_config: recovery_config.clone(),
             env: client_env.clone(),
             launch_env: None,
             rest: Map::default(),
