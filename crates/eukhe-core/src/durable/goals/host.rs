@@ -1,6 +1,6 @@
 //! What the goal extension's hooks and host requests share, and the
-//! `goal.get` / `goal.create` / `goal.complete` / `directors.push` kernel
-//! host requests.
+//! `goal.get` / `goal.create` / `goal.complete` / `goal.remaining` /
+//! `directors.push` kernel host requests.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,7 @@ use futures::FutureExt;
 use serde_json::Value;
 
 use super::ops::{conversation_of, goal_state, update_goal};
-use super::state::{completed, new_goal};
+use super::state::{completed, new_goal, with_remaining};
 use crate::autonomous::GateCommandRunner;
 use crate::durable::acceptance::{claim, Claimed};
 use crate::durable::budget::BudgetGate;
@@ -156,6 +156,30 @@ impl GoalsHost {
                     }
                 }
             }
+            GoalRequest::Remaining => {
+                let Some(remaining) = call
+                    .data
+                    .get("remaining")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|remaining| !remaining.is_empty())
+                    .map(str::to_owned)
+                else {
+                    anyhow::bail!("goal.remaining remaining must be a non-empty string");
+                };
+                let (goal, _) = update_goal(
+                    &conversation,
+                    move |current, _| match with_remaining(current, &remaining) {
+                        Some(goal) => Ok(Some((goal, None))),
+                        None => Err(SessionError::error(
+                            "cannot record what remains because this thread has no open goal",
+                        )),
+                    },
+                    &cx,
+                )
+                .await?;
+                serde_json::to_value(goal_host_response(&goal, GoalTokens::of(&goal), false))?
+            }
             GoalRequest::DirectorsPush => serde_json::to_value(
                 push_director(
                     &self.harness.require()?,
@@ -210,6 +234,7 @@ enum GoalRequest {
     Get,
     Create,
     Complete,
+    Remaining,
     DirectorsPush,
 }
 
@@ -231,13 +256,14 @@ fn create_refusal(status: GoalStatus) -> Option<SessionError> {
     Some(SessionError::error(message))
 }
 
-/// Register `goal.get`, `goal.create`, `goal.complete`, and
-/// `directors.push`.
+/// Register `goal.get`, `goal.create`, `goal.complete`, `goal.remaining`
+/// and `directors.push`.
 pub(crate) fn register_host_requests(host: &GoalsHost, registry: &HostRequestRegistry) {
     for (request_type, request) in [
         ("goal.get", GoalRequest::Get),
         ("goal.create", GoalRequest::Create),
         ("goal.complete", GoalRequest::Complete),
+        ("goal.remaining", GoalRequest::Remaining),
         ("directors.push", GoalRequest::DirectorsPush),
     ] {
         let host = host.clone();

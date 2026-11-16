@@ -35,6 +35,9 @@ pub struct SerializedGoal {
     pub created_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
+    /// What the agent reported is left of the objective.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<String>,
 }
 
 /// Reply payload for goal.* host requests from the Python kernel.
@@ -257,6 +260,7 @@ pub fn goal_host_response(
             tokens_used: tokens.used,
             created_at: goal.created_at,
             updated_at: goal.updated_at,
+            remaining: goal.remaining.clone(),
         }),
         remaining_tokens: answer.remaining_tokens,
         completion_budget_report: answer.completion_budget_report,
@@ -321,6 +325,7 @@ mod tests {
             updated_at: Some(2),
             last_reason: None,
             last_error: None,
+            remaining: None,
         }
     }
 

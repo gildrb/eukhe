@@ -562,6 +562,56 @@ async fn goal_create_refuses_while_a_goal_is_active_and_complete_needs_a_goal() 
     harness.close(cx()).await.expect("close");
 }
 
+/// `goal.remaining` records what is left of the open goal and leaves it
+/// open; it is refused without an open goal, and completing the goal
+/// clears it.
+#[tokio::test]
+async fn goal_remaining_records_what_is_left_of_the_open_goal() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    let error = setup
+        .host_request("goal.remaining", json!({ "remaining": "B" }))
+        .await
+        .expect_err("no goal");
+    assert_eq!(
+        error.to_string(),
+        "cannot record what remains because this thread has no open goal"
+    );
+    setup
+        .host_request("goal.create", json!({ "objective": "A and B" }))
+        .await
+        .expect("goal.create succeeds");
+    let error = setup
+        .host_request("goal.remaining", json!({ "remaining": "  " }))
+        .await
+        .expect_err("an empty report");
+    assert_eq!(
+        error.to_string(),
+        "goal.remaining remaining must be a non-empty string"
+    );
+    let recorded = setup
+        .host_request(
+            "goal.remaining",
+            json!({ "remaining": " B: the build fails " }),
+        )
+        .await
+        .expect("goal.remaining succeeds");
+    assert_eq!(
+        (&recorded["goal"]["status"], &recorded["goal"]["remaining"]),
+        (&json!("active"), &json!("B: the build fails"))
+    );
+    assert_eq!(
+        stored_goal(&harness, &root).await.remaining.as_deref(),
+        Some("B: the build fails")
+    );
+    setup
+        .host_request("goal.complete", json!({}))
+        .await
+        .expect("goal.complete succeeds");
+    assert_eq!(stored_goal(&harness, &root).await.remaining, None);
+    harness.close(cx()).await.expect("close");
+}
+
 pub(crate) async fn open_jsonl(dir: &std::path::Path) -> Arc<dyn Storage> {
     let fs = Arc::new(NativeExecutionEnv::new(NativeExecutionEnvOptions {
         cwd: dir.to_string_lossy().into_owned(),

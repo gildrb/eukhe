@@ -82,6 +82,7 @@ pub(crate) fn new_goal(
         updated_at: Some(now),
         last_reason: None,
         last_error: None,
+        remaining: None,
     })
 }
 
@@ -206,7 +207,8 @@ fn budget_reason(short: Option<BudgetDimension>) -> String {
 }
 
 /// The completed goal, with why it counts as achieved (`reason` names
-/// whether an acceptance check verified it); `None` when there is no goal.
+/// whether an acceptance check verified it); nothing remains of it.
+/// `None` when there is no goal.
 #[must_use]
 pub(crate) fn completed(state: &GoalState, reason: &str) -> Option<GoalState> {
     if state.objective.is_none() || state.status == GoalStatus::Idle {
@@ -216,8 +218,25 @@ pub(crate) fn completed(state: &GoalState, reason: &str) -> Option<GoalState> {
         status: GoalStatus::Complete,
         last_reason: Some(reason.to_owned()),
         last_error: None,
+        remaining: None,
         ..state.clone()
     })
+}
+
+/// The goal with what the agent reported is left of it (`remaining`),
+/// its status unchanged; `None` when there is no open goal (none, or one
+/// already complete).
+#[must_use]
+pub(crate) fn with_remaining(state: &GoalState, remaining: &str) -> Option<GoalState> {
+    match state.status {
+        GoalStatus::Idle | GoalStatus::Complete => None,
+        GoalStatus::Active | GoalStatus::Paused | GoalStatus::BudgetLimited | GoalStatus::Error => {
+            state.objective.is_some().then(|| GoalState {
+                remaining: Some(remaining.to_owned()),
+                ..state.clone()
+            })
+        }
+    }
 }
 
 /// How a run of the goal's conversation ended without a final answer.

@@ -87,6 +87,10 @@ pub struct GoalState {
     pub last_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// What the agent reported is left of the objective
+    /// (`goal.remaining`); cleared when the goal completes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<String>,
 }
 
 impl Default for GoalState {
@@ -110,6 +114,7 @@ pub fn empty_goal_state() -> GoalState {
         updated_at: None,
         last_reason: None,
         last_error: None,
+        remaining: None,
     }
 }
 
@@ -167,6 +172,7 @@ mod tests {
                 updated_at: Some(3000),
                 last_reason: None,
                 last_error: None,
+                remaining: None,
             }
         );
         assert_eq!(

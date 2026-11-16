@@ -58,6 +58,18 @@ async def complete() -> dict[str, Any]:
     return await host_request("goal.complete")
 
 
+async def remaining(text: str) -> dict[str, Any]:
+    """Record what is left of the open goal, and why it is not done yet.
+
+    The goal stays open: the harness continues it, and a headless run
+    (`eukhe -p`) that ends with it open exits 1 and prints this text as
+    what remains. Returns the goal state.
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"text must be str, got {type(text).__name__}")
+    return await host_request("goal.remaining", {"remaining": text})
+
+
 async def acceptance() -> dict[str, Any]:
     """Read the acceptance checks of this task and their last verdicts.
 
