@@ -72,4 +72,5 @@ pub mod tui_color;
 pub mod verify;
 pub mod wait;
 pub mod wait_any;
+pub mod work_list;
 pub mod worker;

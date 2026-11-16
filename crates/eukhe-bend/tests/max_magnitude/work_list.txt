@@ -1,0 +1,8 @@
+# one Bool per item (T done): every item open, every item done, a mix,
+# none; a count past the items; a 15-digit count
+call 6,FFFFFF
+call 6,TTTTTT
+call 6,TFTFTF
+call 0,
+refuse {MAX},TT
+refuse {LONG},T

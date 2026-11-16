@@ -268,6 +268,8 @@ pub enum Entry {
     AgentTree = 461,
     /// `bend/ffi_limits.bend`: a call.
     Limits = 462,
+    /// `bend/ffi_work_list.bend`: a call.
+    WorkList = 463,
 }
 
 impl Entry {
@@ -404,6 +406,7 @@ impl Entry {
         Entry::ServerPeer,
         Entry::AgentTree,
         Entry::Limits,
+        Entry::WorkList,
     ];
 
     /// The id `bend/core.bend` dispatches on.

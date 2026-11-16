@@ -131,6 +131,7 @@ import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
+import ./ffi_work_list.bend as ffi_work_list
 import ./ffi_worker.bend as ffi_worker
 import ./ffi_workflow.bend as ffi_workflow
 
@@ -378,6 +379,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_agent_tree.ffi(input)
     case 462:
       ffi_limits.ffi(input)
+    case 463:
+      ffi_work_list.ffi(input)
     case _:
       W.err("unknown entry")
 

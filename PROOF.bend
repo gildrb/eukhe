@@ -4596,3 +4596,13 @@ import ./proof/server_peer/server_peer_entry_answers.bend as PServerPeerEntryAns
 import ./proof/server_peer/server_peer_entry_exact.bend as PServerPeerEntryExact
 import ./proof/server_peer/server_peer_entry_refuses.bend as PServerPeerEntryRefuses
 import ./proof/server_peer/server_peer_entry_example.bend as PServerPeerEntryExample
+import ./proof/work_list/base.bend as LAWorkList
+import ./proof/work_list/work_list_finished_exactly_all_done.bend as PWorkListFinishedExactlyAllDone
+import ./proof/work_list/work_list_left_exactly_open.bend as PWorkListLeftExactlyOpen
+import ./proof/work_list/work_list_left_in_order.bend as PWorkListLeftInOrder
+import ./proof/work_list/work_list_example.bend as PWorkListExample
+import ./proof/work_list/work_list_entry_is_model.bend as PWorkListEntryIsModel
+import ./proof/work_list/work_list_entry_reads.bend as PWorkListEntryReads
+import ./proof/work_list/work_list_entry_exact.bend as PWorkListEntryExact
+import ./proof/work_list/work_list_entry_refuses.bend as PWorkListEntryRefuses
+import ./proof/work_list/work_list_entry_example.bend as PWorkListEntryExample
