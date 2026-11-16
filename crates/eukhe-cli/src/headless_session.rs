@@ -27,7 +27,7 @@ use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_durable::session::SessionError;
 use eukhe_tui::session_open_error::{already_active_error, SessionHolder};
 
-use crate::mode::RunOptions;
+use crate::mode::{AppMode, RunOptions};
 
 /// Why a headless session did not open. The `Display` is the `Error:` text
 /// the CLI prints (and the RPC replacement's wire error).
@@ -538,6 +538,19 @@ async fn open(
     Ok((session, wakes))
 }
 
+/// The prompt guidelines of a headless session's root: a print or json run
+/// ends with an exit code that says whether its task is done
+/// ([`eukhe_core::goals::HEADLESS_GOAL_GUIDELINE`]); an RPC session's
+/// client keeps its own state.
+fn headless_guidelines(mode: AppMode) -> Vec<String> {
+    match mode {
+        AppMode::Print | AppMode::Json => {
+            vec![eukhe_core::goals::HEADLESS_GOAL_GUIDELINE.to_owned()]
+        }
+        AppMode::Rpc | AppMode::Acp | AppMode::Interactive | AppMode::Daemon => Vec::new(),
+    }
+}
+
 /// The open inputs from the CLI flags: model and thinking (a new root's
 /// agent), prompt inputs, chat memory, and the faux-script models.
 async fn session_config(
@@ -576,6 +589,7 @@ async fn session_config(
         no_skills: config.no_skills,
         no_prompt_templates: config.no_prompt_templates,
         no_context_files: config.no_context_files,
+        guidelines: headless_guidelines(options.app_mode),
         ..PromptConfig::default()
     };
     if let Ok(script) = std::env::var("EUKHE_FAUX_SCRIPT") {

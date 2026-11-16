@@ -1242,3 +1242,79 @@ fn print_mode_fork_rejects_empty_sources_and_conflicting_flags() {
         }
     );
 }
+
+/// A python tool call of the scripted agent.
+fn python(code: &str) -> serde_json::Value {
+    serde_json::json!({
+        "content": [{ "type": "toolCall", "name": "python", "arguments": { "code": code } }]
+    })
+}
+
+/// The agent holds its task as a goal and answers with work left: the
+/// harness continues the goal (bounded: it pauses once continuations do no
+/// new work), and the run exits 1, saying what remains on stderr and, in
+/// json mode, as the stream's last record. Before the task rule the
+/// answer exited 0 with the work list half done.
+#[test]
+fn an_answer_with_its_goal_open_exits_one_with_what_remains() {
+    let script = serde_json::json!({
+        "responses": [
+            python("await goal.create('rewrite the crate: items A and B')"),
+            python("await goal.remaining('B: the check does not build yet')"),
+            { "text": "Items done: A. Items left: B." },
+        ],
+        "repeatLastResponse": true,
+    });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.contains("eukhe: the task is incomplete: its goal is paused")
+            && stderr.contains("eukhe: remaining: B: the check does not build yet"),
+        "stderr: {stderr}"
+    );
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let last = lines.last().expect("a record");
+    assert_eq!(
+        (
+            &last["type"],
+            &last["goal"]["status"],
+            &last["goal"]["remaining"]
+        ),
+        (
+            &serde_json::json!("task_incomplete"),
+            &serde_json::json!("paused"),
+            &serde_json::json!("B: the check does not build yet")
+        ),
+        "last record: {last}"
+    );
+    // The goal continued the run after the first answer.
+    let continuations = lines
+        .iter()
+        .filter(|line| {
+            line["type"] == "message_start" && line["message"]["customType"] == "goal_context"
+        })
+        .count();
+    assert!(continuations >= 1, "no goal continuation: {stdout}");
+}
+
+/// The agent claims its goal complete, then answers: the task is done and
+/// the run exits 0 with the answer, nothing on stderr.
+#[test]
+fn an_answer_with_its_goal_complete_exits_zero() {
+    let script = serde_json::json!({
+        "responses": [
+            python("await goal.create('rewrite the crate: items A and B')"),
+            python("await goal.complete()"),
+            { "text": "Items done: A, B." },
+        ],
+    });
+    let (stdout, stderr, code) = run(&["-p", "do the work list"], &script);
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (0, "Items done: A, B.\n", "")
+    );
+}

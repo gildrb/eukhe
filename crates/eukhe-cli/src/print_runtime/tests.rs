@@ -580,6 +580,32 @@ async fn a_failed_session_command_stops_the_prompt_loop() {
     }
 }
 
+/// An incomplete task prints its goal's status and why, then what
+/// remains: the agent's report, else the goal itself.
+#[test]
+fn an_incomplete_task_says_what_remains() {
+    let reported = GoalState {
+        status: GoalStatus::Paused,
+        objective: Some("ship A and B".to_owned()),
+        last_reason: Some("no new work in 3 continuations".to_owned()),
+        remaining: Some("B: the build fails".to_owned()),
+        ..eukhe_types::goal::empty_goal_state()
+    };
+    let unreported = GoalState {
+        status: GoalStatus::Active,
+        last_reason: None,
+        remaining: None,
+        ..reported.clone()
+    };
+    assert_eq!(
+        [incomplete_text(&reported), incomplete_text(&unreported)],
+        [
+            "eukhe: the task is incomplete: its goal is paused (no new work in 3 continuations)\neukhe: remaining: B: the build fails",
+            "eukhe: the task is incomplete: its goal is active\neukhe: remaining: not reported; the goal: ship A and B",
+        ]
+    );
+}
+
 #[test]
 fn the_session_header_carries_the_ts_fields_in_order() {
     let opened_cwd = std::path::PathBuf::from("/work/project");

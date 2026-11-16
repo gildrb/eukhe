@@ -7,13 +7,15 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_bend::rules::headless::{Exit, ExitCause, ExitFacts, Primary, RunEnd, Unanswered, Wait};
+use eukhe_bend::rules::headless::{
+    Exit, ExitCause, ExitFacts, Primary, RunEnd, RunGoal, Task, TaskExit, Unanswered, Wait,
+};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, seed_acceptance,
 };
 use eukhe_core::durable::goals::{
-    autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
+    autonomous_state, budget_report, configure_autonomous, goal_state, seed_initial_goal,
 };
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
@@ -23,10 +25,11 @@ use eukhe_daemon::rpc::error::RpcModeError;
 use eukhe_daemon::rpc::session::RpcEngineError;
 use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::InputSubmissionDraft;
-use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
+use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation, Harness};
 use eukhe_durable::session::SessionError;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
+use eukhe_types::goal::{GoalState, GoalStatus};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
@@ -465,8 +468,9 @@ enum PromptsEnd {
 /// (goal and autonomous continuations, compaction, and every turn a
 /// settled job or subagent wakes) or the wait limit elapses. Text mode
 /// prints the terminal result; both modes print failures to stderr. The
-/// compiled Bend core decides the exit code (`headless_exit`): 0 only for
-/// a run that answered.
+/// compiled Bend core decides the exit code (`headless_exit`, then
+/// `headless_task`): 0 only for a run that answered, and with a goal only
+/// when the agent claimed it complete.
 async fn run_prompts(
     opened: &HeadlessSession,
     options: &RunOptions,
@@ -510,6 +514,7 @@ async fn run_prompts(
         events.finish().await;
     }
     let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
+    let exit = task_exit(harness, &conversation, exit, json_mode, cx).await?;
     // "Done" is a claim: with acceptance checks the run exits 0 only when
     // each is confirmed on the final state (`laws/verify.bend`); the label
     // goes to stderr in both modes.
@@ -718,6 +723,75 @@ async fn run_exit(
         | ExitCause::BudgetLimited => {}
     }
     Ok(exit)
+}
+
+/// Whether the run's `exit` stands for its task (`headless_task`, in the
+/// compiled core): an answer while the run's goal is open is incomplete,
+/// exits 1 and says what remains.
+async fn task_exit(
+    harness: &Harness,
+    conversation: &Conversation,
+    exit: Exit,
+    json_mode: bool,
+    cx: &Context,
+) -> Result<TaskExit, HeadlessModeError> {
+    let goal = goal_state(harness, conversation.id(), cx).await?;
+    let task = eukhe_bend::rules::headless::task(exit.cause, run_goal(&goal))
+        .map_err(HeadlessModeError::Exit)?;
+    match task.task {
+        Task::Stands => {}
+        // The agent answered with its goal open: what remains goes to
+        // stderr, and in json mode the goal is the stream's last record.
+        Task::Incomplete => {
+            eprintln!("{}", incomplete_text(&goal));
+            if json_mode {
+                println!(
+                    "{}",
+                    serde_json::json!({ "type": "task_incomplete", "goal": goal })
+                );
+            }
+        }
+    }
+    Ok(task)
+}
+
+/// The run's goal as the task rule reads it: none (no objective, or idle),
+/// complete, or open.
+fn run_goal(goal: &GoalState) -> RunGoal {
+    if goal.objective.is_none() {
+        return RunGoal::None;
+    }
+    match goal.status {
+        GoalStatus::Idle => RunGoal::None,
+        GoalStatus::Complete => RunGoal::Complete,
+        GoalStatus::Active | GoalStatus::Paused | GoalStatus::BudgetLimited | GoalStatus::Error => {
+            RunGoal::Open
+        }
+    }
+}
+
+/// The stderr text of a run that answered with its goal open: the goal's
+/// status and why, then what remains: the agent's own report
+/// (`goal.remaining`), else the goal. The texts are the model's: remote
+/// data, so the escapes and controls come out.
+fn incomplete_text(goal: &GoalState) -> String {
+    let why = goal
+        .last_reason
+        .as_deref()
+        .map(|reason| format!(" ({})", crate::sanitize::text(reason)))
+        .unwrap_or_default();
+    let remaining = match (&goal.remaining, &goal.objective) {
+        (Some(remaining), _) => crate::sanitize::text(remaining),
+        (None, Some(objective)) => format!(
+            "not reported; the goal: {}",
+            crate::sanitize::text(objective)
+        ),
+        (None, None) => "not reported".to_owned(),
+    };
+    format!(
+        "eukhe: the task is incomplete: its goal is {}{why}\neukhe: remaining: {remaining}",
+        goal.status.slug()
+    )
 }
 
 /// How a run that ended without an answer left its session.

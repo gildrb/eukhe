@@ -631,7 +631,10 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
     OptionGroup {
         heading: "Run options",
         options: &[
-            ("-p, --print", "Print a response and exit"),
+            (
+                "-p, --print",
+                "Print a response and exit: 1 when the run failed, or answered with its goal open",
+            ),
             (
                 "--mode <text|json|rpc|acp|daemon>",
                 "Select the output mode (default: text)",

@@ -12,6 +12,12 @@ pub const GOAL_STATE_CUSTOM_TYPE: &str = "thread_goal_state";
 /// Custom message type for goal continuation prompts.
 pub const GOAL_CONTEXT_CUSTOM_TYPE: &str = "goal_context";
 
+/// The guideline of a headless print or json run's root (`eukhe -p`): its
+/// task is a goal, which the harness continues until the agent claims it
+/// complete, and a run that ends with its goal open exits 1 with what
+/// remains (`bend/headless_task.bend`).
+pub const HEADLESS_GOAL_GUIDELINE: &str = "This run is headless (`eukhe -p`): nobody answers a question before it ends, and its exit code says whether the task is done. A task of more than one step is a goal: run `await goal.create(\"<the task in one line>\")` before its first step (the goal skill; a `--goal` run has one already). The harness continues an open goal after each final answer; run `await goal.complete()` only when every part of it is done. A failed command is something to fix, not a reason to stop. Work you cannot finish here: `await goal.remaining(\"<what is left and why>\")`, then end your turn. A run that ends with its goal open exits 1 and prints what remains.";
+
 // The wire/persisted `GoalState` and `GoalStatus` vocabulary lives in
 // eukhe-types (shared with the attached surfaces); this module owns the goal
 // engine: validation, host responses, and continuation prompts. The slug
