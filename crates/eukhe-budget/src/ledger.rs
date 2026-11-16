@@ -9,12 +9,13 @@
 //!
 //! Every operation resolves the account (its own file, else its link),
 //! takes the account file's exclusive lock, reads the last complete line
-//! (the state), asks the compiled core, appends the record and syncs it
-//! before it returns: a caller acts on an answer only after it is on disk
-//! (B5). The time an operation decides on is read under the lock and
-//! recorded with it. A parent and its children are different processes;
-//! a carve and a reclaim take the parent account's lock and then the
-//! child's, always in that order; no other operation holds two.
+//! (the state), asks the compiled core, and appends the record before it
+//! returns, through the compiled core's plan of a log ([`file`]): a caller
+//! acts on an answer only after it is on disk (B5, D1). The time an
+//! operation decides on is read under the lock and recorded with it. A
+//! parent and its children are different processes; a carve and a
+//! reclaim take the parent account's lock and then the child's, always in
+//! that order; no other operation holds two.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -205,6 +206,10 @@ pub enum LedgerError {
     NoOffer,
     #[error("the compiled Bend core failed on the budget ledger: {0}")]
     Core(#[from] eukhe_bend::Error),
+    /// The compiled core's plan of the file's log refused its facts or
+    /// planned a step no account file has (only an inconsistent build).
+    #[error("budget ledger {path}: {reason}")]
+    Plan { path: PathBuf, reason: String },
 }
 
 enum ReleaseAction {
@@ -1193,11 +1198,15 @@ impl Ledger {
     /// does not read, and the file's failures.
     pub fn audit(&self) -> Result<Audit, LedgerError> {
         let (owner, locked) = self.lock()?;
-        let text = std::fs::read_to_string(&owner.path).map_err(|source| LedgerError::Io {
-            path: owner.path.clone(),
-            source,
-        })?;
+        let complete = locked.complete()?;
         drop(locked);
+        // The open kept the complete lines: a record cut short by a crash
+        // never took effect.
+        let text = String::from_utf8(complete).map_err(|error| LedgerError::Corrupt {
+            path: owner.path.clone(),
+            line: 0,
+            reason: error.to_string(),
+        })?;
         replay(&owner.path, &text)
     }
 }
@@ -1207,8 +1216,7 @@ fn replay(path: &Path, text: &str) -> Result<Audit, LedgerError> {
     let mut settled = BudgetAmounts::default();
     let mut records = 0;
     let mut first_mismatch = None;
-    let complete = text.rfind('\n').map_or("", |end| &text[..end]);
-    for line in complete.lines() {
+    for line in text.lines() {
         let record: Record = serde_json::from_str(line).map_err(|error| LedgerError::Corrupt {
             path: path.to_path_buf(),
             line: records,

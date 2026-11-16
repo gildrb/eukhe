@@ -1,8 +1,12 @@
 # log: the rules of the commit log of a durable storage, `main.jsonl`
 # (crates/eukhe-durable/src/storage/jsonl/storage.rs, `JsonlStorage`),
 # that JsonlStorage runs through the compiled core (entry
-# bend/ffi_log.bend; Rust storage/jsonl/plan.rs). The laws (laws/log.bend)
-# state they refine the model of the log under power loss (spec/durable/log.bend).
+# bend/ffi_log.bend; Rust crates/eukhe-bend/src/rules/log.rs). The budget
+# ledger keeps each account file by the same rules
+# (crates/eukhe-budget/src/ledger/file.rs: the file is its main.jsonl,
+# every record a commit with no sidecar file, fsync on). The laws
+# (laws/log.bend) state they refine the model of the log under power loss
+# (spec/durable/log.bend).
 #
 # `tail`: what an open does with a file (main.jsonl or a sidecar) from the
 # facts Rust reads of it: its length and where its last newline is. Rust

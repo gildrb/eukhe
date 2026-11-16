@@ -4,7 +4,6 @@
 #[cfg(test)]
 mod crash;
 mod native;
-mod plan;
 mod storage;
 
 pub use native::open_native_jsonl_storage;

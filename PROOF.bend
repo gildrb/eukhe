@@ -1207,6 +1207,8 @@ import ./proof/log/log_open_refuses_odd_facts.bend as PLogOpenRefusesOddFacts
 import ./proof/log/log_plan_runs_the_model.bend as PLogPlanRunsTheModel
 import ./proof/log/log_plan_ack_durable.bend as PLogPlanAckDurable
 import ./proof/log/log_plan_only_commits.bend as PLogPlanOnlyCommits
+import ./proof/log/ledger_ack_durable.bend as PLedgerAckDurable
+import ./proof/log/ledger_only_records.bend as PLedgerOnlyRecords
 import ./proof/log/log_commit_plan.bend as PLogCommitPlan
 import ./proof/log/log_open_storage.bend as PLogOpenStorage
 import ./proof/log/log_without_fsync_never_flushes.bend as PLogWithoutFsyncNeverFlushes

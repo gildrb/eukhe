@@ -1,10 +1,17 @@
-//! An account file held under its exclusive lock: the last record read
-//! from its end, each new record appended and synced.
+//! An account file held under its exclusive lock, kept by the compiled
+//! core's rules of a log (`eukhe_bend::rules::log`, the ones a session's
+//! `main.jsonl` is kept by; laws `laws/log.bend`, `ledger_ack_durable`):
+//! an open reads the last record from the file's end and keeps the
+//! complete lines, cutting a torn tail ([`log::tail`]); each new record is
+//! one commit with no sidecar file of a storage that syncs, the plan of
+//! the open done before its first ([`Plan`]), and it is acknowledged at its
+//! plan's `Ack`.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use eukhe_bend::rules::log::{self, Act, Fsync, Plan};
 use eukhe_types::budget::{BudgetAmounts, BudgetPhase, BudgetReport};
 use serde::Deserialize;
 
@@ -28,15 +35,6 @@ pub(super) enum OpenMode {
 pub(super) struct LastRecord {
     seq: u64,
     state: State,
-}
-
-/// What follows the last complete line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum After {
-    /// Nothing: the next record goes at the end.
-    Nothing,
-    /// A line cut short by a crash: it is cut before the next record.
-    Torn,
 }
 
 /// Where a backward search for the last complete line stands after one
@@ -93,12 +91,13 @@ enum Found {
     },
 }
 
-/// The file's last complete line as read from its end, and where it ends.
+/// The file's last complete line as read from its end, and where its last
+/// newline is.
 #[derive(Debug)]
 struct Tail {
     last: Option<LastRecord>,
-    end: u64,
-    after: After,
+    /// Where the last newline is, `None` when the file has none.
+    newline: Option<u64>,
     line_len: usize,
 }
 
@@ -126,12 +125,7 @@ fn read_tail(path: &Path, mut file: &File, len: u64) -> Result<Tail, LedgerError
             Search::Empty => {
                 return Ok(Tail {
                     last: None,
-                    end: 0,
-                    after: if len == 0 {
-                        After::Nothing
-                    } else {
-                        After::Torn
-                    },
+                    newline: None,
                     line_len: 0,
                 })
             }
@@ -157,12 +151,7 @@ fn read_tail(path: &Path, mut file: &File, len: u64) -> Result<Tail, LedgerError
                 };
                 return Ok(Tail {
                     last: Some(last),
-                    end,
-                    after: if end == len {
-                        After::Nothing
-                    } else {
-                        After::Torn
-                    },
+                    newline: Some(end - 1),
                     line_len,
                 });
             }
@@ -178,6 +167,67 @@ fn parse(path: &Path, line: &[u8]) -> Result<LastRecord, LedgerError> {
     })
 }
 
+fn plan_error(path: &Path, reason: String) -> LedgerError {
+    LedgerError::Plan {
+        path: path.to_path_buf(),
+        reason,
+    }
+}
+
+/// A place in the file as the core's facts count it.
+fn index(path: &Path, at: u64) -> Result<usize, LedgerError> {
+    usize::try_from(at)
+        .map_err(|error| plan_error(path, format!("its length {at} is past memory: {error}")))
+}
+
+/// Does what the core's open of a log decides from the file's length and
+/// its last newline (`Lr.tail`): keeps it whole, or cuts the torn tail
+/// after its complete lines. Answers where they end.
+fn keep_complete(
+    path: &Path,
+    file: &File,
+    len: u64,
+    newline: Option<u64>,
+) -> Result<u64, LedgerError> {
+    let newline = newline.map(|at| index(path, at)).transpose()?;
+    match log::tail(index(path, len)?, newline)? {
+        log::Tail::Whole => Ok(len),
+        log::Tail::Torn(to) => {
+            let to = to as u64;
+            file.set_len(to).map_err(|source| LedgerError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            Ok(to)
+        }
+        log::Tail::Odd => Err(plan_error(
+            path,
+            "the open refused its length and last newline".to_owned(),
+        )),
+    }
+}
+
+/// What a plan's steps did with the commit they served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ack {
+    /// The plan acknowledged it.
+    Given,
+    /// It has no `Ack` step.
+    Withheld,
+}
+
+/// Makes the entries of the files in `dir` durable. A path with no name
+/// (the parent of a relative directory of one component) is the current
+/// directory.
+fn flush_dir(dir: &Path) -> std::io::Result<()> {
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    File::open(dir)?.sync_all()
+}
+
 /// A ledger file held under its exclusive lock: the lock lasts as long as
 /// the value.
 pub(super) struct Locked {
@@ -185,11 +235,12 @@ pub(super) struct Locked {
     file: File,
     /// The last record, if the file has one.
     last: Option<LastRecord>,
-    /// Where the last complete line ends.
+    /// Where the last complete line ends: the file's length.
     end: u64,
-    after: After,
     /// The length of the last line: the next one is about as long.
     line_len: usize,
+    /// The plan of this open, made at its first record.
+    plan: Option<Plan>,
 }
 
 impl Locked {
@@ -201,8 +252,8 @@ impl Locked {
     }
 
     /// Opens (creating it in [`OpenMode::Create`]) and locks the file,
-    /// then reads its last complete line. `None`: the file does not
-    /// exist.
+    /// reads its last complete line and keeps its complete lines (a torn
+    /// tail is cut). `None`: the file does not exist.
     pub(super) fn open(path: &Path, mode: OpenMode) -> Result<Option<Locked>, LedgerError> {
         let io = |source| LedgerError::Io {
             path: path.to_path_buf(),
@@ -228,13 +279,14 @@ impl Locked {
         file.lock().map_err(io)?;
         let len = file.metadata().map_err(io)?.len();
         let tail = read_tail(path, &file, len)?;
+        let end = keep_complete(path, &file, len, tail.newline)?;
         Ok(Some(Locked {
             path: path.to_path_buf(),
             file,
             last: tail.last,
-            end: tail.end,
-            after: tail.after,
+            end,
             line_len: tail.line_len,
+            plan: None,
         }))
     }
 
@@ -288,9 +340,10 @@ impl Locked {
         }
     }
 
-    /// Applies `op` to the state, appends the record (written at `at_ms`)
-    /// and syncs it: the file after it, and the core's answer.
-    pub(super) fn apply(self, op: Op, at_ms: u64) -> Result<(Locked, Outcome), LedgerError> {
+    /// Applies `op` to the state and appends the record (written at
+    /// `at_ms`): the file after it, once the record is on disk, and the
+    /// core's answer.
+    pub(super) fn apply(mut self, op: Op, at_ms: u64) -> Result<(Locked, Outcome), LedgerError> {
         let empty = State::default();
         let (state, outcome) = step(self.state().unwrap_or(&empty), &op)?;
         let record = Record {
@@ -308,33 +361,97 @@ impl Locked {
         })?;
         let line_len = line.len();
         line.push(b'\n');
-        // A line cut short by a crash is dropped before the next record.
-        match self.after {
-            After::Torn => self.file.set_len(self.end).map_err(|e| self.io(e))?,
-            After::Nothing => {}
-        }
-        (&self.file).write_all(&line).map_err(|e| self.io(e))?;
-        self.file.sync_data().map_err(|e| self.io(e))?;
-        // The file's first record: its directory entry is made durable
-        // too, or a crash could lose the file with what it acknowledged.
-        if let (0, Some(dir)) = (self.end, self.path.parent()) {
-            File::open(dir)
-                .and_then(|dir| dir.sync_all())
-                .map_err(|e| self.io(e))?;
-        }
+        let plan = self.commit(&line)?;
         Ok((
             Locked {
                 end: self.end + line.len() as u64,
-                after: After::Nothing,
                 line_len,
                 last: Some(LastRecord {
                     seq: record.seq,
                     state: record.state,
                 }),
+                plan: Some(plan),
                 ..self
             },
             outcome,
         ))
+    }
+
+    /// Appends `line` (a record and its newline) as one commit of the
+    /// plan, the plan of the open done before the first: it answers the
+    /// plan once it acknowledged the record, on disk. A failed step drops
+    /// the plan with the file.
+    fn commit(&mut self, line: &[u8]) -> Result<Plan, LedgerError> {
+        let mut plan = if let Some(plan) = self.plan.take() {
+            plan
+        } else {
+            let (plan, opening) = Plan::open(Fsync::On)?;
+            if self.run(&opening, None)? == Ack::Given {
+                return Err(plan_error(
+                    &self.path,
+                    "the plan of its open acknowledged a commit".to_owned(),
+                ));
+            }
+            plan
+        };
+        let acts = plan.commit(&[])?;
+        match self.run(&acts, Some(line))? {
+            Ack::Given => Ok(plan),
+            Ack::Withheld => Err(plan_error(
+                &self.path,
+                "the plan of a record acknowledges nothing".to_owned(),
+            )),
+        }
+    }
+
+    /// Does the steps of a plan in order (`Lg.Act`): the file is the
+    /// storage's `main.jsonl`, its directory the storage directory; `line`
+    /// is the commit's record (`None`: the open's plan).
+    fn run(&self, acts: &[Act], line: Option<&[u8]>) -> Result<Ack, LedgerError> {
+        let mut ack = Ack::Withheld;
+        for &act in acts {
+            match act {
+                Act::FlushParent => {
+                    if let Some(parent) = self.path.parent().and_then(Path::parent) {
+                        flush_dir(parent).map_err(|e| self.io(e))?;
+                    }
+                }
+                Act::FlushDir => {
+                    if let Some(dir) = self.path.parent() {
+                        flush_dir(dir).map_err(|e| self.io(e))?;
+                    }
+                }
+                Act::AppendMain => {
+                    let Some(line) = line else {
+                        return Err(plan_error(
+                            &self.path,
+                            format!("the plan does {act:?} outside a record"),
+                        ));
+                    };
+                    (&self.file).write_all(line).map_err(|e| self.io(e))?;
+                }
+                Act::FlushMain => self.file.sync_data().map_err(|e| self.io(e))?,
+                Act::Ack => ack = Ack::Given,
+                Act::AppendSide(_) | Act::FlushSide(_) => {
+                    return Err(plan_error(
+                        &self.path,
+                        format!("the plan does {act:?}, and a record has no sidecar file"),
+                    ))
+                }
+            }
+        }
+        Ok(ack)
+    }
+
+    /// The complete lines, each with its newline.
+    pub(super) fn complete(&self) -> Result<Vec<u8>, LedgerError> {
+        let mut file = &self.file;
+        file.seek(SeekFrom::Start(0)).map_err(|e| self.io(e))?;
+        let mut bytes = Vec::new();
+        file.take(self.end)
+            .read_to_end(&mut bytes)
+            .map_err(|e| self.io(e))?;
+        Ok(bytes)
     }
 
     /// Applies each of `ops` in order, all at `at_ms`; their answers are
@@ -398,7 +515,7 @@ mod tests {
     }
 
     /// A last record longer than a chunk reads whole, and a torn line
-    /// after it is marked to be cut.
+    /// after it is cut at the open.
     #[test]
     fn a_last_record_longer_than_a_chunk_reads_whole() {
         let dir = tempfile::tempdir().unwrap();
@@ -415,9 +532,11 @@ mod tests {
         let tail = read_tail(&path, &file, len).unwrap();
         let last = tail.last.unwrap();
         assert_eq!((last.seq, last.state), (4, state));
-        assert_eq!(
-            (tail.end, tail.after, tail.line_len),
-            (3 + line.len() as u64 + 1, After::Torn, line.len())
-        );
+        let end = 3 + line.len() as u64 + 1;
+        assert_eq!((tail.newline, tail.line_len), (Some(end - 1), line.len()));
+        drop(file);
+        let locked = Locked::open(&path, OpenMode::Existing).unwrap().unwrap();
+        assert_eq!(locked.end, end);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), end);
     }
 }

@@ -49,13 +49,14 @@ law log_only_commits:
 
 # LAWS: the rules of bend/log.bend that JsonlStorage runs through the
 # compiled core (entry bend/ffi_log.bend; Rust
-# crates/eukhe-durable/src/storage/jsonl/plan.rs): what an open does with a
-# file (Lr.tail), and the plan of steps of the storage (Lr.Store.open,
-# Lr.Store.commit). Rust reads the facts (a file's length and the index of
-# its last newline; which directory entries it made durable) and does the
-# steps; the laws below refine the model above. Every input is free: any
-# file, any facts, fsync on or off, any number of sidecar files with any
-# durability, any commits, any crash point.
+# crates/eukhe-bend/src/rules/log.rs, asked by eukhe-durable's
+# storage/jsonl/storage.rs and eukhe-budget's ledger/file.rs): what an open
+# does with a file (Lr.tail), and the plan of steps of the storage
+# (Lr.Store.open, Lr.Store.commit). Rust reads the facts (a file's length
+# and the index of its last newline; which directory entries it made
+# durable) and does the steps; the laws below refine the model above.
+# Every input is free: any file, any facts, fsync on or off, any number of
+# sidecar files with any durability, any commits, any crash point.
 #
 # R1: an open reads exactly the complete lines of a file (Lg.recover): it
 #     keeps a file whose bytes all lie in complete lines, cuts any other to
@@ -73,11 +74,19 @@ law log_only_commits:
 # R4: the entry answers each request Rust writes with the spelling of the
 #     rule's decision, and the wire's error form to every other input; a
 #     refused step keeps the stepper's state.
+# R5: the budget ledger (spec/README.md B5) keeps each account file by the
+#     same rules: an operation opens the file under its lock and appends
+#     its records as commits that touch no sidecar file, with fsync. After
+#     any history of operations, each of which may crash at any point and
+#     the next of which opens what the crash left, the file holds the log
+#     before, then each operation's acknowledged records followed by
+#     maybe more, and only a prefix of each operation's records, in the
+#     order of the operations.
 # Runtime limits: the laws quantify over unbounded Nats; the runtime's Nat
 #     is an immediate of at most 2^48 - 1, and the wire carries Nats up to
 #     10^14 - 1 (crates/eukhe-bend/WIRE.md). That no value the rule computes
 #     passes the runtime's bound on any input the wire carries is covered by
-#     tests, not by the laws: plan.rs `an_open_of_any_size_the_wire_carries`
+#     tests, not by the laws: rules/log.rs `an_open_of_any_size_the_wire_carries`
 #     runs the compiled entry on a 128 KiB file and on files of the largest
 #     length the wire carries.
 
@@ -300,6 +309,97 @@ law log_plan_only_commits:
   for e: Lg.Epoch
   exs n: Nat
   {Lg.Disk.log(log_after(d, e)) == List.append(&2, List<&2, Nat>, Lg.Disk.log(d), List.take(&2, List<&2, Nat>, Lg.Epoch.cs(e), n)) : List<&2, List<&2, Nat>>}
+
+# The ledger
+# ----------
+
+# A history of the budget ledger's account file: one epoch per operation,
+# in order, each the open of the file under its lock (an fsync storage),
+# the records the operation appends (the commits), and the crash that may
+# cut it; each opens the disk the one before left.
+
+# the first item of a list, Nil when it has none
+def log_first(xs: List<&2, List<&2, List<&2, Nat>>>) -> List<&2, List<&2, Nat>>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> more:
+      x
+
+def log_more(xs: List<&2, List<&2, List<&2, Nat>>>) -> List<&2, List<&2, List<&2, Nat>>>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> more:
+      more
+
+# the first item of a list of Nats, 0n when it has none
+def log_first_n(ns: List<&2, Nat>) -> Nat:
+  match ns:
+    case Nil{}:
+      0n
+    case n <> more:
+      n
+
+def log_more_n(ns: List<&2, Nat>) -> List<&2, Nat>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case n <> more:
+      more
+
+# the disk after the operations es of the ledger, from the disk d, each
+# running the plan the ledger runs
+def log_ledger_after(es: List<&2, Lg.Epoch>, d: Lg.Disk) -> Lg.Disk:
+  match es:
+    case Nil{}:
+      d
+    case e <> rest:
+      log_ledger_after(rest, log_after(d, e))
+
+# the records each operation of es acknowledged, from the disk d, each
+# operation's followed by the records of its item of xs
+def log_ledger_kept(es: List<&2, Lg.Epoch>, +d: Lg.Disk, +xs: List<&2, List<&2, List<&2, Nat>>>) -> List<&2, List<&2, Nat>>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      List.append(&2, List<&2, Nat>, List.append(&2, List<&2, Nat>, log_acked(d, e), log_first(xs)), log_ledger_kept(rest, log_after(d, e), log_more(xs)))
+
+# the first records of each operation of es, as many as its item of ns
+def log_ledger_taken(es: List<&2, Lg.Epoch>, +ns: List<&2, Nat>) -> List<&2, List<&2, Nat>>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      List.append(&2, List<&2, Nat>, List.take(&2, List<&2, Nat>, Lg.Epoch.cs(e), log_first_n(ns)), log_ledger_taken(rest, log_more_n(ns)))
+
+# LAW ledger_ack_durable (R5): an acknowledged ledger record survives any crash: after any
+# history of the ledger's operations, each of which may crash at any point
+# and the next of which opens what the crash left (an open reads the
+# complete lines, R1), the file holds the log before, then each
+# operation's acknowledged records, in order, each operation's followed by
+# maybe more
+# EXCLUDES: an acknowledged record that a later crash or a later
+#   operation's open loses, an operation that acknowledges a record before
+#   it is durable, records of two operations out of order
+law ledger_ack_durable:
+  for d: Lg.Disk
+  for es: List<&2, Lg.Epoch>
+  exs xs: List<&2, List<&2, List<&2, Nat>>>
+  {Lg.Disk.log(log_ledger_after(es, d)) == List.append(&2, List<&2, Nat>, Lg.Disk.log(d), log_ledger_kept(es, d, xs)) : List<&2, List<&2, Nat>>}
+
+# LAW ledger_only_records (R5): the ledger holds a prefix of its records in order: after any
+# history of the ledger's operations, crashes included, the file holds the
+# log before, then a prefix of each operation's records, in the order of
+# the operations
+# EXCLUDES: a torn, reordered or doubled record read after a crash, a
+#   record no operation appended
+law ledger_only_records:
+  for d: Lg.Disk
+  for es: List<&2, Lg.Epoch>
+  exs ns: List<&2, Nat>
+  {Lg.Disk.log(log_ledger_after(es, d)) == List.append(&2, List<&2, Nat>, Lg.Disk.log(d), log_ledger_taken(es, ns)) : List<&2, List<&2, Nat>>}
 
 # the indexes of the sidecars ds, from i
 def log_ixs(ds: List<&2, Bool>, +i: Nat) -> List<&2, Nat>:

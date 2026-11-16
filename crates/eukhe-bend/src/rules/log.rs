@@ -1,15 +1,18 @@
-//! The rules of the commit log, decided by the compiled Bend core
-//! (`bend/log.bend`, entry `bend/ffi_log.bend`; laws `laws/log.bend`):
+//! The rules of an append-only log of lines, decided by the compiled Bend
+//! core (`bend/log.bend`, entry `bend/ffi_log.bend`; laws `laws/log.bend`):
 //! what an open does with a file ([`tail`]), and the steps a storage does
-//! at open and per commit ([`Plan`]). [`super::JsonlStorage`] reads the
-//! facts and does the steps.
+//! at open and per commit ([`Plan`]). The storage reads the facts and does
+//! the steps: a session's commit log (`main.jsonl`, eukhe-durable's
+//! `JsonlStorage`), and each account file of a budget's ledger
+//! (eukhe-budget's `Ledger`: commits that touch no sidecar file, one per
+//! open; law `ledger_ack_durable`).
 
-use eukhe_bend::wire::{Reader, WireError, Writer};
-use eukhe_bend::{call, Entry, Error, Stepper};
+use crate::wire::{Reader, WireError, Writer};
+use crate::{call, Entry, Error, Stepper};
 
 /// What an open does with a file (`Lg.Tail`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Tail {
+pub enum Tail {
     /// Every byte lies in a complete line: read them all.
     Whole,
     /// The bytes after the last newline are a torn tail: cut the file to
@@ -24,8 +27,8 @@ pub(super) enum Tail {
 ///
 /// # Errors
 ///
-/// [`Error`] only from an inconsistent build (see [`eukhe_bend::expect_core`]).
-pub(super) fn tail(len: usize, last: Option<usize>) -> Result<Tail, Error> {
+/// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
+pub fn tail(len: usize, last: Option<usize>) -> Result<Tail, Error> {
     let mut request = Writer::new();
     request.count(len);
     match last {
@@ -46,9 +49,9 @@ pub(super) fn tail(len: usize, last: Option<usize>) -> Result<Tail, Error> {
     Ok(tail)
 }
 
-/// A step of [`super::JsonlStorage`] (`Lg.Act`).
+/// A step of a storage (`Lg.Act`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Act {
+pub enum Act {
     /// Flush the storage directory's parent (the storage directory's entry).
     FlushParent,
     /// Append the records of the commit's sidecar file at this index.
@@ -91,24 +94,36 @@ fn read_acts(reply: &str) -> Result<Vec<Act>, WireError> {
     Ok(acts)
 }
 
+/// Whether a storage flushes (`fsync`) what it writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fsync {
+    /// Every write is flushed before it is acknowledged.
+    On,
+    /// Nothing is flushed.
+    Off,
+}
+
 /// The plan of one storage: the compiled core's stepper, which keeps
 /// whether the storage syncs and whether `main.jsonl`'s directory entry is
 /// durable (`Lg.Store`).
 #[derive(Debug)]
-pub(super) struct Plan {
+pub struct Plan {
     core: Stepper,
 }
 
 impl Plan {
-    /// The plan of a storage that syncs (`fsync`) or not, and the steps of
-    /// its open (`Lg.Store.open`).
+    /// The plan of a storage that syncs or not, and the steps of its open
+    /// (`Lg.Store.open`).
     ///
     /// # Errors
     ///
-    /// [`Error`] only from an inconsistent build (see [`eukhe_bend::expect_core`]).
-    pub(super) fn open(fsync: bool) -> Result<(Plan, Vec<Act>), Error> {
+    /// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
+    pub fn open(fsync: Fsync) -> Result<(Plan, Vec<Act>), Error> {
         let mut request = Writer::new();
-        request.bool(fsync);
+        request.bool(match fsync {
+            Fsync::On => true,
+            Fsync::Off => false,
+        });
         let (core, reply) = Stepper::open(Entry::Log, &request.finish()?)?;
         Ok((Plan { core }, read_acts(&reply)?))
     }
@@ -118,8 +133,8 @@ impl Plan {
     ///
     /// # Errors
     ///
-    /// [`Error`] only from an inconsistent build (see [`eukhe_bend::expect_core`]).
-    pub(super) fn commit(&mut self, durable: &[bool]) -> Result<Vec<Act>, Error> {
+    /// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
+    pub fn commit(&mut self, durable: &[bool]) -> Result<Vec<Act>, Error> {
         let mut request = Writer::new();
         request.count(durable.len());
         for &entry in durable {
@@ -132,8 +147,8 @@ impl Plan {
 
 #[cfg(test)]
 mod tests {
-    use super::{tail, Act, Plan, Tail};
-    use eukhe_bend::wire::NAT_MAX;
+    use super::{tail, Act, Fsync, Plan, Tail};
+    use crate::wire::NAT_MAX;
 
     #[test]
     fn an_open_asks_the_compiled_core() {
@@ -155,7 +170,7 @@ mod tests {
 
     #[test]
     fn a_plan_asks_the_compiled_core() {
-        let (mut plan, opening) = Plan::open(true).unwrap();
+        let (mut plan, opening) = Plan::open(Fsync::On).unwrap();
         assert_eq!(opening, vec![Act::FlushParent]);
         assert_eq!(
             plan.commit(&[true, false]).unwrap(),
@@ -170,6 +185,28 @@ mod tests {
                 Act::FlushDir,
                 Act::Ack,
             ]
+        );
+    }
+
+    /// A ledger's account file: commits with no sidecar file; the first
+    /// of an open also makes the file's directory entry durable.
+    #[test]
+    fn a_plan_of_commits_without_sidecars() {
+        let (mut plan, opening) = Plan::open(Fsync::On).unwrap();
+        assert_eq!(opening, vec![Act::FlushParent]);
+        assert_eq!(
+            plan.commit(&[]).unwrap(),
+            vec![Act::AppendMain, Act::FlushMain, Act::FlushDir, Act::Ack]
+        );
+        assert_eq!(
+            plan.commit(&[]).unwrap(),
+            vec![Act::AppendMain, Act::FlushMain, Act::Ack]
+        );
+        let (mut unsynced, opening) = Plan::open(Fsync::Off).unwrap();
+        assert_eq!(opening, Vec::new());
+        assert_eq!(
+            unsynced.commit(&[]).unwrap(),
+            vec![Act::AppendMain, Act::Ack]
         );
     }
 }
