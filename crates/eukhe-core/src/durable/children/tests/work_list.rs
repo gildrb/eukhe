@@ -312,3 +312,49 @@ async fn an_abort_during_the_checks_keeps_a_stopped_child_stopped() {
     opened.root.wait_for_idle(cx()).await.unwrap();
     opened.harness.close(cx()).await.unwrap();
 }
+
+/// A help leaf given items (`rlm.spawn` `items`) that did one of two
+/// hands back stopped with the other, as a split child does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_help_leaf_with_items_left_hands_back_stopped() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let reply = spawn_turn(
+        &opened,
+        &setup,
+        "review the handlers",
+        json!({ "name": "reader", "items": ["R1", "R2"] }),
+    )
+    .await;
+    assert!(reply.contains("rlm_child_id"), "{reply}");
+    eventually(|| async { !host.prompt_keys().is_empty() }).await;
+    let leaf = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .find(|row| row.session_name == "reader")
+        .cloned()
+        .expect("the spawn admitted the leaf");
+    setup.faux.append_responses(vec![answer("noted")]);
+    let row = hand_back(&opened, &host, &leaf, account(&[("R1", ItemMark::Done)])).await;
+    assert_eq!(
+        (row.status, row.stopped),
+        (
+            ChildStatus::Stopped,
+            Some(Stopped {
+                items: 2,
+                left: vec![LeftItem {
+                    id: "R2".to_owned(),
+                    why: LeftWhy::Unaccounted,
+                }],
+            })
+        )
+    );
+    assert_eq!(
+        user_texts(&opened.root, "[child-").await,
+        ["[child-stopped: 1 of 2 items left child:reader]\n\nResume your work using the result below.\n\nStopped: 1 of 2 items left:\n- R2 (no account)\n\nLast assistant text: done"]
+    );
+    opened.harness.close(cx()).await.unwrap();
+}

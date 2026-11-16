@@ -655,11 +655,11 @@ pub(super) async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Resu
     };
     let spec = SpawnSpec {
         prompt: prompt.to_owned(),
-        kwargs: spawn_kwargs(&kwargs, OPERATION, &["report", "budget", "node"])?,
+        kwargs: spawn_kwargs(&kwargs, OPERATION, &["report", "budget", "node", "items"])?,
         details: None,
         user_entries: Vec::new(),
         worker: false,
-        items: Vec::new(),
+        items: item_list(kwargs.get("items"), OPERATION)?,
     };
     let admission = node.map_or(Admission::Help, Admission::External);
     let handles = admit_spawns(&children, &call, vec![spec], admission).await?;
@@ -689,8 +689,9 @@ fn scope_paths(value: Option<&Value>, what: &str) -> anyhow::Result<Vec<String>>
     Ok(paths)
 }
 
-/// The items of a split half's work list: distinct non-empty ids.
-fn half_items(value: Option<&Value>, operation: &str) -> anyhow::Result<Vec<String>> {
+/// The items of a task's work list (`items` of a split half, a spawn or
+/// a worker's task): distinct non-empty ids.
+pub(super) fn item_list(value: Option<&Value>, operation: &str) -> anyhow::Result<Vec<String>> {
     let items = match value {
         None | Some(Value::Null) => return Ok(Vec::new()),
         Some(Value::Array(items)) => items,
@@ -733,7 +734,7 @@ fn half_spec(data: &Value, side: &str) -> anyhow::Result<(Vec<String>, SpawnSpec
         details: None,
         user_entries: Vec::new(),
         worker: false,
-        items: half_items(half.get("items"), &operation)?,
+        items: item_list(half.get("items"), &operation)?,
     };
     Ok((scope, spec))
 }

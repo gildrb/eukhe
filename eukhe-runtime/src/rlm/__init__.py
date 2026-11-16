@@ -196,6 +196,7 @@ async def spawn(
     accept: list[dict[str, Any]] | None = None,
     accept_intent: bool | None = None,
     accept_returns: int | None = None,
+    items: list[str] | None = None,
 ) -> RLMSpawnHandle:
     """Ask a read-only help leaf and return once its task is admitted.
 
@@ -223,6 +224,9 @@ async def spawn(
     transcript) decides from the child's task whether its
     final state meets it. ``accept_returns``: the most times in a row a refuted
     "done" goes back to the child before it ends failed.
+    ``items``: the ids of the leaf's work list; it accounts for each
+    (``rlm.items``) and hands back ``stopped``, naming the items left, unless
+    every one is done.
     """
     if not isinstance(prompt, str):
         raise TypeError(f"prompt must be str, got {type(prompt).__name__}")
@@ -239,6 +243,10 @@ async def spawn(
         kwargs["accept_intent"] = accept_intent
     if accept_returns is not None:
         kwargs["accept_returns"] = accept_returns
+    if items is not None:
+        if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+            raise TypeError("items must be a list of item id strings")
+        kwargs["items"] = items
     payload = await host_request("rlm.run", {"prompt": prompt, "kwargs": kwargs})
     return _spawn_handle_from_payload(payload)
 
@@ -777,6 +785,7 @@ class _RLMNamespace:
         accept: list[dict[str, Any]] | None = None,
         accept_intent: bool | None = None,
         accept_returns: int | None = None,
+        items: list[str] | None = None,
     ) -> RLMSpawnHandle:
         return await spawn(
             prompt,
@@ -787,6 +796,7 @@ class _RLMNamespace:
             accept=accept,
             accept_intent=accept_intent,
             accept_returns=accept_returns,
+            items=items,
         )
 
     async def split(

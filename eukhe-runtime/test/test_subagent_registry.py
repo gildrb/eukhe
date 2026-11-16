@@ -403,6 +403,20 @@ class RlmSubagentRegistryTest(unittest.TestCase):
 
 
 class RlmItemsTest(unittest.TestCase):
+    def test_spawn_sends_the_leafs_items(self) -> None:
+        host_request = AsyncMock(
+            return_value={"rlm_child_id": "c1", "name": "reader", "session_dir": "/tmp/c1", "model": "faux/faux-1"}
+        )
+
+        with patch.object(rlm_module, "host_request", host_request):
+            asyncio.run(rlm_module.rlm.spawn("review", name="reader", items=["R1", "R2"]))
+            with self.assertRaisesRegex(TypeError, "items must be a list"):
+                asyncio.run(rlm_module.rlm.spawn("review", name="reader", items="R1"))
+
+        host_request.assert_awaited_once_with(
+            "rlm.run", {"prompt": "review", "kwargs": {"name": "reader", "items": ["R1", "R2"]}}
+        )
+
     def test_items_sends_the_account(self) -> None:
         host_request = AsyncMock(return_value={"accounted": 3})
 

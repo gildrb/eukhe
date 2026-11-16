@@ -380,3 +380,96 @@ async fn main_directors_run_on_the_worker() {
     );
     opened.harness.close(cx()).await.unwrap();
 }
+
+/// A re-task with `items` replaces the worker's item list and keeps its
+/// account: S2, accounted done in the first task, stays done; N1, new,
+/// is left, so the second task hands back stopped with N1 only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_re_task_replaces_the_items_and_keeps_the_account() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    setup
+        .faux
+        .append_responses(vec![call_tool("worker_assign"), answer("handed")]);
+    say(&opened, "build the thing").await;
+    let first = read_children(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap()
+        .children
+        .values()
+        .last()
+        .cloned()
+        .expect("the worker");
+    eventually(|| async { !prompts(&host).is_empty() }).await;
+    lock(&host.state).items.insert(
+        first.session_id.clone(),
+        ItemAccount {
+            items: [("S2".to_owned(), ItemMark::Done)].into_iter().collect(),
+        },
+    );
+    setup.faux.append_responses(vec![answer("noted")]);
+    host.settle(
+        &first.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("built".to_owned()),
+        },
+        None,
+    );
+    eventually(|| async {
+        row_of(&opened.harness, first.task_id)
+            .await
+            .is_some_and(|row| row.settled)
+    })
+    .await;
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        row_of(&opened.harness, first.task_id).await.unwrap().status,
+        ChildStatus::Done
+    );
+
+    host.settle(&first.session_id, RlmChildRunState::Running, None);
+    let mut items = JsonObject::new();
+    items.insert("items".to_owned(), json!(["S2", "N1"]));
+    setup.faux.append_responses(vec![
+        call_tool_with("worker_assign", items),
+        answer("handed again"),
+    ]);
+    say(&opened, "now the docs").await;
+    let second = row_of(&opened.harness, first.task_id)
+        .await
+        .unwrap()
+        .task
+        .expect("the re-task's task");
+    eventually(|| async { prompts(&host).len() == 2 }).await;
+    assert!(
+        prompts(&host)[1]
+            .1
+            .starts_with("now the docs\n\nItems: S2, N1.\n"),
+        "{:?}",
+        prompts(&host)[1]
+    );
+    setup.faux.append_responses(vec![answer("noted again")]);
+    host.settle(
+        &first.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("documented".to_owned()),
+        },
+        None,
+    );
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(second), cx())
+        .await
+        .unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    let row = row_of(&opened.harness, first.task_id).await.unwrap();
+    assert_eq!(
+        (row.status, row.stopped.map(|stopped| stopped.summary())),
+        (
+            ChildStatus::Stopped,
+            Some("stopped: 1 of 2 items left: N1 (no account)".to_owned())
+        )
+    );
+    opened.harness.close(cx()).await.unwrap();
+}

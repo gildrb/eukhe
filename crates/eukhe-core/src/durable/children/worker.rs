@@ -85,7 +85,9 @@ const ASSIGN_DESCRIPTION: &str = "Hand work to your worker as a new task. The us
 messages since your last hand-over go to the worker word for word (you do not repeat \
 them); `note` adds your own words, labeled as yours. The first call creates the worker; \
 a busy worker refuses (forward context or a redirect instead, or pass `fresh: true` to \
-start another worker for unrelated work).";
+start another worker for unrelated work). `items`: the ids of the task's work list; \
+the worker accounts for each, and hands back stopped, naming the items left, unless \
+every one is done.";
 const FORWARD_DESCRIPTION: &str = "Send the user's latest messages, word for word, to \
 the worker's running task, placed between its tool calls (never interrupting one). \
 `kind`: `context` (information or an idea to fold in; the worker keeps its course) or \
@@ -629,6 +631,8 @@ async fn assign_call(
     cx: Context,
 ) -> SessionResult<ToolExecutionResult> {
     let note = optional_text(&params, "note")?;
+    let items = super::spawn::item_list(params.get("items"), WORKER_ASSIGN)
+        .map_err(|error| SessionError::type_error(format!("{error:#}")))?;
     let fresh = params
         .get("fresh")
         .and_then(Value::as_bool)
@@ -661,7 +665,7 @@ async fn assign_call(
                 details: Some(details.clone()),
                 user_entries: handed.entries.clone(),
                 worker: true,
-                items: Vec::new(),
+                items,
             };
             let call = HostCall {
                 data: Value::Null,
@@ -693,6 +697,7 @@ async fn assign_call(
                     kind: ChildMessageKind::Task,
                     details: Some(details.clone()),
                     user_entries: handed.entries.clone(),
+                    items,
                 },
                 Some(handed.cursor),
             )
@@ -749,6 +754,7 @@ async fn forward_call(
                 kind,
                 details: Some(details.clone()),
                 user_entries: handed.entries.clone(),
+                items: Vec::new(),
             },
             Some(handed.cursor),
         )
@@ -853,6 +859,7 @@ pub(super) fn worker_tools(children: &Arc<Children>) -> Vec<Arc<ToolRegistration
                     ("note", note()),
                     ("worker", worker()),
                     ("fresh", Type::optional(Type::boolean())),
+                    ("items", Type::optional(Type::array(Type::string()))),
                 ],
             ),
             move |params, api, cx| assign_call(Arc::clone(&assign_children), params, api, cx),

@@ -29,6 +29,10 @@ pub(crate) struct Assignment {
     pub(crate) kind: ChildMessageKind,
     pub(crate) details: Option<Map<String, Value>>,
     pub(crate) user_entries: Vec<u64>,
+    /// The items of the task's work list; they replace the child's earlier
+    /// list. The child's account (`rlm.items`) stays: an item id it
+    /// accounted for in an earlier task keeps that account.
+    pub(crate) items: Vec<String>,
 }
 
 /// The refusal for a child whose task is still running or owes its
@@ -111,7 +115,7 @@ pub(crate) async fn assign(
                 user_entries: assignment.user_entries,
                 worker: row.worker,
                 accept: None,
-                items: Vec::new(),
+                items: assignment.items,
             };
             let task_id = tx
                 .create_task(
