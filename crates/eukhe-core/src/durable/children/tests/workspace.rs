@@ -86,3 +86,95 @@ async fn a_finished_split_child_hands_back_its_scope() {
     );
     opened.harness.close(cx()).await.unwrap();
 }
+
+/// A writer's work reaches its parent as it arrives: while the writer's
+/// checks still wait (a check queued for a slot), its row and
+/// `rlm.collect` already show the hand-back, its checks to come; the
+/// checks' results land on the row when they end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_writers_hand_back_shows_before_its_checks_end() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let handback = RlmChildHandback {
+        handback: ScopedHandback {
+            taken: vec!["a/x.txt".to_owned()],
+            outside: Vec::new(),
+            conflicts: Vec::new(),
+            kept: None,
+            patch: vec![None, Some(1), None],
+        },
+        child_check: CheckRun::Ran {
+            command: "./check.sh".to_owned(),
+            outcome: crate::child_workspace::CheckOutcome::Passed,
+            output: String::new(),
+            duration_ms: 1_800_000,
+        },
+        parent_check: CheckRun::Ran {
+            command: "./check.sh".to_owned(),
+            outcome: crate::child_workspace::CheckOutcome::Failed { code: Some(1) },
+            output: "FMT FAILED\n".to_owned(),
+            duration_ms: 900,
+        },
+    };
+    lock(&host.state).handback = Some(handback.clone());
+    host.checks_open.send_replace(false);
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let [left, _right] = split_children(&opened, &setup, &["a"], &["b"]).await;
+    eventually(|| async { host.prompt_keys().len() == 2 }).await;
+
+    setup.faux.append_responses(vec![answer("noted")]);
+    host.settle(
+        &left.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    eventually(|| async {
+        row_of(&opened.harness, left.task_id)
+            .await
+            .is_some_and(|row| row.handback.is_some())
+    })
+    .await;
+    let integrated = HandbackOutcome::Done {
+        handback: Box::new(RlmChildHandback {
+            child_check: CheckRun::Pending,
+            parent_check: CheckRun::Pending,
+            ..handback.clone()
+        }),
+    };
+    let collected = handle(
+        &opened,
+        "rlm.collect",
+        json!({ "targets": [left.rlm_child_id] }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            row_of(&opened.harness, left.task_id)
+                .await
+                .and_then(|row| row.handback),
+            collected["results"][0]["handback"].clone(),
+            lock(&host.state).checks.len(),
+        ),
+        (Some(integrated.clone()), Value::from(integrated.text()), 0)
+    );
+
+    host.checks_open.send_replace(true);
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(left.task_id), cx())
+        .await
+        .unwrap();
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    assert_eq!(
+        row_of(&opened.harness, left.task_id)
+            .await
+            .and_then(|row| row.handback),
+        Some(HandbackOutcome::Done {
+            handback: Box::new(handback),
+        })
+    );
+    opened.harness.close(cx()).await.unwrap();
+}

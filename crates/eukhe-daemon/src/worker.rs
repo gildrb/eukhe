@@ -18,6 +18,7 @@ pub(crate) use config::WorkerConfig;
 use env::KillCloseReason;
 mod agent_reply;
 mod budget;
+mod checks;
 mod effects;
 pub(crate) use budget::CreateBudget;
 mod input;
@@ -189,8 +190,9 @@ pub struct Worker {
     /// The installed session's `state_tree_update` forwarder (see
     /// `state_tree`); aborted when the session closes or is replaced.
     state_tree_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// The installed session's `budget_update` forwarder (see `budget`);
-    /// aborted when the session closes or is replaced.
+    /// The installed session's `budget_update` and `check_update`
+    /// forwarder (see `budget`, `checks`); aborted when the session closes
+    /// or is replaced.
     budget_updates: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The create-config faux script's models, built at the first open:
     /// every session this worker opens (create, replacements) consumes the

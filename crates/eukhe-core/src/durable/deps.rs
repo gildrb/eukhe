@@ -610,11 +610,19 @@ pub struct HostDeps {
     /// The session's budget: every provider request and tool call of the
     /// session passes it (a pass-through while the session has no budget).
     pub budget: Arc<BudgetGate>,
+    /// The session's check feed: each report of its children's hand-back
+    /// checks (start, each interval while one runs, end), for the
+    /// frontends' status ([`super::EukheSession::checks`]).
+    pub checks: tokio::sync::broadcast::Sender<eukhe_types::daemon::agent_tree::CheckProgress>,
 }
 
 /// A barrier through a commit observer's queue.
 pub(crate) type ObserverBarrier =
     Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
+
+/// The reports a check feed's slowest receiver may lag behind before it
+/// misses the oldest.
+const CHECK_FEED_CAPACITY: usize = 64;
 
 /// The services `open_session` resolves before building [`HostDeps`].
 pub(crate) struct ResolvedServices {
@@ -675,6 +683,7 @@ impl HostDeps {
             auxiliary_notices: super::compaction::auxiliary_model::AuxiliaryNotices::default(),
             semantic_edges: services.semantic_edges,
             budget: services.budget,
+            checks: tokio::sync::broadcast::Sender::new(CHECK_FEED_CAPACITY),
         }
     }
 

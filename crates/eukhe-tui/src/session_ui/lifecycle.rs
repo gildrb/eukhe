@@ -165,6 +165,7 @@ impl SessionUi {
             dictation_updates: activity_updates.dictation,
             memory: None,
             verification: None,
+            checks: std::collections::BTreeMap::new(),
             bash_activities: serde_json::json!({"activities": []}),
             bash_list_epoch: 0,
             bash_updates: activity_updates.bash,

@@ -51,12 +51,12 @@ pub use commands::{
 };
 pub use depth::{read_max_depth_override, set_max_depth_override};
 pub use host::{
-    ChildMessageKind, NoRlmChildren, PauseAction, RlmChildActivityKind, RlmChildCancelRequest,
-    RlmChildCommandRequest, RlmChildDeleteRequest, RlmChildHandback, RlmChildHandbackRequest,
-    RlmChildIdentity, RlmChildListing, RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSession, RlmChildSpawnRequest,
-    RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest, RlmRenameTarget,
-    RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
+    ChildMessageKind, HandbackChecks, NoRlmChildren, PauseAction, RlmChildActivityKind,
+    RlmChildCancelRequest, RlmChildCheckRequest, RlmChildCommandRequest, RlmChildDeleteRequest,
+    RlmChildHandback, RlmChildHandbackRequest, RlmChildIdentity, RlmChildListing,
+    RlmChildObservation, RlmChildOutcome, RlmChildPauseRequest, RlmChildPromptRequest,
+    RlmChildRunState, RlmChildSession, RlmChildSpawnRequest, RlmChildVerdict, RlmChildWaitRequest,
+    RlmHostFuture, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost, RLM_CHILD_ANSWER_MAX_BYTES,
 };
 pub(crate) use registry::children_verdicts;
 pub use registry::{
@@ -123,6 +123,9 @@ pub(crate) struct ChildrenConfig {
     pub(crate) place: Option<eukhe_types::daemon::agent_tree::TreePlace>,
     /// The session's budget: a child's allotment is carved out of it.
     pub(crate) budget: Arc<BudgetGate>,
+    /// The session's check feed: each hand-back check's reports.
+    pub(crate) checks:
+        tokio::sync::broadcast::Sender<eukhe_types::daemon::agent_tree::CheckProgress>,
 }
 
 impl Children {
@@ -137,6 +140,7 @@ impl Children {
             closing: config.closing,
             settings: config.settings,
             budget: config.budget,
+            checks: config.checks,
             polled: std::sync::Mutex::default(),
             harness: config.harness.clone(),
             place: config.place,
@@ -191,6 +195,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         pause: Arc::clone(&deps.run_pause),
         place: tree::place_of(&deps.role, deps.shape),
         budget: Arc::clone(&deps.budget),
+        checks: deps.checks.clone(),
     })
     .install(&deps.host_requests)
 }

@@ -172,6 +172,12 @@ pub enum SessionEvent {
         notice: crate::budget::PlanNotice,
         text: String,
     },
+    /// A child's hand-back check started, still runs (one report per
+    /// interval), or ended; `text` is its status line.
+    CheckUpdate {
+        check: super::agent_tree::CheckProgress,
+        text: String,
+    },
     /// The conversation's acceptance changed: its checks, a verdict, a
     /// claim, or the label of the result.
     AcceptanceUpdate {
@@ -249,6 +255,7 @@ impl SessionEvent {
             | Self::LoopUpdate { .. }
             | Self::BudgetUpdate { .. }
             | Self::PlanUsage { .. }
+            | Self::CheckUpdate { .. }
             | Self::AcceptanceUpdate { .. }
             | Self::MemoryUpdate { .. }
             | Self::BashStart { .. }

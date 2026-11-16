@@ -227,9 +227,16 @@ that costs against a wider split, as information:
    live tree (the `isolated` workspace), its patch computed against its own
    start; a failed child's partial patch is measured too.
 4. Results arrive as inputs; integration by `overlay` (a scoped hand-back),
-   conflicts to the parent; the project's check runs in the child's
-   checkout and after integration (`agentTree.checkCommand`,
-   `agentTree.checkTimeoutSecs`; `child_workspace/check.rs`).
+   conflicts to the parent. The integration runs at the child's end,
+   before any check: the parent's workspace and the child's row
+   (`rlm.collect`) hold the child's work at once, its checks marked to
+   come. Then the project's check runs in the child's checkout and after
+   integration (`agentTree.checkCommand`, `agentTree.checkTimeoutSecs`;
+   `child_workspace/check.rs`), and the report carries both. A running
+   check reports its start, every 30 s its elapsed time and last output
+   line, and its end (`check_update` events: the TUI status line, a
+   headless run's stderr and json stream). A failed check's verdict names
+   its last 3 output lines.
 5. Budget: each child's limit from the split; room, holds and the return
    of unspent limits through the existing ledger (B4, B13). The session's
    crown (`durable/children/tree/`) records each child's spend and end.
@@ -287,8 +294,8 @@ replaced by `Nil{}` is the body it already has (`[]`).
    runs the project's configured check command, else the narrowest check
    detected for the touched files (the tests of the touched crates or
    packages).
-5. Each child runs its own check in its checkout before it reports; the
-   parent checks again after integration.
+5. Each child's check runs in its checkout after its integration, before
+   its report; the parent checks again after integration.
 6. One spawn path: every subagent is a tree node; a tool-less or
    read-only child is a leaf with an empty write scope.
 7. Split only with two halves on disjoint files, each worth a planning

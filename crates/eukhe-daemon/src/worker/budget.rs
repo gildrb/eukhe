@@ -74,10 +74,11 @@ pub(crate) async fn apply_create_budget(
 }
 
 impl Worker {
-    /// Follow the budget of `hosted` (the installed session; `None` for
-    /// none): the previous forwarder stops, and a new one sends the
-    /// session's budget, then each change of it, as `budget_update` events
-    /// until the next follow.
+    /// Follow the budget and the check feed of `hosted` (the installed
+    /// session; `None` for none): the previous forwarder stops, and a new
+    /// one sends the session's budget, then each change of it, as
+    /// `budget_update` events, and each check report as a `check_update`
+    /// event, until the next follow.
     pub(crate) fn follow_budget(&self, hosted: Option<&HostedSession>) {
         let epoch = {
             let mut core = self
@@ -90,12 +91,21 @@ impl Worker {
         let task = hosted
             .and_then(|hosted| hosted.session().ok())
             .map(|session| {
-                tokio::spawn(forward_budget(
+                let budget = forward_budget(
                     session.budget(),
                     epoch,
                     Arc::clone(&self.core),
                     Arc::clone(&self.events),
-                ))
+                );
+                let checks = super::checks::forward_checks(
+                    session.checks(),
+                    epoch,
+                    Arc::clone(&self.core),
+                    Arc::clone(&self.events),
+                );
+                tokio::spawn(async move {
+                    tokio::join!(budget, checks);
+                })
             });
         let previous = std::mem::replace(
             &mut *self

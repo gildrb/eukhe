@@ -2,7 +2,8 @@
 //! transparent): the model and its thinking level, the cwd, the git
 //! branch, then the segments that show only while they carry something
 //! (a hint, the session name and spend, the session's budget, the
-//! verification of the task's acceptance checks, the detail level, the
+//! verification of the task's acceptance checks, the running hand-back
+//! checks of the session's children, the detail level, the
 //! chat memory's `mem` gauge, live activity); the context usage sits on
 //! the right.
 //!
@@ -121,6 +122,12 @@ pub fn render_status_line(
     if let Some(verification) = state.verification {
         segments.push(verification_segment(verification, theme));
     }
+    segments.extend(
+        state
+            .checks
+            .iter()
+            .map(|check| vec![theme.fg(ThemeColor::Accent, check.clone())]),
+    );
     if let Some(memory) = &state.memory {
         segments.push(vec![theme.fg(ThemeColor::Dim, memory.text())]);
     }

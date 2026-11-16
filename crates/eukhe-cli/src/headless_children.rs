@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use anyhow::Context as _;
 use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_core::durable::children::RlmChildHandback;
+use eukhe_core::child_workspace::ScopedHandback;
 use eukhe_core::durable::children::{self as durable, RlmSubagentHost};
 use eukhe_core::durable::{EukheSession, SessionConfig};
 use eukhe_core::kernel::HostRequestHandlers;
@@ -309,8 +309,15 @@ impl RlmSubagentHost for HeadlessChildHost {
     fn hand_back(
         &self,
         request: durable::RlmChildHandbackRequest,
-    ) -> durable::RlmHostFuture<'_, Option<RlmChildHandback>> {
+    ) -> durable::RlmHostFuture<'_, Option<ScopedHandback>> {
         Box::pin(async move { self.supervised().await?.hand_back(request).await })
+    }
+
+    fn check(
+        &self,
+        request: durable::RlmChildCheckRequest,
+    ) -> durable::RlmHostFuture<'_, Option<durable::HandbackChecks>> {
+        Box::pin(async move { self.supervised().await?.check(request).await })
     }
 
     fn measure(

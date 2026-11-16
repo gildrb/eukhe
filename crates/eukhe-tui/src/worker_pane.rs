@@ -260,6 +260,7 @@ impl WorkerPane {
             | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::BudgetUpdate(_)
             | TurnUpdate::PlanUsage(_)
+            | TurnUpdate::CheckUpdate { .. }
             | TurnUpdate::AcceptanceUpdate(_)
             | TurnUpdate::QueueUpdated(_)
             | TurnUpdate::BashStart { .. }

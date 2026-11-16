@@ -561,6 +561,7 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::PlanUsage { .. }
+            | SessionEvent::CheckUpdate { .. }
             | SessionEvent::AcceptanceUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }

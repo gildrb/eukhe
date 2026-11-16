@@ -76,6 +76,10 @@ pub struct ChromeState {
     /// The acceptance of the session's task as the status line's
     /// verification segment reads it; `None` (no checks) renders none.
     pub verification: Option<crate::status_line::Verification>,
+    /// The status lines of the hand-back checks that run now (`check
+    /// running 12m 30s: <command> ...`), one segment each; empty renders
+    /// none.
+    pub checks: Vec<String>,
     /// The model's thinking level (wire name), shown after the model (TS
     /// `getModelContextLabel`); `None` for a model without reasoning.
     pub thinking_suffix: Option<String>,

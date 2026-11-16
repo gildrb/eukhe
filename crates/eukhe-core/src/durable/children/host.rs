@@ -13,6 +13,7 @@ use crate::child_workspace::{CheckRun, ScopedHandback, WorkspaceMode};
 use crate::durable::acceptance::describe;
 use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckVerdict};
+use eukhe_types::daemon::agent_tree::CheckProgress;
 use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{ImageContent, Usage};
@@ -202,9 +203,27 @@ pub struct RlmChildHandbackRequest {
     pub scope: Vec<bool>,
 }
 
-/// A writer's hand-back with its checks: the project's check in the
-/// child's checkout before the hand-back, then in the parent's workspace
-/// after integration.
+/// The checks of a handed-back writer, after its integration.
+#[derive(Debug, Clone)]
+pub struct RlmChildCheckRequest {
+    pub handback: RlmChildHandbackRequest,
+    /// Hears each check's reports: its start, each interval while it runs,
+    /// its end.
+    pub progress: tokio::sync::broadcast::Sender<CheckProgress>,
+}
+
+/// A writer's two checks: the project's check in the child's checkout,
+/// then in the parent's workspace after integration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandbackChecks {
+    /// The check in the child's checkout over what it changed.
+    pub child_check: CheckRun,
+    /// The check in the parent's workspace over what was taken.
+    pub parent_check: CheckRun,
+}
+
+/// A writer's hand-back with its checks; both checks are
+/// [`CheckRun::Pending`] from the integration until they ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RlmChildHandback {
@@ -574,12 +593,19 @@ pub trait RlmSubagentHost: Send + Sync {
     fn rename(&self, request: RlmRenameRequest) -> RlmHostFuture<'_, ()>;
     /// Stop an isolated child (its session stays), then take the writes
     /// of its workspace inside its scope back into the parent's workspace
-    /// (idempotent: a repeat returns the first hand-back's record and
-    /// stops nothing). `None`: the child works in the shared workspace.
+    /// at once, before any check (idempotent: a repeat returns the first
+    /// hand-back's record and stops nothing). `None`: the child works in
+    /// the shared workspace.
     fn hand_back(
         &self,
         request: RlmChildHandbackRequest,
-    ) -> RlmHostFuture<'_, Option<RlmChildHandback>>;
+    ) -> RlmHostFuture<'_, Option<ScopedHandback>>;
+    /// The checks of a handed-back child: the project's check in its
+    /// checkout over what it changed (`CheckRun::None` once the checkout
+    /// is gone), then in the parent's workspace over what was taken; each
+    /// reports on `request.progress` while it runs. Ends the checkout
+    /// after them. `None`: the child works in the shared workspace.
+    fn check(&self, request: RlmChildCheckRequest) -> RlmHostFuture<'_, Option<HandbackChecks>>;
     /// The patch of an isolated child's workspace over `units` (what it
     /// changed since its start), taking nothing back: a failed child's
     /// partial work stays in its workspace. `None`: the child works in the
@@ -655,7 +681,11 @@ impl RlmSubagentHost for NoRlmChildren {
     fn hand_back(
         &self,
         _request: RlmChildHandbackRequest,
-    ) -> RlmHostFuture<'_, Option<RlmChildHandback>> {
+    ) -> RlmHostFuture<'_, Option<ScopedHandback>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn check(&self, _request: RlmChildCheckRequest) -> RlmHostFuture<'_, Option<HandbackChecks>> {
         Box::pin(async { Ok(None) })
     }
 

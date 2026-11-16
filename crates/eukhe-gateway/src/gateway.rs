@@ -1183,6 +1183,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::PlanUsage { .. }
+            | SessionEvent::CheckUpdate { .. }
             | SessionEvent::AcceptanceUpdate { .. }
             | SessionEvent::MemoryUpdate { .. }
             | SessionEvent::BashStart { .. }

@@ -446,6 +446,7 @@ impl SettingsManager {
             timeout: std::time::Duration::from_secs(
                 self.nonzero_nat(&table::AGENT_TREE_CHECK_TIMEOUT_SECS),
             ),
+            progress_every: crate::child_workspace::PROGRESS_EVERY,
         }
     }
 

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use eukhe_tokens::{ModelRef, Tokenizer};
+use eukhe_types::daemon::agent_tree::CheckPhase;
 
 use super::bash::BashSettled;
 use super::{
@@ -1104,6 +1105,19 @@ impl SessionUi {
                 view.chrome.budget.clone_from(&self.budget);
             }
             TurnUpdate::PlanUsage(text) => self.note(&text, view),
+            TurnUpdate::CheckUpdate { check, text } => {
+                let key = (check.child, check.place);
+                match check.phase {
+                    CheckPhase::Running { .. } => {
+                        self.checks.insert(key, text);
+                    }
+                    CheckPhase::Ended { .. } => {
+                        self.checks.remove(&key);
+                        self.note(&text, view);
+                    }
+                }
+                view.chrome.checks = self.checks.values().cloned().collect();
+            }
             TurnUpdate::AcceptanceUpdate(acceptance) => {
                 self.verification = crate::status_line::Verification::of(&acceptance);
                 view.chrome.verification = self.verification;

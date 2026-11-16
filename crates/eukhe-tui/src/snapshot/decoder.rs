@@ -133,6 +133,12 @@ pub enum TurnUpdate {
     /// `plan_usage`: with limits off, a plan window passed the reserve
     /// line; the notice row (the run continues).
     PlanUsage(String),
+    /// `check_update`: a child's hand-back check runs (the status line's
+    /// check segment) or ended (its notice row).
+    CheckUpdate {
+        check: eukhe_types::daemon::agent_tree::CheckProgress,
+        text: String,
+    },
     /// `acceptance_update`: the acceptance of the session's task changed
     /// (its checks, a verdict, a claim, the label); the status line's
     /// verification segment shows it.
@@ -379,6 +385,10 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
         }
         SessionEvent::PlanUsage { text, .. } => TurnUpdate::PlanUsage(text.clone()),
+        SessionEvent::CheckUpdate { check, text } => TurnUpdate::CheckUpdate {
+            check: check.clone(),
+            text: text.clone(),
+        },
         SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
         SessionEvent::BashStart {
             command,

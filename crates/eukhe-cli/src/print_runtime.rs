@@ -807,6 +807,26 @@ async fn drive_prompts(
             }
         }
     });
+    // Each report of a child's hand-back check (its start, each interval
+    // while it runs, its end): its status line on stderr, and in json mode
+    // a `check_update` event.
+    let mut checks = session.checks();
+    let json_mode = options.app_mode == AppMode::Json;
+    tokio::spawn(async move {
+        loop {
+            match checks.recv().await {
+                Ok(check) => {
+                    let text = check.text();
+                    eprintln!("{text}");
+                    if json_mode {
+                        print_event(&SessionEvent::CheckUpdate { check, text });
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    });
     // The CLI autonomous flags enable the run on the main conversation (no
     // status row, as TS `createAgentSession({ autonomous })`) with its own
     // limits; a run without flags keeps the session's state

@@ -12,12 +12,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use eukhe_core::child_workspace::{CheckRun, ScopedHandback, WorkspaceMode};
+use eukhe_core::child_workspace::{CheckOutcome, CheckRun, ScopedHandback, WorkspaceMode};
 use eukhe_core::durable::children::{
-    RlmChildCancelRequest, RlmChildDeleteRequest, RlmChildHandback, RlmChildHandbackRequest,
+    RlmChildCancelRequest, RlmChildCheckRequest, RlmChildDeleteRequest, RlmChildHandbackRequest,
     RlmChildIdentity, RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState,
     RlmChildSpawnRequest, RlmChildWaitRequest, RlmRenameRequest, RlmRenameTarget, RlmSubagentHost,
 };
+use eukhe_types::daemon::agent_tree::{CheckPhase, CheckPlace};
 use eukhe_types::daemon::WorkerLiveness;
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::StreamFailureKind;
@@ -857,13 +858,24 @@ fn handback_request() -> RlmChildHandbackRequest {
     }
 }
 
-/// A hand-back over files no check is detected for.
-fn unchecked(handback: ScopedHandback) -> Option<RlmChildHandback> {
-    Some(RlmChildHandback {
-        handback,
-        child_check: CheckRun::None,
-        parent_check: CheckRun::None,
-    })
+/// The run without its duration (the one field a test cannot know).
+fn timeless(run: CheckRun) -> CheckRun {
+    match run {
+        CheckRun::None => CheckRun::None,
+        CheckRun::Pending => CheckRun::Pending,
+        CheckRun::NotRun { error } => CheckRun::NotRun { error },
+        CheckRun::Ran {
+            command,
+            outcome,
+            output,
+            duration_ms: _,
+        } => CheckRun::Ran {
+            command,
+            outcome,
+            output,
+            duration_ms: 0,
+        },
+    }
 }
 
 /// S3: an isolated child works in its own copy of the parent's workspace
@@ -885,7 +897,7 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
     let conflicts = root.join("conflicts");
     assert_eq!(
         handback,
-        unchecked(ScopedHandback {
+        Some(ScopedHandback {
             taken: vec!["a.txt".to_owned()],
             outside: Vec::new(),
             conflicts: vec!["c.txt".to_owned()],
@@ -921,6 +933,72 @@ async fn an_isolated_child_works_on_a_copy_handed_back_at_its_end() {
     );
 }
 
+/// The integration waits for no check: the hand-back puts the child's
+/// work in the parent's workspace at once and keeps the child's
+/// checkout; the checks then run in the checkout and in the parent, each
+/// reporting its start and end on the feed, and close the checkout.
+#[tokio::test]
+async fn a_hand_back_integrates_before_its_checks_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let agent_dir = dir.path().join("agent");
+    let (sessions, root) = spawn_isolated(&agent_dir, parent.path()).await;
+    std::fs::write(
+        agent_dir.join("config.cfg"),
+        "set agentTree.checkCommand \"cat a.txt\"\n",
+    )
+    .unwrap();
+    let tree = root.join("tree");
+    std::fs::write(tree.join("a.txt"), "a-child").unwrap();
+    let handback = sessions.hand_back(handback_request()).await.unwrap();
+    let integrated = (
+        files_under(parent.path()).get("a.txt").cloned(),
+        tree.is_symlink(),
+    );
+    let (progress, mut heard) = tokio::sync::broadcast::channel(16);
+    let checks = sessions
+        .check(RlmChildCheckRequest {
+            handback: handback_request(),
+            progress,
+        })
+        .await
+        .unwrap();
+    let mut reports = Vec::new();
+    while let Ok(report) = heard.try_recv() {
+        reports.push((
+            report.place,
+            matches!(report.phase, CheckPhase::Ended { .. }),
+        ));
+    }
+    let passed = CheckRun::Ran {
+        command: "cat a.txt".to_owned(),
+        outcome: CheckOutcome::Passed,
+        output: "a-child".to_owned(),
+        duration_ms: 0,
+    };
+    assert_eq!(
+        (
+            handback.map(|handback| handback.taken),
+            integrated,
+            checks.map(|checks| (timeless(checks.child_check), timeless(checks.parent_check))),
+            reports,
+            std::fs::read_link(&tree).ok(),
+        ),
+        (
+            Some(vec!["a.txt".to_owned()]),
+            (Some("a-child".to_owned()), false),
+            Some((passed.clone(), passed)),
+            vec![
+                (CheckPlace::Checkout, false),
+                (CheckPlace::Checkout, true),
+                (CheckPlace::Integration, false),
+                (CheckPlace::Integration, true),
+            ],
+            Some(parent.path().to_path_buf()),
+        )
+    );
+}
+
 /// A deleted isolated child's workspace stays as it is: the delete takes
 /// nothing back, and the parent's later hand-back takes the child's
 /// changes in its scope.
@@ -950,7 +1028,7 @@ async fn deleting_an_isolated_child_leaves_its_workspace_for_the_hand_back() {
                 ("c.txt", "c0"),
                 ("target/x", "build output"),
             ]),
-            unchecked(ScopedHandback {
+            Some(ScopedHandback {
                 taken: vec!["a.txt".to_owned()],
                 outside: Vec::new(),
                 conflicts: Vec::new(),
@@ -991,7 +1069,7 @@ async fn a_workspace_in_the_agent_dir_moves_to_the_work_root() {
             std::fs::read_link(&old).ok()
         ),
         (
-            unchecked(ScopedHandback {
+            Some(ScopedHandback {
                 taken: vec!["a.txt".to_owned()],
                 outside: Vec::new(),
                 conflicts: Vec::new(),
@@ -1030,7 +1108,7 @@ async fn a_workspace_move_cut_before_its_link_ends_on_next_use() {
             old.with_file_name("sub-0192a000.link").exists(),
         ),
         (
-            unchecked(ScopedHandback {
+            Some(ScopedHandback {
                 taken: Vec::new(),
                 outside: Vec::new(),
                 conflicts: Vec::new(),

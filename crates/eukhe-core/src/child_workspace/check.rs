@@ -9,7 +9,9 @@
 //!   the nearest `pyproject.toml`'s directory).
 //!
 //! The command runs under `sh -c` in its own process group, killed at the
-//! timeout; the report keeps the output's tail.
+//! timeout; the report keeps the output's tail. While it runs, the caller
+//! hears from it at its start, at each interval (time since the start, the
+//! last line it printed) and at its end (how it ended, its last lines).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -17,8 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use eukhe_types::daemon::agent_tree::{CheckOutcome, CheckPhase};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::platform::process::{signal_process_group, Signal};
@@ -29,8 +32,11 @@ const OUTPUT_TAIL_BYTES: usize = 16 * 1024;
 /// The last output lines a failed check's verdict names.
 const VERDICT_LINES: usize = 3;
 
-/// The most chars of one output line a verdict names.
+/// The most chars of one output line a verdict or a status names.
 const LINE_CHARS: usize = 200;
+
+/// The interval of a running check's reports.
+pub(crate) const PROGRESS_EVERY: Duration = Duration::from_secs(30);
 
 /// How a node's check runs (`agentTree.checkCommand`,
 /// `agentTree.checkTimeoutSecs`; `SettingsManager::get_agent_tree_check`).
@@ -40,19 +46,8 @@ pub struct CheckConfig {
     pub command: Option<String>,
     /// The check is killed and reported timed out past it.
     pub timeout: Duration,
-}
-
-/// How a check ended.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
-pub enum CheckOutcome {
-    /// Exit 0.
-    Passed,
-    /// Another exit code; `None`: killed by a signal, or the command did
-    /// not start (the output says why).
-    Failed { code: Option<i32> },
-    /// Killed at the timeout.
-    TimedOut,
+    /// The interval of the running check's reports ([`PROGRESS_EVERY`]).
+    pub progress_every: Duration,
 }
 
 /// A check's report.
@@ -61,6 +56,11 @@ pub enum CheckOutcome {
 pub enum CheckRun {
     /// No command configured and none detected for the touched files.
     None,
+    /// Not run yet: the hand-back took the child's work, and the check
+    /// runs after it.
+    Pending,
+    /// The host could not run it (the error says why).
+    NotRun { error: String },
     Ran {
         command: String,
         outcome: CheckOutcome,
@@ -77,27 +77,24 @@ impl CheckRun {
     pub fn text(&self) -> String {
         match self {
             CheckRun::None => "Check: none configured or detected.".to_owned(),
+            CheckRun::Pending => {
+                "Check: runs after the integration; its result follows.".to_owned()
+            }
+            CheckRun::NotRun { error } => format!("Check: did not run: {error}."),
             CheckRun::Ran {
                 command,
                 outcome,
                 output,
                 duration_ms,
             } => {
-                let (verdict, lines) = match outcome {
-                    CheckOutcome::Passed => ("passed".to_owned(), Vec::new()),
-                    CheckOutcome::Failed { code: Some(code) } => (
-                        format!("failed (exit {code})"),
-                        last_lines(output, VERDICT_LINES),
-                    ),
-                    CheckOutcome::Failed { code: None } => (
-                        "failed (no exit code)".to_owned(),
-                        last_lines(output, VERDICT_LINES),
-                    ),
-                    CheckOutcome::TimedOut => {
-                        ("timed out".to_owned(), last_lines(output, VERDICT_LINES))
+                let (seconds, tenths) = (duration_ms / 1000, duration_ms % 1000 / 100);
+                let lines = match outcome {
+                    CheckOutcome::Passed => Vec::new(),
+                    CheckOutcome::Failed { .. } | CheckOutcome::TimedOut => {
+                        last_lines(output, VERDICT_LINES)
                     }
                 };
-                let (seconds, tenths) = (duration_ms / 1000, duration_ms % 1000 / 100);
+                let verdict = outcome.verdict();
                 let head = if lines.is_empty() {
                     format!("Check `{command}`: {verdict} in {seconds}.{tenths} s.")
                 } else {
@@ -116,6 +113,15 @@ impl CheckRun {
     }
 }
 
+/// One report of a check: its command, the time since its start, and
+/// whether it runs or how it ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckReport {
+    pub command: String,
+    pub elapsed_ms: u64,
+    pub phase: CheckPhase,
+}
+
 /// The last `count` non-empty lines of `output`, oldest first, each
 /// trimmed and cut at [`LINE_CHARS`] chars.
 fn last_lines(output: &str, count: usize) -> Vec<String> {
@@ -132,9 +138,16 @@ fn last_lines(output: &str, count: usize) -> Vec<String> {
 }
 
 /// Run the check of `touched` (paths relative to `dir`, or absolute under
-/// it) in `dir`: the configured command, else the detected one.
-#[tracing::instrument(skip(touched))]
-pub async fn run_check(dir: &Path, touched: &[PathBuf], config: &CheckConfig) -> CheckRun {
+/// it) in `dir`: the configured command, else the detected one. `report`
+/// hears from it at its start, at each `config.progress_every` while it
+/// runs, and at its end.
+#[tracing::instrument(skip(touched, report))]
+pub async fn run_check(
+    dir: &Path,
+    touched: &[PathBuf],
+    config: &CheckConfig,
+    report: &(dyn Fn(CheckReport) + Sync),
+) -> CheckRun {
     let command = match &config.command {
         Some(command) => command.clone(),
         None => match detect(dir, touched) {
@@ -143,13 +156,27 @@ pub async fn run_check(dir: &Path, touched: &[PathBuf], config: &CheckConfig) ->
         },
     };
     let started = Instant::now();
-    let (outcome, output) = run(dir, &command, config.timeout).await;
+    let (outcome, output) = run(dir, &command, config, started, report).await;
+    let duration_ms = whole_ms(started.elapsed());
+    report(CheckReport {
+        command: command.clone(),
+        elapsed_ms: duration_ms,
+        phase: CheckPhase::Ended {
+            outcome: outcome.clone(),
+            last_lines: last_lines(&output, VERDICT_LINES),
+        },
+    });
     CheckRun::Ran {
         command,
         outcome,
         output,
-        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        duration_ms,
     }
+}
+
+/// `elapsed` in whole milliseconds, saturating.
+fn whole_ms(elapsed: Duration) -> u64 {
+    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The narrowest check of `touched` under `dir`: every kind detected,
@@ -251,9 +278,17 @@ fn quote(text: &str) -> String {
 }
 
 /// Run `command` under `sh -c` in `dir`, stdout and stderr in one stream,
-/// killed with its process group at `timeout`: how it ended and the
-/// output's tail.
-async fn run(dir: &Path, command: &str, timeout: Duration) -> (CheckOutcome, String) {
+/// killed with its process group at `config.timeout`: how it ended and the
+/// output's tail. `report` hears that it runs at its start and at each
+/// `config.progress_every`, with the time since `started` and the last
+/// line it printed.
+async fn run(
+    dir: &Path,
+    command: &str,
+    config: &CheckConfig,
+    started: Instant,
+    report: &(dyn Fn(CheckReport) + Sync),
+) -> (CheckOutcome, String) {
     let spawned = Command::new("sh")
         .arg("-c")
         .arg(format!("exec 2>&1\n{command}"))
@@ -279,9 +314,19 @@ async fn run(dir: &Path, command: &str, timeout: Duration) -> (CheckOutcome, Str
             "sh has no output pipe".to_owned(),
         );
     };
+    let running = |tail: &[u8]| {
+        report(CheckReport {
+            command: command.to_owned(),
+            elapsed_ms: whole_ms(started.elapsed()),
+            phase: CheckPhase::Running {
+                last_line: last_lines(&String::from_utf8_lossy(tail), 1).pop(),
+            },
+        });
+    };
+    running(&[]);
     let mut tail = Vec::new();
-    let ended = tokio::time::timeout(timeout, async {
-        keep_tail(stdout, &mut tail).await?;
+    let ended = tokio::time::timeout(config.timeout, async {
+        keep_tail(stdout, &mut tail, config.progress_every, running).await?;
         child.wait().await
     })
     .await;
@@ -312,17 +357,29 @@ async fn run(dir: &Path, command: &str, timeout: Duration) -> (CheckOutcome, Str
 
 /// Read `reader` to its end into `tail`, keeping at most twice
 /// [`OUTPUT_TAIL_BYTES`] (the caller keeps the last
-/// [`OUTPUT_TAIL_BYTES`]).
-async fn keep_tail(mut reader: impl AsyncRead + Unpin, tail: &mut Vec<u8>) -> std::io::Result<()> {
+/// [`OUTPUT_TAIL_BYTES`]); `tick` reads the tail at each `every`.
+async fn keep_tail(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+    tail: &mut Vec<u8>,
+    every: Duration,
+    tick: impl Fn(&[u8]),
+) -> std::io::Result<()> {
+    let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut chunk = [0u8; 8192];
     loop {
-        let read = reader.read(&mut chunk).await?;
-        if read == 0 {
-            return Ok(());
-        }
-        tail.extend_from_slice(&chunk[..read]);
-        if tail.len() > 2 * OUTPUT_TAIL_BYTES {
-            tail.drain(..tail.len() - OUTPUT_TAIL_BYTES);
+        tokio::select! {
+            read = reader.read(&mut chunk) => {
+                let read = read?;
+                if read == 0 {
+                    return Ok(());
+                }
+                tail.extend_from_slice(&chunk[..read]);
+                if tail.len() > 2 * OUTPUT_TAIL_BYTES {
+                    tail.drain(..tail.len() - OUTPUT_TAIL_BYTES);
+                }
+            }
+            _ = ticks.tick() => tick(tail),
         }
     }
 }

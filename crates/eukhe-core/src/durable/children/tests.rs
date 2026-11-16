@@ -50,7 +50,6 @@ mod workspace;
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
 use super::work_list::{ItemAccount, ItemMark};
-use super::RlmChildHandback;
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
     RlmChildDeleteRequest, RlmChildHandbackRequest, RlmChildListing, RlmChildObservation,
@@ -58,6 +57,7 @@ use super::{
     RlmChildSpawnRequest, RlmChildVerdict, RlmChildWaitRequest, RlmHostFuture, RlmRenameRequest,
     RlmRenameTarget, RlmSubagentHost, RunPause,
 };
+use super::{HandbackChecks, RlmChildCheckRequest, RlmChildHandback};
 use crate::child_workspace::{CheckRun, ScopedHandback};
 use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{
@@ -100,6 +100,8 @@ struct FakeState {
     rename_error: Option<String>,
     /// The hand-back and measure requests, in order.
     handbacks: Vec<RlmChildHandbackRequest>,
+    /// The children whose checks ran, in order.
+    checks: Vec<RlmChildHandbackRequest>,
     /// Polls that fail before the next one is answered (a live child whose
     /// routes are overloaded or slow).
     failing_waits: usize,
@@ -134,6 +136,8 @@ struct FakeState {
 struct FakeHost {
     state: Mutex<FakeState>,
     changed: tokio::sync::watch::Sender<u64>,
+    /// While `false`, a writer's checks wait (a check queued for a slot).
+    checks_open: tokio::sync::watch::Sender<bool>,
 }
 
 impl FakeHost {
@@ -141,6 +145,7 @@ impl FakeHost {
         Arc::new(Self {
             state: Mutex::new(FakeState::default()),
             changed: tokio::sync::watch::Sender::new(0),
+            checks_open: tokio::sync::watch::Sender::new(true),
         })
     }
 
@@ -301,13 +306,26 @@ impl RlmSubagentHost for FakeHost {
     fn hand_back(
         &self,
         request: RlmChildHandbackRequest,
-    ) -> RlmHostFuture<'_, Option<RlmChildHandback>> {
+    ) -> RlmHostFuture<'_, Option<ScopedHandback>> {
         let handback = {
             let mut fake = lock(&self.state);
             fake.handbacks.push(request);
-            fake.handback.clone()
+            fake.handback.clone().map(|handback| handback.handback)
         };
         Box::pin(async move { Ok(handback) })
+    }
+
+    fn check(&self, request: RlmChildCheckRequest) -> RlmHostFuture<'_, Option<HandbackChecks>> {
+        let mut open = self.checks_open.subscribe();
+        Box::pin(async move {
+            open.wait_for(|open| *open).await?;
+            let mut fake = lock(&self.state);
+            fake.checks.push(request.handback);
+            Ok(fake.handback.clone().map(|handback| HandbackChecks {
+                child_check: handback.child_check,
+                parent_check: handback.parent_check,
+            }))
+        })
     }
 
     fn measure(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>> {
@@ -664,6 +682,7 @@ async fn open(storage: Arc<dyn Storage>, setup: &Setup, host: Arc<FakeHost>) -> 
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(cell.clone())),
         budget: Arc::clone(&setup.budget),
+        checks: tokio::sync::broadcast::Sender::new(16),
         // The fixture's session is the tree's root.
         place: Some(super::tree::root_place()),
     });
@@ -1382,6 +1401,7 @@ async fn a_spawn_checks_its_kwargs_then_the_child_runtime() {
         shape: SessionShape::Main,
         pause: Arc::new(RunPause::new(HarnessCell::default())),
         budget: Arc::clone(&setup.budget),
+        checks: tokio::sync::broadcast::Sender::new(16),
         place: Some(super::tree::root_place()),
     })
     .install(&requests);

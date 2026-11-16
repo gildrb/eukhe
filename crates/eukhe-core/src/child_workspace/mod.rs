@@ -34,9 +34,11 @@
 //! Each path is replaced in one rename, and the hand-back is idempotent: a
 //! path already taken reads as changed by both to the same content, so a
 //! hand-back a crash cut runs again from the start to the same result.
-//! Only its record (`handback.json`) ends it; then `base/`, the copy and
-//! its repository go, and `tree/` becomes a symlink to the parent's
-//! workspace, so a child woken later works there.
+//! Only its record (`handback.json`) ends it. The copies stay, so the
+//! child's check runs in its checkout after the integration, until
+//! [`ChildWorkspace::close`]: then `base/`, the copy and its repository
+//! go, and `tree/` becomes a symlink to the parent's workspace, so a child
+//! woken later works there.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -55,7 +57,9 @@ mod units;
 #[cfg(test)]
 mod tests;
 
-pub use check::{run_check, CheckConfig, CheckOutcome, CheckRun};
+pub(crate) use check::PROGRESS_EVERY;
+pub use check::{run_check, CheckConfig, CheckReport, CheckRun};
+pub use eukhe_types::daemon::agent_tree::CheckOutcome;
 pub use units::{unit_of, unit_patch};
 
 use files::{Copied, Listing};
@@ -185,10 +189,17 @@ impl ChildWorkspace {
         self.root.join(MANIFEST).is_file()
     }
 
-    /// The hand-back wrote its record: the child's changes are back.
+    /// The hand-back wrote its record: the child's changes are back (its
+    /// copies stay until [`Self::close`]).
     #[must_use]
     pub fn is_handed_back(&self) -> bool {
         self.root.join(HANDBACK).is_file()
+    }
+
+    /// The child's copies are there: created, and not closed.
+    #[must_use]
+    pub fn has_copies(&self) -> bool {
+        self.is_created() && self.root.join(BASE).is_dir()
     }
 
     /// Copy `parent`'s workspace into `base/` and `tree/`, and make
@@ -257,11 +268,11 @@ impl ChildWorkspace {
     ///
     /// # Errors
     ///
-    /// The workspace has no copies (not created, or handed back), or a
-    /// path cannot be read.
+    /// The workspace has no copies (not created, or closed), or a path
+    /// cannot be read.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
     pub async fn changed(&self) -> anyhow::Result<Vec<PathBuf>> {
-        if !self.is_created() || self.is_handed_back() {
+        if !self.has_copies() {
             anyhow::bail!("{} holds no child copy", self.root.display());
         }
         let root = self.root.clone();
@@ -273,7 +284,7 @@ impl ChildWorkspace {
 
     /// Take the child's changes inside `scope` (a mask over `units`) back
     /// into the parent's workspace; see the module doc. Idempotent and
-    /// resumable.
+    /// resumable; the copies stay until [`Self::close`].
     ///
     /// # Errors
     ///
@@ -288,6 +299,30 @@ impl ChildWorkspace {
     ) -> anyhow::Result<ScopedHandback> {
         let (root, units, scope) = (self.root.clone(), units.to_vec(), scope.to_vec());
         tokio::task::spawn_blocking(move || hand_back_at(&root, &units, &scope)).await?
+    }
+
+    /// End a handed-back workspace: drop the base and the child's copy,
+    /// and leave `tree/` a symlink to the parent's workspace. Idempotent.
+    ///
+    /// # Errors
+    ///
+    /// The hand-back has no record yet, or a copy cannot be removed.
+    #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
+    pub async fn close(&self) -> anyhow::Result<()> {
+        let root = self.root.clone();
+        tokio::task::spawn_blocking(move || {
+            let Some(manifest) = read_json::<Manifest>(&root.join(MANIFEST))? else {
+                anyhow::bail!(
+                    "{} is not a child workspace (no {MANIFEST})",
+                    root.display()
+                );
+            };
+            if !root.join(HANDBACK).is_file() {
+                anyhow::bail!("{} is not handed back (no {HANDBACK})", root.display());
+            }
+            Ok(finish(&root, &manifest.parent)?)
+        })
+        .await?
     }
 
     /// Remove the workspace and everything under it.
@@ -442,7 +477,6 @@ fn hand_back_at(root: &Path, units: &[String], scope: &[bool]) -> anyhow::Result
     };
     let parent = manifest.parent;
     if let Some(done) = read_json::<ScopedHandback>(&root.join(HANDBACK))? {
-        finish(root, &parent)?;
         return Ok(done);
     }
     let (base, tree) = (root.join(BASE), root.join(TREE));
@@ -494,7 +528,6 @@ fn hand_back_at(root: &Path, units: &[String], scope: &[bool]) -> anyhow::Result
         handback.kept = Some(root.join(CONFLICTS).to_string_lossy().into_owned());
     }
     write_json(&root.join(HANDBACK), &handback)?;
-    finish(root, &parent)?;
     Ok(handback)
 }
 

@@ -50,9 +50,9 @@ use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
 use super::host::{
-    ChildMessageKind, RlmChildCancelRequest, RlmChildHandbackRequest, RlmChildObservation,
-    RlmChildPromptRequest, RlmChildRunState, RlmChildSpawnRequest, RlmChildVerdict,
-    RlmChildWaitRequest, RlmSubagentHost,
+    ChildMessageKind, HandbackChecks, RlmChildCancelRequest, RlmChildCheckRequest,
+    RlmChildHandback, RlmChildHandbackRequest, RlmChildObservation, RlmChildPromptRequest,
+    RlmChildRunState, RlmChildSpawnRequest, RlmChildVerdict, RlmChildWaitRequest, RlmSubagentHost,
 };
 use super::notice::{ChildReport, DELETED_BY_PARENT};
 use super::registry::{
@@ -63,7 +63,7 @@ use super::requests::whole_ms;
 use super::tree::{self, End, Local, Slot};
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
 use super::work_list::{task_text, HandBack};
-use crate::child_workspace::WorkspaceMode;
+use crate::child_workspace::{CheckRun, WorkspaceMode};
 use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
 use crate::durable::observe::semantic_edges::{
@@ -104,6 +104,9 @@ pub(crate) struct ChildrenServices {
     /// allotment out of it) and gives it back when the child's task ends
     /// ([`super::budget`]).
     pub(crate) budget: Arc<BudgetGate>,
+    /// The session's check feed: each hand-back check's reports.
+    pub(crate) checks:
+        tokio::sync::broadcast::Sender<eukhe_types::daemon::agent_tree::CheckProgress>,
     /// The child tasks whose watch polled since this session opened (by
     /// task id): the pause before a re-poll is this session's own.
     pub(crate) polled: Mutex<HashSet<u64>>,
@@ -1294,7 +1297,8 @@ async fn watch(
         if let Err(error) = super::budget::give_back(&services.budget, &identity.session_id).await {
             runtime.report(error)?;
         }
-        // A writer that finished hands its scope's writes back; one that
+        // A writer that finished hands its scope's writes back at once,
+        // then its checks run (which may wait long for a slot); one that
         // failed keeps its partial work in its workspace (applied only
         // when the parent absorbs it), and its run is cancelled so its own
         // subtree is too.
@@ -1305,10 +1309,33 @@ async fn watch(
             (None, _) => (None, None),
             (Some(spawn), true) => {
                 let request = spawn.handback(&identity.session_id, &identity.rlm_child_id);
-                tokio::select! {
-                    outcome = hand_back(services.host.as_ref(), request) => (outcome, None),
+                let integrated = tokio::select! {
+                    outcome = hand_back(services.host.as_ref(), request.clone()) => outcome,
                     reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
-                }
+                };
+                let checked = match integrated {
+                    Some(HandbackOutcome::Done { handback }) => {
+                        show_integration(&runtime, task.conversation_id, row_id, &handback, &cx)
+                            .await?;
+                        let request = RlmChildCheckRequest {
+                            handback: request,
+                            progress: services.checks.clone(),
+                        };
+                        let checks = tokio::select! {
+                            checks = check(services.host.as_ref(), request) => checks,
+                            reason = signal.cancelled() => return Err(SessionError::Aborted(reason)),
+                        };
+                        Some(HandbackOutcome::Done {
+                            handback: Box::new(RlmChildHandback {
+                                child_check: checks.child_check,
+                                parent_check: checks.parent_check,
+                                ..*handback
+                            }),
+                        })
+                    }
+                    unchecked @ (Some(HandbackOutcome::Failed { .. }) | None) => unchecked,
+                };
+                (checked, None)
             }
             (Some(spawn), false) => {
                 let request = spawn.handback(&identity.session_id, &identity.rlm_child_id);
@@ -1496,7 +1523,8 @@ async fn redo_child(
 }
 
 /// Hand an ended writer's workspace back into the parent's by its
-/// scope; `None` for a child in the shared workspace.
+/// scope, its checks still to run; `None` for a child in the shared
+/// workspace.
 #[tracing::instrument(skip(host))]
 async fn hand_back(
     host: &dyn RlmSubagentHost,
@@ -1504,12 +1532,64 @@ async fn hand_back(
 ) -> Option<HandbackOutcome> {
     match host.hand_back(request).await {
         Ok(Some(handback)) => Some(HandbackOutcome::Done {
-            handback: Box::new(handback),
+            handback: Box::new(RlmChildHandback {
+                handback,
+                child_check: CheckRun::Pending,
+                parent_check: CheckRun::Pending,
+            }),
         }),
         Ok(None) => None,
         Err(error) => Some(HandbackOutcome::Failed {
             error: format!("{error:#}"),
         }),
+    }
+}
+
+/// Commit an integrated writer's hand-back to its row before its checks
+/// run: the parent's status shows the child's work from its arrival on.
+async fn show_integration(
+    runtime: &Runtime,
+    conversation_id: ConversationId,
+    row_id: TaskId,
+    handback: &RlmChildHandback,
+    cx: &Context,
+) -> SessionResult<()> {
+    let outcome = HandbackOutcome::Done {
+        handback: Box::new(handback.clone()),
+    };
+    runtime
+        .commit(
+            move |tx, _current| async move {
+                tx_update_row(&tx, conversation_id, row_id, |row| {
+                    row.handback = Some(outcome);
+                })
+                .await?;
+                Ok(None)
+            },
+            cx,
+        )
+        .await
+}
+
+/// The checks of an integrated writer; checks the host could not run
+/// say why.
+#[tracing::instrument(skip_all)]
+async fn check(host: &dyn RlmSubagentHost, request: RlmChildCheckRequest) -> HandbackChecks {
+    match host.check(request).await {
+        Ok(Some(checks)) => checks,
+        Ok(None) => HandbackChecks {
+            child_check: CheckRun::None,
+            parent_check: CheckRun::None,
+        },
+        Err(error) => {
+            let error = format!("{error:#}");
+            HandbackChecks {
+                child_check: CheckRun::NotRun {
+                    error: error.clone(),
+                },
+                parent_check: CheckRun::NotRun { error },
+            }
+        }
     }
 }
 

@@ -476,6 +476,10 @@ pub(crate) struct SessionUi {
     /// each `acceptance_update`): the status line's verification
     /// segment; `None` while the task has no checks.
     verification: Option<crate::status_line::Verification>,
+    /// The status line of each hand-back check that runs now, by child
+    /// and place (each `check_update`; an ended check leaves).
+    checks:
+        std::collections::BTreeMap<(String, eukhe_types::daemon::agent_tree::CheckPlace), String>,
     /// The current Python `bash()` registry snapshot from the owning kernel.
     bash_activities: Value,
     /// Monotonic id of the latest issued kernel-bash list request; a late

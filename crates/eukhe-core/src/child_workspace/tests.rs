@@ -5,9 +5,13 @@ use std::time::Duration;
 
 use super::check::detect;
 use super::{
-    files, run_check, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckRun, ChildWorkspace,
-    Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
+    files, run_check, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckReport, CheckRun,
+    ChildWorkspace, Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
 };
+use eukhe_types::daemon::agent_tree::CheckPhase;
+
+/// A check report nobody reads.
+fn unheard(_report: CheckReport) {}
 
 /// Every file under `dir` with its text (`.git` left out).
 fn snapshot(dir: &Path) -> BTreeMap<String, String> {
@@ -262,13 +266,20 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
             files_of(&[("c.txt", "c-child")]),
         )
     );
-    // The copies are gone; the child's directory now is the parent's.
+    // The copies stay for the checks; once closed, they are gone and the
+    // child's directory is the parent's.
+    let copies = (
+        workspace.root().join(BASE).is_dir(),
+        workspace.tree().is_symlink(),
+    );
+    workspace.close().await.unwrap();
     assert_eq!(
         (
+            copies,
             workspace.root().join(BASE).exists(),
             fs::read_link(workspace.tree()).unwrap(),
         ),
-        (false, parent.clone())
+        ((true, false), false, parent.clone())
     );
 }
 
@@ -552,9 +563,10 @@ async fn without_a_project_or_a_command_there_is_no_check() {
     let config = CheckConfig {
         command: None,
         timeout: Duration::from_secs(60),
+        progress_every: Duration::from_secs(30),
     };
     assert_eq!(
-        run_check(dir.path(), &paths(&["notes.txt"]), &config).await,
+        run_check(dir.path(), &paths(&["notes.txt"]), &config, &unheard).await,
         CheckRun::None
     );
 }
@@ -563,6 +575,8 @@ async fn without_a_project_or_a_command_there_is_no_check() {
 fn timeless(run: CheckRun) -> CheckRun {
     match run {
         CheckRun::None => CheckRun::None,
+        CheckRun::Pending => CheckRun::Pending,
+        CheckRun::NotRun { error } => CheckRun::NotRun { error },
         CheckRun::Ran {
             command,
             outcome,
@@ -586,9 +600,16 @@ async fn a_configured_command_wins_and_reports_its_exit_and_output() {
     let config = |command: &str| CheckConfig {
         command: Some(command.to_owned()),
         timeout: Duration::from_secs(60),
+        progress_every: Duration::from_secs(30),
     };
-    let passed = run_check(root, &touched, &config("printf ok")).await;
-    let failed = run_check(root, &touched, &config("echo out; echo err >&2; exit 3")).await;
+    let passed = run_check(root, &touched, &config("printf ok"), &unheard).await;
+    let failed = run_check(
+        root,
+        &touched,
+        &config("echo out; echo err >&2; exit 3"),
+        &unheard,
+    )
+    .await;
     assert_eq!(
         [timeless(passed), timeless(failed)],
         [
@@ -614,9 +635,10 @@ async fn a_check_past_its_timeout_is_killed() {
     let config = CheckConfig {
         command: Some("echo started; sleep 30".to_owned()),
         timeout: Duration::from_millis(500),
+        progress_every: Duration::from_secs(30),
     };
     assert_eq!(
-        timeless(run_check(dir.path(), &[], &config).await),
+        timeless(run_check(dir.path(), &[], &config, &unheard).await),
         CheckRun::Ran {
             command: "echo started; sleep 30".to_owned(),
             outcome: CheckOutcome::TimedOut,
@@ -645,15 +667,92 @@ async fn a_failed_check_names_its_last_lines() {
     let config = |command: &str| CheckConfig {
         command: Some(command.to_owned()),
         timeout: Duration::from_secs(60),
+        progress_every: Duration::from_secs(30),
     };
     assert_eq!(
         [
-            verdict(run_check(dir.path(), &[], &config(fmt)).await),
-            verdict(run_check(dir.path(), &[], &config(tests)).await),
+            verdict(run_check(dir.path(), &[], &config(fmt), &unheard).await),
+            verdict(run_check(dir.path(), &[], &config(tests), &unheard).await),
         ],
         [
             format!("Check `{fmt}`: failed (exit 1) in 0.0 s; last lines: +fn a() {{}} | FMT FAILED | CHECK EXIT 1."),
             format!("Check `{tests}`: failed (exit 1) in 0.0 s; last lines: test b ... FAILED | TESTS FAILED | CHECK EXIT 1."),
         ]
+    );
+}
+
+/// A check that waits (for a slot, a queue) reports while it runs: at
+/// its start, then at each interval its time since the start and the last
+/// line it printed, then at its end how it ended and its last lines.
+#[tokio::test]
+async fn a_running_check_reports_its_time_and_last_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = "echo waiting for a slot; while [ ! -e release ]; do sleep 0.01; done; echo FMT FAILED; exit 1";
+    let every = Duration::from_millis(20);
+    let config = CheckConfig {
+        command: Some(command.to_owned()),
+        timeout: Duration::from_secs(60),
+        progress_every: every,
+    };
+    let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel();
+    let report = move |report: CheckReport| {
+        let _sent = sender.send(report);
+    };
+    let waiting = |report: &CheckReport| matches!(&report.phase, CheckPhase::Running { last_line: Some(line) } if line == "waiting for a slot");
+    // The check ends only once a report showed it waiting.
+    let heard = async {
+        let mut heard = Vec::new();
+        while let Some(report) = reports.recv().await {
+            if waiting(&report) && !heard.iter().any(waiting) {
+                fs::write(dir.path().join("release"), "").unwrap();
+            }
+            let ended = matches!(report.phase, CheckPhase::Ended { .. });
+            heard.push(report);
+            if ended {
+                return heard;
+            }
+        }
+        heard
+    };
+    let (run, heard) = tokio::join!(run_check(dir.path(), &[], &config, &report), heard);
+    let at_start = |report: &CheckReport| CheckReport {
+        elapsed_ms: 0,
+        ..report.clone()
+    };
+    let wait = heard.iter().find(|report| waiting(report)).unwrap();
+    assert_eq!(
+        (
+            heard.first().map(at_start),
+            at_start(wait),
+            wait.elapsed_ms >= u64::try_from(every.as_millis()).unwrap(),
+            heard.last().map(at_start),
+            timeless(run).text().lines().next().map(str::to_owned),
+        ),
+        (
+            Some(CheckReport {
+                command: command.to_owned(),
+                elapsed_ms: 0,
+                phase: CheckPhase::Running { last_line: None },
+            }),
+            CheckReport {
+                command: command.to_owned(),
+                elapsed_ms: 0,
+                phase: CheckPhase::Running {
+                    last_line: Some("waiting for a slot".to_owned()),
+                },
+            },
+            true,
+            Some(CheckReport {
+                command: command.to_owned(),
+                elapsed_ms: 0,
+                phase: CheckPhase::Ended {
+                    outcome: CheckOutcome::Failed { code: Some(1) },
+                    last_lines: vec!["waiting for a slot".to_owned(), "FMT FAILED".to_owned()],
+                },
+            }),
+            Some(format!(
+                "Check `{command}`: failed (exit 1) in 0.0 s; last lines: waiting for a slot | FMT FAILED."
+            )),
+        )
     );
 }

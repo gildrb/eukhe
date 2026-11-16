@@ -172,6 +172,15 @@ impl EukheSession {
         Arc::clone(&self.deps.budget)
     }
 
+    /// The session's check feed: each report of a child's hand-back
+    /// check (its start, each interval while it runs, its end).
+    #[must_use]
+    pub fn checks(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<eukhe_types::daemon::agent_tree::CheckProgress> {
+        self.deps.checks.subscribe()
+    }
+
     /// Begin closing ([`HostDeps::begin_close`]), stop the session's
     /// services (reverse start order), then close the Harness after its
     /// running tasks settle. Idempotent: a later call stops nothing and

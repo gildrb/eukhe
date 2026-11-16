@@ -48,6 +48,7 @@ pub(crate) struct EventPump {
     loops: JoinHandle<()>,
     budgets: JoinHandle<()>,
     acceptance: JoinHandle<()>,
+    checks: JoinHandle<()>,
 }
 
 /// The change gate of the `goal_update`, `loop_update` and `budget_update`
@@ -135,6 +136,22 @@ impl EventPump {
                 acceptance_outputs.write_events([SessionEvent::AcceptanceUpdate { acceptance }]);
             }
         });
+        // Each report of a child's hand-back check is a frame; one missed
+        // while the connection lagged is not sent again.
+        let mut reports = session.checks();
+        let check_outputs = outputs.clone();
+        let checks = tokio::spawn(async move {
+            loop {
+                match reports.recv().await {
+                    Ok(check) => {
+                        let text = check.text();
+                        check_outputs.write_events([SessionEvent::CheckUpdate { check, text }]);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
         Ok(Self {
             stream,
             translation,
@@ -143,11 +160,12 @@ impl EventPump {
             loops,
             budgets,
             acceptance,
+            checks,
         })
     }
 
     /// Detach: stop the event watch, publish the translator's held frame,
-    /// and end the goal, loop and budget watches.
+    /// and end the goal, loop, budget, acceptance and check watches.
     pub(crate) async fn stop(self) {
         // The watch's terminal result carries nothing the connection
         // reports: the pump only ever stops on purpose.
@@ -163,6 +181,7 @@ impl EventPump {
         self.loops.abort();
         self.budgets.abort();
         self.acceptance.abort();
+        self.checks.abort();
     }
 }
 

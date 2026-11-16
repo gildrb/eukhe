@@ -21,8 +21,11 @@ use eukhe_bend::rules::agent_tree::Patch;
 use eukhe_core::agent_messaging::{
     create_agent_session_message_row, AgentFamilyRelationship, AgentSessionMessageRowPayload,
 };
-use eukhe_core::child_workspace::{run_check, unit_patch, CheckRun, ChildWorkspace, WorkspaceMode};
+use eukhe_core::child_workspace::{
+    run_check, unit_patch, CheckReport, CheckRun, ChildWorkspace, ScopedHandback, WorkspaceMode,
+};
 use eukhe_core::durable::children as durable;
+use eukhe_types::daemon::agent_tree::{CheckPlace, CheckProgress};
 use eukhe_types::daemon::{DaemonCommand, PromptInput, StreamingBehavior, WorkerLiveness};
 use eukhe_types::input_origin::ChildFailure;
 use eukhe_types::pi_ai::{Usage, UsageCost};
@@ -940,7 +943,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
     fn hand_back(
         &self,
         request: durable::RlmChildHandbackRequest,
-    ) -> durable::RlmHostFuture<'_, Option<durable::RlmChildHandback>> {
+    ) -> durable::RlmHostFuture<'_, Option<ScopedHandback>> {
         let this = Arc::clone(&self.inner);
         Box::pin(async move {
             let root = {
@@ -979,6 +982,39 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     Ok(_) | Err(_) => {}
                 }
             }
+            // The integration waits for no check: the checks run after it
+            // (`check`), in the copies it leaves.
+            let handback = workspace
+                .hand_back_scoped(&request.units, &request.scope)
+                .await
+                .with_context(|| {
+                    format!(
+                        "hand back RLM child {}'s workspace (session {})",
+                        request.rlm_child_id, request.session_id
+                    )
+                })?;
+            Ok(Some(handback))
+        })
+    }
+
+    fn check(
+        &self,
+        request: durable::RlmChildCheckRequest,
+    ) -> durable::RlmHostFuture<'_, Option<durable::HandbackChecks>> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let durable::RlmChildCheckRequest {
+                handback: request,
+                progress,
+            } = request;
+            let root = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.workspace_root(&request.rlm_child_id, &identity)?
+            };
+            let workspace = ChildWorkspace::at(root);
+            if !workspace.is_created() {
+                return Ok(None);
+            }
             let parent_cwd = this
                 .identity
                 .lock()
@@ -993,34 +1029,63 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
             })
             .await
             .context("the agent tree check settings read task join failed")?;
-            // The child's own check runs in its checkout over what it
-            // changed, before its writes come back (a rerun after the
-            // hand-back has no checkout left to check).
-            let child_check = if workspace.is_handed_back() {
-                CheckRun::None
-            } else {
-                let changed = workspace.changed().await?;
-                run_check(&workspace.tree(), &changed, &config).await
+            let report = |place| {
+                let (child, progress) = (request.rlm_child_id.clone(), progress.clone());
+                move |report: CheckReport| {
+                    // No frontend listening is no error.
+                    let _heard = progress.send(CheckProgress {
+                        child: child.clone(),
+                        place,
+                        command: report.command,
+                        elapsed_ms: report.elapsed_ms,
+                        phase: report.phase,
+                    });
+                }
             };
+            // The hand-back's record (a repeat returns it, taking nothing).
             let handback = workspace
                 .hand_back_scoped(&request.units, &request.scope)
                 .await
                 .with_context(|| {
                     format!(
-                        "hand back RLM child {}'s workspace (session {})",
+                        "read RLM child {}'s hand-back (session {})",
                         request.rlm_child_id, request.session_id
                     )
                 })?;
-            // The parent's check runs after the integration, over what was
-            // taken.
+            // The child's own check runs in its checkout over what it
+            // changed (a rerun after the checkout closed has none left).
+            let child_check = if workspace.has_copies() {
+                let changed = workspace.changed().await?;
+                run_check(
+                    &workspace.tree(),
+                    &changed,
+                    &config,
+                    &report(CheckPlace::Checkout),
+                )
+                .await
+            } else {
+                CheckRun::None
+            };
+            // The parent's check runs over what was taken.
             let taken: Vec<std::path::PathBuf> = handback
                 .taken
                 .iter()
                 .map(std::path::PathBuf::from)
                 .collect();
-            let parent_check = run_check(Path::new(&parent_cwd), &taken, &config).await;
-            Ok(Some(durable::RlmChildHandback {
-                handback,
+            let parent_check = run_check(
+                Path::new(&parent_cwd),
+                &taken,
+                &config,
+                &report(CheckPlace::Integration),
+            )
+            .await;
+            workspace.close().await.with_context(|| {
+                format!(
+                    "close RLM child {}'s checkout (session {})",
+                    request.rlm_child_id, request.session_id
+                )
+            })?;
+            Ok(Some(durable::HandbackChecks {
                 child_check,
                 parent_check,
             }))
