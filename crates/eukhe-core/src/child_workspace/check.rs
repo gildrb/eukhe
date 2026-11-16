@@ -26,6 +26,12 @@ use crate::platform::process::{signal_process_group, Signal};
 /// The output bytes a check report keeps (the tail).
 const OUTPUT_TAIL_BYTES: usize = 16 * 1024;
 
+/// The last output lines a failed check's verdict names.
+const VERDICT_LINES: usize = 3;
+
+/// The most chars of one output line a verdict names.
+const LINE_CHARS: usize = 200;
+
 /// How a node's check runs (`agentTree.checkCommand`,
 /// `agentTree.checkTimeoutSecs`; `SettingsManager::get_agent_tree_check`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +71,8 @@ pub enum CheckRun {
 }
 
 impl CheckRun {
-    /// The check as the node reads it.
+    /// The check as the node reads it: the verdict (a failed or timed out
+    /// check's with its last output lines), then the output's tail.
     #[must_use]
     pub fn text(&self) -> String {
         match self {
@@ -76,14 +83,29 @@ impl CheckRun {
                 output,
                 duration_ms,
             } => {
-                let verdict = match outcome {
-                    CheckOutcome::Passed => "passed".to_owned(),
-                    CheckOutcome::Failed { code: Some(code) } => format!("failed (exit {code})"),
-                    CheckOutcome::Failed { code: None } => "failed (no exit code)".to_owned(),
-                    CheckOutcome::TimedOut => "timed out".to_owned(),
+                let (verdict, lines) = match outcome {
+                    CheckOutcome::Passed => ("passed".to_owned(), Vec::new()),
+                    CheckOutcome::Failed { code: Some(code) } => (
+                        format!("failed (exit {code})"),
+                        last_lines(output, VERDICT_LINES),
+                    ),
+                    CheckOutcome::Failed { code: None } => (
+                        "failed (no exit code)".to_owned(),
+                        last_lines(output, VERDICT_LINES),
+                    ),
+                    CheckOutcome::TimedOut => {
+                        ("timed out".to_owned(), last_lines(output, VERDICT_LINES))
+                    }
                 };
                 let (seconds, tenths) = (duration_ms / 1000, duration_ms % 1000 / 100);
-                let head = format!("Check `{command}`: {verdict} in {seconds}.{tenths} s.");
+                let head = if lines.is_empty() {
+                    format!("Check `{command}`: {verdict} in {seconds}.{tenths} s.")
+                } else {
+                    format!(
+                        "Check `{command}`: {verdict} in {seconds}.{tenths} s; last lines: {}.",
+                        lines.join(" | ")
+                    )
+                };
                 if output.is_empty() {
                     head
                 } else {
@@ -92,6 +114,21 @@ impl CheckRun {
             }
         }
     }
+}
+
+/// The last `count` non-empty lines of `output`, oldest first, each
+/// trimmed and cut at [`LINE_CHARS`] chars.
+fn last_lines(output: &str, count: usize) -> Vec<String> {
+    let mut lines: Vec<String> = output
+        .lines()
+        .rev()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(count)
+        .map(|line| line.chars().take(LINE_CHARS).collect())
+        .collect();
+    lines.reverse();
+    lines
 }
 
 /// Run the check of `touched` (paths relative to `dir`, or absolute under

@@ -625,3 +625,35 @@ async fn a_check_past_its_timeout_is_killed() {
         }
     );
 }
+
+/// A failed check names its own failure: its verdict carries the last
+/// lines it printed, so a formatting failure and a test failure read
+/// apart.
+#[tokio::test]
+async fn a_failed_check_names_its_last_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let fmt = "printf 'Diff in a.rs:1:\\n-fn a(){}\\n+fn a() {}\\n'; echo FMT FAILED; echo CHECK EXIT 1; exit 1";
+    let tests = "echo 'test b ... FAILED'; echo TESTS FAILED; echo CHECK EXIT 1; exit 1";
+    let verdict = |run: CheckRun| {
+        timeless(run)
+            .text()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let config = |command: &str| CheckConfig {
+        command: Some(command.to_owned()),
+        timeout: Duration::from_secs(60),
+    };
+    assert_eq!(
+        [
+            verdict(run_check(dir.path(), &[], &config(fmt)).await),
+            verdict(run_check(dir.path(), &[], &config(tests)).await),
+        ],
+        [
+            format!("Check `{fmt}`: failed (exit 1) in 0.0 s; last lines: +fn a() {{}} | FMT FAILED | CHECK EXIT 1."),
+            format!("Check `{tests}`: failed (exit 1) in 0.0 s; last lines: test b ... FAILED | TESTS FAILED | CHECK EXIT 1."),
+        ]
+    );
+}
