@@ -63,39 +63,47 @@ impl Account {
         }
     }
 
-    /// The account the core answered, each hold kept with the agent and
-    /// the request key `of` its id.
-    pub(crate) fn from_acct(acct: &Acct, of: impl Fn(u64) -> (String, Option<String>)) -> Account {
+    /// The account the core answered. Each hold keeps the agent and the
+    /// request key its id had: `granted`'s for the hold just granted, else
+    /// the first of `before` with that id (moved out, or cloned while a
+    /// later hold of the answer has the same id); a hold none names has
+    /// neither.
+    pub(crate) fn from_acct(
+        acct: &Acct,
+        mut before: Vec<HoldRecord>,
+        mut granted: Option<HoldRecord>,
+    ) -> Account {
+        let holds = acct
+            .holds
+            .iter()
+            .enumerate()
+            .map(|(at, hold)| {
+                let later = acct.holds[at + 1..].iter().any(|next| next.id == hold.id);
+                let known = granted
+                    .iter_mut()
+                    .chain(before.iter_mut())
+                    .find(|known| known.id == hold.id);
+                let (agent, key) = match (known, later) {
+                    (Some(known), true) => (known.agent.clone(), known.key.clone()),
+                    (Some(known), false) => (std::mem::take(&mut known.agent), known.key.take()),
+                    (None, true | false) => (String::new(), None),
+                };
+                HoldRecord {
+                    id: hold.id,
+                    agent,
+                    amount: from_amt(hold.amt),
+                    key,
+                }
+            })
+            .collect();
         Account {
             free: from_amt(acct.free),
             spent: from_amt(acct.spent),
             lent: from_amt(acct.lent),
             over: from_amt(acct.over),
-            holds: acct
-                .holds
-                .iter()
-                .map(|hold| {
-                    let (agent, key) = of(hold.id);
-                    HoldRecord {
-                        id: hold.id,
-                        agent,
-                        amount: from_amt(hold.amt),
-                        key,
-                    }
-                })
-                .collect(),
+            holds,
             until: acct.until,
         }
-    }
-
-    /// The agent and the request key of the hold `id` (empty and none
-    /// when it is not held).
-    pub(crate) fn holder(&self, id: u64) -> (String, Option<String>) {
-        self.holds
-            .iter()
-            .find(|hold| hold.id == id)
-            .map(|hold| (hold.agent.clone(), hold.key.clone()))
-            .unwrap_or_default()
     }
 
     /// What the open reservations hold.

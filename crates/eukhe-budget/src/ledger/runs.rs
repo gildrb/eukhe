@@ -9,7 +9,7 @@ use eukhe_types::budget::{
     PlanShare, BUDGET_AMOUNT_MAX,
 };
 
-use super::{resume, Ledger, LedgerError, Locked};
+use super::{resume, standing, Ledger, LedgerError, Locked, OpenMode, Standing};
 use crate::amounts::{add, dimension, limits_amounts, mask, to_amt, to_ask, unlimited};
 use crate::record::{Account, Op, RunRecord, State};
 
@@ -89,16 +89,19 @@ pub(super) fn renewed(
         now_ms,
         &account.to_acct(),
     )?;
+    let mut next = state.clone();
+    let members = resume(std::mem::take(&mut next.members));
+    let account = Account::from_acct(&acct, std::mem::take(&mut next.account.holds), None);
     Ok(State {
-        account: Account::from_acct(&acct, |id| state.account.holder(id)),
+        account,
         limits: *limits,
-        members: resume(&state.members),
+        members,
         run: Some(run.clone()),
         tally: unlimited(total, limits),
         mark,
         program_runs,
         plan: None,
-        ..state.clone()
+        ..next
     })
 }
 
@@ -127,17 +130,89 @@ pub(super) fn plan_wrapped(
     agent: &str,
     plan: &PlanShare,
 ) -> Result<State, LedgerError> {
-    let mut next = state.clone();
-    let member = next
-        .members
-        .get_mut(agent)
-        .ok_or_else(|| LedgerError::NotMember(agent.to_owned()))?;
-    if member.phase == BudgetPhase::Working {
-        member.phase = BudgetPhase::WrapUp;
-        member.short = None;
+    if !state.members.contains_key(agent) {
+        return Err(LedgerError::NotMember(agent.to_owned()));
     }
-    next.plan = Some(plan.clone());
-    Ok(next)
+    let members = state
+        .members
+        .iter()
+        .map(|(name, current)| {
+            let member = if name == agent && current.phase == BudgetPhase::Working {
+                crate::record::Member {
+                    phase: BudgetPhase::WrapUp,
+                    short: None,
+                    ..current.clone()
+                }
+            } else {
+                current.clone()
+            };
+            (name.clone(), member)
+        })
+        .collect();
+    Ok(State {
+        members,
+        plan: Some(plan.clone()),
+        ..state.clone()
+    })
+}
+
+fn renew_op(
+    state: Option<&State>,
+    session_id: &str,
+    limits: BudgetLimits,
+    run: RunRecord,
+    mark: Mark,
+    now: u64,
+) -> Result<Op, LedgerError> {
+    match state {
+        None => Ok(Op::Open {
+            agent: session_id.to_owned(),
+            limits,
+            deadline_ms: limits.time_ms.map(|ms| now.saturating_add(ms)),
+            parent: None,
+            run: Some(run),
+        }),
+        Some(state) if !matches!(standing(state), Standing::Root) => {
+            Err(LedgerError::NotRoot(session_id.to_owned()))
+        }
+        Some(state) => {
+            let (mark, program_runs, next_run) = match mark {
+                Mark::Now => (add(state.account.spent, state.tally), 0, NextRun::default()),
+                Mark::Kept => (state.mark, state.program_runs, state.next_run.clone()),
+            };
+            Ok(Op::Renew {
+                limits,
+                run,
+                now_ms: now,
+                mark,
+                program_runs,
+                next_run,
+            })
+        }
+    }
+}
+
+fn next_run_op(
+    state: Option<&State>,
+    session_id: &str,
+    change: impl FnOnce(&NextRun) -> NextRun,
+) -> Result<(Option<Op>, Op), LedgerError> {
+    let current = match state {
+        None => None,
+        Some(state) if !matches!(standing(state), Standing::Root) => {
+            return Err(LedgerError::NotRoot(session_id.to_owned()));
+        }
+        Some(state) => Some(state.next_run.clone()),
+    };
+    let open = current.is_none().then(|| Op::Open {
+        agent: session_id.to_owned(),
+        limits: BudgetLimits::default(),
+        deadline_ms: None,
+        parent: None,
+        run: None,
+    });
+    let next_run = change(&current.unwrap_or_default());
+    Ok((open, Op::NextRun { next_run }))
 }
 
 impl Ledger {
@@ -182,39 +257,12 @@ impl Ledger {
         if self.link_path().is_file() {
             return Err(LedgerError::NotRoot(self.session_id.clone()));
         }
-        let Some(mut locked) = Locked::open(&self.path(), true)? else {
+        let Some(locked) = Locked::open(&self.path(), OpenMode::Create)? else {
             return Err(LedgerError::NoBudget(self.session_id.clone()));
         };
         let now = (self.clock)();
-        let op = match locked.state() {
-            None => Op::Open {
-                agent: self.session_id.clone(),
-                limits,
-                deadline_ms: limits.time_ms.map(|ms| now.saturating_add(ms)),
-                parent: None,
-                run: Some(run),
-            },
-            Some(state) if state.parent.is_some() || state.returned.is_some() => {
-                return Err(LedgerError::NotRoot(self.session_id.clone()));
-            }
-            Some(state) => {
-                // A new run takes what was set for it; a set of the
-                // current run leaves that for the next one.
-                let (mark, program_runs, next_run) = match mark {
-                    Mark::Now => (add(state.account.spent, state.tally), 0, NextRun::default()),
-                    Mark::Kept => (state.mark, state.program_runs, state.next_run.clone()),
-                };
-                Op::Renew {
-                    limits,
-                    run,
-                    now_ms: now,
-                    mark,
-                    program_runs,
-                    next_run,
-                }
-            }
-        };
-        locked.apply(op, now)?;
+        let op = renew_op(locked.state(), &self.session_id, limits, run, mark, now)?;
+        let (locked, _) = locked.apply(op, now)?;
         Ok(locked.report(&self.session_id, &self.session_id, now))
     }
 
@@ -224,7 +272,7 @@ impl Ledger {
     ///
     /// The file's failures.
     pub fn run(&self) -> Result<Option<RunRecord>, LedgerError> {
-        Ok(Locked::open(&self.path(), false)?
+        Ok(Locked::open(&self.path(), OpenMode::Existing)?
             .and_then(|locked| locked.state().and_then(|state| state.run.clone())))
     }
 
@@ -235,7 +283,7 @@ impl Ledger {
     ///
     /// The file's failures.
     pub fn next_run(&self) -> Result<NextRun, LedgerError> {
-        Ok(Locked::open(&self.path(), false)?
+        Ok(Locked::open(&self.path(), OpenMode::Existing)?
             .and_then(|locked| locked.state().map(|state| state.next_run.clone()))
             .unwrap_or_default())
     }
@@ -252,11 +300,11 @@ impl Ledger {
         if self.link_path().is_file() {
             return Ok(false);
         }
-        Ok(Locked::open(&self.path(), false)?
+        Ok(Locked::open(&self.path(), OpenMode::Existing)?
             .and_then(|locked| {
-                locked.state().map(|state| {
-                    state.run.is_none() && state.parent.is_none() && state.returned.is_none()
-                })
+                locked
+                    .state()
+                    .map(|state| state.run.is_none() && matches!(standing(state), Standing::Root))
             })
             .unwrap_or(true))
     }
@@ -280,31 +328,12 @@ impl Ledger {
         if self.link_path().is_file() {
             return Err(LedgerError::NotRoot(self.session_id.clone()));
         }
-        let Some(mut locked) = Locked::open(&self.path(), true)? else {
+        let Some(locked) = Locked::open(&self.path(), OpenMode::Create)? else {
             return Err(LedgerError::NoBudget(self.session_id.clone()));
         };
         let now = (self.clock)();
-        let set = match locked.state() {
-            None => None,
-            Some(state) if state.parent.is_some() || state.returned.is_some() => {
-                return Err(LedgerError::NotRoot(self.session_id.clone()));
-            }
-            Some(state) => Some(state.next_run.clone()),
-        };
-        if set.is_none() {
-            locked.apply(
-                Op::Open {
-                    agent: self.session_id.clone(),
-                    limits: BudgetLimits::default(),
-                    deadline_ms: None,
-                    parent: None,
-                    run: None,
-                },
-                now,
-            )?;
-        }
-        let next_run = change(&set.unwrap_or_default());
-        locked.apply(Op::NextRun { next_run }, now)?;
+        let (open, op) = next_run_op(locked.state(), &self.session_id, change)?;
+        let locked = locked.apply_all(open.into_iter().chain([op]), now)?;
         Ok(locked.report(&self.session_id, &self.session_id, now))
     }
 
@@ -317,15 +346,15 @@ impl Ledger {
     /// [`LedgerError::NoBudget`], [`LedgerError::NotMember`], and the
     /// file's or the core's failures.
     pub fn plan_wrap(&self, agent: &str, plan: PlanShare) -> Result<BudgetReport, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
-        locked.apply(
+        let (locked, _) = locked.apply(
             Op::PlanWrap {
                 agent: agent.to_owned(),
                 plan,
             },
             now,
         )?;
-        Ok(locked.report(&owner, agent, now))
+        Ok(locked.report(&owner.session_id, agent, now))
     }
 }

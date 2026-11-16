@@ -17,14 +17,14 @@
 //! child's, always in that order; no other operation holds two.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eukhe_bend::rules::budget as core;
 use eukhe_types::budget::{
-    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetReport, BUDGET_AMOUNT_MAX,
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, BUDGET_AMOUNT_MAX,
 };
 
 use crate::amounts::{
@@ -32,16 +32,16 @@ use crate::amounts::{
 };
 use crate::record::{
     Account, ChildCarve, HoldRecord, Member, Op, Outcome, ParentRef, Record, RefusalRecord, State,
-    UseRecord, PROGRAM_LABEL,
 };
 
+mod file;
 mod runs;
+mod step;
+
+use file::{remove_link, Locked, OpenMode};
+use step::{above, clip_offers, resume, sharing, side_keep, step, use_record};
 
 pub use runs::floor;
-
-/// How much of a file's end is read to find its last record before the
-/// whole file is.
-const TAIL_BYTES: u64 = 64 * 1024;
 
 /// The shortest time a model request's offers are clipped to: a request
 /// with less time left is refused, not sent to time out.
@@ -207,6 +207,55 @@ pub enum LedgerError {
     Core(#[from] eukhe_bend::Error),
 }
 
+enum ReleaseAction {
+    Member,
+    Recover,
+    None,
+}
+
+fn release_op(state: Option<&State>, agent: &str) -> ReleaseAction {
+    match state {
+        Some(state)
+            if state
+                .members
+                .get(agent)
+                .is_some_and(|member| member.parent.is_some()) =>
+        {
+            ReleaseAction::Member
+        }
+        Some(state) if state.account.holds.iter().any(|hold| hold.agent == agent) => {
+            ReleaseAction::Recover
+        }
+        Some(_) | None => ReleaseAction::None,
+    }
+}
+
+enum Standing<'a> {
+    Root,
+    Carved(&'a ParentRef),
+    Returned(&'a Account),
+}
+
+#[derive(Clone, Copy)]
+enum InFlight {
+    Wait,
+    Charge,
+}
+
+fn standing(state: &State) -> Standing<'_> {
+    match (&state.parent, &state.returned) {
+        (Some(parent), _) => Standing::Carved(parent),
+        (None, Some(account)) => Standing::Returned(account),
+        (None, None) => Standing::Root,
+    }
+}
+
+/// The owner of the account a session draws from, and the account's file.
+struct Owner {
+    session_id: String,
+    path: PathBuf,
+}
+
 /// The ledger as one session sees it: a handle on the files. It holds no
 /// state: every operation resolves the session's account and reads it
 /// under its lock, so the processes of a session tree share one truth.
@@ -226,778 +275,111 @@ fn now_ms() -> u64 {
         })
 }
 
-/// `limits` with `amount` added in every dimension it is non-zero in (a
-/// dimension that had no limit gets one).
-fn raise(limits: BudgetLimits, amount: BudgetAmounts) -> Result<BudgetLimits, LedgerError> {
-    BudgetDimension::ALL
-        .into_iter()
-        .try_fold(limits, |limits, dimension| {
-            let more = amount.get(dimension);
-            if more == 0 {
-                return Ok(limits);
-            }
-            let total = limits.get(dimension).unwrap_or(0).saturating_add(more);
-            if total > BUDGET_AMOUNT_MAX {
-                return Err(LedgerError::TooLarge);
-            }
-            Ok(limits.with(dimension, Some(total)))
-        })
-}
-
-fn refusal_record(why: core::Why) -> RefusalRecord {
-    match why {
-        core::Why::Short(dim) => RefusalRecord::Short(dimension(dim)),
-        core::Why::Held => RefusalRecord::Held,
-        core::Why::Stopped => RefusalRecord::Stopped,
-    }
-}
-
-fn core_phase(phase: BudgetPhase) -> core::Phase {
-    match phase {
-        BudgetPhase::Working => core::Phase::Working,
-        BudgetPhase::WrapUp => core::Phase::WrapUp,
-        BudgetPhase::Exhausted => core::Phase::Exhausted,
-    }
-}
-
-/// The final-answer reserves of the members above `agent` in the account
-/// (its parent, the parent's parent, up to the owner), as they were
-/// asked (unmasked).
-fn above(state: &State, agent: &str) -> BudgetAmounts {
-    let mut sum = BudgetAmounts::default();
-    let mut at = state
-        .members
-        .get(agent)
-        .and_then(|member| member.parent.as_deref());
-    // A chain longer than the members is a cycle in a forged file.
-    for _ in 0..state.members.len() {
-        let Some(member) = at.and_then(|parent| state.members.get(parent)) else {
-            break;
-        };
-        sum = add(sum, member.keep);
-        at = member.parent.as_deref();
-    }
-    sum
-}
-
-/// `offers` of a reservation of `agent` for `use_` at `now`, each clipped
-/// to the time left for it before the deadline (the reserves above and,
-/// for work and a side request, its own `keep` left), never below
-/// `min_ms` (an offer asking less keeps its own). Unclipped without a
-/// time limit.
-fn clip_offers(
+fn carve_op(
     state: &State,
     agent: &str,
-    use_: Use,
-    keep: BudgetAmounts,
-    offers: &[BudgetAmounts],
-    min_ms: u64,
+    child: &str,
+    limits: BudgetLimits,
+    carve: u64,
     now: u64,
-) -> Vec<BudgetAmounts> {
-    match state.limits.time_ms {
-        Some(_) => {
-            let own = match use_ {
-                Use::Work | Use::Side => keep.time_ms,
-                Use::Final => 0,
-            };
-            let left = state
+) -> Result<(Op, BudgetLimits), LedgerError> {
+    for dimension in BudgetDimension::ALL {
+        if dimension != BudgetDimension::Time
+            && state.limits.get(dimension).is_some()
+            && limits.get(dimension).is_none()
+        {
+            return Err(LedgerError::NeedsAllotment(dimension));
+        }
+    }
+    let member = state
+        .members
+        .get(agent)
+        .ok_or_else(|| LedgerError::NotMember(agent.to_owned()))?;
+    let time = match (limits.time_ms, state.limits.time_ms) {
+        (Some(ms), _) => Some(ms),
+        (None, Some(_)) => Some(
+            state
                 .account
                 .until
                 .saturating_sub(now)
-                .saturating_sub(above(state, agent).time_ms)
-                .saturating_sub(own);
-            offers
-                .iter()
-                .map(|offer| BudgetAmounts {
-                    time_ms: if offer.time_ms <= min_ms {
-                        offer.time_ms
-                    } else {
-                        offer.time_ms.min(left.max(min_ms))
-                    },
-                    ..*offer
-                })
-                .collect()
+                .saturating_sub(add(member.keep, above(state, agent)).time_ms),
+        ),
+        (None, None) => None,
+    };
+    let limits = limits.with(BudgetDimension::Time, time);
+    Ok((
+        Op::Carve {
+            agent: agent.to_owned(),
+            child: child.to_owned(),
+            carve,
+            limits,
+            now_ms: now,
+        },
+        limits,
+    ))
+}
+
+fn carve_refusal(outcome: Outcome) -> Option<Refusal> {
+    match outcome {
+        Outcome::Done => None,
+        Outcome::Granted { .. }
+        | Outcome::Refused {
+            refusal: RefusalRecord::Held | RefusalRecord::Stopped,
+        } => Some(Refusal::Stopped),
+        Outcome::Refused {
+            refusal: RefusalRecord::Short(dimension),
+        } => Some(Refusal::Short(dimension)),
+    }
+}
+
+fn receive_op(
+    state: Option<&State>,
+    agent: &str,
+    limits: BudgetLimits,
+    until: u64,
+    parent: ParentRef,
+    now: u64,
+) -> Option<Op> {
+    let open = |parent| Op::Open {
+        agent: agent.to_owned(),
+        limits,
+        deadline_ms: limits.time_ms.map(|_| until),
+        parent: Some(parent),
+        run: None,
+    };
+    match state {
+        None => Some(open(parent)),
+        Some(state) if matches!(standing(state), Standing::Carved(current) if current == &parent) => {
+            None
         }
-        None => offers.to_vec(),
-    }
-}
-
-/// The reserve a request of `agent` for `use_` leaves: `keep`, and for a
-/// side request at least the reserve the agent's turns recorded, whichever
-/// gate asks for it: one that never sent a turn (a compaction's, a
-/// memory's) knows no reserve of its own (B6).
-fn side_keep(state: &State, agent: &str, use_: Use, keep: BudgetAmounts) -> BudgetAmounts {
-    match use_ {
-        Use::Side => state
-            .members
-            .get(agent)
-            .map_or(keep, |member| BudgetAmounts {
-                cost_micros: keep.cost_micros.max(member.keep.cost_micros),
-                tokens: keep.tokens.max(member.keep.tokens),
-                time_ms: keep.time_ms.max(member.keep.time_ms),
-                tool_calls: keep.tool_calls.max(member.keep.tool_calls),
-                requests: keep.requests.max(member.keep.requests),
-            }),
-        Use::Work | Use::Final => keep,
-    }
-}
-
-/// How many agents share what is free when `agent` asks (B13): the asking
-/// one and every other Working member of the account that holds nothing.
-fn sharing(state: &State, agent: &str) -> u64 {
-    let waiting = state
-        .members
-        .iter()
-        .filter(|(member, at)| {
-            member.as_str() != agent
-                && at.phase == BudgetPhase::Working
-                && !state
-                    .account
-                    .holds
-                    .iter()
-                    .any(|hold| &hold.agent == *member)
-        })
-        .count();
-    u64::try_from(waiting).map_or(u64::MAX, |others| others.saturating_add(1))
-}
-
-fn use_record(use_: Use) -> UseRecord {
-    match use_ {
-        Use::Work => UseRecord::Work,
-        Use::Final => UseRecord::Final,
-        Use::Side => UseRecord::Side,
-    }
-}
-
-/// The account after every open hold of `agent` was settled at its held
-/// amount: what a crashed or ended agent left in flight has an unknown
-/// cost, bounded by its reservation.
-fn settle_held(state: &State, agent: &str) -> Result<Account, LedgerError> {
-    let mut acct = state.account.to_acct();
-    for hold in state
-        .account
-        .holds
-        .iter()
-        .filter(|hold| hold.agent == agent)
-    {
-        acct = core::settle(hold.id, to_amt(hold.amount), &acct)?;
-    }
-    Ok(Account::from_acct(&acct, |id| state.account.holder(id)))
-}
-
-/// Every member back to `Working`, as after added budget or a new
-/// allotment.
-fn resume(members: &BTreeMap<String, Member>) -> BTreeMap<String, Member> {
-    members
-        .iter()
-        .map(|(agent, member)| {
-            (
-                agent.clone(),
-                Member {
-                    phase: BudgetPhase::Working,
-                    short: None,
-                    ..member.clone()
-                },
-            )
-        })
-        .collect()
-}
-
-/// The state and the core's answer after `op` on `state`: the one place an
-/// account's state changes, used to write a record and to audit one.
-#[allow(clippy::too_many_lines)] // One arm per operation, each short.
-fn step(state: &State, op: &Op) -> Result<(State, Outcome), LedgerError> {
-    let mut next = state.clone();
-    let acct = state.account.to_acct();
-    let holder = |id| state.account.holder(id);
-    let outcome =
-        match op {
-            Op::Open {
-                agent,
-                limits,
-                deadline_ms,
-                parent,
-                run,
-            } => {
-                let amounts = limits_amounts(limits);
-                let until = deadline_ms.unwrap_or(BUDGET_AMOUNT_MAX);
-                if until > BUDGET_AMOUNT_MAX
-                    || BudgetDimension::ALL
-                        .into_iter()
-                        .any(|dimension| amounts.get(dimension) > BUDGET_AMOUNT_MAX)
-                {
-                    return Err(LedgerError::TooLarge);
-                }
-                let mut members = resume(&state.members);
-                members.entry(agent.clone()).or_default().parent = None;
-                let opened = core::fund(
-                    core::Ask {
-                        amt: to_amt(amounts),
-                        ms: until,
-                    },
-                    &core::Acct::default(),
-                )?;
-                // Ids and carve numbers go on: a late settlement of an earlier
-                // budget's id never settles a new hold.
-                next = State {
-                    account: Account::from_acct(&opened, holder),
-                    limits: *limits,
-                    next_id: state.next_id,
-                    next_carve: state.next_carve,
-                    members,
-                    parent: parent.clone(),
-                    run: run.clone(),
-                    ..State::default()
-                };
-                Outcome::Done
-            }
-            Op::Renew {
-                limits,
-                run,
-                now_ms,
-                mark,
-                program_runs,
-                next_run,
-            } => {
-                next = State {
-                    next_run: next_run.clone(),
-                    ..runs::renewed(state, limits, run, *now_ms, *mark, *program_runs)?
-                };
-                Outcome::Done
-            }
-            Op::NextRun { next_run } => {
-                next.next_run = next_run.clone();
-                Outcome::Done
-            }
-            Op::PlanWrap { agent, plan } => {
-                next = runs::plan_wrapped(state, agent, plan)?;
-                Outcome::Done
-            }
-            Op::Join { agent, parent } => {
-                if !state.members.contains_key(parent) {
-                    return Err(LedgerError::NotMember(parent.clone()));
-                }
-                next.members.entry(agent.clone()).or_insert_with(|| Member {
-                    parent: Some(parent.clone()),
-                    ..Member::default()
-                });
-                Outcome::Done
-            }
-            Op::Reserve {
-                id,
-                agent,
-                use_,
-                label,
-                key,
-                now_ms,
-                keep,
-                step,
-                share,
-                offers,
-            } => {
-                let member = state
-                    .members
-                    .get(agent)
-                    .ok_or_else(|| LedgerError::NotMember(agent.clone()))?;
-                let offers: Vec<core::Ask> = offers
-                    .iter()
-                    .map(|offer| to_ask(mask(*offer, &state.limits)))
-                    .collect();
-                let use_core = match use_ {
-                    UseRecord::Work => core::Use::Work,
-                    UseRecord::Final => core::Use::Final,
-                    UseRecord::Side => core::Use::Side,
-                };
-                let base = to_ask(mask(above(state, agent), &state.limits));
-                let keep_ask = to_ask(mask(*keep, &state.limits));
-                let (want, less) = offers.split_first().ok_or(LedgerError::NoOffer)?;
-                // The agents that share what is free each start from an
-                // offer within their share (B13).
-                let start = core::share_start(
-                    *share, use_core, base, keep_ask, *want, less, acct.free, *now_ms, acct.until,
-                )?;
-                let (want, less) = offers
-                    .get(start..)
-                    .and_then(<[core::Ask]>::split_first)
-                    .ok_or(LedgerError::NoOffer)?;
-                let grant = core::reserve(
-                    use_core,
-                    core_phase(member.phase),
-                    *id,
-                    *now_ms,
-                    base,
-                    keep_ask,
-                    to_ask(mask(*step, &state.limits)),
-                    *want,
-                    less,
-                    &acct,
-                )?;
-                let after = next.members.entry(agent.clone()).or_default();
-                after.keep = *keep;
-                match grant {
-                    core::Grant::Granted {
-                        index,
-                        ask,
-                        acct,
-                        low,
-                    } => {
-                        next.account = Account::from_acct(&acct, |held| {
-                            if held == *id {
-                                (agent.clone(), key.clone())
-                            } else {
-                                state.account.holder(held)
-                            }
-                        });
-                        next.next_id = id.saturating_add(1);
-                        if label.starts_with(PROGRAM_LABEL) && state.run.is_some() {
-                            next.program_runs = state.program_runs.saturating_add(1);
-                        }
-                        Outcome::Granted {
-                            index: start + index,
-                            amount: from_ask(ask),
-                            low,
-                        }
-                    }
-                    core::Grant::Refused { why, phase } => {
-                        after.phase = match phase {
-                            core::Phase::Working => BudgetPhase::Working,
-                            core::Phase::WrapUp => BudgetPhase::WrapUp,
-                            core::Phase::Exhausted => BudgetPhase::Exhausted,
-                        };
-                        // A side request that does not fit leaves the
-                        // agent as it was: its phase (the core keeps it)
-                        // and what put it there.
-                        if let (core::Why::Short(dim), UseRecord::Work | UseRecord::Final) =
-                            (why, use_)
-                        {
-                            after.short = Some(dimension(dim));
-                        }
-                        Outcome::Refused {
-                            refusal: refusal_record(why),
-                        }
-                    }
-                }
-            }
-            Op::Settle { id, actual } => {
-                next.account = Account::from_acct(
-                    &core::settle(*id, to_amt(mask(*actual, &state.limits)), &acct)?,
-                    holder,
-                );
-                // A ledger that records runs counts the spend no limit
-                // counts too.
-                if state.run.is_some() && state.account.holds.iter().any(|hold| hold.id == *id) {
-                    next.tally = add(state.tally, unlimited(*actual, &state.limits));
-                }
-                Outcome::Done
-            }
-            Op::Recover { agent } => {
-                next.account = settle_held(state, agent)?;
-                Outcome::Done
-            }
-            Op::Release { agent } => {
-                next.account = settle_held(state, agent)?;
-                // The owner stays; a member's own members move up to its
-                // parent, whose reserves they still leave.
-                let gone = state
-                    .members
-                    .get(agent)
-                    .and_then(|member| member.parent.clone());
-                if let Some(up) = gone {
-                    next.members.remove(agent);
-                    for member in next.members.values_mut() {
-                        if member.parent.as_deref() == Some(agent.as_str()) {
-                            member.parent = Some(up.clone());
-                        }
-                    }
-                }
-                Outcome::Done
-            }
-            Op::Carve {
-                agent,
-                child,
-                carve,
-                limits,
-                now_ms,
-            } => {
-                let member = state
-                    .members
-                    .get(agent)
-                    .ok_or_else(|| LedgerError::NotMember(agent.clone()))?;
-                let want = core::Ask {
-                    amt: to_amt(mask(limits_amounts(limits), &state.limits)),
-                    ms: limits.time_ms.map_or_else(
-                        || BUDGET_AMOUNT_MAX.saturating_sub(*now_ms),
-                        |ms| ms.min(BUDGET_AMOUNT_MAX),
-                    ),
-                };
-                let base = mask(add(member.keep, above(state, agent)), &state.limits);
-                match core::carve(core_phase(member.phase), *now_ms, want, to_ask(base), &acct)? {
-                    core::Carve::Carved {
-                        parent,
-                        child: carved,
-                    } => {
-                        next.account = Account::from_acct(&parent, holder);
-                        next.next_carve = carve.saturating_add(1);
-                        let lent = match state.children.get(child) {
-                            Some(before) => {
-                                let until = before.until.max(carved.until);
-                                ChildCarve {
-                                    carve: *carve,
-                                    agent: agent.clone(),
-                                    limits: raise(
-                                        before.limits,
-                                        limits_amounts(limits).with(
-                                            BudgetDimension::Time,
-                                            until.saturating_sub(before.until),
-                                        ),
-                                    )?,
-                                    until,
-                                }
-                            }
-                            None => ChildCarve {
-                                carve: *carve,
-                                agent: agent.clone(),
-                                limits: *limits,
-                                until: carved.until,
-                            },
-                        };
-                        next.children.insert(child.clone(), lent);
-                        Outcome::Done
-                    }
-                    core::Carve::Kept(why) => Outcome::Refused {
-                        refusal: refusal_record(why),
-                    },
-                }
-            }
-            Op::Return { carve: _, account } => {
-                // The core empties a closed child whatever its parent holds.
-                match core::close(&account.to_acct(), &core::Acct::default())? {
-                    core::Close::Closed { child, .. } => {
-                        next.account = Account::from_acct(&child, holder);
-                        // The budget went back with the account: the limited
-                        // dimensions stay limited, at nothing, and no agent is
-                        // admitted until the parent lends again.
-                        next.limits = BudgetDimension::ALL.into_iter().fold(
-                            state.limits,
-                            |limits, dimension| match limits.get(dimension) {
-                                Some(_) => limits.with(dimension, Some(0)),
-                                None => limits,
-                            },
-                        );
-                        for member in next.members.values_mut() {
-                            member.phase = BudgetPhase::Exhausted;
-                            member.short = None;
-                        }
-                        next.parent = None;
-                        next.returned = Some(account.clone());
-                        Outcome::Done
-                    }
-                    core::Close::Busy => Outcome::Refused {
-                        refusal: RefusalRecord::Held,
-                    },
-                }
-            }
-            Op::Reclaim {
-                child,
-                carve: _,
-                account,
-            } => {
-                let handed = Account {
-                    free: mask(account.free, &state.limits),
-                    spent: mask(account.spent, &state.limits),
-                    lent: mask(account.lent, &state.limits),
-                    over: mask(account.over, &state.limits),
-                    holds: account.holds.clone(),
-                    until: account.until,
-                };
-                match core::close(&handed.to_acct(), &acct)? {
-                    core::Close::Closed { parent, child: _ } => {
-                        next.account = Account::from_acct(&parent, holder);
-                        next.children.remove(child);
-                        Outcome::Done
-                    }
-                    core::Close::Busy => Outcome::Refused {
-                        refusal: RefusalRecord::Held,
-                    },
-                }
-            }
-            Op::Fund {
-                amount,
-                parent,
-                now_ms,
-            } => {
-                next.limits = raise(state.limits, *amount)?;
-                next.run = runs::set_where_limited(state.run.as_ref(), &state.limits, &next.limits);
-                let timed = state.limits.time_ms.is_some();
-                let ms = if timed { amount.time_ms } else { 0 };
-                if state.account.until.saturating_add(ms) > BUDGET_AMOUNT_MAX {
-                    return Err(LedgerError::TooLarge);
-                }
-                let funded = core::fund(
-                    core::Ask {
-                        amt: to_amt(*amount),
-                        ms,
-                    },
-                    &acct,
-                )?;
-                next.account = Account::from_acct(&funded, holder);
-                if !timed && amount.time_ms > 0 {
-                    // A budget without a time limit gets a deadline from now.
-                    let until = now_ms.saturating_add(amount.time_ms);
-                    if until > BUDGET_AMOUNT_MAX {
-                        return Err(LedgerError::TooLarge);
-                    }
-                    next.account.until = until;
-                }
-                next.members = resume(&state.members);
-                if let Some(parent) = parent {
-                    next.parent = Some(parent.clone());
-                    next.returned = None;
-                }
-                Outcome::Done
-            }
-            Op::Limit { limits, now_ms } => {
-                let new = BudgetDimension::ALL.into_iter().fold(
-                    BudgetLimits::default(),
-                    |new, dimension| match (state.limits.get(dimension), limits.get(dimension)) {
-                        (None, Some(limit)) => new.with(dimension, Some(limit)),
-                        (Some(_), _) | (None, None) => new,
-                    },
-                );
-                let amounts = limits_amounts(&new);
-                if BudgetDimension::ALL
-                    .into_iter()
-                    .any(|dimension| amounts.get(dimension) > BUDGET_AMOUNT_MAX)
-                {
-                    return Err(LedgerError::TooLarge);
-                }
-                // An unlimited dimension holds nothing anywhere: funding it
-                // makes its free the limit.
-                let funded = core::fund(
-                    core::Ask {
-                        amt: to_amt(amounts),
-                        ms: 0,
-                    },
-                    &acct,
-                )?;
-                next.account = Account::from_acct(&funded, holder);
-                if let Some(ms) = new.time_ms {
-                    let until = now_ms.saturating_add(ms);
-                    if until > BUDGET_AMOUNT_MAX {
-                        return Err(LedgerError::TooLarge);
-                    }
-                    next.account.until = until;
-                }
-                next.limits =
-                    BudgetDimension::ALL
-                        .into_iter()
-                        .fold(state.limits, |limits, dimension| match new.get(dimension) {
-                            Some(limit) => limits.with(dimension, Some(limit)),
-                            None => limits,
-                        });
-                next.run = runs::set_where_limited(state.run.as_ref(), &state.limits, &next.limits);
-                Outcome::Done
-            }
-        };
-    Ok((next, outcome))
-}
-
-/// A ledger file held under its exclusive lock.
-struct Locked {
-    path: PathBuf,
-    file: File,
-    /// The last record, if the file has one.
-    last: Option<Record>,
-    /// Where the last complete line ends: a torn line after it is cut.
-    end: u64,
-}
-
-impl Locked {
-    fn io(&self, source: std::io::Error) -> LedgerError {
-        LedgerError::Io {
-            path: self.path.clone(),
-            source,
-        }
-    }
-
-    /// Opens (creating it when `create`) and locks the file, then reads
-    /// its last complete line. `None`: the file does not exist.
-    fn open(path: &Path, create: bool) -> Result<Option<Locked>, LedgerError> {
-        let io = |source| LedgerError::Io {
-            path: path.to_path_buf(),
-            source,
-        };
-        if create {
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(io)?;
-            }
-        }
-        let file = match OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create(create)
-            .open(path)
-        {
-            Ok(file) => file,
-            Err(error) if !create && error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(None)
-            }
-            Err(error) => return Err(io(error)),
-        };
-        file.lock().map_err(io)?;
-        let mut locked = Locked {
-            path: path.to_path_buf(),
-            file,
-            last: None,
-            end: 0,
-        };
-        locked.read_last()?;
-        Ok(Some(locked))
-    }
-
-    /// Reads the last complete line: the file's end first, the whole file
-    /// when the end holds no complete line.
-    fn read_last(&mut self) -> Result<(), LedgerError> {
-        let len = self.file.metadata().map_err(|e| self.io(e))?.len();
-        let mut from = len.saturating_sub(TAIL_BYTES);
-        loop {
-            self.file
-                .seek(SeekFrom::Start(from))
-                .map_err(|e| self.io(e))?;
-            let mut bytes = Vec::new();
-            self.file.read_to_end(&mut bytes).map_err(|e| self.io(e))?;
-            // The last complete line ends at the last newline; it starts
-            // after the newline before that, or at the file's start.
-            let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') else {
-                if from == 0 {
-                    self.end = 0;
-                    self.last = None;
-                    return Ok(());
-                }
-                from = 0;
-                continue;
+        Some(state) if matches!(standing(state), Standing::Returned(_)) => Some(open(parent)),
+        Some(state) => {
+            let time = if until >= BUDGET_AMOUNT_MAX {
+                0
+            } else if state.limits.time_ms.is_some() {
+                until.saturating_sub(state.account.until)
+            } else {
+                until.saturating_sub(now)
             };
-            let start = bytes[..last_newline]
-                .iter()
-                .rposition(|byte| *byte == b'\n')
-                .map(|at| at + 1);
-            let start = match start {
-                Some(start) => start,
-                None if from == 0 => 0,
-                None => {
-                    from = 0;
-                    continue;
-                }
-            };
-            let line = &bytes[start..last_newline];
-            let record: Record =
-                serde_json::from_slice(line).map_err(|error| LedgerError::Corrupt {
-                    path: self.path.clone(),
-                    line: 0,
-                    reason: error.to_string(),
-                })?;
-            self.end = from + last_newline as u64 + 1;
-            self.last = Some(record);
-            return Ok(());
+            Some(Op::Fund {
+                amount: limits_amounts(&limits).with(BudgetDimension::Time, time),
+                parent: Some(parent),
+                now_ms: now,
+            })
         }
-    }
-
-    fn state(&self) -> Option<&State> {
-        self.last.as_ref().map(|record| &record.state)
-    }
-
-    /// The budget as `agent` sees it at `now`, in the account of `owner`.
-    fn report(&self, owner: &str, agent: &str, now: u64) -> BudgetReport {
-        let empty = State::default();
-        let state = self.state().unwrap_or(&empty);
-        let member = state.members.get(agent);
-        let phase = member.map_or(BudgetPhase::Working, |member| member.phase);
-        BudgetReport {
-            session_id: owner.to_owned(),
-            agent_session_id: agent.to_owned(),
-            limits: state.limits,
-            free: BudgetAmounts {
-                time_ms: match state.limits.time_ms {
-                    Some(_) => state.account.until.saturating_sub(now),
-                    None => 0,
-                },
-                ..state.account.free
-            },
-            held: state.account.held(),
-            spent: sub(add(state.account.spent, state.tally), state.mark),
-            lent: state.account.lent,
-            over: state.account.over,
-            phase,
-            short: match phase {
-                BudgetPhase::Working => None,
-                BudgetPhase::WrapUp | BudgetPhase::Exhausted => {
-                    member.and_then(|member| member.short)
-                }
-            },
-            deadline_ms: state.limits.time_ms.map(|_| state.account.until),
-            parent_session_id: state
-                .parent
-                .as_ref()
-                .map(|parent| parent.session_id.clone()),
-            kind: state.run.as_ref().map(|run| run.kind),
-            sources: state
-                .run
-                .as_ref()
-                .map(|run| run.sources.clone())
-                .unwrap_or_default(),
-            program_runs: state.program_runs,
-            plan: state.plan.clone(),
-            next: Some(state.next_run.clone()).filter(|next| !next.is_empty()),
-        }
-    }
-
-    /// Applies `op` to the state, appends the record (written at `at_ms`)
-    /// and syncs it.
-    fn apply(&mut self, op: Op, at_ms: u64) -> Result<Outcome, LedgerError> {
-        let before = self.state().cloned().unwrap_or_default();
-        let (state, outcome) = step(&before, &op)?;
-        let record = Record {
-            seq: self.last.as_ref().map_or(0, |record| record.seq + 1),
-            at_ms,
-            op,
-            outcome,
-            state,
-        };
-        let mut line = serde_json::to_vec(&record).map_err(|error| LedgerError::Corrupt {
-            path: self.path.clone(),
-            line: record.seq,
-            reason: error.to_string(),
-        })?;
-        line.push(b'\n');
-        // A line cut short by a crash is dropped before the next record.
-        let len = self.file.metadata().map_err(|e| self.io(e))?.len();
-        if len != self.end {
-            self.file.set_len(self.end).map_err(|e| self.io(e))?;
-        }
-        self.file.write_all(&line).map_err(|e| self.io(e))?;
-        self.file.sync_data().map_err(|e| self.io(e))?;
-        // The file's first record: its directory entry is made durable
-        // too, or a crash could lose the file with what it acknowledged.
-        if let (0, Some(dir)) = (self.end, self.path.parent()) {
-            File::open(dir)
-                .and_then(|dir| dir.sync_all())
-                .map_err(|e| self.io(e))?;
-        }
-        self.end += line.len() as u64;
-        self.last = Some(record);
-        Ok(outcome)
     }
 }
-
-/// Removes the link file of `session_id` under `dir`: it draws from no
-/// shared account any more. A link that is not there is fine.
-fn remove_link(dir: &Path, session_id: &str) -> Result<(), LedgerError> {
-    let link = dir.join(format!("{session_id}.link"));
-    match std::fs::remove_file(&link) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(LedgerError::Io { path: link, source }),
+fn join_op(state: &State, agent: &str, parent: &str) -> Result<Option<Op>, LedgerError> {
+    if state.members.contains_key(agent) {
+        return Ok(None);
     }
+    if !state.members.contains_key(parent) {
+        return Err(LedgerError::NotMember(parent.to_owned()));
+    }
+    Ok(Some(Op::Join {
+        agent: agent.to_owned(),
+        parent: parent.to_owned(),
+    }))
 }
 
 impl Ledger {
@@ -1061,11 +443,15 @@ impl Ledger {
         self.path().is_file()
     }
 
-    /// The owner of the session's account: itself, or the session its link
-    /// names. `None`: it has neither.
-    fn owner(&self) -> Result<Option<String>, LedgerError> {
-        if self.path().is_file() {
-            return Ok(Some(self.session_id.clone()));
+    /// The owner of the session's account and its file: itself, or the
+    /// session its link names. `None`: it has neither.
+    fn owner(&self) -> Result<Option<Owner>, LedgerError> {
+        let own = self.path();
+        if own.is_file() {
+            return Ok(Some(Owner {
+                session_id: self.session_id.clone(),
+                path: own,
+            }));
         }
         let link = self.link_path();
         match std::fs::read_to_string(&link) {
@@ -1078,7 +464,10 @@ impl Ledger {
                         reason: format!("the link names no session: {owner:?}"),
                     });
                 }
-                Ok(Some(owner.to_owned()))
+                Ok(Some(Owner {
+                    session_id: owner.to_owned(),
+                    path: self.account_path(owner),
+                }))
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(source) => Err(LedgerError::Io { path: link, source }),
@@ -1086,12 +475,12 @@ impl Ledger {
     }
 
     /// The session's account, locked, with its owner.
-    fn lock(&self) -> Result<(String, Locked), LedgerError> {
+    fn lock(&self) -> Result<(Owner, Locked), LedgerError> {
         let owner = self
             .owner()?
             .ok_or_else(|| LedgerError::NoBudget(self.session_id.clone()))?;
-        match Locked::open(&self.account_path(&owner), false)? {
-            Some(locked) if locked.last.is_some() => Ok((owner, locked)),
+        match Locked::open(&owner.path, OpenMode::Existing)? {
+            Some(locked) if locked.state().is_some() => Ok((owner, locked)),
             Some(_) | None => Err(LedgerError::NoBudget(self.session_id.clone())),
         }
     }
@@ -1108,14 +497,14 @@ impl Ledger {
         if self.link_path().is_file() {
             return Err(LedgerError::AlreadyOpen(self.session_id.clone()));
         }
-        let Some(mut locked) = Locked::open(&self.path(), true)? else {
+        let Some(locked) = Locked::open(&self.path(), OpenMode::Create)? else {
             return Err(LedgerError::NoBudget(self.session_id.clone()));
         };
-        if locked.last.is_some() {
+        if locked.state().is_some() {
             return Err(LedgerError::AlreadyOpen(self.session_id.clone()));
         }
         let now = (self.clock)();
-        locked.apply(
+        let (locked, _) = locked.apply(
             Op::Open {
                 agent: self.session_id.clone(),
                 limits,
@@ -1145,14 +534,14 @@ impl Ledger {
             .sibling(parent_session_id)
             .owner()?
             .ok_or_else(|| LedgerError::NoBudget(parent_session_id.to_owned()))?;
-        if owner == self.session_id {
+        if owner.session_id == self.session_id {
             return Err(LedgerError::AlreadyOpen(self.session_id.clone()));
         }
         let now = (self.clock)();
-        if let Some(own) = Locked::open(&self.path(), false)? {
+        if let Some(own) = Locked::open(&self.path(), OpenMode::Existing)? {
             let handed_back = own
                 .state()
-                .is_none_or(|state| state.parent.is_none() && state.returned.is_some());
+                .is_none_or(|state| matches!(standing(state), Standing::Returned(_)));
             if !handed_back {
                 return Err(LedgerError::AlreadyOpen(self.session_id.clone()));
             }
@@ -1164,36 +553,31 @@ impl Ledger {
                 source,
             })?;
         }
-        let mut locked = match Locked::open(&self.account_path(&owner), false)? {
-            Some(locked) if locked.last.is_some() => locked,
+        let locked = match Locked::open(&owner.path, OpenMode::Existing)? {
+            Some(locked) if locked.state().is_some() => locked,
             Some(_) | None => return Err(LedgerError::NoBudget(parent_session_id.to_owned())),
         };
-        if !locked
-            .state()
-            .is_some_and(|state| state.members.contains_key(&self.session_id))
-        {
-            locked.apply(
-                Op::Join {
-                    agent: self.session_id.clone(),
-                    parent: parent_session_id.to_owned(),
-                },
-                now,
-            )?;
-        }
+        let empty = State::default();
+        let op = join_op(
+            locked.state().unwrap_or(&empty),
+            &self.session_id,
+            parent_session_id,
+        )?;
+        let locked = locked.apply_all(op, now)?;
         // The Join is on disk: the link follows, renamed into place whole.
         let link = self.link_path();
         let io = |source| LedgerError::Io {
             path: link.clone(),
             source,
         };
-        if std::fs::read_to_string(&link).ok().as_deref() != Some(owner.as_str()) {
+        if std::fs::read_to_string(&link).ok().as_deref() != Some(owner.session_id.as_str()) {
             let partial = self.dir.join(format!("{}.link.partial", self.session_id));
             let mut file = File::create(&partial).map_err(io)?;
-            file.write_all(owner.as_bytes()).map_err(io)?;
+            file.write_all(owner.session_id.as_bytes()).map_err(io)?;
             file.sync_all().map_err(io)?;
             std::fs::rename(&partial, &link).map_err(io)?;
         }
-        Ok(locked.report(&owner, &self.session_id, now))
+        Ok(locked.report(&owner.session_id, &self.session_id, now))
     }
 
     /// The budget as `agent` sees it; `None` when the session has none.
@@ -1205,10 +589,12 @@ impl Ledger {
         let Some(owner) = self.owner()? else {
             return Ok(None);
         };
-        match Locked::open(&self.account_path(&owner), false)? {
-            Some(locked) if locked.last.is_some() => {
-                Ok(Some(locked.report(&owner, agent, (self.clock)())))
-            }
+        match Locked::open(&owner.path, OpenMode::Existing)? {
+            Some(locked) if locked.state().is_some() => Ok(Some(locked.report(
+                &owner.session_id,
+                agent,
+                (self.clock)(),
+            ))),
             Some(_) | None => Ok(None),
         }
     }
@@ -1223,7 +609,7 @@ impl Ledger {
         let Some(owner) = self.owner()? else {
             return Ok(BTreeMap::new());
         };
-        Ok(Locked::open(&self.account_path(&owner), false)?
+        Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
             .map(|state| state.members.clone())
@@ -1241,7 +627,7 @@ impl Ledger {
         let Some(owner) = self.owner()? else {
             return Ok(Vec::new());
         };
-        Ok(Locked::open(&self.account_path(&owner), false)?
+        Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
             .map(|state| {
@@ -1267,7 +653,7 @@ impl Ledger {
         let Some(owner) = self.owner()? else {
             return Ok(Vec::new());
         };
-        Ok(Locked::open(&self.account_path(&owner), false)?
+        Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
             .map(|state| {
@@ -1332,7 +718,7 @@ impl Ledger {
         offers: &[BudgetAmounts],
         min_ms: u64,
     ) -> Result<Reserved, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
         let empty = State::default();
         let state = locked.state().unwrap_or(&empty);
@@ -1340,7 +726,7 @@ impl Ledger {
         let keep = side_keep(state, agent, use_, keep);
         let offers = clip_offers(state, agent, use_, keep, offers, min_ms, now);
         let share = sharing(state, agent);
-        let outcome = locked.apply(
+        let (locked, outcome) = locked.apply(
             Op::Reserve {
                 id,
                 agent: agent.to_owned(),
@@ -1355,7 +741,7 @@ impl Ledger {
             },
             now,
         )?;
-        let report = locked.report(&owner, agent, now);
+        let report = locked.report(&owner.session_id, agent, now);
         Ok(match outcome {
             Outcome::Granted { index, amount, low } => Reserved::Granted {
                 reservation: Reservation {
@@ -1435,10 +821,10 @@ impl Ledger {
     ///
     /// [`LedgerError::NoBudget`] and the file's or the core's failures.
     pub fn settle(&self, id: u64, actual: BudgetAmounts) -> Result<BudgetReport, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
-        locked.apply(Op::Settle { id, actual }, now)?;
-        Ok(locked.report(&owner, &self.session_id, now))
+        let (locked, _) = locked.apply(Op::Settle { id, actual }, now)?;
+        Ok(locked.report(&owner.session_id, &self.session_id, now))
     }
 
     /// Settles every open reservation of `agent` at its held amount: what
@@ -1450,20 +836,16 @@ impl Ledger {
     ///
     /// [`LedgerError::NoBudget`] and the file's or the core's failures.
     pub fn recover(&self, agent: &str) -> Result<BudgetReport, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
-        if locked
+        let recover = locked
             .state()
             .is_some_and(|state| state.account.holds.iter().any(|hold| hold.agent == agent))
-        {
-            locked.apply(
-                Op::Recover {
-                    agent: agent.to_owned(),
-                },
-                now,
-            )?;
-        }
-        Ok(locked.report(&owner, agent, now))
+            .then(|| Op::Recover {
+                agent: agent.to_owned(),
+            });
+        let locked = locked.apply_all(recover, now)?;
+        Ok(locked.report(&owner.session_id, agent, now))
     }
 
     /// A child that shared the account ended: its open reservations are
@@ -1475,34 +857,25 @@ impl Ledger {
     ///
     /// [`LedgerError::NoBudget`] and the file's or the core's failures.
     pub fn release(&self, agent: &str) -> Result<(), LedgerError> {
-        let (_, mut locked) = self.lock()?;
+        let (_, locked) = self.lock()?;
         let now = (self.clock)();
-        let (member, holds) = locked.state().map_or((false, false), |state| {
-            (
-                state
-                    .members
-                    .get(agent)
-                    .is_some_and(|member| member.parent.is_some()),
-                state.account.holds.iter().any(|hold| hold.agent == agent),
-            )
-        });
-        if member {
-            locked.apply(
-                Op::Release {
+        match release_op(locked.state(), agent) {
+            ReleaseAction::Member => {
+                let op = Op::Release {
                     agent: agent.to_owned(),
-                },
-                now,
-            )?;
-            remove_link(&self.dir, agent)?;
-        } else if holds {
-            locked.apply(
-                Op::Recover {
+                };
+                // The link goes while the account is still locked.
+                let (_locked, _) = locked.apply(op, now)?;
+                remove_link(&self.dir, agent)
+            }
+            ReleaseAction::Recover => {
+                let op = Op::Recover {
                     agent: agent.to_owned(),
-                },
-                now,
-            )?;
+                };
+                locked.apply(op, now).map(drop)
+            }
+            ReleaseAction::None => Ok(()),
         }
-        Ok(())
     }
 
     /// Adds budget to the session's account (a root's, or one it shares):
@@ -1516,12 +889,15 @@ impl Ledger {
     /// [`LedgerError::TooLarge`], [`LedgerError::NoBudget`], and the file's
     /// or the core's failures.
     pub fn fund(&self, amounts: BudgetAmounts) -> Result<BudgetReport, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
-        if locked.state().is_some_and(|state| state.parent.is_some()) {
+        let (owner, locked) = self.lock()?;
+        if locked
+            .state()
+            .is_some_and(|state| matches!(standing(state), Standing::Carved(_)))
+        {
             return Err(LedgerError::NotRoot(self.session_id.clone()));
         }
         let now = (self.clock)();
-        locked.apply(
+        let (locked, _) = locked.apply(
             Op::Fund {
                 amount: amounts,
                 parent: None,
@@ -1529,7 +905,7 @@ impl Ledger {
             },
             now,
         )?;
-        Ok(locked.report(&owner, &self.session_id, now))
+        Ok(locked.report(&owner.session_id, &self.session_id, now))
     }
 
     /// Limits every dimension that had no limit and that `limits` names
@@ -1541,22 +917,21 @@ impl Ledger {
     /// [`LedgerError::NoBudget`], [`LedgerError::TooLarge`], and the
     /// file's or the core's failures.
     pub fn limit(&self, limits: BudgetLimits) -> Result<BudgetReport, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
-        if locked.state().is_some_and(|state| {
-            BudgetDimension::ALL.into_iter().any(|dimension| {
-                state.limits.get(dimension).is_none() && limits.get(dimension).is_some()
+        let limit = locked
+            .state()
+            .is_some_and(|state| {
+                BudgetDimension::ALL.into_iter().any(|dimension| {
+                    state.limits.get(dimension).is_none() && limits.get(dimension).is_some()
+                })
             })
-        }) {
-            locked.apply(
-                Op::Limit {
-                    limits,
-                    now_ms: now,
-                },
-                now,
-            )?;
-        }
-        Ok(locked.report(&owner, &self.session_id, now))
+            .then_some(Op::Limit {
+                limits,
+                now_ms: now,
+            });
+        let locked = locked.apply_all(limit, now)?;
+        Ok(locked.report(&owner.session_id, &self.session_id, now))
     }
 
     /// `agent` gives the child `child_session_id` a budget of its own out
@@ -1579,74 +954,24 @@ impl Ledger {
         child_session_id: &str,
         limits: BudgetLimits,
     ) -> Result<CarveOutcome, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let now = (self.clock)();
         let empty = State::default();
         let state = locked.state().unwrap_or(&empty);
-        for dimension in BudgetDimension::ALL {
-            if dimension != BudgetDimension::Time
-                && state.limits.get(dimension).is_some()
-                && limits.get(dimension).is_none()
-            {
-                return Err(LedgerError::NeedsAllotment(dimension));
-            }
-        }
-        let member = state
-            .members
-            .get(agent)
-            .ok_or_else(|| LedgerError::NotMember(agent.to_owned()))?;
-        let time = match (limits.time_ms, state.limits.time_ms) {
-            (Some(ms), _) => Some(ms),
-            (None, Some(_)) => Some(
-                state
-                    .account
-                    .until
-                    .saturating_sub(now)
-                    .saturating_sub(add(member.keep, above(state, agent)).time_ms),
-            ),
-            (None, None) => None,
-        };
-        let limits = limits.with(BudgetDimension::Time, time);
         let shared = state.members.contains_key(child_session_id);
         let carve = state.next_carve;
-        let outcome = locked.apply(
-            Op::Carve {
-                agent: agent.to_owned(),
-                child: child_session_id.to_owned(),
-                carve,
-                limits,
-                now_ms: now,
-            },
-            now,
-        )?;
-        match outcome {
-            Outcome::Done => {}
-            Outcome::Refused {
-                refusal: RefusalRecord::Short(dimension),
-            } => {
-                return Ok(CarveOutcome::Refused {
-                    refusal: Refusal::Short(dimension),
-                    report: locked.report(&owner, agent, now),
-                })
-            }
-            Outcome::Refused {
-                refusal: RefusalRecord::Held | RefusalRecord::Stopped,
-            }
-            | Outcome::Granted { .. } => {
-                return Ok(CarveOutcome::Refused {
-                    refusal: Refusal::Stopped,
-                    report: locked.report(&owner, agent, now),
-                })
-            }
+        let (op, limits) = carve_op(state, agent, child_session_id, limits, carve, now)?;
+        let (locked, outcome) = locked.apply(op, now)?;
+        if let Some(refusal) = carve_refusal(outcome) {
+            return Ok(CarveOutcome::Refused {
+                refusal,
+                report: locked.report(&owner.session_id, agent, now),
+            });
         }
-        if shared {
-            locked.apply(
-                Op::Release {
-                    agent: child_session_id.to_owned(),
-                },
-                now,
-            )?;
-        }
+        let release = shared.then(|| Op::Release {
+            agent: child_session_id.to_owned(),
+        });
+        let locked = locked.apply_all(release, now)?;
         let until = locked
             .state()
             .and_then(|state| state.children.get(child_session_id))
@@ -1659,13 +984,13 @@ impl Ledger {
             limits,
             until,
             ParentRef {
-                session_id: owner.clone(),
+                session_id: owner.session_id.clone(),
                 carve,
             },
         )?;
         remove_link(&self.dir, child_session_id)?;
         Ok(CarveOutcome::Carved {
-            report: locked.report(&owner, agent, now),
+            report: locked.report(&owner.session_id, agent, now),
         })
     }
 
@@ -1679,41 +1004,12 @@ impl Ledger {
         until: u64,
         parent: ParentRef,
     ) -> Result<(), LedgerError> {
-        let Some(mut locked) = Locked::open(&self.path(), true)? else {
+        let Some(locked) = Locked::open(&self.path(), OpenMode::Create)? else {
             return Err(LedgerError::NoBudget(self.session_id.clone()));
         };
         let now = (self.clock)();
-        let open = |parent: ParentRef| Op::Open {
-            agent: self.session_id.clone(),
-            limits,
-            deadline_ms: limits.time_ms.map(|_| until),
-            parent: Some(parent),
-            run: None,
-        };
-        let op = match locked.state() {
-            None => Some(open(parent)),
-            Some(state) if state.parent.as_ref() == Some(&parent) => None,
-            Some(state) if state.parent.is_none() && state.returned.is_some() => Some(open(parent)),
-            Some(state) => {
-                // The deadline moves to `until` when that is later.
-                let time = if until >= BUDGET_AMOUNT_MAX {
-                    0
-                } else if state.limits.time_ms.is_some() {
-                    until.saturating_sub(state.account.until)
-                } else {
-                    until.saturating_sub(now)
-                };
-                Some(Op::Fund {
-                    amount: limits_amounts(&limits).with(BudgetDimension::Time, time),
-                    parent: Some(parent),
-                    now_ms: now,
-                })
-            }
-        };
-        if let Some(op) = op {
-            locked.apply(op, now)?;
-        }
-        Ok(())
+        let op = receive_op(locked.state(), &self.session_id, limits, until, parent, now);
+        locked.apply_all(op, now).map(drop)
     }
 
     /// Makes sure this (a child's) ledger holds what its parent's account
@@ -1732,7 +1028,7 @@ impl Ledger {
         let Some(owner) = self.sibling(parent_session_id).owner()? else {
             return Ok(None);
         };
-        let Some(parent_locked) = Locked::open(&self.account_path(&owner), false)? else {
+        let Some(parent_locked) = Locked::open(&owner.path, OpenMode::Existing)? else {
             return Ok(None);
         };
         let Some(lent) = parent_locked
@@ -1748,7 +1044,7 @@ impl Ledger {
                 lent.limits,
                 lent.until,
                 ParentRef {
-                    session_id: owner,
+                    session_id: owner.session_id,
                     carve: lent.carve,
                 },
             )?;
@@ -1772,7 +1068,7 @@ impl Ledger {
         child_session_id: &str,
         force: bool,
     ) -> Result<ReclaimOutcome, LedgerError> {
-        let (owner, mut locked) = self.lock()?;
+        let (owner, locked) = self.lock()?;
         let Some((lent, limits)) = locked.state().and_then(|state| {
             state
                 .children
@@ -1781,14 +1077,19 @@ impl Ledger {
         }) else {
             return Ok(ReclaimOutcome::NotLent);
         };
-        let Some(handed) = self
-            .sibling(child_session_id)
-            .hand_back(&owner, &lent, force)?
+        let in_flight = if force {
+            InFlight::Charge
+        } else {
+            InFlight::Wait
+        };
+        let Some(handed) =
+            self.sibling(child_session_id)
+                .hand_back(&owner.session_id, &lent, in_flight)?
         else {
             return Ok(ReclaimOutcome::Busy);
         };
         let now = (self.clock)();
-        let outcome = locked.apply(
+        let (locked, outcome) = locked.apply(
             Op::Reclaim {
                 child: child_session_id.to_owned(),
                 carve: lent.carve,
@@ -1800,7 +1101,7 @@ impl Ledger {
             Outcome::Done => ReclaimOutcome::Reclaimed {
                 returned: counted(handed.free, &limits),
                 spent: counted(handed.spent, &limits),
-                report: locked.report(&owner, &self.session_id, now),
+                report: locked.report(&owner.session_id, &self.session_id, now),
             },
             Outcome::Granted { .. } | Outcome::Refused { .. } => ReclaimOutcome::Busy,
         })
@@ -1816,36 +1117,39 @@ impl Ledger {
         &self,
         parent_owner: &str,
         lent: &ChildCarve,
-        force: bool,
+        in_flight: InFlight,
     ) -> Result<Option<Account>, LedgerError> {
         let untouched = || Account {
             free: limits_amounts(&lent.limits).with(BudgetDimension::Time, 0),
             ..Account::default()
         };
-        let Some(locked) = Locked::open(&self.path(), false)? else {
+        let Some(locked) = Locked::open(&self.path(), OpenMode::Existing)? else {
             return Ok(Some(untouched()));
         };
-        let Some(state) = locked.state().cloned() else {
+        let Some(state) = locked.state() else {
             return Ok(Some(untouched()));
         };
-        if state
-            .parent
-            .as_ref()
-            .is_none_or(|parent| parent.session_id != parent_owner)
-        {
-            // Already handed back: the same account again, or, for a
-            // ledger that is not this parent's child, nothing to return.
-            return Ok(Some(state.returned.unwrap_or_default()));
+        match standing(state) {
+            Standing::Carved(parent) if parent.session_id == parent_owner => {}
+            Standing::Returned(account) => return Ok(Some(account.clone())),
+            Standing::Root | Standing::Carved(_) => {
+                return Ok(Some(state.returned.clone().unwrap_or_default()));
+            }
         }
+        let grandchildren: Vec<String> = state.children.keys().cloned().collect();
         // The child's own live children first, each forced as this one is.
         drop(locked);
-        for grandchild in state.children.keys() {
-            if matches!(self.reclaim(grandchild, force)?, ReclaimOutcome::Busy) {
+        for grandchild in &grandchildren {
+            if matches!(
+                self.reclaim(grandchild, matches!(in_flight, InFlight::Charge))?,
+                ReclaimOutcome::Busy
+            ) {
                 return Ok(None);
             }
         }
-        let (_, mut locked) = self.lock()?;
+        let (_, locked) = self.lock()?;
         let now = (self.clock)();
+        // Every agent with a hold, once each, in order.
         let agents: BTreeSet<String> = locked
             .state()
             .map(|state| {
@@ -1857,27 +1161,24 @@ impl Ledger {
                     .collect()
             })
             .unwrap_or_default();
-        if !agents.is_empty() {
-            if !force {
-                return Ok(None);
+        let locked = match (agents.is_empty(), in_flight) {
+            (false, InFlight::Wait) => return Ok(None),
+            (true, InFlight::Wait | InFlight::Charge) => locked,
+            (false, InFlight::Charge) => {
+                locked.apply_all(agents.into_iter().map(|agent| Op::Recover { agent }), now)?
             }
-            for agent in agents {
-                locked.apply(Op::Recover { agent }, now)?;
-            }
-        }
+        };
         let account = locked
             .state()
             .map(|state| state.account.clone())
             .unwrap_or_default();
-        match locked.apply(
-            Op::Return {
-                carve: lent.carve,
-                account: account.clone(),
-            },
-            now,
-        )? {
-            Outcome::Done => Ok(Some(account)),
-            Outcome::Granted { .. } | Outcome::Refused { .. } => Ok(None),
+        let op = Op::Return {
+            carve: lent.carve,
+            account: account.clone(),
+        };
+        match locked.apply(op, now)? {
+            (_, Outcome::Done) => Ok(Some(account)),
+            (_, Outcome::Granted { .. } | Outcome::Refused { .. }) => Ok(None),
         }
     }
 
@@ -1892,77 +1193,71 @@ impl Ledger {
     /// does not read, and the file's failures.
     pub fn audit(&self) -> Result<Audit, LedgerError> {
         let (owner, locked) = self.lock()?;
-        let path = self.account_path(&owner);
-        let text = std::fs::read_to_string(&path).map_err(|source| LedgerError::Io {
-            path: path.clone(),
+        let text = std::fs::read_to_string(&owner.path).map_err(|source| LedgerError::Io {
+            path: owner.path.clone(),
             source,
         })?;
         drop(locked);
-        let mut state = State::default();
-        let mut settled = BudgetAmounts::default();
-        let mut records = 0;
-        let mut first_mismatch = None;
-        // A last line without its newline is a record cut short by a
-        // crash: it never took effect.
-        let complete = text.rfind('\n').map_or("", |end| &text[..end]);
-        for line in complete.lines() {
-            let record: Record =
-                serde_json::from_str(line).map_err(|error| LedgerError::Corrupt {
-                    path: path.clone(),
-                    line: records,
-                    reason: error.to_string(),
-                })?;
-            // A record the core refuses to replay is a mismatch too.
-            let replays = step(&state, &record.op).is_ok_and(|(replayed, outcome)| {
-                replayed == record.state && outcome == record.outcome && record.seq == records
-            });
-            if first_mismatch.is_none() && !replays {
-                first_mismatch = Some(records);
-            }
-            // What the record settled: a settlement of a held id its
-            // actual spend, a recovery or a release the agent's holds, a
-            // reclaim the child's spend; nothing else spends.
-            settled = match &record.op {
-                Op::Settle { id, actual }
-                    if state.account.holds.iter().any(|hold| hold.id == *id) =>
-                {
-                    add(settled, counted(*actual, &state.limits))
-                }
-                Op::Recover { agent } | Op::Release { agent } => state
-                    .account
-                    .holds
-                    .iter()
-                    .filter(|hold| hold.agent == *agent)
-                    .fold(settled, |sum, hold| add(sum, hold.amount)),
-                Op::Reclaim { account, .. } if record.outcome == Outcome::Done => {
-                    add(settled, counted(account.spent, &state.limits))
-                }
-                // A child's ledger starts over after it was handed back; a
-                // new run counts its spend from zero.
-                Op::Return { .. } if record.outcome == Outcome::Done => BudgetAmounts::default(),
-                // A new run, or limits the principal set, moves spend
-                // between what the limits count and the tally.
-                Op::Renew { .. } => record.state.account.spent,
-                Op::Open { .. }
-                | Op::Join { .. }
-                | Op::Reserve { .. }
-                | Op::Settle { .. }
-                | Op::Carve { .. }
-                | Op::Return { .. }
-                | Op::Reclaim { .. }
-                | Op::Fund { .. }
-                | Op::Limit { .. }
-                | Op::NextRun { .. }
-                | Op::PlanWrap { .. } => settled,
-            };
-            state = record.state;
-            records += 1;
+        replay(&owner.path, &text)
+    }
+}
+
+fn replay(path: &Path, text: &str) -> Result<Audit, LedgerError> {
+    let mut state = State::default();
+    let mut settled = BudgetAmounts::default();
+    let mut records = 0;
+    let mut first_mismatch = None;
+    let complete = text.rfind('\n').map_or("", |end| &text[..end]);
+    for line in complete.lines() {
+        let record: Record = serde_json::from_str(line).map_err(|error| LedgerError::Corrupt {
+            path: path.to_path_buf(),
+            line: records,
+            reason: error.to_string(),
+        })?;
+        let replays = step(&state, &record.op).is_ok_and(|(replayed, outcome)| {
+            replayed == record.state && outcome == record.outcome && record.seq == records
+        });
+        if first_mismatch.is_none() && !replays {
+            first_mismatch = Some(records);
         }
-        Ok(Audit {
-            records,
-            settled,
-            spent: state.account.spent,
-            first_mismatch,
-        })
+        settled = settled_after(settled, &state, &record);
+        state = record.state;
+        records += 1;
+    }
+    Ok(Audit {
+        records,
+        settled,
+        spent: state.account.spent,
+        first_mismatch,
+    })
+}
+
+fn settled_after(settled: BudgetAmounts, state: &State, record: &Record) -> BudgetAmounts {
+    match &record.op {
+        Op::Settle { id, actual } if state.account.holds.iter().any(|hold| hold.id == *id) => {
+            add(settled, counted(*actual, &state.limits))
+        }
+        Op::Recover { agent } | Op::Release { agent } => state
+            .account
+            .holds
+            .iter()
+            .filter(|hold| hold.agent == *agent)
+            .fold(settled, |sum, hold| add(sum, hold.amount)),
+        Op::Reclaim { account, .. } if record.outcome == Outcome::Done => {
+            add(settled, counted(account.spent, &state.limits))
+        }
+        Op::Return { .. } if record.outcome == Outcome::Done => BudgetAmounts::default(),
+        Op::Renew { .. } => record.state.account.spent,
+        Op::Open { .. }
+        | Op::Join { .. }
+        | Op::Reserve { .. }
+        | Op::Settle { .. }
+        | Op::Carve { .. }
+        | Op::Return { .. }
+        | Op::Reclaim { .. }
+        | Op::Fund { .. }
+        | Op::Limit { .. }
+        | Op::NextRun { .. }
+        | Op::PlanWrap { .. } => settled,
     }
 }

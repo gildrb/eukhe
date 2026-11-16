@@ -76,17 +76,15 @@ fn input_rate(rates: ModelCostRates) -> f64 {
 #[must_use]
 #[allow(clippy::cast_precision_loss)] // Token counts are far below 2^53.
 pub fn worst_case_cost_micros(cost: &ModelCost, bound: RequestBound) -> u64 {
-    let mut input = input_rate(cost.rates());
-    let mut output = cost.output;
-    for tier in cost
+    let (input, output) = cost
         .tiers
         .iter()
         .flatten()
         .filter(|tier| bound.billed_input_tokens > tier.input_tokens_above)
-    {
-        input = input.max(input_rate(tier.rates()));
-        output = output.max(tier.output);
-    }
+        .fold(
+            (input_rate(cost.rates()), cost.output),
+            |(input, output), tier| (input.max(input_rate(tier.rates())), output.max(tier.output)),
+        );
     let multiplier = if bound.price_multiplier.is_nan() {
         1.0
     } else {
