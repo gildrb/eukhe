@@ -203,6 +203,7 @@ import ./laws/stop/recover.bend as StopRecover
 import ./laws/stop/cut.bend as StopCut
 import ./laws/headless_settle.bend as HeadlessSettle
 import ./laws/headless_exit.bend as HeadlessExit
+import ./laws/headless_task.bend as HeadlessTask
 import ./laws/thread.bend as Thread
 import ./laws/tool_result.bend as ToolResult
 import ./laws/job_notice.bend as JobNotice

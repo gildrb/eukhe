@@ -4179,6 +4179,16 @@ import ./proof/headless_exit/headless_exit_transcript_before_flags.bend as PHead
 import ./proof/headless_exit/headless_exit_unfailed_run_neutral.bend as PHeadlessExitUnfailedRunNeutral
 import ./proof/headless_exit/headless_exit_unfinished_fails.bend as PHeadlessExitUnfinishedFails
 import ./proof/headless_exit/headless_exit_zero_iff_no_failure.bend as PHeadlessExitZeroIffNoFailure
+import ./proof/headless_task/base.bend as LAHeadlessTask
+import ./proof/headless_task/headless_task_entry_answers.bend as PHeadlessTaskEntryAnswers
+import ./proof/headless_task/headless_task_entry_example.bend as PHeadlessTaskEntryExample
+import ./proof/headless_task/headless_task_entry_left_over.bend as PHeadlessTaskEntryLeftOver
+import ./proof/headless_task/headless_task_entry_malformed_exact.bend as PHeadlessTaskEntryMalformedExact
+import ./proof/headless_task/headless_task_example.bend as PHeadlessTaskExample
+import ./proof/headless_task/headless_task_exit_stands.bend as PHeadlessTaskExitStands
+import ./proof/headless_task/headless_task_incomplete_iff_unfinished.bend as PHeadlessTaskIncompleteIffUnfinished
+import ./proof/headless_task/headless_task_unfinished_exits_one.bend as PHeadlessTaskUnfinishedExitsOne
+import ./proof/headless_task/headless_task_zero_only_when_finished.bend as PHeadlessTaskZeroOnlyWhenFinished
 import ./proof/headless_exit/headless_exit_budget_limited_zero.bend as PHeadlessExitBudgetLimitedZero
 import ./proof/headless_exit/headless_exit_budget_unanswered_fails.bend as PHeadlessExitBudgetUnansweredFails
 import ./proof/headless_exit/headless_exit_budget_keeps_other_failures.bend as PHeadlessExitBudgetKeepsOtherFailures

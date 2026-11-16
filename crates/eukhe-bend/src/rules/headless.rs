@@ -1,10 +1,12 @@
-//! The two decisions of a headless run (`eukhe -p`, `--mode json`,
+//! The decisions of a headless run (`eukhe -p`, `--mode json`,
 //! `--mode rpc`): whether it may stop waiting for the work its turn
 //! started (`bend/headless_settle.bend`, entry
 //! `bend/ffi_headless_settle.bend`; `laws/headless_settle.bend`), and the
 //! process exit code with its cause (`bend/headless_exit.bend`, entry
-//! `bend/ffi_headless_exit.bend`; `laws/headless_exit.bend`). Rust gathers
-//! the facts and acts on the answer; both rules run in the compiled core.
+//! `bend/ffi_headless_exit.bend`; `laws/headless_exit.bend`), then whether
+//! that exit stands for the run's task (`bend/headless_task.bend`, entry
+//! `bend/ffi_headless_task.bend`; `laws/headless_task.bend`). Rust gathers
+//! the facts and acts on the answer; the rules run in the compiled core.
 
 use crate::wire::{Reader, WireError, Writer, NAT_MAX};
 use crate::{call, Entry, Error};
@@ -291,6 +293,84 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
     Ok(Exit { code, cause })
 }
 
+impl ExitCause {
+    /// The cause as the exit entry spells it (`bend/ffi_headless_exit.bend`).
+    fn write(self, request: &mut Writer) {
+        match self {
+            ExitCause::Answered => request.tag(0),
+            ExitCause::CommandFailed => request.tag(1),
+            ExitCause::GaveUp => request.tag(2),
+            ExitCause::RunFailed(reason) => request.tag(3).tag(reason.tag()),
+            ExitCause::ProviderError => request.tag(4),
+            ExitCause::Aborted => request.tag(5),
+            ExitCause::Unfinished => request.tag(6),
+            ExitCause::SlashFailed => request.tag(7),
+            ExitCause::CompactionFailed => request.tag(8),
+            ExitCause::AutonomousFailed => request.tag(9),
+            ExitCause::BudgetLimited => request.tag(10),
+            ExitCause::BudgetUnanswered => request.tag(11),
+        };
+    }
+}
+
+/// The run's goal when a headless run ends: the agent's statement of its
+/// task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunGoal {
+    /// The run has no goal: it states no task to judge.
+    None,
+    /// The agent claimed the goal complete.
+    Complete,
+    /// The goal is still active, paused, budget-limited or failed.
+    Open,
+}
+
+/// What the exit of a headless run says of its task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Task {
+    /// The exit stands as [`exit`] decided it.
+    Stands,
+    /// The run answered with its goal open: its task is not done.
+    Incomplete,
+}
+
+/// The exit of a headless run's task: the process code and the task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskExit {
+    pub code: u8,
+    pub task: Task,
+}
+
+/// Whether the exit of a headless run whose exit had cause `cause` and
+/// whose goal ended as `goal` stands for its task, and the process code:
+/// an answered run with its goal open is incomplete and exits 1.
+///
+/// # Errors
+///
+/// A compiled-core failure or a malformed reply (an inconsistent build).
+pub fn task(cause: ExitCause, goal: RunGoal) -> Result<TaskExit, Error> {
+    let mut request = Writer::new();
+    cause.write(&mut request);
+    request.tag(match goal {
+        RunGoal::None => 0,
+        RunGoal::Complete => 1,
+        RunGoal::Open => 2,
+    });
+    let reply = call(Entry::HeadlessTask, &request.finish()?)?;
+    let mut reader = Reader::reply(&reply)?;
+    let code = u8::try_from(reader.nat()?).map_err(|_| WireError::Malformed {
+        at: 0,
+        expected: "an exit code",
+    })?;
+    let task = match reader.tag_of(2, "a task")? {
+        0 => Task::Stands,
+        // `tag_of` answers a tag below 2: this is 1.
+        _ => Task::Incomplete,
+    };
+    reader.end()?;
+    Ok(TaskExit { code, task })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,6 +643,85 @@ mod tests {
                 failed(ExitCause::CompactionFailed),
             ]
         );
+    }
+
+    /// An answered run whose goal is open did not finish its task: it
+    /// exits 1 as incomplete. Without a goal, with the goal complete, or
+    /// with any other cause, the exit stands.
+    #[test]
+    fn an_answer_with_its_goal_open_is_incomplete() {
+        let incomplete = TaskExit {
+            code: 1,
+            task: Task::Incomplete,
+        };
+        let stands = |code| TaskExit {
+            code,
+            task: Task::Stands,
+        };
+        assert_eq!(
+            [
+                task(ExitCause::Answered, RunGoal::Open).unwrap(),
+                task(ExitCause::Answered, RunGoal::None).unwrap(),
+                task(ExitCause::Answered, RunGoal::Complete).unwrap(),
+                task(ExitCause::BudgetLimited, RunGoal::Open).unwrap(),
+                task(ExitCause::RunFailed(Unanswered::Stale), RunGoal::Open).unwrap(),
+                task(ExitCause::GaveUp, RunGoal::Complete).unwrap(),
+                task(ExitCause::BudgetUnanswered, RunGoal::None).unwrap(),
+            ],
+            [
+                incomplete,
+                stands(0),
+                stands(0),
+                stands(0),
+                stands(1),
+                stands(1),
+                stands(1),
+            ]
+        );
+    }
+
+    /// Every cause the exit rule answers reaches the task rule intact: the
+    /// code of a standing exit is the exit's own.
+    #[test]
+    fn every_cause_keeps_its_code_without_an_open_goal() {
+        let reasons = [
+            Unanswered::ModelError,
+            Unanswered::RunLimit,
+            Unanswered::NoModel,
+            Unanswered::ForcedTool,
+            Unanswered::Faulted,
+            Unanswered::Aborted,
+            Unanswered::Reset,
+            Unanswered::Stale,
+            Unanswered::Withdrawn,
+            Unanswered::Other,
+            Unanswered::BudgetRefused,
+        ];
+        let causes = [
+            (ExitCause::Answered, 0),
+            (ExitCause::CommandFailed, 1),
+            (ExitCause::GaveUp, 1),
+            (ExitCause::ProviderError, 1),
+            (ExitCause::Aborted, 1),
+            (ExitCause::Unfinished, 1),
+            (ExitCause::SlashFailed, 1),
+            (ExitCause::CompactionFailed, 1),
+            (ExitCause::AutonomousFailed, 1),
+            (ExitCause::BudgetLimited, 0),
+            (ExitCause::BudgetUnanswered, 1),
+        ]
+        .into_iter()
+        .chain(reasons.map(|reason| (ExitCause::RunFailed(reason), 1)));
+        for (cause, code) in causes {
+            assert_eq!(
+                task(cause, RunGoal::Complete).unwrap(),
+                TaskExit {
+                    code,
+                    task: Task::Stands
+                },
+                "{cause:?}"
+            );
+        }
     }
 
     #[test]

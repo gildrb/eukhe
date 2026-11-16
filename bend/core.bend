@@ -58,6 +58,7 @@ import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
 import ./ffi_headless_exit.bend as ffi_headless_exit
 import ./ffi_headless_settle.bend as ffi_headless_settle
+import ./ffi_headless_task.bend as ffi_headless_task
 import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
@@ -381,6 +382,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_limits.ffi(input)
     case 463:
       ffi_work_list.ffi(input)
+    case 464:
+      ffi_headless_task.ffi(input)
     case _:
       W.err("unknown entry")
 
