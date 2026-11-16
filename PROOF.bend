@@ -4188,6 +4188,8 @@ import ./proof/headless_task/headless_task_example.bend as PHeadlessTaskExample
 import ./proof/headless_task/headless_task_exit_stands.bend as PHeadlessTaskExitStands
 import ./proof/headless_task/headless_task_incomplete_iff_unfinished.bend as PHeadlessTaskIncompleteIffUnfinished
 import ./proof/headless_task/headless_task_unfinished_exits_one.bend as PHeadlessTaskUnfinishedExitsOne
+import ./proof/headless_task/headless_task_unjudged_exits_one.bend as PHeadlessTaskUnjudgedExitsOne
+import ./proof/headless_task/headless_task_unjudged_iff_unread.bend as PHeadlessTaskUnjudgedIffUnread
 import ./proof/headless_task/headless_task_zero_only_when_finished.bend as PHeadlessTaskZeroOnlyWhenFinished
 import ./proof/headless_exit/headless_exit_budget_limited_zero.bend as PHeadlessExitBudgetLimitedZero
 import ./proof/headless_exit/headless_exit_budget_unanswered_fails.bend as PHeadlessExitBudgetUnansweredFails

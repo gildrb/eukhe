@@ -325,13 +325,32 @@ pub enum RunGoal {
     Open,
 }
 
+/// The judge's reading of a headless run's final answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Report {
+    /// Not asked: an open goal decides, the run did not answer, or it
+    /// answered with no text.
+    Unasked,
+    /// The answer states no work of the task left.
+    Done,
+    /// The answer states work of the task left.
+    Left,
+    /// The judge gave no verdict (its request failed or was stopped, its
+    /// reply was unreadable).
+    Unjudged,
+}
+
 /// What the exit of a headless run says of its task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Task {
     /// The exit stands as [`exit`] decided it.
     Stands,
-    /// The run answered with its goal open: its task is not done.
+    /// The run answered with work left: its goal open, or its final
+    /// answer stating work left.
     Incomplete,
+    /// The run answered without an open goal and the judge gave no
+    /// verdict on its final answer.
+    Unjudged,
 }
 
 /// The exit of a headless run's task: the process code and the task.
@@ -341,31 +360,42 @@ pub struct TaskExit {
     pub task: Task,
 }
 
-/// Whether the exit of a headless run whose exit had cause `cause` and
-/// whose goal ended as `goal` stands for its task, and the process code:
-/// an answered run with its goal open is incomplete and exits 1.
+/// Whether the exit of a headless run whose exit had cause `cause`, whose
+/// goal ended as `goal` and whose final answer the judge read as `report`
+/// stands for its task, and the process code: an answered run with its
+/// goal open, or without an open goal with an answer that states work
+/// left, is incomplete; one whose answer the judge gave no verdict on is
+/// unjudged; both exit 1.
 ///
 /// # Errors
 ///
 /// A compiled-core failure or a malformed reply (an inconsistent build).
-pub fn task(cause: ExitCause, goal: RunGoal) -> Result<TaskExit, Error> {
+pub fn task(cause: ExitCause, goal: RunGoal, report: Report) -> Result<TaskExit, Error> {
     let mut request = Writer::new();
     cause.write(&mut request);
-    request.tag(match goal {
-        RunGoal::None => 0,
-        RunGoal::Complete => 1,
-        RunGoal::Open => 2,
-    });
+    request
+        .tag(match goal {
+            RunGoal::None => 0,
+            RunGoal::Complete => 1,
+            RunGoal::Open => 2,
+        })
+        .tag(match report {
+            Report::Unasked => 0,
+            Report::Done => 1,
+            Report::Left => 2,
+            Report::Unjudged => 3,
+        });
     let reply = call(Entry::HeadlessTask, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let code = u8::try_from(reader.nat()?).map_err(|_| WireError::Malformed {
         at: 0,
         expected: "an exit code",
     })?;
-    let task = match reader.tag_of(2, "a task")? {
+    let task = match reader.tag_of(3, "a task")? {
         0 => Task::Stands,
-        // `tag_of` answers a tag below 2: this is 1.
-        _ => Task::Incomplete,
+        1 => Task::Incomplete,
+        // `tag_of` answers a tag below 3: this is 2.
+        _ => Task::Unjudged,
     };
     reader.end()?;
     Ok(TaskExit { code, task })
@@ -645,11 +675,13 @@ mod tests {
         );
     }
 
-    /// An answered run whose goal is open did not finish its task: it
-    /// exits 1 as incomplete. Without a goal, with the goal complete, or
-    /// with any other cause, the exit stands.
+    /// An answered run whose goal is open did not finish its task, nor
+    /// did one whose final answer states work left, a goal claimed
+    /// complete or not: both exit 1 as incomplete. An answer the judge
+    /// gave no verdict on exits 1 as unjudged. Without work left, or with
+    /// any other cause, the exit stands.
     #[test]
-    fn an_answer_with_its_goal_open_is_incomplete() {
+    fn an_answer_with_work_left_is_incomplete() {
         let incomplete = TaskExit {
             code: 1,
             task: Task::Incomplete,
@@ -658,18 +690,40 @@ mod tests {
             code,
             task: Task::Stands,
         };
+        let answered = |goal, report| task(ExitCause::Answered, goal, report).unwrap();
         assert_eq!(
             [
-                task(ExitCause::Answered, RunGoal::Open).unwrap(),
-                task(ExitCause::Answered, RunGoal::None).unwrap(),
-                task(ExitCause::Answered, RunGoal::Complete).unwrap(),
-                task(ExitCause::BudgetLimited, RunGoal::Open).unwrap(),
-                task(ExitCause::RunFailed(Unanswered::Stale), RunGoal::Open).unwrap(),
-                task(ExitCause::GaveUp, RunGoal::Complete).unwrap(),
-                task(ExitCause::BudgetUnanswered, RunGoal::None).unwrap(),
+                answered(RunGoal::Open, Report::Unasked),
+                answered(RunGoal::None, Report::Left),
+                answered(RunGoal::Complete, Report::Left),
+                answered(RunGoal::None, Report::Unjudged),
+                answered(RunGoal::Complete, Report::Unjudged),
+                answered(RunGoal::None, Report::Done),
+                answered(RunGoal::Complete, Report::Done),
+                answered(RunGoal::None, Report::Unasked),
+                task(ExitCause::BudgetLimited, RunGoal::Open, Report::Unasked).unwrap(),
+                task(
+                    ExitCause::RunFailed(Unanswered::Stale),
+                    RunGoal::Open,
+                    Report::Left
+                )
+                .unwrap(),
+                task(ExitCause::GaveUp, RunGoal::None, Report::Unjudged).unwrap(),
+                task(ExitCause::BudgetUnanswered, RunGoal::None, Report::Done).unwrap(),
             ],
             [
                 incomplete,
+                incomplete,
+                incomplete,
+                TaskExit {
+                    code: 1,
+                    task: Task::Unjudged
+                },
+                TaskExit {
+                    code: 1,
+                    task: Task::Unjudged
+                },
+                stands(0),
                 stands(0),
                 stands(0),
                 stands(0),
@@ -683,7 +737,7 @@ mod tests {
     /// Every cause the exit rule answers reaches the task rule intact: the
     /// code of a standing exit is the exit's own.
     #[test]
-    fn every_cause_keeps_its_code_without_an_open_goal() {
+    fn every_cause_keeps_its_code_without_work_left() {
         let reasons = [
             Unanswered::ModelError,
             Unanswered::RunLimit,
@@ -714,7 +768,7 @@ mod tests {
         .chain(reasons.map(|reason| (ExitCause::RunFailed(reason), 1)));
         for (cause, code) in causes {
             assert_eq!(
-                task(cause, RunGoal::Complete).unwrap(),
+                task(cause, RunGoal::Complete, Report::Done).unwrap(),
                 TaskExit {
                     code,
                     task: Task::Stands

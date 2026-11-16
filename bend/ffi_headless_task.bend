@@ -5,9 +5,11 @@
 #
 #   request  the exit's cause as ffi_headless_exit replies it (0 answered
 #            .. 11 budget unanswered; 3 run failed is followed by its
-#            reason), then the goal: 0 none | 1 complete | 2 open
+#            reason), the goal: 0 none | 1 complete | 2 open, then the
+#            judge's reading of the final answer: 0 not asked | 1 no
+#            work left | 2 work left | 3 no verdict
 #   reply    the code (Nat), then the task: 0 the exit stands |
-#            1 incomplete
+#            1 incomplete | 2 unjudged
 #
 # Malformed input, or input left after the request, answers
 # `E headless_task: malformed request`, never a default.
@@ -77,10 +79,34 @@ def get_goal(r: W.Dec<Nat>) -> W.Dec<Ht.Goal>:
     case W.Bad{}:
       W.Bad{}
 
+def get_report(r: W.Dec<Nat>) -> W.Dec<Ht.Report>:
+  match r:
+    case W.Got{t, s}:
+      match t:
+        case 0n:
+          W.Got{Ht.RUnasked{}, s}
+        case 1n:
+          W.Got{Ht.RDone{}, s}
+        case 2n:
+          W.Got{Ht.RLeft{}, s}
+        case 3n:
+          W.Got{Ht.RUnjudged{}, s}
+        case 4n+u:
+          W.Bad{}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_facts.report(c: Hx.Cause, g: Ht.Goal, d: W.Dec<Ht.Report>) -> W.Dec<Ht.Facts>:
+  match d:
+    case W.Got{r, s}:
+      W.Got{Ht.Facts{c, g, r}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_facts.goal(c: Hx.Cause, d: W.Dec<Ht.Goal>) -> W.Dec<Ht.Facts>:
   match d:
     case W.Got{g, s}:
-      W.Got{Ht.Facts{c, g}, s}
+      get_facts.report(c, g, get_report(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
@@ -104,6 +130,8 @@ def put_task(t: Ht.Task, rest: String) -> String:
       W.put_nat(0n, rest)
     case Ht.Incomplete{}:
       W.put_nat(1n, rest)
+    case Ht.Unjudged{}:
+      W.put_nat(2n, rest)
 
 # the spelling of a task's exit: its code, then the task
 def put_verdict(v: Ht.Verdict, rest: String) -> String:

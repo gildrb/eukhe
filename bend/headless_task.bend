@@ -4,10 +4,15 @@
 # created by the agent): it is done only when the agent claimed it
 # complete. A run that answered while its goal is still open (active,
 # paused, budget-limited, failed) did not finish its task: it is
-# incomplete and exits 1, never 0. A run without a goal states no task to
-# judge (a question answered), and every other exit stands as
-# headless_exit decided it: a failure keeps its code and cause, a
-# budget-limited run stays budget-limited. Entry:
+# incomplete and exits 1, never 0. A run that answered without an open
+# goal (none, or one the agent claimed complete) is judged by its final
+# answer: an independent judge (one model request without tools) reads
+# whether the answer states work left; work left is incomplete (a goal
+# claimed complete does not overrule it), an answer the judge could not
+# judge exits 1 as unjudged, and an answer that states none (a question
+# answered) stands. Every
+# other exit stands as headless_exit decided it: a failure keeps its code
+# and cause, a budget-limited run stays budget-limited. Entry:
 # bend/ffi_headless_task.bend (Rust: eukhe-bend rules/headless.rs
 # `task`). Laws: laws/headless_task.bend.
 #
@@ -26,15 +31,29 @@ type Goal is Data:
   Complete{}
   Open{}
 
-# the facts of a finished headless run's task: the cause of its exit
-# (bend/headless_exit.bend) and its goal
-type Facts is Data:
-  Facts{cause: Hx.Cause, goal: Goal}
+# the judge's reading of the final answer: not asked (an open goal
+# decides, the run did not answer, or it answered with no text), the answer states
+# no work left, it states work left, or the judge gave no verdict (its
+# request failed, was stopped, or its reply was unreadable)
+type Report is Data:
+  RUnasked{}
+  RDone{}
+  RLeft{}
+  RUnjudged{}
 
-# the task: the run's exit stands, or the run answered with its goal open
+# the facts of a finished headless run's task: the cause of its exit
+# (bend/headless_exit.bend), its goal, and the judge's reading of its
+# final answer
+type Facts is Data:
+  Facts{cause: Hx.Cause, goal: Goal, report: Report}
+
+# the task: the run's exit stands, the run answered with work left (its
+# goal open, or its answer stating work left), or its answer could not be
+# judged
 type Task is Data:
   Stands{}
   Incomplete{}
+  Unjudged{}
 
 # the exit of the task: the process code and the task
 type Verdict is Data:
@@ -79,13 +98,36 @@ def task.open(answer: Bool) -> Task:
     case False{}:
       Stands{}
 
-# an answered run with an open goal is incomplete
-def task(c: Hx.Cause, g: Goal) -> Task:
+# the task of an answered run without an open goal: what its final
+# answer states
+def task.report(r: Report) -> Task:
+  match r:
+    case RUnasked{}:
+      Stands{}
+    case RDone{}:
+      Stands{}
+    case RLeft{}:
+      Incomplete{}
+    case RUnjudged{}:
+      Unjudged{}
+
+# the task of a run without an open goal: its final answer decides when
+# it answered
+def task.closed(answer: Bool, r: Report) -> Task:
+  match answer:
+    case True{}:
+      task.report(r)
+    case False{}:
+      Stands{}
+
+# an answered run with an open goal is incomplete; without one (no goal,
+# or one claimed complete) its final answer decides
+def task(c: Hx.Cause, g: Goal, r: Report) -> Task:
   match g:
     case NoGoal{}:
-      Stands{}
+      task.closed(answered(c), r)
     case Complete{}:
-      Stands{}
+      task.closed(answered(c), r)
     case Open{}:
       task.open(answered(c))
 
@@ -96,9 +138,11 @@ def verdict(c: Hx.Cause, t: Task) -> Verdict:
       Verdict{Hx.code(c), Stands{}}
     case Incomplete{}:
       Verdict{1n, Incomplete{}}
+    case Unjudged{}:
+      Verdict{1n, Unjudged{}}
 
 # the exit of the task of a finished headless run
 def decide(f: Facts) -> Verdict:
   match f:
-    case Facts{+c, g}:
-      verdict(c, task(c, g))
+    case Facts{+c, g, r}:
+      verdict(c, task(c, g, r))

@@ -1318,3 +1318,98 @@ fn an_answer_with_its_goal_complete_exits_zero() {
         (0, "Items done: A, B.\n", "")
     );
 }
+
+/// Without a goal, a final answer that lists items left is judged (one
+/// judge request, scripted here) as stating work left: the run exits 1
+/// with the items on stderr and, in json mode, as the stream's last
+/// record. Before the judge such a run exited 0.
+#[test]
+fn an_answer_that_lists_items_left_exits_one_with_them() {
+    let script = serde_json::json!({
+        "responses": [{ "text": "Items done: W1. Items left: W2 (blocked), W3 (no network)." }],
+        "judge": ["FAIL\n- W2 (blocked)\n- W3 (no network)"],
+    });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.contains(
+            "eukhe: the task is incomplete: its final answer states work left\neukhe: remaining:\n- W2 (blocked)\n- W3 (no network)"
+        ),
+        "stderr: {stderr}"
+    );
+    let last: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("a record")).unwrap();
+    assert_eq!(
+        (&last["type"], &last["remaining"]),
+        (
+            &serde_json::json!("task_incomplete"),
+            &serde_json::json!(["W2 (blocked)", "W3 (no network)"])
+        ),
+        "last record: {last}"
+    );
+}
+
+/// A goal claimed complete does not overrule the agent's own final
+/// answer: items it lists as left fail the run (the claim the live runs
+/// made with two items left).
+#[test]
+fn a_goal_claimed_complete_with_items_left_exits_one() {
+    let script = serde_json::json!({
+        "responses": [
+            python("await goal.create('do W1 and W2')"),
+            python("await goal.complete()"),
+            { "text": "Done: W1. Left: W2: the host does not resolve." },
+        ],
+        "judge": ["FAIL\nW2: the host does not resolve."],
+    });
+    let (stdout, stderr, code) = run(&["-p", "do the work list"], &script);
+    assert_eq!(
+        (code, stdout.as_str()),
+        (1, "Done: W1. Left: W2: the host does not resolve.\n"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("eukhe: remaining: W2: the host does not resolve."),
+        "stderr: {stderr}"
+    );
+}
+
+/// An answer the judge reads as done, and a plain question answered,
+/// exit 0 with nothing on stderr.
+#[test]
+fn a_done_answer_and_a_plain_answer_exit_zero() {
+    for (prompt, answer) in [
+        ("do the work list", "Items done: W1, W2."),
+        ("what is 2+2?", "4"),
+    ] {
+        let script = serde_json::json!({
+            "responses": [{ "text": answer }],
+            "judge": ["PASS"],
+        });
+        let (stdout, stderr, code) = run(&["-p", prompt], &script);
+        assert_eq!(
+            (code, stdout.as_str(), stderr.as_str()),
+            (0, format!("{answer}\n").as_str(), "")
+        );
+    }
+}
+
+/// A judge that gives no verdict (here its scripted replies ran out; in a
+/// product run a failed request or an unreadable reply) never lets the
+/// run exit 0: it exits 1 and says why.
+#[test]
+fn an_unjudged_answer_exits_one() {
+    let script = serde_json::json!({
+        "responses": [{ "text": "all done" }],
+        "judge": [],
+    });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.contains("eukhe: the final answer could not be judged (the faux script's judge replies ran out): the run counts as not done"),
+        "stderr: {stderr}"
+    );
+    let last: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("a record")).unwrap();
+    assert_eq!(last["type"], "task_unjudged", "last record: {last}");
+}

@@ -1127,6 +1127,7 @@ fn intent_messages(request: &JudgeRequest) -> Vec<String> {
         JudgeQuestion::Condition(condition) | JudgeQuestion::Stated(condition) => {
             panic!("a condition, not the intent: {condition}")
         }
+        JudgeQuestion::Report => panic!("a final answer, not the intent"),
     }
 }
 
