@@ -223,16 +223,29 @@ pub(crate) fn completed(state: &GoalState, reason: &str) -> Option<GoalState> {
     })
 }
 
-/// The goal with what the agent reported is left of it (`remaining`),
-/// its status unchanged; `None` when there is no open goal (none, or one
-/// already complete).
+/// Why a goal paused when the agent reported work it cannot finish.
+const REMAINING_REPORTED: &str = "the agent reported work it cannot finish";
+
+/// The goal with what the agent reported is left of it (`remaining`): an
+/// active goal pauses (the agent stated it cannot finish it, so no
+/// continuation churns on it; it stays open and `/goal resume` continues
+/// it), any other open goal keeps its status; `None` when there is no
+/// open goal (none, or one already complete).
 #[must_use]
 pub(crate) fn with_remaining(state: &GoalState, remaining: &str) -> Option<GoalState> {
+    let remaining = Some(remaining.to_owned());
     match state.status {
         GoalStatus::Idle | GoalStatus::Complete => None,
-        GoalStatus::Active | GoalStatus::Paused | GoalStatus::BudgetLimited | GoalStatus::Error => {
+        GoalStatus::Active => state.objective.is_some().then(|| GoalState {
+            status: GoalStatus::Paused,
+            last_reason: Some(REMAINING_REPORTED.to_owned()),
+            last_error: None,
+            remaining,
+            ..state.clone()
+        }),
+        GoalStatus::Paused | GoalStatus::BudgetLimited | GoalStatus::Error => {
             state.objective.is_some().then(|| GoalState {
-                remaining: Some(remaining.to_owned()),
+                remaining,
                 ..state.clone()
             })
         }

@@ -562,9 +562,9 @@ async fn goal_create_refuses_while_a_goal_is_active_and_complete_needs_a_goal() 
     harness.close(cx()).await.expect("close");
 }
 
-/// `goal.remaining` records what is left of the open goal and leaves it
-/// open; it is refused without an open goal, and completing the goal
-/// clears it.
+/// `goal.remaining` records what is left of the open goal and pauses it
+/// (open, with no continuation churning on it); it is refused without an
+/// open goal, and completing the goal clears it.
 #[tokio::test]
 async fn goal_remaining_records_what_is_left_of_the_open_goal() {
     let setup = setup();
@@ -598,7 +598,7 @@ async fn goal_remaining_records_what_is_left_of_the_open_goal() {
         .expect("goal.remaining succeeds");
     assert_eq!(
         (&recorded["goal"]["status"], &recorded["goal"]["remaining"]),
-        (&json!("active"), &json!("B: the build fails"))
+        (&json!("paused"), &json!("B: the build fails"))
     );
     assert_eq!(
         stored_goal(&harness, &root).await.remaining.as_deref(),

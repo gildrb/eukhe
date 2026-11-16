@@ -1252,15 +1252,14 @@ fn python(code: &str) -> serde_json::Value {
 
 /// The agent holds its task as a goal and answers with work left: the
 /// harness continues the goal (bounded: it pauses once continuations do no
-/// new work), and the run exits 1, saying what remains on stderr and, in
-/// json mode, as the stream's last record. Before the task rule the
-/// answer exited 0 with the work list half done.
+/// new work), and the run exits 1, naming the goal on stderr and, in json
+/// mode, as the stream's last record. Before the task rule the answer
+/// exited 0 with the work list half done.
 #[test]
 fn an_answer_with_its_goal_open_exits_one_with_what_remains() {
     let script = serde_json::json!({
         "responses": [
             python("await goal.create('rewrite the crate: items A and B')"),
-            python("await goal.remaining('B: the check does not build yet')"),
             { "text": "Items done: A. Items left: B." },
         ],
         "repeatLastResponse": true,
@@ -1269,7 +1268,9 @@ fn an_answer_with_its_goal_open_exits_one_with_what_remains() {
     assert_eq!(code, 1, "stderr: {stderr}");
     assert!(
         stderr.contains("eukhe: the task is incomplete: its goal is paused")
-            && stderr.contains("eukhe: remaining: B: the check does not build yet"),
+            && stderr.contains(
+                "eukhe: remaining: not reported; the goal: rewrite the crate: items A and B"
+            ),
         "stderr: {stderr}"
     );
     let lines: Vec<serde_json::Value> = stdout
@@ -1279,15 +1280,10 @@ fn an_answer_with_its_goal_open_exits_one_with_what_remains() {
         .unwrap();
     let last = lines.last().expect("a record");
     assert_eq!(
-        (
-            &last["type"],
-            &last["goal"]["status"],
-            &last["goal"]["remaining"]
-        ),
+        (&last["type"], &last["goal"]["status"]),
         (
             &serde_json::json!("task_incomplete"),
-            &serde_json::json!("paused"),
-            &serde_json::json!("B: the check does not build yet")
+            &serde_json::json!("paused")
         ),
         "last record: {last}"
     );
@@ -1299,6 +1295,50 @@ fn an_answer_with_its_goal_open_exits_one_with_what_remains() {
         })
         .count();
     assert!(continuations >= 1, "no goal continuation: {stdout}");
+}
+
+/// The agent reports work it cannot finish (`goal.remaining`): the goal
+/// pauses at once, no continuation churns on the blocked work, and the
+/// run exits 1 with the agent's report as what remains.
+#[test]
+fn a_reported_blocker_pauses_the_goal_and_exits_one() {
+    let script = serde_json::json!({
+        "responses": [
+            python("await goal.create('rewrite the crate: items A and B')"),
+            python("await goal.remaining('B: the check does not build yet')"),
+            { "text": "Items done: A. Items left: B." },
+        ],
+    });
+    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.contains("eukhe: the task is incomplete: its goal is paused (the agent reported work it cannot finish)\neukhe: remaining: B: the check does not build yet"),
+        "stderr: {stderr}"
+    );
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let last = lines.last().expect("a record");
+    assert_eq!(
+        (&last["type"], &last["remaining"]),
+        (
+            &serde_json::json!("task_incomplete"),
+            &serde_json::json!(["B: the check does not build yet"])
+        ),
+        "last record: {last}"
+    );
+    let continuations = lines
+        .iter()
+        .filter(|line| {
+            line["type"] == "message_start" && line["message"]["customType"] == "goal_context"
+        })
+        .count();
+    assert_eq!(
+        continuations, 0,
+        "a continuation after the report: {stdout}"
+    );
 }
 
 /// The agent claims its goal complete, then answers: the task is done and

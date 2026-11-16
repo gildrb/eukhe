@@ -15,7 +15,7 @@ description: Manage the persistent thread goal the harness keeps you working on 
 
 - `await goal.get()` shows the objective, status, usage and remaining tokens.
 - `await goal.remind(text)`: text that leads the next continuation (a note to your future self).
-- `await goal.remaining(text)`: what is left of the objective and why it is not done yet. The goal stays open and the harness continues it; a headless run (`eukhe -p`) that ends with it open exits 1 and prints this text as what remains.
+- `await goal.remaining(text)`: what is left of the objective and why it is not done yet. The goal pauses (it stays open; `/goal resume` continues it), so call it only for a hard blocker; a headless run (`eukhe -p`) that ends with the goal open exits 1 and prints this text as what remains.
 - `await goal.force_tool(tool, tries=1)`: the next requests must call `tool`; after `1 + tries` misses the run fails.
 
 ## Finish
