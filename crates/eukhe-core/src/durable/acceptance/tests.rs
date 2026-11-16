@@ -1182,6 +1182,68 @@ async fn a_check_that_writes_to_the_workspace_judges_the_state_it_left() {
     harness.close(cx()).await.expect("close");
 }
 
+/// Two checks whose runs each change the workspace keep each other's
+/// verdicts stale. After twice as many runs as checks, plus four, the
+/// check not judged on the state then is recorded unjudged with the
+/// reason, and the claim settles: back to the worker, then ended
+/// unverified at the cap. It never stays claimed with nothing running.
+#[tokio::test]
+async fn checks_that_keep_changing_the_state_settle_the_claim_unverified() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(
+            &harness,
+            &root,
+            vec![command("make gen"), command("make docs")],
+            Some(1),
+        )
+        .await;
+    *setup.runner.script.lock().expect("script") = (0..40)
+        .map(|n| Scripted::Writes(setup.cwd().join(format!("build/out-{n}")), exited(0, "ok")))
+        .collect();
+    setup
+        .faux
+        .set_responses(vec![answer("done"), answer("done again")]);
+
+    run(&harness, &root, "do it").await;
+
+    let got = state(&harness, &root).await;
+    assert!(!got.claimed, "the claim still waits: {got:?}");
+    assert_eq!(
+        (got.label, got.tries, got.last_end.map(|end| end.label)),
+        (
+            AcceptanceLabel::Unverified,
+            0,
+            Some(AcceptanceLabel::Unverified)
+        ),
+    );
+    let reason = "the state kept changing while the checks ran: the runs of checks 1, 2 changed it";
+    let entries = entries(&root).await;
+    let rows: Vec<String> = verdict_rows(&entries)
+        .into_iter()
+        .map(|(text, _, _)| text)
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            format!("Acceptance not verified: check 1 unjudged ({reason}). Returned to the worker (1 of 1)."),
+            format!("Acceptance unverified: check 1 unjudged ({reason})."),
+        ]
+    );
+    let texts = user_texts(&entries);
+    assert!(
+        texts[1].contains(&format!(
+            "1. command `make gen` (expect exit 0): unjudged: {reason}"
+        )),
+        "{}",
+        texts[1]
+    );
+    // Eight runs per claim, alternating, then the claim settled.
+    assert_eq!(setup.runner.commands().len(), 16);
+    harness.close(cx()).await.expect("close");
+}
+
 /// The judge requests the scripted judge got, oldest first.
 fn judge_requests(setup: &Setup) -> Vec<JudgeRequest> {
     setup.judge.requests.lock().expect("requests").clone()

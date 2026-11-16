@@ -18,13 +18,19 @@
 //! - A verdict judges the state its check's run left when only the
 //!   workspace moved while it ran (the check's own output), else the
 //!   state before the run, which then no longer counts.
+//! - A state that keeps moving while the checks run ends the runs after
+//!   twice as many runs as checks, plus four: each check not judged on
+//!   the state then is recorded unjudged, naming the checks whose runs
+//!   changed the state, and the claim settles on it (back to the worker,
+//!   or ended at the cap). A claim never waits with nothing running.
 //! - The worker's next effect clears the recorded end: the result has to
 //!   be earned again on the new state. Until then a further final answer
 //!   is no new claim: the verdict of that state stands.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Weak};
 
-use eukhe_bend::rules::verify::{self, Action, Actor, AnswerFacts, Op};
+use eukhe_bend::rules::verify::{self, Action, Actor, AnswerFacts, Op, Verdict};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::hook;
 use eukhe_durable::harness::types::{
@@ -34,7 +40,7 @@ use eukhe_durable::harness::{Conversation, GENERATION_TASK};
 use eukhe_durable::session::SessionResult;
 use eukhe_durable::types::{EntryDraft, TaskId};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, CheckSpec, CheckVerdict,
+    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, CheckResult, CheckSpec, CheckVerdict,
 };
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
@@ -185,15 +191,26 @@ impl Verifier {
         let conversation_id = conversation.id();
         let harness = self.harness.require()?;
         let mut runs = 0_usize;
+        // The checks whose run changed the state.
+        let mut movers = BTreeSet::new();
         loop {
             let current = read_doc(&harness, &ACCEPTANCE_DOC, conversation_id, cx)
                 .await?
                 .unwrap_or_default();
             let before = doc_parts(conversation, &current, cx).await?;
             let now = before.state();
+            // Each check runs once per state. A state that keeps moving
+            // (checks whose runs change it, edits made meanwhile) ends the
+            // runs: every check not judged on the state now is recorded
+            // unjudged with the reason, and the core settles the claim on
+            // it, so no claim waits with nothing running.
+            let unsettled = (runs >= current.checks.len().saturating_mul(2).saturating_add(4))
+                .then(|| unsettled_reason(&movers));
             let step = conversation
                 .commit(
-                    move |tx| async move {
+                    move |tx| {
+                        let unsettled = unsettled.clone();
+                        async move {
                         let (draft, mut doc) =
                             open_doc(&tx, &ACCEPTANCE_DOC, conversation_id).await?;
                         if let Some(record) = doc
@@ -210,8 +227,43 @@ impl Verifier {
                         }
                         // Read before the step clears the claim.
                         let goal_claimed = doc.goal_claim;
-                        let (action, next) = verify::advance(now, doc.max_returns, &doc.core())
-                            .map_err(core_error)?;
+                        let (mut action, mut next) =
+                            verify::advance(now, doc.max_returns, &doc.core())
+                                .map_err(core_error)?;
+                        if let Some(reason) = &unsettled {
+                            while let Action::Run { index } = action {
+                                let slot = usize::try_from(index).unwrap_or(usize::MAX);
+                                let record = Op::Record {
+                                    revision: doc.revision,
+                                    index,
+                                    verdict: Verdict::Unjudged,
+                                    at: now,
+                                };
+                                let (admitted, recorded) =
+                                    verify::act(Actor::Verifier, record, &doc.core())
+                                        .map_err(core_error)?;
+                                if !admitted {
+                                    return Err(eukhe_durable::session::SessionError::error(
+                                        format!("the compiled core refused to record acceptance check {slot} unjudged"),
+                                    ));
+                                }
+                                doc.adopt(
+                                    &recorded,
+                                    Some((
+                                        slot,
+                                        CheckResult {
+                                            verdict: CheckVerdict::Unjudged,
+                                            at: now,
+                                            summary: reason.clone(),
+                                            evidence: String::new(),
+                                            judged_at: now_millis(),
+                                        },
+                                    )),
+                                )?;
+                                (action, next) = verify::advance(now, doc.max_returns, &doc.core())
+                                    .map_err(core_error)?;
+                            }
+                        }
                         let step = match action {
                             Action::Run { index } => {
                                 let index = usize::try_from(index).unwrap_or(usize::MAX);
@@ -274,6 +326,7 @@ impl Verifier {
                         };
                         write_doc(&draft, &doc)?;
                         Ok(step)
+                        }
                     },
                     cx,
                 )
@@ -287,12 +340,7 @@ impl Verifier {
                     round,
                 } => (revision, index, check, round),
             };
-            // Each check runs once per state; a state that keeps moving
-            // leaves the claim waiting, unverified.
             runs += 1;
-            if runs > round.len().saturating_mul(2).saturating_add(4) {
-                return Ok(None);
-            }
             let (verdict, mut result) = self
                 .gatherer
                 .check(conversation, &check, &round, now, cx)
@@ -305,6 +353,9 @@ impl Verifier {
             // A new effect or message leaves it on the state before, which
             // no longer counts: the check runs again.
             let after = doc_parts(conversation, &current, cx).await?;
+            if after.state() != now {
+                movers.insert(index);
+            }
             let at = if after.moved_in_workspace_only(&before) {
                 after.state()
             } else {
@@ -421,6 +472,22 @@ fn outcome_line(doc: &AcceptanceDoc) -> String {
         format!("{} confirmed", count_checks(doc.checks.len()))
     } else {
         open.join("; ")
+    }
+}
+
+/// Why a check was recorded unjudged at the end of the runs: the state
+/// kept moving, and which checks' runs moved it.
+fn unsettled_reason(movers: &BTreeSet<usize>) -> String {
+    let named: Vec<String> = movers.iter().map(|index| (index + 1).to_string()).collect();
+    match named.as_slice() {
+        [] => "the state kept changing while the checks ran".to_owned(),
+        [one] => format!(
+            "the state kept changing while the checks ran: the runs of check {one} changed it"
+        ),
+        many => format!(
+            "the state kept changing while the checks ran: the runs of checks {} changed it",
+            many.join(", ")
+        ),
     }
 }
 
