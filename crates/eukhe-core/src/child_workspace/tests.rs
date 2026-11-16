@@ -9,7 +9,7 @@ use super::check::detect;
 use super::trust::{config_root, trusted_dirs, trusted_value, TRUSTED_CONFIG_PATHS};
 use super::{
     files, run_check, tool_env, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckReport,
-    CheckRun, ChildWorkspace, Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
+    CheckRun, ChildWorkspace, Listing, ScopedHandback, WorkspaceDrift, BASE, CONFLICTS, HANDBACK,
 };
 use eukhe_types::daemon::agent_tree::CheckPhase;
 
@@ -585,11 +585,13 @@ fn timeless(run: CheckRun) -> CheckRun {
             outcome,
             output,
             duration_ms: _,
+            workspace,
         } => CheckRun::Ran {
             command,
             outcome,
             output,
             duration_ms: 0,
+            workspace,
         },
     }
 }
@@ -621,12 +623,14 @@ async fn a_configured_command_wins_and_reports_its_exit_and_output() {
                 outcome: CheckOutcome::Passed,
                 output: "ok".to_owned(),
                 duration_ms: 0,
+                workspace: WorkspaceDrift::Held,
             },
             CheckRun::Ran {
                 command: "echo out; echo err >&2; exit 3".to_owned(),
                 outcome: CheckOutcome::Failed { code: Some(3) },
                 output: "out\nerr\n".to_owned(),
                 duration_ms: 0,
+                workspace: WorkspaceDrift::Held,
             },
         ]
     );
@@ -647,7 +651,70 @@ async fn a_check_past_its_timeout_is_killed() {
             outcome: CheckOutcome::TimedOut,
             output: "started\n".to_owned(),
             duration_ms: 0,
+            workspace: WorkspaceDrift::Held,
         }
+    );
+}
+
+/// A fifo at `path`: opening it blocks until the other end opens.
+fn fifo(path: &Path) {
+    let made = std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}", path.display());
+}
+
+/// Regression: a check runs in a workspace others keep writing (the
+/// parent's, after integration). A file written while it ran is named in
+/// its report, so its result is not read as judging the tree as it
+/// stands; a path written before it started is not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_check_names_the_paths_written_while_it_ran() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    git(&root, &["init", "-q"]);
+    write(&root, "src/lib.rs", "pub fn a() {}\n");
+    write(&root, "README.md", "a\n");
+    let gates = tempfile::tempdir().unwrap();
+    let gate = gates.path().join("gate");
+    fifo(&gate);
+    let command = format!("cat '{}' >/dev/null", gate.display());
+    let config = CheckConfig {
+        command: Some(command.clone()),
+        timeout: Duration::from_secs(60),
+        progress_every: Duration::from_secs(30),
+    };
+    // The edit lands once the check holds the gate open, the gate's byte
+    // after it.
+    let edit = {
+        let (root, gate) = (root.clone(), gate.clone());
+        tokio::task::spawn_blocking(move || {
+            let mut opened = fs::OpenOptions::new().write(true).open(&gate).unwrap();
+            write(&root, "src/lib.rs", "pub fn a() {}\npub fn b() {}\n");
+            std::io::Write::write_all(&mut opened, b"go").unwrap();
+        })
+    };
+    let run = timeless(run_check(&root, &[], &config, &unheard).await);
+    edit.await.unwrap();
+    assert_eq!(
+        (run.clone(), run.text()),
+        (
+            CheckRun::Ran {
+                command: command.clone(),
+                outcome: CheckOutcome::Passed,
+                output: String::new(),
+                duration_ms: 0,
+                workspace: WorkspaceDrift::Changed {
+                    count: 1,
+                    paths: names(&["src/lib.rs"]),
+                },
+            },
+            format!(
+                "Check `{command}`: passed in 0.0 s.\nThe workspace changed while the check ran \
+                 (1 path: src/lib.rs): its result judged no single tree state."
+            ),
+        )
     );
 }
 
@@ -883,6 +950,7 @@ async fn a_childs_copy_keeps_the_mise_trust_its_parent_has() {
                 outcome: CheckOutcome::Passed,
                 output: value,
                 duration_ms: 0,
+                workspace: WorkspaceDrift::Held,
             },
         )
     );

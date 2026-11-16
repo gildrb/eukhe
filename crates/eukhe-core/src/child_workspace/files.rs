@@ -189,6 +189,15 @@ pub(super) enum Listing {
 /// The files and symlinks under `dir`, relative to it; `.git` is never
 /// listed.
 pub(super) fn walk(dir: &Path, listing: Listing) -> io::Result<BTreeSet<PathBuf>> {
+    walked(dir, listing).collect()
+}
+
+/// The files and symlinks under `dir` as the walk finds them, relative to
+/// it; `.git` is never listed.
+pub(super) fn walked(
+    dir: &Path,
+    listing: Listing,
+) -> impl Iterator<Item = io::Result<PathBuf>> + '_ {
     let mut builder = ignore::WalkBuilder::new(dir);
     builder.standard_filters(false).follow_links(false);
     match listing {
@@ -198,28 +207,34 @@ pub(super) fn walk(dir: &Path, listing: Listing) -> io::Result<BTreeSet<PathBuf>
         }
     }
     builder.filter_entry(|entry| entry.file_name() != ".git");
-    let mut paths = BTreeSet::new();
-    for entry in builder.build() {
-        let entry = entry.map_err(io::Error::other)?;
-        let Some(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_file() || kind.is_symlink() {
-            if let Ok(relative) = entry.path().strip_prefix(dir) {
-                paths.insert(relative.to_path_buf());
-            }
-        }
-    }
-    Ok(paths)
+    builder.build().filter_map(move |entry| match entry {
+        Err(error) => Some(Err(io::Error::other(error))),
+        Ok(entry) => entry
+            .file_type()
+            .filter(|kind| kind.is_file() || kind.is_symlink())
+            .and_then(|_| entry.path().strip_prefix(dir).ok())
+            .map(|relative| Ok(relative.to_path_buf())),
+    })
 }
 
 /// The paths of the parent workspace a child copies: the tracked and the
 /// untracked, not ignored files of its git work tree under `dir`
-/// (`git ls-files`), else (no git work tree) the files its `.gitignore`
+/// ([`git_paths`]), else (no git work tree) the files its `.gitignore`
 /// files do not ignore.
 #[tracing::instrument(level = "debug")]
 pub(super) async fn parent_paths(dir: &Path) -> anyhow::Result<BTreeSet<PathBuf>> {
-    let listed = git_command(
+    if let Some(paths) = git_paths(dir).await {
+        return Ok(paths);
+    }
+    let dir = dir.to_path_buf();
+    Ok(tokio::task::spawn_blocking(move || walk(&dir, Listing::NotIgnored)).await??)
+}
+
+/// The tracked and the untracked, not ignored files of the git work tree
+/// under `dir` (`git ls-files`); `None` when git lists none (no work tree,
+/// or git failed).
+pub(super) async fn git_paths(dir: &Path) -> Option<BTreeSet<PathBuf>> {
+    let output = git_command(
         &[
             "ls-files",
             "-z",
@@ -231,17 +246,14 @@ pub(super) async fn parent_paths(dir: &Path) -> anyhow::Result<BTreeSet<PathBuf>
     )
     .stdin(std::process::Stdio::null())
     .output()
-    .await;
-    match listed {
-        Ok(output) if output.status.success() => Ok(output
+    .await
+    .ok()?;
+    output.status.success().then(|| {
+        output
             .stdout
             .split(|&b| b == 0)
             .filter(|path| !path.is_empty())
             .map(|path| PathBuf::from(OsStr::from_bytes(path)))
-            .collect()),
-        Ok(_) | Err(_) => {
-            let dir = dir.to_path_buf();
-            Ok(tokio::task::spawn_blocking(move || walk(&dir, Listing::NotIgnored)).await??)
-        }
-    }
+            .collect()
+    })
 }

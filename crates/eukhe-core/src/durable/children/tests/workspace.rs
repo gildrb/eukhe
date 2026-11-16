@@ -108,12 +108,14 @@ async fn a_writers_hand_back_shows_before_its_checks_end() {
             outcome: crate::child_workspace::CheckOutcome::Passed,
             output: String::new(),
             duration_ms: 1_800_000,
+            workspace: crate::child_workspace::WorkspaceDrift::Held,
         },
         parent_check: CheckRun::Ran {
             command: "./check.sh".to_owned(),
             outcome: crate::child_workspace::CheckOutcome::Failed { code: Some(1) },
             output: "FMT FAILED\n".to_owned(),
             duration_ms: 900,
+            workspace: crate::child_workspace::WorkspaceDrift::Held,
         },
     };
     lock(&host.state).handback = Some(handback.clone());

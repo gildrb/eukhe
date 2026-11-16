@@ -236,7 +236,11 @@ that costs against a wider split, as information:
    check reports its start, every 30 s its elapsed time and last output
    line, and its end (`check_update` events: the TUI status line, a
    headless run's stderr and json stream). A failed check's verdict names
-   its last 3 output lines.
+   its last 3 output lines. The integration check runs in the live tree,
+   unfrozen (a copy lacks the build caches and dependency dirs); stamps
+   before and after it (one `lstat` per listed path,
+   `child_workspace/stamp.rs`) name each path written meanwhile in its
+   report. A detached `bash` job's result names them the same way.
 5. Budget: each child's limit from the split; room, holds and the return
    of unspent limits through the existing ledger (B4, B13). The session's
    crown (`durable/children/tree/`) records each child's spend and end.

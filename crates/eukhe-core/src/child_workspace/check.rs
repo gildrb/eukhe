@@ -12,7 +12,11 @@
 //! timeout, with the mise trust a child's copy keeps ([`super::tool_env`]);
 //! the report keeps the output's tail. While it runs, the caller hears from
 //! it at its start, at each interval (time since the start, the last line
-//! it printed) and at its end (how it ended, its last lines).
+//! it printed) and at its end (how it ended, its last lines). The
+//! workspace is not frozen while the check runs (a copy would lack the
+//! build caches and dependency dirs the command needs): stamps of it
+//! before and after name each path written meanwhile ([`WorkspaceDrift`]),
+//! so a result that judged no single tree state says so.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -25,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+use super::stamp::{TreeStamp, WorkspaceDrift};
 use crate::platform::process::{signal_process_group, Signal};
 
 /// The output bytes a check report keeps (the tail).
@@ -68,6 +73,9 @@ pub enum CheckRun {
         /// The tail of stdout and stderr, interleaved.
         output: String,
         duration_ms: u64,
+        /// Whether the workspace changed while the check ran.
+        #[serde(default = "WorkspaceDrift::unrecorded")]
+        workspace: WorkspaceDrift,
     },
 }
 
@@ -87,6 +95,7 @@ impl CheckRun {
                 outcome,
                 output,
                 duration_ms,
+                workspace,
             } => {
                 let (seconds, tenths) = (duration_ms / 1000, duration_ms % 1000 / 100);
                 let lines = match outcome {
@@ -103,6 +112,10 @@ impl CheckRun {
                         "Check `{command}`: {verdict} in {seconds}.{tenths} s; last lines: {}.",
                         lines.join(" | ")
                     )
+                };
+                let head = match workspace.text("the check") {
+                    Some(drift) => format!("{head}\n{drift}"),
+                    None => head,
                 };
                 if output.is_empty() {
                     head
@@ -139,9 +152,9 @@ fn last_lines(output: &str, count: usize) -> Vec<String> {
 }
 
 /// Run the check of `touched` (paths relative to `dir`, or absolute under
-/// it) in `dir`: the configured command, else the detected one. `report`
-/// hears from it at its start, at each `config.progress_every` while it
-/// runs, and at its end.
+/// it) in `dir`: the configured command, else the detected one; `dir`
+/// stamped before and after it. `report` hears from it at its start, at
+/// each `config.progress_every` while it runs, and at its end.
 #[tracing::instrument(skip(touched, report))]
 pub async fn run_check(
     dir: &Path,
@@ -156,9 +169,11 @@ pub async fn run_check(
             None => return CheckRun::None,
         },
     };
+    let before = TreeStamp::take(dir).await;
     let started = Instant::now();
     let (outcome, output) = run(dir, &command, config, started, report).await;
     let duration_ms = whole_ms(started.elapsed());
+    let workspace = before.drift(&TreeStamp::take(dir).await);
     report(CheckReport {
         command: command.clone(),
         elapsed_ms: duration_ms,
@@ -172,6 +187,7 @@ pub async fn run_check(
         outcome,
         output,
         duration_ms,
+        workspace,
     }
 }
 

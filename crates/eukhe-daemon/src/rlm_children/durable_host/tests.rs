@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use eukhe_core::child_workspace::{CheckOutcome, CheckRun, ScopedHandback, WorkspaceMode};
+use eukhe_core::child_workspace::{
+    CheckOutcome, CheckRun, ScopedHandback, WorkspaceDrift, WorkspaceMode,
+};
 use eukhe_core::durable::children::{
     RlmChildCancelRequest, RlmChildCheckRequest, RlmChildDeleteRequest, RlmChildHandbackRequest,
     RlmChildIdentity, RlmChildOutcome, RlmChildPromptRequest, RlmChildRunState,
@@ -869,11 +871,13 @@ fn timeless(run: CheckRun) -> CheckRun {
             outcome,
             output,
             duration_ms: _,
+            workspace,
         } => CheckRun::Ran {
             command,
             outcome,
             output,
             duration_ms: 0,
+            workspace,
         },
     }
 }
@@ -975,6 +979,7 @@ async fn a_hand_back_integrates_before_its_checks_run() {
         outcome: CheckOutcome::Passed,
         output: "a-child".to_owned(),
         duration_ms: 0,
+        workspace: WorkspaceDrift::Held,
     };
     assert_eq!(
         (
