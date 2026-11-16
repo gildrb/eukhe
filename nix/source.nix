@@ -28,7 +28,7 @@ rustPlatform.buildRustPackage {
   # [patch.crates-io]), is pinned by commit in Cargo.lock and by hash here.
   cargoLock = {
     lockFile = src + "/Cargo.lock";
-    outputHashes."crossterm-0.28.1" = "sha256-eExH/+FlZYaJEVZhHtHLWU5XLJaZEm9LLEpy+8c/WuM=";
+    outputHashes."crossterm-0.28.1" = "sha256-E0HlWhiJiaINnY3ev05AHKOwEV8VI4D/GCbHSEwmqSo=";
   };
   cargoBuildFlags = [
     "-p"
