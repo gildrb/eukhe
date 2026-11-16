@@ -1092,6 +1092,26 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
         })
     }
 
+    fn close(&self, request: durable::RlmChildHandbackRequest) -> durable::RlmHostFuture<'_, ()> {
+        let this = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let root = {
+                let identity = this.identity.lock().unwrap_or_else(PoisonError::into_inner);
+                this.workspace_root(&request.rlm_child_id, &identity)?
+            };
+            let workspace = ChildWorkspace::at(root);
+            if !workspace.is_handed_back() {
+                return Ok(());
+            }
+            workspace.close().await.with_context(|| {
+                format!(
+                    "close RLM child {}'s checkout (session {})",
+                    request.rlm_child_id, request.session_id
+                )
+            })
+        })
+    }
+
     fn measure(
         &self,
         request: durable::RlmChildHandbackRequest,

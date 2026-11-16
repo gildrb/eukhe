@@ -606,6 +606,10 @@ pub trait RlmSubagentHost: Send + Sync {
     /// reports on `request.progress` while it runs. Ends the checkout
     /// after them. `None`: the child works in the shared workspace.
     fn check(&self, request: RlmChildCheckRequest) -> RlmHostFuture<'_, Option<HandbackChecks>>;
+    /// End a handed-back child's checkout without its checks (an abort
+    /// cut them): its copies go, as after [`Self::check`]. Idempotent; a
+    /// child without a checkout closes nothing.
+    fn close(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, ()>;
     /// The patch of an isolated child's workspace over `units` (what it
     /// changed since its start), taking nothing back: a failed child's
     /// partial work stays in its workspace. `None`: the child works in the
@@ -687,6 +691,10 @@ impl RlmSubagentHost for NoRlmChildren {
 
     fn check(&self, _request: RlmChildCheckRequest) -> RlmHostFuture<'_, Option<HandbackChecks>> {
         Box::pin(async { Ok(None) })
+    }
+
+    fn close(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
     }
 
     fn measure(&self, _request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>> {

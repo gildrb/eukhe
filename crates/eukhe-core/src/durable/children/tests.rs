@@ -102,6 +102,8 @@ struct FakeState {
     handbacks: Vec<RlmChildHandbackRequest>,
     /// The children whose checks ran, in order.
     checks: Vec<RlmChildHandbackRequest>,
+    /// The children whose checkouts an abort closed, in order.
+    closes: Vec<RlmChildHandbackRequest>,
     /// Polls that fail before the next one is answered (a live child whose
     /// routes are overloaded or slow).
     failing_waits: usize,
@@ -326,6 +328,11 @@ impl RlmSubagentHost for FakeHost {
                 parent_check: handback.parent_check,
             }))
         })
+    }
+
+    fn close(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, ()> {
+        lock(&self.state).closes.push(request);
+        Box::pin(async { Ok(()) })
     }
 
     fn measure(&self, request: RlmChildHandbackRequest) -> RlmHostFuture<'_, Option<Patch>> {

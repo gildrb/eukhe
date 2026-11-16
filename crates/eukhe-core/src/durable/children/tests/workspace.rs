@@ -178,3 +178,98 @@ async fn a_writers_hand_back_shows_before_its_checks_end() {
     );
     opened.harness.close(cx()).await.unwrap();
 }
+
+/// An abort that meets a writer after its integration, while its checks
+/// wait, records what landed: the tree's node finished with the
+/// integrated patch, the row done with its hand-back and its checks not
+/// run, and the checkout closed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_abort_during_the_checks_keeps_the_integration() {
+    let setup = setup();
+    let host = FakeHost::new();
+    let handback = RlmChildHandback {
+        handback: ScopedHandback {
+            taken: vec!["a/x.txt".to_owned()],
+            outside: Vec::new(),
+            conflicts: Vec::new(),
+            kept: None,
+            patch: vec![None, Some(1), None],
+        },
+        child_check: CheckRun::None,
+        parent_check: CheckRun::None,
+    };
+    lock(&host.state).handback = Some(handback.clone());
+    host.checks_open.send_replace(false);
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let [left, _right] = split_children(&opened, &setup, &["a"], &["b"]).await;
+    eventually(|| async { host.prompt_keys().len() == 2 }).await;
+    host.settle(
+        &left.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    eventually(|| async {
+        row_of(&opened.harness, left.task_id)
+            .await
+            .is_some_and(|row| row.handback.is_some())
+    })
+    .await;
+
+    crate::durable::children::cancel_tree(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap();
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(left.task_id), cx())
+        .await
+        .unwrap();
+    let row = row_of(&opened.harness, left.task_id).await.unwrap();
+    let node =
+        crate::durable::children::tree::read_local(&opened.harness, ROOT_CONVERSATION_ID, cx())
+            .await
+            .unwrap()
+            .and_then(|local| {
+                local
+                    .crown()
+                    .tree
+                    .at(&[eukhe_bend::rules::agent_tree::Dir::Left])
+                    .map(|node| (node.info().status, node.info().patch.clone()))
+            });
+    let not_run = || CheckRun::NotRun {
+        error: "an abort stopped the checks after the integration".to_owned(),
+    };
+    assert_eq!(
+        (
+            row.status,
+            row.handback,
+            row.patch,
+            node,
+            lock(&host.state).closes.clone(),
+        ),
+        (
+            ChildStatus::Done,
+            Some(HandbackOutcome::Done {
+                handback: Box::new(RlmChildHandback {
+                    child_check: not_run(),
+                    parent_check: not_run(),
+                    ..handback
+                }),
+            }),
+            None,
+            Some((
+                eukhe_bend::rules::agent_tree::Status::Finished,
+                vec![None, Some(1), None]
+            )),
+            vec![RlmChildHandbackRequest {
+                session_id: left.session_id.clone(),
+                rlm_child_id: left.rlm_child_id.clone(),
+                units: vec![String::new(), "a".to_owned(), "b".to_owned()],
+                scope: vec![false, true, false],
+            }],
+        )
+    );
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}

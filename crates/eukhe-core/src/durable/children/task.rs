@@ -1820,20 +1820,39 @@ async fn abort(
     }
     // A cancelled writer keeps its partial work in its workspace (applied
     // only when the parent absorbs it): its patch is measured, nothing is
-    // taken back.
+    // taken back. A writer the abort met after its integration, while its
+    // checks ran, finished: its work landed. Its checks did not run, and
+    // its checkout closes.
     let tree_spawn = task.input.tree.clone();
     let writer = tree_spawn
         .as_ref()
         .filter(|spawn| spawn.workspace() == WorkspaceMode::Isolated);
-    let patch = match writer {
-        Some(spawn) if prompt_admissible && running => Some(
+    let integrated = row
+        .handback
+        .as_ref()
+        .and_then(cut_checks)
+        .filter(|_| running);
+    let patch = match (writer, &integrated) {
+        (Some(spawn), None) if prompt_admissible && running => Some(
             measure(
                 services.host.as_ref(),
                 spawn.handback(&row.session_id, &row.rlm_child_id),
             )
             .await,
         ),
-        Some(_) | None => None,
+        (Some(_) | None, None | Some(_)) => None,
+    };
+    if let (Some(spawn), Some(_)) = (writer, &integrated) {
+        let request = spawn.handback(&row.session_id, &row.rlm_child_id);
+        if let Err(error) = services.host.close(request).await {
+            runtime.report(SessionError::error(format!(
+                "RLM child {task_id} checkout close: {error:#}"
+            )))?;
+        }
+    }
+    let end = match &integrated {
+        Some(handback) => End::Finished(handback.handback.patch.clone()),
+        None => End::Cancelled,
     };
     let owed = match task.input.report {
         ReportMode::Inbox => owed_on_abort(&task.checkpoint, task_id, &row)?,
@@ -1886,14 +1905,24 @@ async fn abort(
                         conversation_id,
                         tree_spawn.as_ref(),
                         usage.as_ref(),
-                        &End::Cancelled,
+                        &end,
                     )
                     .await?;
                 }
                 let row = tx_update_row(&tx, conversation_id, row_id, |row| {
-                    if !row.status.is_terminal() {
-                        row.status = ChildStatus::Cancelled;
-                        row.error = Some(reason.to_owned());
+                    match integrated {
+                        Some(handback) => {
+                            row.status = ChildStatus::Done;
+                            row.handback = Some(HandbackOutcome::Done {
+                                handback: Box::new(handback),
+                            });
+                        }
+                        None => {
+                            if !row.status.is_terminal() {
+                                row.status = ChildStatus::Cancelled;
+                                row.error = Some(reason.to_owned());
+                            }
+                        }
                     }
                     if patch.is_some() {
                         row.patch.clone_from(&patch);
@@ -1920,3 +1949,28 @@ async fn abort(
         )
         .await
 }
+
+/// The hand-back of a writer integrated before an abort cut its checks:
+/// the record with each check still to run marked not run; `None` when no
+/// check was left to run (or the hand-back failed).
+fn cut_checks(outcome: &HandbackOutcome) -> Option<RlmChildHandback> {
+    let handback = match outcome {
+        HandbackOutcome::Done { handback } => handback,
+        HandbackOutcome::Failed { .. } => return None,
+    };
+    let pending = |check: &CheckRun| matches!(check, CheckRun::Pending);
+    let cut = |check: &CheckRun| match check {
+        CheckRun::Pending => CheckRun::NotRun {
+            error: CHECKS_CUT.to_owned(),
+        },
+        CheckRun::None | CheckRun::NotRun { .. } | CheckRun::Ran { .. } => check.clone(),
+    };
+    (pending(&handback.child_check) || pending(&handback.parent_check)).then(|| RlmChildHandback {
+        handback: handback.handback.clone(),
+        child_check: cut(&handback.child_check),
+        parent_check: cut(&handback.parent_check),
+    })
+}
+
+/// Why an integrated writer's check did not run.
+const CHECKS_CUT: &str = "an abort stopped the checks after the integration";

@@ -320,6 +320,10 @@ impl RlmSubagentHost for HeadlessChildHost {
         Box::pin(async move { self.supervised().await?.check(request).await })
     }
 
+    fn close(&self, request: durable::RlmChildHandbackRequest) -> durable::RlmHostFuture<'_, ()> {
+        Box::pin(async move { self.supervised().await?.close(request).await })
+    }
+
     fn measure(
         &self,
         request: durable::RlmChildHandbackRequest,
