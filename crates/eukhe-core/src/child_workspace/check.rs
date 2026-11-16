@@ -9,9 +9,10 @@
 //!   the nearest `pyproject.toml`'s directory).
 //!
 //! The command runs under `sh -c` in its own process group, killed at the
-//! timeout; the report keeps the output's tail. While it runs, the caller
-//! hears from it at its start, at each interval (time since the start, the
-//! last line it printed) and at its end (how it ended, its last lines).
+//! timeout, with the mise trust a child's copy keeps ([`super::tool_env`]);
+//! the report keeps the output's tail. While it runs, the caller hears from
+//! it at its start, at each interval (time since the start, the last line
+//! it printed) and at its end (how it ended, its last lines).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -289,6 +290,7 @@ async fn run(
     started: Instant,
     report: &(dyn Fn(CheckReport) + Sync),
 ) -> (CheckOutcome, String) {
+    let trust = super::tool_env(dir);
     let spawned = Command::new("sh")
         .arg("-c")
         .arg(format!("exec 2>&1\n{command}"))
@@ -298,6 +300,7 @@ async fn run(
         .stderr(Stdio::null())
         .process_group(0)
         .kill_on_drop(true)
+        .envs(trust)
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,

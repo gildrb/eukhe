@@ -88,17 +88,22 @@ fn skills_notice(errors: &UnavailablePythonSkills) -> CustomNotice {
 }
 
 /// What the session adds to the environment of its kernels and of the
-/// `bash` tool's external steps: the agent dir, and the chat-memory flag
-/// (a chat-memory session remembers through the chat: the kernel's
-/// `rlm.harness` holds tools only).
+/// `bash` tool's external steps: the agent dir, the chat-memory flag (a
+/// chat-memory session remembers through the chat: the kernel's
+/// `rlm.harness` holds tools only), and, in a child's isolated copy, the
+/// mise trust its parent's workspace has
+/// ([`crate::child_workspace::tool_env`]).
 pub(crate) fn session_env(deps: &HostDeps) -> HashMap<String, String> {
-    let mut env = HashMap::with_capacity(2);
+    let mut env = HashMap::with_capacity(3);
     env.insert(
         "EUKHE_CODING_AGENT_DIR".to_string(),
         deps.agent_dir.to_string_lossy().to_string(),
     );
     if deps.memory.is_some() {
         env.insert("EUKHE_CHAT_MEMORY".to_string(), "1".to_string());
+    }
+    if let Some((name, value)) = crate::child_workspace::tool_env(&deps.cwd) {
+        env.insert(name.to_string(), value);
     }
     env
 }

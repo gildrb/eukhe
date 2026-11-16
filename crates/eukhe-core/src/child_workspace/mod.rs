@@ -39,8 +39,13 @@
 //! [`ChildWorkspace::close`]: then `base/`, the copy and its repository
 //! go, and `tree/` becomes a symlink to the parent's workspace, so a child
 //! woken later works there.
+//!
+//! The copy keeps the parent's tool trust ([`trust`]): the mise config
+//! files the parent's workspace trusts are trusted in the copy too,
+//! through the environment of the child's commands ([`tool_env`]).
 
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -52,6 +57,7 @@ mod check;
 mod files;
 mod git_view;
 mod merge;
+mod trust;
 mod units;
 
 #[cfg(test)]
@@ -74,6 +80,26 @@ const CONFLICTS: &str = "conflicts";
 /// The most paths an isolated workspace copies: a parent working in a
 /// home directory without git must not clone it whole.
 pub const MAX_WORKSPACE_FILES: usize = 100_000;
+
+/// The variable a command run in `dir` gets so mise trusts there what the
+/// parent's workspace trusts, when `dir` is a child's live copy (the
+/// `tree/` of a created workspace not yet closed): its name
+/// (`MISE_TRUSTED_CONFIG_PATHS`) and value (the copy's trusted config
+/// files, then the host's own value). `None` anywhere else, and for a copy
+/// whose parent trusts no mise config.
+#[must_use]
+pub fn tool_env(dir: &Path) -> Option<(&'static str, String)> {
+    let root = dir
+        .parent()
+        .filter(|_| dir.file_name() == Some(OsStr::new(TREE)))?;
+    if !fs::symlink_metadata(dir).is_ok_and(|meta| meta.is_dir()) {
+        return None;
+    }
+    let manifest = read_json::<Manifest>(&root.join(MANIFEST)).ok()??;
+    let inherited = std::env::var_os(trust::TRUSTED_CONFIG_PATHS);
+    trust::trusted_value(&manifest.trusted, inherited.as_deref())
+        .map(|value| (trust::TRUSTED_CONFIG_PATHS, value))
+}
 
 /// Where a spawned child works.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -158,6 +184,9 @@ struct Manifest {
     /// The parent's workspace.
     parent: PathBuf,
     copy: CopyReport,
+    /// The copy's mise config files whose originals the parent trusts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    trusted: Vec<PathBuf>,
 }
 
 /// One child's workspace, under its root directory.
@@ -214,6 +243,12 @@ impl ChildWorkspace {
     /// the copy.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
     pub async fn create(&self, parent: &Path) -> anyhow::Result<CopyReport> {
+        self.create_asking(parent, OsStr::new(trust::MISE)).await
+    }
+
+    /// [`Self::create`], asking `mise` (the program) for the parent's
+    /// trust.
+    async fn create_asking(&self, parent: &Path, mise: &OsStr) -> anyhow::Result<CopyReport> {
         if let Some(manifest) = read_json::<Manifest>(&self.root.join(MANIFEST))? {
             return Ok(manifest.copy);
         }
@@ -226,6 +261,7 @@ impl ChildWorkspace {
                 paths.len()
             );
         }
+        let trusted = trust::carried(mise, parent, &self.tree(), &paths).await;
         let staging = staging_of(&self.root);
         let report = {
             let (root, staging, parent) =
@@ -242,6 +278,7 @@ impl ChildWorkspace {
         let manifest = Manifest {
             parent: parent.to_path_buf(),
             copy: report,
+            trusted,
         };
         let root = self.root.clone();
         tokio::task::spawn_blocking(move || seal(&staging, &root, &manifest)).await??;

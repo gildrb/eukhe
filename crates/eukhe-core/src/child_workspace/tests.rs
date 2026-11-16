@@ -1,12 +1,15 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::check::detect;
+use super::trust::{config_root, trusted_dirs, trusted_value, TRUSTED_CONFIG_PATHS};
 use super::{
-    files, run_check, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckReport, CheckRun,
-    ChildWorkspace, Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
+    files, run_check, tool_env, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckReport,
+    CheckRun, ChildWorkspace, Listing, ScopedHandback, BASE, CONFLICTS, HANDBACK,
 };
 use eukhe_types::daemon::agent_tree::CheckPhase;
 
@@ -754,5 +757,173 @@ async fn a_running_check_reports_its_time_and_last_line() {
                 "Check `{command}`: failed (exit 1) in 0.0 s; last lines: waiting for a slot | FMT FAILED."
             )),
         )
+    );
+}
+
+#[test]
+fn a_mise_config_belongs_to_the_directory_its_trust_covers() {
+    let roots: Vec<Option<PathBuf>> = [
+        "mise.toml",
+        ".mise.toml",
+        "mise.local.toml",
+        "crates/a/mise.ci.toml",
+        "mise/config.toml",
+        "sub/.mise/config.local.toml",
+        ".config/mise.toml",
+        ".config/mise/config.toml",
+        ".config/mise/conf.d/tools.toml",
+        "misery.toml",
+        "mise.tom",
+        "src/config.toml",
+    ]
+    .into_iter()
+    .map(|path| config_root(Path::new(path)))
+    .collect();
+    assert_eq!(
+        roots,
+        [
+            Some(""),
+            Some(""),
+            Some(""),
+            Some("crates/a"),
+            Some(""),
+            Some("sub"),
+            Some(""),
+            Some(""),
+            Some(""),
+            None,
+            None,
+            None,
+        ]
+        .map(|root| root.map(PathBuf::from))
+    );
+}
+
+#[test]
+fn trust_show_lines_name_the_trusted_directories() {
+    let show = "~/work/repo: trusted\n/tmp/other: untrusted\n/srv/x: trusted\nmise WARN noise\n";
+    assert_eq!(
+        trusted_dirs(show, Some(Path::new("/home/u"))),
+        BTreeSet::from([PathBuf::from("/home/u/work/repo"), PathBuf::from("/srv/x")])
+    );
+    assert_eq!(
+        trusted_value(
+            &[
+                PathBuf::from("/t/mise.toml"),
+                PathBuf::from("/t/a/mise.toml")
+            ],
+            Some(OsStr::new("/host/mise.toml")),
+        ),
+        Some("/t/mise.toml:/t/a/mise.toml:/host/mise.toml".to_owned())
+    );
+    assert_eq!(trusted_value(&[], Some(OsStr::new("/host"))), None);
+}
+
+/// A `mise` stand-in in `dir`: `trust --show` reports the directory it
+/// runs in trusted, except under a `sub` directory, which it reports
+/// untrusted (with its trusted parent).
+fn fake_mise(dir: &Path) -> PathBuf {
+    let program = dir.join("mise");
+    fs::write(
+        &program,
+        "#!/bin/sh\n[ \"$1 $2\" = \"trust --show\" ] || exit 2\nd=$(pwd)\n\
+         case \"$d\" in\n*/sub) echo \"$d: untrusted\"; echo \"${d%/sub}: trusted\" ;;\n\
+         *) echo \"$d: trusted\" ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    program
+}
+
+/// The value a command in the copy gets: `trusted`, then the host's own.
+fn with_host_trust(trusted: &Path) -> String {
+    match std::env::var(TRUSTED_CONFIG_PATHS) {
+        Ok(host) if !host.is_empty() => format!("{}:{host}", trusted.display()),
+        Ok(_) | Err(_) => trusted.display().to_string(),
+    }
+}
+
+/// Regression: a child's copy lives at another path, and mise keys trust
+/// by path, so the parent's trusted `mise.toml` was untrusted in the copy
+/// and every mise-activated command there failed. The copy now keeps the
+/// trust of what the parent trusts (only that: `sub/mise.toml`, untrusted
+/// in the parent, stays untrusted), its node check runs with it, and the
+/// hand-back ends it.
+#[tokio::test]
+async fn a_childs_copy_keeps_the_mise_trust_its_parent_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent");
+    write(&parent, "mise.toml", "[tools]\n");
+    write(&parent, "sub/mise.toml", "[tools]\n");
+    write(&parent, "a.txt", "a");
+    let mise = fake_mise(dir.path());
+    let workspace = ChildWorkspace::at(dir.path().join("ws"));
+    workspace
+        .create_asking(&parent, mise.as_os_str())
+        .await
+        .unwrap();
+    let tree = workspace.tree();
+    let value = with_host_trust(&tree.join("mise.toml"));
+    let config = CheckConfig {
+        command: Some(format!("printf %s \"${TRUSTED_CONFIG_PATHS}\"")),
+        timeout: Duration::from_secs(60),
+        progress_every: Duration::from_secs(30),
+    };
+    assert_eq!(
+        (
+            tool_env(&tree),
+            tool_env(&parent),
+            timeless(run_check(&tree, &[], &config, &unheard).await),
+        ),
+        (
+            Some((TRUSTED_CONFIG_PATHS, value.clone())),
+            None,
+            CheckRun::Ran {
+                command: format!("printf %s \"${TRUSTED_CONFIG_PATHS}\""),
+                outcome: CheckOutcome::Passed,
+                output: value,
+                duration_ms: 0,
+            },
+        )
+    );
+    // The child's check runs in its copy after the hand-back, with the
+    // trust; the close ends it.
+    let (units, scope) = whole();
+    workspace.hand_back_scoped(&units, &scope).await.unwrap();
+    let handed_back = tool_env(&tree);
+    workspace.close().await.unwrap();
+    assert_eq!(
+        (handed_back, tool_env(&tree)),
+        (
+            Some((
+                TRUSTED_CONFIG_PATHS,
+                with_host_trust(&tree.join("mise.toml"))
+            )),
+            None
+        )
+    );
+}
+
+/// A parent that trusts nothing, or no mise to ask, gives the copy no
+/// trust.
+#[tokio::test]
+async fn a_copy_of_an_untrusted_or_unasked_parent_trusts_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent").join("sub");
+    write(&parent, "mise.toml", "[tools]\n");
+    let mise = fake_mise(dir.path());
+    let untrusted = ChildWorkspace::at(dir.path().join("untrusted"));
+    untrusted
+        .create_asking(&parent, mise.as_os_str())
+        .await
+        .unwrap();
+    let unasked = ChildWorkspace::at(dir.path().join("unasked"));
+    unasked
+        .create_asking(&parent, dir.path().join("no-mise").as_os_str())
+        .await
+        .unwrap();
+    assert_eq!(
+        (tool_env(&untrusted.tree()), tool_env(&unasked.tree())),
+        (None, None)
     );
 }
