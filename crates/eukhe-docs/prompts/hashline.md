@@ -1,6 +1,6 @@
-Hashline patch of existing files (new files: `write`): one or more sections, each a header line then ops.
+Hashline patch of existing files (new files: `write`): sections, each a header line then ops.
 
-Header: `[PATH#TAG]` copied verbatim from the latest `read`/`grep`/edit output for that file, e.g. `[src/a.rs#3F9A]`. `TAG` is that file's 4-hex snapshot: NEVER invent or guess it; no tag yet → `read` or `grep` the file. `N`, `M`: line numbers from that output, never shifted by earlier ops.
+Header: `[PATH#TAG]` copied verbatim from the latest `read`/`grep`/edit output, e.g. `[src/a.rs#3F9A]`. `TAG`: the file's snapshot; NEVER invent it; no tag yet → `read` it. `N`, `M`: line numbers from that output, never shifted by earlier ops.
 
 Ops:
 - `PUT N.=M:` replaces inclusive lines N–M with the `+` body (one line: `PUT N.=N:`).
@@ -12,8 +12,8 @@ Ops:
 Rules:
 - Body rows start `+`; a lone `+` is a blank line; the rest is verbatim, indent included. NEVER `-` rows or bare context: the range deletes, the body is the final content. Literal leading `-`/`+`: `+- item`/`++ item`. Range and body lengths are independent; delete with `CUT`, never an empty `PUT`.
 - Touch only changed, displayed lines; `…`, `..` and collapsed `N-M:` rows are unseen: read them first. Split nonadjacent changes; additions use `PUT <N:`/`PUT >N:`, never a widened range. Never start or end a range mid-expression or mid-block.
-- A doc comment and attributes belong to the item below them: insert above the doc, never between doc and item; a range over them keeps them in the body.
-- Each edit changes the tag and numbers: take the next ones from the edit response or a fresh `read`. Stale tag → re-read.
+- A doc and attributes belong to the item below: insert above the doc.
+- Each edit changes the tag and numbers: take them from its response or a fresh `read`. Stale tag → re-read.
 - Do not restyle unrelated code.
 
 Example: `read` printed `[greet.py#A1B2]`, `1:def greet(name):` … `3:    print(msg)`:
