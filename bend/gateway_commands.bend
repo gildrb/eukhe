@@ -203,7 +203,8 @@ def reasoning(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
     case Some{a}:
       Some{CReasoning{a}}
 
-# the command at index i of specs() given args, when they are its own
+# the command at index i of specs() given args, when they are its own;
+# i is an index find answered, so the last arm is index 10 (restart)
 def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
   match i:
     case 0n:
@@ -226,10 +227,8 @@ def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
       model(args)
     case 9n:
       reasoning(upto(args))
-    case 10n:
+    case 10n+u:
       none(args, CRestart{})
-    case 11n+u:
-      None{}
 
 def find.at(b: Bool, i: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match b:

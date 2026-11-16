@@ -25486,7 +25486,7 @@ INLINE Term spin_gateway_commands_command(Env e, THR Term* o, Term r0, Term r1) 
       o[1] = (u32)_o_10[1];
       o[2] = _o_10[2];
       o[3] = _o_10[3];
-    } else if (_i_0 == 10) {
+    } else {
       Term _o_11[4];
       if (spin_gateway_commands_none(e, _o_11, _args_0, 11, 0, 0) == 0) {
         return 0;
@@ -25495,12 +25495,6 @@ INLINE Term spin_gateway_commands_command(Env e, THR Term* o, Term r0, Term r1) 
       o[1] = (u32)_o_11[1];
       o[2] = _o_11[2];
       o[3] = _o_11[3];
-    } else {
-      term_sink(e, _args_0);
-      o[0] = 0;
-      o[1] = 0;
-      o[2] = 0;
-      o[3] = 0;
     }
   break;
   }
