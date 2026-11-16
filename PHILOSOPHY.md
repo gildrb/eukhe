@@ -75,4 +75,4 @@ M exceeds 1 exactly when D0 exceeds D1: the guarantees remove more decisions, ac
 
 ---
 
-Definitions, derivations, refutation tests and status per statement: `ledger/ledger.yaml`.
+Definitions, derivations, refutation tests and status per statement: ledger v22 of gildrb/eukhe-philosophy.
