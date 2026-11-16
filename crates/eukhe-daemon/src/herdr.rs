@@ -61,6 +61,10 @@ const DEFAULT_RETRY_GRACE_MS: u64 = 2500;
 /// The send timeout: one line, then close after the first response byte,
 /// an error, or this window (the TS `finish` arm).
 const SEND_TIMEOUT_MS: u64 = 500;
+/// The resend interval: a state that did not reach the wire (Herdr down,
+/// a refused target, a fence check still running) is sent again this
+/// often until it lands or a newer state replaces it.
+const RESEND_INTERVAL_MS: u64 = 1000;
 
 /// The reporter identity on every report (TS main `herdr:pi` source;
 /// `herdr integration install pi` reports under the same pair).
@@ -204,11 +208,35 @@ struct ReporterState {
     idle_deadline: Option<tokio::time::Instant>,
     /// The retry-grace deadline (an error-ended turn holding working).
     retry_deadline: Option<tokio::time::Instant>,
+    /// The resend deadline: the queued state's last send did not reach
+    /// the wire, so it is sent again then.
+    resend_deadline: Option<tokio::time::Instant>,
     /// Silenced: no further reports (a dead session that must not
     /// reclaim its pane — the replacement-failure arm).
     silenced: bool,
     /// Released: the pane was released; nothing may report after.
     released: bool,
+}
+
+impl ReporterState {
+    /// A fresh reporter: nothing on the wire, nothing queued, no run.
+    fn new(session_ref: HerdrSessionRef) -> Self {
+        Self {
+            agent_active: false,
+            retry_hold_active: false,
+            failure_blocked: false,
+            failure_message: None,
+            last_state: None,
+            last_message: None,
+            pending: None,
+            session_ref,
+            idle_deadline: None,
+            retry_deadline: None,
+            resend_deadline: None,
+            silenced: false,
+            released: false,
+        }
+    }
 }
 
 /// The boundary events the worker feeds the reporter (the TS extension
@@ -330,29 +358,22 @@ impl HerdrReporter {
 async fn release_pane(
     state: &mut ReporterState,
     config: &HerdrConfig,
-    fence_hung: &mut bool,
+    fence: &mut Fence,
     done: tokio::sync::oneshot::Sender<()>,
 ) {
     state.released = true;
     state.pending = None;
     state.idle_deadline = None;
     state.retry_deadline = None;
+    state.resend_deadline = None;
     // This task serializes every write and the drain below completed
     // before the release was admitted, so the release is the last
     // write on the wire — exactly the TS ordering contract. The same
     // fence gates it: a target that never accepted reports (or a
-    // check that hung) releases nothing, and the ack still fires.
+    // check still running) releases nothing, and the ack still fires.
     let target = config.socket_path.as_str();
-    let reached = if *fence_hung {
-        false
-    } else {
-        let verdict = pane_socket_acceptable(target).await;
-        if matches!(verdict, FenceVerdict::TimedOut) {
-            *fence_hung = true;
-        }
-        matches!(verdict, FenceVerdict::Accepted)
-            && send_request(target, release_request(&config.pane_id, next_report_seq())).await
-    };
+    let reached = fence.check(target).await == FenceVerdict::Accepted
+        && send_request(target, release_request(&config.pane_id, next_report_seq())).await;
     let _ = reached;
     let _ = done.send(());
 }
@@ -371,33 +392,25 @@ async fn run_reporter(
     let is_stale = || current_generation.load(std::sync::atomic::Ordering::Relaxed) != generation;
     // The pane-socket fence: checked per send at the task level (never
     // inside send_request). A missing or invalid target refuses that
-    // one send (the cheap lstat re-checks next time); a HUNG check
-    // (the 500 ms bound) refuses every later send without spawning
+    // one send (the cheap lstat re-checks next time); a check past its
+    // 500 ms bound refuses sends until it finishes, without spawning
     // another blocking-pool thread the runtime cannot cancel.
-    let mut fence_hung = false;
-    let mut state = ReporterState {
-        agent_active: false,
-        retry_hold_active: false,
-        failure_blocked: false,
-        failure_message: None,
-        last_state: None,
-        last_message: None,
-        pending: None,
-        session_ref,
-        idle_deadline: None,
-        retry_deadline: None,
-        silenced: false,
-        released: false,
-    };
+    let mut fence = Fence::default();
+    let mut state = ReporterState::new(session_ref);
     loop {
         if is_stale() {
             return;
         }
-        // The next timer deadline, if any: the two debounce/grace timers.
-        let deadline = [state.idle_deadline, state.retry_deadline]
-            .into_iter()
-            .flatten()
-            .min();
+        // The next timer deadline, if any: the debounce, the grace, and
+        // the resend of a state that did not reach the wire.
+        let deadline = [
+            state.idle_deadline,
+            state.retry_deadline,
+            state.resend_deadline,
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         tokio::select! {
             signal = rx.recv() => {
                 match signal {
@@ -412,7 +425,7 @@ async fn run_reporter(
                             let _ = done.send(());
                             return;
                         }
-                        release_pane(&mut state, &config, &mut fence_hung, done).await;
+                        release_pane(&mut state, &config, &mut fence, done).await;
                         return;
                     }
                     Some(signal) => {
@@ -451,6 +464,13 @@ async fn run_reporter(
                         publish(&mut state);
                     }
                 }
+                if let Some(at) = state.resend_deadline {
+                    if at <= now {
+                        // The unsent state is still queued: the drain
+                        // below sends it again.
+                        state.resend_deadline = None;
+                    }
+                }
             }
         }
         // Drain the single-slot queue — the TS latest-wins slot: the
@@ -471,23 +491,26 @@ async fn run_reporter(
                 &state.session_ref,
                 next_report_seq(),
             );
-            let reached_wire = if fence_hung {
-                false
-            } else {
-                let verdict = pane_socket_acceptable(target).await;
-                if matches!(verdict, FenceVerdict::TimedOut) {
-                    fence_hung = true;
+            let reached_wire = fence.check(target).await == FenceVerdict::Accepted
+                && send_request(target, request).await;
+            if !reached_wire {
+                // A failed or refused send leaves the state unpublished
+                // and queued again (unless a newer state took the slot):
+                // it is sent again after the resend interval, so the
+                // pane's last state lands without waiting for another
+                // boundary, and the dedup never drops it. The signals
+                // still in the channel are taken by the select first.
+                if state.pending.is_none() {
+                    state.pending = Some(report);
                 }
-                matches!(verdict, FenceVerdict::Accepted) && send_request(target, request).await
-            };
-            if reached_wire {
-                // The state reached the wire (best-effort): the
-                // publish-dedup keys on it. A failed or refused send
-                // leaves it unpublished, so it re-queues at the next
-                // boundary instead of being deduped away.
-                state.last_state = Some(report.state);
-                state.last_message = report.message;
+                state.resend_deadline =
+                    Some(tokio::time::Instant::now() + Duration::from_millis(RESEND_INTERVAL_MS));
+                break;
             }
+            // The state reached the wire: the publish-dedup keys on it.
+            state.resend_deadline = None;
+            state.last_state = Some(report.state);
+            state.last_message = report.message;
             if is_stale() {
                 return;
             }
@@ -502,7 +525,7 @@ async fn run_reporter(
                             let _ = done.send(());
                             return;
                         }
-                        release_pane(&mut state, &config, &mut fence_hung, done).await;
+                        release_pane(&mut state, &config, &mut fence, done).await;
                         return;
                     }
                     signal => handle_signal(&mut state, signal, &config),
@@ -609,15 +632,23 @@ fn desired_state(state: &ReporterState) -> (PaneState, Option<String>) {
     (PaneState::Idle, None)
 }
 
-/// Queue the desired state when it differs from the last published one.
+/// Queue the desired state when it differs from the last published one,
+/// or whenever a report is already queued.
 fn publish(state: &mut ReporterState) {
     let (next_state, next_message) = desired_state(state);
-    // Dedup only against a state that actually reached the wire — a
-    // never-sent state (Herdr down) must re-queue, not silently dedup
-    // against the pre-wire default.
-    if let Some(last_state) = state.last_state {
-        if next_state == last_state && next_message == state.last_message {
-            return;
+    // A queued report is older than the state desired now, so the newest
+    // state replaces it even when that state is already on the wire: a
+    // run whose start and end both arrive during one in-flight write
+    // queues `working`, then its idle end matches the wire's idle — a
+    // dedup that kept the slot would write the stale `working` last and
+    // stick the pane at working. Dedup only against a state that
+    // actually reached the wire — a never-sent state (Herdr down) must
+    // re-queue, not silently dedup against the pre-wire default.
+    if state.pending.is_none() {
+        if let Some(last_state) = state.last_state {
+            if next_state == last_state && next_message == state.last_message {
+                return;
+            }
         }
     }
     queue_state(state, next_state, next_message);
@@ -633,8 +664,8 @@ fn publish_force(state: &mut ReporterState) {
 fn queue_state(state: &mut ReporterState, next_state: PaneState, next_message: Option<String>) {
     // The slot only QUEUES here: `last_state` marks what is on the
     // wire, recorded after a successful send — a state whose send
-    // failed (Herdr down) stays UNpublished, so the same state is
-    // re-sent at the next boundary instead of being deduped away.
+    // failed (Herdr down) stays UNpublished and queued, so the same
+    // state is sent again instead of being deduped away.
     state.pending = Some(PendingReport {
         state: next_state,
         message: next_message,
@@ -752,28 +783,49 @@ enum FenceVerdict {
     /// The target is missing or fails the ownership check: this send
     /// is refused (the cheap lstat re-checks on the next send).
     Rejected,
-    /// The lstat itself hung past the 500 ms bound: the reporter never
-    /// spawns another (a blocking-pool thread the runtime cannot
-    /// cancel) — it fails closed for the rest of its life.
-    TimedOut,
+    /// An lstat is past the 500 ms bound and still running: this send
+    /// is refused, and no second check spawns until it finishes.
+    Stalled,
 }
 
-async fn pane_socket_acceptable(socket_target: &str) -> FenceVerdict {
-    // The lstat is a blocking syscall on a CLIENT-SUPPLIED path — it
-    // moves off the async runtime (spawn_blocking) under the same
-    // 500 ms bound as every other phase, so a pathological target (a
-    // hung mount) cannot stall the reporter task, and a hung check is
-    // never repeated (the pool thread cannot be cancelled).
-    let target = socket_target.to_string();
-    let checked = tokio::time::timeout(
-        Duration::from_millis(SEND_TIMEOUT_MS),
-        tokio::task::spawn_blocking(move || pane_socket_acceptable_blocking(&target)),
-    )
-    .await;
-    match checked {
-        Ok(Ok(true)) => FenceVerdict::Accepted,
-        Ok(Ok(false)) => FenceVerdict::Rejected,
-        Ok(Err(_)) | Err(_) => FenceVerdict::TimedOut,
+/// The pane-socket fence of one reporter: the lstat check per send, and
+/// the one check that outlived its bound, if any.
+#[derive(Default)]
+struct Fence {
+    /// A check past the 500 ms bound. It keeps its blocking-pool thread
+    /// (the runtime cannot cancel one), so no other check spawns while
+    /// it runs; once it finishes, the next send checks afresh. A slow
+    /// lstat on a loaded machine therefore costs the sends during it,
+    /// never every later one.
+    stalled: Option<tokio::task::JoinHandle<bool>>,
+}
+
+impl Fence {
+    async fn check(&mut self, socket_target: &str) -> FenceVerdict {
+        // The lstat is a blocking syscall on a CLIENT-SUPPLIED path — it
+        // moves off the async runtime (spawn_blocking) under the same
+        // 500 ms bound as every other phase, so a pathological target (a
+        // hung mount) cannot stall the reporter task, and a hung check
+        // is never repeated while it runs (the pool thread cannot be
+        // cancelled). A finished stalled check's verdict is stale: the
+        // target may have changed since, so it is checked again.
+        if let Some(stalled) = &self.stalled {
+            if !stalled.is_finished() {
+                return FenceVerdict::Stalled;
+            }
+            self.stalled = None;
+        }
+        let target = socket_target.to_string();
+        let mut check =
+            tokio::task::spawn_blocking(move || pane_socket_acceptable_blocking(&target));
+        match tokio::time::timeout(Duration::from_millis(SEND_TIMEOUT_MS), &mut check).await {
+            Ok(Ok(true)) => FenceVerdict::Accepted,
+            Ok(Ok(false) | Err(_)) => FenceVerdict::Rejected,
+            Err(_) => {
+                self.stalled = Some(check);
+                FenceVerdict::Stalled
+            }
+        }
     }
 }
 
@@ -1004,6 +1056,29 @@ mod tests {
         assert_eq!(error_hold_message(&[]), None);
     }
 
+    /// A run whose start and end both arrive while one write is in
+    /// flight (absorbed after it, in order): the queued `working` must
+    /// not outlive the idle end that matches the wire's idle — the slot
+    /// holds the newest state, never the stale one.
+    #[test]
+    fn a_run_absorbed_during_a_write_leaves_the_newest_state_queued() {
+        let config =
+            HerdrConfig::from_env(&pane_env(std::path::Path::new("/nowhere"), "w1:p0")).unwrap();
+        let mut state = ReporterState::new(HerdrSessionRef::default());
+        state.last_state = Some(PaneState::Idle);
+        handle_signal(&mut state, Signal::RunStarted, &config);
+        handle_signal(
+            &mut state,
+            Signal::RunEnded {
+                error: None,
+                more_queued: false,
+            },
+            &config,
+        );
+        let queued = state.pending.as_ref().map(|report| report.state);
+        assert_eq!(queued, Some(PaneState::Idle), "the run ended idle");
+    }
+
     #[test]
     fn the_resume_argv_rides_only_valid_targets() {
         let argv = valid_resume_argv(Some("019e71ec-e08a-75a9-b573-000000000001.jsonl"));
@@ -1185,9 +1260,11 @@ mod tests {
         assert!(params.get("message").is_none());
 
         // A run flips working, its end settles idle; unchanged states
-        // publish once. The settle's idle may land while the working
-        // write drains, so the assertion waits for the full chain.
+        // publish once. The end waits for the working write: an end
+        // absorbed with its start in one write's drain replaces the
+        // queued working (latest wins), so that chain never shows it.
         reporter.run_started();
+        wait_for_requests(&requests, 2).await;
         reporter.run_ended(None, false);
         wait_for_requests(&requests, 3).await;
         let states = states_of(&requests);
@@ -1235,15 +1312,23 @@ mod tests {
     async fn a_retry_within_the_grace_keeps_the_pane_working() {
         let (_dir, socket_path) = temp_socket("retry");
         let (requests, server) = fake_herdr(&socket_path);
-        let config = HerdrConfig::from_env(&pane_env(&socket_path, "w1:p3")).unwrap();
+        // A grace no scheduling delay can outlast: the retry always lands
+        // inside it (a 30 ms grace expired before a descheduled test
+        // thread sent the retry, which settled blocked).
+        let mut env = pane_env(&socket_path, "w1:p3");
+        env.insert("HERDR_PI_RETRY_GRACE_MS".to_string(), "600000".to_string());
+        let config = HerdrConfig::from_env(&env).unwrap();
         let (reporter, _generation) =
             start_reporter(config, HerdrSessionRef::new(None, Some("s3".to_string())));
         reporter.session_started(false, HerdrSessionRef::new(None, Some("s3".to_string())));
         wait_for_requests(&requests, 1).await;
 
         // The error end starts the hold; the retry (the engine's
-        // auto-retry) cancels it before the grace settles the block.
+        // auto-retry) cancels it before the grace settles the block. The
+        // end waits for the working write: a whole chain absorbed during
+        // one write leaves only its newest state (idle) to write.
         reporter.run_started();
+        wait_for_requests(&requests, 2).await;
         reporter.run_ended(Some("flaky".to_string()), false);
         tokio::time::sleep(Duration::from_millis(5)).await;
         reporter.retry_started();
@@ -1482,22 +1567,67 @@ mod tests {
         // closed; the cheap NotFound lstat re-checks on every send, so
         // reporting starts the moment the socket appears).
         assert_eq!(
-            pane_socket_acceptable(socket_path.to_str().unwrap()).await,
+            Fence::default().check(socket_path.to_str().unwrap()).await,
             FenceVerdict::Accepted
         );
         assert_eq!(
-            pane_socket_acceptable(file_path.to_str().unwrap()).await,
+            Fence::default().check(file_path.to_str().unwrap()).await,
             FenceVerdict::Rejected
         );
         assert_eq!(
-            pane_socket_acceptable(link_path.to_str().unwrap()).await,
+            Fence::default().check(link_path.to_str().unwrap()).await,
             FenceVerdict::Rejected
         );
         assert_eq!(
-            pane_socket_acceptable(socket_path.with_extension("absent").to_str().unwrap()).await,
+            Fence::default()
+                .check(socket_path.with_extension("absent").to_str().unwrap())
+                .await,
             FenceVerdict::Rejected
         );
         drop(listener);
+    }
+
+    /// A check past its bound refuses sends only while it runs: no second
+    /// check spawns beside it, and once it finishes the next send checks
+    /// afresh. (The old fence failed closed for the reporter's whole life
+    /// after one slow lstat, which a loaded machine produces: 1.4 s under
+    /// stress, flk/l12-herdr/diag2.log.)
+    #[tokio::test]
+    async fn a_stalled_fence_check_refuses_only_until_it_finishes() {
+        let (_dir, socket_path) = temp_socket("stalled");
+        let _listener = tokio::net::UnixListener::bind(&socket_path).unwrap();
+        let target = socket_path.to_str().unwrap();
+        let (release, gate) = std::sync::mpsc::channel::<()>();
+        let mut fence = Fence {
+            stalled: Some(tokio::task::spawn_blocking(move || gate.recv().is_ok())),
+        };
+        assert_eq!(fence.check(target).await, FenceVerdict::Stalled);
+        assert_eq!(fence.check(target).await, FenceVerdict::Stalled);
+        release.send(()).unwrap();
+        while !fence.stalled.as_ref().unwrap().is_finished() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert_eq!(fence.check(target).await, FenceVerdict::Accepted);
+        assert!(fence.stalled.is_none());
+    }
+
+    /// A state that did not reach the wire is sent again until it lands,
+    /// with no further boundary: a session that went idle while Herdr was
+    /// unreachable still shows idle once Herdr answers.
+    #[tokio::test]
+    async fn an_unsent_state_is_sent_again_until_it_lands() {
+        let (_dir, socket_path) = temp_socket("resend");
+        let config = HerdrConfig::from_env(&pane_env(&socket_path, "w1:p11")).unwrap();
+        let (reporter, _generation) =
+            start_reporter(config, HerdrSessionRef::new(None, Some("s14".to_string())));
+        // The socket is missing: the fence refuses the session start's
+        // idle. Nothing else ever happens in this session.
+        reporter.session_started(false, HerdrSessionRef::new(None, Some("s14".to_string())));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let (requests, server) = fake_herdr(&socket_path);
+        wait_for_requests(&requests, 1).await;
+        assert_eq!(states_of(&requests), ["idle"]);
+        server.abort();
     }
 
     /// A reporter aimed at a non-socket target stays silent: the fence
