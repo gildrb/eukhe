@@ -26,7 +26,7 @@ use eukhe_core::durable::{
 use eukhe_daemon::rpc::error::RpcModeError;
 use eukhe_daemon::rpc::session::RpcEngineError;
 use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
-use eukhe_durable::harness::types::InputSubmissionDraft;
+use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
 use eukhe_types::budget::BudgetPhase;
@@ -1061,12 +1061,17 @@ async fn drive_prompts(
                 return Ok(PromptsEnd::CommandFailed(error));
             }
         } else {
+            // The session is busy here only with a run its open resumed
+            // (a `-c` after a crash) or a turn a settled job woke: the
+            // prompt steers that run, so the model reads it with the
+            // work in progress instead of after a finished run, which
+            // made it check the settled work again.
             let submission = conversation
                 .submit(
                     InputSubmissionDraft {
                         request_id: None,
                         content: user_content(&prompt, images),
-                        when_busy: None,
+                        when_busy: Some(WhenBusy::Steer),
                         origin: InputOrigin::User,
                         entry: None,
                     },

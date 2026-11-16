@@ -29,7 +29,7 @@ use eukhe::eukhe_command;
 #[path = "support/durable_store.rs"]
 mod durable_store;
 
-use durable_store::{read_transcript, session_dirs};
+use durable_store::{read_transcript, session_dirs, storage_contains};
 
 fn run(args: &[&str], script: &serde_json::Value) -> (String, String, i32) {
     let home = tempfile::TempDir::new().unwrap();
@@ -249,12 +249,15 @@ fn isolated_home() -> tempfile::TempDir {
     tempfile::TempDir::new().unwrap()
 }
 
-fn run_in_home(
+/// The binary in `home` with the faux `script`, isolated from the
+/// ambient agent and session dirs.
+fn command_in_home(
     home: &std::path::Path,
     args: &[&str],
     script: &serde_json::Value,
-) -> (String, String, i32) {
-    let output = eukhe_command()
+) -> std::process::Command {
+    let mut command = eukhe_command();
+    command
         .args(args)
         .env("HOME", home)
         .env("EUKHE_FAUX_SCRIPT", script.to_string())
@@ -264,7 +267,16 @@ fn run_in_home(
         .env_remove("EUKHE_SESSION_DIR")
         .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
         .env_remove("RLM_DEPTH")
-        .current_dir(home)
+        .current_dir(home);
+    command
+}
+
+fn run_in_home(
+    home: &std::path::Path,
+    args: &[&str],
+    script: &serde_json::Value,
+) -> (String, String, i32) {
+    let output = command_in_home(home, args, script)
         .output()
         .expect("binary present");
     (
@@ -392,6 +404,67 @@ fn print_mode_continue_recent_reuses_the_latest_session() {
         session_files(home.path()).len(),
         1,
         "continue reuses the saved session"
+    );
+}
+
+/// A run killed after a settled tool call, its next model request in
+/// flight: `--continue` with a new prompt resumes that run and the prompt
+/// joins it after the resumed request's tool round, so the run's next
+/// request reads both messages and its answer ends the invocation. The
+/// settled call is not run again (its line is in the file once). Before,
+/// the resumed run answered the old prompt alone and the new prompt then
+/// started a second run that checked the settled work again (here: a
+/// third request the script has no response for).
+#[test]
+fn print_mode_continue_after_a_kill_steers_the_resumed_run() {
+    let home = isolated_home();
+    let script = serde_json::json!({
+        "responses": [
+            { "content": [{ "type": "toolCall", "name": "bash",
+                            "arguments": { "script": "echo one >> steps.txt" } }] },
+            { "text": "too late", "delayMs": 600_000 },
+        ]
+    });
+    let mut child = command_in_home(home.path(), &["-p", "the task"], &script)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("binary present");
+    // The tool result is in the session: the next request is pending or
+    // in flight.
+    let started = std::time::Instant::now();
+    while !session_files(home.path())
+        .iter()
+        .any(|dir| storage_contains(dir, r#""role":"toolResult""#))
+    {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "the tool result never reached the session"
+        );
+        assert!(
+            child.try_wait().expect("the run's status").is_none(),
+            "the run ended before the kill"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    child.kill().expect("kill the run");
+    child.wait().expect("reap the run");
+
+    let script = serde_json::json!({
+        "responses": [
+            { "content": [{ "type": "toolCall", "name": "bash",
+                            "arguments": { "script": "echo two >> steps.txt" } }] },
+            { "userText": true },
+        ],
+        "judge": ["PASS"],
+    });
+    let (stdout, stderr, code) =
+        run_in_home(home.path(), &["--continue", "-p", "continue it"], &script);
+    let steps = std::fs::read_to_string(home.path().join("steps.txt")).expect("the steps' file");
+    assert_eq!(
+        (code, stdout.as_str(), steps.as_str()),
+        (0, "the task\n\ncontinue it\n", "one\ntwo\n"),
+        "stderr: {stderr}"
     );
 }
 
