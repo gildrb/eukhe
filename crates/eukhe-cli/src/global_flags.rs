@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 /// Global flags that consume the next argument as their value.
-pub const GLOBAL_VALUE_FLAGS: [&str; 30] = [
+pub const GLOBAL_VALUE_FLAGS: [&str; 31] = [
     "--mode",
     "--daemon-socket",
     "--provider",
@@ -35,6 +35,7 @@ pub const GLOBAL_VALUE_FLAGS: [&str; 30] = [
     "--budget-tokens",
     "--budget-time",
     "--budget-tool-calls",
+    "--budget-calls",
     "--budget-requests",
 ];
 

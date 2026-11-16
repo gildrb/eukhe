@@ -289,7 +289,7 @@ fn parse_budget_limit(
 
 /// The known long options, for the close-match suggestion an unknown
 /// option names (the parser rejects any option not handled above).
-const KNOWN_LONG_OPTIONS: &[&str] = &[
+pub(crate) const KNOWN_LONG_OPTIONS: &[&str] = &[
     "help",
     "version",
     "mode",
@@ -332,6 +332,7 @@ const KNOWN_LONG_OPTIONS: &[&str] = &[
     "budget-tokens",
     "budget-time",
     "budget-tool-calls",
+    "budget-calls",
     "budget-requests",
     "accept-cmd",
     "accept-judge",
@@ -341,6 +342,7 @@ const KNOWN_LONG_OPTIONS: &[&str] = &[
     "accept-no-intent",
     "list-models",
     "verbose",
+    "wait-limit-ms",
     "offline",
 ];
 
@@ -621,7 +623,7 @@ pub fn parse_args(args: &[String]) -> Args {
                 result.budget.time_ms =
                     parse_budget_limit(&value, arg, BudgetDimension::Time, &mut result.diagnostics);
             }
-            "--budget-tool-calls" => {
+            "--budget-tool-calls" | "--budget-calls" => {
                 let value = require_value!(arg);
                 result.budget.tool_calls = parse_budget_limit(
                     &value,

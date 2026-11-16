@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use crate::args::{parse_args, INTERNAL_RUNTIME_COMMAND_MARKER};
 
 use crate::command_registry::{
-    find_command_suggestion, format_command_help, format_top_level_help, get_child_command_specs,
-    get_command_spec, public_command_names, REMOVED_COMMAND_NAMES,
+    command_aliases, find_command_suggestion, format_command_help, format_top_level_help,
+    get_child_command_specs, get_command_spec, public_command_names, REMOVED_COMMAND_NAMES,
 };
 use crate::config::APP_NAME;
 use crate::global_flags::{extract_help_command_path, rotate_global_flags_before_command};
@@ -157,9 +157,12 @@ fn handled_failed() -> PublicCommandResult {
 /// `handlePublicCommand`. All errors are printed directly; the result reports
 /// whether the invocation was fully handled and with which exit code.
 pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
-    let public: HashSet<&str> = public_command_names().into_iter().collect();
+    let public: HashSet<&str> = public_command_names()
+        .into_iter()
+        .chain(command_aliases().map(|(alias, _)| alias))
+        .collect();
     let removed: HashSet<&str> = REMOVED_COMMAND_NAMES.iter().copied().collect();
-    let args = with_models_alias(rotate_global_flags_before_command(args, &public, &removed));
+    let args = with_command_alias(rotate_global_flags_before_command(args, &public, &removed));
 
     if args.first().map(String::as_str) == Some("help") {
         // A bare `help` shows the top-level help; a path resolves to that
@@ -249,6 +252,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "translate" => handled_with_exit(crate::tiny_command::run_translate_command(&rest)),
         "say" => handled_with_exit(crate::tiny_command::run_say_command(&rest)),
         "transcribe" => handled_with_exit(crate::tiny_command::run_transcribe_command(&rest)),
+        "completion" => handled_with_exit(crate::shell_completion::run_completion_command(&rest)),
         "config" => {
             if !rest.is_empty() {
                 return fail_usage(format!("Usage: {APP_NAME} config"), None);
@@ -259,11 +263,15 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
     }
 }
 
-/// `eukhe models ...` (and `eukhe help models ...`) as `eukhe model ...`.
-pub(crate) fn with_models_alias(mut args: Vec<String>) -> Vec<String> {
+/// A command's alias (`eukhe models ...`, `eukhe help tiny`) as its command.
+pub(crate) fn with_command_alias(mut args: Vec<String>) -> Vec<String> {
     let at = usize::from(args.first().map(String::as_str) == Some("help"));
-    if let Some(word) = args.get_mut(at).filter(|word| word.as_str() == "models") {
-        "model".clone_into(word);
+    let command = args
+        .get(at)
+        .and_then(|word| command_aliases().find(|(alias, _)| *alias == word.as_str()))
+        .map(|(_, spec)| spec.path[0]);
+    if let (Some(word), Some(command)) = (args.get_mut(at), command) {
+        command.clone_into(word);
     }
     args
 }

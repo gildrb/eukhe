@@ -86,7 +86,7 @@ fn amount_option(option: &str) -> Option<BudgetDimension> {
         "--cost" => Some(BudgetDimension::Cost),
         "--tokens" => Some(BudgetDimension::Tokens),
         "--time" => Some(BudgetDimension::Time),
-        "--tool-calls" => Some(BudgetDimension::ToolCalls),
+        "--tool-calls" | "--calls" => Some(BudgetDimension::ToolCalls),
         "--requests" => Some(BudgetDimension::Requests),
         _ => None,
     }

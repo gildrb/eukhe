@@ -11,6 +11,8 @@ pub struct CommandSpec {
     pub description: Option<&'static str>,
     pub options: &'static [&'static str],
     pub examples: &'static [&'static str],
+    /// Shorter names of a top-level command (`tiny` for `tiny-models`).
+    pub aliases: &'static [&'static str],
 }
 
 impl CommandSpec {
@@ -26,6 +28,7 @@ impl CommandSpec {
             description: None,
             options: &[],
             examples: &[],
+            aliases: &[],
         }
     }
 
@@ -43,6 +46,11 @@ impl CommandSpec {
         self.examples = examples;
         self
     }
+
+    const fn aliases(mut self, aliases: &'static [&'static str]) -> Self {
+        self.aliases = aliases;
+        self
+    }
 }
 
 /// The options of `budget set` and `budget add`.
@@ -51,7 +59,7 @@ const BUDGET_AMOUNT_OPTIONS: [&str; 7] = [
     "--cost <USD>          Dollars (1.50 or $1.50)",
     "--tokens <N>          Tokens (200000, 200k, 1.5m)",
     "--time <DURATION>     A duration (90s, 10m, 2h)",
-    "--tool-calls <N>      Tool calls",
+    "--calls, --tool-calls <N>  Tool calls",
     "--requests <N>        Model requests",
     "--json                Print JSON",
 ];
@@ -271,7 +279,8 @@ kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the on
          SHA256SUMS and run once before the launcher switches to it; the previous version stays \
          on disk for a running daemon. An install of Nix, mise, an app bundle or a cargo build \
          is left as it is: the command prints the command that updates it and exits 1."),
-    CommandSpec::new(&["model"], "model <list|refresh>", "Inspect available models"),
+    CommandSpec::new(&["model"], "model <list|refresh>", "Inspect available models")
+        .aliases(&["models"]),
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models")
         .description(
             "A model its provider's list left out at the last `model refresh` reads `unavailable` \
@@ -553,7 +562,8 @@ and install state; download fetches a model's pinned files from Hugging Face int
 dir and checks each against its sha256. Nothing downloads on its own: this command is the only \
 way a local model gets installed.",
     )
-    .examples(&["tiny-models", "tiny-models download lfm2.5-230m"]),
+    .examples(&["tiny-models", "tiny-models download lfm2.5-230m"])
+    .aliases(&["tiny"]),
     CommandSpec::new(
         &["kernel"],
         "kernel install [--check] | kernel lock <requirement>...",
@@ -607,6 +617,25 @@ first of pw-play, paplay, or aplay; the voice defaults to tts.localVoice.",
     )
     .description("Uses the dictation role's local model (whisper) and prints the text.")
     .options(&["--language <LANGUAGE>  The spoken language (default: detected)"]),
+    CommandSpec::new(
+        &["completion"],
+        "completion <bash|zsh|fish|nu>",
+        "Print the shell completion script",
+    )
+    .description(
+        "Completes the commands, their subcommands and options, and the values an option \
+lists, from the same table this help prints.",
+    )
+    .examples(&[
+        "completion bash > ~/.local/share/bash-completion/completions/eukhe",
+        "completion zsh > \"${fpath[1]}/_eukhe\"",
+        "completion fish > ~/.config/fish/completions/eukhe.fish",
+        "completion nu | save -f ~/.config/nushell/eukhe.nu",
+    ]),
+    CommandSpec::new(&["completion", "bash"], "completion bash", "The bash script"),
+    CommandSpec::new(&["completion", "zsh"], "completion zsh", "The zsh script"),
+    CommandSpec::new(&["completion", "fish"], "completion fish", "The fish script"),
+    CommandSpec::new(&["completion", "nu"], "completion nu", "The nushell script"),
 ];
 
 /// Command names that once existed and now print removal guidance.
@@ -620,6 +649,22 @@ pub fn public_command_names() -> Vec<&'static str> {
         .filter(|spec| spec.path.len() == 1)
         .map(|spec| spec.path[0])
         .collect()
+}
+
+/// The aliases of the top-level commands, each with its command.
+pub fn command_aliases() -> impl Iterator<Item = (&'static str, &'static CommandSpec)> {
+    COMMAND_SPECS
+        .iter()
+        .filter(|spec| spec.path.len() == 1)
+        .flat_map(|spec| spec.aliases.iter().map(move |alias| (*alias, spec)))
+}
+
+/// Every top-level option as the help prints it: its spellings and its
+/// description.
+pub fn top_level_options() -> impl Iterator<Item = (&'static str, &'static str)> {
+    TOP_LEVEL_OPTION_GROUPS
+        .iter()
+        .flat_map(|group| group.options.iter().copied())
 }
 
 struct OptionGroup {
@@ -724,7 +769,10 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
                 "--budget-time <DURATION>",
                 "Give them a deadline this long from now (90s, 10m, 2h)",
             ),
-            ("--budget-tool-calls <N>", "Limit their tool calls"),
+            (
+                "--budget-calls, --budget-tool-calls <N>",
+                "Limit their tool calls",
+            ),
             ("--budget-requests <N>", "Limit their model requests"),
         ],
     },
@@ -927,6 +975,10 @@ pub fn format_command_help(path: &[&str]) -> Option<String> {
         String::new(),
         format!("{}.", spec.summary),
     ];
+    if !spec.aliases.is_empty() {
+        sections.push(String::new());
+        sections.push(format!("Aliases: {}", spec.aliases.join(", ")));
+    }
     if let Some(description) = spec.description {
         sections.push(String::new());
         sections.push(description.to_string());

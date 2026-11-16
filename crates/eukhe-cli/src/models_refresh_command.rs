@@ -155,14 +155,16 @@ mod tests {
     fn models_is_the_model_command() {
         assert_eq!(
             (
-                crate::public_command::with_models_alias(arg(&["models", "refresh"])),
-                crate::public_command::with_models_alias(arg(&["help", "models", "refresh"])),
-                crate::public_command::with_models_alias(arg(&["models-x"])),
+                crate::public_command::with_command_alias(arg(&["models", "refresh"])),
+                crate::public_command::with_command_alias(arg(&["help", "models", "refresh"])),
+                crate::public_command::with_command_alias(arg(&["models-x"])),
+                crate::public_command::with_command_alias(arg(&["tiny", "list"])),
             ),
             (
                 arg(&["model", "refresh"]),
                 arg(&["help", "model", "refresh"]),
                 arg(&["models-x"]),
+                arg(&["tiny-models", "list"]),
             )
         );
     }
