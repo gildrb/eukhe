@@ -286,6 +286,59 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
     );
 }
 
+/// Two children change a Rust file with doc comments: the hand-back moves
+/// whole files, never lines. The first child's file reaches the parent
+/// byte for byte, each doc above its own item; the second child's change
+/// of the same file is a conflict kept whole under `conflicts/`, and its
+/// change of another file reaches the parent byte for byte.
+#[tokio::test]
+async fn a_hand_back_keeps_each_doc_above_its_item_or_reports_the_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent");
+    let lib = "/// Adds one.\npub fn inc(x: u32) -> u32 {\n    x + 1\n}\n\n/// Doubles.\n\
+               pub fn double(x: u32) -> u32 {\n    x * 2\n}\n";
+    write(&parent, "src/lib.rs", lib);
+    write(&parent, "src/b.rs", "/// B.\npub struct B;\n");
+    let first = ChildWorkspace::at(dir.path().join("first"));
+    let second = ChildWorkspace::at(dir.path().join("second"));
+    first.create(&parent).await.unwrap();
+    second.create(&parent).await.unwrap();
+    let first_lib = "/// Adds one.\npub fn inc(x: u32) -> u32 {\n    x + 1\n}\n\n/// Halves.\n\
+                     pub fn half(x: u32) -> u32 {\n    x / 2\n}\n\n/// Doubles.\n\
+                     pub fn double(x: u32) -> u32 {\n    x * 2\n}\n";
+    let second_lib =
+        format!("{lib}\n/// Subtracts one.\npub fn dec(x: u32) -> u32 {{\n    x - 1\n}}\n");
+    let second_b = "/// B.\npub struct B;\n\n/// C.\npub struct C;\n";
+    write(&first.tree(), "src/lib.rs", first_lib);
+    write(&second.tree(), "src/lib.rs", &second_lib);
+    write(&second.tree(), "src/b.rs", second_b);
+    let (units, scope) = whole();
+    let first_back = first.hand_back_scoped(&units, &scope).await.unwrap();
+    let second_back = second.hand_back_scoped(&units, &scope).await.unwrap();
+    let kept = second.root().join(CONFLICTS);
+    assert_eq!(
+        (first_back, second_back, snapshot(&parent), snapshot(&kept)),
+        (
+            ScopedHandback {
+                taken: names(&["src/lib.rs"]),
+                outside: Vec::new(),
+                conflicts: Vec::new(),
+                kept: None,
+                patch: vec![Some(1)],
+            },
+            ScopedHandback {
+                taken: names(&["src/b.rs"]),
+                outside: Vec::new(),
+                conflicts: names(&["src/lib.rs"]),
+                kept: Some(kept.to_string_lossy().into_owned()),
+                patch: vec![Some(1)],
+            },
+            files_of(&[("src/b.rs", second_b), ("src/lib.rs", first_lib)]),
+            files_of(&[("src/lib.rs", &second_lib)]),
+        )
+    );
+}
+
 /// A child owning `src` changes files in and out of its scope: the
 /// in-scope changes (an edit, an addition, a removal) reach the parent;
 /// the rest stays under `conflicts/`, never applied.
