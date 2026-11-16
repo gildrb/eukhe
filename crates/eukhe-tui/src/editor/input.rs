@@ -190,6 +190,23 @@ impl Editor {
             if self.kb_matches(input, "tui.input.tab")
                 || self.kb_matches(input, "tui.select.confirm")
             {
+                let argument = self.autocomplete.as_ref().is_some_and(|state| {
+                    state.kind == Some(crate::autocomplete::SuggestionKind::Argument)
+                });
+                // Enter on an argument menu whose token is empty or typed
+                // in full runs the line as typed; Tab and a partial token
+                // complete.
+                if argument
+                    && !self.kb_matches(input, "tui.input.tab")
+                    && self.autocomplete.as_ref().is_some_and(|state| {
+                        state.prefix.is_empty()
+                            || state
+                                .selected_item()
+                                .is_some_and(|item| item.value.eq_ignore_ascii_case(&state.prefix))
+                    })
+                {
+                    self.cancel_autocomplete();
+                }
                 let selected = self
                     .autocomplete
                     .as_ref()
@@ -230,6 +247,11 @@ impl Editor {
                     self.cancel_autocomplete();
                     if !is_typed_exact || !completed_noop {
                         self.emit(EditorEvent::Changed(self.get_text()));
+                        if argument {
+                            // The next place's rows (`/budget set ` lists
+                            // the keys).
+                            self.request_autocomplete(false, false);
+                        }
                         return;
                     }
                     // Exact slash command typed: fall through so Enter submits.

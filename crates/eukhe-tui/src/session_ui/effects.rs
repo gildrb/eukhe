@@ -8,6 +8,7 @@
 use eukhe_types::effects::{
     EffectKind, EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
 };
+use eukhe_types::slash_arguments::LiveValues;
 
 use super::{
     AgentView, ChatEntry, DaemonCommand, Duration, Map, SessionUi, StatusKind,
@@ -67,6 +68,27 @@ impl SessionUi {
             self.dirty = true;
         }
         self.unknown_effects = effects;
+        self.sync_effect_completions(view);
+    }
+
+    /// The open effects' ids become the values `/effects ran` and
+    /// `/effects not-run` complete.
+    pub(super) fn sync_effect_completions(&self, view: &mut AgentView) {
+        let rows = self
+            .unknown_effects
+            .iter()
+            .filter(|effect| effect.is_open())
+            .map(|effect| crate::autocomplete::CompletionItem {
+                value: effect.id.clone(),
+                label: effect.id.clone(),
+                description: Some(effect.what.clone()),
+                argument_hint: None,
+                source_tag: None,
+                path_row: None,
+            })
+            .collect();
+        view.editor
+            .set_autocomplete_live_values(LiveValues::OpenEffects, rows);
     }
 
     /// The rebuilt transcript's notice: one summary row while the ledger
@@ -121,6 +143,7 @@ impl SessionUi {
                             .join("\n")
                     };
                     self.unknown_effects = effects;
+                    self.sync_effect_completions(view);
                     self.plain_row(&text, view);
                 }
                 Err(error) => self.error_row(&format!("{error:#}"), view),

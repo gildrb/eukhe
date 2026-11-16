@@ -148,6 +148,10 @@ impl Editor {
                     .current_slash_command_context()
                     .is_some_and(|c| c.kind == crate::autocomplete::SlashKind::Argument);
             self.request_autocomplete(files, files);
+        } else if out.line.ends_with(' ') {
+            // A completed path that expects text: its argument rows
+            // (`/budget ` lists set, add, audit) open at once.
+            self.request_autocomplete(false, false);
         }
         true
     }
@@ -159,7 +163,13 @@ impl Editor {
     pub fn ghost_hint(&self) -> Option<String> {
         self.slash_path()?;
         if let Some(state) = self.autocomplete.as_ref() {
-            if state.kind != Some(crate::autocomplete::SuggestionKind::SlashCommand) {
+            if !matches!(
+                state.kind,
+                Some(
+                    crate::autocomplete::SuggestionKind::SlashCommand
+                        | crate::autocomplete::SuggestionKind::Argument
+                )
+            ) {
                 return None;
             }
             let item = state.selected_item()?;
@@ -321,6 +331,12 @@ impl Editor {
                 });
             }
             Some(crate::autocomplete::SuggestionLookup::Ready(suggestions)) => {
+                // What the argument place at the cursor expects, for the
+                // ghost hint while the text stays (`<dollars>` after
+                // `cost=`).
+                if let Some(hint) = suggestions.hint.clone() {
+                    self.path_hint = Some((self.get_text(), hint));
+                }
                 self.apply_suggestions(Some(suggestions), request);
             }
             None => self.apply_suggestions(None, request),
@@ -354,6 +370,10 @@ impl Editor {
             self.cursor_line = result.cursor_line;
             self.set_cursor_col(result.cursor_col);
             self.emit(EditorEvent::Changed(self.get_text()));
+            if suggestions.kind == Some(crate::autocomplete::SuggestionKind::Argument) {
+                // The next place's rows (`/budget set ` lists the keys).
+                self.request_autocomplete(false, false);
+            }
             return;
         }
         let state = menu_with_best_match(suggestions, 5);
@@ -380,18 +400,23 @@ impl Editor {
         let Some(open) = self.autocomplete.as_ref() else {
             return;
         };
-        if open.kind != Some(crate::autocomplete::SuggestionKind::SlashCommand) {
+        if !matches!(
+            open.kind,
+            Some(
+                crate::autocomplete::SuggestionKind::SlashCommand
+                    | crate::autocomplete::SuggestionKind::Argument
+            )
+        ) {
             return;
         }
         let selected = open.selected_item().map(|item| item.value);
-        let (max_visible, forced) = (open.max_visible, open.forced);
+        let (max_visible, forced, kind) = (open.max_visible, open.forced, open.kind);
         let lookup = self.autocomplete_provider.as_ref().and_then(|provider| {
             provider.get_suggestions(&self.lines, self.cursor_line, self.cursor_col, forced)
         });
         let rows = match lookup {
             Some(crate::autocomplete::SuggestionLookup::Ready(rows))
-                if rows.kind == Some(crate::autocomplete::SuggestionKind::SlashCommand)
-                    && !rows.items.is_empty() =>
+                if rows.kind == kind && !rows.items.is_empty() =>
             {
                 rows
             }

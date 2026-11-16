@@ -871,6 +871,7 @@ impl SessionUi {
         // The interrupted effects nobody settled yet stay in sight on
         // every rebuilt transcript.
         self.push_open_effects_notice(view);
+        self.sync_effect_completions(view);
         // The rebuild re-registers the live tool cards the way TS
         // `restoreStreamingMessageFromSnapshot` does (the resumed turn's
         // streamed calls re-enter the pending map): a post-reconnect

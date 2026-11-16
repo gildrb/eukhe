@@ -10,8 +10,10 @@ use crate::command_paths::{CommandTable, PathKey, PathMenu};
 use crate::fuzzy::fuzzy_filter;
 use crate::width::str_width;
 use crate::{Line, Span};
+use eukhe_types::slash_arguments::LiveValues;
 use eukhe_types::slash_commands::{SlashCommandRegistry, Subcommand};
 
+mod arguments;
 mod fuzzy_file_search;
 pub use fuzzy_file_search::FileSearch;
 
@@ -34,6 +36,9 @@ pub struct CompletionItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuggestionKind {
     SlashCommand,
+    /// The words, options and live values of a slash command's argument
+    /// text (`eukhe_types::slash_arguments`).
+    Argument,
     File,
 }
 
@@ -42,6 +47,11 @@ pub struct Suggestions {
     pub prefix: String,
     pub kind: Option<SuggestionKind>,
     pub items: Vec<CompletionItem>,
+    /// What the slash command's argument place at the cursor expects,
+    /// for the ghost hint while the text stays (`<dollars>` after
+    /// `/budget set cost=`); it comes with the place's rows, or alone
+    /// (no items) when the place has none.
+    pub hint: Option<String>,
 }
 
 /// A suggestion lookup: computed inline, or a background `@` file
@@ -109,6 +119,9 @@ pub trait AutocompleteProvider: Send {
     /// Replace the agent-family `@name` completions offered at prompt
     /// start. A default no-op for providers without agent mentions.
     fn set_agent_mentions(&mut self, _items: Vec<CompletionItem>) {}
+    /// Replace the live values of one argument source (the open effects'
+    /// ids). A default no-op for providers without argument texts.
+    fn set_live_values(&mut self, _source: LiveValues, _items: Vec<CompletionItem>) {}
     /// The slash-command table the menus, the keys and the dispatch share
     /// (`command_paths`); none for providers without commands.
     fn command_table(&self) -> Option<&CommandTable> {
@@ -855,6 +868,9 @@ pub struct CombinedAutocompleteProvider {
     /// the prompt's first word -- the position an `@name message` routes
     /// from.
     agent_mentions: Vec<CompletionItem>,
+    /// The live values of the argument texts (`/effects ran <id>`),
+    /// replaced whole by the session.
+    live: HashMap<LiveValues, Vec<CompletionItem>>,
     paths: PathCompletionProvider,
 }
 
@@ -898,6 +914,7 @@ impl CombinedAutocompleteProvider {
             arguments: HashMap::default(),
             table,
             agent_mentions: Vec::new(),
+            live: HashMap::default(),
             paths: PathCompletionProvider { base },
         }
     }
@@ -1017,6 +1034,7 @@ impl CombinedAutocompleteProvider {
             prefix,
             kind: Some(SuggestionKind::SlashCommand),
             items,
+            hint: None,
         })
     }
 
@@ -1096,6 +1114,10 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         self.agent_mentions = items;
     }
 
+    fn set_live_values(&mut self, source: LiveValues, items: Vec<CompletionItem>) {
+        CombinedAutocompleteProvider::set_live_values(self, source, items);
+    }
+
     fn get_suggestions(
         &self,
         lines: &[String],
@@ -1113,6 +1135,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                 agents,
             )));
         }
+        let mut argument = None;
         if !force {
             if let Some(context) = get_slash_command_context(lines, cursor_line, cursor_col) {
                 match context.kind {
@@ -1125,36 +1148,42 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                             prefix: context.prefix,
                             kind: Some(SuggestionKind::SlashCommand),
                             items,
+                            hint: None,
                         }));
                     }
                     // TS `command.getArgumentCompletions`: past the
                     // command name the rows are the children of the path
-                    // the line names (`command_paths`); a line with none
-                    // answers nothing here (a Tab then completes files).
+                    // the line names (`command_paths`), else its argument
+                    // place's; a line with none answers nothing here (a
+                    // Tab then completes files).
                     SlashKind::Argument => {
-                        if let Some(suggestions) = self.path_suggestions(&slash_line(&before)) {
-                            return Some(SuggestionLookup::Ready(suggestions));
-                        }
-                        return None;
+                        return self
+                            .command_rows(lines, cursor_line, cursor_col, &before)
+                            .map(SuggestionLookup::Ready);
                     }
                 }
             }
         } else if let Some(context) = get_slash_command_context(lines, cursor_line, cursor_col) {
             if context.kind == SlashKind::Argument {
-                if let Some(suggestions) = self.path_suggestions(&slash_line(&before)) {
-                    return Some(SuggestionLookup::Ready(suggestions));
+                argument = self.command_rows(lines, cursor_line, cursor_col, &before);
+                if argument.as_ref().is_some_and(|rows| !rows.items.is_empty()) {
+                    return argument.map(SuggestionLookup::Ready);
                 }
             }
         }
-        let prefix = extract_path_prefix(&before, force)?;
-        let items = self.paths.file_suggestions(&prefix);
-        if items.is_empty() {
-            return None;
-        }
+        // A forced Tab past the argument rows completes files; the
+        // place's hint rides along, and stands alone without files.
+        let files = extract_path_prefix(&before, force)
+            .map(|prefix| (self.paths.file_suggestions(&prefix), prefix))
+            .filter(|(items, _)| !items.is_empty());
+        let Some((items, prefix)) = files else {
+            return argument.map(SuggestionLookup::Ready);
+        };
         Some(SuggestionLookup::Ready(Suggestions {
             prefix,
             kind: Some(SuggestionKind::File),
             items,
+            hint: argument.and_then(|place| place.hint),
         }))
     }
 
@@ -1178,6 +1207,9 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                 lines: vec![text],
                 cursor_line: 0,
             };
+        }
+        if let Some(result) = self.apply_argument(lines, cursor_line, cursor_col, item, prefix) {
+            return result;
         }
         let is_slash = get_slash_command_context(lines, cursor_line, cursor_col)
             .is_some_and(|context| context.kind == SlashKind::Name && context.prefix == prefix);

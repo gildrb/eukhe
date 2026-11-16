@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use text_utils::{char_at, split_at_char};
 use wrap::{parse_paste_marker, segment_with_markers};
 
+#[cfg(test)]
+mod argument_key_tests;
 mod autocomplete;
 mod click;
 mod input;
@@ -269,6 +271,20 @@ impl Editor {
         if changed {
             self.refresh_open_slash_menu();
         }
+    }
+
+    /// Replace the live values of one argument source on the installed
+    /// provider (the open effects' ids `/effects ran` completes); an open
+    /// argument menu reads its rows again.
+    pub fn set_autocomplete_live_values(
+        &mut self,
+        source: eukhe_types::slash_arguments::LiveValues,
+        items: Vec<crate::autocomplete::CompletionItem>,
+    ) {
+        if let Some(provider) = self.autocomplete_provider.as_mut() {
+            provider.set_live_values(source, items);
+        }
+        self.refresh_open_slash_menu();
     }
 
     /// The slash-command table of the installed provider

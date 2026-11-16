@@ -73,6 +73,7 @@ fn with_leading(
         prefix: at_prefix,
         kind: Some(SuggestionKind::File),
         items,
+        hint: None,
     })
 }
 
@@ -256,6 +257,7 @@ fn search(base: &Path, at_prefix: &str, cancel: &AtomicBool) -> Option<Suggestio
         prefix: at_prefix.to_string(),
         kind: Some(SuggestionKind::File),
         items,
+        hint: None,
     })
 }
 
