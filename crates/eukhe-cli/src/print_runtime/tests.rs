@@ -471,6 +471,92 @@ async fn an_unscripted_request_fails_the_run_with_its_error() {
     assert!(!stderr.is_empty());
 }
 
+/// A quota failure whose provider wait (5 d 5 h) is past the bounded
+/// wait: the provider stream failure's `rate_limit` kind with its
+/// `retryAfterMs`.
+fn quota_step(reset_ms: u64) -> eukhe_ai::providers::faux::FauxResponseStep {
+    eukhe_ai::providers::faux::FauxResponseStep::factory(move |_, _, _, _| {
+        let mut details = eukhe_types::pi_ai::JsonObject::new();
+        details.insert("kind".to_owned(), serde_json::json!("rate_limit"));
+        details.insert("retryAfterMs".to_owned(), serde_json::json!(reset_ms));
+        let mut message = eukhe_ai::providers::faux::faux_assistant_message(
+            "",
+            eukhe_ai::providers::faux::FauxAssistantMessageOptions::default(),
+        );
+        message.stop_reason = eukhe_types::pi_ai::StopReason::Error;
+        message.error_message = Some("429 rate limit".to_owned());
+        message.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
+            kind: "provider_stream_failure".to_owned(),
+            timestamp: 0,
+            error: None,
+            details: Some(details),
+        }]);
+        Ok(message)
+    })
+}
+
+/// A `-p` run the provider's usage limit parks exits 1 (`headless_exit`:
+/// an unanswered run is a failure), and its stderr line leads with the
+/// park: until when, and the command that continues the saved session.
+#[tokio::test]
+async fn a_parked_run_exits_one_and_says_until_when() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let storage = SessionStorage::Jsonl {
+        dir: dir.path().join("sessions").join("parked"),
+        fsync: false,
+    };
+    let script = serde_json::json!({ "responses": [] });
+    let (session, provider) = faux_session(dir.path(), &script, storage).await;
+    // The provider behaviors (the quota park among them) a session gets on
+    // its own model collection; the faux collection is supplied, so install them.
+    let _runtime =
+        eukhe_core::durable::ProviderRuntime::install(&session.deps().models, session.deps());
+    provider.set_responses(vec![quota_step(450_144_000)]);
+    let session_id = "0198f000-0000-7000-8000-000000000000".to_owned();
+    let opened = HeadlessSession {
+        session: Arc::new(session),
+        lease: None,
+        session_id: session_id.clone(),
+        cwd: dir.path().to_path_buf(),
+        parent_session: None,
+        wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+    };
+    let conversation = opened.session.main();
+    let cx = &*BACKGROUND_CONTEXT;
+    let watch = RunWatch::start(&opened, &conversation, cx)
+        .await
+        .expect("the run watch starts");
+    let options = run_options(dir.path(), &["hi"]);
+    let ended = drive_prompts(&opened, &conversation, &watch, &options, cx)
+        .await
+        .expect("the prompt loop runs");
+    let exit = run_exit(&opened, &conversation, watch, ended, &options, cx)
+        .await
+        .expect("the exit");
+    let until_ms = opened
+        .session
+        .deps()
+        .provider_runtime
+        .get()
+        .and_then(|runtime| runtime.quota_park())
+        .expect("the session parked")
+        .resume_at_ms;
+    let stop = run_stop(&opened, eukhe_tui::budget_text::now_ms());
+    let until = eukhe_daemon::util::iso_from_unix_ms(until_ms);
+    assert_eq!(
+        (exit, unanswered_line(&stop, Some("429 rate limit"))),
+        (
+            Exit {
+                code: 1,
+                cause: ExitCause::RunFailed(Unanswered::ModelError)
+            },
+            Some(format!("eukhe: the provider's usage limit parked the session until {until}; `eukhe --resume {session_id}` continues it after then: 429 rate limit"))
+        )
+    );
+    drop(conversation);
+    close(opened).await;
+}
+
 #[tokio::test]
 async fn a_failed_session_command_stops_the_prompt_loop() {
     let (failure, result) = run(
