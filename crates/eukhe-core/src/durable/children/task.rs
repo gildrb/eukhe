@@ -62,7 +62,7 @@ use super::registry::{
 use super::requests::whole_ms;
 use super::tree::{self, End, Local, Slot};
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
-use super::work_list::{task_text, HandBack};
+use super::work_list::{task_text, HandBack, Stopped};
 use crate::child_workspace::{CheckRun, WorkspaceMode};
 use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
@@ -923,6 +923,23 @@ enum Seen {
 }
 
 impl Seen {
+    /// The items a child that answered left, when it stopped with some.
+    fn stopped(&self) -> Option<Stopped> {
+        match self {
+            Self::Answered {
+                work: HandBack::Stopped(stopped),
+                ..
+            } => Some(stopped.clone()),
+            Self::Answered {
+                work: HandBack::Finished,
+                ..
+            }
+            | Self::Unsettled
+            | Self::Unreached { .. }
+            | Self::Failed { .. } => None,
+        }
+    }
+
     /// The poll as the watch's call reads it; `replied`: the child already
     /// replied to its parent (read for an answer only). A reply of a child
     /// that stopped with items left is no hand-back: its parent gets the
@@ -1315,8 +1332,16 @@ async fn watch(
                 };
                 let checked = match integrated {
                     Some(HandbackOutcome::Done { handback }) => {
-                        show_integration(&runtime, task.conversation_id, row_id, &handback, &cx)
-                            .await?;
+                        let stopped = seen.stopped();
+                        show_integration(
+                            &runtime,
+                            task.conversation_id,
+                            row_id,
+                            &handback,
+                            stopped,
+                            &cx,
+                        )
+                        .await?;
                         let request = RlmChildCheckRequest {
                             handback: request,
                             progress: services.checks.clone(),
@@ -1546,12 +1571,15 @@ async fn hand_back(
 }
 
 /// Commit an integrated writer's hand-back to its row before its checks
-/// run: the parent's status shows the child's work from its arrival on.
+/// run, with the items it left: the parent's status shows the child's
+/// work from its arrival on, and an abort during the checks keeps a
+/// stopped child stopped.
 async fn show_integration(
     runtime: &Runtime,
     conversation_id: ConversationId,
     row_id: TaskId,
     handback: &RlmChildHandback,
+    stopped: Option<Stopped>,
     cx: &Context,
 ) -> SessionResult<()> {
     let outcome = HandbackOutcome::Done {
@@ -1562,6 +1590,7 @@ async fn show_integration(
             move |tx, _current| async move {
                 tx_update_row(&tx, conversation_id, row_id, |row| {
                     row.handback = Some(outcome);
+                    row.stopped = stopped;
                 })
                 .await?;
                 Ok(None)
@@ -1830,7 +1859,7 @@ async fn abort(
     let integrated = row
         .handback
         .as_ref()
-        .and_then(cut_checks)
+        .and_then(HandbackOutcome::cut_checks)
         .filter(|_| running);
     let patch = match (writer, &integrated) {
         (Some(spawn), None) if prompt_admissible && running => Some(
@@ -1912,7 +1941,10 @@ async fn abort(
                 let row = tx_update_row(&tx, conversation_id, row_id, |row| {
                     match integrated {
                         Some(handback) => {
-                            row.status = ChildStatus::Done;
+                            row.status = match row.stopped {
+                                Some(_) => ChildStatus::Stopped,
+                                None => ChildStatus::Done,
+                            };
                             row.handback = Some(HandbackOutcome::Done {
                                 handback: Box::new(handback),
                             });
@@ -1949,28 +1981,3 @@ async fn abort(
         )
         .await
 }
-
-/// The hand-back of a writer integrated before an abort cut its checks:
-/// the record with each check still to run marked not run; `None` when no
-/// check was left to run (or the hand-back failed).
-fn cut_checks(outcome: &HandbackOutcome) -> Option<RlmChildHandback> {
-    let handback = match outcome {
-        HandbackOutcome::Done { handback } => handback,
-        HandbackOutcome::Failed { .. } => return None,
-    };
-    let pending = |check: &CheckRun| matches!(check, CheckRun::Pending);
-    let cut = |check: &CheckRun| match check {
-        CheckRun::Pending => CheckRun::NotRun {
-            error: CHECKS_CUT.to_owned(),
-        },
-        CheckRun::None | CheckRun::NotRun { .. } | CheckRun::Ran { .. } => check.clone(),
-    };
-    (pending(&handback.child_check) || pending(&handback.parent_check)).then(|| RlmChildHandback {
-        handback: handback.handback.clone(),
-        child_check: cut(&handback.child_check),
-        parent_check: cut(&handback.parent_check),
-    })
-}
-
-/// Why an integrated writer's check did not run.
-const CHECKS_CUT: &str = "an abort stopped the checks after the integration";

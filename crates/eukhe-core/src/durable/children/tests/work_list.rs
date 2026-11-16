@@ -248,3 +248,67 @@ async fn rlm_items_keeps_the_latest_account_of_each_item() {
     );
     opened.harness.close(cx()).await.unwrap();
 }
+
+/// A child with items left that an abort meets after its integration,
+/// while its checks wait, stays `stopped` with them: the abort keeps what
+/// landed and never reads the child as done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_abort_during_the_checks_keeps_a_stopped_child_stopped() {
+    let setup = setup();
+    let host = FakeHost::new();
+    lock(&host.state).handback = Some(RlmChildHandback {
+        handback: ScopedHandback {
+            taken: vec!["a/x.txt".to_owned()],
+            outside: Vec::new(),
+            conflicts: Vec::new(),
+            kept: None,
+            patch: vec![None, Some(1), None],
+        },
+        child_check: CheckRun::None,
+        parent_check: CheckRun::None,
+    });
+    host.checks_open.send_replace(false);
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let left = split_with_items(&opened, &setup, &host, &["S2", "M1"]).await;
+    lock(&host.state)
+        .items
+        .insert(left.session_id.clone(), account(&[("S2", ItemMark::Done)]));
+    host.settle(
+        &left.session_id,
+        RlmChildRunState::Answered {
+            answer_preview: Some("done".to_owned()),
+        },
+        None,
+    );
+    eventually(|| async {
+        row_of(&opened.harness, left.task_id)
+            .await
+            .is_some_and(|row| row.handback.is_some())
+    })
+    .await;
+
+    crate::durable::children::cancel_tree(&opened.harness, ROOT_CONVERSATION_ID, cx())
+        .await
+        .unwrap();
+    opened
+        .harness
+        .wait_for_task(TaskId::<Value>::from_number(left.task_id), cx())
+        .await
+        .unwrap();
+    let row = row_of(&opened.harness, left.task_id).await.unwrap();
+    assert_eq!(
+        (row.status, row.stopped),
+        (
+            ChildStatus::Stopped,
+            Some(Stopped {
+                items: 2,
+                left: vec![LeftItem {
+                    id: "M1".to_owned(),
+                    why: LeftWhy::Unaccounted,
+                }],
+            })
+        )
+    );
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+}

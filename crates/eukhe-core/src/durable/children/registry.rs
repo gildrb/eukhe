@@ -6,6 +6,7 @@
 
 use super::host::{RlmChildHandback, RlmChildIdentity, RlmChildVerdict};
 use super::work_list::Stopped;
+use crate::child_workspace::CheckRun;
 use crate::durable::observe::rlm_usage::{
     attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
 };
@@ -208,7 +209,34 @@ impl HandbackOutcome {
             ),
         }
     }
+
+    /// The hand-back of a writer integrated before an abort cut its
+    /// checks: the record with each check still to run marked not run;
+    /// `None` when no check was left to run (or the hand-back failed).
+    pub(crate) fn cut_checks(&self) -> Option<RlmChildHandback> {
+        let handback = match self {
+            Self::Done { handback } => handback,
+            Self::Failed { .. } => return None,
+        };
+        let pending = |check: &CheckRun| matches!(check, CheckRun::Pending);
+        let cut = |check: &CheckRun| match check {
+            CheckRun::Pending => CheckRun::NotRun {
+                error: CHECKS_CUT.to_owned(),
+            },
+            CheckRun::None | CheckRun::NotRun { .. } | CheckRun::Ran { .. } => check.clone(),
+        };
+        (pending(&handback.child_check) || pending(&handback.parent_check)).then(|| {
+            RlmChildHandback {
+                handback: handback.handback.clone(),
+                child_check: cut(&handback.child_check),
+                parent_check: cut(&handback.parent_check),
+            }
+        })
+    }
 }
+
+/// Why an integrated writer's check did not run.
+const CHECKS_CUT: &str = "an abort stopped the checks after the integration";
 
 impl ChildRow {
     /// The selector set a child answers to: its child id, routing id,
