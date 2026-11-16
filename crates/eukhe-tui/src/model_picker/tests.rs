@@ -475,6 +475,47 @@ fn unconfigured_providers_mark_require_sign_in_and_sort_last() {
 }
 
 #[test]
+fn models_the_account_is_not_offered_read_unavailable() {
+    let offered = CatalogModel {
+        account: AccountOffer::Offered,
+        ..model("local-inference", "mock-1", "Mock 1", false, None)
+    };
+    let not_offered = CatalogModel {
+        account: AccountOffer::NotOffered,
+        ..model("local-inference", "mock-2", "Mock 2", false, None)
+    };
+    let not_refreshed = model("local-inference", "mock-3", "Mock 3", false, None);
+    let mut options = picker_options(vec![
+        offered.clone(),
+        not_offered.clone(),
+        not_refreshed.clone(),
+    ]);
+    options.current = None;
+    let mut picker = ModelPicker::new(options);
+    assert_eq!(
+        [
+            picker.trailing_segments(&offered.model),
+            picker.trailing_segments(&not_offered.model),
+            picker.trailing_segments(&not_refreshed.model),
+        ],
+        [
+            vec!["local-inference".to_owned()],
+            vec!["unavailable".to_owned(), "local-inference".to_owned()],
+            vec!["local-inference".to_owned()],
+        ]
+    );
+    let marked: Vec<bool> = ["Mock 1", "Mock 2", "Mock 3"]
+        .iter()
+        .map(|name| {
+            frame_text(&mut picker)
+                .iter()
+                .any(|row| row.contains(name) && row.contains("unavailable - local-inference"))
+        })
+        .collect();
+    assert_eq!(marked, vec![false, true, false]);
+}
+
+#[test]
 fn update_state_keeps_the_selection_on_the_surviving_model() {
     let mut picker = ModelPicker::new(picker_options(battery_catalog()));
     picker.handle_key("down", &kb());

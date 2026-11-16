@@ -488,6 +488,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         .map(|model| eukhe_types::ai::CatalogModel {
             thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
             service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            account: eukhe_types::ai::AccountOffer::NotRefreshed,
             model: model.clone(),
         })
         .collect();
@@ -648,6 +649,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         .map(|model| eukhe_types::ai::CatalogModel {
             thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
             service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            account: eukhe_types::ai::AccountOffer::NotRefreshed,
             model: model.clone(),
         })
         .collect();

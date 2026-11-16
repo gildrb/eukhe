@@ -438,16 +438,19 @@ fn build_tui_options(
     // the available catalog, so configured custom models list in the
     // picker; the picker itself owns the TS selector order. Each entry
     // carries the levels and tiers the eukhe-ai quirks rulebook gives the
-    // model, the same lists the daemon catalog serves.
+    // model and the account offer of the last model refresh, as the daemon
+    // catalog serves them.
     let auth = eukhe_core::auth::AuthStorage::create(&config.agent_dir);
     let registry =
         eukhe_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
+    let overlay = eukhe_core::models::refresh::load_overlay(&config.agent_dir);
     let catalog: Vec<eukhe_types::ai::CatalogModel> = registry
         .get_available()
         .into_iter()
         .map(|model| eukhe_types::ai::CatalogModel {
             thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
             service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            account: overlay.account_offer(&model.provider, &model.id),
             model: model.clone(),
         })
         .collect();

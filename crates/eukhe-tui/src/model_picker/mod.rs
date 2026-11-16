@@ -10,7 +10,7 @@ mod render;
 
 use std::collections::{HashMap, HashSet};
 
-use eukhe_types::ai::{CatalogModel, Model, ModelThinkingLevel};
+use eukhe_types::ai::{AccountOffer, CatalogModel, Model, ModelThinkingLevel};
 
 use crate::keybindings::KeybindingsManager;
 use crate::search_input::SearchInput;
@@ -106,6 +106,9 @@ pub struct ModelPicker {
     thinking_levels: HashMap<String, Vec<ModelThinkingLevel>>,
     current: Option<CurrentModel>,
     configured_providers: HashSet<String>,
+    /// The `provider/id` keys the account is not offered (the catalog's
+    /// `account`: `notOffered`).
+    not_offered: HashSet<String>,
     recent_rank: HashMap<String, usize>,
     /// The effort a fresh selection starts from; `None` mirrors TS
     /// `undefined` (resolved to "off" per model).
@@ -162,6 +165,7 @@ impl ModelPicker {
             thinking_levels: HashMap::new(),
             current: options.current,
             configured_providers: options.configured_providers,
+            not_offered: HashSet::new(),
             recent_rank: options
                 .recent_models
                 .iter()
@@ -426,20 +430,26 @@ impl ModelPicker {
     /// The provider-sorted catalog (TS `sortModels`): configured providers
     /// first, the current model leading, then the recent-use rank, the
     /// provider name, `featured`, and the numeric id compare. The served
-    /// levels of each model go to `thinking_levels`.
+    /// levels of each model go to `thinking_levels`, the models the
+    /// account is not offered to `not_offered`.
     fn load_models(&mut self, entries: Vec<CatalogModel>) {
         self.thinking_levels.clear();
+        self.not_offered.clear();
         let mut models = Vec::with_capacity(entries.len());
         for entry in entries {
+            let key = || Self::model_key_provider(&entry.model.provider, &entry.model.id);
+            match entry.account {
+                AccountOffer::NotOffered => {
+                    self.not_offered.insert(key());
+                }
+                AccountOffer::Offered | AccountOffer::NotRefreshed => {}
+            }
             // TS `getSelectableLevels`: an off-only model has no thinking
             // surface.
             if !entry.thinking_levels.is_empty()
                 && entry.thinking_levels != [ModelThinkingLevel::Off]
             {
-                self.thinking_levels.insert(
-                    Self::model_key_provider(&entry.model.provider, &entry.model.id),
-                    entry.thinking_levels,
-                );
+                self.thinking_levels.insert(key(), entry.thinking_levels);
             }
             models.push(entry.model);
         }
@@ -831,7 +841,8 @@ impl ModelPicker {
     }
 
     /// The trailing segments of one row (TS `getTrailingSegments`):
-    /// `current`, `require sign in`, then the provider.
+    /// `current`, `require sign in`, `unavailable` (the account is not
+    /// offered the model), then the provider.
     pub(crate) fn trailing_segments(&self, model: &Model) -> Vec<String> {
         let mut segments: Vec<String> = Vec::new();
         if self.is_current(model) {
@@ -839,6 +850,12 @@ impl ModelPicker {
         }
         if !self.is_configured(model) {
             segments.push("require sign in".to_string());
+        }
+        if self
+            .not_offered
+            .contains(&Self::model_key_provider(&model.provider, &model.id))
+        {
+            segments.push("unavailable".to_string());
         }
         segments.push(model.provider.clone());
         segments

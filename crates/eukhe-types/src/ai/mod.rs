@@ -629,12 +629,40 @@ pub struct Model {
     pub compat: Option<ModelCompat>,
 }
 
+/// What a provider's model list at the last `eukhe model refresh` says of
+/// one model for the signed-in account (wire: `offered`, `notOffered`,
+/// `notRefreshed`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AccountOffer {
+    /// The list named the model.
+    Offered,
+    /// The list answered without the model: the account cannot use it.
+    NotOffered,
+    /// No refresh has recorded the provider's list.
+    #[default]
+    NotRefreshed,
+}
+
+impl AccountOffer {
+    /// True for [`AccountOffer::NotRefreshed`], the value the wire omits.
+    #[must_use]
+    pub fn is_not_refreshed(&self) -> bool {
+        match self {
+            Self::NotRefreshed => true,
+            Self::Offered | Self::NotOffered => false,
+        }
+    }
+}
+
 /// One entry of the daemon's `get_model_catalog` answer: the registry
 /// model plus the thinking levels and service tiers it offers. The daemon
 /// reads both lists from the eukhe-ai quirks rulebook; clients show them
 /// and compute no ladder or tier of their own. On the wire the lists ride
 /// the model object as `thinkingLevels` (wire names, ladder order) and
-/// `serviceTiers` (wire names, [`ServiceTier::ALL`] order).
+/// `serviceTiers` (wire names, [`ServiceTier::ALL`] order), and `account`
+/// carries the [`AccountOffer`] (absent: not refreshed, as an older daemon
+/// sends it).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogModel {
@@ -642,6 +670,8 @@ pub struct CatalogModel {
     pub model: Model,
     pub thinking_levels: Vec<ModelThinkingLevel>,
     pub service_tiers: Vec<ServiceTier>,
+    #[serde(default, skip_serializing_if = "AccountOffer::is_not_refreshed")]
+    pub account: AccountOffer,
 }
 
 // The unit battery lives in the child module (ai::tests); its use-super

@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use eukhe_ai::capabilities::ListedModel;
-use eukhe_types::ai::ModelInput;
+use eukhe_types::ai::{AccountOffer, ModelInput};
 use eukhe_types::pi_ai::Modality;
 use serde::{Deserialize, Serialize};
 
@@ -46,17 +46,6 @@ pub struct ProviderListing {
     pub known: usize,
     /// Every id the listing named, chat model or not.
     pub offered: BTreeSet<String>,
-}
-
-/// What the provider's listing at the last refresh says of one model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccountOffer {
-    /// The listing named the model.
-    Offered,
-    /// The listing answered without the model: the account cannot use it.
-    NotOffered,
-    /// No refresh has recorded the provider's listing.
-    NotRefreshed,
 }
 
 /// Parts of an id that mark a model other than a chat model (embedding,
@@ -214,13 +203,15 @@ pub fn with_provider_listing(
     overlay
 }
 
-/// Whether `provider`'s last recorded listing named model `id`.
-#[must_use]
-pub fn account_offer(overlay: &RefreshOverlay, provider: &str, id: &str) -> AccountOffer {
-    match overlay.offered.get(provider) {
-        None => AccountOffer::NotRefreshed,
-        Some(ids) if ids.contains(id) => AccountOffer::Offered,
-        Some(_) => AccountOffer::NotOffered,
+impl RefreshOverlay {
+    /// Whether `provider`'s last recorded listing named model `id`.
+    #[must_use]
+    pub fn account_offer(&self, provider: &str, id: &str) -> AccountOffer {
+        match self.offered.get(provider) {
+            None => AccountOffer::NotRefreshed,
+            Some(ids) if ids.contains(id) => AccountOffer::Offered,
+            Some(_) => AccountOffer::NotOffered,
+        }
     }
 }
 
@@ -486,10 +477,10 @@ mod tests {
         .expect("an overlay");
         assert_eq!(
             [
-                account_offer(&overlay, "openai-codex", "gpt-6-luna"),
-                account_offer(&overlay, "openai-codex", "gpt-6-sol"),
-                account_offer(&overlay, "anthropic", "claude-haiku-5-5"),
-                account_offer(&written_before_offers, "openai-codex", "gpt-6-sol"),
+                overlay.account_offer("openai-codex", "gpt-6-luna"),
+                overlay.account_offer("openai-codex", "gpt-6-sol"),
+                overlay.account_offer("anthropic", "claude-haiku-5-5"),
+                written_before_offers.account_offer("openai-codex", "gpt-6-sol"),
             ],
             [
                 AccountOffer::Offered,

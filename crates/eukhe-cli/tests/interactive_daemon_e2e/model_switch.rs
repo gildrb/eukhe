@@ -59,6 +59,7 @@ async fn tui_model_picker_and_cycle_key_switch_api_with_tool_calls() {
         .map(|model| eukhe_types::ai::CatalogModel {
             thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
             service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            account: eukhe_types::ai::AccountOffer::NotRefreshed,
             model: model.clone(),
         })
         .collect();

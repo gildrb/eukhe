@@ -64,6 +64,19 @@ fn catalog_model_carries_the_served_lists_beside_the_model_keys() {
 }
 
 #[test]
+fn catalog_model_carries_the_account_offer_and_omits_not_refreshed() {
+    let offered = r#"{"id":"gpt-6-sol","name":"GPT-6 Sol","api":"openai-codex-responses","provider":"openai-codex","baseUrl":"https://chatgpt.com/backend-api","reasoning":true,"input":["text"],"cost":{"input":5,"output":30,"cacheRead":0.5,"cacheWrite":0},"contextWindow":272000,"maxTokens":128000,"thinkingLevels":["low","high"],"serviceTiers":["default"],"account":"notOffered"}"#;
+    let older = r#"{"id":"gpt-6-sol","name":"GPT-6 Sol","api":"openai-codex-responses","provider":"openai-codex","baseUrl":"https://chatgpt.com/backend-api","reasoning":true,"input":["text"],"cost":{"input":5,"output":30,"cacheRead":0.5,"cacheWrite":0},"contextWindow":272000,"maxTokens":128000,"thinkingLevels":["low","high"],"serviceTiers":["default"]}"#;
+    assert_roundtrip::<CatalogModel>(offered);
+    assert_roundtrip::<CatalogModel>(older);
+    let account = |json: &str| serde_json::from_str::<CatalogModel>(json).unwrap().account;
+    assert_eq!(
+        (account(offered), account(older)),
+        (AccountOffer::NotOffered, AccountOffer::NotRefreshed)
+    );
+}
+
+#[test]
 fn user_message_content_string_or_blocks() {
     assert_roundtrip::<UserMessage>(r#"{"content":"hello","timestamp":1}"#);
     assert_roundtrip::<UserMessage>(

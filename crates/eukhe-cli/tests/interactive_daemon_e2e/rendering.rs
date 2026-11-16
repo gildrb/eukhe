@@ -744,6 +744,7 @@ async fn tui_model_pick_refreshes_the_label_and_the_next_turn_resolves() {
         .map(|model| eukhe_types::ai::CatalogModel {
             thinking_levels: eukhe_ai::models::registry_thinking_levels(model),
             service_tiers: eukhe_ai::quirks::service_tiers(model.into()),
+            account: eukhe_types::ai::AccountOffer::NotRefreshed,
             model: model.clone(),
         })
         .collect();

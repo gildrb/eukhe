@@ -4,7 +4,8 @@
 //! plus an `account` column marking the models the provider's own listing
 //! left out at the last `eukhe model refresh`.
 
-use eukhe_models::overlay::{account_offer, AccountOffer, RefreshOverlay};
+use eukhe_models::overlay::RefreshOverlay;
+use eukhe_types::ai::AccountOffer;
 
 use crate::mode::RunOptions;
 
@@ -171,7 +172,7 @@ fn table_lines(models: &[eukhe_types::ai::Model], overlay: &RefreshOverlay) -> V
     ];
     let rows: Vec<Row> = models
         .iter()
-        .map(|model| Row::from_model(model, account_offer(overlay, &model.provider, &model.id)))
+        .map(|model| Row::from_model(model, overlay.account_offer(&model.provider, &model.id)))
         .collect();
     let marked = rows.iter().any(|row| row.offer == AccountOffer::NotOffered);
     let columns = if marked {
