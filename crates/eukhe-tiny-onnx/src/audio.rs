@@ -1,6 +1,7 @@
 //! WAV files in (transcribe) and out (say), and the linear resampler the
 //! speech models' fixed rates need.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use eukhe_tiny::Audio;
@@ -52,7 +53,7 @@ pub fn read_wav(path: &Path) -> Result<Audio, AudioFileError> {
             .collect::<Result<_, _>>()
             .map_err(read)?,
         (SampleFormat::Int, bits @ (8 | 16 | 24 | 32)) => {
-            let scale = 1.0 / f64::from(1_u32 << (bits - 1));
+            let scale = int_scale(bits);
             reader
                 .into_samples::<i32>()
                 .map(|sample| {
@@ -79,16 +80,7 @@ pub fn read_wav(path: &Path) -> Result<Audio, AudioFileError> {
             });
         }
     };
-    let channels = usize::from(spec.channels.max(1));
-    let samples = if channels == 1 {
-        interleaved
-    } else {
-        let share = 1.0 / f32::from(spec.channels);
-        interleaved
-            .chunks_exact(channels)
-            .map(|frame| frame.iter().sum::<f32>() * share)
-            .collect()
-    };
+    let samples = mono(interleaved, spec.channels);
     Ok(Audio {
         sample_rate: spec.sample_rate,
         samples,
@@ -124,18 +116,43 @@ pub fn write_wav(path: &Path, audio: &Audio) -> Result<(), AudioFileError> {
     writer.finalize().map_err(write)
 }
 
+/// The scale of `bits`-bit integer samples to `-1.0..1.0`.
+fn int_scale(bits: u16) -> f64 {
+    1.0 / f64::from(1_u32 << (bits - 1))
+}
+
+/// Interleaved frames of `channels` (0 read as 1) averaged to mono; a
+/// trailing partial frame drops.
+fn mono(interleaved: Vec<f32>, channels: u16) -> Vec<f32> {
+    match channels {
+        0 | 1 => interleaved,
+        count => {
+            let share = 1.0 / f32::from(count);
+            interleaved
+                .chunks_exact(usize::from(count))
+                .map(|frame| frame.iter().sum::<f32>() * share)
+                .collect()
+        }
+    }
+}
+
 /// The clip at `rate` samples a second, linearly interpolated.
+#[cfg(test)]
 pub(crate) fn resample(audio: &Audio, rate: u32) -> Audio {
+    Audio {
+        sample_rate: rate,
+        samples: resampled_samples(audio, rate).into_owned(),
+    }
+}
+
+pub(crate) fn resampled_samples(audio: &Audio, rate: u32) -> Cow<'_, [f32]> {
     if audio.sample_rate == rate || audio.samples.is_empty() || audio.sample_rate == 0 {
-        return Audio {
-            sample_rate: rate,
-            samples: audio.samples.clone(),
-        };
+        return Cow::Borrowed(&audio.samples);
     }
     let step = f64::from(audio.sample_rate) / f64::from(rate);
     let input = &audio.samples;
-    let len = u64::try_from(input.len()).unwrap_or(u64::MAX);
-    let output_len = len * u64::from(rate) / u64::from(audio.sample_rate);
+    let len = u128::try_from(input.len()).unwrap_or(u128::MAX);
+    let output_len = len * u128::from(rate) / u128::from(audio.sample_rate);
     let last = input.len() - 1;
     #[allow(
         clippy::cast_precision_loss,
@@ -152,10 +169,7 @@ pub(crate) fn resample(audio: &Audio, rate: u32) -> Audio {
             input[left] + (input[right] - input[left]) * fraction
         })
         .collect();
-    Audio {
-        sample_rate: rate,
-        samples,
-    }
+    Cow::Owned(samples)
 }
 
 #[cfg(test)]
@@ -228,6 +242,60 @@ mod tests {
                 sample_rate: 1,
                 samples: vec![0.0, 0.0],
             }
+        );
+    }
+
+    #[test]
+    fn resample_same_rate_returns_samples_unchanged() {
+        let audio = Audio {
+            sample_rate: 16_000,
+            samples: vec![0.25, -0.5],
+        };
+        assert_eq!(resample(&audio, 16_000), audio);
+        assert_eq!(
+            resample(
+                &Audio {
+                    sample_rate: 0,
+                    samples: vec![1.0]
+                },
+                8_000
+            )
+            .samples,
+            vec![1.0]
+        );
+        assert_eq!(
+            resample(
+                &Audio {
+                    sample_rate: 16_000,
+                    samples: vec![]
+                },
+                8_000
+            )
+            .samples,
+            Vec::<f32>::new()
+        );
+    }
+
+    #[test]
+    fn wav_output_clamps_rounds_and_casts_nan_to_zero() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("edges.wav");
+        write_wav(
+            &path,
+            &Audio {
+                sample_rate: 8_000,
+                samples: vec![f32::NAN, 1.0, -1.0, 0.5],
+            },
+        )
+        .expect("write");
+        assert_eq!(
+            read_wav(&path).expect("read").samples,
+            vec![
+                0.0,
+                32767.0 / 32768.0,
+                -32767.0 / 32768.0,
+                16384.0 / 32768.0
+            ]
         );
     }
 }

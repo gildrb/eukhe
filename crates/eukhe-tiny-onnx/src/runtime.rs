@@ -32,23 +32,12 @@ impl Runtime {
                 });
             }
         }
-        let library = if options.runtime_library.as_os_str().is_empty() {
-            match std::env::var_os("ORT_DYLIB_PATH") {
-                Some(path) if !path.is_empty() => PathBuf::from(path),
-                Some(_) | None => PathBuf::from(format!(
-                    "{}onnxruntime{}",
-                    std::env::consts::DLL_PREFIX,
-                    std::env::consts::DLL_SUFFIX
-                )),
-            }
-        } else {
-            options.runtime_library.clone()
-        };
+        let library = library_path(&options.runtime_library, std::env::var_os("ORT_DYLIB_PATH"));
         Ok(Runtime { library })
     }
 
     /// A CPU session of the ONNX file at `model` (loads the runtime first).
-    pub(crate) fn session(&mut self, model: &Path) -> Result<Session, WorkerFailure> {
+    pub(crate) fn session(&self, model: &Path) -> Result<Session, WorkerFailure> {
         let load = |message: String| WorkerFailure::Load { message };
         let environment = {
             let mut shared = ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner);
@@ -80,5 +69,19 @@ impl Runtime {
                     .commit_from_file(model)
                     .map_err(|error| load(format!("{}: {error}", model.display())))
             })
+    }
+}
+
+fn library_path(option: &Path, env: Option<std::ffi::OsString>) -> PathBuf {
+    if !option.as_os_str().is_empty() {
+        return option.to_owned();
+    }
+    match env {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        Some(_) | None => PathBuf::from(format!(
+            "{}onnxruntime{}",
+            std::env::consts::DLL_PREFIX,
+            std::env::consts::DLL_SUFFIX
+        )),
     }
 }

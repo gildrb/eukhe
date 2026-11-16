@@ -20,7 +20,7 @@ use ort::value::{DynValue, TensorRef};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
-use crate::audio::resample;
+use crate::audio::resampled_samples;
 use crate::runtime::Runtime;
 use crate::tokenizer::Tokenizer;
 
@@ -81,20 +81,12 @@ impl WhisperEngine {
     fn model(&mut self) -> Result<&mut Whisper, WorkerFailure> {
         if self.model.is_none() {
             let features: FeatureSettings = read_json(&self.dir.join("preprocessor_config.json"))?;
-            let expected = FeatureSettings {
-                feature_size: mel::MEL_BANDS,
-                sampling_rate: mel::SAMPLE_RATE,
-                n_samples: mel::WINDOW_SAMPLES,
-                nb_max_frames: mel::FRAMES,
-            };
-            if features != expected {
-                return Err(WorkerFailure::Load {
-                    message: format!(
-                        "{}: unsupported feature extractor {features:?} (expected {expected:?})",
-                        self.dir.join("preprocessor_config.json").display()
-                    ),
-                });
-            }
+            check_features(&features).map_err(|expected| WorkerFailure::Load {
+                message: format!(
+                    "{}: unsupported feature extractor {features:?} (expected {expected:?})",
+                    self.dir.join("preprocessor_config.json").display(),
+                ),
+            })?;
             let tokenizer_path = self.dir.join("tokenizer.json");
             let tokenizer =
                 Tokenizer::from_file(&tokenizer_path).map_err(|error| WorkerFailure::Load {
@@ -118,6 +110,21 @@ impl WhisperEngine {
         self.model.as_mut().ok_or_else(|| WorkerFailure::Load {
             message: format!("{}: the model did not load", self.dir.display()),
         })
+    }
+}
+
+/// `features` when `mel` computes for them, else the settings it does.
+fn check_features(features: &FeatureSettings) -> Result<(), FeatureSettings> {
+    let expected = FeatureSettings {
+        feature_size: mel::MEL_BANDS,
+        sampling_rate: mel::SAMPLE_RATE,
+        n_samples: mel::WINDOW_SAMPLES,
+        nb_max_frames: mel::FRAMES,
+    };
+    if *features == expected {
+        Ok(())
+    } else {
+        Err(expected)
     }
 }
 
@@ -148,9 +155,9 @@ impl Engine for WhisperEngine {
                 })?;
             Some((request.language.clone(), id))
         };
-        let audio = resample(&request.audio, mel::SAMPLE_RATE);
+        let audio = resampled_samples(&request.audio, mel::SAMPLE_RATE);
         let mut texts = Vec::new();
-        for window in audio.samples.chunks(mel::WINDOW_SAMPLES) {
+        for window in audio.chunks(mel::WINDOW_SAMPLES) {
             let hidden = model.encode(window)?;
             let language_id = if let Some((_, id)) = &language {
                 *id
@@ -230,8 +237,10 @@ impl Whisper {
         ];
         let prompt = ids.len();
         // Timestamp tokens follow `<|notimestamps|>`; this prompt asks for none.
-        let timestamps =
-            usize::try_from(self.tokens.no_timestamps_token_id + 1).map_err(inference)?;
+        // An id of i64::MAX wraps negative and fails the conversion, with the
+        // conversion's message, as release builds always reported it.
+        let timestamps = usize::try_from(self.tokens.no_timestamps_token_id.wrapping_add(1))
+            .map_err(inference)?;
         while ids.len() - prompt < MAX_NEW_TOKENS {
             let mut logits = self.next_logits(hidden, &ids)?;
             let first = ids.len() == prompt;

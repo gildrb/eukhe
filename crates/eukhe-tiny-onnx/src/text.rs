@@ -39,7 +39,7 @@ impl TextEngine {
     fn model(&mut self) -> Result<&mut Model, WorkerFailure> {
         let model = match self.model.take() {
             Some(model) => model,
-            None => Model::load(&self.dir, self.template, &mut self.runtime)?,
+            None => Model::load(&self.dir, self.template, &self.runtime)?,
         };
         Ok(self.model.insert(model))
     }
@@ -253,11 +253,7 @@ struct Model {
 }
 
 impl Model {
-    fn load(
-        dir: &Path,
-        template: ChatTemplate,
-        runtime: &mut Runtime,
-    ) -> Result<Model, WorkerFailure> {
+    fn load(dir: &Path, template: ChatTemplate, runtime: &Runtime) -> Result<Model, WorkerFailure> {
         let load = |message: String| WorkerFailure::Load { message };
         let tokenizer_path = dir.join("tokenizer.json");
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
