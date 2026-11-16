@@ -126,11 +126,11 @@ pub fn new_session_id() -> String {
 /// # Errors
 ///
 /// The session's storage, settings, models or harness do not open.
-pub async fn open_session(
-    mut config: SessionConfig,
-    cx: &Context,
-) -> Result<EukheSession, OpenError> {
-    config.run_kind = RunKind::Sdk;
+pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSession, OpenError> {
+    let config = SessionConfig {
+        run_kind: RunKind::Sdk,
+        ..config
+    };
     eukhe_core::durable::open_session(config, cx).await
 }
 
@@ -156,9 +156,10 @@ pub async fn prompt(
 ) -> anyhow::Result<()> {
     let gate = session.budget();
     let message = text.to_owned();
-    let text =
-        tokio::task::spawn_blocking(move || gate.begin_message(RunKind::Sdk, false, &message))
-            .await??;
+    let text = tokio::task::spawn_blocking(move || {
+        gate.begin_message(RunKind::Sdk, /*joins*/ false, &message)
+    })
+    .await??;
     let submission = conversation
         .submit(InputSubmissionDraft::new(text), cx)
         .await?;
@@ -307,33 +308,53 @@ pub async fn set_budget(
 ) -> anyhow::Result<BudgetReport> {
     let gate = session.budget();
     let limits = limits.into();
-    let live = match scope {
-        BudgetScope::Run => run_live(session, cx).await?,
-        BudgetScope::Standing => false,
+    let target = match scope {
+        BudgetScope::Standing => Target::Standing,
+        BudgetScope::Run => match main_run(session, cx).await? {
+            MainRun::Live => Target::Run,
+            MainRun::Idle => Target::Next,
+        },
     };
     tokio::task::spawn_blocking(move || -> anyhow::Result<BudgetReport> {
-        Ok(match (scope, live) {
-            (BudgetScope::Standing, _) => gate.set_standing(limits)?,
-            (BudgetScope::Run, true) => gate.set(limits)?,
-            (BudgetScope::Run, false) => gate.set_next(limits)?,
+        Ok(match target {
+            Target::Standing => gate.set_standing(limits)?,
+            Target::Run => gate.set(limits)?,
+            Target::Next => gate.set_next(limits)?,
         })
     })
     .await?
 }
 
+/// Whether a run is live on a session's main conversation.
+#[derive(Clone, Copy)]
+enum MainRun {
+    Live,
+    Idle,
+}
+
+/// The limits [`set_budget`] sets: the standing ones, the running run's, or
+/// the next run's.
+#[derive(Clone, Copy)]
+enum Target {
+    Standing,
+    Run,
+    Next,
+}
+
 /// Whether a run is live on `session`'s main conversation (its `pi.live`
 /// document's run): limits set meanwhile are that run's.
-async fn run_live(session: &EukheSession, cx: &Context) -> anyhow::Result<bool> {
+async fn main_run(session: &EukheSession, cx: &Context) -> anyhow::Result<MainRun> {
     Ok(
         match session
             .harness()
             .snapshot(&LIVE_DOC, session.main().id(), cx)
             .await?
         {
-            Some(value) => from_json::<LiveState>(&JsonValue::Object(value))?
-                .run
-                .is_some(),
-            None => false,
+            Some(value) => match from_json::<LiveState>(&JsonValue::Object(value))?.run {
+                Some(_) => MainRun::Live,
+                None => MainRun::Idle,
+            },
+            None => MainRun::Idle,
         },
     )
 }
