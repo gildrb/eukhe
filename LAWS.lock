@@ -13,7 +13,7 @@
       "spec/agents/agent_crown.bend": "1cc476d997332d375c83fc07922be20617635d4fbd7f95e80ddb5d5561b376f4",
       "spec/agents/agent_tree.bend": "a1382c421dbfe7380567d3ad5d4855b81f6663ac0038e9639bf9e3963834d129",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
-      "spec/agents/work_list.bend": "a5a83708237017ae899c8d7c1008a68baa4234495171a020c291f799a579ce96",
+      "spec/agents/work_list.bend": "5f98321c7215734ca4017f146a7b1987dcdd7da107ea8e7ea7264d84a0596cc0",
       "spec/autoresearch/decimal.bend": "0732506041b2b22afa587af087a75378b04cfdf768c02b5631f72f1ccc3f3ccb",
       "spec/autoresearch/metric_line.bend": "798edb3a6738d79b42c858e39a8b46ff308e6bf7ddd4d02cf79b7bea5621ee17",
       "spec/autoresearch/segment.bend": "5f493fd13e469dfc3f4973b55d5c603b781c6e75aafec90b6307c46388d76f25",

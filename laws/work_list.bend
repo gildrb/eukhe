@@ -7,16 +7,18 @@ import ../bend/wire.bend as Wr
 import ../spec/agents/work_list.bend as S
 import ./base.bend as LawsBase
 
-# (T15) A split child finishes its items or hands back stopped
-# ------------------------------------------------------------
-# spec/README.md T15. bend/work_list.bend: the parent of a split names the
-# items of each half (`rlm.split`, `items`); the child accounts for each,
+# (T15) A child finishes its items or hands back stopped
+# ------------------------------------------------------
+# spec/README.md T15. bend/work_list.bend: the parent names a child's
+# items (`items` of an `rlm.split` half, an `rlm.spawn` help leaf or a
+# worker's task, `worker_assign`; a new task replaces the list); the child
+# accounts for each,
 # done or left with a reason (`rlm.items`). Its hand-back is Finished only
 # when every item is accounted done, else Stopped naming the items left:
 # the parent's notice and the child's status say `stopped`, never a
 # success. It runs as the compiled core by bend/ffi_work_list.bend
-# (eukhe-bend rules/work_list.rs), asked by the watch of every split child
-# given items (eukhe-core durable/children/task.rs). spec/agents/
+# (eukhe-bend rules/work_list.rs), asked by the watch of every child given
+# items (eukhe-core durable/children/task.rs). spec/agents/
 # work_list.bend restates the rule (S1-S3). Every input is free: any
 # number of items, each done or not.
 #

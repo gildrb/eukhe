@@ -271,7 +271,7 @@ that costs against a wider split, as information:
 |T14|`crown_help_overlay_nothing`|a help leaf's patch applies nothing; every unit it wrote is a conflict|
 |T14|`crown_never_blocks`|a finish is taken exactly when the tree's step on the view takes it; after it no help leaf at the node runs|
 |T14|`crown_no_orphan`, `crown_nodes_bound`, `crown_budget_holds`; "reachable": `crown_run_none`, `crown_run_last`|in every reachable crown running help leaves sit at running nodes, nodes plus help leaves fit `max_nodes`, and under a Value root limit the tree's plus the help leaves' spend fits it|
-|T15|`work_list_finished_exactly_all_done`, `work_list_left_exactly_open`, `work_list_left_in_order` (`laws/work_list.bend`)|a split child given items hands back finished exactly when every item is accounted done; else stopped, naming each item left once, in the parent's order|
+|T15|`work_list_finished_exactly_all_done`, `work_list_left_exactly_open`, `work_list_left_in_order` (`laws/work_list.bend`)|a child given items (a split half, an `rlm.spawn` help leaf or a worker's task) hands back finished exactly when every item is accounted done; else stopped, naming each item left once, in the parent's order|
 
 Mutation probe (`mutate.py` on `bend/agent_tree.bend`): every mutant is
 killed or stillborn but four, all equivalent:

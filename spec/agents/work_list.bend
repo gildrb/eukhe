@@ -1,6 +1,7 @@
 # work_list (spec): what the laws of area work_list (laws/work_list.bend)
-# speak of, over the types of bend/work_list.bend: the hand-back of a split
-# child given a list of items. A spec: the shipped code never calls it.
+# speak of, over the types of bend/work_list.bend: the hand-back of a child
+# given a list of items (an `rlm.split` half, an `rlm.spawn` help leaf or a
+# worker's task, `worker_assign`). A spec: the shipped code never calls it.
 #
 # S1: an item is open when the child did not account it done (left with a
 #     reason, or never accounted for).

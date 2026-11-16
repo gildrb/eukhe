@@ -1,6 +1,7 @@
-# work_list: how a split child hands back its work list (Rust: eukhe-core
+# work_list: how a child hands back its work list (Rust: eukhe-core
 # durable/children/task.rs, the watch of a child given items). The parent
-# names the items of each half of a split (`rlm.split`, `items`); the child
+# names the items (`items` of an `rlm.split` half, an `rlm.spawn` help leaf
+# or a worker's task, `worker_assign`); the child
 # accounts for each, done or left with a reason (`rlm.items`). The hand-back
 # is Finished only when every item is accounted done; otherwise it is
 # Stopped, naming the position of every item not done, in the order the
