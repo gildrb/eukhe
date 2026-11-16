@@ -86,11 +86,25 @@ pub enum NoParkReason {
     Deadline,
 }
 
+/// What ends a park: the provider's reset, or a bound that comes before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParkEnd {
+    /// The provider-reported reset plus [`PROVIDER_RESUME_GRACE_MS`].
+    Reset,
+    /// The per-park ceiling (`retry.provider.waitForUsage.maxPauseMs`,
+    /// clamped to [`MAX_PROVIDER_PAUSE_MS`]): the session wakes, retries,
+    /// and parks again while the limit holds.
+    MaxPause,
+    /// The run's deadline (its time budget).
+    Deadline,
+}
+
 /// Resolution of one park decision (TS `ProviderParkDecision`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderParkDecision {
-    /// Park, then wake `resume_after_ms` from now.
-    Park { resume_after_ms: u64 },
+    /// Park, then wake `resume_after_ms` from now, at the `end` that comes
+    /// first.
+    Park { resume_after_ms: u64, end: ParkEnd },
     /// No park; the give-up it would have replaced stands.
     None { reason: NoParkReason },
 }
@@ -127,13 +141,66 @@ pub fn provider_park_decision(
             reason: NoParkReason::Deadline,
         };
     }
-    let max_pause_ms = policy.max_pause_ms.min(MAX_PROVIDER_PAUSE_MS);
+    // The earliest end wins; on a tie the reset, then the ceiling.
+    let (resume_after_ms, end) = [
+        (
+            policy.max_pause_ms.min(MAX_PROVIDER_PAUSE_MS),
+            ParkEnd::MaxPause,
+        ),
+        (time_left_ms.unwrap_or(u64::MAX), ParkEnd::Deadline),
+    ]
+    .into_iter()
+    .fold(
+        (
+            reset_ms.saturating_add(PROVIDER_RESUME_GRACE_MS),
+            ParkEnd::Reset,
+        ),
+        |first, next| if next.0 < first.0 { next } else { first },
+    );
     ProviderParkDecision::Park {
-        resume_after_ms: reset_ms
-            .saturating_add(PROVIDER_RESUME_GRACE_MS)
-            .min(max_pause_ms)
-            .min(time_left_ms.unwrap_or(u64::MAX)),
+        resume_after_ms,
+        end,
     }
+}
+
+/// A span as the park sentences read it: its two largest units from the
+/// first nonzero one (`5 d 5 h`, `1 d`, `2 h 30 min`, `45 s`); `<n> ms`
+/// below a second.
+#[must_use]
+pub fn span_text(ms: u64) -> String {
+    const UNITS: [(u64, &str); 4] = [
+        (86_400_000, "d"),
+        (3_600_000, "h"),
+        (60_000, "min"),
+        (1_000, "s"),
+    ];
+    let Some(first) = UNITS.iter().position(|(unit, _)| ms >= *unit) else {
+        return format!("{ms} ms");
+    };
+    let (unit, name) = UNITS[first];
+    let head = format!("{} {name}", ms / unit);
+    match UNITS.get(first + 1) {
+        Some((next, next_name)) if (ms % unit) / next > 0 => {
+            format!("{head} {} {next_name}", (ms % unit) / next)
+        }
+        Some(_) | None => head,
+    }
+}
+
+/// One park as its status text reports it: the provider's wait, the
+/// bounded wait it exceeded, and the park applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParkedWait {
+    /// The provider-reported wait (ms).
+    pub reset_ms: u64,
+    /// `retry.provider.maxRetryDelayMs`: the bounded wait it exceeded.
+    pub retry_cap_ms: u64,
+    /// The park applied (ms from the failure to the wake).
+    pub park_ms: u64,
+    /// What ends the park.
+    pub end: ParkEnd,
+    /// Wall-clock wake time (epoch ms).
+    pub resume_at_ms: u64,
 }
 
 /// The `provider_stream_failure` diagnostic of a failed assistant message,
@@ -174,16 +241,31 @@ fn iso_ms(resume_at_ms: u64) -> String {
     crate::session::manager::format_iso(i64::try_from(resume_at_ms).unwrap_or(i64::MAX))
 }
 
+/// Why a park ends when it does, for the parked sentence.
+fn park_end_text(wait: &ParkedWait) -> String {
+    let park = span_text(wait.park_ms);
+    match wait.end {
+        ParkEnd::Reset => format!("the reset plus {}", span_text(PROVIDER_RESUME_GRACE_MS)),
+        ParkEnd::MaxPause => format!(
+            "{park}: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds"
+        ),
+        ParkEnd::Deadline => format!("{park}: the run's time budget ends then"),
+    }
+}
+
 /// The parked status text surfaced as the chain's final error (TS
 /// `_parkForQuotaReset`: `"<abort>. Session parked until <time> and will
-/// resume automatically (…): <error>"`): the give-up sentence stays this
-/// port's own (the TS abort names the wait loop this port lacks), the parked
-/// sentence is the TS wording.
+/// resume automatically (…): <error>"`): the provider's wait, the park
+/// applied, and why it ends then.
 #[must_use]
-pub fn quota_parked_final_error(abort: &str, resume_at_ms: u64, error: &str) -> String {
+pub fn quota_parked_final_error(wait: &ParkedWait, error: &str) -> String {
     format!(
-        "{abort}. Session parked until {} and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): {error}",
-        iso_ms(resume_at_ms)
+        "Provider requested a {} wait ({}s) before retrying, above retry.provider.maxRetryDelayMs={}ms. Session parked until {} ({}) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): {error}",
+        span_text(wait.reset_ms),
+        wait.reset_ms.div_ceil(1000),
+        wait.retry_cap_ms,
+        iso_ms(wait.resume_at_ms),
+        park_end_text(wait),
     )
 }
 
@@ -314,7 +396,8 @@ mod tests {
         assert_eq!(
             provider_park_decision(0, Some(3_600_000), None, &DEFAULT_PROVIDER_PARK_POLICY),
             ProviderParkDecision::Park {
-                resume_after_ms: 3_600_000 + PROVIDER_RESUME_GRACE_MS
+                resume_after_ms: 3_600_000 + PROVIDER_RESUME_GRACE_MS,
+                end: ParkEnd::Reset,
             }
         );
     }
@@ -329,7 +412,8 @@ mod tests {
                 &DEFAULT_PROVIDER_PARK_POLICY
             ),
             ProviderParkDecision::Park {
-                resume_after_ms: DEFAULT_PROVIDER_PARK_POLICY.max_pause_ms
+                resume_after_ms: DEFAULT_PROVIDER_PARK_POLICY.max_pause_ms,
+                end: ParkEnd::MaxPause,
             }
         );
     }
@@ -382,17 +466,64 @@ mod tests {
     }
 
     #[test]
+    fn spans_read_in_their_two_largest_units() {
+        assert_eq!(
+            [
+                450_144_000,
+                86_400_000,
+                9_000_000,
+                3_630_000,
+                90_000,
+                45_000,
+                999
+            ]
+            .map(span_text),
+            [
+                "5 d 5 h",
+                "1 d",
+                "2 h 30 min",
+                "1 h",
+                "1 min 30 s",
+                "45 s",
+                "999 ms"
+            ]
+        );
+    }
+
+    /// A 5 d 5 h provider wait parked for the 24 h ceiling: the text names
+    /// the provider's wait, the park, and the setting that ends it first.
+    #[test]
+    fn a_capped_park_names_the_providers_wait_and_the_cap() {
+        let wait = ParkedWait {
+            reset_ms: 450_144_000,
+            retry_cap_ms: 60_000,
+            park_ms: 86_400_000,
+            end: ParkEnd::MaxPause,
+            resume_at_ms: 1_794_866_255_894,
+        };
+        assert_eq!(
+            quota_parked_final_error(&wait, "429 rate limit"),
+            "Provider requested a 5 d 5 h wait (450144s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until 2026-11-16T21:57:35.894Z (1 d: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"
+        );
+    }
+
+    #[test]
     fn parked_sentences_name_the_resume_time() {
         let resume_at = 1_768_000_000_000_u64;
-        // `format_iso` renders in the host's timezone; the sentence
-        // must carry exactly its rendering, whatever it is here.
         let iso = crate::session::manager::format_iso(i64::try_from(resume_at).unwrap());
-        let parked = quota_parked_final_error("Provider requested a wait", resume_at, "429");
-        assert!(
-            parked.contains(&format!(
-                "Session parked until {iso} and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429"
-            )),
-            "{parked}"
+        let wait = |end| ParkedWait {
+            reset_ms: 3_600_000,
+            retry_cap_ms: 60_000,
+            park_ms: 1_800_000,
+            end,
+            resume_at_ms: resume_at,
+        };
+        assert_eq!(
+            [ParkEnd::Reset, ParkEnd::Deadline].map(|end| quota_parked_final_error(&wait(end), "429")),
+            [
+                format!("Provider requested a 1 h wait (3600s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until {iso} (the reset plus 30 s) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429"),
+                format!("Provider requested a 1 h wait (3600s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until {iso} (30 min: the run's time budget ends then) and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429"),
+            ]
         );
         let already = quota_already_parked_final_error(resume_at, "429");
         assert!(
@@ -430,13 +561,15 @@ mod tests {
         assert_eq!(
             provider_park_decision(0, Some(3_600_000), Some(60_000), policy),
             ProviderParkDecision::Park {
-                resume_after_ms: 60_000
+                resume_after_ms: 60_000,
+                end: ParkEnd::Deadline,
             }
         );
         assert_eq!(
             provider_park_decision(0, Some(1_000), Some(3_600_000), policy),
             ProviderParkDecision::Park {
-                resume_after_ms: 1_000 + PROVIDER_RESUME_GRACE_MS
+                resume_after_ms: 1_000 + PROVIDER_RESUME_GRACE_MS,
+                end: ParkEnd::Reset,
             }
         );
         assert_eq!(

@@ -73,9 +73,9 @@ use super::image_route::{self, ImageRoute};
 use super::park::{
     is_quota_block_failure, park_entry_data, provider_park_decision,
     quota_already_parked_final_error, quota_failure_reset_ms, quota_parked_final_error,
-    resume_entry_data, NoParkReason, ParkDocState, ProviderParkDecision, ProviderParkPolicy,
-    DEFAULT_PROVIDER_PARK_POLICY, PARK_DOC, PROVIDER_QUOTA_PARK_ENTRY, PROVIDER_QUOTA_RESUME_ENTRY,
-    QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
+    resume_entry_data, NoParkReason, ParkDocState, ParkedWait, ProviderParkDecision,
+    ProviderParkPolicy, DEFAULT_PROVIDER_PARK_POLICY, PARK_DOC, PROVIDER_QUOTA_PARK_ENTRY,
+    PROVIDER_QUOTA_RESUME_ENTRY, QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
 };
 use super::timing::{self, RequestTiming};
 use crate::cron::rlm_heartbeat::{RlmHeartbeatMutation, SessionBinding};
@@ -1024,24 +1024,27 @@ async fn park_for_quota_reset(
         .report()
         .and_then(|report| report.deadline_ms)
         .map(|deadline| deadline.saturating_sub(now));
-    let resume_after_ms = match provider_park_decision(parks_used, reset_ms, time_left_ms, &policy)
-    {
-        ProviderParkDecision::Park { resume_after_ms } => resume_after_ms,
-        ProviderParkDecision::None { reason } => match reason {
-            NoParkReason::Disabled | NoParkReason::ParkBudget | NoParkReason::Deadline => {
-                // The episode ends here: a stale park's wake already fired,
-                // so nothing else would resume it.
-                if let Some(park) = existing.filter(|park| park.resume_at_ms <= now) {
-                    if let Some(job_id) = &park.job_id {
-                        cancel_wake_job(inner, job_id);
+    let (resume_after_ms, end) =
+        match provider_park_decision(parks_used, reset_ms, time_left_ms, &policy) {
+            ProviderParkDecision::Park {
+                resume_after_ms,
+                end,
+            } => (resume_after_ms, end),
+            ProviderParkDecision::None { reason } => match reason {
+                NoParkReason::Disabled | NoParkReason::ParkBudget | NoParkReason::Deadline => {
+                    // The episode ends here: a stale park's wake already fired,
+                    // so nothing else would resume it.
+                    if let Some(park) = existing.filter(|park| park.resume_at_ms <= now) {
+                        if let Some(job_id) = &park.job_id {
+                            cancel_wake_job(inner, job_id);
+                        }
+                        clear_park(inner, "wake-error").await;
                     }
-                    clear_park(inner, "wake-error").await;
+                    return None;
                 }
-                return None;
-            }
-            NoParkReason::NoReset => return None,
-        },
-    };
+                NoParkReason::NoReset => return None,
+            },
+        };
     let resume_at_ms = now.saturating_add(resume_after_ms);
     // The old park cancels the existing wake before arming the replacement.
     if let Some(job_id) = existing.as_ref().and_then(|park| park.job_id.as_deref()) {
@@ -1080,14 +1083,14 @@ async fn park_for_quota_reset(
         return None;
     }
     *inner.park.lock().unwrap_or_else(poisoned) = Some(state);
-    let abort = format!(
-        "Provider requested a {}s wait before retrying (above retry.provider.maxRetryDelayMs={cap}ms)",
-        reset_ms.unwrap_or_default().div_ceil(1000),
-    );
-    Some((
-        quota_parked_final_error(&abort, resume_at_ms, &error),
+    let wait = ParkedWait {
+        reset_ms: reset_ms.unwrap_or_default(),
+        retry_cap_ms: cap,
+        park_ms: resume_after_ms,
+        end,
         resume_at_ms,
-    ))
+    };
+    Some((quota_parked_final_error(&wait, &error), resume_at_ms))
 }
 
 /// A parked session completed a model call: the quota is back. Clear the
