@@ -66,6 +66,13 @@ nix-test:
 nix-check:
 	nix flake check --all-systems
 
+# The source build's vendored dependencies (eukhe-from-source's cargoDeps):
+# every crate in Cargo.lock fetched and checked against its hash, the git
+# dependency against its hash in nix/source.nix. Nothing is compiled. A
+# git dependency moved in Cargo.lock without that hash fails here.
+nix-vendor:
+	nix build --no-link .#eukhe-from-source.cargoDeps
+
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
 include scripts/toolchain.env
 
@@ -286,4 +293,4 @@ site-check:
 site-deploy:
 	cd site && npm ci --no-audit --no-fund && npm run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check nix-vendor laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy

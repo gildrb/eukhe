@@ -375,6 +375,21 @@ dashboard_ui_changed() {
   dashboard_ui
 }
 
+# The source build's vendored dependencies (make nix-vendor), when a
+# change touches Cargo.lock, the flake or nix/: a git dependency moved
+# without its hash in nix/source.nix fails here, not in a user's build.
+nix_vendor_changed() {
+  local path old p
+  while IFS=$'\t' read -r path old; do
+    for p in "${path}" "${old}"; do
+      case "${p}" in
+        Cargo.lock | flake.nix | flake.lock | nix/*) make --no-print-directory nix-vendor; return ;;
+      esac
+    done
+  done <<<"$1"
+  echo "nix vendor skipped: Cargo.lock, the flake and nix/ are unchanged"
+}
+
 # The test environment is clean (AGENTS.md: inherited EUKHE_* variables
 # would point test daemons at real state), except for the build settings
 # (cargo's, rustup's, sccache's; mise.toml), so the tests reuse the build
@@ -416,6 +431,7 @@ side_lane() {
   gate laws laws
   gate runtime-test make --no-print-directory runtime-test
   gate nix-test make --no-print-directory nix-test
+  gate nix-vendor make --no-print-directory nix-vendor
   gate "embedded js" make --no-print-directory embedded-js-check
   gate dashboard-ui dashboard_ui
 }
@@ -458,7 +474,7 @@ case "${mode}" in
     wait "${side}"
     side_rc=$?
     set -e
-    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, embedded js, dashboard-ui log"
+    echo "==> ci-full: secrets, deny, laws, runtime-test, nix-test, nix-vendor, embedded js, dashboard-ui log"
     cat "${log}"
     rm -f "${log}"
     echo "ci-full: $((SECONDS - start))s"
@@ -497,6 +513,7 @@ case "${mode}" in
     gate proofs proofs "${rows}" "${base}"
     gate "embedded js" embedded_js "${rows}"
     gate "dashboard ui" dashboard_ui_changed "${rows}"
+    gate "nix vendor" nix_vendor_changed "${rows}"
     gate "laws lock" laws_lock "${rows}"
     gate "tests (touched crates)" tests_touched "${rows}"
     ;;
