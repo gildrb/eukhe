@@ -89,7 +89,10 @@ has no task left running.
 [Memory](spec/memory/) never deletes a message. In a root session,
 each request to the model holds the newest messages in full and
 one-line summaries of older blocks of messages; the agent can read
-the full text of any summarized message.
+the full text of any summarized message. A message is summarized only
+once a request needs it: a compaction moved it out of the transcript,
+or a subagent starts from the view. Until then `/memory` lists it as
+not summarized yet.
 
 [RLM](spec/rlm/) (recursive language model) gives the agent a Python
 REPL in which the conversation so far is a variable. The agent starts

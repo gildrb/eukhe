@@ -6,6 +6,13 @@
 //! is fetched from the daemon (`get_memory_tree`) the first time it opens
 //! and cached for the panel's life. Display only: nothing here reaches the
 //! chat or a model.
+//!
+//! A line reads `(not summarized yet)` until a request shows it: in a root
+//! session, until a compaction scrolls its messages out of the transcript
+//! or a subagent starts from the whole view (the due mark,
+//! `laws/optchat.bend` R9). A session whose transcript still holds the
+//! whole chat has every line so, and no compaction running: that is the
+//! design, not a stalled compactor.
 
 use std::collections::{HashMap, HashSet};
 

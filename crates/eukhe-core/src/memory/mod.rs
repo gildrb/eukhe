@@ -101,7 +101,13 @@ pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Largest logged tool result, in characters; head and tail are kept. Any
 /// other text longer than this is logged as several messages in a row.
 pub const CAP: usize = 30_000;
-/// The text of a view line whose message is not summarized yet.
+/// The text of a view line whose message is not summarized yet. A line is
+/// summarized only once a request shows it (the due mark,
+/// `laws/optchat.bend` R9): in a root session, once a compaction scrolls
+/// its message out of the transcript, or a subagent starts from the whole
+/// view. Until then the transcript holds the message whole, no compactor
+/// call runs, and `/memory`, `chat.view()` and the status's
+/// `unsummarized` count show the line as not summarized yet.
 pub const PLACEHOLDER: &str = "(not summarized yet: zoom it)";
 
 /// Which side of the chat a session is: the root logs to its own chat and
