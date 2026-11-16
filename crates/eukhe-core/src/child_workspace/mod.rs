@@ -67,6 +67,7 @@ mod tests;
 pub(crate) use check::PROGRESS_EVERY;
 pub use check::{run_check, CheckConfig, CheckReport, CheckRun};
 pub use eukhe_types::daemon::agent_tree::CheckOutcome;
+pub(crate) use stamp::TreeStamp;
 pub use stamp::WorkspaceDrift;
 pub use units::{unit_of, unit_patch};
 

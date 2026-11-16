@@ -16,8 +16,11 @@
 //! settles `detached` with the output so far and the script runs on as a
 //! [`Job`] of the session's [`JobTable`](super::jobs::JobTable). Its end
 //! settles the job and reaches the session through
-//! [`HostDeps::job_settled`]; the job's kill stops the script and every
-//! process it started. External steps get [`local_env`] over
+//! [`HostDeps::job_settled`]; its output names the workspace paths
+//! written between the detach and the end ([`TreeStamp`]), so a check
+//! that ran across edits says it judged no single tree state. The job's
+//! kill stops the script and every process it started. External steps
+//! get [`local_env`] over
 //! [`session_env`]: the host environment less every credential name (laws
 //! (G3)).
 
@@ -48,6 +51,7 @@ use super::deps::ShellApprovalSink;
 use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
 use super::HostDeps;
+use crate::child_workspace::TreeStamp;
 use crate::kernel::manager::local_env;
 
 /// The extension's name.
@@ -331,6 +335,7 @@ async fn execute(
         &api.task_id().to_string(),
         api.truncation(),
     )));
+    let workspace = cwd.clone();
     let mut running = {
         let (auto, env) = (auto_set(&deps.settings), local_env(&session_env(deps)));
         let paths = super::path_policy::session_policy(&deps.agent_dir, &deps.settings, &cwd);
@@ -356,6 +361,10 @@ async fn execute(
             )))
         }
         Wait::Detached => {
+            // Stamped at the detach: until then the call blocked the
+            // model, so a later change is an edit made while the job ran
+            // (or the job's own write).
+            let before = TreeStamp::take(&workspace).await;
             let id = JobId::new(format!("shell-{}", uuid::Uuid::new_v4().simple()))
                 .map_err(|error| SessionError::error(error.to_string()))?;
             // The job's start is durable before its detach is reported: a
@@ -400,6 +409,12 @@ async fn execute(
                         (CellStatus::Error, JobEvent::Exited(1))
                     }
                 };
+                if let Some(drift) = before
+                    .drift(&TreeStamp::take(&workspace).await)
+                    .text("the job")
+                {
+                    transcript.push(&format!("[{drift}]\n"), true);
+                }
                 let (text, bounded) = transcript.projection();
                 let output = with_diagnostics(text, bounded.as_slice());
                 tracing::debug!(job = %settled_id, status = status.label(), "detached script settled");
@@ -508,7 +523,8 @@ fn detached_result(
             "The script outlived the {budget_ms} ms blocking budget and continues as job {job}; a \
              step that needs approval still asks the user. Its result arrives on its own as a \
              [job-settled job:{job}] message: never poll. Do the work that does not need this \
-             result; `await jobs.wait(\"{job}\")` only when nothing else can proceed."
+             result and edits no file it reads (a check judges only the tree it ran on); \
+             `await jobs.wait(\"{job}\")` only when nothing else can proceed."
         ),
         omitted: None,
         artifact: None,

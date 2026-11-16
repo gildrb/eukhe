@@ -236,6 +236,58 @@ async fn a_script_past_the_budget_detaches_and_its_end_settles_the_job() {
     session.close(cx()).await.expect("close");
 }
 
+/// Regression: the model edits while its check runs on as a job. The
+/// job's settled output names the paths written after the detach, so the
+/// check's result is not read as judging the tree as it stands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_job_names_the_paths_written_while_it_ran() {
+    let fixture = Fixture::new();
+    let work = fixture.dir.path().join("work");
+    std::fs::write(work.join("lib.rs"), "pub fn a() {}\n").expect("lib.rs");
+    let gate = fixture.dir.path().join("gate");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&gate)
+        .status()
+        .expect("mkfifo");
+    assert!(made.success(), "mkfifo {}", gate.display());
+    let step = format!("cat {} >/dev/null", gate.display());
+    let script = format!("sh -c \"{step}\"");
+    fixture.faux.set_responses(vec![
+        bash("b1", &script),
+        text("the check runs on as a job"),
+    ]);
+    let (session, mut settled) = open_detaching(&fixture).await;
+    let (_, _, job) = detach(&session).await;
+    // The edit lands while the script holds the gate open; the gate's
+    // byte ends the script.
+    tokio::task::spawn_blocking(move || {
+        let mut opened = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&gate)
+            .expect("the gate");
+        std::fs::write(work.join("lib.rs"), "pub fn a() {}\npub fn b() {}\n").expect("the edit");
+        std::io::Write::write_all(&mut opened, b"go").expect("the gate's byte");
+    })
+    .await
+    .expect("the edit's task");
+    let settled = tokio::time::timeout(Duration::from_secs(20), settled.recv())
+        .await
+        .expect("the job settles when the script ends")
+        .expect("a settled job");
+    assert_eq!(
+        settled,
+        JobSettled::Shell {
+            job: job.id().clone(),
+            status: CellStatus::Ok,
+            output: format!(
+                "$ sh -c '{step}'\n[The workspace changed while the job ran (1 path: lib.rs): \
+                 its result judged no single tree state.]\n"
+            ),
+        }
+    );
+    session.close(cx()).await.expect("close");
+}
+
 /// The kill of a detached script's job stops it and every process it
 /// started; the job settles killed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
