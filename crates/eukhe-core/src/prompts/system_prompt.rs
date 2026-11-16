@@ -492,7 +492,16 @@ fn tree_line(place: &TreePlace) -> String {
         }
         None => "You may not split: do your scope yourself.".to_string(),
     };
-    format!("Agent tree: you are {node} ({scope}). {room}")
+    // A split child and a workflow's node work in their own copy, a git
+    // repository whose one commit is the copy at their start.
+    let copy = match place.role {
+        TreeRole::Left | TreeRole::Right | TreeRole::Integrator => {
+            " Your workspace is your own copy: `git status` and `git diff` show your changes \
+             since your start."
+        }
+        TreeRole::Root | TreeRole::Help => "",
+    };
+    format!("Agent tree: you are {node} ({scope}). {room}{copy}")
 }
 
 pub(crate) fn today() -> String {
@@ -855,7 +864,8 @@ mod tests {
             line(&place(TreeRole::Left, &["pkg/a.py", "tests"], "L", 7)).as_deref(),
             Some(
                 "Agent tree: you are node L (`pkg/a.py`, `tests`; write only there). \
-                 You may split: 2 levels, 6 agents below."
+                 You may split: 2 levels, 6 agents below. Your workspace is your own copy: \
+                 `git status` and `git diff` show your changes since your start."
             )
         );
         // Depth 3 is the last level; an allowance of 2 leaves no room
@@ -865,7 +875,8 @@ mod tests {
                 line(&place(TreeRole::Right, &["src"], path, allowance)).as_deref(),
                 Some(format!(
                     "Agent tree: you are node {path} (`src`; write only there). \
-                     You may not split: do your scope yourself."
+                     You may not split: do your scope yourself. Your workspace is your own \
+                     copy: `git status` and `git diff` show your changes since your start."
                 ))
                 .as_deref()
             );

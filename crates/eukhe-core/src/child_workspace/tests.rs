@@ -27,15 +27,25 @@ fn write(dir: &Path, path: &str, text: &str) {
     fs::write(path, text).unwrap();
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+fn git_run(dir: &Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?}");
+        .output()
+        .unwrap()
+}
+
+/// `git args` in `dir`, which succeeds: its standard output.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = git_run(dir, args);
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn files_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -118,6 +128,94 @@ async fn a_workspace_copies_tracked_and_untracked_files_but_not_ignored_ones() {
     assert_eq!(
         fs::read_to_string(workspace.tree().join("b.txt")).unwrap(),
         "changed"
+    );
+}
+
+/// The child's copy is a repository of its own: `git status` and `git
+/// diff` there show only the child's edits, nothing of the parent's
+/// repository (history, branches, remotes, objects) is in it, and the
+/// hand-back carries no `.git`.
+#[tokio::test]
+async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent");
+    write(&parent, "a.txt", "a0\n");
+    write(&parent, "b.txt", "b0\n");
+    git(&parent, &["init", "-q"]);
+    git(&parent, &["add", "a.txt", "b.txt"]);
+    let identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"];
+    git(
+        &parent,
+        &[&identity[..], &["commit", "-q", "-m", "one"]].concat(),
+    );
+    git(&parent, &["branch", "secret"]);
+    git(
+        &parent,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/parent.git",
+        ],
+    );
+    let parent_head = git(&parent, &["rev-parse", "HEAD"]);
+    // Uncommitted work of the parent is part of the child's start.
+    write(&parent, "b.txt", "b-parent\n");
+    write(&parent, "u.txt", "u0\n");
+    let workspace = ChildWorkspace::at(dir.path().join("ws"));
+    workspace.create(&parent).await.unwrap();
+    let tree = workspace.tree();
+    write(&tree, "a.txt", "a-child\n");
+    write(&tree, "c.txt", "c-child\n");
+    let view = |dir: &Path| {
+        (
+            git(dir, &["status", "--porcelain"]),
+            git(dir, &["diff", "--name-only"]),
+            git(dir, &["log", "--all", "--format=%s"]),
+            git(dir, &["remote"]),
+            git(dir, &["rev-parse", "--absolute-git-dir"]),
+        )
+    };
+    assert_eq!(
+        (
+            view(&tree),
+            git(&tree, &["diff", "--", "a.txt"]).contains("-a0\n+a-child\n"),
+            git_run(&tree, &["cat-file", "-e", parent_head.trim()])
+                .status
+                .success(),
+        ),
+        (
+            (
+                " M a.txt\n?? c.txt\n".to_owned(),
+                "a.txt\n".to_owned(),
+                "The workspace at the child's start\n".to_owned(),
+                String::new(),
+                format!("{}\n", tree.canonicalize().unwrap().join(".git").display()),
+            ),
+            true,
+            false,
+        )
+    );
+    let (units, scope) = whole();
+    let handback = workspace.hand_back_scoped(&units, &scope).await.unwrap();
+    assert_eq!(
+        (
+            handback.taken,
+            snapshot(&parent),
+            git(&parent, &["status", "--porcelain"]),
+            git(&parent, &["rev-list", "--all", "--count"]),
+        ),
+        (
+            names(&["a.txt", "c.txt"]),
+            files_of(&[
+                ("a.txt", "a-child\n"),
+                ("b.txt", "b-parent\n"),
+                ("c.txt", "c-child\n"),
+                ("u.txt", "u0\n"),
+            ]),
+            " M a.txt\n M b.txt\n?? c.txt\n?? u.txt\n".to_owned(),
+            "1\n".to_owned(),
+        )
     );
 }
 

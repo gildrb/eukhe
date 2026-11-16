@@ -24,12 +24,19 @@
 //!   it; a path both changed differently keeps the parent's and is a
 //!   conflict, the child's version under `conflicts/`.
 //!
+//! The child's copy is a git repository of its own (`tree/.git`, made at
+//! the spawn; [`git_view`]): its one commit is the workspace as the child
+//! found it, so `git status` and `git diff` there show the child's changes
+//! only. It holds no history, branch or remote of the parent's
+//! repository, and the patch never carries a `.git` path
+//! ([`files::walk`]).
+//!
 //! Each path is replaced in one rename, and the hand-back is idempotent: a
 //! path already taken reads as changed by both to the same content, so a
 //! hand-back a crash cut runs again from the start to the same result.
-//! Only its record (`handback.json`) ends it; then `base/` and the copy go,
-//! and `tree/` becomes a symlink to the parent's workspace, so a child
-//! woken later works there.
+//! Only its record (`handback.json`) ends it; then `base/`, the copy and
+//! its repository go, and `tree/` becomes a symlink to the parent's
+//! workspace, so a child woken later works there.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -41,6 +48,7 @@ use serde::{Deserialize, Serialize};
 
 mod check;
 mod files;
+mod git_view;
 mod merge;
 mod units;
 
@@ -51,6 +59,7 @@ pub use check::{run_check, CheckConfig, CheckOutcome, CheckRun};
 pub use units::{unit_of, unit_patch};
 
 use files::{Copied, Listing};
+use git_view::GitView;
 use merge::Plan;
 
 const MANIFEST: &str = "manifest.json";
@@ -182,14 +191,16 @@ impl ChildWorkspace {
         self.root.join(HANDBACK).is_file()
     }
 
-    /// Copy `parent`'s workspace into `base/` and `tree/`. Idempotent: a
-    /// workspace already created is kept, a create a crash cut starts
-    /// over.
+    /// Copy `parent`'s workspace into `base/` and `tree/`, and make
+    /// `tree/` a git repository of its own whose one commit is the copy
+    /// ([`git_view`]). Idempotent: a workspace already created is kept, a
+    /// create a crash cut starts over.
     ///
     /// # Errors
     ///
     /// The parent's workspace has more than [`MAX_WORKSPACE_FILES`]
-    /// paths, or a path cannot be listed, read or copied.
+    /// paths, a path cannot be listed, read or copied, or git fails on
+    /// the copy.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
     pub async fn create(&self, parent: &Path) -> anyhow::Result<CopyReport> {
         if let Some(manifest) = read_json::<Manifest>(&self.root.join(MANIFEST))? {
@@ -204,8 +215,25 @@ impl ChildWorkspace {
                 paths.len()
             );
         }
-        let (root, parent) = (self.root.clone(), parent.to_path_buf());
-        let report = tokio::task::spawn_blocking(move || copy_in(&root, &parent, &paths)).await??;
+        let staging = staging_of(&self.root);
+        let report = {
+            let (root, staging, parent) =
+                (self.root.clone(), staging.clone(), parent.to_path_buf());
+            tokio::task::spawn_blocking(move || copy_in(&root, &staging, &parent, &paths)).await??
+        };
+        match git_view::make(&staging.join(TREE)).await? {
+            GitView::Made => {}
+            GitView::NoGit => tracing::warn!(
+                root = %self.root.display(),
+                "no git to run: the child workspace has no git view of the child's changes"
+            ),
+        }
+        let manifest = Manifest {
+            parent: parent.to_path_buf(),
+            copy: report,
+        };
+        let root = self.root.clone();
+        tokio::task::spawn_blocking(move || seal(&staging, &root, &manifest)).await??;
         if report.copied > 0 {
             tracing::warn!(
                 root = %self.root.display(),
@@ -301,13 +329,24 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Copy `paths` of `parent` into a staging directory beside `root`, then
-/// rename it to `root`: a workspace exists whole or not at all.
-fn copy_in(root: &Path, parent: &Path, paths: &BTreeSet<PathBuf>) -> anyhow::Result<CopyReport> {
+/// The directory a create of the workspace at `root` stages its copies
+/// in, renamed to `root` when complete: a workspace exists whole or not
+/// at all.
+fn staging_of(root: &Path) -> PathBuf {
     let mut staging = root.as_os_str().to_os_string();
     staging.push(".staging");
-    let staging = PathBuf::from(staging);
-    for dir in [root, staging.as_path()] {
+    PathBuf::from(staging)
+}
+
+/// Copy `paths` of `parent` into `staging`, after removing what an
+/// earlier create a crash cut left at `root` and `staging`.
+fn copy_in(
+    root: &Path,
+    staging: &Path,
+    parent: &Path,
+    paths: &BTreeSet<PathBuf>,
+) -> anyhow::Result<CopyReport> {
+    for dir in [root, staging] {
         match fs::remove_dir_all(dir) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             removed => removed?,
@@ -338,15 +377,15 @@ fn copy_in(root: &Path, parent: &Path, paths: &BTreeSet<PathBuf>) -> anyhow::Res
         }
     }
     report.files = files::walk(&staging.join(BASE), Listing::All)?.len() as u64;
-    write_json(
-        &staging.join(MANIFEST),
-        &Manifest {
-            parent: parent.to_path_buf(),
-            copy: report,
-        },
-    )?;
-    fs::rename(&staging, root)?;
     Ok(report)
+}
+
+/// Write the manifest of the complete copies in `staging`, then rename
+/// `staging` to `root`.
+fn seal(staging: &Path, root: &Path, manifest: &Manifest) -> anyhow::Result<()> {
+    write_json(&staging.join(MANIFEST), manifest)?;
+    fs::rename(staging, root)?;
+    Ok(())
 }
 
 /// The paths the child added, modified or removed, relative to the
