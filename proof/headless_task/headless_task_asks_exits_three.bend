@@ -15,821 +15,269 @@ import ../base/logic/logic.bend as LLogicLogic
 
 def HeadlessTask.headless_task_asks_exits_three(f, h):
   match f:
-    case Ht.Facts{c, g, a, r}:
+    case Ht.Facts{c, a, r}:
       match c:
         case Hx.CAnswered{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CCommandFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCommandFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CGaveUp{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CGaveUp{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CRunFailed{x}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CRunFailed{x}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CProviderError{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CProviderError{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CAborted{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAborted{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CUnfinished{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CUnfinished{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CSlashFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CSlashFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CCompactionFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CAutonomousFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CBudgetLimited{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetLimited{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
         case Hx.CBudgetUnanswered{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.NoGoal{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Complete{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, True{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, True{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RDone{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, False{}, Ht.RDone{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, False{}, Ht.RLeft{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CBudgetUnanswered{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}, h)

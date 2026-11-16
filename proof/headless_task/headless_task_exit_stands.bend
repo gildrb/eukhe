@@ -15,821 +15,269 @@ import ../base/logic/logic.bend as LLogicLogic
 
 def HeadlessTask.headless_task_exit_stands(f, h, u, k):
   match f:
-    case Ht.Facts{c, g, a, r}:
+    case Ht.Facts{c, a, r}:
       match c:
         case Hx.CAnswered{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, k))
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.NoGoal{}, True{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, u))
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, k))
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Complete{}, True{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, u))
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RDone{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RDone{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, True{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RDone{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RDone{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RDone{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RLeft{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
-                    case Ht.RUnjudged{}:
-                      LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, Ht.Open{}, False{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, k))
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, h))
+                case Ht.RUnjudged{}:
+                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAnswered{}, True{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, Equal.sym(Bool, True{}, False{}, u))
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CCommandFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CGaveUp{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CRunFailed{x}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CProviderError{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CAborted{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CUnfinished{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CSlashFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CCompactionFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CAutonomousFailed{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CBudgetLimited{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
         case Hx.CBudgetUnanswered{}:
-          match g:
-            case Ht.NoGoal{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Complete{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-            case Ht.Open{}:
-              match a:
-                case True{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
-                case False{}:
-                  match r:
-                    case Ht.RUnasked{}:
-                      {==}
-                    case Ht.RDone{}:
-                      {==}
-                    case Ht.RLeft{}:
-                      {==}
-                    case Ht.RUnjudged{}:
-                      {==}
+          match a:
+            case True{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
+            case False{}:
+              match r:
+                case Ht.RUnasked{}:
+                  {==}
+                case Ht.RDone{}:
+                  {==}
+                case Ht.RLeft{}:
+                  {==}
+                case Ht.RUnjudged{}:
+                  {==}
