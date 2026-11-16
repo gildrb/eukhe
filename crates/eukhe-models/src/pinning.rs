@@ -18,9 +18,9 @@ type TemplateHeaders = Option<BTreeMap<String, String>>;
 #[derive(Clone, Default)]
 pub struct PinnedTemplates {
     /// `(provider, api, baseUrl)` -> transport template headers.
-    transports: HashMap<(String, String, String), TemplateHeaders>,
+    transports: HashMap<String, HashMap<String, HashMap<String, TemplateHeaders>>>,
     /// `(provider, id)` -> exact model template headers.
-    exact: HashMap<(String, String), TemplateHeaders>,
+    exact: HashMap<String, HashMap<String, TemplateHeaders>>,
 }
 
 impl PinnedTemplates {
@@ -29,29 +29,50 @@ impl PinnedTemplates {
     /// (production use).
     #[must_use]
     pub fn from_compiled() -> Self {
-        let mut pinned = Self::from_models(crate::transports::compiled_models().iter().cloned());
-        for (provider, api, base_url) in crate::transports::SUPPLEMENTAL_TRANSPORTS {
-            pinned
-                .transports
-                .entry((provider.to_string(), api.to_string(), base_url.to_string()))
-                .or_insert(None);
-        }
-        pinned
+        let compiled = Self::index(crate::transports::compiled_models());
+        crate::transports::SUPPLEMENTAL_TRANSPORTS.into_iter().fold(
+            compiled,
+            |mut pinned, (provider, api, base_url)| {
+                // A supplemental tuple never replaces a compiled one.
+                pinned
+                    .transports
+                    .entry(provider.to_owned())
+                    .or_default()
+                    .entry(api.to_owned())
+                    .or_default()
+                    .entry(base_url.to_owned())
+                    .or_insert(None);
+                pinned
+            },
+        )
     }
 
     /// Index an arbitrary template list (tests).
     pub fn from_models<I: IntoIterator<Item = Model>>(models: I) -> Self {
-        let mut pinned = PinnedTemplates::default();
-        for model in models {
-            pinned.exact.insert(
-                (model.provider.clone(), model.id.clone()),
-                model.headers.clone(),
-            );
-            pinned
-                .transports
-                .insert((model.provider, model.api, model.base_url), model.headers);
-        }
-        pinned
+        let models: Vec<Model> = models.into_iter().collect();
+        Self::index(&models)
+    }
+
+    /// The tables of `models`, in order: a later model with the same
+    /// `(provider, api, baseUrl)` or `(provider, id)` replaces an earlier one.
+    fn index<'a>(models: impl IntoIterator<Item = &'a Model>) -> Self {
+        models
+            .into_iter()
+            .fold(Self::default(), |mut pinned, model| {
+                pinned
+                    .transports
+                    .entry(model.provider.clone())
+                    .or_default()
+                    .entry(model.api.clone())
+                    .or_default()
+                    .insert(model.base_url.clone(), model.headers.clone());
+                pinned
+                    .exact
+                    .entry(model.provider.clone())
+                    .or_default()
+                    .insert(model.id.clone(), model.headers.clone());
+                pinned
+            })
     }
 }
 
@@ -102,19 +123,20 @@ pub fn pin_catalog_models(
 ) -> Result<Vec<Model>, NoSupportedModels> {
     let mut models = Vec::with_capacity(catalog_models.len());
     for model in catalog_models {
-        let key = (
-            model.provider.clone(),
-            model.api.clone(),
-            model.base_url.clone(),
-        );
-        let Some(transport) = templates.transports.get(&key) else {
+        let Some(transport) = templates
+            .transports
+            .get(model.provider.as_str())
+            .and_then(|apis| apis.get(model.api.as_str()))
+            .and_then(|base_urls| base_urls.get(model.base_url.as_str()))
+        else {
             // Non-matching tuples drop silently: the catalog can never
             // introduce a transport.
             continue;
         };
         let exact = templates
             .exact
-            .get(&(model.provider.clone(), model.id.clone()));
+            .get(model.provider.as_str())
+            .and_then(|models| models.get(model.id.as_str()));
         let mut pinned = model;
         pinned.headers = exact.and_then(Clone::clone).or_else(|| transport.clone());
         models.push(pinned);
@@ -286,5 +308,74 @@ mod tests {
         let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
         assert_eq!(ids, vec!["gpt-x"]);
         assert!(models.iter().all(|model| model.headers.is_none()));
+    }
+
+    #[test]
+    fn exact_none_headers_fall_back_to_transport_headers() {
+        let source = crate::transports::compiled_models()
+            .iter()
+            .find(|model| model.provider == "openai")
+            .expect("compiled provider");
+        let mut exact = source.clone();
+        exact.id = "selected".to_owned();
+        exact.headers = None;
+        let mut transport = source.clone();
+        transport.id = "other".to_owned();
+        let expected_headers = transport.headers.clone();
+        let templates = PinnedTemplates::from_models([exact.clone(), transport]);
+
+        assert_eq!(
+            pin_catalog_models(vec![exact], &templates).expect("pinned")[0].headers,
+            expected_headers
+        );
+    }
+
+    #[test]
+    fn supported_models_keep_catalog_order_around_dropped_tuples() {
+        let templates = compiled_fixture();
+        let payload = json!({"schemaVersion": 1, "models": [
+            catalog_entry("exact", "openai-completions", "prov", "https://prov.example"),
+            catalog_entry("dropped", "openai-completions", "prov", "https://other.example"),
+            catalog_entry("known", "openai-completions", "prov", "https://prov.example"),
+        ]});
+
+        let models = parse_provider_model_catalog(&payload, &templates).expect("supported models");
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["exact", "known"]
+        );
+    }
+
+    #[test]
+    fn duplicate_template_keys_keep_the_last_headers() {
+        let source = crate::transports::compiled_models()
+            .iter()
+            .find(|model| model.provider == "openai")
+            .expect("compiled provider");
+        let mut first = source.clone();
+        first.id = "duplicate".to_owned();
+        first.headers = Some(BTreeMap::from([(
+            "User-Agent".to_owned(),
+            "first".to_owned(),
+        )]));
+        let mut last = first.clone();
+        last.headers = Some(BTreeMap::from([(
+            "User-Agent".to_owned(),
+            "last".to_owned(),
+        )]));
+        let templates = PinnedTemplates::from_models([first, last]);
+        let expected = Some(BTreeMap::from([(
+            "User-Agent".to_owned(),
+            "last".to_owned(),
+        )]));
+
+        assert_eq!(templates.exact["openai"]["duplicate"], expected);
+        assert_eq!(
+            templates.transports["openai"][source.api.as_str()][source.base_url.as_str()],
+            expected
+        );
     }
 }

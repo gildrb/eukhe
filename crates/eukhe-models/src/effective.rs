@@ -87,10 +87,36 @@ fn union(bs: &[Ent], cs: &[Ent]) -> Result<Vec<Ent>, Error> {
         .collect())
 }
 
-/// The interned id of `value` in `table` (a new one the first time).
-fn intern<'a>(table: &mut HashMap<&'a str, usize>, value: &'a str) -> usize {
-    let next = table.len();
-    *table.entry(value).or_insert(next)
+/// The source entries projected for the core rule, with ids interned in source order.
+fn project_all<'a>(bundled: &'a [Model], compiled: &'a [Model]) -> (Vec<Ent>, Vec<Ent>) {
+    let mut keys: HashMap<(&'a str, &'a str), usize> = HashMap::new();
+    let mut apis: HashMap<&'a str, usize> = HashMap::new();
+    let mut project = |model: &'a Model, place| {
+        let key = (model.provider.as_str(), model.id.as_str());
+        let next_key = keys.len();
+        let key = *keys.entry(key).or_insert(next_key);
+        let api = model.api.as_str();
+        let next_api = apis.len();
+        let api = *apis.entry(api).or_insert(next_api);
+        Ent {
+            key,
+            api,
+            data: place,
+            opts: stated(model, place),
+        }
+    };
+    let bs = bundled
+        .iter()
+        .enumerate()
+        .map(|(place, model)| project(model, place))
+        .collect();
+    let base = bundled.len();
+    let cs = compiled
+        .iter()
+        .enumerate()
+        .map(|(index, model)| project(model, base + index))
+        .collect();
+    (bs, cs)
 }
 
 /// The places of `model`'s optional fields that it states (`place` is its
@@ -102,25 +128,6 @@ fn stated(model: &Model, place: usize) -> [Option<usize>; FIELDS] {
         model.featured.is_some().then_some(place),
         model.headers.is_some().then_some(place),
     ]
-}
-
-/// `model` as the rule reads it, at `place`.
-fn project<'a>(
-    keys: &mut HashMap<(&'a str, &'a str), usize>,
-    apis: &mut HashMap<&'a str, usize>,
-    model: &'a Model,
-    place: usize,
-) -> Ent {
-    let next = keys.len();
-    let key = *keys
-        .entry((model.provider.as_str(), model.id.as_str()))
-        .or_insert(next);
-    Ent {
-        key,
-        api: intern(apis, model.api.as_str()),
-        data: place,
-        opts: stated(model, place),
-    }
 }
 
 /// The model at `place`: a bundled one not yet taken from `owned`, or a
@@ -147,21 +154,7 @@ pub fn effective_catalog(bundled: Vec<Model>, compiled: &[Model]) -> Vec<Model> 
 /// back into models.
 fn assemble(bundled: Vec<Model>, compiled: &[Model]) -> Result<Vec<Model>, Error> {
     let base = bundled.len();
-    let (bs, cs) = {
-        let mut keys: HashMap<(&str, &str), usize> = HashMap::new();
-        let mut apis: HashMap<&str, usize> = HashMap::new();
-        let bs: Vec<Ent> = bundled
-            .iter()
-            .enumerate()
-            .map(|(index, model)| project(&mut keys, &mut apis, model, index))
-            .collect();
-        let cs: Vec<Ent> = compiled
-            .iter()
-            .enumerate()
-            .map(|(index, model)| project(&mut keys, &mut apis, model, base + index))
-            .collect();
-        (bs, cs)
-    };
+    let (bs, cs) = project_all(&bundled, compiled);
     let picked = union(&bs, &cs)?;
     let mut owned: Vec<Option<Model>> = bundled.into_iter().map(Some).collect();
     let mut models = Vec::with_capacity(picked.len());
@@ -192,4 +185,30 @@ fn assemble(bundled: Vec<Model>, compiled: &[Model]) -> Result<Vec<Model>, Error
         models.push(model);
     }
     Ok(models)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_keys_with_different_apis_keep_the_bundled_entry() {
+        let mut bundled = crate::transports::compiled_models()[0].clone();
+        bundled.provider = "shared-provider".to_owned();
+        bundled.id = "shared-model".to_owned();
+        bundled.api = "bundled-api".to_owned();
+        bundled.thinking_level_map = None;
+        bundled.compat = None;
+        bundled.featured = None;
+        bundled.headers = None;
+
+        let mut compiled = bundled.clone();
+        compiled.api = "compiled-api".to_owned();
+        compiled.featured = Some(true);
+
+        assert_eq!(
+            effective_catalog(vec![bundled.clone()], &[compiled]),
+            vec![bundled]
+        );
+    }
 }

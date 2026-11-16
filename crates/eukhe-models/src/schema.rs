@@ -14,7 +14,7 @@
 //! - the lenient mode parses with skip-invalid semantics: bad entries drop,
 //!   the rest of the payload survives.
 
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 use serde::Deserialize;
 
@@ -74,11 +74,6 @@ struct CatalogCost {
     output: JsNumber,
     cache_read: JsNumber,
     cache_write: JsNumber,
-}
-
-#[derive(Debug, Deserialize)]
-struct CatalogEnvelope {
-    models: Vec<serde_json::Value>,
 }
 
 /// Why a catalog payload is rejected.
@@ -155,14 +150,8 @@ pub fn parse_model_catalog(
     if models.is_empty() || models.len() > MAX_MODEL_CATALOG_MODELS {
         return Err(ModelCatalogError::InvalidModelCount);
     }
-    // The envelope accepts only the declared keys (schemaVersion literal +
-    // the models array); unknown top-level keys are not rejected (TS parity).
-    let envelope: CatalogEnvelope = serde_json::from_value(value.clone())
-        .map_err(|error| ModelCatalogError::InvalidEntry(error.into()))?;
-    let _ = envelope.models.len();
-
     let mut parsed: Vec<Model> = Vec::with_capacity(models.len());
-    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
     for candidate in models {
         let model = match parse_entry(candidate) {
             Ok(model) => model,
@@ -174,7 +163,19 @@ pub fn parse_model_catalog(
                 InvalidEntries::Reject => return Err(ModelCatalogError::InvalidEntry(defect)),
             },
         };
-        if !seen.insert((model.provider.clone(), model.id.clone())) {
+        let key = candidate.as_object().map_or(("", ""), |entry| {
+            (
+                entry
+                    .get("provider")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                entry
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+            )
+        });
+        if !seen.insert(key) {
             return Err(ModelCatalogError::DuplicateEntry {
                 provider: model.provider,
                 id: model.id,
@@ -192,7 +193,7 @@ pub fn parse_model_catalog(
 }
 
 fn parse_entry(candidate: &serde_json::Value) -> Result<Model, EntryDefect> {
-    let entry: CatalogModelSchema = serde_json::from_value(candidate.clone())?;
+    let entry = CatalogModelSchema::deserialize(candidate)?;
     validate_entry(&entry)?;
     if !is_model_compat(&entry.api, entry.compat.as_ref()) {
         return Err(EntryDefect::Compat { api: entry.api });
@@ -431,5 +432,50 @@ mod tests {
             .unwrap()
             .insert("generatedAt".into(), json!("2026-09-21"));
         assert!(parse_model_catalog(&payload, InvalidEntries::Reject).is_ok());
+    }
+    #[test]
+    fn verdict_order_keeps_validation_interleaved_with_duplicate_checks() {
+        let a = entry(&json!({}));
+        let duplicate_then_invalid = catalog(vec![
+            a.clone(),
+            a.clone(),
+            entry(&json!({"id": "bad", "contextWindow": 0})),
+        ]);
+        assert!(matches!(
+            parse_model_catalog(&duplicate_then_invalid, InvalidEntries::Reject),
+            Err(ModelCatalogError::DuplicateEntry { .. })
+        ));
+        let invalid_then_duplicate = catalog(vec![
+            a.clone(),
+            entry(&json!({"id": "bad", "contextWindow": 0})),
+            a,
+        ]);
+        assert!(matches!(
+            parse_model_catalog(&invalid_then_duplicate, InvalidEntries::Reject),
+            Err(ModelCatalogError::InvalidEntry(_))
+        ));
+        let skipped_invalid = catalog(vec![
+            entry(&json!({"id": "model-a", "contextWindow": 0})),
+            entry(&json!({})),
+        ]);
+        assert_eq!(
+            parse_model_catalog(&skipped_invalid, InvalidEntries::SkipInvalid)
+                .expect("valid duplicate after skipped invalid")
+                .models
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn borrowed_entry_deserialization_preserves_schema_error_text() {
+        for (candidate, expected) in [
+            (json!({}), "it does not match the schema: missing field `id`"),
+            (entry(&json!({"headers": {}})), "it does not match the schema: unknown field `headers`, expected one of `id`, `name`, `api`, `provider`, `baseUrl`, `reasoning`, `thinkingLevelMap`, `input`, `cost`, `contextWindow`, `maxTokens`, `featured`, `compat`"),
+            (entry(&json!({"reasoning": "no"})), "it does not match the schema: invalid type: string \"no\", expected a boolean"),
+        ] {
+            let defect = parse_entry(&candidate).expect_err("schema defect");
+            assert_eq!(defect.to_string(), expected);
+        }
     }
 }

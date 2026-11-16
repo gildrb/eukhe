@@ -53,21 +53,19 @@ pub const SUPPLEMENTAL_TRANSPORTS: [(&str, &str, &str); 1] =
 /// catalog's, then [`SUPPLEMENTAL_TRANSPORTS`].
 #[must_use]
 pub fn compiled_transport_tuples() -> Vec<(&'static str, &'static str, &'static str)> {
-    let mut tuples: Vec<(&'static str, &'static str, &'static str)> = Vec::new();
     let mut seen: HashSet<(&str, &str, &str)> = HashSet::new();
-    let compiled = compiled_models().iter().map(|model| {
-        (
-            model.provider.as_str(),
-            model.api.as_str(),
-            model.base_url.as_str(),
-        )
-    });
-    for tuple in compiled.chain(SUPPLEMENTAL_TRANSPORTS) {
-        if seen.insert(tuple) {
-            tuples.push(tuple);
-        }
-    }
-    tuples
+    compiled_models()
+        .iter()
+        .map(|model| {
+            (
+                model.provider.as_str(),
+                model.api.as_str(),
+                model.base_url.as_str(),
+            )
+        })
+        .chain(SUPPLEMENTAL_TRANSPORTS)
+        .filter(|tuple| seen.insert(*tuple))
+        .collect()
 }
 
 /// The provider ids the client compiles in: every compiled catalog

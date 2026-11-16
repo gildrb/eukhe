@@ -53,27 +53,21 @@ const THINKING_FORMATS: &[&str] = &[
 /// reject every compat object: catalog data can only select among transports
 /// the client knows, and unknown compat surfaces are exactly that.
 ///
-/// # Panics
-///
-/// Never panics: the key-table `expect` is unreachable because the preceding
-/// `keys.is_none()` guard returns `false` before reaching it.
 #[must_use]
 pub fn is_model_compat(api: &str, compat: Option<&serde_json::Map<String, Value>>) -> bool {
     let Some(compat) = compat else {
         return true;
     };
-    let keys = match api {
+    let Some(keys) = (match api {
         "openai-completions" => Some(OPENAI_COMPLETIONS_KEYS),
         "openai-responses" | "openai-codex-responses" | "azure-openai-responses" => {
             Some(OPENAI_RESPONSES_KEYS)
         }
         "anthropic-messages" => Some(ANTHROPIC_MESSAGES_KEYS),
         _ => None,
-    };
-    if keys.is_none() {
+    }) else {
         return false;
-    }
-    let keys = keys.expect("checked");
+    };
     compat.keys().all(|key| keys.contains(&key.as_str()))
         && compat
             .iter()
