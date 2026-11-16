@@ -2,7 +2,7 @@
 //! before it asks the judge (`bend/headless_task.bend`): a tool call with an
 //! effect since the run began (an edit, a write, a program run, a spawned
 //! child: every tool but the read-only ones, and a `bash` call any of whose
-//! steps has an effect other than reading), or a goal opened.
+//! steps has an effect other than reading).
 
 use eukhe_bend::rules::headless::Activity;
 use eukhe_chord::context::Context;
@@ -10,7 +10,6 @@ use eukhe_core::durable::directors::tool_acted;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::EntryId;
-use eukhe_types::goal::{GoalState, GoalStatus};
 use eukhe_types::pi_ai::Message;
 
 /// The transcript read's page size.
@@ -28,17 +27,13 @@ pub(super) async fn newest_entry(
     Ok(page.items.first().map(|entry| entry.id))
 }
 
-/// Whether the run acted: its goal opened, or a tool result newer than
-/// `since` (none: the whole transcript) from a call with an effect.
+/// Whether the run acted: a tool result newer than `since` (none: the
+/// whole transcript) from a call with an effect.
 pub(super) async fn run_activity(
     conversation: &Conversation,
     since: Option<EntryId>,
-    goal: &GoalState,
     cx: &Context,
 ) -> Result<Activity, SessionError> {
-    if goal_opened(goal) {
-        return Ok(Activity::Acted);
-    }
     let mut cursor = None;
     loop {
         let page = conversation
@@ -61,17 +56,4 @@ pub(super) async fn run_activity(
             None => return Ok(Activity::ReadOnly),
         }
     }
-}
-
-/// Whether the run has a goal (any but none).
-fn goal_opened(goal: &GoalState) -> bool {
-    goal.objective.is_some()
-        && match goal.status {
-            GoalStatus::Idle => false,
-            GoalStatus::Active
-            | GoalStatus::Paused
-            | GoalStatus::BudgetLimited
-            | GoalStatus::Complete
-            | GoalStatus::Error => true,
-        }
 }

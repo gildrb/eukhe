@@ -582,43 +582,23 @@ async fn a_failed_session_command_stops_the_prompt_loop() {
     }
 }
 
-/// An incomplete task prints why, then what remains: with its goal open
-/// the agent's report, else the goal itself; without an open goal the
-/// items the judge read in the final answer.
+/// An incomplete task prints why, then what remains: the items the judge
+/// read in the final answer.
 #[test]
 fn an_incomplete_task_says_what_remains() {
-    let reported = GoalState {
-        status: GoalStatus::Paused,
-        objective: Some("ship A and B".to_owned()),
-        last_reason: Some("no new work in 3 continuations".to_owned()),
-        remaining: Some("B: the build fails".to_owned()),
-        ..eukhe_types::goal::empty_goal_state()
-    };
-    let unreported = GoalState {
-        status: GoalStatus::Active,
-        last_reason: None,
-        remaining: None,
-        ..reported.clone()
-    };
-    let left = AnswerReading::Left(vec!["W5: no cargo".to_owned(), "W6: DNS".to_owned()]);
-    let text = |goal: &GoalState, run_goal, reading: Option<&AnswerReading>| {
-        incomplete_text(goal, run_goal, &remaining_items(goal, run_goal, reading))
-    };
+    let text = |reading: &AnswerReading| incomplete_text(&remaining_items(Some(reading)));
     assert_eq!(
         [
-            text(&reported, RunGoal::Open, None),
-            text(&unreported, RunGoal::Open, None),
-            text(&eukhe_types::goal::empty_goal_state(), RunGoal::None, Some(&left)),
-            text(
-                &reported,
-                RunGoal::Complete,
-                Some(&AnswerReading::Left(Vec::new()))
-            ),
+            text(&AnswerReading::Left(vec![
+                "W5: no cargo".to_owned(),
+                "W6: DNS".to_owned()
+            ])),
+            text(&AnswerReading::Left(vec!["W5: no cargo".to_owned()])),
+            text(&AnswerReading::Left(Vec::new())),
         ],
         [
-            "eukhe: the task is incomplete: its goal is paused (no new work in 3 continuations)\neukhe: remaining: B: the build fails",
-            "eukhe: the task is incomplete: its goal is active\neukhe: remaining: not reported; the goal: ship A and B",
             "eukhe: the task is incomplete: its final answer states work left\neukhe: remaining:\n- W5: no cargo\n- W6: DNS",
+            "eukhe: the task is incomplete: its final answer states work left\neukhe: remaining: W5: no cargo",
             "eukhe: the task is incomplete: its final answer states work left\neukhe: remaining: not listed; see the final answer",
         ]
     );
