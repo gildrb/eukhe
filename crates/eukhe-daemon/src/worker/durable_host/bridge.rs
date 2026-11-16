@@ -20,7 +20,9 @@ use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::children::{watch_workers, RunPause};
 use eukhe_core::durable::{ProviderWireEvent, SessionShape};
 use eukhe_durable::harness::effects::watch_unknown_effects;
-use eukhe_durable::harness::types::{InputEntry, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::types::{
+    ConversationAbortOptions, InputEntry, InputSubmissionDraft, WhenBusy,
+};
 use eukhe_durable::harness::{
     watch_events, AgentEvent, AgentEventBatch, AgentEventStream, Conversation, Harness, InboxItem,
     InboxState, INBOX_DOC, LIVE_DOC,
@@ -876,6 +878,22 @@ pub async fn inbox_previews(
             InboxItem::Write { .. } => None,
         })
         .collect())
+}
+
+/// Abort the running turn of `conversation` and resolve once it is idle,
+/// for a caller that then reads or moves the transcript (a manual
+/// compaction, a tree move). The abort waits only for the work it stopped;
+/// the idle wait also waits out a run the abort started (a withdrawn child
+/// report submitted again).
+///
+/// # Errors
+///
+/// The abort or the idle wait fails (the Harness is closed).
+pub(crate) async fn stop_turn(conversation: &Conversation, cx: &Context) -> SessionResult<()> {
+    conversation
+        .abort(ConversationAbortOptions::default(), cx)
+        .await?;
+    conversation.wait_for_idle(cx).await
 }
 
 /// Submit `inputs` (queued inputs an abort withdrew) on `conversation`

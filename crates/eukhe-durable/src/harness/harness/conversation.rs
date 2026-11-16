@@ -281,7 +281,10 @@ impl Conversation {
 
     /// Withdraw queued inputs (queued writes stay), mark every live
     /// non-background task of the ordinary ownership scope, signal them, and
-    /// resolve once the scope is idle. Background subtrees survive unless
+    /// resolve once those tasks are terminal. Work started after the marks
+    /// (also a run the withdrawal itself started) runs on unawaited: a
+    /// caller that needs the scope idle follows with
+    /// [`Self::wait_for_idle`]. Background subtrees survive unless
     /// `options.background` is set.
     #[must_use]
     pub fn abort(

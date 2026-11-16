@@ -48,8 +48,7 @@ impl TaskAbortResult {
 pub(crate) enum ConversationAbortReach {
     /// Ordinary traversal: background tasks are boundaries.
     Ordinary,
-    /// `{ background: true }`: traversal crosses background boundaries, and
-    /// the wait also covers every task it reached.
+    /// `{ background: true }`: traversal crosses background boundaries.
     Background,
 }
 
@@ -159,11 +158,14 @@ impl TaskScheduler {
 
     /// `Conversation.abort()`: in one commit, withdraw the queued inputs and
     /// mark every live non-background task that ordinary traversal from the
-    /// conversation reaches, as `cause` says; resolves once the scope is
-    /// idle. With [`ConversationAbortReach::Background`], traversal crosses
-    /// background boundaries, and the wait also covers every task it
-    /// reached. The commit is enqueued at the call, as the TS promise starts
-    /// eagerly.
+    /// conversation reaches, as `cause` says; resolves once every live task
+    /// the commit reached is terminal (with its ordinary owned work gone).
+    /// Work started after the commit is not awaited, also when the abort
+    /// started it (an aborted child that hands its withdrawn report on
+    /// starts the parent's next run): a caller that needs the scope idle
+    /// waits for it. With [`ConversationAbortReach::Background`], traversal
+    /// crosses background boundaries. The commit is enqueued at the call,
+    /// as the TS promise starts eagerly.
     ///
     /// # Errors
     ///
@@ -222,15 +224,15 @@ impl TaskScheduler {
             cx,
             TransactionScope::default(),
         );
-        let (scheduler, cx) = (self.clone(), cx.clone());
+        let scheduler = self.clone();
+        let cx = cx.clone();
         async move {
             let reached = committed.await?;
-            if reach == ConversationAbortReach::Background {
-                for id in reached {
-                    scheduler.wait_for_task(id, &cx).await?;
-                }
-            }
-            scheduler.wait_for_idle(Some(conversation_id), &cx).await
+            let ended = reached
+                .into_iter()
+                .map(|id| scheduler.wait_for_task(id, &cx));
+            futures::future::try_join_all(ended).await?;
+            Ok(())
         }
     }
 }

@@ -204,8 +204,8 @@ pub struct ConversationAbortOptions {
     /// Cross background boundaries: mark every live task reached ignoring
     /// the background flag when the abort is admitted, withdraw the queued
     /// inputs of every conversation reached, and wait until those tasks are
-    /// terminal and the conversation is ordinarily idle. Background work
-    /// created afterwards is neither marked nor awaited.
+    /// terminal. Background work created afterwards is neither marked nor
+    /// awaited.
     pub background: bool,
 }
 
@@ -221,7 +221,7 @@ pub trait ConversationHandle: Send + Sync {
         cx: &Context,
     ) -> BoxFuture<'static, SessionResult<Arc<dyn Submission>>>;
     /// `Conversation.abort()`: withdraw queued inputs, abort the ordinary
-    /// ownership scope, and wait until it is idle.
+    /// ownership scope, and wait until the tasks it marked are terminal.
     fn abort(
         &self,
         options: ConversationAbortOptions,

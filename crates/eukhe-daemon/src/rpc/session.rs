@@ -431,7 +431,8 @@ impl RpcSession {
     }
 
     /// Abort the main conversation's running work (TS `abort()`): withdraw
-    /// its queued inputs and resolve once it is idle.
+    /// its queued inputs and resolve once the work it stopped ended, not a
+    /// run the abort started (a withdrawn child report submitted again).
     ///
     /// # Errors
     ///

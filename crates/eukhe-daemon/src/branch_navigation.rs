@@ -40,7 +40,6 @@ use eukhe_core::durable::rlm::{release_settled_kernel, transfer_kernel};
 use eukhe_core::durable::{
     fork_main_conversation, fork_session_conversation, ForkPoint, SessionLocation,
 };
-use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, EntryId, EntryRecord};
@@ -48,7 +47,7 @@ use serde_json::{json, Value};
 
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::session_navigation::PreparedReplacement;
-use crate::worker::durable_host::bridge::{resubmit_queued, QueuedInput};
+use crate::worker::durable_host::bridge::{resubmit_queued, stop_turn, QueuedInput};
 use crate::worker::{HostedSession, SessionSlot, Worker};
 use summary::{SummaryError, SummaryOutcome, SummaryRequest};
 use tree::{custom_entry_text, is_custom_entry, user_entry_text, SessionTree};
@@ -379,7 +378,7 @@ impl Worker {
         if !busy && inbox.is_empty() {
             return Ok(Vec::new());
         }
-        main.abort(ConversationAbortOptions::default(), cx).await?;
+        stop_turn(main, cx).await?;
         Ok(inbox)
     }
 

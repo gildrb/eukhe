@@ -1,14 +1,16 @@
 //! `describe("conversation abort and boundaries")`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::rejecting::Failing;
 use super::{
-    create, marked, open_memory_nodes, open_nodes, outcome_of, owned_conversation,
-    spawn_and_finish, status, until, until_status, Behavior, Opened, Script, BACKGROUND,
-    OWN_CONVERSATION,
+    aborted_next, create, end, marked, open_memory_nodes, open_nodes, outcome_of,
+    owned_conversation, spawn_and_finish, status, until, until_status, Behavior, End, Opened,
+    Script, BACKGROUND, OWN_CONVERSATION,
 };
 use crate::harness::tests::support::context;
+use crate::harness::tests::task_support::aborted;
 use crate::harness::types::ConversationAbortOptions;
 use crate::session::SessionEnd;
 use crate::types::{TaskOptions, TaskOutcomeStatus, TaskStatus};
@@ -53,6 +55,84 @@ async fn marks_and_awaits_only_the_background_work_reached_when_background_true_
     assert_ne!(status(&harness, later).await, TaskStatus::Terminal);
     assert!(!marked(&harness, later).await);
     harness.abort_task(later, context()).await.unwrap();
+    harness.close(context()).await.unwrap();
+}
+
+/// The abort waits for the tasks its commit marked, never for work started
+/// after it, also when the abort started it: the marked task's abort hook
+/// starts a run in the conversation and ends once that run runs, as an
+/// aborted child hands its withdrawn report to a new task whose submission
+/// starts the parent's next run. The abort returns while that run runs on.
+/// Paused clock: the sleep ends only once every task parked, so an abort
+/// that waits for the run fails here instead of hanging.
+#[tokio::test(start_paused = true)]
+async fn returns_while_a_run_its_abort_started_runs_on() {
+    let script = Script::new();
+    let Opened { harness, root, .. } = open_memory_nodes(&script).await;
+    let node = script.node().clone();
+    script.script(
+        "first",
+        Behavior::default()
+            .run(|script, runtime, _| async move {
+                script.open("first.running");
+                Err(aborted(&runtime.signal()).await)
+            })
+            .abort(move |script, runtime, cx| {
+                let node = node.clone();
+                async move {
+                    let slot = script.slot("followup");
+                    runtime
+                        .commit(
+                            move |tx, _| async move {
+                                let followup =
+                                    create(&tx, &node, "followup", OWN_CONVERSATION).await?;
+                                slot.resolve(followup);
+                                Ok(None)
+                            },
+                            &cx,
+                        )
+                        .await?;
+                    script.gate("followup.running").wait().await;
+                    runtime
+                        .commit(|_, _| async { Ok(Some(aborted_next())) }, &cx)
+                        .await
+                }
+            }),
+    );
+    script.script(
+        "followup",
+        Behavior::default().run(|script, runtime, cx| async move {
+            script.open("followup.running");
+            script.gate("followup").wait().await;
+            runtime
+                .commit(
+                    |_, _| async { Ok(Some(end(End::Completed, "followup"))) },
+                    &cx,
+                )
+                .await
+        }),
+    );
+    let first = script.start(&root, "first").await;
+    script.gate("first.running").wait().await;
+    tokio::select! {
+        biased;
+        stopped = root.abort(ConversationAbortOptions::default(), context()) => stopped.unwrap(),
+        () = tokio::time::sleep(Duration::from_secs(3600)) => {
+            panic!("the abort waited for the run its abort started");
+        }
+    }
+    let followup = script.slot("followup").wait().await;
+    assert_eq!(
+        outcome_of(&harness, first).await,
+        TaskOutcomeStatus::Aborted
+    );
+    assert_eq!(status(&harness, followup).await, TaskStatus::Running);
+    assert!(!marked(&harness, followup).await);
+    script.open("followup");
+    assert_eq!(
+        outcome_of(&harness, followup).await,
+        TaskOutcomeStatus::Completed
+    );
     harness.close(context()).await.unwrap();
 }
 

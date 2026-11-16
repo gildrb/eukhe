@@ -14,7 +14,7 @@ use eukhe_durable::errors::ConversationBusy;
 use eukhe_durable::harness::agent::resolve_settings;
 use eukhe_durable::harness::compaction::{context_tokens, select_cut};
 use eukhe_durable::harness::types::{
-    CompactionResult, ContextView, ConversationAbortOptions, InputSubmissionDraft, WhenBusy,
+    CompactionResult, ContextView, InputSubmissionDraft, WhenBusy,
 };
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LiveState, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -26,7 +26,7 @@ use eukhe_tokens::Tokenizer;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 
-use crate::worker::durable_host::bridge::{inbox_previews, QueuedInput};
+use crate::worker::durable_host::bridge::{inbox_previews, stop_turn, QueuedInput};
 
 /// The skip of a session with no history before the keep window (TS
 /// `CompactionSkippedError`).
@@ -239,23 +239,22 @@ pub(crate) async fn abort_compactions(
 /// drives it.
 pub(crate) const AUTO_CONTINUE_PROMPT: &str = "Resume the user's latest intent. Re-read kept recent messages above the summary to confirm the latest request. If it supersedes earlier plans in the summary, follow it. If no work remains, say so briefly; do not invent work.";
 
-/// Abort the running turn of `conversation` for a manual compaction and
-/// answer the inputs queued behind it. The abort withdraws them, but a
-/// compaction keeps the queues: the caller submits them
-/// again once the compaction ended (`resubmit_queued`).
+/// Abort the running turn of `conversation` for a manual compaction, wait
+/// until the conversation is idle (the compaction summarizes a settled
+/// transcript), and answer the inputs queued behind it. The abort
+/// withdraws them, but a compaction keeps the queues: the caller submits
+/// them again once the compaction ended (`resubmit_queued`).
 ///
 /// # Errors
 ///
-/// The `pi.inbox` read or the abort fails.
+/// The `pi.inbox` read, the abort or the idle wait fails.
 pub(crate) async fn interrupt_turn(
     harness: &Harness,
     conversation: &Conversation,
     cx: &Context,
 ) -> SessionResult<Vec<QueuedInput>> {
     let queued = inbox_previews(harness, conversation.id(), cx).await?;
-    conversation
-        .abort(ConversationAbortOptions::default(), cx)
-        .await?;
+    stop_turn(conversation, cx).await?;
     Ok(queued)
 }
 
