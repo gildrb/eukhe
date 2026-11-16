@@ -2729,6 +2729,7 @@ class FakeHost:
         # user message ends, and the ended ordinals per writing batch.
         self.tree_facts: dict[str, Any] = {
             "writeScope": [""],
+            "path": "",
             "depth": 0,
             "remaining": 15,
             "free": None,

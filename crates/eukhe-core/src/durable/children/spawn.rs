@@ -875,8 +875,8 @@ fn budget_kwarg(dimension: BudgetDimension, amount: u64) -> Value {
     }
 }
 
-/// `rlm.tree_facts`: this session's write scope, depth, the nodes it may
-/// still hold, what it may still spend (as a `budget` kwarg) and its
+/// `rlm.tree_facts`: this session's write scope, path, depth, the nodes it
+/// may still hold, what it may still spend (as a `budget` kwarg) and its
 /// deadline.
 pub(super) async fn tree_facts(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
     let harness = children.harness.require().map_err(session_error)?;
@@ -890,6 +890,7 @@ pub(super) async fn tree_facts(children: Arc<Children>, call: HostCall) -> anyho
     };
     Ok(json!({
         "writeScope": facts.write_scope,
+        "path": children.services.place.as_ref().map(|place| place.path.as_str()),
         "depth": facts.depth,
         "remaining": facts.remaining,
         "free": free,

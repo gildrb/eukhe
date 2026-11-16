@@ -25,6 +25,10 @@ const MARGIN_MS: u64 = 120_000;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Room {
+    /// The session's path in the tree (left/right steps from the root);
+    /// the batch's root is its left child.
+    #[serde(default)]
+    pub(crate) path: String,
     /// The root's depth: the session's depth + 1.
     pub(crate) depth: u64,
     /// The nodes the batch may hold, its root included.

@@ -38,6 +38,11 @@ pub(crate) fn facts(reply: &Value) -> Result<Facts, FactsError> {
         .collect::<Option<Vec<_>>>()
         .ok_or(FactsError("writeScope must hold paths"))?;
     let number = |key: &str| reply.get(key).and_then(Value::as_u64);
+    let path = reply
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or(FactsError("path must be a string"))?
+        .to_owned();
     let depth = number("depth").ok_or(FactsError("depth must be a whole number"))?;
     let allowance = number("remaining").ok_or(FactsError("remaining must be a whole number"))?;
     let limit = match reply.get("free") {
@@ -66,6 +71,7 @@ pub(crate) fn facts(reply: &Value) -> Result<Facts, FactsError> {
     Ok(Facts {
         write_scope,
         room: Room {
+            path,
             depth: depth + 1,
             allowance,
             limit,
@@ -86,16 +92,15 @@ pub(crate) fn nodes(agents: usize) -> u64 {
 }
 
 /// The `node` and `budget` kwargs of a writing leaf's spawn. A leaf holds
-/// one node: it works alone.
+/// one node: it works alone. Its path runs from the tree's root: the
+/// session's path, the left step to the batch's root, then the leaf's
+/// path in the batch; a leaf is never the tree's root.
 pub(crate) fn leaf_kwargs(batch: &Batch, place: &LeafPlace) -> Map<String, Value> {
-    let role = match place.path.chars().last() {
-        None => "root",
-        Some('L') => "left",
-        Some(_) => "right",
-    };
+    let path = format!("{}L{}", batch.room.path, place.path);
+    let role = if path.ends_with('L') { "left" } else { "right" };
     let mut node = json!({
         "role": role,
-        "path": place.path,
+        "path": path,
         "units": batch.units,
         "scope": place.mask,
         "allowance": 1,

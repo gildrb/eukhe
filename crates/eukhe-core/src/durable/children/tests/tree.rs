@@ -148,6 +148,43 @@ async fn a_split_childs_first_request_states_the_split_rule_and_its_scope() {
     );
 }
 
+/// Regression: a workflow's writing agent is a node of its session's
+/// tree. Alone in its batch, the root's agent was told it is the root;
+/// it is node L, below the root, in its own copy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_workflow_agent_of_the_root_is_a_node_below_it() {
+    use crate::durable::workflow::{batch, tree as workflow_tree};
+
+    let setup = setup();
+    let host = FakeHost::new();
+    let opened = open(Arc::new(MemoryStorage::new()), &setup, Arc::clone(&host)).await;
+    let reply = request_turn(&opened, &setup, "rlm.tree_facts", json!({})).await;
+    let facts =
+        workflow_tree::facts(&serde_json::from_str(&reply).expect("facts JSON")).expect("facts");
+    let writers = [(1, vec!["src/a".to_owned()])];
+    let planned = batch::plan(facts.room, &facts.write_scope, &[], &writers).expect("plan");
+    let crowned = batch::crown(&planned).expect("crown");
+    let leaf = batch::place(&planned, &crowned, 1).expect("the agent's place");
+    let kwargs = Value::Object(workflow_tree::leaf_kwargs(&planned, &leaf));
+    let spawned_reply = spawn_turn(&opened, &setup, "do src/a", kwargs).await;
+    assert!(!spawned_reply.starts_with("error:"), "{spawned_reply}");
+    opened.root.wait_for_idle(cx()).await.unwrap();
+    opened.harness.close(cx()).await.unwrap();
+    let place = spawned(&host)
+        .into_iter()
+        .find_map(|(place, _)| place)
+        .expect("the agent's place");
+    let system = first_system_prompt(place, host).await;
+    assert!(
+        system.contains(
+            "Agent tree: you are node L (`src/a`; write only there). \
+             You may not split: do your scope yourself. Your workspace is your own \
+             copy: `git status` and `git diff` show your changes since your start."
+        ),
+        "{system}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_split_names_its_first_failing_check_and_spawns_nothing() {
     let setup = setup();

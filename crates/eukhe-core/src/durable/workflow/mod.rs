@@ -13,7 +13,7 @@
 //! total; each run's progress lives in the `eukhe.workflow.runs` document
 //! the `/workflows` view reads.
 
-mod batch;
+pub(crate) mod batch;
 mod batch_doc;
 pub(crate) mod command;
 mod globals;
@@ -23,7 +23,7 @@ mod run_doc;
 mod run_task;
 mod schema;
 mod size;
-mod tree;
+pub(crate) mod tree;
 
 #[cfg(test)]
 mod tests;

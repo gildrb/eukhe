@@ -114,6 +114,7 @@ fn the_resume_key_tells_occurrences_and_options_apart() {
 /// allowance, limits off.
 fn room() -> Room {
     Room {
+        path: String::new(),
         depth: 1,
         allowance: 15,
         limit: None,
@@ -289,13 +290,15 @@ fn an_agent_without_a_scope_is_a_read_only_help_leaf() {
 }
 
 /// A writing leaf spawns as a node of its batch's crown: role, path,
-/// units and its scope over them; its budget is its half of the batch's
+/// units and its scope over them; its tree path runs from the root
+/// through its session's node; its budget is its half of the batch's
 /// limit, in the session's budget dimension.
 #[test]
 fn a_writing_leaf_spawns_with_its_place_in_the_batch() {
     let facts = tree::facts(&json!({
         "writeScope": ["crates"],
-        "depth": 0,
+        "path": "R",
+        "depth": 1,
         "remaining": 15,
         "free": { "budget": { "tokens": 1000 } },
         "deadlineMs": null,
@@ -346,7 +349,7 @@ fn a_writing_leaf_spawns_with_its_place_in_the_batch() {
                 "report": "silent",
                 "node": {
                     "role": "right",
-                    "path": "R",
+                    "path": "RLR",
                     "units": ["crates/a", "crates/b"],
                     "scope": [false, true],
                     "allowance": 1,
