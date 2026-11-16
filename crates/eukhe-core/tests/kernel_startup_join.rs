@@ -34,9 +34,15 @@ fn failing_kernel() -> (
     (dir, provisioner, count)
 }
 
+/// Wait until the fixture interpreter has marked its start. The shell
+/// creates the count file (`>>`) before `printf` writes the mark, so the
+/// file existing is not the start: a caller that kills the boot in that
+/// window (dispose) would leave an empty file and read zero starts.
+/// The timeout only catches a boot that never spawns: a loaded host can
+/// take seconds to fork and exec the fixture.
 async fn wait_for_start(count: &std::path::Path) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !count.exists() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while starts(count) == 0 {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
