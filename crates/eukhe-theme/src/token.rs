@@ -198,7 +198,68 @@ impl Token {
     /// The token a `colors` key names.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Token> {
-        Token::ALL.into_iter().find(|token| token.name() == name)
+        match name {
+            "accent" => Some(Token::Accent),
+            "border" => Some(Token::Border),
+            "borderAccent" => Some(Token::BorderAccent),
+            "borderMuted" => Some(Token::BorderMuted),
+            "success" => Some(Token::Success),
+            "error" => Some(Token::Error),
+            "warning" => Some(Token::Warning),
+            "muted" => Some(Token::Muted),
+            "dim" => Some(Token::Dim),
+            "text" => Some(Token::Text),
+            "thinkingText" => Some(Token::ThinkingText),
+            "userMessageText" => Some(Token::UserMessageText),
+            "customMessageText" => Some(Token::CustomMessageText),
+            "customMessageLabel" => Some(Token::CustomMessageLabel),
+            "refinementHeader" => Some(Token::RefinementHeader),
+            "refinementSummary" => Some(Token::RefinementSummary),
+            "toolTitle" => Some(Token::ToolTitle),
+            "toolOutput" => Some(Token::ToolOutput),
+            "mdBody" => Some(Token::MdBody),
+            "mdHeading" => Some(Token::MdHeading),
+            "mdLink" => Some(Token::MdLink),
+            "mdLinkUrl" => Some(Token::MdLinkUrl),
+            "mdCode" => Some(Token::MdCode),
+            "mdCodeBlock" => Some(Token::MdCodeBlock),
+            "mdCodeBlockBorder" => Some(Token::MdCodeBlockBorder),
+            "mdQuote" => Some(Token::MdQuote),
+            "mdQuoteBorder" => Some(Token::MdQuoteBorder),
+            "mdHr" => Some(Token::MdHr),
+            "mdListBullet" => Some(Token::MdListBullet),
+            "toolDiffAdded" => Some(Token::ToolDiffAdded),
+            "toolDiffRemoved" => Some(Token::ToolDiffRemoved),
+            "toolDiffText" => Some(Token::ToolDiffText),
+            "toolDiffContext" => Some(Token::ToolDiffContext),
+            "syntaxComment" => Some(Token::SyntaxComment),
+            "syntaxKeyword" => Some(Token::SyntaxKeyword),
+            "syntaxFunction" => Some(Token::SyntaxFunction),
+            "syntaxVariable" => Some(Token::SyntaxVariable),
+            "syntaxString" => Some(Token::SyntaxString),
+            "syntaxNumber" => Some(Token::SyntaxNumber),
+            "syntaxType" => Some(Token::SyntaxType),
+            "syntaxOperator" => Some(Token::SyntaxOperator),
+            "syntaxPunctuation" => Some(Token::SyntaxPunctuation),
+            "effortLow" => Some(Token::EffortLow),
+            "effortHigh" => Some(Token::EffortHigh),
+            "contextHigh" => Some(Token::ContextHigh),
+            "liftLight" => Some(Token::LiftLight),
+            "liftDark" => Some(Token::LiftDark),
+            "bashMode" => Some(Token::BashMode),
+            "selectedBg" => Some(Token::SelectedBg),
+            "userMessageBg" => Some(Token::UserMessageBg),
+            "customMessageBg" => Some(Token::CustomMessageBg),
+            "toolPendingBg" => Some(Token::ToolPendingBg),
+            "toolSuccessBg" => Some(Token::ToolSuccessBg),
+            "toolErrorBg" => Some(Token::ToolErrorBg),
+            "toolDiffAddedBg" => Some(Token::ToolDiffAddedBg),
+            "toolDiffRemovedBg" => Some(Token::ToolDiffRemovedBg),
+            "toolPanelBg" => Some(Token::ToolPanelBg),
+            "background" => Some(Token::Background),
+            "foreground" => Some(Token::Foreground),
+            _ => None,
+        }
     }
 }
 
@@ -211,3 +272,17 @@ const _: () = {
         index += 1;
     }
 };
+
+#[cfg(test)]
+mod tests {
+    use super::Token;
+
+    #[test]
+    fn from_name_covers_all_tokens_and_is_case_sensitive() {
+        for token in Token::ALL {
+            assert_eq!(Token::from_name(token.name()), Some(token));
+        }
+        assert_eq!(Token::from_name("notAToken"), None);
+        assert_eq!(Token::from_name("Accent"), None);
+    }
+}

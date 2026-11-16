@@ -35,11 +35,18 @@ pub struct ResolvedPalette {
     pub warnings: Vec<String>,
 }
 
+/// Where a theme file came from: the registered paths or the custom
+/// directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Registered,
+    Custom,
+}
+
 /// A theme file the sources reach, read and decoded.
 struct Load {
     path: PathBuf,
-    /// From the custom directory (else registered).
-    custom: bool,
+    origin: Origin,
     /// Its theme object, or why it is none (naming the file).
     theme: Result<RawTheme, ThemeFileError>,
 }
@@ -59,7 +66,7 @@ impl Catalog {
             .loads
             .iter()
             .map(|load| RawSource {
-                custom: load.custom,
+                custom: matches!(load.origin, Origin::Custom),
                 stem: load.path.file_stem().and_then(std::ffi::OsStr::to_str),
                 theme: load.theme.as_ref().ok(),
             })
@@ -72,12 +79,9 @@ impl Catalog {
         let load = &self.loads[at];
         match (&load.theme, outcomes.get(at)) {
             (Err(error), _) => error.to_string(),
-            (Ok(theme), Some(Outcome::Invalid(reason))) => ThemeFileError::Invalid {
-                path: load.path.clone(),
-                name: theme.name.clone(),
-                source: reason.clone(),
+            (Ok(_), Some(Outcome::Invalid(reason))) => {
+                format!("Invalid theme {}: {reason}", load.path.display())
             }
-            .to_string(),
             (Ok(_), Some(Outcome::Loaded | Outcome::NoTheme) | None) => {
                 panic!("the rules name {} as failed", load.path.display())
             }
@@ -103,8 +107,9 @@ impl ThemeSources {
     /// loaded.
     #[must_use]
     pub fn resolve(&self, name: &str, rules: ThemeRules) -> ResolvedPalette {
-        let catalog = self.catalog();
+        let mut catalog = self.catalog();
         let picked = catalog.pick(name, rules);
+        let catalog_warnings = std::mem::take(&mut catalog.warnings);
         let mut warnings = Vec::new();
         if let Some(cause) = picked.cause {
             let reason = match cause {
@@ -116,7 +121,7 @@ impl ThemeSources {
             ));
         }
         warnings.extend(self.diagnostics.iter().cloned());
-        warnings.extend(catalog.warnings.iter().cloned());
+        warnings.extend(catalog_warnings);
         warnings.extend(picked.clashes.iter().map(|&(at, winner)| {
             format!(
                 "Theme name \"{}\" collision: {} (using {})",
@@ -166,42 +171,26 @@ impl ThemeSources {
     }
 
     fn catalog(&self) -> Catalog {
-        let mut warnings = Vec::new();
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        let registered_files = registered_files(&self.registered, &mut seen, &mut warnings);
-        let custom_files = match &self.custom_dir {
-            Some(dir) => match theme_files_in(dir) {
-                Ok(files) => unique(files, &mut seen),
-                // No custom directory: nothing to load.
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-                Err(error) => {
-                    warnings.push(format!(
-                        "Failed to read theme directory {}: {error}",
-                        dir.display()
-                    ));
-                    Vec::new()
-                }
-            },
-            None => Vec::new(),
-        };
-        let mut files: Vec<(PathBuf, bool)> = registered_files
-            .into_iter()
-            .map(|path| (path, false))
-            .chain(custom_files.into_iter().map(|path| (path, true)))
-            .collect();
-        if files.len() > MAX_THEME_FILES {
+        let (registered, mut warnings) = entries_into_parts(registered_entries(&self.registered));
+        let (custom, custom_warnings) = self
+            .custom_dir
+            .as_deref()
+            .map(custom_entries)
+            .map(entries_into_parts)
+            .unwrap_or_default();
+        warnings.extend(custom_warnings);
+        let (files, file_count) = truncate_files(dedupe(registered.into_iter().chain(custom)));
+        if let Some(file_count) = file_count {
             warnings.push(format!(
-                "{} theme files found; only the first {MAX_THEME_FILES} are read",
-                files.len()
+                "{file_count} theme files found; only the first {MAX_THEME_FILES} are read"
             ));
-            files.truncate(MAX_THEME_FILES);
         }
         let loads = files
             .into_iter()
-            .map(|(path, custom)| Load {
+            .map(|(path, origin)| Load {
                 theme: read_theme(&path),
                 path,
-                custom,
+                origin,
             })
             .collect();
         Catalog { loads, warnings }
@@ -225,51 +214,96 @@ fn read_theme(path: &Path) -> Result<RawTheme, ThemeFileError> {
     })
 }
 
-/// The paths `files` that `seen` does not hold yet (by canonical path).
-fn unique(files: Vec<PathBuf>, seen: &mut HashSet<PathBuf>) -> Vec<PathBuf> {
+/// What one source path gave: its theme files, each with its canonical key,
+/// or a warning.
+#[derive(Debug)]
+enum Entry {
+    Files(Vec<(PathBuf, PathBuf, Origin)>),
+    Warning(String),
+}
+
+/// Canonical paths are computed beside filesystem reads; an unresolved path
+/// identifies itself so its read error can still be reported.
+fn keyed_files(files: Vec<PathBuf>, origin: Origin) -> Entry {
+    Entry::Files(
+        files
+            .into_iter()
+            .map(|path| {
+                let key = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                (path, key, origin)
+            })
+            .collect(),
+    )
+}
+
+/// Separate IO results from paths and warnings without sharing mutable state.
+fn entries_into_parts(entries: Vec<Entry>) -> (Vec<(PathBuf, PathBuf, Origin)>, Vec<String>) {
+    entries.into_iter().fold(
+        (Vec::new(), Vec::new()),
+        |(mut files, mut warnings), entry| {
+            match entry {
+                Entry::Files(found) => files.extend(found),
+                Entry::Warning(warning) => warnings.push(warning),
+            }
+            (files, warnings)
+        },
+    )
+}
+
+/// Keep first paths in order, comparing their precomputed canonical keys.
+fn dedupe(files: impl IntoIterator<Item = (PathBuf, PathBuf, Origin)>) -> Vec<(PathBuf, Origin)> {
+    let mut seen = HashSet::new();
     files
         .into_iter()
-        .filter(|path| {
-            // Identity only: an uncanonicalizable path keys on itself and
-            // its load reports the real error.
-            seen.insert(std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()))
-        })
+        .filter_map(|(path, key, origin)| seen.insert(key).then_some((path, origin)))
         .collect()
 }
 
-/// The registered theme files: directories expand to their `*.json`
-/// entries, duplicates drop, and unusable paths warn.
-fn registered_files(
-    registered: &[PathBuf],
-    seen: &mut HashSet<PathBuf>,
-    warnings: &mut Vec<String>,
-) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for path in registered {
-        match std::fs::metadata(path) {
+/// Limit a source list after counting it, retaining its first paths.
+fn truncate_files(mut files: Vec<(PathBuf, Origin)>) -> (Vec<(PathBuf, Origin)>, Option<usize>) {
+    let count = files.len();
+    let truncated = (count > MAX_THEME_FILES).then_some(count);
+    if truncated.is_some() {
+        files.truncate(MAX_THEME_FILES);
+    }
+    (files, truncated)
+}
+
+/// Read registered paths and expand directories in registration order.
+fn registered_entries(registered: &[PathBuf]) -> Vec<Entry> {
+    registered
+        .iter()
+        .map(|path| match std::fs::metadata(path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                warnings.push(format!("Theme path does not exist: {}", path.display()));
+                Entry::Warning(format!("Theme path does not exist: {}", path.display()))
             }
-            Err(error) => {
-                warnings.push(format!(
-                    "Failed to read theme path {}: {error}",
-                    path.display()
-                ));
-            }
+            Err(error) => Entry::Warning(format!(
+                "Failed to read theme path {}: {error}",
+                path.display()
+            )),
             Ok(metadata) if metadata.is_dir() => match theme_files_in(path) {
-                Ok(found) => files.extend(unique(found, seen)),
-                Err(error) => warnings.push(format!(
+                Ok(files) => keyed_files(files, Origin::Registered),
+                Err(error) => Entry::Warning(format!(
                     "Failed to read theme directory {}: {error}",
                     path.display()
                 )),
             },
-            Ok(_) if is_json_file_name(path) => files.extend(unique(vec![path.clone()], seen)),
-            Ok(_) => {
-                warnings.push(format!("Theme path is not a JSON file: {}", path.display()));
-            }
-        }
+            Ok(_) if is_json_file_name(path) => keyed_files(vec![path.clone()], Origin::Registered),
+            Ok(_) => Entry::Warning(format!("Theme path is not a JSON file: {}", path.display())),
+        })
+        .collect()
+}
+
+/// Read the custom directory after registered paths.
+fn custom_entries(dir: &Path) -> Vec<Entry> {
+    match theme_files_in(dir) {
+        Ok(files) => vec![keyed_files(files, Origin::Custom)],
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => vec![Entry::Warning(format!(
+            "Failed to read theme directory {}: {error}",
+            dir.display()
+        ))],
     }
-    files
 }
 
 fn is_json_file_name(path: &Path) -> bool {
@@ -279,13 +313,175 @@ fn is_json_file_name(path: &Path) -> bool {
 
 /// A directory's `*.json` entries (symlinks followed), sorted by path.
 fn theme_files_in(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if is_json_file_name(&path) && !path.is_dir() {
-            files.push(path);
-        }
-    }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|path| is_json_file_name(path) && !path.is_dir())
+        .collect();
     files.sort();
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use super::theme_files_in;
+
+    #[test]
+    fn theme_files_skip_directories_and_non_json_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "eukhe-theme-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let nested = root.join("nested.json");
+        std::fs::create_dir_all(&nested).expect("create temporary theme directory");
+        std::fs::write(root.join("theme.json"), "{}").expect("create theme file");
+        std::fs::write(root.join("notes.txt"), "ignored").expect("create non-theme file");
+
+        assert_eq!(
+            theme_files_in(&root).expect("read theme directory"),
+            vec![root.join("theme.json")]
+        );
+
+        std::fs::remove_dir_all(root).expect("remove temporary directory");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn dedupe_keeps_first_registered_path_over_directory_and_custom_symlink() {
+        use std::os::unix::fs::symlink;
+
+        use super::{custom_entries, dedupe, entries_into_parts, registered_entries, Origin};
+
+        let root = std::env::temp_dir().join(format!(
+            "eukhe-theme-dedupe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        let registered_dir = root.join("registered");
+        let custom_dir = root.join("custom");
+        std::fs::create_dir_all(&registered_dir).expect("create registered themes");
+        std::fs::create_dir_all(&custom_dir).expect("create custom themes");
+        let theme = registered_dir.join("theme.json");
+        std::fs::write(&theme, "{}").expect("create theme file");
+        symlink(&theme, custom_dir.join("alias.json")).expect("create custom symlink");
+
+        let (registered, _) =
+            entries_into_parts(registered_entries(&[theme.clone(), registered_dir]));
+        let (custom, _) = entries_into_parts(custom_entries(&custom_dir));
+        let files = dedupe(registered.into_iter().chain(custom));
+
+        assert_eq!(files, vec![(theme, Origin::Registered)]);
+        std::fs::remove_dir_all(root).expect("remove temporary directory");
+    }
+    #[test]
+    fn resolve_warnings_keep_the_documented_order_and_text() {
+        use super::ThemeSources;
+        use crate::{
+            Cause, Choice, ColorValue, Mode, Outcome, Palette, PaletteParts, Picked, RawSource,
+            Rgb, ThemeLoadError, ThemeRules, Token,
+        };
+
+        fn palette() -> Palette {
+            Palette::new(PaletteParts {
+                name: "test".into(),
+                colors: [ColorValue::Default; Token::ALL.len()],
+                paints: [Rgb::new(0, 0, 0); Token::ALL.len()],
+                declared_background: None,
+                export: [None; 3],
+                mode: Mode::Dark,
+            })
+        }
+
+        fn resolve(_: &str, sources: &[RawSource<'_>]) -> Picked {
+            Picked {
+                theme: Choice::Builtin(0),
+                cause: Some(Cause::NotFound),
+                clashes: vec![(1, 0)],
+                broken: vec![2],
+                outcomes: sources
+                    .iter()
+                    .enumerate()
+                    .map(|(at, _)| match at {
+                        2 => Outcome::Invalid(ThemeLoadError {
+                            reason: "broken".into(),
+                        }),
+                        0 | 1 => Outcome::Loaded,
+                        _ => Outcome::NoTheme,
+                    })
+                    .collect(),
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "eukhe-theme-warnings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create temporary theme directory");
+        let first = root.join("first.json");
+        let second = root.join("second.json");
+        let invalid = root.join("invalid.json");
+        let missing = root.join("missing.json");
+        std::fs::write(&first, r#"{"name":"first","colors":{}}"#).expect("create first theme");
+        std::fs::write(&second, r#"{"name":"second","colors":{}}"#).expect("create second theme");
+        std::fs::write(&invalid, r#"{"name":"invalid","colors":{}}"#)
+            .expect("create invalid theme");
+        let sources = ThemeSources {
+            registered: vec![
+                first.clone(),
+                second.clone(),
+                invalid.clone(),
+                missing.clone(),
+            ],
+            diagnostics: vec!["registered diagnostic".into()],
+            ..ThemeSources::default()
+        };
+
+        let rules = ThemeRules {
+            load: |_| Ok(palette()),
+            resolve,
+        };
+        let result = sources.resolve("ghost", rules);
+
+        assert_eq!(
+            result.warnings,
+            vec![
+                "Theme \"ghost\" unavailable, using \"eukhe\": Theme not found: ghost".into(),
+                "registered diagnostic".into(),
+                format!("Theme path does not exist: {}", missing.display()),
+                format!(
+                    "Theme name \"second\" collision: {} (using {})",
+                    second.display(),
+                    first.display()
+                ),
+                format!("Invalid theme {}: broken", invalid.display()),
+            ]
+        );
+        std::fs::remove_dir_all(root).expect("remove temporary directory");
+    }
+    #[test]
+    fn truncation_counts_all_files_and_keeps_the_first_in_order() {
+        use super::{truncate_files, Origin, MAX_THEME_FILES};
+
+        let files: Vec<_> = (0..=MAX_THEME_FILES)
+            .map(|index| (PathBuf::from(format!("{index}.json")), Origin::Registered))
+            .collect();
+        let (truncated, count) = truncate_files(files.clone());
+
+        assert_eq!(count, Some(MAX_THEME_FILES + 1));
+        assert_eq!(truncated, files[..MAX_THEME_FILES]);
+    }
 }

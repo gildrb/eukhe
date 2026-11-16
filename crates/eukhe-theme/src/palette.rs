@@ -134,33 +134,34 @@ impl RawTheme {
     /// a wrong shape, an unknown top-level or export key).
     pub fn decode(raw: &str) -> Result<RawTheme, ThemeDecodeError> {
         let file: ThemeFile = serde_json::from_str(raw)?;
-        let names: Vec<&str> = file.vars.keys().map(String::as_str).collect();
-        let value = |value: &Value| match value {
-            Value::String(text) => RawValue::Str {
-                text: text.clone(),
-                var: names.iter().position(|name| name == text),
-            },
+        // The var names in key order (sorted, unique): a string's var is its
+        // index there.
+        let (names, values): (Vec<String>, Vec<Value>) = file.vars.into_iter().unzip();
+        let raw_value = |value: Value| match value {
+            Value::String(text) => {
+                let var = names.binary_search(&text).ok();
+                RawValue::Str { text, var }
+            }
             Value::Number(number) => RawValue::Num(number.to_string()),
             Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => {
                 RawValue::Other(value.to_string())
             }
         };
+        let var_values: Vec<RawValue> = values.into_iter().map(&raw_value).collect();
+        let colors = file
+            .colors
+            .into_iter()
+            .map(|(key, value)| {
+                let token = Token::from_name(&key);
+                (key, token, raw_value(value))
+            })
+            .collect();
+        let export = [file.export.page, file.export.card, file.export.info]
+            .map(|value| value.map(&raw_value));
         Ok(RawTheme {
-            vars: file
-                .vars
-                .iter()
-                .map(|(name, v)| (name.clone(), value(v)))
-                .collect(),
-            colors: file
-                .colors
-                .iter()
-                .map(|(key, v)| (key.clone(), Token::from_name(key), value(v)))
-                .collect(),
-            export: [
-                file.export.page.as_ref().map(value),
-                file.export.card.as_ref().map(value),
-                file.export.info.as_ref().map(value),
-            ],
+            vars: names.into_iter().zip(var_values).collect(),
+            colors,
+            export,
             name: file.name,
         })
     }
@@ -314,5 +315,60 @@ impl Palette {
     #[must_use]
     pub fn export_surface(&self, surface: ExportSurface) -> Option<Rgb> {
         self.export[surface as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{RawTheme, RawValue, Token};
+
+    #[test]
+    fn decode_indexes_vars_by_sorted_key_order() {
+        let theme = RawTheme::decode(
+            r#"{"name":"test","vars":{"z":"red","a":"blue"},"colors":{"accent":"z","border":"missing"}}"#,
+        )
+        .expect("valid theme JSON");
+
+        assert_eq!(
+            theme,
+            RawTheme {
+                name: "test".into(),
+                vars: vec![
+                    (
+                        "a".into(),
+                        RawValue::Str {
+                            text: "blue".into(),
+                            var: None,
+                        },
+                    ),
+                    (
+                        "z".into(),
+                        RawValue::Str {
+                            text: "red".into(),
+                            var: None,
+                        },
+                    ),
+                ],
+                colors: vec![
+                    (
+                        "accent".into(),
+                        Some(Token::Accent),
+                        RawValue::Str {
+                            text: "z".into(),
+                            var: Some(1),
+                        },
+                    ),
+                    (
+                        "border".into(),
+                        Some(Token::Border),
+                        RawValue::Str {
+                            text: "missing".into(),
+                            var: None,
+                        },
+                    ),
+                ],
+                export: [None, None, None],
+            }
+        );
     }
 }
