@@ -38,6 +38,120 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |budgets|eukhe (the worst case of every request and tool call is reserved before it runs; every agent of a task tree draws from one account that keeps the final-answer reserves of the agents above, and a child given its own budget has it carved from its parent's)|`budget/ledger.bend`, `budget/limits.bend`|budget (45), budget_share (15), limits (29)|
 |tree|eukhe: a binary agent tree; a node works alone or splits into exactly two children with disjoint scopes and isolated checkouts, integrates their results and reports up; read-only help leaves crown it (`docs/internals/agent-tree.md`; the compiled core decides every split, spend, end and wait)|`agents/agent_tree.bend`, `agents/agent_crown.bend`, `agents/work_list.bend`|agent_tree (66), agent_crown (15), work_list (9)|
 
+## Other law areas
+
+Law areas outside the pillars above, with what their laws state. An anchor (`*_example`) pins a rule on chosen inputs only.
+
+### Providers and models
+
+- [`ai_text`](../laws/ai_text.bend) (23): the texts the provider clients read (a Gemini id's major version, an API version in a URL path, a base64 data URL, server-sent event boundaries and lines) are found exactly where each rule's plain-words statement says.
+- [`aux_fallback`](../laws/aux_fallback/) (52): a summarizer pass runs on `auxiliaryModel` only when it is set, allowed, found and fits, else on the session model with its reason; a setting that is set but not used is reported.
+- [`aws_text`](../laws/aws_text.bend) (25): the Bedrock client reads a region's partition, the request-id header, a base64 blob, the region of an endpoint host or ARN and a FIPS pseudo-region's real region as stated.
+- [`cache_marks`](../laws/cache_marks.bend) (8): a provider request carries at most four cache marks: the marked user blocks and the end-of-request mark first, the provider's optional marks in the slots left, in its priority order.
+- [`catalog_union`](../laws/catalog_union.bend) (29): the built-in model catalog is the union of the bundled snapshot and the compiled catalog: no model hidden, each listed once, the bundle's fields kept and filled from the compiled catalog.
+- [`codemode_id`](../laws/codemode_id.bend) (14): a tool's code-mode identifier is a JavaScript identifier as long as the tool's name, keeping each char an identifier may hold there and `_` for the others.
+- [`default_model`](../laws/default_model.bend) (42): a new session runs on the saved default model when it can run, else on the stated pick; a saved default that does not run is named once.
+- [`effort`](../laws/effort/) (49): the levels a model offers, the clamp of a level to them and the cycle through them, as the compiled entry answers; the session rules of `bend/effort.bend` section 4 hold for the model only (no shipped code runs them).
+- [`err_text`](../laws/err_text.bend) (15): an error text reads as one of six kinds exactly when it holds a listed phrase of that kind, case folded.
+- [`error_body`](../laws/error_body.bend) (13): a provider's HTTP error shows the first non-empty body of the three places an SDK keeps it, trimmed and cut to a bound.
+- [`infer`](../laws/infer.bend) (50): the quirks rulebook refuses unknown directives and ambiguous rules and a lookup takes the highest layer that applies, else unknown; a forced tool call makes at most 1 + r attempts; at most c tools are strict.
+- [`infer_force`](../laws/infer_force.bend) (10): a forced tool call driven one attempt at a time is the model's `force`.
+- [`infer_guard`](../laws/infer_guard.bend) (11): the repetition guard fed one chunk at a time is the model's `guard`: a stream is cut at the chunk that completes a repeating window.
+- [`infer_threshold`](../laws/infer_threshold.bend) (14): a request compacts at the model's threshold (window minus reserve, earlier by the background margin), and a compaction's cut keeps the context within its target.
+- [`model_name`](../laws/model_name.bend) (29): the name rules of the quirks rulebook (contains, starts, segment, number) match a model name exactly when their plain-words statement says.
+- [`model_roles`](../laws/model_roles.bend) (43): every model role (chat, memory compactor, compaction, image turns, subagents, …) takes its own setting, else the setting for all roles, else its default.
+- [`phrase`](../laws/phrase.bend) (7): a phrase search, the explicit form a decision uses instead of a regex, matches exactly where its plain-words statement says.
+- [`retry_ffi`](../laws/retry_ffi.bend) (9): the retry entry answers every request as the wire spells it and refuses every other input with its fixed errors.
+- [`retry_idle`](../laws/retry_idle.bend) (25): a watched stream stalls once past its idle deadline; activity before the deadline arms it again.
+- [`retry_note`](../laws/retry_note.bend) (15): a retried request ends with a note that names the attempt and what went wrong, so a retry never sends the same request again.
+- [`stream_failure`](../laws/stream_failure.bend) (26): a failed provider stream's cause comes from the provider's error type or message and the HTTP status; its message names cause, type, status, short message and request id.
+- [`text_pat`](../laws/text_pat.bend) (16): the text patterns of the overflow and stream-failure rules match exactly where their plain-words search says.
+
+### Logins
+
+- [`auth_flight`](../laws/auth_flight/) (39): one OAuth refresh at a time: joiners get the leader's result, a failed leader fails its joiners, under any order of events.
+- [`auth_read`](../laws/auth_read.bend) (8): the refresh's judgments on a read of the auth document (load, leader's check, store) are the model's.
+- [`redirect_input`](../laws/redirect_input.bend) (34): a pasted login redirect is cleaned of whitespace, zero-width and wrapping chars; its code and state are read and the state is checked.
+
+### Schedules
+
+- [`cron_beats`](../laws/cron_beats.bend) (5): a session holds at most one `/heartbeat` job; a new heartbeat replaces it.
+- [`cron_file`](../laws/cron_file/) (14): each pass of the cron store over its jobs file (claim, recovery, finish) is the model's step, job by job: a held claim is spared, a corrupt file moved aside, no two records share an id.
+- [`cron_job`](../laws/cron_job.bend) (9): the model's per-job steps change only what they state: a take starts a claim, a finish counts a run, an edit reschedules.
+- [`cron_step`](../laws/cron_step.bend) (3): pins the model's step and its fold, which the other cron laws read.
+- [`cron_store`](../laws/cron_store.bend) (1): pins the store's open.
+- [`cron_terms`](../laws/cron_terms.bend) (2): pins the model's small terms (membership, accessors, claim, failure pause) the other cron laws read.
+- [`cron_user`](../laws/cron_user.bend) (6): a pause, stop, delete, edit or new job is the model's step.
+
+### Dashboard
+
+- [`dash`](../laws/dash.bend) (18): a dashboard socket runs nothing before pairing; only a token equal to the stored one pairs; the token file is minted when missing, reused when private, restricted when open to others.
+- [`dash_access`](../laws/dash_access.bend) (36): every dashboard request names a loopback host or one the user allowed; a WebSocket upgrade also carries the page's own origin.
+- [`dash_conn`](../laws/dash_conn.bend) (29): each dashboard socket refuses an unmatched first frame, runs only matched frames after pairing and closes on a refusal.
+- [`dash_policy`](../laws/dash_policy.bend) (8): a dashboard tab runs only the listed daemon commands, each sent to its bound session or as a catalog command.
+
+### Documents
+
+- [`doc_commit`](../laws/doc_commit.bend) (52): an edit of many files writes nothing when one changed since it was staged, else publishes in order and reports exactly the files that landed; a move refuses a taken destination.
+- [`doc_glob`](../laws/doc_glob.bend) (9): glob ranks matched paths newest first, then by path, each once, page by page.
+- [`doc_lines`](../laws/doc_lines.bend) (34): a file loaded and persisted with no edit keeps its bytes; an edit keeps every byte outside its lines, endings and BOM included.
+- [`doc_plan`](../laws/doc_plan.bend) (12): a session commit writes the base or the delta of a staged document by its stored version and publishes its write.
+- [`doc_rows`](../laws/doc_rows.bend) (19): the lines a read numbers are the rows of the model's read, with a gap marker at every jump.
+- [`doc_search`](../laws/doc_search.bend) (46): grep accounts for every file it met, notes every gap and cut, and its pages continue without overlap or gap.
+- [`doc_seen`](../laws/doc_seen.bend) (32): an edit lands only on lines whose rows the model saw; otherwise it is refused, naming the unseen lines.
+- [`doc_tags`](../laws/doc_tags.bend) (12): a read's or grep's tag names exactly the text its rows were cut from.
+- [`glob`](../laws/glob.bend) (44): glob patterns parse and match (`?`, `*`, `**`, classes, alternates, escapes) by the stated rules, with the stated errors.
+
+### Phone gateway
+
+- [`gateway_answer`](../laws/gateway_answer.bend) (15): a settled session event tells the Signal peer the agent's text, a failure, a stop or nothing.
+- [`gateway_backoff`](../laws/gateway_backoff.bend) (11): the reconnect wait starts at 250 ms, doubles and never passes 10 s.
+- [`gateway_commands`](../laws/gateway_commands.bend) (26): a phone text is a phone command, an answer the gateway sends itself or a prompt, by its first word.
+- [`gateway_width`](../laws/gateway_width.bend) (21): a Signal table's columns align by the glyph widths of their cells.
+
+### Daemon, processes and local state
+
+- [`fsmode`](../laws/fsmode.bend) (19): the socket dir is owned and private, a listener accepts only peers of the same user, and what eukhe creates under its home is private.
+- [`job_wait`](../laws/job_wait.bend) (11): a blocking wait on a job settles when the job ends in time and detaches when its ticks are spent, never both.
+- [`kernel_local`](../laws/kernel_local.bend) (33): the kernel setup downloads only what is absent, verifies each download before use and starts only on what is present.
+- [`launcher`](../laws/launcher.bend) (23): a daemon's idle shutdown never aborts a run; a prompt starts only at an open gate.
+- [`mcp_url`](../laws/mcp_url.bend) (16): an MCP endpoint whose host is a literal loopback, private, link-local or unspecified address or a `localhost` name is refused, with no DNS lookup.
+- [`orphan`](../laws/orphan.bend) (28): a worker whose supervisor is lost never aborts resumable work and exits when its window is due.
+- [`package_source`](../laws/package_source/) (22): a package source with a stated defect (empty, leading dash, control char, backslash, dot segment, drive prefix) is refused; the others parse as git, local or npm.
+- [`revive`](../laws/revive.bend) (11): the boot revival's veto reads the age of a run's busy evidence as the model does.
+- [`sandbox`](../laws/sandbox.bend) (45): the host answers every sandbox frame once, in order, and runs only frames it accepted; a child's copy-on-write workspace merges back keeping the parent's changes and reporting real conflicts.
+- [`scan`](../laws/scan.bend) (14): a storage scan starts fresh, continues after its cursor's id in the cursor's order, or refuses a cursor that does not fit.
+- [`semver`](../laws/semver.bend) (51): release versions read back from their text and order totally; the next release takes the next patch of its series and is newer than every version tag.
+- [`server_peer`](../laws/server_peer.bend) (11): a client accepts an endpoint's listener only when it is the recorded process of the same user.
+- [`supervise`](../laws/supervise.bend) (18): the restart budget gives up on a worker after the stated failures inside its window, else relaunches it.
+- [`timeouts`](../laws/timeouts.bend) (4): the daemon's derived timeouts follow from its base values by the stated derivations.
+- [`wait_any`](../laws/wait_any.bend) (24): `jobs.wait` takes the first settled target, refuses a wait on nothing, ends by its cap and delivers each result once.
+
+### Terminal UI and commands
+
+- [`arg_token_shapes`](../laws/arg_token_shapes.bend) (1): anchor only: one example pins the `@path` and `--flag` token shapes on chosen inputs.
+- [`autolink_shapes`](../laws/autolink_shapes.bend) (3): anchors only: examples pin the markdown autolink shapes on chosen inputs.
+- [`cvar_entry`](../laws/cvar_entry.bend) (3): every answer and state of the cvar entries follows from the spec, for any input.
+- [`cvar_layers`](../laws/cvar_layers.bend) (5): the cvar resolution entry answers every request with the model's decision and refuses every other input with its fixed error.
+- [`goal_text`](../laws/goal_text.bend) (25): a goal's texts (continuation, budget-limit and objective prompts, usage line, tool answers) are the stated texts with the numbers Rust writes.
+- [`image_marker_shapes`](../laws/image_marker_shapes.bend) (1): anchor only: one example pins the pasted-image marker shape.
+- [`incident_shapes`](../laws/incident_shapes.bend) (7): the daemon log line shapes the incident classifier reads are the stated table; examples pin them on chosen lines.
+- [`preview_shapes`](../laws/preview_shapes.bend) (5): anchors only: examples pin the code-preview shapes on chosen inputs.
+- [`progress_terms`](../laws/progress_terms.bend) (12): pins the model's terms the progress laws read.
+- [`refine_plan`](../laws/refine_plan/) (35): the `/refine` planner's slugs and ids, the apply and rollback of a proposal, and the truncation scan and fit of its request follow the stated rules.
+- [`screen`](../laws/screen/) (40): transcript blocks open with fresh ids, grow only while active, and commit final blocks in order with no gap; scrollback only grows; the width never changes what is committed.
+- [`selection`](../laws/selection.bend) (30): a release copies exactly the selected text, in reading order, once; a plain click copies nothing.
+- [`slash_args`](../laws/slash_args/) (33): the words of a command and the arguments of `/goal` and `/autonomous` are read by the stated rules (quotes, whitespace, keywords).
+- [`slash_suggest`](../laws/slash_suggest.bend) (10): a mistyped slash command suggests the closest command by edit distance, the first on a tie, within a threshold of the typed length.
+- [`theme_entry`](../laws/theme_entry.bend) (2): the theme entry refuses every input that is not a request Rust spells.
+- [`theme_pick`](../laws/theme_pick.bend) (15): a theme name picks the registered, built-in, custom or default theme in the stated order, naming a broken theme once.
+- [`tui_color`](../laws/tui_color.bend) (30): the effort ramp's colors are ordered and distinct for any ladder length; usage bands ascend.
+
+### Compiled-core boundary
+
+- [`echo`](../laws/echo.bend) (3): the C boundary itself: text in, text out, state kept in the Bend heap between calls; no rule.
+- [`wire_entry`](../laws/wire_entry.bend) (4): Bend reads back exactly what Rust writes on the wire and answers every other input with one error.
+- [`wire_ffi`](../laws/wire_ffi.bend) (5): the wire round trip of entry 1: every request Rust writes comes back byte for byte; every other input gets one error.
 ## Requirements
 
 |Id|Requirement|Laws|
