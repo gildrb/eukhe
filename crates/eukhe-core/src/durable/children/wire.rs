@@ -18,7 +18,7 @@ pub struct RlmSubagentEntry {
     pub session_id: Option<String>,
     pub session_name: String,
     pub session_dir: String,
-    /// `running` | `completed` | `error` | `cancelled`.
+    /// `running` | `completed` | `stopped` | `error` | `cancelled`.
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<RlmSubagentActivity>,
@@ -41,6 +41,10 @@ pub struct RlmSubagentEntry {
     /// The workspace hand-back of an isolated child, as text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handback: Option<String>,
+    /// A stopped child's items left: `stopped: <left> of <items> items
+    /// left: <id> (<why>), ...`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items_left: Option<String>,
 }
 
 /// Live child activity projected onto the roster row.
@@ -69,7 +73,7 @@ pub struct RlmChildResult {
     pub session_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_dir: Option<String>,
-    /// `queued` | `running` | `done` | `error` | `cancelled`.
+    /// `queued` | `running` | `done` | `stopped` | `error` | `cancelled`.
     pub status: &'static str,
     pub settled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,4 +94,7 @@ pub struct RlmChildResult {
     /// and the checks not confirmed, as its harness read them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<String>,
+    /// A stopped child's items left, as in [`RlmSubagentEntry::items_left`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items_left: Option<String>,
 }

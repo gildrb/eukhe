@@ -59,17 +59,20 @@ class RLMSubagentActivity:
     tool_name: str | None = None
 
 
-# The run status of a roster row: `cancelled` is a child whose run was
-# stopped before it answered (Esc on the cell that waited on it, a cancel,
-# a delete of the running child); the row stays until the child is deleted.
-SUBAGENT_STATUSES = ("running", "completed", "error", "cancelled")
+# The run status of a roster row: `stopped` is a child that answered with
+# items of its work list left (`items_left` names them); `cancelled` is a
+# child whose run was stopped before it answered (Esc on the cell that
+# waited on it, a cancel, a delete of the running child); the row stays
+# until the child is deleted.
+SUBAGENT_STATUSES = ("running", "completed", "stopped", "error", "cancelled")
 
 
 @dataclass(frozen=True)
 class RLMSubagent:
     """One direct child as ``list_subagents()`` rows it: ``status`` is
-    ``running``, ``completed``, ``error`` or ``cancelled`` (its run was
-    stopped before it answered)."""
+    ``running``, ``completed``, ``stopped`` (answered with items left:
+    ``items_left``), ``error`` or ``cancelled`` (its run was stopped before
+    it answered)."""
 
     rlm_child_id: str
     active_session_id: str | None
@@ -87,6 +90,7 @@ class RLMSubagent:
     last_activity_at: float | None = None
     activity_stale_ms: float | None = None
     handback: str | None = None
+    items_left: str | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,7 @@ class RLMChildResult:
     replied_since_task: bool | None
     handback: str | None = None
     acceptance: str | None = None
+    items_left: str | None = None
 
 
 def _spawn_handle_from_payload(payload: Any) -> RLMSpawnHandle:
@@ -241,6 +246,7 @@ async def spawn(
 _SPLIT_HALF_KEYS = (
     "scope",
     "task",
+    "items",
     "name",
     "model",
     "thinking",
@@ -261,6 +267,9 @@ def _split_half(half: Any, side: str) -> dict[str, Any]:
         raise TypeError(f"{side} scope must be a non-empty list of path strings")
     if not isinstance(half.get("task"), str):
         raise TypeError(f"{side} task must be str")
+    items = half.get("items")
+    if items is not None and (not isinstance(items, list) or not all(isinstance(item, str) for item in items)):
+        raise TypeError(f"{side} items must be a list of item id strings")
     return {key: value for key, value in half.items() if value is not None}
 
 
@@ -276,9 +285,11 @@ async def split(
     worth its own planning (several edits or files); otherwise do it yourself.
     Never split sequential work (one half needs the other's result).
 
-    ``left`` and ``right``: ``{"scope": [paths], "task": str, "name"?: str,
-    "model"?: str, "thinking"?: str, "accept"?: list[dict], "accept_intent"?: bool,
-    "accept_returns"?: int}``. A scope names files or directories relative to
+    ``left`` and ``right``: ``{"scope": [paths], "task": str, "items"?: [ids],
+    "name"?: str, "model"?: str, "thinking"?: str, "accept"?: list[dict],
+    "accept_intent"?: bool, "accept_returns"?: int}``. ``items``: the ids of
+    the half's work list; the child accounts for each (``rlm.items``), and
+    hands back ``stopped``, naming the items left, unless every one is done. A scope names files or directories relative to
     the workspace root; a child writes only there, in its own copy of this
     agent's workspace (uncommitted edits included). When a child finishes, its
     writes inside its scope are applied to this agent's workspace; its writes
@@ -421,6 +432,7 @@ def _subagent_from_payload(payload: Any, operation: str = "rlm.list_subagents") 
         last_activity_at=_optional_int_field(payload, "last_activity_at", operation),
         activity_stale_ms=_optional_int_field(payload, "activity_stale_ms", operation),
         handback=_optional_str_field(payload, "handback", operation),
+        items_left=_optional_str_field(payload, "items_left", operation),
     )
 
 
@@ -453,7 +465,7 @@ def _child_result_from_payload(payload: Any) -> RLMChildResult:
     if not isinstance(child_id, str) or not child_id:
         raise RuntimeError("rlm.collect entry is missing rlm_child_id")
     status = payload.get("status")
-    if status not in {"queued", "running", "done", "error", "cancelled"}:
+    if status not in {"queued", "running", "done", "stopped", "error", "cancelled"}:
         raise RuntimeError("rlm.collect entry has invalid status")
     settled = payload.get("settled")
     if not isinstance(settled, bool):
@@ -492,6 +504,7 @@ def _child_result_from_payload(payload: Any) -> RLMChildResult:
         replied_since_task=replied,
         handback=_optional_str("handback"),
         acceptance=_optional_str("acceptance"),
+        items_left=_optional_str("items_left"),
     )
 
 
@@ -537,6 +550,28 @@ async def collect(
 
 
 RLM_PROGRESS_NOTE_MAX_LENGTH = 512
+
+
+async def items(done: list[str] | None = None, left: dict[str, str] | None = None) -> int:
+    """Account for items of this agent's work list; return how many it holds.
+
+    ``done``: the ids finished. ``left``: each id not finished, with why. A
+    later account of an item replaces the earlier one. The parent named the
+    items in the split; an item not accounted done reaches it as left, and
+    this agent's hand-back as ``stopped``.
+    """
+    if done is not None and (not isinstance(done, list) or not all(isinstance(item, str) for item in done)):
+        raise TypeError("done must be a list of item id strings")
+    if left is not None and (
+        not isinstance(left, dict)
+        or not all(isinstance(item, str) and isinstance(why, str) for item, why in left.items())
+    ):
+        raise TypeError("left must map item id strings to reason strings")
+    payload = await host_request("rlm.items", {"done": done or [], "left": left or {}})
+    accounted = payload.get("accounted")
+    if not isinstance(accounted, int) or isinstance(accounted, bool):
+        raise RuntimeError("rlm.items returned an invalid accounted count")
+    return accounted
 
 
 async def progress_note(message: str) -> RLMProgressNoteResult:
@@ -772,6 +807,13 @@ class _RLMNamespace:
     async def progress_note(self, message: str) -> RLMProgressNoteResult:
         return await progress_note(message)
 
+    async def items(
+        self,
+        done: list[str] | None = None,
+        left: dict[str, str] | None = None,
+    ) -> int:
+        return await items(done, left)
+
     async def delete_subagent(self, target: str | RLMSubagent | RLMSpawnHandle) -> RLMSubagent:
         return await delete_subagent(target)
 
@@ -858,6 +900,7 @@ __all__ = [
     "jobs",
     "host_request_sync",
     "list_subagents",
+    "items",
     "progress_note",
     "query",
     "query_batch",

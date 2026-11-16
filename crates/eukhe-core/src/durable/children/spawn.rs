@@ -185,6 +185,8 @@ pub(super) struct SpawnSpec {
     pub(super) user_entries: Vec<u64>,
     /// The child is a worker of a main session.
     pub(super) worker: bool,
+    /// The items of the child's work list (a split half's `items`).
+    pub(super) items: Vec<String>,
 }
 
 /// What a spawn is in the tree.
@@ -479,6 +481,7 @@ pub(super) async fn admit_spawns(
                         user_entries: spec.user_entries,
                         worker: spec.worker,
                         accept: spec.kwargs.accept,
+                        items: spec.items,
                     };
                     let task_id = tx
                         .create_task(
@@ -544,6 +547,7 @@ pub(super) async fn admit_spawns(
                             .as_ref()
                             .map(|seed| RlmChildVerdict::pending(seed.specs().len())),
                         patch: None,
+                        stopped: None,
                     };
                     tx_put_row(&tx, conversation_id, &row).await?;
                     if let Some(limits) = limits {
@@ -655,6 +659,7 @@ pub(super) async fn run(children: Arc<Children>, call: HostCall) -> anyhow::Resu
         details: None,
         user_entries: Vec::new(),
         worker: false,
+        items: Vec::new(),
     };
     let admission = node.map_or(Admission::Help, Admission::External);
     let handles = admit_spawns(&children, &call, vec![spec], admission).await?;
@@ -684,8 +689,35 @@ fn scope_paths(value: Option<&Value>, what: &str) -> anyhow::Result<Vec<String>>
     Ok(paths)
 }
 
-/// One half of `rlm.split`: `{scope, task, name?, model?, thinking?,
-/// label?, accept?, ...}`.
+/// The items of a split half's work list: distinct non-empty ids.
+fn half_items(value: Option<&Value>, operation: &str) -> anyhow::Result<Vec<String>> {
+    let items = match value {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => bail!("{operation} items must be a list of item ids"),
+    };
+    let ids = items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow!("{operation} items must be non-empty strings"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if let Some(twice) = ids
+        .iter()
+        .enumerate()
+        .find_map(|(at, id)| ids[..at].contains(id).then_some(id))
+    {
+        bail!("{operation} items name {twice} twice");
+    }
+    Ok(ids)
+}
+
+/// One half of `rlm.split`: `{scope, task, items?, name?, model?,
+/// thinking?, label?, accept?, ...}`.
 fn half_spec(data: &Value, side: &str) -> anyhow::Result<(Vec<String>, SpawnSpec)> {
     let operation = format!("rlm.split {side}");
     let Some(half) = data.get(side).and_then(Value::as_object) else {
@@ -697,10 +729,11 @@ fn half_spec(data: &Value, side: &str) -> anyhow::Result<(Vec<String>, SpawnSpec
     let scope = scope_paths(half.get("scope"), &format!("{side} scope"))?;
     let spec = SpawnSpec {
         prompt: task.to_owned(),
-        kwargs: spawn_kwargs(half, &operation, &["scope", "task"])?,
+        kwargs: spawn_kwargs(half, &operation, &["scope", "task", "items"])?,
         details: None,
         user_entries: Vec::new(),
         worker: false,
+        items: half_items(half.get("items"), &operation)?,
     };
     Ok((scope, spec))
 }

@@ -570,6 +570,7 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     answer,
                     paused: false,
                     acceptance: None,
+                    items: None,
                 }
             };
             let seen_running = || {
@@ -660,9 +661,11 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                     }
                 };
                 // A settled run carries the verdict of the child's
-                // acceptance on its final state, as its harness read it.
+                // acceptance on its final state, as its harness read it,
+                // and its account of its work list.
                 Ok(durable::RlmChildObservation {
                     acceptance: outcome.acceptance,
+                    items: outcome.items,
                     ..observe(state, outcome.progress, outcome.answer).await
                 })
             }

@@ -8,6 +8,7 @@
 //! explicit idempotency key; a rerun after a crash repeats the call with the
 //! same key and must observe the first call's effect, never a second one.
 
+use super::work_list::ItemAccount;
 use crate::child_workspace::{CheckRun, ScopedHandback, WorkspaceMode};
 use crate::durable::acceptance::describe;
 use eukhe_bend::rules::agent_tree::Patch;
@@ -257,6 +258,9 @@ pub struct RlmChildObservation {
     /// The verdict of the child's acceptance on its final state, once its
     /// run settled ([`RlmChildOutcome::acceptance`]).
     pub acceptance: Option<RlmChildVerdict>,
+    /// The child's account of its work list, once its run settled
+    /// ([`RlmChildOutcome::items`]).
+    pub items: Option<ItemAccount>,
 }
 
 /// A child's `get_run_outcome` reply: its run state and its progress
@@ -290,6 +294,10 @@ pub struct RlmChildOutcome {
     /// when its task carries checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<RlmChildVerdict>,
+    /// The child's account of its work list (`rlm.items`), read from its
+    /// own document once its run settled; `None` when it gave none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<ItemAccount>,
 }
 
 /// What a child's acceptance says about its final state: the label, how

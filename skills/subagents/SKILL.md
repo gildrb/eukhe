@@ -19,7 +19,7 @@ Every agent is a node of one tree. A node does its work alone, or splits into ex
 
 1. Scope each half by files or directories: `left={"scope": ["crates/a"], "task": "..."}`. A child writes only inside its scope; the rest of your scope stays yours (`own`).
 2. Keep shared files (lockfiles, `mod.rs`, index files, generated code) in your own scope. A child that needs one reports a conflict.
-3. Brief fully: goal, exact paths and facts, constraints, the check that means done. A child never sees this conversation.
+3. Brief fully: goal, exact paths and facts, constraints, the check that means done. A child never sees this conversation. A list of work items goes in `items` (their ids): the child accounts for each, and one with items left hands back `stopped` with the list.
 4. Each child works in a copy of your workspace as it is now (uncommitted edits included), runs its check there, and reports.
 5. While the children run, work on your own scope. A child splits again inside its scope the same way (at most depth 3, 15 agents).
 

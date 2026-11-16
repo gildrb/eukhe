@@ -81,7 +81,8 @@ fn internal_origin(origin: &InputOrigin) -> Option<InternalPromptOrigin> {
             report: Report::Heartbeat { .. },
         } => Some(InternalPromptOrigin::Heartbeat),
         InputOrigin::Report {
-            report: Report::ChildExited { .. } | Report::ChildFailed { .. },
+            report:
+                Report::ChildExited { .. } | Report::ChildStopped { .. } | Report::ChildFailed { .. },
         } => Some(InternalPromptOrigin::ChildStatus),
         InputOrigin::Goal { .. }
         | InputOrigin::Loop { .. }

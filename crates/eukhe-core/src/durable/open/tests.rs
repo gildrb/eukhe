@@ -1603,6 +1603,7 @@ async fn the_read_tool_serves_internal_urls() {
         worker: false,
         acceptance: None,
         patch: None,
+        stopped: None,
     };
     let root = session.root().id();
     session

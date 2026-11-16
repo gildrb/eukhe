@@ -6,6 +6,7 @@ use eukhe_types::input_origin::{ChildExit, ChildFailure, InputOrigin, Report};
 
 use super::host::RlmChildVerdict;
 use super::registry::HandbackOutcome;
+use super::work_list::Stopped;
 use crate::agent_messaging::sanitize_message_header_value;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +43,16 @@ pub(crate) enum ChildReport {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         acceptance: Option<RlmChildVerdict>,
     },
+    /// The child answered with items of its work list left.
+    Stopped {
+        session_name: String,
+        stopped: Stopped,
+        last_assistant_text_preview: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handback: Option<HandbackOutcome>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acceptance: Option<RlmChildVerdict>,
+    },
     /// The child's run failed. `failure` is absent on a report checkpointed
     /// before failures were typed.
     Failed {
@@ -66,10 +77,11 @@ impl ChildReport {
         }
     }
 
-    /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`
-    /// or `[child-failed: <failure> child:<name>]` with the reason,
-    /// preview, or error as the body, then the verdict of the child's
-    /// acceptance, then the workspace hand-back.
+    /// The follow-up text: `[child-exited: cancelled|no-reply child:<name>]`,
+    /// `[child-stopped: <left> of <items> items left child:<name>]` or
+    /// `[child-failed: <failure> child:<name>]` with the reason, the items
+    /// left and the preview, or the error as the body, then the verdict of
+    /// the child's acceptance, then the workspace hand-back.
     pub(crate) fn text(&self) -> String {
         let (body, acceptance, handback) = match self {
             Self::Cancelled {
@@ -86,6 +98,25 @@ impl ChildReport {
                     .filter(|preview| !preview.is_empty())
                     .map(|preview| format!("Last assistant text: {preview}"))
                     .unwrap_or_default(),
+                acceptance.as_ref(),
+                handback,
+            ),
+            Self::Stopped {
+                stopped,
+                last_assistant_text_preview,
+                handback,
+                acceptance,
+                ..
+            } => (
+                match last_assistant_text_preview
+                    .as_deref()
+                    .filter(|preview| !preview.is_empty())
+                {
+                    Some(preview) => {
+                        format!("{}\n\nLast assistant text: {preview}", stopped.text())
+                    }
+                    None => stopped.text(),
+                },
                 acceptance.as_ref(),
                 handback,
             ),
@@ -118,6 +149,15 @@ impl ChildReport {
             Self::CompletedWithoutReply { session_name, .. } => Report::ChildExited {
                 child: sanitize_message_header_value(session_name),
                 exit: ChildExit::NoReply,
+            },
+            Self::Stopped {
+                session_name,
+                stopped,
+                ..
+            } => Report::ChildStopped {
+                child: sanitize_message_header_value(session_name),
+                left: stopped.left.len(),
+                items: stopped.items,
             },
             Self::Failed {
                 session_name,

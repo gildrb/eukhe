@@ -402,6 +402,46 @@ class RlmSubagentRegistryTest(unittest.TestCase):
                 asyncio.run(rlm_module.list_subagents())
 
 
+class RlmItemsTest(unittest.TestCase):
+    def test_items_sends_the_account(self) -> None:
+        host_request = AsyncMock(return_value={"accounted": 3})
+
+        with patch.object(rlm_module, "host_request", host_request):
+            accounted = asyncio.run(rlm_module.rlm.items(done=["S2", "M1"], left={"U2": "needs an API change"}))
+
+        self.assertEqual(accounted, 3)
+        host_request.assert_awaited_once_with(
+            "rlm.items", {"done": ["S2", "M1"], "left": {"U2": "needs an API change"}}
+        )
+
+    def test_items_validates_the_account(self) -> None:
+        with self.assertRaisesRegex(TypeError, "done must be a list"):
+            asyncio.run(rlm_module.rlm.items(done="S2"))
+        with self.assertRaisesRegex(TypeError, "left must map"):
+            asyncio.run(rlm_module.rlm.items(left={"U2": 1}))
+
+    def test_a_stopped_child_lists_its_items_left(self) -> None:
+        host_request = AsyncMock(
+            return_value={
+                "subagents": [
+                    {
+                        "rlm_child_id": "c1",
+                        "session_name": "budget-step",
+                        "session_dir": "/tmp/c1",
+                        "status": "stopped",
+                        "items_left": "stopped: 1 of 2 items left: U2 (no account)",
+                    }
+                ]
+            }
+        )
+
+        with patch.object(rlm_module, "host_request", host_request):
+            subagents = asyncio.run(rlm_module.list_subagents())
+
+        self.assertEqual(subagents[0].status, "stopped")
+        self.assertEqual(subagents[0].items_left, "stopped: 1 of 2 items left: U2 (no account)")
+
+
 class RlmProgressNoteTest(unittest.TestCase):
     def test_progress_note_round_trips_an_accepted_note(self) -> None:
         host_request = AsyncMock(return_value={"accepted": True})

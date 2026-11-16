@@ -167,6 +167,13 @@ pub enum Report {
     AgentMessage { from: Kin, name: String },
     /// A child run ended without an explicit reply.
     ChildExited { child: String, exit: ChildExit },
+    /// A child run answered with `left` of the `items` of its work list
+    /// not done.
+    ChildStopped {
+        child: String,
+        left: usize,
+        items: usize,
+    },
     /// A child run failed. `failure` is absent on reports recorded before
     /// failures were typed.
     ChildFailed {
@@ -199,6 +206,9 @@ impl Report {
             }
             Self::ChildExited { child, exit } => {
                 format!("[child-exited: {} child:{child}]", exit.label())
+            }
+            Self::ChildStopped { child, left, items } => {
+                format!("[child-stopped: {left} of {items} items left child:{child}]")
             }
             Self::ChildFailed {
                 child,
@@ -245,12 +255,15 @@ impl Report {
 
     /// Whether the report hands back settled work to resume the task from:
     /// a finished `bash()` command or job, a child that ended without a
-    /// reply or failed. A message, a heartbeat, and a child its parent
-    /// cancelled carry no result to resume from.
+    /// reply, stopped with items left or failed. A message, a heartbeat,
+    /// and a child its parent cancelled carry no result to resume from.
     #[must_use]
     pub fn resumes(&self) -> bool {
         match self {
-            Self::BashDone { .. } | Self::JobSettled { .. } | Self::ChildFailed { .. } => true,
+            Self::BashDone { .. }
+            | Self::JobSettled { .. }
+            | Self::ChildStopped { .. }
+            | Self::ChildFailed { .. } => true,
             Self::ChildExited { exit, .. } => match exit {
                 ChildExit::NoReply => true,
                 ChildExit::Cancelled => false,
@@ -315,6 +328,11 @@ enum ReportRecord {
         child: String,
         exit: ChildExit,
     },
+    ChildStopped {
+        child: String,
+        left: usize,
+        items: usize,
+    },
     ChildFailed {
         child: String,
         #[serde(default)]
@@ -360,6 +378,9 @@ impl From<ReportRecord> for Report {
                 Self::AgentMessage { from, name }
             }
             ReportRecord::ChildExited { child, exit } => Self::ChildExited { child, exit },
+            ReportRecord::ChildStopped { child, left, items } => {
+                Self::ChildStopped { child, left, items }
+            }
             ReportRecord::ChildFailed { child, failure } => Self::ChildFailed { child, failure },
             ReportRecord::Heartbeat { schedule, run } => Self::Heartbeat { schedule, run },
             ReportRecord::BashDone {

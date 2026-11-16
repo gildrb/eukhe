@@ -1542,6 +1542,7 @@ async fn zoom_by_name_gives_an_agents_whole_chat() {
         worker: false,
         acceptance: None,
         patch: None,
+        stopped: None,
     };
     parent
         .harness

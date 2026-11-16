@@ -111,6 +111,7 @@ pub(crate) async fn assign(
                 user_entries: assignment.user_entries,
                 worker: row.worker,
                 accept: None,
+                items: Vec::new(),
             };
             let task_id = tx
                 .create_task(

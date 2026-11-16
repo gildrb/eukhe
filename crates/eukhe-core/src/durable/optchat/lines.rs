@@ -316,6 +316,10 @@ fn report_line(report: &Report, body: &str) -> String {
             format!("child:{child}"),
             format!("exited ({})", exit.label()),
         ),
+        Report::ChildStopped { child, left, items } => (
+            format!("child:{child}"),
+            format!("stopped ({left} of {items} items left)"),
+        ),
         Report::ChildFailed {
             child,
             failure: Some(failure),

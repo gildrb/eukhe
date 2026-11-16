@@ -43,11 +43,13 @@ mod report_delivery;
 mod silent;
 mod tree;
 mod watch;
+mod work_list;
 mod worker;
 mod workspace;
 
 use super::registry::{read_children, ChildRow, ChildStatus, CHILD_USAGE_KEY};
 use super::task::{report_request_id, CHILD_TASK_KIND};
+use super::work_list::{ItemAccount, ItemMark};
 use super::RlmChildHandback;
 use super::{
     mark_child_replied, Children, ChildrenConfig, RlmChildCancelRequest, RlmChildCommandRequest,
@@ -124,6 +126,8 @@ struct FakeState {
     /// The error every spawn answers with (the host cannot create the
     /// child's session).
     spawn_error: Option<String>,
+    /// The account of its work list each child's settled runs report.
+    items: HashMap<String, ItemAccount>,
 }
 
 /// A supervisor stand-in: children settle when the test says so.
@@ -232,6 +236,7 @@ impl RlmSubagentHost for FakeHost {
                                 answer: fake.answers.get(&request.session_id).cloned(),
                                 paused: fake.paused.contains(&request.session_id),
                                 acceptance: fake.verdicts.get(&request.session_id).cloned(),
+                                items: fake.items.get(&request.session_id).cloned(),
                             });
                         }
                     }
@@ -250,6 +255,7 @@ impl RlmSubagentHost for FakeHost {
                     answer: None,
                     paused: false,
                     acceptance: None,
+                    items: None,
                 }))
         })
     }
@@ -1856,6 +1862,7 @@ fn a_run_outcome_without_progress_decodes() {
             answer: None,
             paused: false,
             acceptance: None,
+            items: None,
         }
     );
 }

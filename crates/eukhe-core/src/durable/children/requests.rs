@@ -33,6 +33,7 @@ use super::registry::{
 };
 use super::task::report_request_id;
 use super::wire::{RlmChildResult, RlmDeleteSubagentResult, RlmSubagentActivity, RlmSubagentEntry};
+use super::work_list::Stopped;
 use super::Children;
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 use crate::kernel::cancellation::AbortSignal;
@@ -84,6 +85,7 @@ pub(super) fn register(registry: &HostRequestRegistry, children: &Arc<Children>)
     }
     handler!("rlm.find_models", find_models);
     handler!("rlm.progress.note", progress_note);
+    handler!("rlm.items", items);
     spawning!("rlm.run", "rlm.spawn", super::spawn::run);
     spawning!("rlm.split", "rlm.split", super::spawn::split);
     handler!("rlm.tree_facts", super::spawn::tree_facts);
@@ -226,6 +228,19 @@ async fn progress_note(children: Arc<Children>, call: HostCall) -> anyhow::Resul
     })
 }
 
+/// `rlm.items`: the child's account of its work list, merged into its
+/// `eukhe.rlm.items` document; answers how many items it holds.
+async fn items(children: Arc<Children>, call: HostCall) -> anyhow::Result<Value> {
+    let marks = super::work_list::marks(&call.data)?;
+    let harness = children.harness.require().map_err(session_error)?;
+    let conversation_id = conversation_of(&call);
+    let accounted = commit(&harness, conversation_id, move |tx| async move {
+        super::work_list::tx_account(&tx, conversation_id, marks).await
+    })
+    .await?;
+    Ok(json!({ "accounted": accounted }))
+}
+
 // ---------------------------------------------------------------------------
 // rlm.list_subagents / rlm.delete_subagent / rlm.collect
 // ---------------------------------------------------------------------------
@@ -264,6 +279,7 @@ pub(super) fn entry(
         ),
         activity_stale_ms: None,
         handback: row.handback.as_ref().map(HandbackOutcome::text),
+        items_left: row.stopped.as_ref().map(Stopped::summary),
     }
 }
 
@@ -421,6 +437,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
             replied_since_task: None,
             handback: row.handback.as_ref().map(HandbackOutcome::text),
             acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
+            items_left: row.stopped.as_ref().map(Stopped::summary),
         };
     }
     RlmChildResult {
@@ -436,6 +453,7 @@ fn collect_result(row: &ChildRow, now: f64) -> RlmChildResult {
         replied_since_task: None,
         handback: row.handback.as_ref().map(HandbackOutcome::text),
         acceptance: row.acceptance.as_ref().map(RlmChildVerdict::summary),
+        items_left: row.stopped.as_ref().map(Stopped::summary),
     }
 }
 

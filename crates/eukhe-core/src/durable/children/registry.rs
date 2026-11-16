@@ -5,6 +5,7 @@
 //! assistant row.
 
 use super::host::{RlmChildHandback, RlmChildIdentity, RlmChildVerdict};
+use super::work_list::Stopped;
 use crate::durable::observe::rlm_usage::{
     attributed_aggregate, attribution_draft, entry_assistant_usage, CHILD_USAGE_ATTRIBUTED_KIND,
 };
@@ -44,6 +45,9 @@ pub(crate) enum ChildStatus {
     Spawning,
     Running,
     Done,
+    /// The run answered with items of its work list left
+    /// ([`ChildRow::stopped`]).
+    Stopped,
     Error,
     Cancelled,
 }
@@ -53,28 +57,30 @@ impl ChildStatus {
     pub(crate) fn is_terminal(self) -> bool {
         match self {
             Self::Spawning | Self::Running => false,
-            Self::Done | Self::Error | Self::Cancelled => true,
+            Self::Done | Self::Stopped | Self::Error | Self::Cancelled => true,
         }
     }
 
-    /// `rlm.collect` status: `queued` | `running` | `done` | `error` |
-    /// `cancelled`.
+    /// `rlm.collect` status: `queued` | `running` | `done` | `stopped` |
+    /// `error` | `cancelled`.
     pub(crate) fn collect_status(self) -> &'static str {
         match self {
             Self::Spawning => "queued",
             Self::Running => "running",
             Self::Done => "done",
+            Self::Stopped => "stopped",
             Self::Error => "error",
             Self::Cancelled => "cancelled",
         }
     }
 
-    /// `rlm.list_subagents` status: `running` | `completed` | `error` |
-    /// `cancelled`.
+    /// `rlm.list_subagents` status: `running` | `completed` | `stopped` |
+    /// `error` | `cancelled`.
     pub(crate) fn roster_status(self) -> &'static str {
         match self {
             Self::Spawning | Self::Running => "running",
             Self::Done => "completed",
+            Self::Stopped => "stopped",
             Self::Error => "error",
             Self::Cancelled => "cancelled",
         }
@@ -173,6 +179,10 @@ pub(crate) struct ChildRow {
     /// its units, measured and not applied (its workspace keeps the work).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) patch: Option<eukhe_bend::rules::agent_tree::Patch>,
+    /// A child that answered with items of its work list left: each one
+    /// and why ([`super::work_list`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) stopped: Option<Stopped>,
 }
 
 /// The persisted result of handing an isolated child's workspace back. A

@@ -134,6 +134,7 @@ fn answer(shared: &Shared, id: &str, command: &Value) -> crate::protocol::Daemon
                         answer: None,
                         paused: false,
                         acceptance: None,
+                        items: None,
                     })
                     .unwrap(),
                 ),

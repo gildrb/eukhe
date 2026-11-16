@@ -62,6 +62,7 @@ use super::registry::{
 use super::requests::whole_ms;
 use super::tree::{self, End, Local, Slot};
 use super::watch::{get_report, verdict, Call, Obs, Report, Vigil, CHILD_POLL_FAILURES};
+use super::work_list::{task_text, HandBack};
 use crate::child_workspace::WorkspaceMode;
 use crate::durable::budget::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
@@ -222,6 +223,10 @@ pub(crate) struct ChildTaskInput {
     /// set by this parent as their owner when the child is created.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) accept: Option<AcceptanceSeed>,
+    /// The items of the child's work list (a split half's `items`): it
+    /// hands back stopped while one is not accounted done.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) items: Vec<String>,
 }
 
 #[expect(
@@ -452,7 +457,7 @@ pub(crate) fn report_step<S>(
 /// The report kind of `report` (`Report` in `bend/child.bend`).
 fn report_kind(report: &ChildReport) -> u32 {
     match report {
-        ChildReport::CompletedWithoutReply { .. } => 0,
+        ChildReport::CompletedWithoutReply { .. } | ChildReport::Stopped { .. } => 0,
         ChildReport::Failed {
             failure: Some(ChildFailure::Stalled),
             ..
@@ -790,7 +795,7 @@ async fn prompt(
         idempotency_key: format!("rlm:{task_id}:prompt"),
         session_id: identity.session_id.clone(),
         rlm_child_id: identity.rlm_child_id.clone(),
-        prompt: task.input.prompt.clone(),
+        prompt: task_text(&task.input.prompt, &task.input.items),
         kind: task.input.kind,
         row_id: match task.input.child {
             None => format!("spawn:{}", identity.rlm_child_id),
@@ -906,22 +911,32 @@ enum Seen {
         error: String,
         acceptance: Option<RlmChildVerdict>,
     },
-    /// The child's run answered.
+    /// The child's run answered; `work`: the hand-back of its work list.
     Answered {
         answer_preview: Option<String>,
         acceptance: Option<RlmChildVerdict>,
+        work: HandBack,
     },
 }
 
 impl Seen {
     /// The poll as the watch's call reads it; `replied`: the child already
-    /// replied to its parent (read for an answer only).
+    /// replied to its parent (read for an answer only). A reply of a child
+    /// that stopped with items left is no hand-back: its parent gets the
+    /// stopped report.
     fn obs(&self, progress: Option<u64>, replied: bool) -> Obs {
         match self {
             Self::Unsettled => Obs::Busy { progress },
             Self::Unreached { .. } => Obs::Lost,
             Self::Failed { .. } => Obs::Broke,
-            Self::Answered { .. } => Obs::Answered { replied },
+            Self::Answered {
+                work: HandBack::Finished,
+                ..
+            } => Obs::Answered { replied },
+            Self::Answered {
+                work: HandBack::Stopped(_),
+                ..
+            } => Obs::Answered { replied: false },
         }
     }
 }
@@ -976,18 +991,34 @@ fn watched_next(
         Seen::Answered {
             answer_preview,
             acceptance,
+            work,
         } => match why {
             None | Some(Report::Completed) => {
-                row.status = ChildStatus::Done;
                 row.answer_preview.clone_from(&answer_preview);
                 if acceptance.is_some() {
                     row.acceptance.clone_from(&acceptance);
                 }
-                ChildReport::CompletedWithoutReply {
-                    session_name: row.session_name.clone(),
-                    last_assistant_text_preview: answer_preview,
-                    handback: row.handback.clone(),
-                    acceptance,
+                match work {
+                    HandBack::Finished => {
+                        row.status = ChildStatus::Done;
+                        ChildReport::CompletedWithoutReply {
+                            session_name: row.session_name.clone(),
+                            last_assistant_text_preview: answer_preview,
+                            handback: row.handback.clone(),
+                            acceptance,
+                        }
+                    }
+                    HandBack::Stopped(stopped) => {
+                        row.status = ChildStatus::Stopped;
+                        row.stopped = Some(stopped.clone());
+                        ChildReport::Stopped {
+                            session_name: row.session_name.clone(),
+                            stopped,
+                            last_assistant_text_preview: answer_preview,
+                            handback: row.handback.clone(),
+                            acceptance,
+                        }
+                    }
                 }
             }
             Some(Report::Failed | Report::Cancelled | Report::Stalled | Report::Unreachable) => {
@@ -1171,6 +1202,7 @@ async fn watch(
             answer: full,
             paused: _,
             acceptance,
+            items,
         }) => {
             answer = full;
             let seen = match state {
@@ -1178,6 +1210,7 @@ async fn watch(
                 RlmChildRunState::Answered { answer_preview } => Seen::Answered {
                     answer_preview,
                     acceptance,
+                    work: HandBack::of(&task.input.items, items.as_ref()),
                 },
                 RlmChildRunState::Failed { failure, error } => Seen::Failed {
                     failure,
@@ -1446,7 +1479,8 @@ async fn redo_child(
         identity.rlm_child_id,
         format!(
             "Your previous run failed: {}\nYour workspace keeps your partial work. Continue the task from there:\n\n{}",
-            redo.failure, task.input.prompt
+            redo.failure,
+            task_text(&task.input.prompt, &task.input.items)
         ),
     );
     match services.host.prompt(prompt).await {

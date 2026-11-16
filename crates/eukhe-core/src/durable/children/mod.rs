@@ -26,6 +26,7 @@ mod tree;
 mod watch;
 mod wire;
 mod work;
+mod work_list;
 mod worker;
 
 pub use budget::{reconcile, relend};
@@ -68,6 +69,7 @@ pub use wire::{
     RlmChildResult, RlmDeleteSubagentResult, RlmSpawnHandle, RlmSubagentActivity, RlmSubagentEntry,
 };
 pub use work::WorkLedger;
+pub use work_list::{items_account, ItemAccount, ItemMark};
 
 use super::budget::BudgetGate;
 use super::deps::{

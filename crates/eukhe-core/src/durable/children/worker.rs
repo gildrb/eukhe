@@ -349,10 +349,14 @@ fn run_state(row: &ChildRow, paused: bool) -> WorkerRunState {
     match row.status {
         ChildStatus::Spawning | ChildStatus::Running if paused => WorkerRunState::Paused,
         ChildStatus::Spawning | ChildStatus::Running => WorkerRunState::Running,
-        ChildStatus::Done | ChildStatus::Error | ChildStatus::Cancelled if !row.settled => {
+        ChildStatus::Done | ChildStatus::Stopped | ChildStatus::Error | ChildStatus::Cancelled
+            if !row.settled =>
+        {
             WorkerRunState::Running
         }
-        ChildStatus::Done | ChildStatus::Error | ChildStatus::Cancelled => WorkerRunState::Idle,
+        ChildStatus::Done | ChildStatus::Stopped | ChildStatus::Error | ChildStatus::Cancelled => {
+            WorkerRunState::Idle
+        }
     }
 }
 
@@ -657,6 +661,7 @@ async fn assign_call(
                 details: Some(details.clone()),
                 user_entries: handed.entries.clone(),
                 worker: true,
+                items: Vec::new(),
             };
             let call = HostCall {
                 data: Value::Null,

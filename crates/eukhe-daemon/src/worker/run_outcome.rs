@@ -26,7 +26,7 @@
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::acceptance::acceptance_state;
 use eukhe_core::durable::children::{
-    unsettled_children, RlmChildOutcome, RlmChildRunState, RlmChildVerdict,
+    items_account, unsettled_children, RlmChildOutcome, RlmChildRunState, RlmChildVerdict,
     RLM_CHILD_ANSWER_MAX_BYTES,
 };
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
@@ -92,11 +92,13 @@ impl Worker {
                 answer,
                 paused: hosted.deps().run_pause.view().paused,
                 acceptance: None,
+                items: None,
             }
         };
         // A settled run carries the verdict of its acceptance on the final
         // state (a parent's checks of this child), read from the durable
-        // acceptance, never from the answer.
+        // acceptance, never from the answer, and its account of its work
+        // list (`rlm.items`), read from its document.
         if matches!(
             state.state,
             RlmChildRunState::Answered { .. } | RlmChildRunState::Failed { .. }
@@ -104,6 +106,11 @@ impl Worker {
             state.acceptance =
                 match acceptance_state(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
                     Ok(acceptance) => RlmChildVerdict::of(&acceptance),
+                    Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
+                };
+            state.items =
+                match items_account(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await {
+                    Ok(items) => items,
                     Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
                 };
         }

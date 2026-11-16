@@ -9,7 +9,8 @@ Each session is the root of a binary tree of agents: at most 3 levels deep and 1
 ## Split
 
 - `rlm.split(left: dict, right: dict, own: list[str] | None = None, hold: int | None = None) -> tuple[RLMSpawnHandle, RLMSpawnHandle]`: starts two children, both or none; returns at once.
-  - `left`, `right`: `{"scope": [paths], "task": str, "name"?: str, "model"?: str, "thinking"?: str, "accept"?: list[dict], "accept_intent"?: bool, "accept_returns"?: int}`. A scope names files or directories relative to the workspace root; the child writes only there, in its own copy of this agent's workspace (uncommitted edits included).
+  - `left`, `right`: `{"scope": [paths], "task": str, "items"?: [ids], "name"?: str, "model"?: str, "thinking"?: str, "accept"?: list[dict], "accept_intent"?: bool, "accept_returns"?: int}`. A scope names files or directories relative to the workspace root; the child writes only there, in its own copy of this agent's workspace (uncommitted edits included).
+  - `items`: the ids of the half's work list. The child accounts for each (`rlm.items`); unless every one is done, it hands back `stopped`: the report `[child-stopped: <left> of <items> items left child:<name>]` lists each item left and why, and its status reads `stopped` with `items_left`.
   - `own`: the paths this agent keeps writing; default: the rest of its scope. Keep shared files (lockfiles, `mod.rs`, index files, generated code) here.
   - `own`, `left` and `right` split this agent's scope exactly, each half non-empty.
   - `hold`: the budget this agent keeps; default: two worst-case requests or a tenth of what it may spend, whichever is more. Each child gets half of the rest; what it leaves unspent returns when it settles.
@@ -66,6 +67,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 
 - `rlm.list_subagents() -> list[RLMSubagent]`: direct children; rows carry live activity (current activity, tool use count, duration, answer preview, latest progress note). Use after a kernel restart or compaction to get handles back.
 - `rlm.collect(targets=None, *, timeout_ms: int = 0) -> list[RLMChildResult]`: typed snapshots of direct children (status, settled flag, answer preview, error, and `acceptance`: the verdict of a child spawned with `accept`) without steering them. `timeout_ms=0`: non-blocking snapshot; a positive timeout (at most 30 minutes) blocks this call until the first selected child settles or the deadline passes. A message queued for this session meanwhile ends the wait first; the children keep running and report later.
+- `rlm.items(done: list[str] | None = None, left: dict[str, str] | None = None) -> int`: a child given `items` accounts for them: `done` the ids finished, `left` each id not finished with why; a later account of an item replaces the earlier one. Returns how many items the account holds. An item not accounted done reaches the parent as left.
 - `rlm.progress_note(message: str) -> dict`: a child reports brief in-flight progress to its parent (at most 512 characters, about one note per 10 seconds); the parent sees it without a reply.
 - `rlm.rename(new_name: str, *, session_id=None) -> str`: renames this session (omit `session_id`) or a direct child (spawn handle, `list_subagents()` row, or session id; never the child's name). Names stay unique among siblings.
 - `rlm.delete_subagent(target: str | RLMSubagent | RLMSpawnHandle) -> RLMSubagent`: deletes one direct child. Only when it is idle and its context is no longer needed.
@@ -73,7 +75,7 @@ Synchronous reads (no `await`) that return values and print nothing; slice them 
 ## Types
 
 - `RLMSpawnHandle`: `rlm_child_id: str`, `name: str`, `session_dir: Path`, `model: str` (provider/model).
-- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "error", "cancelled"]`, plus the live activity fields. `cancelled`: the child's run was stopped before it answered (Esc on the cell that waited on it, or a cancel); the row stays until the child is deleted, and `jobs.list()` shows it as `aborted`.
+- `RLMSubagent`: `rlm_child_id: str`, `active_session_id: str | None`, `session_id: str | None`, `session_name: str`, `session_dir: Path`, `status: Literal["running", "completed", "stopped", "error", "cancelled"]`, plus the live activity fields and `items_left` (a `stopped` child's items left). `cancelled`: the child's run was stopped before it answered (Esc on the cell that waited on it, or a cancel); the row stays until the child is deleted, and `jobs.list()` shows it as `aborted`.
 - `RLMModel`: `provider: str`, `id: str`, `name: str`, `selector: str` (the exact string to spawn the model).
 
 ## Patterns
