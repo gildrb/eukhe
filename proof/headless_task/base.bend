@@ -89,21 +89,6 @@ def ht.cause(d: Wr.Dec<Nat>) -> {FHt.get_cause(d) == SpT.r_cause(d) : Wr.Dec<Hx.
     case Wr.Bad{}:
       {==}
 
-def ht.goal(d: Wr.Dec<Nat>) -> {FHt.get_goal(d) == SpT.r_goal(d) : Wr.Dec<Ht.Goal>}:
-  match d:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          {==}
-        case 1n:
-          {==}
-        case 2n:
-          {==}
-        case 3n+u:
-          {==}
-    case Wr.Bad{}:
-      {==}
-
 def ht.report(d: Wr.Dec<Nat>) -> {FHt.get_report(d) == SpT.r_report(d) : Wr.Dec<Ht.Report>}:
   match d:
     case Wr.Got{t, s}:
@@ -121,33 +106,25 @@ def ht.report(d: Wr.Dec<Nat>) -> {FHt.get_report(d) == SpT.r_report(d) : Wr.Dec<
     case Wr.Bad{}:
       {==}
 
-def ht.after_acted(c: Hx.Cause, g: Ht.Goal, a: Bool, d: Wr.Dec<Ht.Report>) -> {FHt.get_facts.report(c, g, a, d) == SpT.r_task.report(c, g, a, d) : Wr.Dec<Ht.Facts>}:
+def ht.after_acted(c: Hx.Cause, a: Bool, d: Wr.Dec<Ht.Report>) -> {FHt.get_facts.report(c, a, d) == SpT.r_task.report(c, a, d) : Wr.Dec<Ht.Facts>}:
   match d:
     case Wr.Got{r, s}:
       {==}
     case Wr.Bad{}:
       {==}
 
-def ht.after_goal(+c: Hx.Cause, +g: Ht.Goal, d: Wr.Dec<Bool>) -> {FHt.get_facts.acted(c, g, d) == SpT.r_task.acted(c, g, d) : Wr.Dec<Ht.Facts>}:
+def ht.after_cause(+c: Hx.Cause, d: Wr.Dec<Bool>) -> {FHt.get_facts.acted(c, d) == SpT.r_task.acted(c, d) : Wr.Dec<Ht.Facts>}:
   match d:
     case Wr.Got{+a, +s}:
-      %ht.report(Wr.get_nat(s)) : {FHt.get_facts.report(c, g, a, FHt.get_report(Wr.get_nat(s))) == SpT.r_task.report(c, g, a, _) : Wr.Dec<Ht.Facts>}
-      ht.after_acted(c, g, a, FHt.get_report(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      {==}
-
-def ht.after_cause(+c: Hx.Cause, d: Wr.Dec<Ht.Goal>) -> {FHt.get_facts.goal(c, d) == SpT.r_task.goal(c, d) : Wr.Dec<Ht.Facts>}:
-  match d:
-    case Wr.Got{+g, +s}:
-      ht.after_goal(c, g, Wr.get_bool(s))
+      %ht.report(Wr.get_nat(s)) : {FHt.get_facts.report(c, a, FHt.get_report(Wr.get_nat(s))) == SpT.r_task.report(c, a, _) : Wr.Dec<Ht.Facts>}
+      ht.after_acted(c, a, FHt.get_report(Wr.get_nat(s)))
     case Wr.Bad{}:
       {==}
 
 def ht.after_reason(d: Wr.Dec<Hx.Cause>) -> {FHt.get_facts.cause(d) == SpT.r_task.cause(d) : Wr.Dec<Ht.Facts>}:
   match d:
     case Wr.Got{+c, +s}:
-      %ht.goal(Wr.get_nat(s)) : {FHt.get_facts.goal(c, FHt.get_goal(Wr.get_nat(s))) == SpT.r_task.goal(c, _) : Wr.Dec<Ht.Facts>}
-      ht.after_cause(c, FHt.get_goal(Wr.get_nat(s)))
+      ht.after_cause(c, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 
@@ -212,15 +189,6 @@ def ht.cause_rt(c: Hx.Cause, +rest: String) -> {SpT.r_cause(Wr.get_nat(SpW.w_cau
     case Hx.CBudgetUnanswered{}:
       {==}
 
-def ht.goal_rt(g: Ht.Goal, -rest: String) -> {SpT.r_goal(Wr.get_nat(SpT.w_goal(g, rest))) == Wr.Got{g, rest} : Wr.Dec<Ht.Goal>}:
-  match g:
-    case Ht.NoGoal{}:
-      {==}
-    case Ht.Complete{}:
-      {==}
-    case Ht.Open{}:
-      {==}
-
 def ht.report_rt(r: Ht.Report, -rest: String) -> {SpT.r_report(Wr.get_nat(SpT.w_report(r, rest))) == Wr.Got{r, rest} : Wr.Dec<Ht.Report>}:
   match r:
     case Ht.RUnasked{}:
@@ -236,15 +204,13 @@ def ht.report_rt(r: Ht.Report, -rest: String) -> {SpT.r_report(Wr.get_nat(SpT.w_
 # untouched
 def ht.req_rt(+f: Ht.Facts, +rest: String) -> {SpT.r_task(SpT.w_task_req(f, rest)) == Wr.Got{f, rest} : Wr.Dec<Ht.Facts>}:
   match f:
-    case Ht.Facts{+c, +g, +a, +r}:
-      +r3 = SpT.w_report(r, rest)
-      +r2 = Wr.put_bool(a, r3)
-      +r1 = SpT.w_goal(g, r2)
-      -q = {Wr.Got{Ht.Facts{c, g, a, r}, rest} : Wr.Dec<Ht.Facts>}
+    case Ht.Facts{+c, +a, +r}:
+      +r2 = SpT.w_report(r, rest)
+      +r1 = Wr.put_bool(a, r2)
+      -q = {Wr.Got{Ht.Facts{c, a, r}, rest} : Wr.Dec<Ht.Facts>}
       %Equal.sym(Wr.Dec<Hx.Cause>, SpT.r_cause(Wr.get_nat(SpW.w_cause(c, r1))), Wr.Got{c, r1}, ht.cause_rt(c, r1)) : {SpT.r_task.cause(_) == q : Wr.Dec<Ht.Facts>}
-      %Equal.sym(Wr.Dec<Ht.Goal>, SpT.r_goal(Wr.get_nat(r1)), Wr.Got{g, r2}, ht.goal_rt(g, r2)) : {SpT.r_task.goal(c, _) == q : Wr.Dec<Ht.Facts>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r2), Wr.Got{a, r3}, Wire.wire_bool_round_trip(a, r3)) : {SpT.r_task.acted(c, g, _) == q : Wr.Dec<Ht.Facts>}
-      %Equal.sym(Wr.Dec<Ht.Report>, SpT.r_report(Wr.get_nat(r3)), Wr.Got{r, rest}, ht.report_rt(r, rest)) : {SpT.r_task.report(c, g, a, _) == q : Wr.Dec<Ht.Facts>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r1), Wr.Got{a, r2}, Wire.wire_bool_round_trip(a, r2)) : {SpT.r_task.acted(c, _) == q : Wr.Dec<Ht.Facts>}
+      %Equal.sym(Wr.Dec<Ht.Report>, SpT.r_report(Wr.get_nat(r2)), Wr.Got{r, rest}, ht.report_rt(r, rest)) : {SpT.r_task.report(c, a, _) == q : Wr.Dec<Ht.Facts>}
       {==}
 
 # The reply

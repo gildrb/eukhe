@@ -2,36 +2,27 @@
 # `--mode json`) stands for its task, stated without the rule of
 # bend/headless_task.bend, and the wire of its entry
 # (bend/ffi_headless_task.bend, crates/eukhe-bend/WIRE.md). The laws of
-# area headless_task state T1-T5 and W6-W8 one property at a time, with
+# area headless_task state T1-T3 and W6-W8 one property at a time, with
 # the helpers below. A spec: the shipped code never calls it.
 #
-# T1: a goal is the agent's statement of the run's task (seeded by
-#     `--goal` or created by the agent); it is done only when the agent
-#     claimed it complete. A goal still active, paused, budget-limited or
-#     failed when the run ends is open.
-# T2: a run whose exit says it answered (headless_exit E1) while its goal
-#     is open is incomplete: it exits 1. It never exits 0.
-# T4: a run that answered without an open goal (none, or one the agent
-#     claimed complete: the claim does not overrule its own answer) after
-#     it acted (a tool call with an effect, an edit or write, a spawned
-#     child, a goal opened) is judged by its final answer: the core asks
-#     for the judge's reading (task Ask, until Rust gives one), and an
-#     independent judge (one model request without tools) reads whether
-#     the answer states work of the task left. An answer that states work
-#     left is incomplete: it exits 1. An answer the judge gave no verdict
-#     on (it could not run: offline, rate-limited, a failed or stopped
-#     request, an unreadable reply) is unjudged: it exits 3, its own code
-#     (0 is done, 1 a failure or work left, 2 a usage error), never 0 and
-#     never 1.
-# T5: a run that answered without acting (a question answered, reads
+# T1: a run whose exit says it answered (headless_exit E1) after it acted
+#     (a tool call with an effect, an edit or write, a spawned child) is
+#     judged by its final answer: the core asks for the judge's reading
+#     (task Ask, until Rust gives one), and an independent judge (one
+#     model request without tools) reads whether the answer states work
+#     of the task left. An answer that states work left is incomplete: it
+#     exits 1. An answer the judge gave no verdict on (it could not run:
+#     offline, rate-limited, a failed or stopped request, an unreadable
+#     reply) is unjudged: it exits 3, its own code (0 is done, 1 a failure
+#     or work left, 2 a usage error), never 0 and never 1.
+# T2: a run that answered without acting (a question answered, reads
 #     only) is never judged: no judge request, and its exit stands.
 # T3: every other exit stands as headless_exit decided it, code and
 #     cause: an answer that states no work left, a run that did not act,
 #     every failure, a budget-limited run.
 # W6: a request is the exit's cause, spelled as the headless_exit entry
-#     replies it (W4), the goal: 0 none | 1 complete | 2 open, whether the
-#     run acted (a Bool), then the judge's reading: 0 not asked | 1 no
-#     work left | 2 work left | 3 no verdict.
+#     replies it (W4), whether the run acted (a Bool), then the judge's
+#     reading: 0 not asked | 1 no work left | 2 work left | 3 no verdict.
 # W7: a reply is the code (Nat), then the task: 0 the exit stands |
 #     1 incomplete | 2 unjudged | 3 ask the judge.
 # W8: anything else is no request.
@@ -45,17 +36,7 @@ import ./headless_wire.bend as SpW
 # The task (T1-T3)
 # ----------------
 
-# T1: the goal is open
-def goal_open(g: Ht.Goal) -> Bool:
-  match g:
-    case Ht.NoGoal{}:
-      False{}
-    case Ht.Complete{}:
-      False{}
-    case Ht.Open{}:
-      True{}
-
-# T2: the exit says the run answered
+# T1: the exit says the run answered
 def exit_answered(c: Hx.Cause) -> Bool:
   match c:
     case Hx.CAnswered{}:
@@ -83,7 +64,7 @@ def exit_answered(c: Hx.Cause) -> Bool:
     case Hx.CBudgetUnanswered{}:
       False{}
 
-# T4: the judge read work left in the final answer
+# T1: the judge read work left in the final answer
 def report_left(r: Ht.Report) -> Bool:
   match r:
     case Ht.RUnasked{}:
@@ -95,7 +76,7 @@ def report_left(r: Ht.Report) -> Bool:
     case Ht.RUnjudged{}:
       False{}
 
-# T4: the judge was not asked
+# T1: the judge was not asked
 def report_unasked(r: Ht.Report) -> Bool:
   match r:
     case Ht.RUnasked{}:
@@ -107,7 +88,7 @@ def report_unasked(r: Ht.Report) -> Bool:
     case Ht.RUnjudged{}:
       False{}
 
-# T4: the judge gave no verdict on the final answer
+# T1: the judge gave no verdict on the final answer
 def report_unjudged(r: Ht.Report) -> Bool:
   match r:
     case Ht.RUnasked{}:
@@ -122,44 +103,38 @@ def report_unjudged(r: Ht.Report) -> Bool:
 # the cause of the run's exit
 def cause_of(f: Ht.Facts) -> Hx.Cause:
   match f:
-    case Ht.Facts{c, g, a, r}:
+    case Ht.Facts{c, a, r}:
       c
 
-# the run's goal
-def goal_of(f: Ht.Facts) -> Ht.Goal:
-  match f:
-    case Ht.Facts{c, g, a, r}:
-      g
-
-# T5: the run did not act
+# T2: the run did not act
 def unacted(f: Ht.Facts) -> Bool:
   match f:
-    case Ht.Facts{c, g, a, r}:
+    case Ht.Facts{c, a, r}:
       Bool.not(a)
 
-# T4: the run answered without an open goal after acting: its final
-# answer is the judge's to read
+# T1: the run answered after acting: its final answer is the judge's to
+# read
 def judged(f: Ht.Facts) -> Bool:
   match f:
-    case Ht.Facts{c, g, a, r}:
-      Bool.and(exit_answered(c), Bool.and(Bool.not(goal_open(g)), a))
+    case Ht.Facts{c, a, r}:
+      Bool.and(exit_answered(c), a)
 
 # the judge's reading of the facts
 def report_of(f: Ht.Facts) -> Ht.Report:
   match f:
-    case Ht.Facts{c, g, a, r}:
+    case Ht.Facts{c, a, r}:
       r
 
-# T2, T4: the run answered with work left: its goal open, or its answer,
-# which the judge reads, stating work left
+# T1: the run answered with work left: its final answer, which the judge
+# reads, states work left
 def unfinished(+f: Ht.Facts) -> Bool:
-  Bool.or(Bool.and(exit_answered(cause_of(f)), goal_open(goal_of(f))), Bool.and(judged(f), report_left(report_of(f))))
+  Bool.and(judged(f), report_left(report_of(f)))
 
-# T4: the judge reads the final answer and gave no verdict on it
+# T1: the judge reads the final answer and gave no verdict on it
 def unjudged(+f: Ht.Facts) -> Bool:
   Bool.and(judged(f), report_unjudged(report_of(f)))
 
-# T4: the judge reads the final answer and was not asked yet
+# T1: the judge reads the final answer and was not asked yet
 def asks(+f: Ht.Facts) -> Bool:
   Bool.and(judged(f), report_unasked(report_of(f)))
 
@@ -206,7 +181,7 @@ def ask_task(v: Ht.Verdict) -> Bool:
         case Ht.Ask{}:
           True{}
 
-# T4: the code of an unjudged run
+# T1: the code of an unjudged run
 def unjudged_code() -> Nat:
   3n
 
@@ -218,15 +193,6 @@ def code_of(v: Ht.Verdict) -> Nat:
 
 # Requests and replies (W6-W7)
 # ----------------------------
-
-def w_goal(g: Ht.Goal, rest: String) -> String:
-  match g:
-    case Ht.NoGoal{}:
-      Wr.put_nat(0n, rest)
-    case Ht.Complete{}:
-      Wr.put_nat(1n, rest)
-    case Ht.Open{}:
-      Wr.put_nat(2n, rest)
 
 def w_report(r: Ht.Report, rest: String) -> String:
   match r:
@@ -242,8 +208,8 @@ def w_report(r: Ht.Report, rest: String) -> String:
 # a request, then rest
 def w_task_req(f: Ht.Facts, rest: String) -> String:
   match f:
-    case Ht.Facts{c, g, a, r}:
-      SpW.w_cause(c, w_goal(g, Wr.put_bool(a, w_report(r, rest))))
+    case Ht.Facts{c, a, r}:
+      SpW.w_cause(c, Wr.put_bool(a, w_report(r, rest)))
 
 def w_task(t: Ht.Task, rest: String) -> String:
   match t:
@@ -304,21 +270,6 @@ def r_cause(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Cause>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_goal(d: Wr.Dec<Nat>) -> Wr.Dec<Ht.Goal>:
-  match d:
-    case Wr.Got{t, s}:
-      match t:
-        case 0n:
-          Wr.Got{Ht.NoGoal{}, s}
-        case 1n:
-          Wr.Got{Ht.Complete{}, s}
-        case 2n:
-          Wr.Got{Ht.Open{}, s}
-        case 3n+u:
-          Wr.Bad{}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
 def r_report(d: Wr.Dec<Nat>) -> Wr.Dec<Ht.Report>:
   match d:
     case Wr.Got{t, s}:
@@ -336,31 +287,24 @@ def r_report(d: Wr.Dec<Nat>) -> Wr.Dec<Ht.Report>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_task.report(c: Hx.Cause, g: Ht.Goal, a: Bool, d: Wr.Dec<Ht.Report>) -> Wr.Dec<Ht.Facts>:
+def r_task.report(c: Hx.Cause, a: Bool, d: Wr.Dec<Ht.Report>) -> Wr.Dec<Ht.Facts>:
   match d:
     case Wr.Got{r, s}:
-      Wr.Got{Ht.Facts{c, g, a, r}, s}
+      Wr.Got{Ht.Facts{c, a, r}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_task.acted(c: Hx.Cause, g: Ht.Goal, d: Wr.Dec<Bool>) -> Wr.Dec<Ht.Facts>:
+def r_task.acted(c: Hx.Cause, d: Wr.Dec<Bool>) -> Wr.Dec<Ht.Facts>:
   match d:
     case Wr.Got{a, s}:
-      r_task.report(c, g, a, r_report(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_task.goal(c: Hx.Cause, d: Wr.Dec<Ht.Goal>) -> Wr.Dec<Ht.Facts>:
-  match d:
-    case Wr.Got{g, s}:
-      r_task.acted(c, g, Wr.get_bool(s))
+      r_task.report(c, a, r_report(Wr.get_nat(s)))
     case Wr.Bad{}:
       Wr.Bad{}
 
 def r_task.cause(d: Wr.Dec<Hx.Cause>) -> Wr.Dec<Ht.Facts>:
   match d:
     case Wr.Got{c, s}:
-      r_task.goal(c, r_goal(Wr.get_nat(s)))
+      r_task.acted(c, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
