@@ -37,44 +37,61 @@ pub(crate) async fn read_line<R: AsyncBufRead + Unpin>(
     reader: &mut R,
     limit: usize,
 ) -> io::Result<Line> {
-    let mut line = Vec::new();
-    let mut too_long = false;
-    let mut read_any = false;
+    let mut reading = Reading::Nothing;
+    let mut first_chunk_capacity = None;
     loop {
         let available = reader.fill_buf().await?;
         if available.is_empty() {
             break;
         }
-        read_any = true;
+        let capacity = *first_chunk_capacity.get_or_insert(available.len());
         let (length, ended) = match available.iter().position(|byte| *byte == b'\n') {
             Some(at) => (at, true),
             None => (available.len(), false),
         };
-        if !too_long {
-            if line.len() + length > limit {
-                too_long = true;
-                line = Vec::new();
-            } else {
-                line.extend_from_slice(&available[..length]);
+        reading = match reading {
+            Reading::Skipping => Reading::Skipping,
+            Reading::Nothing => {
+                if length > limit {
+                    Reading::Skipping
+                } else {
+                    let mut line = Vec::with_capacity(capacity);
+                    line.extend_from_slice(&available[..length]);
+                    Reading::Keeping(line)
+                }
             }
-        }
+            Reading::Keeping(mut line) => {
+                if line.len() + length > limit {
+                    Reading::Skipping
+                } else {
+                    line.extend_from_slice(&available[..length]);
+                    Reading::Keeping(line)
+                }
+            }
+        };
         reader.consume(length + usize::from(ended));
         if ended {
             break;
         }
     }
-    if !read_any {
-        return Ok(Line::End);
+    match reading {
+        Reading::Nothing => Ok(Line::End),
+        Reading::Skipping => Ok(Line::TooLong),
+        Reading::Keeping(mut line) => {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            String::from_utf8(line)
+                .map(Line::Text)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        }
     }
-    if too_long {
-        return Ok(Line::TooLong);
-    }
-    if line.last() == Some(&b'\r') {
-        line.pop();
-    }
-    String::from_utf8(line)
-        .map(Line::Text)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+enum Reading {
+    Nothing,
+    Keeping(Vec<u8>),
+    Skipping,
 }
 
 /// A message from a client to the worker.
@@ -239,5 +256,26 @@ mod tests {
                 Line::End,
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn line_boundaries_hold_across_small_buffer_chunks() {
+        let input = b"ab\r\n\xffxxxx\n\nz\r\r\nlong";
+        let mut reader = tokio::io::BufReader::with_capacity(2, &input[..]);
+        assert_eq!(
+            read_line(&mut reader, 3).await.unwrap(),
+            Line::Text("ab".to_owned())
+        );
+        assert_eq!(read_line(&mut reader, 3).await.unwrap(), Line::TooLong);
+        assert_eq!(
+            read_line(&mut reader, 3).await.unwrap(),
+            Line::Text(String::new())
+        );
+        assert_eq!(
+            read_line(&mut reader, 3).await.unwrap(),
+            Line::Text("z\r".to_owned())
+        );
+        assert_eq!(read_line(&mut reader, 3).await.unwrap(), Line::TooLong);
+        assert_eq!(read_line(&mut reader, 3).await.unwrap(), Line::End);
     }
 }

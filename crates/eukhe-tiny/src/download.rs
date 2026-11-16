@@ -112,15 +112,14 @@ pub(crate) async fn download_files(
         InstallState::Missing | InstallState::Partial { .. } => {}
     }
     create_dir_all(&home.models).await?;
-    let staging = home
-        .models
-        .join(format!(".staging-{id}-{}", std::process::id()));
+    let pid = std::process::id();
+    let staging = home.models.join(format!(".staging-{id}-{pid}"));
     // A staging dir of this pid can only be the leftover of a crashed run.
     remove_dir_all_if_present(&staging).await?;
     create_dir_all(&staging).await?;
     let fetched = fetch_all(&staging, files, base_url.trim_end_matches('/'), progress).await;
     let installed = match fetched {
-        Ok(()) => install(home, id, files, &staging).await,
+        Ok(()) => install(home, id, files, &staging, pid).await,
         Err(error) => Err(error),
     };
     match installed {
@@ -139,6 +138,33 @@ pub(crate) async fn download_files(
     }
 }
 
+/// The Hugging Face URL of `file` under `base_url` (no trailing `/`).
+fn file_url(base_url: &str, file: &ModelFile) -> String {
+    let prefix = match file.repo_kind {
+        RepoKind::Model => "",
+        RepoKind::Dataset => "datasets/",
+    };
+    format!(
+        "{base_url}/{prefix}{}/resolve/{}/{}",
+        file.repo, file.revision, file.path
+    )
+}
+
+/// The directories `files` need under `staging`, `staging` first, each once
+/// in the order the files reach it.
+fn staging_dirs(staging: &Path, files: &[ModelFile]) -> Vec<PathBuf> {
+    let mut dirs = vec![staging.to_path_buf()];
+    for file in files {
+        let target = staging.join(file.path);
+        for dir in target.ancestors().skip(1).take_while(|dir| *dir != staging) {
+            if !dirs.iter().any(|known| known == dir) {
+                dirs.push(dir.to_path_buf());
+            }
+        }
+    }
+    dirs
+}
+
 /// Fetches and verifies every file into `staging`, fsyncing files and the
 /// directories that hold them.
 async fn fetch_all(
@@ -151,23 +177,13 @@ async fn fetch_all(
         .read_timeout(READ_TIMEOUT)
         .build()
         .map_err(DownloadError::Client)?;
-    let mut dirs = vec![staging.to_path_buf()];
+    let dirs = staging_dirs(staging, files);
+    for dir in dirs.iter().skip(1) {
+        create_dir_all(dir).await?;
+    }
     for file in files {
         let target = staging.join(file.path);
-        for dir in target.ancestors().skip(1).take_while(|dir| *dir != staging) {
-            if !dirs.iter().any(|known| known == dir) {
-                create_dir_all(dir).await?;
-                dirs.push(dir.to_path_buf());
-            }
-        }
-        let prefix = match file.repo_kind {
-            RepoKind::Model => "",
-            RepoKind::Dataset => "datasets/",
-        };
-        let url = format!(
-            "{base_url}/{prefix}{}/resolve/{}/{}",
-            file.repo, file.revision, file.path
-        );
+        let url = file_url(base_url, file);
         fetch(&client, file, &url, &target, progress).await?;
         progress(Progress::Verified {
             file: file.path,
@@ -178,6 +194,32 @@ async fn fetch_all(
         sync_dir(dir).await?;
     }
     Ok(())
+}
+
+/// `received` bytes of `file` against its pinned size.
+fn check_size(file: &ModelFile, received: u64) -> Result<(), DownloadError> {
+    if received == file.size {
+        Ok(())
+    } else {
+        Err(DownloadError::Size {
+            file: file.path,
+            expected: file.size,
+            actual: received,
+        })
+    }
+}
+
+/// The sha256 (lowercase hex) of `file`'s bytes against its pin.
+fn check_digest(file: &ModelFile, actual: String) -> Result<(), DownloadError> {
+    if actual == file.sha256 {
+        Ok(())
+    } else {
+        Err(DownloadError::Checksum {
+            file: file.path,
+            expected: file.sha256,
+            actual,
+        })
+    }
 }
 
 /// Streams one file to `target`, hashing as it writes; rejects a size or
@@ -216,11 +258,7 @@ async fn fetch(
     while let Some(chunk) = response.chunk().await.map_err(transfer)? {
         received += chunk.len() as u64;
         if received > file.size {
-            return Err(DownloadError::Size {
-                file: file.path,
-                expected: file.size,
-                actual: received,
-            });
+            check_size(file, received)?;
         }
         hasher.update(&chunk);
         out.write_all(&chunk).await.map_err(io)?;
@@ -230,21 +268,8 @@ async fn fetch(
             total: file.size,
         });
     }
-    if received != file.size {
-        return Err(DownloadError::Size {
-            file: file.path,
-            expected: file.size,
-            actual: received,
-        });
-    }
-    let actual = format!("{:x}", hasher.finalize());
-    if actual != file.sha256 {
-        return Err(DownloadError::Checksum {
-            file: file.path,
-            expected: file.sha256,
-            actual,
-        });
-    }
+    check_size(file, received)?;
+    check_digest(file, format!("{:x}", hasher.finalize()))?;
     out.flush().await.map_err(io)?;
     out.sync_all().await.map_err(io)
 }
@@ -258,11 +283,10 @@ async fn install(
     id: &str,
     files: &[ModelFile],
     staging: &Path,
+    pid: u32,
 ) -> Result<Downloaded, DownloadError> {
     let target = home.model_dir(id);
-    let aside = home
-        .models
-        .join(format!(".replaced-{id}-{}", std::process::id()));
+    let aside = home.models.join(format!(".replaced-{id}-{pid}"));
     let replacing = match tokio::fs::symlink_metadata(&target).await {
         Ok(_) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,

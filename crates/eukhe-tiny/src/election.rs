@@ -70,27 +70,75 @@ pub(crate) struct Connection {
     writer: OwnedWriteHalf,
 }
 
-impl Connection {
-    /// Sends `request` and reads its response. EOF is
-    /// [`io::ErrorKind::UnexpectedEof`]; a line that is not a [`Response`],
-    /// or one over [`MAX_LINE_BYTES`], is [`io::ErrorKind::InvalidData`].
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn call(&mut self, request: &Request) -> io::Result<Response> {
-        let mut line = serde_json::to_vec(request).map_err(io::Error::other)?;
-        line.push(b'\n');
-        self.writer.write_all(&line).await?;
-        self.writer.flush().await?;
-        match read_line(&mut self.reader, MAX_LINE_BYTES).await? {
-            Line::Text(answer) => serde_json::from_str(&answer)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)),
-            Line::TooLong => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("the response line is over {MAX_LINE_BYTES} bytes"),
-            )),
-            Line::End => Err(io::Error::new(
+/// Why a call to a worker got no response: the socket failed, the worker
+/// closed it, or its answer was no line of the protocol.
+#[derive(Debug)]
+pub(crate) enum CallError {
+    Io(io::Error),
+    Closed,
+    TooLong,
+    Garbled(serde_json::Error),
+    NotUtf8(io::Error),
+}
+
+impl std::fmt::Display for CallError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CallError::Io(error) | CallError::NotUtf8(error) => {
+                std::fmt::Display::fmt(error, formatter)
+            }
+            CallError::Closed => formatter.write_str("the worker closed the connection"),
+            CallError::TooLong => write!(
+                formatter,
+                "the response line is over {MAX_LINE_BYTES} bytes"
+            ),
+            CallError::Garbled(error) => std::fmt::Display::fmt(error, formatter),
+        }
+    }
+}
+
+impl std::error::Error for CallError {}
+
+impl CallError {
+    /// The IO error the run's callers report (same text and kind as the
+    /// call answered before it had its own error type).
+    fn into_io(self) -> io::Error {
+        match self {
+            CallError::Io(error) => error,
+            CallError::Closed => io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "the worker closed the connection",
-            )),
+            ),
+            CallError::TooLong => io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("the response line is over {MAX_LINE_BYTES} bytes"),
+            ),
+            CallError::Garbled(error) => io::Error::new(io::ErrorKind::InvalidData, error),
+            CallError::NotUtf8(error) => io::Error::new(io::ErrorKind::InvalidData, error),
+        }
+    }
+}
+
+impl Connection {
+    /// Sends `request` and reads its response. EOF is
+    /// [`CallError::Closed`]; a line that is not a [`Response`], over
+    /// [`MAX_LINE_BYTES`] or not UTF-8 is `Garbled`, `TooLong` or `NotUtf8`.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub(crate) async fn call(&mut self, request: &Request) -> Result<Response, CallError> {
+        let mut line = Vec::with_capacity(256);
+        serde_json::to_writer(&mut line, request)
+            .map_err(|error| CallError::Io(io::Error::other(error)))?;
+        line.push(b'\n');
+        self.writer.write_all(&line).await.map_err(CallError::Io)?;
+        self.writer.flush().await.map_err(CallError::Io)?;
+        match read_line(&mut self.reader, MAX_LINE_BYTES).await {
+            Ok(Line::Text(answer)) => serde_json::from_str(&answer).map_err(CallError::Garbled),
+            Ok(Line::TooLong) => Err(CallError::TooLong),
+            Ok(Line::End) => Err(CallError::Closed),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                Err(CallError::NotUtf8(error))
+            }
+            Err(error) => Err(CallError::Io(error)),
         }
     }
 }
@@ -107,39 +155,134 @@ pub(crate) enum Met {
     /// A worker answered the ping with another response.
     Odd(Response),
     /// The answer was no line of the protocol.
-    Garbled(io::Error),
+    Garbled(CallError),
     /// The connection closed or failed on the ping.
     Hung,
+}
+
+/// A pong's launch tag against what the run's wire carries.
+enum ProbeTag<'a> {
+    Fits(&'a str),
+    TooLong,
+}
+
+/// Whether `tag` fits the run's string (in chars, as the core counts).
+fn probe_tag(tag: &str) -> ProbeTag<'_> {
+    if tag.chars().count() <= STR_MAX {
+        ProbeTag::Fits(tag)
+    } else {
+        ProbeTag::TooLong
+    }
 }
 
 impl Met {
     /// The probe on the wire (`Probe` of `bend/ffi_tiny_run.bend`): a launch
     /// tag longer than the wire carries is no line of the protocol.
-    fn spell(&self, writer: &mut Writer) {
+    fn probe_wire(&self) -> ProbeWire<'_> {
         match self {
-            Met::Missing => writer.tag(0),
-            Met::Unreachable(_) => writer.tag(1),
-            Met::Pong { tag, .. } if tag.chars().count() <= STR_MAX => writer.tag(2).str(tag),
-            Met::Garbled(_) | Met::Pong { .. } => writer.tag(4),
-            Met::Odd(_) => writer.tag(3),
-            Met::Hung => writer.tag(5),
-        };
+            Met::Missing => ProbeWire { tag: 0, text: None },
+            Met::Unreachable(_) => ProbeWire { tag: 1, text: None },
+            Met::Pong { tag, .. } => match probe_tag(tag) {
+                ProbeTag::Fits(tag) => ProbeWire {
+                    tag: 2,
+                    text: Some(tag),
+                },
+                ProbeTag::TooLong => ProbeWire { tag: 4, text: None },
+            },
+            Met::Garbled(_) => ProbeWire { tag: 4, text: None },
+            Met::Odd(_) => ProbeWire { tag: 3, text: None },
+            Met::Hung => ProbeWire { tag: 5, text: None },
+        }
     }
 
     /// The IO error of a probe the run calls failed.
     fn into_error(self) -> io::Error {
+        let fault = match self {
+            Met::Unreachable(error) => ProbeFault::Connect(error),
+            Met::Garbled(error) => ProbeFault::Garbled(error),
+            Met::Odd(other) => ProbeFault::Odd(other),
+            Met::Pong { tag, .. } => match probe_tag(&tag) {
+                ProbeTag::Fits(_) => inconsistent("a failed probe"),
+                ProbeTag::TooLong => ProbeFault::TagTooLong,
+            },
+            Met::Missing | Met::Hung => inconsistent("a failed probe"),
+        };
+        fault.into_io()
+    }
+}
+
+/// Why a probe the run calls failed.
+#[derive(Debug)]
+enum ProbeFault {
+    Connect(io::Error),
+    Garbled(CallError),
+    Odd(Response),
+    TagTooLong,
+}
+
+impl std::fmt::Display for ProbeFault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Met::Unreachable(error) | Met::Garbled(error) => error,
-            Met::Odd(other) => io::Error::new(
+            ProbeFault::Connect(error) => std::fmt::Display::fmt(error, formatter),
+            ProbeFault::Garbled(error) => std::fmt::Display::fmt(error, formatter),
+            ProbeFault::Odd(other) => {
+                write!(formatter, "the worker answered a ping with {other:?}")
+            }
+            ProbeFault::TagTooLong => {
+                formatter.write_str("the worker's launch tag is longer than the core reads")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProbeFault {}
+
+impl ProbeFault {
+    /// The IO error with the text and kind the probe reported before.
+    fn into_io(self) -> io::Error {
+        match self {
+            ProbeFault::Connect(error) => error,
+            ProbeFault::Garbled(error) => error.into_io(),
+            ProbeFault::Odd(other) => io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("the worker answered a ping with {other:?}"),
             ),
-            Met::Pong { tag, .. } if tag.chars().count() > STR_MAX => io::Error::new(
+            ProbeFault::TagTooLong => io::Error::new(
                 io::ErrorKind::InvalidData,
                 "the worker's launch tag is longer than the core reads",
             ),
-            Met::Missing | Met::Pong { .. } | Met::Hung => inconsistent("a failed probe"),
         }
+    }
+}
+
+/// A probe as the run reads it: its tag, and the pong's launch tag.
+struct ProbeWire<'a> {
+    tag: u32,
+    text: Option<&'a str>,
+}
+
+/// What a failed connect met: no worker, or an unreachable socket.
+fn connect_failure(error: io::Error) -> Met {
+    match error.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Met::Missing,
+        _ => Met::Unreachable(error),
+    }
+}
+
+/// What a ping's answer met.
+fn after_ping(connection: Connection, answer: Result<Response, CallError>) -> Met {
+    match answer {
+        Ok(Response::Ok {
+            reply: Reply::Pong { tag },
+        }) => Met::Pong { connection, tag },
+        Ok(other) => Met::Odd(other),
+        Err(error @ (CallError::Garbled(_) | CallError::TooLong | CallError::NotUtf8(_))) => {
+            Met::Garbled(error)
+        }
+        Err(CallError::Io(error)) if error.kind() == io::ErrorKind::InvalidData => {
+            Met::Garbled(CallError::Io(error))
+        }
+        Err(CallError::Io(_) | CallError::Closed) => Met::Hung,
     }
 }
 
@@ -148,26 +291,15 @@ impl Met {
 pub(crate) async fn probe(socket: &Path) -> Met {
     let stream = match UnixStream::connect(socket).await {
         Ok(stream) => stream,
-        Err(error) => {
-            return match error.kind() {
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Met::Missing,
-                _ => Met::Unreachable(error),
-            };
-        }
+        Err(error) => return connect_failure(error),
     };
     let (read, writer) = stream.into_split();
     let mut connection = Connection {
         reader: BufReader::new(read),
         writer,
     };
-    match connection.call(&Request::Ping).await {
-        Ok(Response::Ok {
-            reply: Reply::Pong { tag },
-        }) => Met::Pong { connection, tag },
-        Ok(other) => Met::Odd(other),
-        Err(error) if error.kind() == io::ErrorKind::InvalidData => Met::Garbled(error),
-        Err(_) => Met::Hung,
-    }
+    let answer = connection.call(&Request::Ping).await;
+    after_ping(connection, answer)
 }
 
 /// A reply of the compiled core that its laws rule out: only an
@@ -207,7 +339,7 @@ enum Do {
 /// An outcome Rust reports to the run (`Seen` in bend/tiny.bend).
 enum Seen<'a> {
     Pinged(&'a Met),
-    Heard(&'a io::Result<Response>),
+    Heard(&'a Result<Response, CallError>),
     Came(Launched),
     NoSpawn,
     Locked,
@@ -237,8 +369,33 @@ fn read_do(reply: &str) -> Result<Do, WireError> {
         8 => Do::Fault,
         9.. => Do::Nothing,
     };
+
     reader.end()?;
     Ok(next)
+}
+
+/// A shutdown's answer as the run reads it (`ShutHeard`): 0 bye, 1 any
+/// other response, 2 the worker closed, 3 a failure or garbled line.
+fn heard_tag(heard: &Result<Response, CallError>) -> u32 {
+    match heard {
+        Ok(Response::Ok { reply: Reply::Bye }) => 0,
+        Ok(
+            Response::Ok {
+                reply:
+                    Reply::Pong { .. }
+                    | Reply::Loaded
+                    | Reply::Chat(_)
+                    | Reply::Transcript(_)
+                    | Reply::Speech(_),
+            }
+            | Response::Err { .. },
+        ) => 1,
+        Err(CallError::Closed) => 2,
+        Err(CallError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof => 2,
+        Err(
+            CallError::Io(_) | CallError::TooLong | CallError::Garbled(_) | CallError::NotUtf8(_),
+        ) => 3,
+    }
 }
 
 /// One run in the compiled core: a process's election, or a started
@@ -275,16 +432,14 @@ impl Run {
         let mut writer = Writer::new();
         match seen {
             Seen::Pinged(met) => {
-                writer.tag(0);
-                met.spell(&mut writer);
+                let probe = met.probe_wire();
+                writer.tag(0).tag(probe.tag);
+                if let Some(text) = probe.text {
+                    writer.str(text);
+                }
             }
             Seen::Heard(heard) => {
-                writer.tag(1).tag(match heard {
-                    Ok(Response::Ok { reply: Reply::Bye }) => 0,
-                    Ok(_) => 1,
-                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => 2,
-                    Err(_) => 3,
-                });
+                writer.tag(1).tag(heard_tag(heard));
             }
             Seen::Came(launched) => {
                 writer.tag(2).tag(match launched {
@@ -307,6 +462,16 @@ impl Run {
     }
 }
 
+/// The last outcome of an election: each `Fail` and `Use` of the run
+/// (`bend/tiny.bend`) follows the outcome that decided it, so the last one
+/// is the one to act on.
+enum Left {
+    Nothing,
+    Pinged(Met),
+    Heard(io::Result<Response>),
+    NoSpawn(TinyError),
+}
+
 /// A connection to the worker of `model` with launch tag `tag`, and how
 /// the election got it: join a live worker with `tag`, else shut down a
 /// live worker of another tag, else start one with `launcher`.
@@ -326,42 +491,47 @@ pub(crate) async fn ensure(
 ) -> Result<(Connection, Got), TinyError> {
     let socket = home.socket(model.id, BACKEND);
     let (mut run, mut next) = Run::need(tag);
-    // What the outcomes left to act on: the last ping's (a shutdown takes
-    // its connection), the shutdown's answer, the launch's failure.
-    let mut met = None;
-    let mut heard = None;
-    let mut spawn_failure = None;
+    let mut left = Left::Nothing;
     loop {
         next = match next {
             Do::Ping => {
                 let pinged = probe(&socket).await;
                 let next = run.step(&Seen::Pinged(&pinged));
-                met = Some(pinged);
+                left = Left::Pinged(pinged);
                 next
             }
             Do::Shutdown => {
-                let Some(Met::Pong { mut connection, .. }) = met.take() else {
+                let Left::Pinged(Met::Pong { mut connection, .. }) = left else {
                     return inconsistent("a shutdown after a pong");
                 };
                 let answer = connection.call(&Request::Shutdown).await;
                 let next = run.step(&Seen::Heard(&answer));
-                heard = Some(answer);
+                left = Left::Heard(answer.map_err(CallError::into_io));
                 next
             }
             Do::Launch => match launcher.launch(home, model).await {
                 Ok(came) => run.step(&Seen::Came(came)),
                 Err(error) => {
-                    spawn_failure = Some(error);
+                    left = Left::NoSpawn(error);
                     run.step(&Seen::NoSpawn)
                 }
             },
             Do::Use(got) => {
-                return match met {
-                    Some(Met::Pong { connection, .. }) => Ok((connection, got)),
-                    _ => inconsistent("a use after a pong"),
+                return match left {
+                    Left::Pinged(Met::Pong { connection, .. }) => Ok((connection, got)),
+                    Left::Nothing
+                    | Left::Pinged(
+                        Met::Missing
+                        | Met::Unreachable(_)
+                        | Met::Odd(_)
+                        | Met::Garbled(_)
+                        | Met::Hung,
+                    )
+                    | Left::Heard(_)
+                    | Left::NoSpawn(_) => inconsistent("a use after a pong"),
                 };
             }
-            Do::Fail(why) => return Err(failure(home, model, tag, why, met, heard, spawn_failure)),
+            Do::Fail(why) => return Err(failure(home, model, tag, why, left)),
             Do::Lock | Do::Adopt | Do::Take | Do::Fault | Do::Nothing => {
                 return inconsistent("a need's next step");
             }
@@ -369,16 +539,13 @@ pub(crate) async fn ensure(
     }
 }
 
-/// The error of a need whose run failed for `why`, from what its outcomes
-/// left: the last ping, else the shutdown's answer; the launch's failure.
+/// The error of a need whose run failed for `why`, from its last outcome.
 fn failure(
     home: &TinyHome,
     model: &'static CatalogModel,
     tag: &str,
     why: Why,
-    met: Option<Met>,
-    heard: Option<io::Result<Response>>,
-    spawn_failure: Option<TinyError>,
+    left: Left,
 ) -> TinyError {
     let socket = home.socket(model.id, BACKEND);
     let spawn = |message: String| TinyError::Spawn {
@@ -386,29 +553,85 @@ fn failure(
         message,
         log: home.log(model.id, BACKEND),
     };
-    match (why, met, heard) {
-        (Why::Io, Some(met), _) => TinyError::io(model, &met.into_error()),
-        (Why::Io, None, Some(Err(error))) => TinyError::io(model, &error),
-        (Why::Protocol, _, Some(Ok(other))) => TinyError::Protocol {
+    match (why, left) {
+        (Why::Io, Left::Pinged(met)) => TinyError::io(model, &met.into_error()),
+        (Why::Io, Left::Heard(Err(error))) => TinyError::io(model, &error),
+        (Why::Protocol, Left::Heard(Ok(other))) => TinyError::Protocol {
             model: model.id,
             message: format!("the worker answered a shutdown with {other:?}"),
         },
-        (Why::Mistagged, Some(Met::Pong { tag: theirs, .. }), _) => spawn(format!(
+        (Why::Mistagged, Left::Pinged(Met::Pong { tag: theirs, .. })) => spawn(format!(
             "the worker on {} answers with tag {theirs}, not {tag}",
             socket.display()
         )),
-        (Why::Vacant, Some(Met::Missing | Met::Hung), _) => spawn(format!(
+        (Why::Vacant, Left::Pinged(Met::Missing | Met::Hung)) => spawn(format!(
             "no worker listens on {} after the start",
             socket.display()
         )),
-        (Why::Spawn, _, _) => match spawn_failure {
-            Some(error) => error,
-            None => inconsistent("a failed launch"),
-        },
-        (Why::Io | Why::Protocol | Why::Mistagged | Why::Vacant, _, _) => {
-            inconsistent("a failure its outcomes allow")
-        }
+        (Why::Spawn, Left::NoSpawn(error)) => error,
+        (
+            Why::Io,
+            Left::Nothing
+            | Left::NoSpawn(_)
+            | Left::Heard(Ok(
+                Response::Ok {
+                    reply:
+                        Reply::Pong { .. }
+                        | Reply::Loaded
+                        | Reply::Chat(_)
+                        | Reply::Transcript(_)
+                        | Reply::Speech(_)
+                        | Reply::Bye,
+                }
+                | Response::Err { .. },
+            )),
+        )
+        | (
+            Why::Protocol,
+            Left::Nothing
+            | Left::Heard(Err(_))
+            | Left::NoSpawn(_)
+            | Left::Pinged(
+                Met::Missing
+                | Met::Unreachable(_)
+                | Met::Pong { .. }
+                | Met::Odd(_)
+                | Met::Garbled(_)
+                | Met::Hung,
+            ),
+        )
+        | (Why::Mistagged | Why::Vacant, Left::Nothing | Left::Heard(_) | Left::NoSpawn(_))
+        | (
+            Why::Spawn,
+            Left::Nothing
+            | Left::Heard(_)
+            | Left::Pinged(
+                Met::Missing
+                | Met::Unreachable(_)
+                | Met::Pong { .. }
+                | Met::Odd(_)
+                | Met::Garbled(_)
+                | Met::Hung,
+            ),
+        )
+        | (
+            Why::Mistagged,
+            Left::Pinged(
+                Met::Missing | Met::Unreachable(_) | Met::Odd(_) | Met::Garbled(_) | Met::Hung,
+            ),
+        )
+        | (
+            Why::Vacant,
+            Left::Pinged(Met::Unreachable(_) | Met::Pong { .. } | Met::Odd(_) | Met::Garbled(_)),
+        ) => inconsistent("a failure its outcomes allow"),
     }
+}
+
+/// A seat run's state: the lock not yet taken, held, held after the ping.
+enum SeatState<F, L> {
+    Unlocked(F),
+    Held(L),
+    HeldPinged(L, Met),
 }
 
 /// What a started worker does with the socket, as its seat run decides:
@@ -434,36 +657,46 @@ where
     F: Future<Output = io::Result<L>>,
 {
     let (mut run, mut next) = Run::seat();
-    let mut lock = Some(lock);
-    let mut held = None;
-    let mut met = None;
+    let mut state = SeatState::Unlocked(lock);
     loop {
         next = match next {
             Do::Lock => {
-                let Some(take) = lock.take() else {
-                    return inconsistent("one lock per seat");
+                state = match state {
+                    SeatState::Unlocked(take) => SeatState::Held(take().await?),
+                    SeatState::Held(_) | SeatState::HeldPinged(_, _) => {
+                        return inconsistent("one lock per seat")
+                    }
                 };
-                held = Some(take().await?);
                 run.step(&Seen::Locked)
             }
             Do::Ping => {
+                let held = match state {
+                    SeatState::Held(held) => held,
+                    SeatState::Unlocked(_) | SeatState::HeldPinged(_, _) => {
+                        return inconsistent("a ping under the lock")
+                    }
+                };
                 let pinged = probe(socket).await;
                 let next = run.step(&Seen::Pinged(&pinged));
-                met = Some(pinged);
+                state = SeatState::HeldPinged(held, pinged);
                 next
             }
             Do::Adopt => return Ok(Seated::Adopt),
             Do::Take => {
-                return match held {
-                    Some(held) => Ok(Seated::Take(held)),
-                    None => inconsistent("a take under the lock"),
-                };
+                return match state {
+                    SeatState::Held(held) | SeatState::HeldPinged(held, _) => {
+                        Ok(Seated::Take(held))
+                    }
+                    SeatState::Unlocked(_) => inconsistent("a take under the lock"),
+                }
             }
             Do::Fault => {
-                return match met {
-                    Some(met) => Err(met.into_error()),
-                    None => inconsistent("a fault after a ping"),
-                };
+                return match state {
+                    SeatState::HeldPinged(_, met) => Err(met.into_error()),
+                    SeatState::Unlocked(_) | SeatState::Held(_) => {
+                        inconsistent("a fault after a ping")
+                    }
+                }
             }
             Do::Shutdown | Do::Launch | Do::Use(_) | Do::Fail(_) | Do::Nothing => {
                 return inconsistent("a seat's next step");
@@ -498,13 +731,224 @@ pub(crate) async fn request(
     match connection.call(request).await {
         Ok(Response::Ok { reply }) => Ok((reply, got)),
         Ok(Response::Err { error }) => Err(TinyError::Worker(error)),
-        Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(TinyError::Protocol {
-            model: model.id,
-            message: error.to_string(),
-        }),
-        Err(_) => Err(TinyError::Crashed {
+        Err(error @ (CallError::TooLong | CallError::Garbled(_) | CallError::NotUtf8(_))) => {
+            Err(TinyError::Protocol {
+                model: model.id,
+                message: error.to_string(),
+            })
+        }
+        Err(CallError::Io(error)) if error.kind() == io::ErrorKind::InvalidData => {
+            Err(TinyError::Protocol {
+                model: model.id,
+                message: error.to_string(),
+            })
+        }
+        Err(CallError::Io(_) | CallError::Closed) => Err(TinyError::Crashed {
             model: model.id,
             log: home.log(model.id, BACKEND),
         }),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::ECHO;
+
+    fn connection() -> Connection {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+        let (read, writer) = stream.into_split();
+        Connection {
+            reader: BufReader::new(read),
+            writer,
+        }
+    }
+
+    #[tokio::test]
+    async fn pong_tag_length_uses_unicode_characters() {
+        let exact = "é".repeat(STR_MAX);
+        let long = format!("{exact}é");
+        let exact_met = Met::Pong {
+            connection: connection(),
+            tag: exact.clone(),
+        };
+        let exact_probe = exact_met.probe_wire();
+        assert_eq!(exact_probe.tag, 2);
+        assert_eq!(exact_probe.text, Some(exact.as_str()));
+        let long_met = Met::Pong {
+            connection: connection(),
+            tag: long,
+        };
+        let long_probe = long_met.probe_wire();
+        assert_eq!(long_probe.tag, 4);
+        assert_eq!(long_probe.text, None);
+    }
+
+    #[tokio::test]
+    async fn probe_classifies_connect_and_call_failures() {
+        assert!(matches!(
+            connect_failure(io::Error::from(io::ErrorKind::NotFound)),
+            Met::Missing
+        ));
+        assert!(matches!(
+            connect_failure(io::Error::from(io::ErrorKind::ConnectionRefused)),
+            Met::Missing
+        ));
+        assert!(matches!(
+            connect_failure(io::Error::from(io::ErrorKind::PermissionDenied)),
+            Met::Unreachable(_)
+        ));
+        let malformed = serde_json::from_str::<Response>("{").unwrap_err();
+        assert!(matches!(
+            after_ping(connection(), Err(CallError::Garbled(malformed))),
+            Met::Garbled(_)
+        ));
+        assert!(matches!(
+            after_ping(connection(), Err(CallError::TooLong)),
+            Met::Garbled(_)
+        ));
+        assert!(matches!(
+            after_ping(
+                connection(),
+                Err(CallError::NotUtf8(io::Error::from(
+                    io::ErrorKind::InvalidData
+                )))
+            ),
+            Met::Garbled(_)
+        ));
+        assert!(matches!(
+            after_ping(
+                connection(),
+                Err(CallError::Io(io::Error::from(io::ErrorKind::InvalidData)))
+            ),
+            Met::Garbled(_)
+        ));
+        assert!(matches!(
+            after_ping(connection(), Err(CallError::Closed)),
+            Met::Hung
+        ));
+        assert!(matches!(
+            after_ping(
+                connection(),
+                Err(CallError::Io(io::Error::from(io::ErrorKind::UnexpectedEof)))
+            ),
+            Met::Hung
+        ));
+        assert!(matches!(
+            after_ping(
+                connection(),
+                Err(CallError::Io(io::Error::from(io::ErrorKind::BrokenPipe)))
+            ),
+            Met::Hung
+        ));
+        assert!(matches!(
+            after_ping(
+                connection(),
+                Err(CallError::Io(io::Error::other("serialize")))
+            ),
+            Met::Hung
+        ));
+    }
+
+    #[test]
+    fn heard_outcomes_keep_the_worker_wire_tags() {
+        assert_eq!(heard_tag(&Ok(Response::Ok { reply: Reply::Bye })), 0);
+        assert_eq!(
+            heard_tag(&Ok(Response::Err {
+                error: crate::protocol::WorkerFailure::BadRequest {
+                    message: "bad".to_owned()
+                }
+            })),
+            1
+        );
+        assert_eq!(heard_tag(&Err(CallError::Closed)), 2);
+        assert_eq!(
+            heard_tag(&Err(CallError::Garbled(
+                serde_json::from_str::<Response>("{").unwrap_err()
+            ))),
+            3
+        );
+        assert_eq!(
+            heard_tag(&Err(CallError::Io(io::Error::from(
+                io::ErrorKind::BrokenPipe
+            )))),
+            3
+        );
+    }
+    #[tokio::test]
+    async fn failure_uses_the_last_outcome_for_each_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = TinyHome::under(dir.path());
+        let ping_error = io::Error::new(io::ErrorKind::PermissionDenied, "ping");
+        assert_eq!(
+            failure(
+                &home,
+                &ECHO,
+                "ours",
+                Why::Io,
+                Left::Pinged(Met::Unreachable(ping_error))
+            ),
+            TinyError::Io {
+                model: ECHO.id,
+                message: "ping".to_owned()
+            },
+        );
+        let shutdown_error = io::Error::new(io::ErrorKind::BrokenPipe, "shutdown");
+        assert_eq!(
+            failure(
+                &home,
+                &ECHO,
+                "ours",
+                Why::Io,
+                Left::Heard(Err(shutdown_error))
+            ),
+            TinyError::Io {
+                model: ECHO.id,
+                message: "shutdown".to_owned()
+            },
+        );
+        assert_eq!(
+            failure(
+                &home,
+                &ECHO,
+                "ours",
+                Why::Protocol,
+                Left::Heard(Ok(Response::Ok {
+                    reply: Reply::Loaded
+                }))
+            ),
+            TinyError::Protocol {
+                model: ECHO.id,
+                message: "the worker answered a shutdown with Ok { reply: Loaded }".to_owned()
+            },
+        );
+        let pong = Met::Pong {
+            connection: connection(),
+            tag: "theirs".to_owned(),
+        };
+        let mistagged = failure(&home, &ECHO, "ours", Why::Mistagged, Left::Pinged(pong));
+        assert!(mistagged.to_string().contains("tag theirs, not ours"));
+        let vacant = failure(
+            &home,
+            &ECHO,
+            "ours",
+            Why::Vacant,
+            Left::Pinged(Met::Missing),
+        );
+        assert!(vacant.to_string().contains("no worker listens"));
+        let launched = TinyError::Spawn {
+            model: ECHO.id,
+            message: "launch failed".to_owned(),
+            log: home.log(ECHO.id, BACKEND),
+        };
+        assert_eq!(
+            failure(
+                &home,
+                &ECHO,
+                "ours",
+                Why::Spawn,
+                Left::NoSpawn(launched.clone())
+            ),
+            launched
+        );
     }
 }

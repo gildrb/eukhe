@@ -422,15 +422,17 @@ pub(crate) fn files_state(dir: &Path, files: &[ModelFile]) -> InstallState {
     if !dir.is_dir() {
         return InstallState::Missing;
     }
-    let mut missing = Vec::new();
-    let mut wrong_size = Vec::new();
-    for file in files {
-        match std::fs::metadata(dir.join(file.path)) {
-            Ok(meta) if meta.is_file() && meta.len() == file.size => {}
-            Ok(meta) if meta.is_file() => wrong_size.push(file.path),
-            Ok(_) | Err(_) => missing.push(file.path),
-        }
-    }
+    let (missing, wrong_size) = files.iter().fold(
+        (Vec::new(), Vec::new()),
+        |(mut missing, mut wrong_size), file| {
+            match file_fact(std::fs::metadata(dir.join(file.path)), file.size) {
+                FileFact::Ok => {}
+                FileFact::WrongSize => wrong_size.push(file.path),
+                FileFact::Missing => missing.push(file.path),
+            }
+            (missing, wrong_size)
+        },
+    );
     if missing.is_empty() && wrong_size.is_empty() {
         InstallState::Installed
     } else {
@@ -438,6 +440,20 @@ pub(crate) fn files_state(dir: &Path, files: &[ModelFile]) -> InstallState {
             missing,
             wrong_size,
         }
+    }
+}
+
+enum FileFact {
+    Ok,
+    WrongSize,
+    Missing,
+}
+
+fn file_fact(meta: std::io::Result<std::fs::Metadata>, size: u64) -> FileFact {
+    match meta {
+        Ok(meta) if meta.is_file() && meta.len() == size => FileFact::Ok,
+        Ok(meta) if meta.is_file() => FileFact::WrongSize,
+        Ok(_) | Err(_) => FileFact::Missing,
     }
 }
 
@@ -499,5 +515,21 @@ mod tests {
         std::fs::write(dir.join("onnx/b.onnx"), b"abc").unwrap();
         assert_eq!(install_state(&home, &TEST_MODEL), InstallState::Installed);
         assert!(installed(&home, &TEST_MODEL));
+    }
+    #[test]
+    fn files_state_keeps_file_order_and_classifies_directories_as_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        std::fs::create_dir(dir.join("a.json")).unwrap();
+        std::fs::create_dir(dir.join("onnx")).unwrap();
+        std::fs::write(dir.join("onnx/b.onnx"), b"longer").unwrap();
+
+        assert_eq!(
+            files_state(dir, TEST_FILES),
+            InstallState::Partial {
+                missing: vec!["a.json"],
+                wrong_size: vec!["onnx/b.onnx"],
+            }
+        );
     }
 }

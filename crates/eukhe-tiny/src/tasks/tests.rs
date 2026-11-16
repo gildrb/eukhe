@@ -183,3 +183,34 @@ fn remote_replies_read_like_worker_replies() {
         )
     );
 }
+
+#[test]
+fn title_normalization_preserves_unicode_casing_and_cut_edges() {
+    assert_eq!(
+        normalize_title("TITLE: --- ÉCOLE RUST ---"),
+        Some("École rust".to_owned())
+    );
+    assert_eq!(
+        normalize_title("ßETA TESTING NOW"),
+        Some("SSETA TESTING NOW".to_owned())
+    );
+    assert_eq!(normalize_title("Title: é"), Some("É".to_owned()));
+}
+
+#[test]
+fn translation_normalization_preserves_language_and_error_ordering() {
+    assert_eq!(language_name("  DE "), "German");
+    assert_eq!(
+        translation_text("de", "Hello", "   "),
+        Err(TranslationError::Empty {
+            language: "German".to_owned(),
+        })
+    );
+    assert_eq!(translation_text("de", "42", "42"), Ok("42".to_owned()));
+    assert_eq!(
+        translation_text("de", "Hello!", " hello "),
+        Err(TranslationError::Unchanged {
+            language: "German".to_owned(),
+        })
+    );
+}

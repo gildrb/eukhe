@@ -460,3 +460,33 @@ async fn partial_install_is_replaced_only_on_success() {
     assert_eq!(models_entries(&home), vec![MODEL_ID.to_owned()]);
     assert_eq!(tree(&install_dir), installed_tree());
 }
+
+#[tokio::test]
+async fn download_trims_base_slashes_and_reports_zero_before_chunks() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = TinyHome::under(temp.path());
+    let files = good_files();
+    let base = serve(good_routes()).await;
+    let mut events = Vec::new();
+
+    let outcome = download_files(
+        &home,
+        MODEL_ID,
+        &files,
+        &format!("{base}///"),
+        &mut |event| events.push(event),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome, Downloaded::Installed);
+    assert_eq!(
+        events.first(),
+        Some(&Progress::Receiving {
+            file: "config.json",
+            received: 0,
+            total: CONFIG.len() as u64,
+        })
+    );
+    assert_eq!(state(&home, &files), InstallState::Installed);
+}
