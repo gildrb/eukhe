@@ -9,7 +9,8 @@ use super::check::detect;
 use super::trust::{config_root, trusted_dirs, trusted_value, TRUSTED_CONFIG_PATHS};
 use super::{
     files, run_check, tool_env, unit_of, unit_patch, CheckConfig, CheckOutcome, CheckReport,
-    CheckRun, ChildWorkspace, Listing, ScopedHandback, WorkspaceDrift, BASE, CONFLICTS, HANDBACK,
+    CheckRun, ChildWorkspace, GitView, Listing, ScopedHandback, TreeStamp, WorkspaceDrift, BASE,
+    CONFLICTS, HANDBACK,
 };
 use eukhe_types::daemon::agent_tree::CheckPhase;
 
@@ -138,8 +139,33 @@ async fn a_workspace_copies_tracked_and_untracked_files_but_not_ignored_ones() {
     );
 }
 
-/// The child's copy is a repository of its own: `git status` and `git
-/// diff` there show only the child's edits, nothing of the parent's
+/// A child's copy is known by its directory until it is handed back;
+/// another directory is no child's copy.
+#[tokio::test]
+async fn a_childs_copy_is_known_by_its_directory_until_its_hand_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("parent");
+    write(&parent, "a.txt", "a0");
+    let workspace = ChildWorkspace::at(dir.path().join("ws"));
+    workspace.create(&parent).await.unwrap();
+    let found = (
+        ChildWorkspace::of_tree(&workspace.tree()),
+        ChildWorkspace::of_tree(&parent),
+        ChildWorkspace::of_tree(workspace.root()),
+    );
+    let (units, scope) = whole();
+    workspace.hand_back_scoped(&units, &scope).await.unwrap();
+    assert_eq!(
+        (found, ChildWorkspace::of_tree(&workspace.tree())),
+        ((Some(workspace.clone()), None, None), None)
+    );
+}
+
+/// The child's copy becomes a repository of its own at its first git, not
+/// at the spawn: its index and commit are the copy as the child found it
+/// (an edit made before the first git still shows), `git status` and `git
+/// diff` show only the child's edits, the base commit carries no identity
+/// of the environment or the configuration, nothing of the parent's
 /// repository (history, branches, remotes, objects) is in it, and the
 /// hand-back carries no `.git`.
 #[tokio::test]
@@ -173,6 +199,20 @@ async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_reposi
     workspace.create(&parent).await.unwrap();
     let tree = workspace.tree();
     write(&tree, "a.txt", "a-child\n");
+    write(&tree, "n.txt", "n-child\n");
+    let before = tree.join(".git").exists();
+    // The first git, an exclude of the child's own repository (hiding a
+    // file the child added) and a status (which writes the index) leave
+    // the copy's stamp as it was: the repository is no change of the
+    // tree.
+    let stamp = TreeStamp::take(&tree).await;
+    let views = (
+        workspace.git_view().await.unwrap(),
+        workspace.git_view().await.unwrap(),
+    );
+    write(&tree, ".git/info/exclude", "n.txt\n");
+    git(&tree, &["status", "--porcelain"]);
+    let drift = stamp.drift(&TreeStamp::take(&tree).await);
     write(&tree, "c.txt", "c-child\n");
     let view = |dir: &Path| {
         (
@@ -183,21 +223,35 @@ async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_reposi
             git(dir, &["rev-parse", "--absolute-git-dir"]),
         )
     };
+    let base_tree = git(&tree, &["rev-parse", "HEAD^{tree}"]);
     assert_eq!(
         (
+            before,
+            drift,
+            views,
             view(&tree),
+            git(&tree, &["cat-file", "commit", "HEAD"]),
             git(&tree, &["diff", "--", "a.txt"]).contains("-a0\n+a-child\n"),
             git_run(&tree, &["cat-file", "-e", parent_head.trim()])
                 .status
                 .success(),
         ),
         (
+            false,
+            WorkspaceDrift::Held,
+            (GitView::Made, GitView::Present),
             (
                 " M a.txt\n?? c.txt\n".to_owned(),
                 "a.txt\n".to_owned(),
                 "The workspace at the child's start\n".to_owned(),
                 String::new(),
                 format!("{}\n", tree.canonicalize().unwrap().join(".git").display()),
+            ),
+            format!(
+                "tree {}\nauthor eukhe <eukhe@localhost> 0 +0000\n\
+                 committer eukhe <eukhe@localhost> 0 +0000\n\n\
+                 The workspace at the child's start\n",
+                base_tree.trim()
             ),
             true,
             false,
@@ -213,15 +267,33 @@ async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_reposi
             git(&parent, &["rev-list", "--all", "--count"]),
         ),
         (
-            names(&["a.txt", "c.txt"]),
+            names(&["a.txt", "c.txt", "n.txt"]),
             files_of(&[
                 ("a.txt", "a-child\n"),
                 ("b.txt", "b-parent\n"),
                 ("c.txt", "c-child\n"),
+                ("n.txt", "n-child\n"),
                 ("u.txt", "u0\n"),
             ]),
-            " M a.txt\n M b.txt\n?? c.txt\n?? u.txt\n".to_owned(),
+            " M a.txt\n M b.txt\n?? c.txt\n?? n.txt\n?? u.txt\n".to_owned(),
             "1\n".to_owned(),
+        )
+    );
+    // The repository stays with the copy while checks run; the close
+    // removes both, and the root keeps no staging of it.
+    let open = workspace.tree().join(".git").is_dir();
+    workspace.close().await.unwrap();
+    let mut entries: Vec<String> = fs::read_dir(workspace.root())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        (open, fs::read_link(workspace.tree()).unwrap(), entries),
+        (
+            true,
+            parent.clone(),
+            names(&["handback.json", "manifest.json", "tree"])
         )
     );
 }

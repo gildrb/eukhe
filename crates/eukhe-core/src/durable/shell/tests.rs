@@ -472,3 +472,63 @@ echo four >four.txt\n"
     );
     session.close(cx()).await.expect("close");
 }
+
+#[test]
+fn a_script_names_git_by_the_word_or_a_path_ending_in_it() {
+    let scripts = [
+        "git status",
+        "cd src && /usr/bin/git diff",
+        "echo x; git",
+        "ls .git",
+        "git-lfs ls-files",
+        "echo digit",
+    ];
+    assert_eq!(
+        scripts.map(names_git),
+        [true, true, true, false, false, false]
+    );
+}
+
+/// Regression: an isolated child's copy had no repository, so `git
+/// status` failed there. The first script that names git makes it, from
+/// the copy as the child found it: an edit made before still shows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_first_script_naming_git_in_a_childs_copy_shows_the_childs_changes() {
+    let fixture = Fixture::new();
+    let parent = fixture.dir.path().join("work");
+    std::fs::write(parent.join("a.txt"), "a0\n").expect("parent file");
+    let workspace = ChildWorkspace::at(fixture.dir.path().join("ws"));
+    workspace.create(&parent).await.expect("child copy");
+    let tree = workspace.tree();
+    std::fs::write(tree.join("a.txt"), "a-child\n").expect("child edit");
+    let before = tree.join(".git").exists();
+    fixture.faux.set_responses(vec![
+        bash("b1", "echo x"),
+        bash("b2", "git status --porcelain"),
+        text("done"),
+    ]);
+    let session = fixture
+        .open_configured(|config| config.cwd = tree.clone())
+        .await;
+    let id = submit(&session, "go").await;
+    tokio::time::timeout(Duration::from_millis(WAIT_MS), settle(&session, id))
+        .await
+        .expect("the turn ends");
+    let texts: Vec<String> = results(&entries(&session).await)
+        .iter()
+        .map(result_text)
+        .collect();
+    assert_eq!(
+        (
+            before,
+            texts.first().cloned(),
+            texts
+                .get(1)
+                .is_some_and(|text| text.ends_with("\n M a.txt\n")),
+            tree.join(".git").is_dir(),
+        ),
+        (false, Some("$ echo x\nx\n".to_owned()), true, true),
+        "{texts:?}"
+    );
+    session.close(cx()).await.expect("close");
+}

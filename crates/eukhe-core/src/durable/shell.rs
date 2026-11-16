@@ -51,8 +51,16 @@ use super::deps::ShellApprovalSink;
 use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
 use super::HostDeps;
-use crate::child_workspace::TreeStamp;
+use crate::child_workspace::{ChildWorkspace, TreeStamp};
 use crate::kernel::manager::local_env;
+
+/// Whether `script` names the `git` program: a word `git` or a path
+/// ending in `/git`.
+fn names_git(script: &str) -> bool {
+    script
+        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/')))
+        .any(|word| word.rsplit('/').next() == Some("git"))
+}
 
 /// The extension's name.
 pub const SHELL_EXTENSION: &str = "eukhe.shell";
@@ -335,6 +343,15 @@ async fn execute(
         &api.task_id().to_string(),
         api.truncation(),
     )));
+    // An isolated child's copy becomes a repository when a script first
+    // names git.
+    if names_git(script) {
+        if let Some(workspace) = ChildWorkspace::of_tree(&cwd) {
+            if let Err(error) = workspace.git_view().await {
+                transcript.push(&format!("[no git view of this copy: {error:#}]\n"), true);
+            }
+        }
+    }
     let workspace = cwd.clone();
     let mut running = {
         let (auto, env) = (auto_set(&deps.settings), local_env(&session_env(deps)));

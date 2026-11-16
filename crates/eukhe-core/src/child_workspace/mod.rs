@@ -24,12 +24,12 @@
 //!   it; a path both changed differently keeps the parent's and is a
 //!   conflict, the child's version under `conflicts/`.
 //!
-//! The child's copy is a git repository of its own (`tree/.git`, made at
-//! the spawn; [`git_view`]): its one commit is the workspace as the child
-//! found it, so `git status` and `git diff` there show the child's changes
-//! only. It holds no history, branch or remote of the parent's
-//! repository, and the patch never carries a `.git` path
-//! ([`files::walk`]).
+//! The child's copy turns into a git repository of its own (`tree/.git`)
+//! when the child first runs git there ([`ChildWorkspace::git_view`]):
+//! its index and its one commit are `base/`, so `git status` and `git
+//! diff` show the child's changes since its start only. It holds no
+//! history, branch or remote of the parent's repository, and the patch
+//! never carries a `.git` path ([`files::walk`]).
 //!
 //! Each path is replaced in one rename, and the hand-back is idempotent: a
 //! path already taken reads as changed by both to the same content, so a
@@ -67,12 +67,12 @@ mod tests;
 pub(crate) use check::PROGRESS_EVERY;
 pub use check::{run_check, CheckConfig, CheckReport, CheckRun};
 pub use eukhe_types::daemon::agent_tree::CheckOutcome;
+pub use git_view::GitView;
 pub(crate) use stamp::TreeStamp;
 pub use stamp::WorkspaceDrift;
 pub use units::{unit_of, unit_patch};
 
 use files::{Copied, Listing};
-use git_view::GitView;
 use merge::Plan;
 
 const MANIFEST: &str = "manifest.json";
@@ -234,16 +234,46 @@ impl ChildWorkspace {
         self.is_created() && self.root.join(BASE).is_dir()
     }
 
-    /// Copy `parent`'s workspace into `base/` and `tree/`, and make
-    /// `tree/` a git repository of its own whose one commit is the copy
-    /// ([`git_view`]). Idempotent: a workspace already created is kept, a
-    /// create a crash cut starts over.
+    /// The workspace whose child copy is `dir`, its copies there (handed
+    /// back or not); `None` when `dir` is no child's copy.
+    pub(crate) fn copy_at(dir: &Path) -> Option<Self> {
+        let root = dir
+            .parent()
+            .filter(|_| dir.file_name() == Some(TREE.as_ref()))?;
+        let workspace = Self::at(root.to_path_buf());
+        workspace.has_copies().then_some(workspace)
+    }
+
+    /// The workspace whose child copy is `dir`; `None` when `dir` is no
+    /// child's copy (or the copy was handed back).
+    #[must_use]
+    pub fn of_tree(dir: &Path) -> Option<Self> {
+        Self::copy_at(dir).filter(|workspace| !workspace.is_handed_back())
+    }
+
+    /// Make the child's copy a git repository of its own whose index and
+    /// one commit are the copy as the child found it (`base/`), unless it
+    /// is one already ([`git_view`]).
+    ///
+    /// # Errors
+    ///
+    /// The workspace has no copies, or a git step fails.
+    #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
+    pub async fn git_view(&self) -> anyhow::Result<GitView> {
+        if !self.has_copies() || self.is_handed_back() {
+            anyhow::bail!("{} holds no child copy", self.root.display());
+        }
+        git_view::make(&self.root, &self.root.join(BASE), &self.tree()).await
+    }
+
+    /// Copy `parent`'s workspace into `base/` and `tree/`. Idempotent: a
+    /// workspace already created is kept, a create a crash cut starts
+    /// over.
     ///
     /// # Errors
     ///
     /// The parent's workspace has more than [`MAX_WORKSPACE_FILES`]
-    /// paths, a path cannot be listed, read or copied, or git fails on
-    /// the copy.
+    /// paths, or a path cannot be listed, read or copied.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
     pub async fn create(&self, parent: &Path) -> anyhow::Result<CopyReport> {
         self.create_asking(parent, OsStr::new(trust::MISE)).await
@@ -271,13 +301,6 @@ impl ChildWorkspace {
                 (self.root.clone(), staging.clone(), parent.to_path_buf());
             tokio::task::spawn_blocking(move || copy_in(&root, &staging, &parent, &paths)).await??
         };
-        match git_view::make(&staging.join(TREE)).await? {
-            GitView::Made => {}
-            GitView::NoGit => tracing::warn!(
-                root = %self.root.display(),
-                "no git to run: the child workspace has no git view of the child's changes"
-            ),
-        }
         let manifest = Manifest {
             parent: parent.to_path_buf(),
             copy: report,

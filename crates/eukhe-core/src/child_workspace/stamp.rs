@@ -5,8 +5,9 @@
 //! between: a result judged one tree state only when none was.
 //!
 //! Cost: one `git ls-files` and one `lstat` per path (no hashing); a
-//! workspace without git is walked, and past [`MAX_WORKSPACE_FILES`] paths
-//! it gets no stamp.
+//! workspace without git, and a child's copy (whose own repository its
+//! first git makes), is walked, and past [`MAX_WORKSPACE_FILES`] paths it
+//! gets no stamp.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::files::{self, Listing};
-use super::MAX_WORKSPACE_FILES;
+use super::{ChildWorkspace, MAX_WORKSPACE_FILES};
 
 /// The paths a [`WorkspaceDrift`] names; the others are only counted.
 const NAMED_PATHS: usize = 8;
@@ -62,7 +63,14 @@ impl TreeStamp {
     /// Stamp the workspace at `dir`.
     #[tracing::instrument(level = "debug")]
     pub(crate) async fn take(dir: &Path) -> Self {
-        let listed = if let Some(paths) = files::git_paths(dir).await {
+        // A child's copy is walked, never listed by git: the repository
+        // the child's first git makes there (`.git`, which the walk skips)
+        // changes no stamp of it.
+        let git = match ChildWorkspace::copy_at(dir) {
+            Some(_) => None,
+            None => files::git_paths(dir).await,
+        };
+        let listed = if let Some(paths) = git {
             Ok(paths)
         } else {
             let dir = dir.to_path_buf();

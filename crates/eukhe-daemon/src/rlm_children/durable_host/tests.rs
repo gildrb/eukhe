@@ -753,17 +753,13 @@ async fn rename_routes_self_and_child_renames_through_the_supervisor() {
     );
 }
 
-/// The files under `dir` (relative path → content); a `.git` directory
-/// is left out, as the hand-back's walk leaves it out.
+/// The files under `dir` (relative path → content).
 fn files_under(dir: &Path) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(next) = pending.pop() {
         for entry in std::fs::read_dir(&next).unwrap() {
             let path = entry.unwrap().path();
-            if path.file_name() == Some(".git".as_ref()) && path.is_dir() {
-                continue;
-            }
             if path.is_dir() {
                 pending.push(path);
             } else {
@@ -834,17 +830,15 @@ async fn spawn_isolated(
         .map(|create| create["config"]["cwd"].clone())
         .collect();
     assert_eq!(cwds, [json!(tree.to_string_lossy())]);
+    // The copy holds no repository until the child first runs git.
     assert_eq!(
-        (files_under(&tree), tree.join(".git").is_dir()),
-        (
-            file_map(&[
-                (".gitignore", "target/\n"),
-                ("a.txt", "a0"),
-                ("b.txt", "b0"),
-                ("c.txt", "c0"),
-            ]),
-            true,
-        )
+        files_under(&tree),
+        file_map(&[
+            (".gitignore", "target/\n"),
+            ("a.txt", "a0"),
+            ("b.txt", "b0"),
+            ("c.txt", "c0"),
+        ])
     );
     (sessions, root)
 }

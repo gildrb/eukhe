@@ -47,11 +47,12 @@ Five mechanisms, each stated as a rule of the tree:
    included. The child starts from what the parent sees.
 2. **Baseline from the child's own copy.** The child's patch is the diff
    of its checkout against the copy's start, never against the live
-   parent: other children's integrations never leak into it. The checkout
-   is a git repository of its own whose one commit is that start: `git
-   status` and `git diff` there show the child's changes only. It holds
-   nothing of the parent's repository (history, branches, remotes), and
-   the patch never carries its `.git`.
+   parent: other children's integrations never leak into it. The first
+   `bash` script naming git in the checkout makes it a git repository of
+   its own whose index and one commit are that start: `git status` and
+   `git diff` there show the child's changes only. It holds nothing of
+   the parent's repository (history, branches, remotes), and the patch
+   never carries its `.git`.
 3. **Disjoint scopes, checked at the split.** The split names each child's
    scope; the core admits it only when own, left and right partition the
    parent's scope (T1, T2). Two running nodes never own the same unit.
