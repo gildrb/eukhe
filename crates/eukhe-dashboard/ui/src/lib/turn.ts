@@ -3,6 +3,7 @@
 // sidebar status word, the document title, the badge and announcements.
 // No DOM, no clock reads: callers pass `now`.
 
+import { checkKey, type RunningCheck } from "./check.ts";
 import { loopEndNote } from "./loop.ts";
 import type {
   AgentState,
@@ -117,6 +118,8 @@ export type Session = {
   goal: unknown;
   /** The session's `/loop`: `state.loop`, then every `loop_update`. */
   loop: LoopStatus | null;
+  /** The running hand-back checks of the session's children, by child and place. */
+  checks: Record<string, RunningCheck>;
   serviceTier: string | null;
   memory: { stamp: number; last: unknown };
   notes: Note[];
@@ -201,6 +204,7 @@ export function openSession(reply: OpenReply, previous: Session | null, now: num
         bash: null,
         memory: { stamp: 0, last: null },
         notes: [],
+        checks: {},
         pending: samePrevious ? previous.pending : [],
       };
   const session: Session = {
@@ -664,6 +668,20 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
         loop: event.loop,
         notes: end ? note(session, end.kind, end.text, now) : session.notes,
       };
+    }
+    case "check_update": {
+      // A running check's report replaces its last; an ended one leaves
+      // the line and adds one note of how it ended.
+      const key = checkKey(event.check);
+      const { [key]: _ended, ...others } = session.checks;
+      switch (event.check.phase.kind) {
+        case "running":
+          return { ...session, checks: { ...others, [key]: { check: event.check, at: now } } };
+        case "ended": {
+          const kind = event.check.phase.outcome.kind === "passed" ? "note" : "error";
+          return { ...session, checks: others, notes: note(session, kind, event.text, now) };
+        }
+      }
     }
     case "chat_turn_wait":
       return {

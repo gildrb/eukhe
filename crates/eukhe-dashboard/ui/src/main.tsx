@@ -115,8 +115,11 @@ store.subscribe(attend);
 setInterval(() => {
   if (document.hidden) return;
   const state = store.get();
-  if (derivePhase(state, Date.now(), fmt).running || loopCountsDown(state.session?.loop ?? null))
-    store.set({ tick: Date.now() });
+  const ticking =
+    derivePhase(state, Date.now(), fmt).running ||
+    loopCountsDown(state.session?.loop ?? null) ||
+    Object.keys(state.session?.checks ?? {}).length > 0;
+  if (ticking) store.set({ tick: Date.now() });
 }, TICK_MS);
 
 // ----------------------------------------------------------------- boot --

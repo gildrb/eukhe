@@ -147,7 +147,27 @@ export type PromptProgress = { processed: number; total: number; cache: number; 
 
 export type StreamUpdate = { type: string; delta?: string };
 
-/** The 29 SessionEvent types the reducer folds. */
+/** How a child's hand-back check ended (eukhe-types `CheckOutcome`). */
+export type CheckOutcome =
+  | { kind: "passed" }
+  | { kind: "failed"; code: number | null }
+  | { kind: "timedOut" };
+
+/**
+ * One report of a child's hand-back check (eukhe-types `CheckProgress`):
+ * at its start, every 30 s while it runs, at its end.
+ */
+export type CheckProgress = {
+  child: string;
+  place: "checkout" | "integration";
+  command: string;
+  elapsedMs: number;
+  phase:
+    | { kind: "running"; lastLine: string | null }
+    | { kind: "ended"; outcome: CheckOutcome; lastLines: string[] };
+};
+
+/** The 30 SessionEvent types the reducer folds. */
 export type SessionEvent =
   | { type: "agent_start" }
   | { type: "agent_end" }
@@ -202,6 +222,7 @@ export type SessionEvent =
   | { type: "goal_update"; goal: unknown }
   | { type: "loop_update"; loop: LoopStatus }
   | { type: "budget_update"; budget: unknown }
+  | { type: "check_update"; check: CheckProgress; text: string }
   | { type: "chat_turn_wait"; waiting: boolean }
   | { type: "memory_update"; update: unknown }
   | { type: "bash_start"; command: string }
