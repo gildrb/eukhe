@@ -101,15 +101,19 @@ impl Digest {
         Self(0xcbf2_9ce4_8422_2325)
     }
 
-    pub(crate) fn update(&mut self, bytes: &[u8]) {
+    pub(crate) fn update(self, bytes: &[u8]) -> Self {
         let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        for byte in length.to_le_bytes().iter().chain(bytes) {
-            self.0 ^= u64::from(*byte);
-            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
-        }
+        let value = length
+            .to_le_bytes()
+            .iter()
+            .chain(bytes)
+            .fold(self.0, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            });
+        Self(value)
     }
 
-    pub(crate) fn finish(&self) -> u64 {
+    pub(crate) fn finish(self) -> u64 {
         self.0
     }
 }

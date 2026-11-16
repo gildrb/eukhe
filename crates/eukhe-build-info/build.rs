@@ -57,128 +57,168 @@ fn main() {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let id = match env_commit {
-        Some(commit) => match commit.strip_suffix(NIX_DIRTY_SUFFIX) {
-            Some(rev) => build_id(
-                &version,
-                &Source::Changed {
-                    commit: rev,
-                    digest: files_digest(&root),
-                },
-            ),
-            None => build_id(&version, &Source::Commit(&commit)),
-        },
-        None => match git_source(&root) {
-            Some((commit, Some(digest))) => build_id(
-                &version,
-                &Source::Changed {
-                    commit: &commit,
-                    digest,
-                },
-            ),
-            Some((commit, None)) => build_id(&version, &Source::Commit(&commit)),
-            None => build_id(
-                &version,
-                &Source::Files {
-                    digest: files_digest(&root),
-                },
-            ),
-        },
+    let id = match origin(env_commit, &root) {
+        Origin::EnvCommit(commit) => build_id(&version, &Source::Commit(&commit)),
+        Origin::NixDirty(rev) => build_id(
+            &version,
+            &Source::Changed {
+                commit: &rev,
+                digest: files_digest(&root),
+            },
+        ),
+        Origin::Git(GitState::Clean { head }) => build_id(&version, &Source::Commit(&head)),
+        Origin::Git(GitState::Changed { head, digest }) => build_id(
+            &version,
+            &Source::Changed {
+                commit: &head,
+                digest,
+            },
+        ),
+        Origin::Files => build_id(
+            &version,
+            &Source::Files {
+                digest: files_digest(&root),
+            },
+        ),
     };
     println!("cargo:rustc-env=EUKHE_VERSION={version}");
     println!("cargo:rustc-env=EUKHE_BUILD_ID={id}");
 }
 
-/// `HEAD` of the checkout holding the workspace and, when the build
-/// inputs differ from it, the hash of their changes; `None` when git or
+/// Where this build's source comes from (see the module docs).
+enum Origin {
+    /// `EUKHE_BUILD_COMMIT`, a commit as it is.
+    EnvCommit(String),
+    /// `EUKHE_BUILD_COMMIT` of a Nix `dirtyRev`: the commit before `-dirty`.
+    NixDirty(String),
+    /// The checkout's git state.
+    Git(GitState),
+    /// No commit known: the build inputs themselves.
+    Files,
+}
+
+/// The checkout's `HEAD`, and the hash of the build inputs' changes when
+/// they differ from it.
+enum GitState {
+    Clean { head: String },
+    Changed { head: String, digest: u64 },
+}
+
+/// The origin of this build: `env_commit` (trimmed, non-empty) when set,
+/// else git in the checkout under `root`, else the files.
+fn origin(env_commit: Option<String>, root: &Path) -> Origin {
+    match env_commit {
+        Some(commit) => match commit.strip_suffix(NIX_DIRTY_SUFFIX) {
+            Some(rev) => Origin::NixDirty(rev.to_owned()),
+            None => Origin::EnvCommit(commit),
+        },
+        None => git_source(root).map_or(Origin::Files, Origin::Git),
+    }
+}
+
+/// The git state of the checkout holding the workspace; `None` when git or
 /// the repository is unavailable.
-fn git_source(root: &Path) -> Option<(String, Option<u64>)> {
+fn git_source(root: &Path) -> Option<GitState> {
     let top = PathBuf::from(git_text(root, &["rev-parse", "--show-toplevel"])?);
     let head = git_text(&top, &["rev-parse", "HEAD"])?;
     watch_git_state(&top);
-    let mut tracked = vec!["ls-files", "-z", "--"];
-    tracked.extend(INPUTS);
+    let tracked = [&["ls-files", "-z", "--"][..], &INPUTS].concat();
     for path in nul_separated(&git_bytes(&top, &tracked)?) {
         watch(&top.join(path));
     }
-    let mut diff = vec![
-        "--no-optional-locks",
-        "diff",
-        "HEAD",
-        "--binary",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--",
-    ];
-    diff.extend(INPUTS);
+    let diff = [
+        &[
+            "--no-optional-locks",
+            "diff",
+            "HEAD",
+            "--binary",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--",
+        ][..],
+        &INPUTS,
+    ]
+    .concat();
     let changes = git_bytes(&top, &diff)?;
-    let mut untracked = vec!["ls-files", "-z", "--others", "--exclude-standard", "--"];
-    untracked.extend(INPUTS);
-    let mut untracked = nul_separated(&git_bytes(&top, &untracked)?);
+    let others = [
+        &["ls-files", "-z", "--others", "--exclude-standard", "--"][..],
+        &INPUTS,
+    ]
+    .concat();
+    let mut untracked = nul_separated(&git_bytes(&top, &others)?);
     untracked.sort_unstable();
     if changes.is_empty() && untracked.is_empty() {
-        return Some((head, None));
+        return Some(GitState::Clean { head });
     }
-    let mut digest = Digest::new();
-    digest.update(&changes);
-    for path in untracked {
-        let file = top.join(&path);
-        watch(&file);
-        digest.update(path.as_bytes());
-        digest.update(&std::fs::read(&file).unwrap_or_default());
-    }
-    Some((head, Some(digest.finish())))
+    let digest = untracked
+        .into_iter()
+        .fold(Digest::new().update(&changes), |digest, path| {
+            let file = top.join(&path);
+            watch(&file);
+            digest
+                .update(path.as_bytes())
+                // A file removed after listing is no longer a build input.
+                .update(&std::fs::read(&file).unwrap_or_default())
+        });
+    Some(GitState::Changed {
+        head,
+        digest: digest.finish(),
+    })
 }
 
 /// A hash of every build input file (path and content, in path order),
 /// each watched.
 fn files_digest(root: &Path) -> u64 {
-    let mut files = Vec::new();
-    for input in INPUTS {
-        collect_files(root, Path::new(input), &mut files);
-    }
+    let mut files = INPUTS
+        .iter()
+        .flat_map(|input| collect_files(root, Path::new(input)))
+        .collect::<Vec<_>>();
     files.sort_unstable();
-    let mut digest = Digest::new();
-    for relative in files {
-        let file = root.join(&relative);
-        watch(&file);
-        digest.update(relative.to_string_lossy().as_bytes());
-        digest.update(&std::fs::read(&file).unwrap_or_default());
-    }
-    digest.finish()
+    files
+        .into_iter()
+        .fold(Digest::new(), |digest, relative| {
+            let file = root.join(&relative);
+            watch(&file);
+            digest
+                .update(relative.to_string_lossy().as_bytes())
+                // A file removed after listing is no longer a build input.
+                .update(&std::fs::read(&file).unwrap_or_default())
+        })
+        .finish()
 }
 
 /// The files under `root/relative` (a file or a directory), relative to
 /// `root`, skipping [`SKIPPED_DIRS`].
-fn collect_files(root: &Path, relative: &Path, files: &mut Vec<PathBuf>) {
+fn collect_files(root: &Path, relative: &Path) -> Vec<PathBuf> {
     let path = root.join(relative);
     if path.is_file() {
-        files.push(relative.to_path_buf());
-        return;
+        return vec![relative.to_path_buf()];
     }
     let Ok(entries) = std::fs::read_dir(&path) else {
-        return;
+        return Vec::new();
     };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let skipped = SKIPPED_DIRS.iter().any(|dir| name == *dir);
-        if !(skipped && entry.path().is_dir()) {
-            collect_files(root, &relative.join(name), files);
-        }
-    }
+    entries
+        .flatten()
+        .flat_map(|entry| {
+            let name = entry.file_name();
+            let child = entry.path();
+            if SKIPPED_DIRS.iter().any(|dir| name == *dir) && child.is_dir() {
+                Vec::new()
+            } else {
+                collect_files(root, &relative.join(name))
+            }
+        })
+        .collect()
 }
 
 /// Rerun when the commit may have moved: `HEAD`, the branch ref it points
 /// at (loose or packed), and the index.
 fn watch_git_state(top: &Path) {
-    let mut watched = vec![
-        "HEAD".to_string(),
-        "index".to_string(),
-        "packed-refs".to_string(),
-    ];
-    if let Some(branch) = git_text(top, &["symbolic-ref", "-q", "HEAD"]) {
-        watched.push(branch);
-    }
+    let branch = git_text(top, &["symbolic-ref", "-q", "HEAD"]);
+    let watched = ["HEAD", "index", "packed-refs"]
+        .map(str::to_owned)
+        .into_iter()
+        .chain(branch);
     for name in watched {
         if let Some(path) = git_text(top, &["rev-parse", "--git-path", &name]) {
             watch(&top.join(path));

@@ -40,11 +40,10 @@ mod tests {
     use super::VERSION;
 
     fn digest(parts: &[&[u8]]) -> u64 {
-        let mut digest = Digest::new();
-        for part in parts {
-            digest.update(part);
-        }
-        digest.finish()
+        parts
+            .iter()
+            .fold(Digest::new(), |digest, part| digest.update(part))
+            .finish()
     }
 
     #[test]
