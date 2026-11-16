@@ -633,7 +633,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         options: &[
             (
                 "-p, --print",
-                "Print a response and exit: 1 when the run failed or left work (its goal open, or its final answer, read by one judge request, naming work left)",
+                "Print a response and exit: 0 done; 1 the run failed, or left work (its goal open, or, after it acted, its final answer naming work left, read by one judge request); 3 that judge could not read the answer",
             ),
             (
                 "--mode <text|json|rpc|acp|daemon>",

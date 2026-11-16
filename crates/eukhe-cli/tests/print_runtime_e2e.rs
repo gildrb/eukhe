@@ -1359,14 +1359,24 @@ fn an_answer_with_its_goal_complete_exits_zero() {
     );
 }
 
-/// Without a goal, a final answer that lists items left is judged (one
-/// judge request, scripted here) as stating work left: the run exits 1
-/// with the items on stderr and, in json mode, as the stream's last
-/// record. Before the judge such a run exited 0.
+/// A bash call that writes a file: the run acted.
+fn write_file() -> serde_json::Value {
+    serde_json::json!({
+        "content": [{ "type": "toolCall", "name": "bash", "arguments": { "script": "echo a > w1.txt" } }]
+    })
+}
+
+/// A run that acted without a goal and whose final answer lists items
+/// left is judged (one judge request, scripted here) as stating work left:
+/// it exits 1 with the items on stderr and, in json mode, as the stream's
+/// last record. Before the judge such a run exited 0.
 #[test]
 fn an_answer_that_lists_items_left_exits_one_with_them() {
     let script = serde_json::json!({
-        "responses": [{ "text": "Items done: W1. Items left: W2 (blocked), W3 (no network)." }],
+        "responses": [
+            write_file(),
+            { "text": "Items done: W1. Items left: W2 (blocked), W3 (no network)." },
+        ],
         "judge": ["FAIL\n- W2 (blocked)\n- W3 (no network)"],
     });
     let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
@@ -1414,19 +1424,42 @@ fn a_goal_claimed_complete_with_items_left_exits_one() {
     );
 }
 
-/// An answer the judge reads as done, and a plain question answered,
-/// exit 0 with nothing on stderr.
+/// A run that acted and whose answer the judge reads as done exits 0
+/// with nothing on stderr.
 #[test]
-fn a_done_answer_and_a_plain_answer_exit_zero() {
-    for (prompt, answer) in [
-        ("do the work list", "Items done: W1, W2."),
-        ("what is 2+2?", "4"),
+fn a_done_answer_exits_zero() {
+    let script = serde_json::json!({
+        "responses": [write_file(), { "text": "Items done: W1, W2." }],
+        "judge": ["PASS"],
+    });
+    let (stdout, stderr, code) = run(&["-p", "do the work list"], &script);
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (0, "Items done: W1, W2.\n", "")
+    );
+}
+
+/// A question answered without acting (no tool call, or reads only) is
+/// never judged: the scripted judge would fail it, yet the run exits 0
+/// with nothing on stderr, so no judge request was made, even for an
+/// answer that names work left.
+#[test]
+fn a_plain_answer_is_never_judged() {
+    let read_only = serde_json::json!({
+        "content": [{ "type": "toolCall", "name": "bash", "arguments": { "script": "ls" } }]
+    });
+    for (responses, answer) in [
+        (serde_json::json!([{ "text": "4" }]), "4"),
+        (
+            serde_json::json!([read_only, { "text": "Left: nothing to do here." }]),
+            "Left: nothing to do here.",
+        ),
     ] {
         let script = serde_json::json!({
-            "responses": [{ "text": answer }],
-            "judge": ["PASS"],
+            "responses": responses,
+            "judge": ["FAIL\nthe judge was asked"],
         });
-        let (stdout, stderr, code) = run(&["-p", prompt], &script);
+        let (stdout, stderr, code) = run(&["-p", "what is here?"], &script);
         assert_eq!(
             (code, stdout.as_str(), stderr.as_str()),
             (0, format!("{answer}\n").as_str(), "")
@@ -1434,22 +1467,35 @@ fn a_done_answer_and_a_plain_answer_exit_zero() {
     }
 }
 
-/// A judge that gives no verdict (here its scripted replies ran out; in a
-/// product run a failed request or an unreadable reply) never lets the
-/// run exit 0: it exits 1 and says why.
+/// A judge that gives no verdict (an unreadable reply; its replies run
+/// out, as a failed request would) never lets a run that acted exit 0
+/// nor reads as work left: it exits 3 and says why.
 #[test]
-fn an_unjudged_answer_exits_one() {
-    let script = serde_json::json!({
-        "responses": [{ "text": "all done" }],
-        "judge": [],
-    });
-    let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
-    assert_eq!(code, 1, "stderr: {stderr}");
-    assert!(
-        stderr.contains("eukhe: the final answer could not be judged (the faux script's judge replies ran out): the run counts as not done"),
-        "stderr: {stderr}"
-    );
-    let last: serde_json::Value =
-        serde_json::from_str(stdout.lines().last().expect("a record")).unwrap();
-    assert_eq!(last["type"], "task_unjudged", "last record: {last}");
+fn an_unjudged_answer_exits_three() {
+    for (judge, reason) in [
+        (
+            serde_json::json!(["maybe"]),
+            "the judge's reply starts with neither PASS nor FAIL: maybe",
+        ),
+        (
+            serde_json::json!([]),
+            "the faux script's judge replies ran out",
+        ),
+    ] {
+        let script = serde_json::json!({
+            "responses": [write_file(), { "text": "all done" }],
+            "judge": judge,
+        });
+        let (stdout, stderr, code) = run(&["--mode", "json", "-p", "do the work list"], &script);
+        assert_eq!(code, 3, "stderr: {stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "eukhe: the final answer could not be judged ({reason}): exit 3, the run counts as not done"
+            )),
+            "stderr: {stderr}"
+        );
+        let last: serde_json::Value =
+            serde_json::from_str(stdout.lines().last().expect("a record")).unwrap();
+        assert_eq!(last["type"], "task_unjudged", "last record: {last}");
+    }
 }

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_bend::rules::headless::{
     Exit, ExitCause, ExitFacts, Primary, Report, RunEnd, RunGoal, Task, TaskExit, Unanswered, Wait,
+    UNJUDGED_CODE,
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::acceptance::{
@@ -507,6 +508,8 @@ async fn run_prompts(
     } else {
         None
     };
+    // The run's entries are the ones after this: whether it acted.
+    let since = activity::newest_entry(&conversation, cx).await?;
     let watch = RunWatch::start(opened, &conversation, cx).await?;
     let ended = drive_prompts(opened, &conversation, &watch, options, cx).await;
     // The run's disclosure rows (a reported overflow outcome) commit from
@@ -516,7 +519,7 @@ async fn run_prompts(
         events.finish().await;
     }
     let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
-    let exit = task_exit(opened, &conversation, exit, json_mode, cx).await?;
+    let exit = task_exit(opened, &conversation, exit, since, json_mode, cx).await?;
     // "Done" is a claim: with acceptance checks the run exits 0 only when
     // each is confirmed on the final state (`laws/verify.bend`); the label
     // goes to stderr in both modes.
@@ -728,40 +731,47 @@ async fn run_exit(
 }
 
 /// Whether the run's `exit` stands for its task (`headless_task`, in the
-/// compiled core): an answer while the run's goal is open, or (without an
-/// open goal) a final answer that the judge reads as stating work left,
-/// is incomplete; an answer the judge gave no verdict on is unjudged. Both
-/// exit 1 and say why on stderr, and in json mode as the stream's last
-/// record. The judge is one request, asked only for an answered run
-/// without an open goal.
+/// compiled core), from the run's goal and whether it acted: an answer
+/// while the goal is open is incomplete; an answer without an open goal
+/// after acting is the judge's to read (the core asks, one request, then
+/// decides again with the reading): work left is incomplete (exit 1), no
+/// verdict is unjudged (exit [`UNJUDGED_CODE`]). Both say why on stderr,
+/// and in json mode as the stream's last record. A run that did not act
+/// is never judged.
 async fn task_exit(
     opened: &HeadlessSession,
     conversation: &Conversation,
     exit: Exit,
+    since: Option<eukhe_durable::types::EntryId>,
     json_mode: bool,
     cx: &Context,
 ) -> Result<TaskExit, HeadlessModeError> {
     let goal = goal_state(opened.session.harness(), conversation.id(), cx).await?;
     let run_goal = run_goal(&goal);
-    let reading = if asks_judge(exit.cause, run_goal) {
-        match final_answer(conversation, cx).await? {
-            Some(answer) => Some(
-                read_final_answer(&*final_answer_judge(opened), conversation.id(), &answer, cx)
-                    .await,
-            ),
-            None => None,
+    let activity = activity::run_activity(conversation, since, &goal, cx).await?;
+    let decide = |report| {
+        eukhe_bend::rules::headless::task(exit.cause, run_goal, activity, report)
+            .map_err(HeadlessModeError::Exit)
+    };
+    let first = decide(Report::Unasked)?;
+    let (task, reading) = match first.task {
+        Task::Ask => {
+            let reading = match final_answer(conversation, cx).await? {
+                Some(answer) => {
+                    read_final_answer(&*final_answer_judge(opened), conversation.id(), &answer, cx)
+                        .await
+                }
+                None => AnswerReading::Unjudged("the run left no final answer to read".to_owned()),
+            };
+            let report = match &reading {
+                AnswerReading::Done => Report::Done,
+                AnswerReading::Left(_) => Report::Left,
+                AnswerReading::Unjudged(_) => Report::Unjudged,
+            };
+            (decide(report)?, Some(reading))
         }
-    } else {
-        None
+        Task::Stands | Task::Incomplete | Task::Unjudged => (first, None),
     };
-    let report = match &reading {
-        None => Report::Unasked,
-        Some(AnswerReading::Done) => Report::Done,
-        Some(AnswerReading::Left(_)) => Report::Left,
-        Some(AnswerReading::Unjudged(_)) => Report::Unjudged,
-    };
-    let task = eukhe_bend::rules::headless::task(exit.cause, run_goal, report)
-        .map_err(HeadlessModeError::Exit)?;
     match task.task {
         Task::Stands => {}
         // The run answered with work left: what remains goes to stderr,
@@ -776,14 +786,15 @@ async fn task_exit(
                 );
             }
         }
-        // The judge gave no verdict: the run never counts as done.
-        Task::Unjudged => {
+        // The judge could not read the answer: the run never counts as
+        // done, and its code says so.
+        Task::Unjudged | Task::Ask => {
             let reason = match &reading {
                 Some(AnswerReading::Unjudged(reason)) => crate::sanitize::text(reason),
                 Some(AnswerReading::Done | AnswerReading::Left(_)) | None => String::new(),
             };
             eprintln!(
-                "eukhe: the final answer could not be judged ({reason}): the run counts as not done"
+                "eukhe: the final answer could not be judged ({reason}): exit {UNJUDGED_CODE}, the run counts as not done"
             );
             if json_mode {
                 println!(
@@ -794,12 +805,6 @@ async fn task_exit(
         }
     }
     Ok(task)
-}
-
-/// Whether the judge reads the final answer: only an answered run without
-/// an open goal (the task rule reads the judge for no other run).
-fn asks_judge(cause: ExitCause, goal: RunGoal) -> bool {
-    cause == ExitCause::Answered && matches!(goal, RunGoal::None | RunGoal::Complete)
 }
 
 /// The text of the run's final answer, when its terminal entry is one.
@@ -1222,6 +1227,7 @@ struct UpdateLine<'a> {
     assistant_message_event: &'a StreamUpdate,
 }
 
+mod activity;
 mod scripted_judge;
 #[cfg(test)]
 mod tests;

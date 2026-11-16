@@ -12,6 +12,7 @@ import ../../bend/wire.bend as Wr
 import ../../spec/durable/headless_wire.bend as SpW
 import ../../spec/durable/headless_task.bend as SpT
 import ../../laws/headless_task.bend as HeadlessTask
+import ../../laws/wire.bend as Wire
 
 # The reader
 # ----------
@@ -120,18 +121,25 @@ def ht.report(d: Wr.Dec<Nat>) -> {FHt.get_report(d) == SpT.r_report(d) : Wr.Dec<
     case Wr.Bad{}:
       {==}
 
-def ht.after_goal(c: Hx.Cause, g: Ht.Goal, d: Wr.Dec<Ht.Report>) -> {FHt.get_facts.report(c, g, d) == SpT.r_task.report(c, g, d) : Wr.Dec<Ht.Facts>}:
+def ht.after_acted(c: Hx.Cause, g: Ht.Goal, a: Bool, d: Wr.Dec<Ht.Report>) -> {FHt.get_facts.report(c, g, a, d) == SpT.r_task.report(c, g, a, d) : Wr.Dec<Ht.Facts>}:
   match d:
     case Wr.Got{r, s}:
       {==}
     case Wr.Bad{}:
       {==}
 
+def ht.after_goal(+c: Hx.Cause, +g: Ht.Goal, d: Wr.Dec<Bool>) -> {FHt.get_facts.acted(c, g, d) == SpT.r_task.acted(c, g, d) : Wr.Dec<Ht.Facts>}:
+  match d:
+    case Wr.Got{+a, +s}:
+      %ht.report(Wr.get_nat(s)) : {FHt.get_facts.report(c, g, a, FHt.get_report(Wr.get_nat(s))) == SpT.r_task.report(c, g, a, _) : Wr.Dec<Ht.Facts>}
+      ht.after_acted(c, g, a, FHt.get_report(Wr.get_nat(s)))
+    case Wr.Bad{}:
+      {==}
+
 def ht.after_cause(+c: Hx.Cause, d: Wr.Dec<Ht.Goal>) -> {FHt.get_facts.goal(c, d) == SpT.r_task.goal(c, d) : Wr.Dec<Ht.Facts>}:
   match d:
     case Wr.Got{+g, +s}:
-      %ht.report(Wr.get_nat(s)) : {FHt.get_facts.report(c, g, FHt.get_report(Wr.get_nat(s))) == SpT.r_task.report(c, g, _) : Wr.Dec<Ht.Facts>}
-      ht.after_goal(c, g, FHt.get_report(Wr.get_nat(s)))
+      ht.after_goal(c, g, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 
@@ -228,13 +236,15 @@ def ht.report_rt(r: Ht.Report, -rest: String) -> {SpT.r_report(Wr.get_nat(SpT.w_
 # untouched
 def ht.req_rt(+f: Ht.Facts, +rest: String) -> {SpT.r_task(SpT.w_task_req(f, rest)) == Wr.Got{f, rest} : Wr.Dec<Ht.Facts>}:
   match f:
-    case Ht.Facts{+c, +g, +r}:
-      +r2 = SpT.w_report(r, rest)
+    case Ht.Facts{+c, +g, +a, +r}:
+      +r3 = SpT.w_report(r, rest)
+      +r2 = Wr.put_bool(a, r3)
       +r1 = SpT.w_goal(g, r2)
-      -q = {Wr.Got{Ht.Facts{c, g, r}, rest} : Wr.Dec<Ht.Facts>}
+      -q = {Wr.Got{Ht.Facts{c, g, a, r}, rest} : Wr.Dec<Ht.Facts>}
       %Equal.sym(Wr.Dec<Hx.Cause>, SpT.r_cause(Wr.get_nat(SpW.w_cause(c, r1))), Wr.Got{c, r1}, ht.cause_rt(c, r1)) : {SpT.r_task.cause(_) == q : Wr.Dec<Ht.Facts>}
       %Equal.sym(Wr.Dec<Ht.Goal>, SpT.r_goal(Wr.get_nat(r1)), Wr.Got{g, r2}, ht.goal_rt(g, r2)) : {SpT.r_task.goal(c, _) == q : Wr.Dec<Ht.Facts>}
-      %Equal.sym(Wr.Dec<Ht.Report>, SpT.r_report(Wr.get_nat(r2)), Wr.Got{r, rest}, ht.report_rt(r, rest)) : {SpT.r_task.report(c, g, _) == q : Wr.Dec<Ht.Facts>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r2), Wr.Got{a, r3}, Wire.wire_bool_round_trip(a, r3)) : {SpT.r_task.acted(c, g, _) == q : Wr.Dec<Ht.Facts>}
+      %Equal.sym(Wr.Dec<Ht.Report>, SpT.r_report(Wr.get_nat(r3)), Wr.Got{r, rest}, ht.report_rt(r, rest)) : {SpT.r_task.report(c, g, a, _) == q : Wr.Dec<Ht.Facts>}
       {==}
 
 # The reply
@@ -250,4 +260,6 @@ def ht.put(v: Ht.Verdict, -rest: String) -> {FHt.put_verdict(v, rest) == SpT.w_v
         case Ht.Incomplete{}:
           {==}
         case Ht.Unjudged{}:
+          {==}
+        case Ht.Ask{}:
           {==}

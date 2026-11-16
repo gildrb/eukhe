@@ -340,6 +340,16 @@ pub enum Report {
     Unjudged,
 }
 
+/// Whether a headless run acted: a tool call with an effect (an edit, a
+/// write, a program run, a spawned child) or a goal opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    /// The run acted: its final answer is the judge's to read.
+    Acted,
+    /// The run only read and answered: it is never judged.
+    ReadOnly,
+}
+
 /// What the exit of a headless run says of its task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Task {
@@ -348,10 +358,18 @@ pub enum Task {
     /// The run answered with work left: its goal open, or its final
     /// answer stating work left.
     Incomplete,
-    /// The run answered without an open goal and the judge gave no
-    /// verdict on its final answer.
+    /// The judge reads the run's final answer and gave no verdict on it:
+    /// the run exits [`UNJUDGED_CODE`].
     Unjudged,
+    /// The judge must read the run's final answer: ask it, then decide
+    /// again with its reading.
+    Ask,
 }
+
+/// The exit code of a headless run whose final answer the judge could not
+/// read (`bend/headless_task.bend` `unjudged_code`): 0 is done, 1 a
+/// failure or work left, 2 a usage error.
+pub const UNJUDGED_CODE: u8 = 3;
 
 /// The exit of a headless run's task: the process code and the task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -361,16 +379,24 @@ pub struct TaskExit {
 }
 
 /// Whether the exit of a headless run whose exit had cause `cause`, whose
-/// goal ended as `goal` and whose final answer the judge read as `report`
-/// stands for its task, and the process code: an answered run with its
-/// goal open, or without an open goal with an answer that states work
-/// left, is incomplete; one whose answer the judge gave no verdict on is
-/// unjudged; both exit 1.
+/// goal ended as `goal`, that acted or not (`activity`) and whose final
+/// answer the judge read as `report` stands for its task, and the process
+/// code: an answered run with its goal open, or one that acted without an
+/// open goal whose answer states work left, is incomplete (exit 1); one
+/// whose answer the judge gave no verdict on is unjudged
+/// ([`UNJUDGED_CODE`]); one that acted without an open goal and has no
+/// reading yet asks for the judge ([`Task::Ask`]); a run that did not act
+/// is never judged.
 ///
 /// # Errors
 ///
 /// A compiled-core failure or a malformed reply (an inconsistent build).
-pub fn task(cause: ExitCause, goal: RunGoal, report: Report) -> Result<TaskExit, Error> {
+pub fn task(
+    cause: ExitCause,
+    goal: RunGoal,
+    activity: Activity,
+    report: Report,
+) -> Result<TaskExit, Error> {
     let mut request = Writer::new();
     cause.write(&mut request);
     request
@@ -378,6 +404,10 @@ pub fn task(cause: ExitCause, goal: RunGoal, report: Report) -> Result<TaskExit,
             RunGoal::None => 0,
             RunGoal::Complete => 1,
             RunGoal::Open => 2,
+        })
+        .bool(match activity {
+            Activity::Acted => true,
+            Activity::ReadOnly => false,
         })
         .tag(match report {
             Report::Unasked => 0,
@@ -391,11 +421,12 @@ pub fn task(cause: ExitCause, goal: RunGoal, report: Report) -> Result<TaskExit,
         at: 0,
         expected: "an exit code",
     })?;
-    let task = match reader.tag_of(3, "a task")? {
+    let task = match reader.tag_of(4, "a task")? {
         0 => Task::Stands,
         1 => Task::Incomplete,
-        // `tag_of` answers a tag below 3: this is 2.
-        _ => Task::Unjudged,
+        2 => Task::Unjudged,
+        // `tag_of` answers a tag below 4: this is 3.
+        _ => Task::Ask,
     };
     reader.end()?;
     Ok(TaskExit { code, task })
@@ -676,10 +707,11 @@ mod tests {
     }
 
     /// An answered run whose goal is open did not finish its task, nor
-    /// did one whose final answer states work left, a goal claimed
-    /// complete or not: both exit 1 as incomplete. An answer the judge
-    /// gave no verdict on exits 1 as unjudged. Without work left, or with
-    /// any other cause, the exit stands.
+    /// did one that acted and whose final answer states work left, a goal
+    /// claimed complete or not: both exit 1 as incomplete. An acted answer
+    /// not read yet asks for the judge; one the judge gave no verdict on
+    /// exits 3. A run that did not act is never judged; without work left,
+    /// or with any other cause, the exit stands.
     #[test]
     fn an_answer_with_work_left_is_incomplete() {
         let incomplete = TaskExit {
@@ -690,44 +722,59 @@ mod tests {
             code,
             task: Task::Stands,
         };
-        let answered = |goal, report| task(ExitCause::Answered, goal, report).unwrap();
+        let three = |task| TaskExit {
+            code: UNJUDGED_CODE,
+            task,
+        };
+        let answered =
+            |goal, activity, report| task(ExitCause::Answered, goal, activity, report).unwrap();
+        let acted = |goal, report| answered(goal, Activity::Acted, report);
         assert_eq!(
             [
-                answered(RunGoal::Open, Report::Unasked),
-                answered(RunGoal::None, Report::Left),
-                answered(RunGoal::Complete, Report::Left),
-                answered(RunGoal::None, Report::Unjudged),
-                answered(RunGoal::Complete, Report::Unjudged),
-                answered(RunGoal::None, Report::Done),
-                answered(RunGoal::Complete, Report::Done),
-                answered(RunGoal::None, Report::Unasked),
-                task(ExitCause::BudgetLimited, RunGoal::Open, Report::Unasked).unwrap(),
+                acted(RunGoal::Open, Report::Unasked),
+                answered(RunGoal::Open, Activity::ReadOnly, Report::Unasked),
+                acted(RunGoal::None, Report::Left),
+                acted(RunGoal::Complete, Report::Left),
+                acted(RunGoal::None, Report::Unjudged),
+                acted(RunGoal::Complete, Report::Unasked),
+                acted(RunGoal::None, Report::Done),
+                acted(RunGoal::Complete, Report::Done),
+                answered(RunGoal::None, Activity::ReadOnly, Report::Unasked),
+                answered(RunGoal::None, Activity::ReadOnly, Report::Left),
+                task(
+                    ExitCause::BudgetLimited,
+                    RunGoal::Open,
+                    Activity::Acted,
+                    Report::Unasked
+                )
+                .unwrap(),
                 task(
                     ExitCause::RunFailed(Unanswered::Stale),
                     RunGoal::Open,
+                    Activity::Acted,
                     Report::Left
                 )
                 .unwrap(),
-                task(ExitCause::GaveUp, RunGoal::None, Report::Unjudged).unwrap(),
-                task(ExitCause::BudgetUnanswered, RunGoal::None, Report::Done).unwrap(),
+                task(
+                    ExitCause::GaveUp,
+                    RunGoal::None,
+                    Activity::Acted,
+                    Report::Unasked
+                )
+                .unwrap(),
             ],
             [
                 incomplete,
                 incomplete,
                 incomplete,
-                TaskExit {
-                    code: 1,
-                    task: Task::Unjudged
-                },
-                TaskExit {
-                    code: 1,
-                    task: Task::Unjudged
-                },
+                incomplete,
+                three(Task::Unjudged),
+                three(Task::Ask),
                 stands(0),
                 stands(0),
                 stands(0),
                 stands(0),
-                stands(1),
+                stands(0),
                 stands(1),
                 stands(1),
             ]
@@ -768,7 +815,7 @@ mod tests {
         .chain(reasons.map(|reason| (ExitCause::RunFailed(reason), 1)));
         for (cause, code) in causes {
             assert_eq!(
-                task(cause, RunGoal::Complete, Report::Done).unwrap(),
+                task(cause, RunGoal::Complete, Activity::Acted, Report::Done).unwrap(),
                 TaskExit {
                     code,
                     task: Task::Stands
