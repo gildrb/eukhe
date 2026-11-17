@@ -135,7 +135,7 @@ docs_only() {
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
 # files, the agent rules, the docs (spec/, and the root's
-# PHILOSOPHY.md and SECURITY.md), the laws and proofs (the proofs and laws
+# PHILOSOPHY.md), the laws and proofs (the proofs and laws
 # lock gates check them, spec/'s Bend files included), and site/ (the
 # website: no gate runs on it; `make site-check` is its own check).
 # (The other .github/scripts/ files, release/ among them, and README.md stay
@@ -146,7 +146,7 @@ outside_crates() {
       .github/scripts/test_bend_proofs.py) return 0 ;;
     .github/scripts/*) return 1 ;;
     "" | .github/* | nix/* | spec/* | .config/nextest.toml | mise.toml | \
-      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | PHILOSOPHY.md | SECURITY.md | \
+      .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | PHILOSOPHY.md | \
       Makefile | flake.nix | flake.lock | \
       LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/* | site/*) return 0 ;;
     *) return 1 ;;
