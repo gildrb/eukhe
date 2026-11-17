@@ -13,86 +13,82 @@ import ../../laws/headless_exit.bend as HeadlessExit
 import ../../spec/durable/headless.bend as Sp
 import ../base/staging.bend as LStg
 
-def hxl.flags(c: Bool, a: Bool, h: {Bool.and(Bool.not(c), Bool.not(a)) == True{} : Bool}) -> {Hx.by_flags(c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
+def hxl.flags(c: Bool, h: {Bool.not(c) == True{} : Bool}) -> {Hx.by_flags(c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
   match c:
     case True{}:
-      LStg.stg.absurdF({Hx.by_flags(True{}, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+      LStg.stg.absurdF({Hx.by_flags(True{}, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case False{}:
-      match a:
-        case True{}:
-          LStg.stg.absurdF({Hx.by_flags(False{}, True{}, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
-        case False{}:
-          {==}
+      {==}
 
-def hxl.primary(p: Hx.Primary, c: Bool, a: Bool, h: {Bool.and(HeadlessExit.only_excused(Sp.primary_cause(p)), Bool.and(Bool.not(c), Bool.not(a))) == True{} : Bool}) -> {Hx.by_primary(p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
+def hxl.primary(p: Hx.Primary, c: Bool, h: {Bool.and(HeadlessExit.only_excused(Sp.primary_cause(p)), Bool.not(c)) == True{} : Bool}) -> {Hx.by_primary(p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
   match p:
     case Hx.PNothing{}:
-      hxl.flags(c, a, h)
+      hxl.flags(c, h)
     case Hx.PAnswer{}:
-      hxl.flags(c, a, h)
+      hxl.flags(c, h)
     case Hx.PUnfinished{}:
-      LStg.stg.absurdF({Hx.by_primary(Hx.PUnfinished{}, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+      LStg.stg.absurdF({Hx.by_primary(Hx.PUnfinished{}, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case Hx.PProviderError{}:
-      LStg.stg.absurdF({Hx.by_primary(Hx.PProviderError{}, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+      LStg.stg.absurdF({Hx.by_primary(Hx.PProviderError{}, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case Hx.PAborted{}:
-      LStg.stg.absurdF({Hx.by_primary(Hx.PAborted{}, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+      LStg.stg.absurdF({Hx.by_primary(Hx.PAborted{}, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case Hx.PSlashOk{}:
-      hxl.flags(c, a, h)
+      hxl.flags(c, h)
     case Hx.PSlashFailed{}:
-      LStg.stg.absurdF({Hx.by_primary(Hx.PSlashFailed{}, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+      LStg.stg.absurdF({Hx.by_primary(Hx.PSlashFailed{}, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case Hx.PBudgetRefused{}:
-      hxl.flags(c, a, h)
+      hxl.flags(c, h)
 
-def hxl.run(run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, h: {Bool.and(HeadlessExit.only_excused(Sp.run_cause(run)), Bool.and(HeadlessExit.only_excused(Sp.primary_cause(p)), Bool.and(Bool.not(c), Bool.not(a)))) == True{} : Bool}) -> {Hx.by_run(run, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
+def hxl.run(run: Hx.Run, p: Hx.Primary, c: Bool, h: {Bool.and(HeadlessExit.only_excused(Sp.run_cause(run)), Bool.and(HeadlessExit.only_excused(Sp.primary_cause(p)), Bool.not(c))) == True{} : Bool}) -> {Hx.by_run(run, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}:
   match run:
     case Hx.NoRun{}:
-      hxl.primary(p, c, a, h)
+      hxl.primary(p, c, h)
     case Hx.Answered{}:
-      hxl.primary(p, c, a, h)
+      hxl.primary(p, c, h)
     case Hx.Unanswered{r}:
       match r:
         case Hx.ModelError{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.ModelError{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.ModelError{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.RunLimit{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.RunLimit{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.RunLimit{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.NoModel{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.NoModel{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.NoModel{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.ForcedTool{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.ForcedTool{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.ForcedTool{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.Faulted{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Faulted{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Faulted{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.Aborted{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Aborted{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Aborted{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.Reset{}:
-          hxl.primary(p, c, a, h)
+          hxl.primary(p, c, h)
         case Hx.Stale{}:
-          hxl.primary(p, c, a, h)
+          hxl.primary(p, c, h)
         case Hx.Withdrawn{}:
-          hxl.primary(p, c, a, h)
+          hxl.primary(p, c, h)
         case Hx.Other{}:
-          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Other{}}, p, c, a, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
+          LStg.stg.absurdF({Hx.by_run(Hx.Unanswered{Hx.Other{}}, p, c, True{}) == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.BudgetRefused{}:
-          hxl.primary(p, c, a, h)
+          hxl.primary(p, c, h)
 
 # the cause is budget-limited
-def hxl.cause(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, h: {HeadlessExit.budget_limited(Hx.Facts{cf, w, run, p, c, a, True{}}) == True{} : Bool}) -> {Hx.cause(Hx.Facts{cf, w, run, p, c, a, True{}}) == Hx.CBudgetLimited{} : Hx.Cause}:
+def hxl.cause(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, h: {HeadlessExit.budget_limited(Hx.Facts{cf, w, run, p, c, True{}}) == True{} : Bool}) -> {Hx.cause(Hx.Facts{cf, w, run, p, c, True{}}) == Hx.CBudgetLimited{} : Hx.Cause}:
   match cf:
     case True{}:
       LStg.stg.absurdF({Hx.CCommandFailed{} == Hx.CBudgetLimited{} : Hx.Cause}, h)
     case False{}:
       match w:
         case Hx.Quiet{}:
-          hxl.run(run, p, c, a, h)
+          hxl.run(run, p, c, h)
         case Hx.GaveUp{}:
           LStg.stg.absurdF({Hx.CGaveUp{} == Hx.CBudgetLimited{} : Hx.Cause}, h)
         case Hx.BudgetDeadline{}:
-          hxl.run(run, p, c, a, h)
+          hxl.run(run, p, c, h)
 
 def HeadlessExit.headless_exit_budget_limited_zero(f, limited):
   match f:
-    case Hx.Facts{+cf, +w, +run, +p, +c, +a, ba}:
+    case Hx.Facts{+cf, +w, +run, +p, +c, ba}:
       match ba:
         case False{}:
-          LStg.stg.absurdF({Hx.decide(Hx.Facts{cf, w, run, p, c, a, False{}}) == Hx.Verdict{0n, Hx.CBudgetLimited{}} : Hx.Verdict}, limited)
+          LStg.stg.absurdF({Hx.decide(Hx.Facts{cf, w, run, p, c, False{}}) == Hx.Verdict{0n, Hx.CBudgetLimited{}} : Hx.Verdict}, limited)
         case True{}:
-          Equal.cong(Hx.Cause, Hx.Verdict, x => Hx.verdict(x), Hx.cause(Hx.Facts{cf, w, run, p, c, a, True{}}), Hx.CBudgetLimited{}, hxl.cause(cf, w, run, p, c, a, limited))
+          Equal.cong(Hx.Cause, Hx.Verdict, x => Hx.verdict(x), Hx.cause(Hx.Facts{cf, w, run, p, c, True{}}), Hx.CBudgetLimited{}, hxl.cause(cf, w, run, p, c, limited))

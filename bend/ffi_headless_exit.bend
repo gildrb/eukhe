@@ -7,15 +7,15 @@
 #            unanswered, then the reason; the primary entry: 0 nothing |
 #            1 answer | 2 unfinished | 3 provider error | 4 aborted | 5
 #            slash ok | 6 slash failed | 7 budget refused; compaction
-#            failed, autonomous failed, budget answered (a Bool each)
+#            failed, budget answered (a Bool each)
 #   reason   0 model error | 1 run limit | 2 no model | 3 forced tool |
 #            4 faulted | 5 aborted | 6 reset | 7 stale | 8 withdrawn |
 #            9 other | 10 budget refused
 #   reply    the code (Nat), then the cause: 0 answered | 1 command
 #            failed | 2 gave up | 3 run failed, then the reason | 4
 #            provider error | 5 aborted | 6 unfinished | 7 slash failed |
-#            8 compaction failed | 9 autonomous failed | 10 budget
-#            limited | 11 budget unanswered
+#            8 compaction failed | 9 budget limited | 10 budget
+#            unanswered
 #
 # Malformed input, or input left after the request, answers
 # `E headless_exit: malformed request`, never a default.
@@ -121,24 +121,17 @@ def get_primary(r: W.Dec<Nat>) -> W.Dec<Hx.Primary>:
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
+def get_facts.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{ba, s}:
-      W.Got{Hx.Facts{cf, w, run, p, c, a, ba}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_facts.auto(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
-  match d:
-    case W.Got{a, s}:
-      get_facts.budget(cf, w, run, p, c, a, W.get_bool(s))
+      W.Got{Hx.Facts{cf, w, run, p, c, ba}, s}
     case W.Bad{}:
       W.Bad{}
 
 def get_facts.comp(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, d: W.Dec<Bool>) -> W.Dec<Hx.Facts>:
   match d:
     case W.Got{c, s}:
-      get_facts.auto(cf, w, run, p, c, W.get_bool(s))
+      get_facts.budget(cf, w, run, p, c, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -222,12 +215,10 @@ def put_cause(c: Hx.Cause, rest: String) -> String:
       W.put_nat(7n, rest)
     case Hx.CCompactionFailed{}:
       W.put_nat(8n, rest)
-    case Hx.CAutonomousFailed{}:
-      W.put_nat(9n, rest)
     case Hx.CBudgetLimited{}:
-      W.put_nat(10n, rest)
+      W.put_nat(9n, rest)
     case Hx.CBudgetUnanswered{}:
-      W.put_nat(11n, rest)
+      W.put_nat(10n, rest)
 
 # the spelling of an exit: its code, then its cause
 def put_verdict(v: Hx.Verdict, rest: String) -> String:

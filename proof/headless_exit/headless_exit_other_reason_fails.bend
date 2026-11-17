@@ -7,5 +7,5 @@ import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
 
-def HeadlessExit.headless_exit_other_reason_fails(cf, w, p, c, a, ba):
-  LAHeadlessExit.hx.facts_fail(cf, w, Hx.Unanswered{Hx.Other{}}, p, c, a, ba, {==})
+def HeadlessExit.headless_exit_other_reason_fails(cf, w, p, c, ba):
+  LAHeadlessExit.hx.facts_fail(cf, w, Hx.Unanswered{Hx.Other{}}, p, c, ba, {==})

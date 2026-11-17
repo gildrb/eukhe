@@ -22,7 +22,7 @@ import ../wire/wire_bool_round_trip.bend as PWireBoolRoundTrip
 # a run that did not fail leaves the code to the transcript; one that
 # failed sets it to 1 (a budget refusal: unless the final answer was
 # delivered)
-def hx.run_fails(run: Hx.Run, -p: Hx.Primary, -c: Bool, -a: Bool, ba: Bool, h: {Hx.code(Hx.by_primary(p, c, a, ba)) == 1n : Nat}) -> {Hx.code(Hx.by_run(run, p, c, a, ba)) == 1n : Nat}:
+def hx.run_fails(run: Hx.Run, -p: Hx.Primary, -c: Bool, ba: Bool, h: {Hx.code(Hx.by_primary(p, c, ba)) == 1n : Nat}) -> {Hx.code(Hx.by_run(run, p, c, ba)) == 1n : Nat}:
   match run:
     case Hx.NoRun{}:
       h
@@ -59,7 +59,7 @@ def hx.run_fails(run: Hx.Run, -p: Hx.Primary, -c: Bool, -a: Bool, ba: Bool, h: {
 
 # a failed command or a give-up exits 1, and the wait at the deadline
 # without the final answer; below them the run decides
-def hx.facts_fail(cf: Bool, w: Hx.Wait, -run: Hx.Run, -p: Hx.Primary, -c: Bool, -a: Bool, ba: Bool, h: {Hx.code(Hx.by_run(run, p, c, a, ba)) == 1n : Nat}) -> {HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, run, p, c, a, ba})) == 1n : Nat}:
+def hx.facts_fail(cf: Bool, w: Hx.Wait, -run: Hx.Run, -p: Hx.Primary, -c: Bool, ba: Bool, h: {Hx.code(Hx.by_run(run, p, c, ba)) == 1n : Nat}) -> {HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, run, p, c, ba})) == 1n : Nat}:
   match cf:
     case True{}:
       {==}
@@ -77,7 +77,7 @@ def hx.facts_fail(cf: Bool, w: Hx.Wait, -run: Hx.Run, -p: Hx.Primary, -c: Bool, 
               {==}
 
 # whatever the terminal entry, a failed compaction leaves code 1
-def hx.comp_fails(p: Hx.Primary, -a: Bool, ba: Bool) -> {Hx.code(Hx.by_primary(p, True{}, a, ba)) == 1n : Nat}:
+def hx.comp_fails(p: Hx.Primary, ba: Bool) -> {Hx.code(Hx.by_primary(p, True{}, ba)) == 1n : Nat}:
   match p:
     case Hx.PNothing{}:
       {==}
@@ -103,30 +103,26 @@ def hx.comp_fails(p: Hx.Primary, -a: Bool, ba: Bool) -> {Hx.code(Hx.by_primary(p
 # The cause
 # ---------
 
-# below the transcript, the model's cause is the first of the two flags
-def hx.flags_eq(c: Bool, a: Bool, ba: Bool) -> {Hx.by_flags(c, a, ba) == Sp.first([Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
+# below the transcript, the model's cause is the compaction flag
+def hx.flags_eq(c: Bool, ba: Bool) -> {Hx.by_flags(c, ba) == Sp.first([Sp.when(c, Hx.CCompactionFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match c:
     case True{}:
       {==}
     case False{}:
-      match a:
+      match ba:
         case True{}:
           {==}
         case False{}:
-          match ba:
-            case True{}:
-              {==}
-            case False{}:
-              {==}
+          {==}
 
-# below the run, the model's cause is the first of the last three
+# below the run, the model's cause is the first of the last two
 # failures
-def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c, a, ba) == Sp.first([Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
+def hx.tail(p: Hx.Primary, +c: Bool, +ba: Bool) -> {Hx.by_primary(p, c, ba) == Sp.first([Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match p:
     case Hx.PNothing{}:
-      hx.flags_eq(c, a, ba)
+      hx.flags_eq(c, ba)
     case Hx.PAnswer{}:
-      hx.flags_eq(c, a, ba)
+      hx.flags_eq(c, ba)
     case Hx.PUnfinished{}:
       match ba:
         case True{}:
@@ -146,7 +142,7 @@ def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c
         case False{}:
           {==}
     case Hx.PSlashOk{}:
-      hx.flags_eq(c, a, ba)
+      hx.flags_eq(c, ba)
     case Hx.PSlashFailed{}:
       match ba:
         case True{}:
@@ -156,18 +152,18 @@ def hx.tail(p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_primary(p, c
     case Hx.PBudgetRefused{}:
       match ba:
         case True{}:
-          hx.flags_eq(c, a, True{})
+          hx.flags_eq(c, True{})
         case False{}:
           {==}
 
 # below the wait, the model's cause is the first of the last four
 # failures
-def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx.by_run(run, p, c, a, ba) == Sp.first([Sp.counts(Sp.run_cause(run), ba), Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{}), Sp.when(a, Hx.CAutonomousFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
+def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +ba: Bool) -> {Hx.by_run(run, p, c, ba) == Sp.first([Sp.counts(Sp.run_cause(run), ba), Sp.counts(Sp.primary_cause(p), ba), Sp.when(c, Hx.CCompactionFailed{})], Sp.unfailed(ba)) : Hx.Cause}:
   match run:
     case Hx.NoRun{}:
-      hx.tail(p, c, a, ba)
+      hx.tail(p, c, ba)
     case Hx.Answered{}:
-      hx.tail(p, c, a, ba)
+      hx.tail(p, c, ba)
     case Hx.Unanswered{r}:
       match r:
         case Hx.ModelError{}:
@@ -207,11 +203,11 @@ def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx
             case False{}:
               {==}
         case Hx.Reset{}:
-          hx.tail(p, c, a, ba)
+          hx.tail(p, c, ba)
         case Hx.Stale{}:
-          hx.tail(p, c, a, ba)
+          hx.tail(p, c, ba)
         case Hx.Withdrawn{}:
-          hx.tail(p, c, a, ba)
+          hx.tail(p, c, ba)
         case Hx.Other{}:
           match ba:
             case True{}:
@@ -221,21 +217,21 @@ def hx.run_eq(run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +ba: Bool) -> {Hx
         case Hx.BudgetRefused{}:
           match ba:
             case True{}:
-              hx.tail(p, c, a, True{})
+              hx.tail(p, c, True{})
             case False{}:
               {==}
 
 # the model's cause is E1's (Sp.exit_cause)
 def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == Sp.exit_cause(f) : Hx.Cause}:
   match f:
-    case Hx.Facts{cf, w, +run, +p, +c, +a, +ba}:
+    case Hx.Facts{cf, w, +run, +p, +c, +ba}:
       match cf:
         case True{}:
           {==}
         case False{}:
           match w:
             case Hx.Quiet{}:
-              hx.run_eq(run, p, c, a, ba)
+              hx.run_eq(run, p, c, ba)
             case Hx.GaveUp{}:
               match ba:
                 case True{}:
@@ -245,7 +241,7 @@ def hx.cause_eq(f: Hx.Facts) -> {Hx.cause(f) == Sp.exit_cause(f) : Hx.Cause}:
             case Hx.BudgetDeadline{}:
               match ba:
                 case True{}:
-                  hx.run_eq(run, p, c, a, True{})
+                  hx.run_eq(run, p, c, True{})
                 case False{}:
                   {==}
 
@@ -346,24 +342,17 @@ def hx.primary(d: Wr.Dec<Nat>) -> {FHx.get_primary(d) == SpW.r_primary(d) : Wr.D
     case Wr.Bad{}:
       {==}
 
-def hx.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, d: Wr.Dec<Bool>) -> {FHx.get_facts.budget(cf, w, run, p, c, a, d) == SpW.r_exit.budget(cf, w, run, p, c, a, d) : Wr.Dec<Hx.Facts>}:
+def hx.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> {FHx.get_facts.budget(cf, w, run, p, c, d) == SpW.r_exit.budget(cf, w, run, p, c, d) : Wr.Dec<Hx.Facts>}:
   match d:
     case Wr.Got{ba, s}:
       {==}
     case Wr.Bad{}:
       {==}
 
-def hx.auto(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> {FHx.get_facts.auto(cf, w, run, p, c, d) == SpW.r_exit.auto(cf, w, run, p, c, d) : Wr.Dec<Hx.Facts>}:
-  match d:
-    case Wr.Got{a, s}:
-      hx.budget(cf, w, run, p, c, a, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
 def hx.comp(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, d: Wr.Dec<Bool>) -> {FHx.get_facts.comp(cf, w, run, p, d) == SpW.r_exit.comp(cf, w, run, p, d) : Wr.Dec<Hx.Facts>}:
   match d:
     case Wr.Got{c, s}:
-      hx.auto(cf, w, run, p, c, Wr.get_bool(s))
+      hx.budget(cf, w, run, p, c, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 
@@ -472,19 +461,17 @@ def hx.primary_rt(p: Hx.Primary, -rest: String) -> {SpW.r_primary(Wr.get_nat(SpW
 # untouched
 def hx.req_rt(+f: Hx.Facts, +rest: String) -> {SpW.r_exit(SpW.w_exit_req(f, rest)) == Wr.Got{f, rest} : Wr.Dec<Hx.Facts>}:
   match f:
-    case Hx.Facts{+cf, +w, +run, +p, +c, +a, +ba}:
-      +r7 = Wr.put_bool(ba, rest)
-      +r6 = Wr.put_bool(a, r7)
+    case Hx.Facts{+cf, +w, +run, +p, +c, +ba}:
+      +r6 = Wr.put_bool(ba, rest)
       +r5 = Wr.put_bool(c, r6)
       +r4 = SpW.w_primary(p, r5)
       +r3 = SpW.w_run(run, r4)
       +r2 = SpW.w_wait(w, r3)
-      -g = {Wr.Got{Hx.Facts{cf, w, run, p, c, a, ba}, rest} : Wr.Dec<Hx.Facts>}
+      -g = {Wr.Got{Hx.Facts{cf, w, run, p, c, ba}, rest} : Wr.Dec<Hx.Facts>}
       %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(cf, r2)), Wr.Got{cf, r2}, Wire.wire_bool_round_trip(cf, r2)) : {SpW.r_exit.command(_) == g : Wr.Dec<Hx.Facts>}
       %Equal.sym(Wr.Dec<Hx.Wait>, SpW.r_wait(Wr.get_nat(r2)), Wr.Got{w, r3}, hx.wait_rt(w, r3)) : {SpW.r_exit.wait(cf, _) == g : Wr.Dec<Hx.Facts>}
       %Equal.sym(Wr.Dec<Hx.Run>, SpW.r_run(Wr.get_nat(r3)), Wr.Got{run, r4}, hx.run_rt(run, r4)) : {SpW.r_exit.run(cf, w, _) == g : Wr.Dec<Hx.Facts>}
       %Equal.sym(Wr.Dec<Hx.Primary>, SpW.r_primary(Wr.get_nat(r4)), Wr.Got{p, r5}, hx.primary_rt(p, r5)) : {SpW.r_exit.primary(cf, w, run, _) == g : Wr.Dec<Hx.Facts>}
       %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r5), Wr.Got{c, r6}, Wire.wire_bool_round_trip(c, r6)) : {SpW.r_exit.comp(cf, w, run, p, _) == g : Wr.Dec<Hx.Facts>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r6), Wr.Got{a, r7}, Wire.wire_bool_round_trip(a, r7)) : {SpW.r_exit.auto(cf, w, run, p, c, _) == g : Wr.Dec<Hx.Facts>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r7), Wr.Got{ba, rest}, Wire.wire_bool_round_trip(ba, rest)) : {SpW.r_exit.budget(cf, w, run, p, c, a, _) == g : Wr.Dec<Hx.Facts>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(r6), Wr.Got{ba, rest}, Wire.wire_bool_round_trip(ba, rest)) : {SpW.r_exit.budget(cf, w, run, p, c, _) == g : Wr.Dec<Hx.Facts>}
       {==}
