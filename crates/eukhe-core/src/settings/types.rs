@@ -78,14 +78,6 @@ pub enum TransportSetting {
     WebSocketCached,
 }
 
-/// `number | "unlimited"` autonomous limit.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum AutonomousLimitSetting {
-    Number(f64),
-    Unlimited(String),
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
@@ -388,15 +380,6 @@ pub struct ThinkingBudgetsSettings {
     pub high: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AutonomousSettings {
-    pub max_continuations: Option<AutonomousLimitSetting>,
-    pub max_turns: Option<AutonomousLimitSetting>,
-    pub max_tokens: Option<AutonomousLimitSetting>,
-    pub timeout_ms: Option<AutonomousLimitSetting>,
-}
-
 /// The Director stack.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -579,7 +562,6 @@ pub struct Settings {
     /// input. Default: none - image turns on a text-only model fail with
     /// a configuration hint instead of silently dropping the images.
     pub image_model: Option<String>,
-    pub autonomous: Option<AutonomousSettings>,
     pub directors: Option<DirectorSettings>,
     pub shell_path: Option<String>,
     pub quiet_startup: Option<bool>,

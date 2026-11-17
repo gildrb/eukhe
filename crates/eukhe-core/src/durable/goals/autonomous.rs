@@ -1,280 +1,205 @@
 //! Autonomous mode on the Harness: the run state lives in the
-//! `eukhe.autonomous` conversation document (the old daemon kept it in
-//! process memory), settled responses are accounted in `after_response`
-//! ([`AutonomousDocState::account`]), and each final answer asks
-//! [`decide`] whether the run continues (the old
-//! `ShellAutonomousDriver::after_turn`, with the limits and gates from
-//! `crate::autonomous`); the session's budget, set only explicitly, is
-//! another limit.
+//! `eukhe.autonomous` conversation document, and each final answer asks
+//! the compiled core ([`decide`], `eukhe_bend::rules::autonomous`) what
+//! the run does, from the checks' outcome at that answer and the
+//! session's budget. Turning a run on sets its checks
+//! (`crate::durable::acceptance`): the intent check when it has none, and
+//! the commands of the removed gates; the removed own limits become the
+//! session's budget limits.
 
-use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::ops::{budget_report, conversation_of};
+use eukhe_bend::rules::autonomous::{self, Answer, Budget, Cause, Checks, Facts, Mode, Step};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader};
-use eukhe_types::budget::BudgetReport;
+use eukhe_types::budget::{BudgetReport, RunLimits};
 use eukhe_types::input_origin::AutonomousNudge;
-use eukhe_types::pi_ai::{StopReason, Usage, UserContent};
+use eukhe_types::pi_ai::{StopReason, UserContent};
 use serde::{Deserialize, Serialize};
 
 use super::docs::{open_doc, read_doc, write_doc, AUTONOMOUS_DOC};
 use crate::autonomous::{
-    add_autonomous_continuation, autonomous_continuation_text, autonomous_limit_reason,
-    autonomous_status, autonomous_token_delta, build_autonomous_gate_failure_continuation,
-    create_autonomous_runtime_state, now_millis, set_autonomous_enabled, set_autonomous_limits,
-    should_autonomously_continue, AgentAutonomousConfig, AgentAutonomousGateFailure,
-    AgentAutonomousStatus, AutonomousDecisionReason, AutonomousLimitReason, AutonomousLimits,
-    AutonomousRuntimeState, GateCommandRunner, GitWorktreeSnapshot, NormalizedGateConfig,
-    SessionBudget, AUTONOMOUS_STATUS_CUSTOM_TYPE,
+    autonomous_continuation_text, now_millis, AgentAutonomousConfig, AgentAutonomousStatus,
+    AutonomousStop, AUTONOMOUS_STATUS_CUSTOM_TYPE, DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT,
 };
+use crate::durable::acceptance::autonomous_checks;
 use crate::durable::budget::BudgetGate;
 use crate::durable::entries::custom_entry_draft;
 use crate::slash_command_args::format_autonomous_status;
 
-/// The persisted autonomous run (the runtime state plus the last stop
-/// decision).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The persisted autonomous run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutonomousDocState {
     pub enabled: bool,
+    /// The continuations the run made with its prompt.
     pub continuations_used: u64,
-    pub turns_used: u64,
-    pub tokens_used: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
-    pub limits: AutonomousLimits,
     pub continuation_prompt: String,
-    pub gates: NormalizedGateConfig,
-    #[serde(default)]
-    pub gate_attempts: BTreeMap<String, u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_gate_failure: Option<AgentAutonomousGateFailure>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_gate_failure_snapshot: Option<WorktreeSnapshot>,
-    pub subagent_keep_alive_ms: u64,
     /// Why the last run stopped; cleared when a run is enabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_stop: Option<AutonomousStop>,
 }
 
-/// The workspace snapshot taken after a failed gate (old
-/// `GitWorktreeSnapshot`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeSnapshot {
-    pub status: String,
-    pub diff: String,
-    pub untracked_hash: String,
-}
-
-/// Why an autonomous run stopped: its gates, its own limits, or the
-/// session's budget (`Budget`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum AutonomousStop {
-    GatePassed,
-    GateRetryExhausted,
-    MaxContinuations,
-    MaxTurns,
-    MaxTokens,
-    TimeoutMs,
-    Budget,
-}
-
-impl AutonomousStop {
-    fn of_limit(reason: AutonomousLimitReason) -> Self {
-        match reason {
-            AutonomousLimitReason::MaxContinuations => Self::MaxContinuations,
-            AutonomousLimitReason::MaxTurns => Self::MaxTurns,
-            AutonomousLimitReason::MaxTokens => Self::MaxTokens,
-            AutonomousLimitReason::TimeoutMs => Self::TimeoutMs,
-            AutonomousLimitReason::Budget(_) => Self::Budget,
-        }
-    }
-}
-
 impl AutonomousDocState {
-    /// A disabled run with the default limits (the document's initial value).
+    /// A run that is off (the document's initial value).
     #[must_use]
     pub fn initial() -> Self {
-        Self::from_runtime(&create_autonomous_runtime_state(None, None), None)
-    }
-
-    /// The persisted form of `state`.
-    #[must_use]
-    pub fn from_runtime(state: &AutonomousRuntimeState, last_stop: Option<AutonomousStop>) -> Self {
         Self {
-            enabled: state.enabled,
-            continuations_used: state.continuations_used,
-            turns_used: state.turns_used,
-            tokens_used: state.tokens_used,
-            started_at: state.started_at,
-            limits: state.limits,
-            continuation_prompt: state.continuation_prompt.clone(),
-            gates: state.gates.clone(),
-            gate_attempts: state
-                .gate_attempts
-                .iter()
-                .map(|(command, attempts)| (command.clone(), *attempts))
-                .collect(),
-            last_gate_failure: state.last_gate_failure.clone(),
-            last_gate_failure_snapshot: state.last_gate_failure_snapshot.as_ref().map(|snapshot| {
-                WorktreeSnapshot {
-                    status: snapshot.status.clone(),
-                    diff: snapshot.diff.clone(),
-                    untracked_hash: snapshot.untracked_hash.clone(),
-                }
-            }),
-            subagent_keep_alive_ms: state.subagent_keep_alive_ms,
-            last_stop,
+            enabled: false,
+            continuations_used: 0,
+            started_at: None,
+            continuation_prompt: DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT.to_owned(),
+            last_stop: None,
         }
     }
 
-    /// The runtime state the `crate::autonomous` functions work on.
-    #[must_use]
-    pub fn to_runtime(&self) -> AutonomousRuntimeState {
-        AutonomousRuntimeState {
-            enabled: self.enabled,
-            continuations_used: self.continuations_used,
-            turns_used: self.turns_used,
-            tokens_used: self.tokens_used,
-            started_at: self.started_at,
-            limits: self.limits,
-            continuation_prompt: self.continuation_prompt.clone(),
-            gates: self.gates.clone(),
-            gate_attempts: self
-                .gate_attempts
-                .iter()
-                .map(|(command, attempts)| (command.clone(), *attempts))
-                .collect(),
-            last_gate_failure: self.last_gate_failure.clone(),
-            last_gate_failure_snapshot: self.last_gate_failure_snapshot.as_ref().map(|snapshot| {
-                GitWorktreeSnapshot {
-                    status: snapshot.status.clone(),
-                    diff: snapshot.diff.clone(),
-                    untracked_hash: snapshot.untracked_hash.clone(),
-                }
-            }),
-            subagent_keep_alive_ms: self.subagent_keep_alive_ms,
-        }
-    }
-
-    /// The `/autonomous` status snapshot under the session's `budget`
-    /// (`None`: no budget).
+    /// The `/auto` status under the session's `budget` (`None`: no
+    /// budget).
     #[must_use]
     pub fn status(&self, budget: Option<BudgetReport>) -> AgentAutonomousStatus {
-        autonomous_status(&self.to_runtime(), budget)
+        AgentAutonomousStatus {
+            enabled: self.enabled,
+            continuations_used: self.continuations_used,
+            started_at: self.started_at,
+            last_stop: self.last_stop,
+            budget,
+        }
     }
 
-    /// Account one settled response (old `account_message` +
-    /// `add_autonomous_usage`): one turn, and input + output + cache-write
-    /// tokens ([`autonomous_token_delta`]).
-    pub(crate) fn account(&mut self, usage: &Usage) {
-        if !self.enabled {
-            return;
+    /// The run turned on with `config`'s prompt: counters reset.
+    fn on(&self, config: &AgentAutonomousConfig) -> Self {
+        Self {
+            enabled: true,
+            continuations_used: 0,
+            started_at: Some(now_millis()),
+            continuation_prompt: config
+                .continuation_prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or(&self.continuation_prompt)
+                .to_owned(),
+            last_stop: None,
         }
-        self.turns_used = self.turns_used.saturating_add(1);
-        self.tokens_used = self
-            .tokens_used
-            .saturating_add(autonomous_token_delta(usage));
+    }
+
+    /// The run turned off, its last stop kept.
+    fn off(&self) -> Self {
+        Self {
+            enabled: false,
+            started_at: None,
+            ..self.clone()
+        }
     }
 }
 
-/// An `/autonomous` change.
+/// An `/auto` change.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AutonomousChange {
-    /// Enable (resetting the counters) and apply the given limits.
+    /// Turn on (resetting the counters) with this configuration.
     On(AgentAutonomousConfig),
-    /// Disable.
+    /// Turn off.
     Off,
 }
 
 /// What [`decide`] concluded for one final answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AutonomousYield {
-    /// Autonomous mode does not apply.
+    /// The run is off, the answer broke, or the checks' return continues
+    /// the run: the run adds nothing.
     Inactive,
-    /// Continue the run with this user text (one continuation consumed).
+    /// Continue the run with this user text.
     Continue {
         text: String,
         nudge: AutonomousNudge,
+        next: AutonomousDocState,
     },
     /// Stop the run.
-    Stop(AutonomousStop),
+    Stop {
+        stop: AutonomousStop,
+        next: AutonomousDocState,
+    },
 }
 
-/// The after-turn decision over the runtime state: gates first (a pass
-/// stops the run), then the limits (the run's own and the session's
-/// `budget`), else a continuation.
-pub(crate) async fn decide(
-    state: &mut AutonomousRuntimeState,
-    stop_reason: StopReason,
-    gates: &dyn GateCommandRunner,
-    budget: SessionBudget,
-) -> AutonomousYield {
-    let Some(stop_reason) = legacy_stop_reason(stop_reason) else {
-        return AutonomousYield::Inactive;
-    };
-    if !state.enabled
-        || matches!(
-            stop_reason,
-            eukhe_types::ai::StopReason::Error | eukhe_types::ai::StopReason::Aborted
-        )
-    {
-        return AutonomousYield::Inactive;
-    }
-    let decision = should_autonomously_continue(state, Some(stop_reason), gates, budget).await;
-    match decision.reason {
-        AutonomousDecisionReason::MissingTerminalEvidence => {
-            add_autonomous_continuation(state);
-            AutonomousYield::Continue {
-                text: autonomous_continuation_text(state),
-                nudge: AutonomousNudge::Continuation,
-            }
-        }
-        AutonomousDecisionReason::GateFailed => {
-            add_autonomous_continuation(state);
-            match state.last_gate_failure.as_ref() {
-                Some(failure) => AutonomousYield::Continue {
-                    text: build_autonomous_gate_failure_continuation(
-                        failure,
-                        state.gates.max_retries,
-                        now_millis(),
-                    ),
-                    nudge: AutonomousNudge::GateFailed,
-                },
-                None => AutonomousYield::Continue {
-                    text: autonomous_continuation_text(state),
-                    nudge: AutonomousNudge::Continuation,
-                },
-            }
-        }
-        AutonomousDecisionReason::NotNeeded => AutonomousYield::Stop(AutonomousStop::GatePassed),
-        AutonomousDecisionReason::LimitReached => AutonomousYield::Stop(
-            autonomous_limit_reason(state, budget, now_millis())
-                .map_or(AutonomousStop::GateRetryExhausted, AutonomousStop::of_limit),
-        ),
-    }
-}
-
-/// The wire stop reason of a final answer; `None` for the reasons a
+/// How a final answer ended, for the rule; `None` for the reasons a
 /// final answer never carries.
-fn legacy_stop_reason(stop_reason: StopReason) -> Option<eukhe_types::ai::StopReason> {
+fn answer_of(stop_reason: StopReason) -> Option<Answer> {
     match stop_reason {
-        StopReason::Stop => Some(eukhe_types::ai::StopReason::Stop),
-        StopReason::Length => Some(eukhe_types::ai::StopReason::Length),
-        StopReason::ToolUse => Some(eukhe_types::ai::StopReason::ToolUse),
-        StopReason::Error => Some(eukhe_types::ai::StopReason::Error),
-        StopReason::Aborted => Some(eukhe_types::ai::StopReason::Aborted),
+        StopReason::Stop | StopReason::Length | StopReason::ToolUse => Some(Answer::Settled),
+        StopReason::Error | StopReason::Aborted => Some(Answer::Broken),
         StopReason::Pending | StopReason::Deferred => None,
     }
 }
 
-/// The persisted autonomous run of `conversation_id` (the initial disabled
-/// run when none was ever enabled).
+/// The acceptance label of the core's `label`.
+fn acceptance_label(
+    label: eukhe_bend::rules::verify::Label,
+) -> eukhe_types::acceptance::AcceptanceLabel {
+    crate::durable::acceptance::label_of(label)
+}
+
+/// The step of `state` at a final answer that ended with `stop_reason`,
+/// with the checks' outcome `checks` and the session's `budget`: the
+/// compiled core's decision.
+///
+/// # Errors
+///
+/// A compiled-core failure.
+pub(crate) fn decide(
+    state: &AutonomousDocState,
+    stop_reason: StopReason,
+    checks: Checks,
+    budget: Budget,
+) -> SessionResult<AutonomousYield> {
+    let Some(answer) = answer_of(stop_reason) else {
+        return Ok(AutonomousYield::Inactive);
+    };
+    let facts = Facts {
+        mode: if state.enabled {
+            Mode::Autonomous
+        } else {
+            Mode::Attended
+        },
+        answer,
+        checks,
+        budget,
+    };
+    Ok(
+        match autonomous::step(facts).map_err(SessionError::other)? {
+            Step::Off | Step::Hold => AutonomousYield::Inactive,
+            Step::Continue => AutonomousYield::Continue {
+                text: autonomous_continuation_text(&state.continuation_prompt),
+                nudge: AutonomousNudge::Continuation,
+                next: AutonomousDocState {
+                    continuations_used: state.continuations_used.saturating_add(1),
+                    ..state.clone()
+                },
+            },
+            Step::Stop(cause) => {
+                let stop = match cause {
+                    Cause::Checks(label) => AutonomousStop::Checks(acceptance_label(label)),
+                    Cause::Budget => AutonomousStop::Budget,
+                };
+                AutonomousYield::Stop {
+                    stop,
+                    next: AutonomousDocState {
+                        last_stop: Some(stop),
+                        ..state.clone()
+                    },
+                }
+            }
+        },
+    )
+}
+
+/// The persisted autonomous run of `conversation_id` (the initial run
+/// that is off when none was ever enabled).
 ///
 /// # Errors
 ///
@@ -289,14 +214,68 @@ pub async fn autonomous_state(
         .unwrap_or_else(AutonomousDocState::initial))
 }
 
-/// Apply an `/autonomous` change and append its `autonomous_status` row (old
-/// `execute_autonomous`), in one commit. Returns the new status, with the
-/// session's `budget`.
+/// Apply an `/auto` change and append its `autonomous_status` row, in one
+/// commit; the principal's change sets the run's checks and limits.
+/// Returns the new status, with the session's `budget`.
 ///
 /// # Errors
 ///
 /// Read or commit failures, or no such conversation.
 pub async fn set_autonomous(
+    harness: &Harness,
+    budget: &Arc<BudgetGate>,
+    conversation_id: ConversationId,
+    change: AutonomousChange,
+    cwd: &Path,
+    cx: &Context,
+) -> SessionResult<AgentAutonomousStatus> {
+    apply_autonomous(
+        harness,
+        budget,
+        conversation_id,
+        change,
+        Some(cwd),
+        Announce::Row,
+        cx,
+    )
+    .await
+}
+
+/// Turn the autonomous run on from a session's startup configuration (the
+/// CLI flags, a client's create config): the state, the checks and the
+/// limits, no `autonomous_status` row. Returns the new status.
+///
+/// # Errors
+///
+/// Read or commit failures, or no such conversation.
+pub async fn configure_autonomous(
+    harness: &Harness,
+    budget: &Arc<BudgetGate>,
+    conversation_id: ConversationId,
+    config: AgentAutonomousConfig,
+    cwd: &Path,
+    cx: &Context,
+) -> SessionResult<AgentAutonomousStatus> {
+    apply_autonomous(
+        harness,
+        budget,
+        conversation_id,
+        AutonomousChange::On(config),
+        Some(cwd),
+        Announce::Quiet,
+        cx,
+    )
+    .await
+}
+
+/// Turn the harness's own continuation on or off (autoresearch's loop):
+/// the state only. Its checks and limits stay as they are: the loop has
+/// its own end.
+///
+/// # Errors
+///
+/// Read or commit failures, or no such conversation.
+pub(crate) async fn set_internal_autonomous(
     harness: &Harness,
     budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
@@ -308,84 +287,180 @@ pub async fn set_autonomous(
         budget,
         conversation_id,
         change,
-        /*announce*/ true,
+        None,
+        Announce::Row,
         cx,
     )
     .await
 }
 
-/// Enable the autonomous run from a session's startup configuration (the
-/// CLI `--autonomous*` flags; TS `createAgentSession({ autonomous })`): the
-/// state only, no `autonomous_status` row. Returns the new status.
-///
-/// # Errors
-///
-/// Read or commit failures, or no such conversation.
-pub async fn configure_autonomous(
+/// Whether a change appends its `autonomous_status` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Announce {
+    Row,
+    Quiet,
+}
+
+/// The principal's terms of turning a run on: the checks (in `cwd`) and
+/// the limits the configuration asks.
+async fn principal_terms(
     harness: &Harness,
     budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
-    config: AgentAutonomousConfig,
+    config: &AgentAutonomousConfig,
+    cwd: &Path,
     cx: &Context,
-) -> SessionResult<AgentAutonomousStatus> {
-    apply_autonomous(
+) -> SessionResult<()> {
+    autonomous_checks(
         harness,
-        budget,
         conversation_id,
-        AutonomousChange::On(config),
-        /*announce*/ false,
+        config.gate_checks(),
+        config.max_returns(),
+        cwd,
         cx,
     )
-    .await
+    .await?;
+    set_run_limits(budget, config.limits()).await
 }
 
-/// Apply `change` in one commit; `announce` appends its `autonomous_status`
-/// row.
+/// Set `limits` on the run the principal starts next, over what was set
+/// for it before (the create's or the flags' budget); unset limits change
+/// nothing.
+///
+/// # Errors
+///
+/// The ledger's failures.
+pub async fn set_run_limits(budget: &Arc<BudgetGate>, limits: RunLimits) -> SessionResult<()> {
+    if limits.is_unset() {
+        return Ok(());
+    }
+    let gate = Arc::clone(budget);
+    tokio::task::spawn_blocking(move || gate.set_next(limits))
+        .await
+        .map_err(SessionError::other)?
+        .map_err(SessionError::other)?;
+    Ok(())
+}
+
+/// Apply `change` in one commit; `cwd` (the principal's change) sets the
+/// run's checks and limits first; `announce` appends its
+/// `autonomous_status` row, with the configuration's deprecation note.
 async fn apply_autonomous(
     harness: &Harness,
     budget: &Arc<BudgetGate>,
     conversation_id: ConversationId,
     change: AutonomousChange,
-    announce: bool,
+    cwd: Option<&Path>,
+    announce: Announce,
     cx: &Context,
 ) -> SessionResult<AgentAutonomousStatus> {
+    let note = match (&change, cwd) {
+        (AutonomousChange::On(config), Some(cwd)) => {
+            principal_terms(harness, budget, conversation_id, config, cwd, cx).await?;
+            config.deprecation_note()
+        }
+        (AutonomousChange::On(_) | AutonomousChange::Off, _) => None,
+    };
     let report = budget_report(budget).await?;
     conversation_of(harness, conversation_id, cx)
         .await?
         .commit(
             move |tx| async move {
                 let (draft, current) = open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?;
-                let mut state = current.to_runtime();
-                let last_stop = match change {
-                    AutonomousChange::On(config) => {
-                        set_autonomous_enabled(&mut state, true);
-                        set_autonomous_limits(&mut state, &config);
-                        None
-                    }
-                    AutonomousChange::Off => {
-                        set_autonomous_enabled(&mut state, false);
-                        current.last_stop
-                    }
+                let next = match &change {
+                    AutonomousChange::On(config) => current.on(config),
+                    AutonomousChange::Off => current.off(),
                 };
-                let next = AutonomousDocState::from_runtime(&state, last_stop);
                 write_doc(&draft, &next)?;
                 let status = next.status(report);
-                if announce {
-                    let details = serde_json::to_value(&status)
-                        .map_err(|error| SessionError::error(error.to_string()))?;
-                    let text = format_autonomous_status(&status);
-                    let entry = custom_entry_draft(
-                        AUTONOMOUS_STATUS_CUSTOM_TYPE,
-                        UserContent::Text(text),
-                        /*display*/ true,
-                        Some(details),
-                        now_millis(),
-                    )?;
-                    tx.append_entry(conversation_id, entry).await?;
+                match announce {
+                    Announce::Row => {
+                        let details = serde_json::to_value(&status)
+                            .map_err(|error| SessionError::error(error.to_string()))?;
+                        let text = match &note {
+                            Some(note) => {
+                                format!("{}\n\n{note}", format_autonomous_status(&status))
+                            }
+                            None => format_autonomous_status(&status),
+                        };
+                        let entry = custom_entry_draft(
+                            AUTONOMOUS_STATUS_CUSTOM_TYPE,
+                            UserContent::Text(text),
+                            /*display*/ true,
+                            Some(details),
+                            now_millis(),
+                        )?;
+                        tx.append_entry(conversation_id, entry).await?;
+                    }
+                    Announce::Quiet => {}
                 }
                 Ok(status)
             },
             cx,
         )
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eukhe_bend::rules::verify::Label;
+    use eukhe_types::acceptance::AcceptanceLabel;
+
+    fn on() -> AutonomousDocState {
+        AutonomousDocState::initial().on(&AgentAutonomousConfig::default())
+    }
+
+    /// The core's step reaches the run: a continuation counts, a stop is
+    /// recorded with its cause, a return or a broken answer adds nothing.
+    #[test]
+    fn the_core_decides_each_final_answer() {
+        let run = on();
+        let got = [
+            decide(&run, StopReason::Stop, Checks::Unchecked, Budget::Working),
+            decide(&run, StopReason::Stop, Checks::Returned, Budget::Working),
+            decide(
+                &run,
+                StopReason::Stop,
+                Checks::Ended(Label::Passed),
+                Budget::Working,
+            ),
+            decide(&run, StopReason::ToolUse, Checks::Unchecked, Budget::Short),
+            decide(&run, StopReason::Error, Checks::Unchecked, Budget::Working),
+            decide(
+                &AutonomousDocState::initial(),
+                StopReason::Stop,
+                Checks::Unchecked,
+                Budget::Working,
+            ),
+        ]
+        .map(Result::unwrap);
+        let stopped = |stop| AutonomousYield::Stop {
+            stop,
+            next: AutonomousDocState {
+                last_stop: Some(stop),
+                ..run.clone()
+            },
+        };
+        assert_eq!(
+            got,
+            [
+                AutonomousYield::Continue {
+                    text: autonomous_continuation_text(DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT),
+                    nudge: AutonomousNudge::Continuation,
+                    next: AutonomousDocState {
+                        continuations_used: 1,
+                        ..run.clone()
+                    },
+                },
+                AutonomousYield::Inactive,
+                stopped(AutonomousStop::Checks(
+                    AcceptanceLabel::ChecksPassedUnconfined
+                )),
+                stopped(AutonomousStop::Budget),
+                AutonomousYield::Inactive,
+                AutonomousYield::Inactive,
+            ]
+        );
+    }
 }

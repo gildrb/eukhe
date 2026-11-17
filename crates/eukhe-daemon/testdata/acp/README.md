@@ -40,11 +40,15 @@ the process exit code and stderr.
   message, the completion observation, and the status-prompt frame.
 - `autonomous_gate`: `--autonomous --autonomous-gate true`. The gate passes
   after the first turn: the completion and terminal envelopes carry the
-  `_meta.autonomous` accounting and `remainingAutonomousContinuations`
-  reflects the configured budget; the stop reason is `end_turn`.
+  `_meta.autonomous` accounting; the stop reason is `end_turn`. Captured
+  when the run had gates of its own: today the gate is a command check
+  (`--accept-cmd`), `_meta.autonomous` carries no gate or turn fields and
+  `remainingAutonomousContinuations` is 0 (no cap of the run's own).
 - `autonomous_limit`: `--autonomous --autonomous-max-tokens 1`. The token
   limit stops the run: the envelopes carry the final accounting and the
-  stop reason is `max_tokens`.
+  stop reason is `max_tokens`. Captured when the run had limits of its
+  own: today the flag is a token limit of the run's budget (B12), which
+  stops the run with the same stop reason.
 - `mcp_stdio`: `session/new` with two valid servers (one stdio with a
   literal environment entry, one http with a header) plus one
   schema-invalid entry (missing the required `env` array): the ACP SDK

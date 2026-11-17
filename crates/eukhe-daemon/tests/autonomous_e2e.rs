@@ -1,9 +1,10 @@
-//! End-to-end verifier for the autonomous continuation driver: a daemon
-//! worker session over the scripted faux engine must, after every settled
-//! turn, run the configured quality gates, inject the gate-failure
-//! continuation as a durable user row, and stop the run (durable
-//! `autonomous_status` stop row + wire events) when the gates pass or a
-//! configured limit is reached. Limits must stop the run the same way.
+//! End-to-end verifier for the autonomous run: a daemon worker session
+//! over the scripted faux engine. A run with checks (the commands of the
+//! removed gates are command checks) takes the checks' return with its
+//! evidence and stops when the checks end the claim; a run without checks
+//! is continued with its prompt, as a durable user row, until the
+//! session's budget (the removed limits set it) stops it. Neither stop
+//! writes a row.
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -146,14 +147,13 @@ impl Client {
     }
 }
 
-/// The harness: a supervisor, a faux-scripted session over the real agent
-/// engine, and the counter file the quality gate advances.
+/// The harness: a supervisor and a faux-scripted session over the real
+/// agent engine.
 struct Harness {
     dir: tempfile::TempDir,
     _supervisor: Daemon,
     client: Client,
     session_id: String,
-    gate: String,
 }
 
 fn setup(name: &str, responses: &Value) -> Harness {
@@ -167,14 +167,10 @@ fn setup(name: &str, responses: &Value) -> Harness {
         json!({ "engine": "faux", "responses": responses }).to_string(),
     )
     .expect("write faux script");
-    // The gate consults a counter file in the temp dir (absolute paths: the
-    // engine's cwd is the worker process cwd, not the session cwd). It fails
-    // the first consult (0 >= 1 is false) and passes from the second on.
-    let counter = dir.path().join("gate-count");
-    let gate = format!(
-        "n=$(cat {0} 2>/dev/null || echo 0); echo $((n+1)) > {0}; [ $n -ge 1 ]",
-        counter.display()
-    );
+    // The session works in a directory of its own: the checks fingerprint
+    // it, and the agent dir (the session's own storage) is outside it.
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).expect("work dir");
     let socket = dir.path().join(format!("{name}.sock"));
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -183,7 +179,7 @@ fn setup(name: &str, responses: &Value) -> Harness {
         &json!({
             "type": "create",
             "config": {
-                "cwd": dir.path().to_string_lossy(),
+                "cwd": work.to_string_lossy(),
                 "sessionDir": session_dir.to_string_lossy(),
                 "script": script.to_string_lossy(),
             },
@@ -207,7 +203,6 @@ fn setup(name: &str, responses: &Value) -> Harness {
         _supervisor: supervisor,
         client,
         session_id,
-        gate,
     }
 }
 
@@ -300,20 +295,16 @@ fn durable_autonomous_rows(harness: &Harness, prefix: &str) -> Vec<String> {
 }
 
 #[test]
-fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
+fn autonomous_gate_is_a_check_whose_end_stops_the_run() {
     let mut harness = setup(
         "gate",
-        &json!([{ "text": "first attempt" }, { "text": "fixed it" }]),
+        &json!([{ "text": "first attempt" }, { "text": "fixed it" }, { "text": "unused" }]),
     );
-    harness.prompt(
-        "enable",
-        &format!(
-            "/autonomous on --max-turns 5 --gate {:?}",
-            harness.gate.clone()
-        ),
-    );
-    // The enable prompt is a session command: its durable rows are already
-    // emitted and no model turn ran yet.
+    // A gate that always fails, with one return: the claim goes back once,
+    // then the checks end it failed. The intent check is off (no judge
+    // model in the script).
+    harness.prompt("enable", "/auto on --gate false --gate-retries 1");
+    harness.prompt("intent", "/accept intent off");
     assert_eq!(harness.message_ends("assistant"), Vec::<Value>::new());
     assert_eq!(
         durable_autonomous_rows(&harness, "[autonomous-status: on]").len(),
@@ -323,8 +314,6 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
 
     harness.prompt("go", "build the feature");
 
-    // Turn 1 fails the gate (counter at 0), so the driver injects the
-    // gate-failure continuation; turn 2 passes the gate and the run stops.
     let assistants: Vec<String> = harness
         .message_ends("assistant")
         .iter()
@@ -336,40 +325,86 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
         "events: {:?}",
         harness.client.events
     );
+    // The return is the checks' (a Director input with the evidence), not
+    // a continuation of the run's own.
+    let durable_users = durable_messages(&harness, "user");
+    assert_eq!(
+        durable_users.len(),
+        2,
+        "durable user rows: {durable_users:?}"
+    );
+    assert!(
+        durable_users[1].starts_with("[acceptance: not verified]")
+            && durable_users[1].contains("(return 1 of 1)")
+            && durable_users[1].contains("command `false` (expect exit 0): refuted"),
+        "the checks' return: {}",
+        durable_users[1]
+    );
+    assert!(
+        harness
+            .message_ends("custom")
+            .iter()
+            .all(|message| message["customType"] != "autonomous_continuation"),
+        "no continuation of the run's own, events: {:?}",
+        harness.client.events
+    );
+    assert!(
+        durable_autonomous_rows(&harness, "[autonomous-stop:").is_empty(),
+        "no durable stop row"
+    );
+}
+
+#[test]
+fn autonomous_runs_until_its_budget_stops_it() {
+    let mut harness = setup(
+        "limit",
+        &json!([{ "text": "still working" }, { "text": "more work" }, { "text": "unused" }]),
+    );
+    // The removed `--max-turns 2` is the run's limit of two model
+    // requests; no checks: the run is continued with its prompt.
+    harness.prompt("enable", "/auto on --max-turns 2");
+    harness.prompt("clear", "/accept clear");
+    harness.prompt("go", "build the feature");
+
+    // The first answer is continued; the second is the run's final answer
+    // from the budget's reserve, and the budget stops the run.
+    let assistants: Vec<String> = harness
+        .message_ends("assistant")
+        .iter()
+        .map(text_of)
+        .collect();
+    assert_eq!(
+        assistants,
+        vec!["still working".to_string(), "more work".to_string()],
+        "events: {:?}",
+        harness.client.events
+    );
     // The user sees their own prompt only: the continuation reaches the
     // wire as a hidden custom message, which no client shows.
     let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
     assert_eq!(user_texts, vec!["build the feature".to_string()]);
-    let hidden = harness.message_ends("custom");
-    let continuation = hidden
-        .iter()
-        .find(|message| message["customType"] == "autonomous_continuation")
-        .expect("the continuation's hidden wire message");
-    assert_eq!(continuation["display"], false, "{continuation}");
+    let hidden: Vec<Value> = harness
+        .message_ends("custom")
+        .into_iter()
+        .filter(|message| message["customType"] == "autonomous_continuation")
+        .collect();
+    assert_eq!(hidden.len(), 1, "hidden continuations: {hidden:?}");
+    assert_eq!(hidden[0]["display"], false);
     assert_eq!(
-        continuation["details"]["origin"],
-        json!({ "kind": "autonomous", "nudge": "gateFailed" })
-    );
-    let continuation_text = text_of(continuation);
-    assert!(
-        continuation_text.starts_with("[autonomous-continuation: gate-failed]\n\nAutonomous quality gate failed (attempt 1/3): `"),
-        "gate-failure continuation: {continuation_text}"
+        hidden[0]["details"]["origin"],
+        json!({ "kind": "autonomous", "nudge": "continuation" })
     );
     assert!(
-        continuation_text.contains("` exited with code 1"),
-        "gate exit surfaced: {continuation_text}"
+        text_of(&hidden[0]).starts_with("[autonomous-continuation]\n\nNo human input is available"),
+        "plain continuation: {}",
+        text_of(&hidden[0])
     );
-
-    // The model still reads the continuation: it is a durable user row
-    // (its wire pair is the hidden message), and the gate-passed stop
-    // writes no row (the TS shape, probed against the binary: the stop
-    // surfaces through the status request and the headless exit contract,
-    // never the stream).
+    // The model still reads the continuation: it is a durable user row.
     let durable_users = durable_messages(&harness, "user");
     assert!(
         durable_users
             .iter()
-            .any(|text| text.starts_with("[autonomous-continuation: gate-failed]")),
+            .any(|text| text.starts_with("[autonomous-continuation]")),
         "durable user rows: {durable_users:?}"
     );
     // The in-run ordering, as pi-durable commits it: the `onYield`
@@ -404,63 +439,11 @@ fn autonomous_gate_failure_then_pass_stops_the_run_in_run() {
     );
     assert_eq!(
         text_of(&harness.client.events[continuation_index - 2]["message"]),
-        "first attempt",
+        "still working",
         "the continuation follows the settled answer"
     );
-    assert!(
-        durable_autonomous_rows(&harness, "[autonomous-stop:").is_empty(),
-        "no durable stop row"
-    );
-    assert!(
-        harness
-            .custom_texts("autonomous_status")
-            .iter()
-            .all(|text| text.starts_with("[autonomous-status:")),
-        "the only autonomous_status rows are the command's, events: {:?}",
-        harness.client.events
-    );
-}
-
-#[test]
-fn autonomous_limit_reached_stops_the_run_without_a_row() {
-    let mut harness = setup(
-        "limit",
-        &json!([{ "text": "still working" }, { "text": "more work" }]),
-    );
-    harness.prompt(
-        "enable",
-        "/autonomous on --max-continuations 1 --max-turns 5",
-    );
-    harness.prompt("go", "build the feature");
-
-    // Turn 1 has no terminal evidence, so it consumes the only continuation;
-    // turn 2 hits the max-continuations cap and the run stops.
-    let assistants: Vec<String> = harness
-        .message_ends("assistant")
-        .iter()
-        .map(text_of)
-        .collect();
-    assert_eq!(
-        assistants,
-        vec!["still working".to_string(), "more work".to_string()]
-    );
-    let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
-    assert_eq!(user_texts, vec!["build the feature".to_string()]);
-    let hidden: Vec<Value> = harness
-        .message_ends("custom")
-        .into_iter()
-        .filter(|message| message["customType"] == "autonomous_continuation")
-        .collect();
-    assert_eq!(hidden.len(), 1, "hidden continuations: {hidden:?}");
-    assert_eq!(hidden[0]["display"], false);
-    assert!(
-        text_of(&hidden[0]).starts_with("[autonomous-continuation]\n\nNo human input is available"),
-        "plain continuation: {}",
-        text_of(&hidden[0])
-    );
-    // The limit stop writes no row and no stream frame (the TS shape,
-    // probed against the binary): the durable autonomous_status rows are
-    // the command's alone.
+    // The budget stop writes no row and no stream frame: the durable
+    // autonomous_status rows are the command's alone.
     assert!(
         durable_autonomous_rows(&harness, "[autonomous-stop:").is_empty(),
         "no durable stop row"

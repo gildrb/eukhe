@@ -28,6 +28,7 @@ use eukhe_types::input_origin::InputOrigin;
 use serde::{Deserialize, Serialize};
 
 use super::autonomous::AutonomousDocState;
+use crate::autonomous::DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT;
 use crate::goals::{empty_goal_state, GoalState};
 
 /// The thread goal of one conversation.
@@ -77,13 +78,42 @@ pub(crate) static LOOP_DOC: ConversationDoc<GoalLoopState> = match ConversationD
     Err(_) => panic!("eukhe.goal.loop has a valid version"),
 };
 
+/// Version 1 held the removed own limits (turns, tokens, time, the
+/// continuation cap) and gates with their counts: they are dropped (the
+/// budget and the checks hold those terms now), and a last stop by a gate
+/// or a limit reads as the checks' or the budget's.
+fn migrate_autonomous(value: &JsonObject, _from: u64) -> Result<AutonomousDocState, CallbackError> {
+    let old: serde_json::Value = from_json(&JsonValue::Object(Arc::new(value.clone())))?;
+    let last_stop = match old.get("lastStop").and_then(serde_json::Value::as_str) {
+        Some("gatePassed") => serde_json::json!({ "checks": "checks_passed_unconfined" }),
+        Some("gateRetryExhausted") => serde_json::json!({ "checks": "failed" }),
+        Some(_) => serde_json::json!("budget"),
+        None => serde_json::Value::Null,
+    };
+    let mut state = serde_json::json!({
+        "enabled": old.get("enabled").cloned().unwrap_or(serde_json::json!(false)),
+        "continuationsUsed": old.get("continuationsUsed").cloned().unwrap_or(serde_json::json!(0)),
+        "continuationPrompt": old
+            .get("continuationPrompt")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!(DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT)),
+    });
+    if let Some(started_at) = old.get("startedAt") {
+        state["startedAt"] = started_at.clone();
+    }
+    if !last_stop.is_null() {
+        state["lastStop"] = last_stop;
+    }
+    Ok(serde_json::from_value(state)?)
+}
+
 /// The autonomous run of one conversation; a fork starts disabled.
 pub static AUTONOMOUS_DOC: ConversationDoc<AutonomousDocState> = match ConversationDoc::define(
     DocDefinition {
         kind: "eukhe.autonomous",
-        version: 1,
+        version: 2,
         initial: AutonomousDocState::initial,
-        migrate: None,
+        migrate: Some(migrate_autonomous),
         checkpoint_when: Some(|_, _, _| true),
     },
     LatestFork::Initial,
@@ -206,7 +236,10 @@ pub(crate) fn write_doc<T: Serialize>(draft: &Draft, value: &T) -> SessionResult
 
 #[cfg(test)]
 mod tests {
+    use eukhe_types::acceptance::AcceptanceLabel;
     use eukhe_types::goal::GoalContextKind;
+
+    use crate::autonomous::AutonomousStop;
 
     use super::*;
 
@@ -248,5 +281,58 @@ mod tests {
         };
         let text = serde_json::to_string(&state).expect("encode");
         assert_eq!(migrated(&text, 2), state);
+    }
+
+    fn migrated_run(text: &str) -> AutonomousDocState {
+        let value = JsonValue::parse(text).expect("json");
+        migrate_autonomous(value.as_object().expect("object"), 1).expect("migrate")
+    }
+
+    /// A version 1 run held its own limits, gates and their counts: the
+    /// migration drops them and keeps the run, its continuations, start
+    /// and prompt; a stop by a gate reads as the checks' end (passed, or
+    /// failed when its retries ran out), one by a limit as the budget's.
+    #[test]
+    fn a_version_1_autonomous_run_drops_its_own_limits_and_gates() {
+        let v1 = |stop: &str| {
+            format!(
+                r#"{{"enabled":true,"continuationsUsed":2,"turnsUsed":3,"tokensUsed":900,"startedAt":5,"limits":{{"maxContinuations":3,"maxTurns":12,"maxTokens":80000,"timeoutMs":1800000}},"continuationPrompt":"go on","gates":{{"commands":["make test"],"maxRetries":3,"timeoutMs":60000}},"gateAttempts":{{"make test":1}},"subagentKeepAliveMs":0{stop}}}"#
+            )
+        };
+        let run = |last_stop| AutonomousDocState {
+            enabled: true,
+            continuations_used: 2,
+            started_at: Some(5),
+            continuation_prompt: "go on".to_owned(),
+            last_stop,
+        };
+        assert_eq!(
+            [
+                migrated_run(&v1("")),
+                migrated_run(&v1(r#","lastStop":"gatePassed""#)),
+                migrated_run(&v1(r#","lastStop":"gateRetryExhausted""#)),
+                migrated_run(&v1(r#","lastStop":"maxTurns""#)),
+                migrated_run(&v1(r#","lastStop":"budget""#)),
+            ],
+            [
+                run(None),
+                run(Some(AutonomousStop::Checks(
+                    AcceptanceLabel::ChecksPassedUnconfined
+                ))),
+                run(Some(AutonomousStop::Checks(AcceptanceLabel::Failed))),
+                run(Some(AutonomousStop::Budget)),
+                run(Some(AutonomousStop::Budget)),
+            ]
+        );
+    }
+
+    /// A version 1 run that was never enabled, without a prompt, migrates
+    /// to the initial run.
+    #[test]
+    fn a_version_1_run_without_a_prompt_takes_the_default() {
+        assert_eq!(
+            migrated_run(r#"{"enabled":false,"continuationsUsed":0}"#),
+            AutonomousDocState::initial()
+        );
     }
 }

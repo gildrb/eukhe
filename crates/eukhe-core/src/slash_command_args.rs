@@ -108,55 +108,20 @@ fn format_count(value: u64) -> String {
     }
 }
 
-/// `_formatAutonomousStatus`: the `[autonomous-status: ...]` block.
+/// The `[autonomous-status: ...]` block: on or off, the continuations the
+/// run made, why the last run stopped; the limits are the run's budget and
+/// the checks the run's acceptance checks.
 #[must_use]
 pub fn format_autonomous_status(status: &AgentAutonomousStatus) -> String {
     let state = if status.enabled { "on" } else { "off" };
-    let elapsed_seconds = status.started_at.map_or(0, |started_at| {
-        now_millis().saturating_sub(started_at) / 1000
-    });
-    let gate_summary = if status.gates.commands.is_empty() {
-        "none".to_string()
-    } else {
-        status
-            .gates
-            .commands
-            .iter()
-            .map(|command| format!("\"{command}\""))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let time_budget = if status.limits.timeout_ms == UNLIMITED_AUTONOMOUS_LIMIT {
-        "unlimited".to_string()
-    } else {
-        format!("{}s", format_count(status.limits.timeout_ms / 1000))
-    };
-    let subagent_keep_alive_ms = status.subagent_keep_alive_ms.unwrap_or(0);
-    let keep_alive = if subagent_keep_alive_ms > 0 {
-        if subagent_keep_alive_ms >= 60_000 {
-            format!("{}m", format_count(subagent_keep_alive_ms / 60_000))
-        } else {
-            format!("{}ms", format_count(subagent_keep_alive_ms))
-        }
-    } else {
-        "off".to_string()
-    };
+    let stop = status
+        .last_stop
+        .map(|stop| format!(" Last stop: {}.", stop.describe(status.budget.as_ref())))
+        .unwrap_or_default();
     format!(
-        "[autonomous-status: {state}]\n\nContinuations: {}/{}. Turns: {}/{}. Tokens: {}/{}. Time: {elapsed_seconds}s/{time_budget}. Gates: {gate_summary}. Subagent keep-alive: {keep_alive}.",
+        "[autonomous-status: {state}]\n\nContinuations: {}.{stop} Limits: /budget. Checks: /accept status.",
         format_count(status.continuations_used),
-        format_count(status.limits.max_continuations),
-        format_count(status.turns_used),
-        format_count(status.limits.max_turns),
-        format_count(status.tokens_used),
-        format_count(status.limits.max_tokens),
     )
-}
-
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -218,37 +183,34 @@ mod tests {
             )));
     }
 
-    /// v0.10.67's text: the run's own turns, tokens and time against its
-    /// limits (12, 80,000 and 30 minutes unless given); a session budget
-    /// changes none of them.
+    /// The run's state, its continuations and its last stop; limits and
+    /// checks name their commands.
     #[test]
     fn autonomous_status_format() {
-        let off = crate::autonomous::create_autonomous_runtime_state(None, None);
-        let mut limited = crate::autonomous::create_autonomous_runtime_state(
-            Some(&AgentAutonomousConfig {
-                max_turns: Some(1),
-                timeout_ms: Some(UNLIMITED_AUTONOMOUS_LIMIT),
-                ..AgentAutonomousConfig::default()
-            }),
-            None,
-        );
-        limited.turns_used = 2;
-        limited.tokens_used = 1_500;
-        let budget = eukhe_types::budget::BudgetReport {
-            limits: eukhe_types::budget::BudgetLimits {
-                requests: Some(5),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let status = |state, budget| {
-            format_autonomous_status(&crate::autonomous::autonomous_status(state, budget))
+        let status = |enabled, last_stop| {
+            format_autonomous_status(&AgentAutonomousStatus {
+                enabled,
+                continuations_used: 1_200,
+                started_at: None,
+                last_stop,
+                budget: None,
+            })
         };
         assert_eq!(
-            [status(&limited, Some(budget)), status(&off, None)],
             [
-                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 2/1. Tokens: 1,500/80,000. Time: 0s/unlimited. Gates: none. Subagent keep-alive: 25m.",
-                "[autonomous-status: off]\n\nContinuations: 0/3. Turns: 0/12. Tokens: 0/80,000. Time: 0s/1,800s. Gates: none. Subagent keep-alive: 25m.",
+                status(true, None),
+                status(
+                    false,
+                    Some(crate::autonomous::AutonomousStop::Checks(
+                        eukhe_types::acceptance::AcceptanceLabel::Failed
+                    ))
+                ),
+                status(false, Some(crate::autonomous::AutonomousStop::Budget)),
+            ],
+            [
+                "[autonomous-status: on]\n\nContinuations: 1,200. Limits: /budget. Checks: /accept status.",
+                "[autonomous-status: off]\n\nContinuations: 1,200. Last stop: the checks ended the claim: failed. Limits: /budget. Checks: /accept status.",
+                "[autonomous-status: off]\n\nContinuations: 1,200. Last stop: the run's work budget is used up. Limits: /budget. Checks: /accept status.",
             ]
             .map(str::to_owned)
         );

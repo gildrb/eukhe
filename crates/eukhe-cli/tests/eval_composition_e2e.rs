@@ -18,12 +18,12 @@
 )]
 
 //! End-to-end verifier for the eval/verifiers composition over the headless
-//! session: the CLI autonomous flags drive a print/json session with a
-//! verifier gate command through the #98 gate seams (no eval-specific core
-//! code — the composition is the `eukhe` binary itself). A fixture
-//! verifier script decides completion; the gate outcome must surface as
-//! durable session rows and structured json events, and the process exit
-//! code must follow the TS print-mode contract (print-mode.ts).
+//! session: the CLI flags drive an autonomous print/json session whose
+//! acceptance check is a verifier command (no eval-specific core code —
+//! the composition is the `eukhe` binary itself). A fixture verifier
+//! script decides completion; the checks' outcome must surface as durable
+//! session rows and structured json events, and the process exit code
+//! must follow the headless contract (D5, V10).
 
 use std::path::{Path, PathBuf};
 
@@ -43,6 +43,19 @@ fn isolated_home() -> tempfile::TempDir {
 }
 
 fn run(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
+    run_in(home, home, args, script)
+}
+
+/// [`run`] in the directory `home/work`: the run's workspace, which the
+/// checks fingerprint, holds neither the agent dir (the session's own
+/// storage) nor the fixture verifier's counter.
+fn run_at_work(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
+    let work = home.join("work");
+    std::fs::create_dir_all(&work).expect("work dir");
+    run_in(home, &work, args, script)
+}
+
+fn run_in(home: &Path, cwd: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
     let output = eukhe_command()
         .args(args)
         .env("HOME", home)
@@ -54,7 +67,7 @@ fn run(home: &Path, args: &[&str], script: &Value) -> (String, String, i32) {
         .env_remove("EUKHE_SESSION_DIR")
         .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
         .env_remove("EUKHE_DAEMON_SOCKET")
-        .current_dir(home)
+        .current_dir(cwd)
         .output()
         .expect("binary present");
     (
@@ -71,25 +84,15 @@ fn make_executable(path: &Path) {
     std::fs::set_permissions(path, permissions).unwrap();
 }
 
-/// The fixture verifier: passes once the run has made at least one more
-/// attempt after the first failing check (the counter file records
-/// consults). Hermetic: only the fixture directory is touched.
-fn pass_on_second_consult_verifier(home: &Path) -> PathBuf {
+/// The fixture verifier that passes: the task is done. Hermetic: only the
+/// fixture directory is touched.
+fn passing_verifier(home: &Path) -> PathBuf {
     let script = home.join("verify.sh");
-    let counter = home.join("verify-count").display().to_string();
     std::fs::write(
         &script,
-        format!(
-            "#!/usr/bin/env bash\n\
-             n=$(cat \"{counter}\" 2>/dev/null || echo 0)\n\
-             echo $((n+1)) > \"{counter}\"\n\
-             if [ \"$n\" -ge 1 ]; then\n\
-               echo \"solution verified\"\n\
-               exit 0\n\
-             fi\n\
-             echo \"solution.txt missing\" >&2\n\
-             exit 1\n"
-        ),
+        "#!/usr/bin/env bash\n\
+         echo \"solution verified\"\n\
+         exit 0\n",
     )
     .unwrap();
     make_executable(&script);
@@ -179,26 +182,36 @@ fn without_assistant_messages(value: &Value) -> Value {
     }
 }
 
-/// The verifier-driven session completing: the first turn fails the fixture
-/// verifier, the gate-failure continuation drives a second turn IN-RUN (the
-/// TS shape: no run boundary between continuation turns), the second
-/// consult passes, and the run stops without a row (the TS shape, probed
-/// against the binary: the stop surfaces through the exit contract only).
+/// The acceptance returns in the stored user prompts: those that start
+/// with the checks' not-verified header.
+fn acceptance_returns(transcript: &Transcript) -> Vec<String> {
+    durable_user_texts(transcript)
+        .into_iter()
+        .filter(|text| text.starts_with("[acceptance: not verified]"))
+        .collect()
+}
+
+/// The verifier-driven session completing: the verifier is the run's
+/// command check; the first claim passes it, and the checks' end stops the
+/// run (no continuation of the run's own, which a run without checks
+/// would get) without a row: the stop surfaces through the exit contract
+/// only.
 #[test]
-fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
+fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
     let home = isolated_home();
-    let verifier = pass_on_second_consult_verifier(home.path());
-    let script = json!({ "responses": ["first attempt", "fixed it"] });
-    let (stdout, stderr, code) = run(
+    let verifier = passing_verifier(home.path());
+    let script = json!({ "responses": ["done", "unused"] });
+    let (stdout, stderr, code) = run_at_work(
         home.path(),
         &[
             "--mode",
             "json",
             "-p",
             "build the feature",
-            "--autonomous",
-            "--autonomous-gate",
+            "--auto",
+            "--accept-cmd",
             verifier.to_str().unwrap(),
+            "--accept-no-intent",
         ],
         &script,
     );
@@ -209,7 +222,7 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
     assert_eq!(events[0]["type"], "session");
     assert_eq!(events[0]["version"], 3);
 
-    // Both scripted turns ran, in order.
+    // One answer: the claim the check confirmed.
     let assistant_texts: Vec<String> = events
         .iter()
         .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant")
@@ -217,111 +230,47 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
         .collect();
     assert_eq!(
         assistant_texts,
-        vec!["first attempt".to_string(), "fixed it".to_string()],
+        vec!["done".to_string()],
         "events: {events:?}"
     );
-
-    // The gate-failure continuation streamed as a hidden custom message
-    // (`display: false`: no client shows it), with the verifier's exit
-    // code and output; the only user message is the user's prompt.
-    let user_texts: Vec<String> = events
-        .iter()
-        .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "user")
-        .map(|event| text_of(&event["message"]))
-        .collect();
+    // No continuation of the run's own, no return, no autonomous_status
+    // event, and the run's single `agent_end` closes it.
     assert!(
-        user_texts
-            .iter()
-            .all(|text| !text.contains("[autonomous-continuation")),
-        "user messages: {user_texts:?}"
+        !events.iter().any(|event| {
+            event["message"]["customType"] == "autonomous_continuation"
+                || event["message"]["customType"] == "director_continuation"
+                || event["message"]["customType"] == "autonomous_status"
+        }),
+        "events: {events:?}"
     );
-    let continuations: Vec<&Value> = events
+    let verdicts: Vec<String> = events
         .iter()
         .filter(|event| {
-            event["type"] == "message_end"
-                && event["message"]["role"] == "custom"
-                && event["message"]["customType"] == "autonomous_continuation"
+            event["type"] == "message_end" && event["message"]["customType"] == "eukhe.acceptance"
         })
+        .map(|event| text_of(&event["message"]))
         .collect();
-    assert_eq!(continuations.len(), 1, "events: {events:?}");
-    assert_eq!(continuations[0]["message"]["display"], false);
-    let continuation = text_of(&continuations[0]["message"]);
-    assert!(
-        continuation.starts_with("[autonomous-continuation: gate-failed]"),
-        "continuation: {continuation}"
-    );
-    assert!(
-        continuation.contains("Autonomous quality gate failed (attempt 1/3)"),
-        "continuation: {continuation}"
-    );
-    assert!(
-        continuation.contains("exited with code 1"),
-        "continuation: {continuation}"
-    );
-    assert!(
-        continuation.contains("solution.txt missing"),
-        "verifier output surfaced: {continuation}"
-    );
-
-    // The stop surfaces no row (the TS shape, probed against the binary):
-    // no autonomous_status event on the stream, and the run's single
-    // `agent_end` closes it (the continuation churned inside the one run).
-    assert!(
-        !events
-            .iter()
-            .any(|event| { event["message"]["customType"] == "autonomous_status" }),
+    assert_eq!(
+        verdicts,
+        vec!["Acceptance checks passed, unconfined: 1 acceptance check confirmed.".to_string()],
         "events: {events:?}"
     );
     let agent_ends = events
         .iter()
         .filter(|event| event["type"] == "agent_end")
         .count();
-    assert_eq!(agent_ends, 1, "one run for the whole loop: {events:?}");
+    assert_eq!(agent_ends, 1, "one run: {events:?}");
     assert_eq!(events.last().unwrap()["type"], "agent_end");
-    // The in-run ordering, as pi-durable commits it: the `onYield`
-    // continuation's user entry lands in the settled answer's own commit
-    // (`generation/round.rs` `answer`), so its pair follows the answer's
-    // `message_end` and precedes that turn's `turn_end`; the continuation
-    // turn's `turn_start` follows with no run boundary between.
-    let continuation_index = events
-        .iter()
-        .position(|event| {
-            event["type"] == "message_end"
-                && event["message"]["customType"] == "autonomous_continuation"
-        })
-        .expect("the continuation's wire pair");
-    let around: Vec<&str> = events[continuation_index - 2..=continuation_index + 2]
-        .iter()
-        .filter_map(|event| event.get("type").and_then(Value::as_str))
-        .collect();
-    assert_eq!(
-        around,
-        vec![
-            "message_end",
-            "message_start",
-            "message_end",
-            "turn_end",
-            "turn_start"
-        ],
-        "the answer -> the continuation row -> turn_end -> turn_start, events: {events:?}"
-    );
-    assert_eq!(
-        text_of(&events[continuation_index - 2]["message"]),
-        "first attempt",
-        "the continuation follows the settled answer"
-    );
 
-    // The durable session rows: the continuation is a user entry, the stop
-    // wrote no custom entry.
+    // The durable session rows: the user's prompt only; the stop wrote no
+    // custom entry.
     let files = session_files(home.path());
     assert_eq!(files.len(), 1, "one session storage, got {files:?}");
     let transcript = read_transcript(&files[0]);
-    let users = durable_user_texts(&transcript);
-    let durable_continuations = users
-        .iter()
-        .filter(|text| text.starts_with("[autonomous-continuation: gate-failed]"))
-        .count();
-    assert_eq!(durable_continuations, 1, "user entries: {users:?}");
+    assert_eq!(
+        durable_user_texts(&transcript),
+        vec!["build the feature".to_string()]
+    );
     assert!(
         !has_autonomous_status_row(&transcript),
         "entries: {:?}",
@@ -329,15 +278,16 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
     );
 }
 
-/// A verifier that never passes exhausts its retry window: the process exits
-/// one, the TS print-mode stderr line names the attempt and exit code, and
-/// the stop writes no row (the exit contract carries it).
+/// A verifier that never passes, through the removed gate flags
+/// (`--autonomous-gate` is `--accept-cmd`, `--autonomous-gate-retries` is
+/// `--accept-returns`): the claim goes back once, then the checks end it
+/// failed; the process exits one and the stop writes no row.
 #[test]
-fn verifier_gate_failure_exhausts_retries_and_exits_one() {
+fn verifier_check_failure_exhausts_returns_and_exits_one() {
     let home = isolated_home();
     let verifier = always_failing_verifier(home.path());
-    let script = json!({ "responses": ["attempt one", "attempt two"] });
-    let (stdout, stderr, code) = run(
+    let script = json!({ "responses": ["attempt one", "attempt two", "unused"] });
+    let (stdout, stderr, code) = run_at_work(
         home.path(),
         &[
             "--mode",
@@ -349,15 +299,14 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
             verifier.to_str().unwrap(),
             "--autonomous-gate-retries",
             "1",
+            "--accept-no-intent",
         ],
         &script,
     );
     assert_eq!(code, 1, "stderr: {stderr}\nstdout: {stdout}");
     assert!(
-        stderr.starts_with(
-            "Autonomous quality gate still failing after attempt 2/1: exited with code 1"
-        ),
-        "stderr: {stderr}"
+        stderr.contains("--accept-cmd"),
+        "the replacement named: {stderr}"
     );
     // No stdout text output in json mode: the terminal contract rides stderr.
     assert!(
@@ -367,9 +316,16 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
         "stdout is all json events: {stdout}"
     );
     let events = parse_events(&stdout);
-    // The stop surfaces no row (the TS shape): the stream carries no
-    // autonomous_status event and the store no custom entry — the stderr
-    // line and the exit code carry the retry-exhausted stop.
+    let assistant_texts: Vec<String> = events
+        .iter()
+        .filter(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant")
+        .map(|event| text_of(&event["message"]))
+        .collect();
+    assert_eq!(
+        assistant_texts,
+        vec!["attempt one".to_string(), "attempt two".to_string()],
+        "events: {events:?}"
+    );
     assert!(
         !events
             .iter()
@@ -378,6 +334,14 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
     );
     let files = session_files(home.path());
     let transcript = read_transcript(&files[0]);
+    let returns = acceptance_returns(&transcript);
+    assert_eq!(
+        returns.len(),
+        1,
+        "user entries: {:?}",
+        durable_user_texts(&transcript)
+    );
+    assert!(returns[0].contains("(return 1 of 1)"), "{}", returns[0]);
     assert!(
         !has_autonomous_status_row(&transcript),
         "entries: {:?}",
@@ -390,25 +354,24 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
 #[test]
 fn text_mode_verifier_pass_prints_the_final_answer() {
     let home = isolated_home();
-    let verifier = pass_on_second_consult_verifier(home.path());
-    let script = json!({ "responses": ["first attempt", "fixed it"] });
-    let (stdout, stderr, code) = run(
+    let verifier = passing_verifier(home.path());
+    let script = json!({ "responses": ["done", "unused"] });
+    let (stdout, stderr, code) = run_at_work(
         home.path(),
         &[
             "-p",
             "build the feature",
-            "--autonomous",
-            "--autonomous-gate",
+            "--auto",
+            "--accept-cmd",
             verifier.to_str().unwrap(),
+            "--accept-no-intent",
         ],
         &script,
     );
     assert_eq!(code, 0, "stderr: {stderr}");
-    assert_eq!(stdout, "fixed it\n");
-    assert!(stderr.is_empty(), "stderr: {stderr}");
+    assert_eq!(stdout, "done\n");
+    assert!(!stderr.contains("utonomous"), "stderr: {stderr}");
 
-    // The stop wrote no row (the TS shape); the continuation is the only
-    // autonomous surface in the store.
     let files = session_files(home.path());
     let transcript = read_transcript(&files[0]);
     assert!(
@@ -416,54 +379,40 @@ fn text_mode_verifier_pass_prints_the_final_answer() {
         "entries: {:?}",
         transcript.entries
     );
-    let users = durable_user_texts(&transcript);
-    assert!(
-        users
-            .iter()
-            .any(|text| text.starts_with("[autonomous-continuation: gate-failed]")),
-        "user entries: {users:?}"
+    assert_eq!(
+        durable_user_texts(&transcript),
+        vec!["build the feature".to_string()]
     );
 }
 
-/// The autonomous contract without gates: a budget limit stops the run and
-/// the process exits one with the TS "stopped before terminal evidence"
-/// line; the stop writes no row.
+/// The removed `--autonomous-max-tokens` is a token limit of the run's
+/// budget: a limit of 1 holds no first request with its final answer's
+/// reserve, so the run sends nothing and exits one, naming the budget; the
+/// flag's note names `--budget-tokens`; no row.
 #[test]
-fn autonomous_limit_without_gates_exits_one_without_a_row() {
+fn autonomous_token_limit_is_the_runs_budget() {
     let home = isolated_home();
-    let script = json!({ "responses": ["still working", "more work"] });
+    let script = json!({ "responses": ["unused"] });
     let (stdout, stderr, code) = run(
         home.path(),
         &[
             "-p",
             "build the feature",
             "--autonomous",
-            "--autonomous-max-continuations",
+            "--autonomous-max-tokens",
             "1",
         ],
         &script,
     );
     assert_eq!(code, 1, "stderr: {stderr}");
-    assert_eq!(stdout, "more work\n");
-    assert!(
-        stderr.starts_with(
-            "Autonomous run stopped before terminal evidence; maxContinuations reached (1/1)"
-        ),
-        "stderr: {stderr}"
-    );
+    assert_eq!(stdout, "");
+    assert!(stderr.contains("--budget-tokens"), "stderr: {stderr}");
     let files = session_files(home.path());
     let transcript = read_transcript(&files[0]);
     assert!(
         !has_autonomous_status_row(&transcript),
         "entries: {:?}",
         transcript.entries
-    );
-    let users = durable_user_texts(&transcript);
-    assert!(
-        users
-            .iter()
-            .any(|text| text.starts_with("[autonomous-continuation]")),
-        "user entries: {users:?}"
     );
 }
 

@@ -26,6 +26,9 @@ const RETIRED: &[&str] = &[
     "retry.provider.waitForUsage.maxDelayMs",
     "retry.provider.waitForUsage.maxAttempts",
     "retry.provider.waitForUsage.maxWaitMs",
+    // Removed after 0.10.68: the autonomous run's own limits (its limits
+    // are the session's budget: `/budget`, the `--budget-*` flags).
+    "autonomous",
     // Removed by 0.10.13.
     "telemetry",
     "agentTraces",

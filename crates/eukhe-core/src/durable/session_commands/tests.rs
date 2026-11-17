@@ -297,6 +297,30 @@ async fn auto_task_turns_autonomous_on_and_sends_the_task() {
     fixture.close().await;
 }
 
+/// `/goal --budget N <task>` (`/auto <task> --budget N`): N is the token
+/// limit of the run on the session's budget; the autonomous run has none
+/// of its own.
+#[tokio::test]
+async fn a_goal_budget_is_the_runs_token_limit() {
+    let fixture = open(&[error_response("provider exploded")]).await;
+    let outcome = fixture.run("/goal --budget 5000 ship it").await;
+    assert_eq!(failed(&outcome), None);
+    assert!(outcome.autonomous.expect("the status").enabled);
+    fixture.idle().await;
+    assert_eq!(
+        (
+            fixture
+                .session
+                .budget()
+                .report()
+                .map(|report| report.limits.tokens),
+            fixture.user_texts().await
+        ),
+        (Some(Some(5000)), vec!["ship it".to_owned()])
+    );
+    fixture.close().await;
+}
+
 /// On main (`main-worker`) `/auto` (as typed in any of its names) is the
 /// worker's: main starts no run of its own; with no worker yet the command
 /// says so.
