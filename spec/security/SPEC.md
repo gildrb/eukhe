@@ -1,12 +1,16 @@
 # security (spec): capability security
 
 Status: spec only. Nothing below is implemented; no law named in section 4
-exists yet. Ids `C1..C14` are provisional.
+exists yet. Ids `C1..C14` are provisional. The owner's decision of
+2026-11-17 (spec/README.md I1-I13) ships no question to a user: every
+requirement, law and open question below that asks a user mid-run (C10,
+C11's "asks", C13's answer, `ask_*`, `policy_write_always_asks`) stands
+superseded until rewritten; a write to the store's files is refused (I3).
 
 What an agent may read, write, run and send is one proven policy. A subagent
 never holds more rights than its parent granted. Secrets and private data
 leave only through a granted capability. The pillar builds on the path
-policy, the approval gate and its route, the child environment, the outbound
+policy, the effect classification and its ledger, the child environment, the outbound
 scrubber and the copy-on-write child workspace; it replaces none of them, it
 gives them one vocabulary and adds what is missing: grants, attenuation,
 labels on data, and confinement of the programs an agent runs.
@@ -72,10 +76,10 @@ labels on data, and confinement of the programs an agent runs.
 
 |Area|What it decides today|Where|
 |---|---|---|
-|effects and the auto set|A `bash` step or `python` cell has a set of effects (read, write, exec, net, outside, protected, secret); it runs unasked only when all are in `shell.autoEffects`. Default: all seven, so by default nothing asks.|`bend/tools.bend` §4, `bend/runners.bend`, `crates/eukhe-types/src/shell.rs`, `crates/eukhe-core/src/settings/cvar/table.rs:1219`|
-|path policy|A path is judged at its real location: Secret, Protected, Inside, Outside; a loop is never Inside; writes with no yes leave every secret as it was. Shell and document tools share it. Its Protected and Secret classes come from the state list (below), not a hand list.|`bend/path_policy.bend`, `laws/path_policy/` (64 laws), `crates/eukhe-types/src/path_policy.rs`, `crates/eukhe-core/src/durable/path_policy.rs`|
-|approval route|A question goes up the chain of sessions to the first client that answers; above the root it is unanswered, a denial. The phone gateway shows no question: its rule answers at once (a protected write is refused, every other step runs).|`bend/approvals.bend`, `laws/approvals/` (33)|
-|runners|Every tool that runs code goes through the gate (`gate_covers_every_runner`); main's roster is read-only tools plus worker tools.|`bend/runners.bend`, `laws/runners.bend`|
+|effects|A `bash` step, a document access, a `python` cell and an MCP call have a set of effects (read, write, exec, net, outside, protected, secret, unknown); every one runs unasked (spec/README.md I2). An irreversible one (any class but read, write, exec) is recorded once in the session's `eukhe.effects` ledger after it ran and listed at the end of its run (I4-I6).|`bend/tools.bend` §4, `bend/irreversible.bend`, `crates/eukhe-types/src/shell.rs`, `crates/eukhe-types/src/effects.rs`|
+|path policy|A path is judged at its real location: Own, Secret, Protected, Inside, Outside; a loop is never Inside. A write to an Own path (Eukhe's config and credentials, the session record, a set check's protected files) is refused, never asked (I3). Shell and document tools share it. Its Own, Protected and Secret classes come from the state list (below), not a hand list.|`bend/path_policy.bend`, `laws/path_policy/`, `crates/eukhe-types/src/path_policy.rs`, `crates/eukhe-core/src/durable/path_policy.rs`|
+|questions|None: no step asks or waits on a client; the phone gateway and every other client get no question. An editor attached through ACP is asked before an irreversible effect (I12).|`crates/eukhe-daemon/src/acp/`|
+|runners|Every tool that runs code goes through the effect classification (`gate_covers_every_runner`); main's roster is read-only tools plus worker tools.|`bend/runners.bend`, `laws/runners.bend`|
 |child environment|No credential variable reaches a child process; a local kernel keeps only the names the user's MCP config lists.|`bend/child_env.bend`, `laws/child_env.bend` (`env_drops_credentials`)|
 |outbound scrubber|With `privacy.anonymizeRemote`: personal values leave as tokens that map back; credentials leave as one-way tokens; a local model gets the raw text.|`bend/privacy/`, `spec/harness/privacy.bend`, `laws/privacy/` (H7)|
 |child workspace|A subagent spawned with `isolate` works on a copy; changes merge back path by path, conflicts reported. A protocol model of host and sandbox frames. No operating-system sandbox: a search for landlock, seatbelt, bwrap, seccomp finds nothing. Every copy and snapshot of agents' work (child workspaces, kernel snapshots) lives in the work root `<agent dir>-work` (`~/.eukhe-work`, 0700), beside the agent dir and outside it; copies an earlier release left under `<agent dir>/workspaces` move there on first use.|`bend/sandbox.bend`, `laws/sandbox.bend`, `crates/eukhe-core/src/child_workspace/`, `eukhe_types::platform::dirs::work_root`, `crates/eukhe-core/src/platform/dir_move.rs`|

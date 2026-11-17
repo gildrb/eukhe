@@ -73,11 +73,10 @@ Gaps against the requirements:
    written, so the record shows what happened, not what was decided (T1, T6).
 2. The request a model received is not recorded: it is rebuilt from the
    transcript by Rust (prompt assembly, quirks, scrubber) (T7).
-3. An approval's answer is a transient frame, not an entry
-   (`crates/eukhe-daemon/src/shell_approval.rs`): a refusal shows in the
-   tool's result text, a yes shows nowhere. An agent's own settings changes
-   are kept (the `eukhe.cvar.agent` document); a user's change of the
-   settings files is not (T1).
+3. An agent's own settings changes are kept (the `eukhe.cvar.agent`
+   document); a user's change of the settings files is not (T1). The
+   irreversible effects that ran are in the `eukhe.effects` ledger
+   (spec/README.md I4); the reversible ones only in their tool results.
 4. No integrity beyond the torn tail: a line changed in the middle of
    `main.jsonl` reads as valid. No digest, chain or anchor; a search of the
    storage code for sha256, checksum or a previous-hash field finds none
