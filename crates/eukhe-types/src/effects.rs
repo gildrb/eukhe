@@ -79,6 +79,75 @@ impl EffectResolution {
     }
 }
 
+/// The class of an effect (spec/README.md I1): read, write and exec inside
+/// the workspace are reversible; every other class is irreversible
+/// (`eukhe_bend::rules::irreversible::is_irreversible`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EffectClass {
+    /// Reads files or shell state.
+    Read,
+    /// Changes files inside the workspace.
+    Write,
+    /// Runs a program.
+    Exec,
+    /// Talks to the network.
+    Net,
+    /// Writes or deletes outside the workspace.
+    Outside,
+    /// Writes a protected place (`.git`, a `.eukhe` dir, a `PATH` dir, an
+    /// auto-start dir, eukhe's run dir, work root or executables dir).
+    Protected,
+    /// Reads or writes a secret.
+    Secret,
+    /// Past the vocabulary: an MCP tool not declared read-only.
+    Unknown,
+}
+
+impl EffectClass {
+    /// Every class, in code order.
+    pub const ALL: [Self; 8] = [
+        Self::Read,
+        Self::Write,
+        Self::Exec,
+        Self::Net,
+        Self::Outside,
+        Self::Protected,
+        Self::Secret,
+        Self::Unknown,
+    ];
+
+    /// The class's code (`bend/irreversible.bend`: 0 to 7).
+    #[must_use]
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Read => 0,
+            Self::Write => 1,
+            Self::Exec => 2,
+            Self::Net => 3,
+            Self::Outside => 4,
+            Self::Protected => 5,
+            Self::Secret => 6,
+            Self::Unknown => 7,
+        }
+    }
+
+    /// The class's wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Exec => "exec",
+            Self::Net => "net",
+            Self::Outside => "outside",
+            Self::Protected => "protected",
+            Self::Secret => "secret",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 /// Why a restart treated a step of unknown outcome as not run: the world
 /// showed nothing of it and running it again was not safe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

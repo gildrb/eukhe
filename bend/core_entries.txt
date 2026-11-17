@@ -138,3 +138,4 @@
 465 strength
 466 attack
 471 gateway_report
+469 irreversible

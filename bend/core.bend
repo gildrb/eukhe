@@ -7,7 +7,6 @@ import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
-import ./ffi_attack.bend as ffi_attack
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
 import ./ffi_autoresearch.bend as ffi_autoresearch
@@ -55,7 +54,6 @@ import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
 import ./ffi_gateway_commands.bend as ffi_gateway_commands
-import ./ffi_gateway_report.bend as ffi_gateway_report
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
@@ -66,6 +64,7 @@ import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
+import ./ffi_irreversible.bend as ffi_irreversible
 import ./ffi_job.bend as ffi_job
 import ./ffi_job_notice.bend as ffi_job_notice
 import ./ffi_job_rewind.bend as ffi_job_rewind
@@ -391,9 +390,7 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 465:
       ffi_strength.ffi(input)
     case 466:
-      ffi_attack.ffi(input)
-    case 471:
-      ffi_gateway_report.ffi(input)
+      ffi_irreversible.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case _:

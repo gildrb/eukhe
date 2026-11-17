@@ -30,6 +30,8 @@ def shr.reply_ok(q: FSh.Req) -> {LawsBase.wire_opens_err(FSh.answer(q)) == False
           Wire.wire_nat_not_err(0n, "")
         case False{}:
           Wire.wire_nat_not_err(1n, Wr.put_nat(i, ""))
+    case FSh.QVerdict{+ps}:
+      LD.dcw.fin_ok(Wr.put_list.go(~Nat, ~Wr.put_nat, Tl.pieces.effs(ps), FSh.put_verdict(Tl.verdict(ps), "")))
 
 def shr.refuse(d: Wr.Dec<FSh.Req>, bad: {LawsBase.wire_opens_err(FSh.run(d)) == True{} : Bool}) -> {FSh.run(d) == Shell.malformed() : String}:
   match d:

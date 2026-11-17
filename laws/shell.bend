@@ -39,6 +39,12 @@ import ./base.bend as LawsBase
 #     wire_flat.bend): each inner list's items as 1 + item, then the end
 #     mark 0; a flat list is read back exactly when it is such a spelling,
 #     as the lists it spells.
+# R7 (spec/README.md I2, I3): a step (tag 3, `verdict`) runs exactly when
+#     no part of it writes an own path (eukhe's own config and
+#     credentials, the session record, a protected file of a check); no
+#     auto set, answer or setting enters the verdict; its effects are
+#     those of R3. R4 and R5 are the approval gate's, kept until its last
+#     caller goes.
 # Every input is free: any auto set, any parts, any effects, any step id,
 # any answer, any text.
 
@@ -68,6 +74,20 @@ def spell_parts(ps: List<&2, Tl.Part>) -> List<&2, List<&2, Nat>>:
     case p <> rest:
       spell_part(p) <> spell_parts(rest)
 
+# a part as the verdict question spells it: its secret flag, its own-write
+# flag, then its own codes
+def spell_piece(p: Tl.Piece) -> List<&2, Nat>:
+  match p:
+    case Tl.Piece{o, s, m}:
+      spell_flag(s) <> spell_flag(m) <> o
+
+def spell_pieces(ps: List<&2, Tl.Piece>) -> List<&2, List<&2, Nat>>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      spell_piece(p) <> spell_pieces(rest)
+
 # the request q as Rust writes it, then rest
 def spell_req(q: FSh.Req, rest: String) -> String:
   match q:
@@ -77,6 +97,8 @@ def spell_req(q: FSh.Req, rest: String) -> String:
       Wr.put_nat(1n, spell_ns(a, spell_ns(es, rest)))
     case FSh.QAnswer{i, y}:
       Wr.put_nat(2n, Wr.put_nat(i, Wr.put_bool(y, rest)))
+    case FSh.QVerdict{ps}:
+      Wr.put_nat(3n, spell_ns(Fl.flat(spell_pieces(ps)), rest))
 
 # a list of Nats fits the wire: its length and each item
 def ns_fit(+xs: List<&2, Nat>) -> Bool:
@@ -91,6 +113,37 @@ def req_fits(q: FSh.Req) -> Bool:
       Bool.and(ns_fit(a), ns_fit(es))
     case FSh.QAnswer{i, y}:
       LawsBase.wire_fits(i)
+    case FSh.QVerdict{ps}:
+      ns_fit(Fl.flat(spell_pieces(ps)))
+
+# R7: a verdict as Rust reads it: 0 runs, 1 refused
+def spell_verdict(v: Tl.Verdict) -> Nat:
+  match v:
+    case Tl.Runs{}:
+      0n
+    case Tl.Refused{}:
+      1n
+
+# R7: the verdict is a refusal
+def refused(v: Tl.Verdict) -> Bool:
+  match v:
+    case Tl.Runs{}:
+      False{}
+    case Tl.Refused{}:
+      True{}
+
+# R7: a part without its own-write fact
+def piece_part(p: Tl.Piece) -> Tl.Part:
+  match p:
+    case Tl.Piece{o, s, m}:
+      Tl.Part{o, s}
+
+def pieces_parts(ps: List<&2, Tl.Piece>) -> List<&2, Tl.Part>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      piece_part(p) <> pieces_parts(rest)
 
 # what an answer does: the step runs (0), or the script stops at it (1, id)
 def spell_end(e: Tl.End) -> String:
@@ -112,6 +165,8 @@ def spell_answer(q: FSh.Req) -> String:
       Wr.put_bool(Tl.within(es, a), "")
     case FSh.QAnswer{i, y}:
       spell_end(Tl.Ran.end(Tl.gate(y, Tl.Step{i, Nil{}}, Tl.Ran{Nil{}, Tl.Finished{}})))
+    case FSh.QVerdict{+ps}:
+      spell_ns(Tl.pieces.effs(ps), Wr.put_nat(spell_verdict(Tl.verdict(ps)), ""))
 
 # the error form of every input that is not exactly one request
 def malformed() -> String:
@@ -138,7 +193,7 @@ law shell_ffi_left_over:
   {FSh.ffi(spell_req(q, more)) == malformed() : String}
 
 # LAW shell_ffi_reads_only_requests (R2): every input the entry does not answer with an error is exactly one request Rust writes (spelled by spell_req from the wire primitives, nothing after it) whose every number fits the wire
-# EXCLUDES: an answer for input that is no request: an unknown tag (3 or
+# EXCLUDES: an answer for input that is no request: an unknown tag (4 or
 #   more), a part with no flag or a flag past 1, a short list, a number
 #   past the wire, a Bool that is no T or F, input left over
 law shell_ffi_reads_only_requests:
@@ -171,7 +226,52 @@ law shell_ffi_example:
   {FSh.ffi("2,4,F") == "1,4," : String} &
   {FSh.ffi("2,4,T") == "0," : String} &
   {FSh.ffi("0,0,2,3,0,") == malformed() : String} &
-  {FSh.ffi("3,") == malformed() : String}
+  {FSh.ffi("4,") == malformed() : String} &
+  {FSh.ffi("3,4,1,1,1,0,") == "1,0,0," : String} &
+  {FSh.ffi("3,5,1,2,2,6,0,") == "2,1,5,1," : String} &
+  {FSh.ffi("3,3,1,3,0,") == malformed() : String}
+
+# Laws: whether a step runs (R7)
+# ------------------------------
+# The entry answers Tl.verdict(ps) for a step of parts ps
+# (shell_ffi_answers). These laws fix it for every ps: a step with no
+# part runs; one part is refused exactly when it writes an own path;
+# parts in a row are refused exactly when one of them is. No auto set, no
+# answer and no setting enters it: every other step runs unasked (I2), a
+# step that writes an own path is refused (I3).
+
+# LAW shell_verdict_none (R7): a step with no part runs
+# EXCLUDES: an empty step refused
+law shell_verdict_none:
+  {Tl.verdict(Nil{}) == Tl.Runs{} : Tl.Verdict}
+
+# LAW shell_verdict_one (R7): a step of one part is refused exactly when
+# the part writes an own path, whatever its effects and secret flag
+# EXCLUDES: a refusal of a write outside the workspace, a net or secret
+#   access or any irreversible effect; an own write that runs; a verdict
+#   read from the secret flag
+law shell_verdict_one:
+  for +o: List<&2, Nat>
+  for +s: Bool
+  for +m: Bool
+  {refused(Tl.verdict([Tl.Piece{o, s, m}])) == m : Bool}
+
+# LAW shell_verdict_concat (R7): the parts ps then qs are refused exactly
+# when ps is or qs is
+# EXCLUDES: only the first or last part read, an own write hidden by the
+#   parts beside it
+law shell_verdict_concat:
+  for +ps: List<&2, Tl.Piece>
+  for +qs: List<&2, Tl.Piece>
+  {refused(Tl.verdict(List.append(&2, Tl.Piece, ps, qs))) == Bool.or(refused(Tl.verdict(ps)), refused(Tl.verdict(qs))) : Bool}
+
+# LAW shell_verdict_effects (R3, R7): the effects of a step answered with
+# its verdict are those of the same parts without the own-write fact (R3
+# fixes them)
+# EXCLUDES: an own write that adds, drops or reorders an effect
+law shell_verdict_effects:
+  for +ps: List<&2, Tl.Piece>
+  {Tl.pieces.effs(ps) == Tl.join(Tl.parts.effs(pieces_parts(ps))) : List<&2, Nat>}
 
 # Laws: a step's effects (R3)
 # ---------------------------
