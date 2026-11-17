@@ -240,7 +240,8 @@ def sa_budget.at(ok: Bool, v: String, +o: String) -> Sa.Auto:
       Sa.AErr{"Goal token budget must be a positive integer."}
 
 # R4: the answer of the budget digits v before the objective o: v must be
-# R4's u64 digits (Sa.u64, pinned by slash_args_u64_example)
+# R4's u64 digits (Sa.u64, pinned by slash_args_digits_fit and
+# slash_args_digits_refused)
 def sa_budget(+v: String, +o: String) -> Sa.Auto:
   sa_budget.at(Sa.u64(v), v, o)
 
@@ -474,10 +475,11 @@ def sa_option.keep(ok: Bool, d: String) -> Sa.Auto:
 
 # R8, R9: `/autonomous on` with the one option of flag k and the non-empty
 # value v: a limit is `unlimited` (lowercased) or R4's u64 digits after
-# R8's drop (Sa.u64, pinned by slash_args_u64_example), else its error;
-# `--gate` names the one command v; gate retries and timeout are such
-# digits, else their error; the keep-alive is 0 or positive digits up to
-# 2147483647 (Sa.keep_ok, pinned by slash_args_u64_example), else its error
+# R8's drop (Sa.u64, pinned by slash_args_digits_fit and
+# slash_args_digits_refused), else its error; `--gate` names the one
+# command v; gate retries and timeout are such digits, else their error;
+# the keep-alive is 0 or positive digits up to 2147483647 (Sa.keep_ok,
+# pinned by the same laws), else its error
 def sa_option(k: Nat, +v: String) -> Sa.Auto:
   match k:
     case 0n:
@@ -793,6 +795,321 @@ law slash_args_auto_option:
   for on: {sa_on(String.to_lower(w)) == True{} : Bool}
   {Sa.auto(s) == sa_option_or_missing(k, String.append(sa_prefix(p), sa_flag_name(k)), v) : Sa.Auto}
 
+# Terms: options in order (R7-R9)
+# -------------------------------
+
+# R7: an option of `/autonomous on`: the flag k (sa_flag_name(k); past 7,
+# the keep-alive) with the prefix p (sa_prefix), its value v given after
+# `=` (e) or as the next word
+type SaOpt is Data:
+  SaOpt{p: Bool, k: Nat, e: Bool, v: String}
+
+def sa_opt_words.at(e: Bool, f: String, v: String) -> List<&2, String>:
+  match e:
+    case True{}:
+      [String.append(f, SCon{'=', v})]
+    case False{}:
+      [f, v]
+
+# R7: the words of the option o: `<prefix><name>=v`, or `<prefix><name>`
+# then v
+def sa_opt_words(o: SaOpt) -> List<&2, String>:
+  match o:
+    case SaOpt{p, k, e, v}:
+      sa_opt_words.at(e, String.append(sa_prefix(p), sa_flag_name(k)), v)
+
+# R7: the words of the options os, in order
+def sa_opts_words(os: List<&2, SaOpt>) -> List<&2, String>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> t:
+      List.append(&2, String, sa_opt_words(o), sa_opts_words(t))
+
+# R6-R8: the answer is autonomous mode on
+def sa_is_on(a: Sa.Auto) -> Bool:
+  match a:
+    case Sa.AOn{c}:
+      True{}
+    case Sa.AStatus{}:
+      False{}
+    case Sa.AOff{}:
+      False{}
+    case Sa.AErr{x}:
+      False{}
+    case Sa.ATask{x, b}:
+      False{}
+
+# R6-R8: the answer is an error
+def sa_is_err(a: Sa.Auto) -> Bool:
+  match a:
+    case Sa.AErr{x}:
+      True{}
+    case Sa.AStatus{}:
+      False{}
+    case Sa.AOn{c}:
+      False{}
+    case Sa.AOff{}:
+      False{}
+    case Sa.ATask{x, b}:
+      False{}
+
+# R7: the value of the option o is given: not empty, and as the next word
+# it does not start with `--`
+def sa_opt_given(o: SaOpt) -> Bool:
+  match o:
+    case SaOpt{p, k, e, +v}:
+      Bool.and(Bool.not(String.is_empty(v)), Bool.or(e, Bool.not(String.starts_with(v, "--"))))
+
+# R8: the option o read alone (sa_option)
+def sa_opt_read(o: SaOpt) -> Sa.Auto:
+  match o:
+    case SaOpt{p, k, e, v}:
+      sa_option(k, v)
+
+# R7, R8: the option o is read without an error: its value is given and
+# R8 takes it for its flag
+def sa_opt_ok(+o: SaOpt) -> Bool:
+  Bool.and(sa_opt_given(o), sa_is_on(sa_opt_read(o)))
+
+# R7, R8: every option of os is read without an error
+def sa_opts_ok(os: List<&2, SaOpt>) -> Bool:
+  match os:
+    case Nil{}:
+      True{}
+    case o <> t:
+      Bool.and(sa_opt_ok(o), sa_opts_ok(t))
+
+def sa_named.at(b: Bool, v: String) -> Maybe<&2, String>:
+  match b:
+    case True{}:
+      Some{v}
+    case False{}:
+      None{}
+
+# R9: the value of the option o when it names the flag k
+def sa_named(o: SaOpt, +k: Nat) -> Maybe<&2, String>:
+  match o:
+    case SaOpt{p, j, e, v}:
+      sa_named.at(String.eq(sa_flag_name(j), sa_flag_name(k)), v)
+
+# R9: the value of m when it has one, else n's
+def sa_pick(m: Maybe<&2, String>, n: Maybe<&2, String>) -> Maybe<&2, String>:
+  match m:
+    case Some{x}:
+      Some{x}
+    case None{}:
+      n
+
+# R9: the value named last for the flag k among the options os (none: k
+# is not named)
+def sa_last(os: List<&2, SaOpt>, +k: Nat) -> Maybe<&2, String>:
+  match os:
+    case Nil{}:
+      None{}
+    case o <> t:
+      sa_pick(sa_last(t, k), sa_named(o, k))
+
+def sa_cmds.at(m: Maybe<&2, String>, r: List<&2, String>) -> List<&2, String>:
+  match m:
+    case Some{v}:
+      v <> r
+    case None{}:
+      r
+
+# R9: the gate commands of the options os, in their order
+def sa_cmds(os: List<&2, SaOpt>) -> List<&2, String>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> t:
+      sa_cmds.at(sa_named(o, 4n), sa_cmds(t))
+
+def sa_lim.at(u: Bool, v: String) -> Sa.Lim:
+  match u:
+    case True{}:
+      Sa.LUnl{}
+    case False{}:
+      Sa.LNum{sa_ungroup(v)}
+
+# R8: a limit's value: `unlimited` (its ASCII letters lowercased), else its
+# digits after R8's drop
+def sa_lim(+v: String) -> Sa.Lim:
+  sa_lim.at(String.eq(String.to_lower(v), "unlimited"), v)
+
+# R9: a value is named
+def sa_is_some(m: Maybe<&2, String>) -> Bool:
+  match m:
+    case Some{x}:
+      True{}
+    case None{}:
+      False{}
+
+# R9: a limit, its value named last m: that value; none, when a limit was
+# named (n), unlimited; else not named
+def sa_limit(m: Maybe<&2, String>, n: Bool) -> Maybe<&2, Sa.Lim>:
+  match m:
+    case Some{v}:
+      Some{sa_lim(v)}
+    case None{}:
+      match n:
+        case True{}:
+          Some{Sa.LUnl{}}
+        case False{}:
+          None{}
+
+# R8: a named value's digits after R8's drop
+def sa_digits_of(m: Maybe<&2, String>) -> Maybe<&2, String>:
+  match m:
+    case Some{v}:
+      Some{sa_ungroup(v)}
+    case None{}:
+      None{}
+
+def sa_gates.at(b: Bool, r: Maybe<&2, String>, t: Maybe<&2, String>) -> Maybe<&2, Sa.Gates>:
+  match b:
+    case True{}:
+      Some{Sa.Gates{None{}, r, t}}
+    case False{}:
+      None{}
+
+# R9: the gates, with the commands cmds, the retries r and the timeout t:
+# named when a command, a retry or a timeout was (the commands only when
+# there is one)
+def sa_gates(cmds: List<&2, String>, +r: Maybe<&2, String>, +t: Maybe<&2, String>) -> Maybe<&2, Sa.Gates>:
+  match cmds:
+    case Nil{}:
+      sa_gates.at(Bool.or(sa_is_some(r), sa_is_some(t)), r, t)
+    case c <> u:
+      Some{Sa.Gates{Some{c <> u}, r, t}}
+
+# R9: the options of `/autonomous on` from the values named last for each
+# flag (m0-m3 the limits, m5 the retries, m6 the timeout, m7 the
+# keep-alive) and the gate commands cmds: when any limit is named, every
+# limit not named is unlimited
+def sa_conf_of(+m0: Maybe<&2, String>, +m1: Maybe<&2, String>, +m2: Maybe<&2, String>, +m3: Maybe<&2, String>, cmds: List<&2, String>, m5: Maybe<&2, String>, m6: Maybe<&2, String>, m7: Maybe<&2, String>) -> Sa.Conf:
+  +n = Bool.or(Bool.or(sa_is_some(m0), sa_is_some(m1)), Bool.or(sa_is_some(m2), sa_is_some(m3)))
+  Sa.Conf{sa_limit(m0, n), sa_limit(m1, n), sa_limit(m2, n), sa_limit(m3, n), sa_gates(cmds, sa_digits_of(m5), sa_digits_of(m6)), sa_digits_of(m7)}
+
+# R9: the options os read in order
+def sa_read_conf(+os: List<&2, SaOpt>) -> Sa.Conf:
+  sa_conf_of(sa_last(os, 0n), sa_last(os, 1n), sa_last(os, 2n), sa_last(os, 3n), sa_cmds(os), sa_last(os, 5n), sa_last(os, 6n), sa_last(os, 7n))
+
+# Laws: options in order (R7-R9)
+# ------------------------------
+
+# LAW slash_args_auto_options (R7-R9): after `on`, `enable` or `enabled`
+# (lowercased), every list of options read without an error, each one
+# word `<prefix><name>=v` or the two words `<prefix><name>` and v, answers
+# autonomous mode on with: for each flag the value named last (a limit
+# `unlimited` or its digits, a gate number or the keep-alive its digits,
+# `,` and `_` dropped); every limit not named unlimited when any limit is
+# named; the gate commands in their order; the gates named when a
+# command, a retry or a timeout was
+# EXCLUDES: the first value of a repeated flag kept, gate commands
+#   reordered or only the last kept, unnamed limits left unset after a
+#   named one or set when none was, gates named with none given, a
+#   next-word value not consumed or read as an option, flags read as
+#   each other
+law slash_args_auto_options:
+  for +s: String
+  for +w: String
+  for +os: List<&2, SaOpt>
+  for ws: {Sa.words(s) == w <> sa_opts_words(os) : List<&2, String>}
+  for on: {sa_on(String.to_lower(w)) == True{} : Bool}
+  for +ok: {sa_opts_ok(os) == True{} : Bool}
+  {Sa.auto(s) == Sa.AOn{sa_read_conf(os)} : Sa.Auto}
+
+# LAW slash_args_auto_bad_value (R7-R9): after `on`, `enable` or `enabled`
+# (lowercased), a first option whose value is given but that R8 refuses
+# for its flag answers R8's error for it (sa_option), whatever follows
+# EXCLUDES: a refused value skipped, defaulted or taken, a later word's
+#   error reported first, a next-word value's error lost
+law slash_args_auto_bad_value:
+  for +s: String
+  for +w: String
+  for +o: SaOpt
+  for +r: List<&2, String>
+  for ws: {Sa.words(s) == w <> List.append(&2, String, sa_opt_words(o), r) : List<&2, String>}
+  for on: {sa_on(String.to_lower(w)) == True{} : Bool}
+  for g: {sa_opt_given(o) == True{} : Bool}
+  for b: {sa_is_on(sa_opt_read(o)) == False{} : Bool}
+  {Sa.auto(s) == sa_opt_read(o) : Sa.Auto}
+
+# LAW slash_args_auto_first_error (R9): after an on word, options read
+# without an error keep the error of the words r after them: for every
+# text s2 of the same on word then r that answers an error, the text s of
+# the on word, the options, then r answers that error (with the laws on
+# the first option word, the first bad word in order answers)
+# EXCLUDES: an error after good options dropped or replaced, good options
+#   read as an error, the last bad word reported instead of the first
+law slash_args_auto_first_error:
+  for +s: String
+  for +s2: String
+  for +w: String
+  for +os: List<&2, SaOpt>
+  for +r: List<&2, String>
+  for ws: {Sa.words(s) == w <> List.append(&2, String, sa_opts_words(os), r) : List<&2, String>}
+  for ws2: {Sa.words(s2) == w <> r : List<&2, String>}
+  for +on: {sa_on(String.to_lower(w)) == True{} : Bool}
+  for +ok: {sa_opts_ok(os) == True{} : Bool}
+  for er: {sa_is_err(Sa.auto(s2)) == True{} : Bool}
+  {Sa.auto(s) == Sa.auto(s2) : Sa.Auto}
+
+# Terms: digits (R4, R8)
+# ----------------------
+
+# R4, R8: a text of ASCII digits (the empty text too)
+def sa_digits(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Char.is_digit(c), sa_digits(t))
+
+# R4, R8: an ASCII digit other than `0`, then ASCII digits
+def sa_lead(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+c, t}:
+      Bool.and(Bool.and(Char.is_digit(c), Bool.not(Char.is_eq(c, '0'))), sa_digits(t))
+
+# R4, R8: the digits s fit below the bound m of n digits: fewer than n
+# digits, or n and at most m (digits of one length compare in text order
+# as in number order)
+def sa_fits(+s: String, +n: Nat, m: String) -> Bool:
+  Bool.or(Nat.is_lt(String.length(s), n), Bool.and(Nat.is_eq(String.length(s), n), String.is_le(s, m)))
+
+# Laws: digits (R4, R8)
+# ---------------------
+
+# LAW slash_args_digits_fit (R4, R8): for every ASCII digit d other than
+# `0` and every text t of ASCII digits, d then t is R4's u64 digits
+# exactly when a u64 holds it (fewer than 20 digits, or 20 up to
+# 18446744073709551615), and R8's keep-alive digits exactly when it is at
+# most 2147483647 (fewer than 10 digits, or 10 up to it)
+# EXCLUDES: a bound off by one digit or by one at 2^64-1 or 2^31-1, a
+#   value past the bound taken, a value under it refused
+law slash_args_digits_fit:
+  for +d: Char
+  for +t: String
+  for +dz: {Bool.and(Char.is_digit(d), Bool.not(Char.is_eq(d, '0'))) == True{} : Bool}
+  for td: {sa_digits(t) == True{} : Bool}
+  {Sa.u64(SCon{d, t}) == sa_fits(SCon{d, t}, 20n, "18446744073709551615") : Bool} &
+  {Sa.keep_ok(SCon{d, t}) == sa_fits(SCon{d, t}, 10n, "2147483647") : Bool}
+
+# LAW slash_args_digits_refused (R4, R8): every text that is not an ASCII
+# digit other than `0` then ASCII digits (the empty text, a leading `0`, a
+# char that is no ASCII digit) is not R4's u64 digits, and is R8's
+# keep-alive digits only when it is `0`
+# EXCLUDES: 0 or a leading 0 taken as a budget or a limit, `0` refused as
+#   a keep-alive, a sign, a space or a letter taken, the empty value taken
+law slash_args_digits_refused:
+  for +s: String
+  for n: {sa_lead(s) == False{} : Bool}
+  {Sa.u64(s) == False{} : Bool} & {Sa.keep_ok(s) == String.eq(s, "0") : Bool}
+
 # Anchors
 # -------
 
@@ -803,629 +1120,13 @@ law slash_args_goal_example:
   {[Sa.goal(""), Sa.goal("Stop"), Sa.goal("PAUSE"), Sa.goal("resume"), Sa.goal("a b"), Sa.goal("--budget 50 go"), Sa.goal("--token-budget=3 x"), Sa.goal("--budget"), Sa.goal("--budget 0x x"), Sa.goal("--budget=5")] == [Sa.AStatus{}, Sa.AOff{}, Sa.AOff{}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}, Sa.ATask{"a b", None{}}, Sa.ATask{"go", Some{"50"}}, Sa.ATask{"x", Some{"3"}}, Sa.AErr{"Usage: /goal [--budget <tokens>] <objective>"}, Sa.AErr{"Goal token budget must be a positive integer."}, Sa.AErr{"Goal objective must not be empty."}] : List<&2, Sa.Auto>} &
   {Sa.goal("--budget 5\u{3000}fix it") == Sa.ATask{"fix it", Some{"5"}} : Sa.Auto}
 
-# LAW slash_args_auto_example (R6-R9): anchor: Rust's vectors, short; a
-# limit named again (the later value kept), gate commands in order, a gate
-# number's `_` dropped (R9); the first bad word's error before a later one;
-# tasks kept whole, a quote and a leading flag word included
-# EXCLUDES: a spec that drifts from the Rust it replaced
-law slash_args_auto_example:
-  {[Sa.auto(""), Sa.auto("STATUS"), Sa.auto("off"), Sa.auto("on"), Sa.auto("on --max-turns 5 --gate=ls"), Sa.auto("on --subagent-keep-alive-ms 0")] == [Sa.AStatus{}, Sa.AStatus{}, Sa.AOff{}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}, Sa.AOn{Sa.Conf{Some{Sa.LUnl{}}, Some{Sa.LNum{"5"}}, Some{Sa.LUnl{}}, Some{Sa.LUnl{}}, Some{Sa.Gates{Some{["ls"]}, None{}, None{}}}, None{}}}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, Some{"0"}}}] : List<&2, Sa.Auto>} &
-  {[Sa.auto("on --max-turns=1 --max-turns 2 --gate a --gate=b --gate-retries 3_0"), Sa.auto("on --gate=x --max-turns=0 --nope 1")] == [Sa.AOn{Sa.Conf{Some{Sa.LUnl{}}, Some{Sa.LNum{"2"}}, Some{Sa.LUnl{}}, Some{Sa.LUnl{}}, Some{Sa.Gates{Some{["a", "b"]}, Some{"30"}, None{}}}, None{}}}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}] : List<&2, Sa.Auto>} &
-  {[Sa.auto("x"), Sa.auto("fix  the 'red  build'"), Sa.auto("--max-turns 5")] == [Sa.ATask{"x", None{}}, Sa.ATask{"fix  the 'red  build'", None{}}, Sa.ATask{"--max-turns 5", None{}}] : List<&2, Sa.Auto>}
-
 # LAW slash_args_auto_errors_example (R6-R8): anchor: the error texts, with
 # the usage text sa_usage() spelled out
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law slash_args_auto_errors_example:
   {[Sa.auto("status x"), Sa.auto("on x"), Sa.auto("on --no 1"), Sa.auto("on --gate"), Sa.auto("on --max-turns=0"), Sa.auto("on --gate-retries=unlimited")] == [Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unknown autonomous budget flag: --no. ", sa_usage())}, Sa.AErr{String.append("Missing value for --gate. ", sa_usage())}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}, Sa.AErr{String.append("--gate-retries must be a positive integer. ", sa_usage())}] : List<&2, Sa.Auto>}
 
-# LAW slash_args_u64_example (R4, R8): anchor: R4's u64 digits at their
-# boundaries: 1, 0, a leading 0, 2^64-1, 2^64, a 20-digit value past it,
-# 21 digits, empty, a letter; R8's keep-alive digits: 0, 2^31-1, 2^31, a
-# leading 0, empty
-# EXCLUDES: a u64 test off by one at 2^64, a leading 0 or 0 accepted
-law slash_args_u64_example:
-  {[Sa.u64("1"), Sa.u64("0"), Sa.u64("01"), Sa.u64("18446744073709551615"), Sa.u64("18446744073709551616"), Sa.u64("99999999999999999999"), Sa.u64("100000000000000000000"), Sa.u64(""), Sa.u64("1a")] == [True{}, False{}, False{}, True{}, False{}, False{}, False{}, False{}, False{}] : List<&2, Bool>} &
-  {[Sa.keep_ok("0"), Sa.keep_ok("2147483647"), Sa.keep_ok("2147483648"), Sa.keep_ok("01"), Sa.keep_ok("")] == [True{}, True{}, False{}, False{}, False{}] : List<&2, Bool>}
-
 # LAW slash_args_words_example (R2): anchor: Rust's vectors
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law slash_args_words_example:
   {[Sa.words("a \"b c\" 'd e' \"\""), Sa.words("  "), Sa.words("a'b'c d")] == [["a", "b c", "d e", ""], [], ["abc", "d"]] : List<&2, List<&2, String>>}
-
-# Text before the first whitespace char, and the rest from that char
-def sa_cut.at(b: Bool, c: Char, t: String, r: Sa.Cut) -> Sa.Cut:
-  match b:
-    case True{}:
-      Sa.Cut{SNil{}, SCon{c, t}}
-    case False{}:
-      match r:
-        case Sa.Cut{h, u}:
-          Sa.Cut{SCon{c, h}, u}
-
-def sa_cut(s: String) -> Sa.Cut:
-  match s:
-    case SNil{}:
-      Sa.Cut{SNil{}, SNil{}}
-    case SCon{+c, +t}:
-      sa_cut.at(GatewayAnswer.ga_white(c), c, t, sa_cut(t))
-
-# s from just after its first `=` (empty without one)
-def sa_after_eq.at(b: Bool, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      t
-    case False{}:
-      r
-
-def sa_after_eq(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      sa_after_eq.at(Char.is_eq(c, '='), t, sa_after_eq(t))
-
-def sa_goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Sa.Auto:
-  match empty:
-    case True{}:
-      Sa.AErr{"Goal objective must not be empty."}
-    case False{}:
-      match long:
-        case True{}:
-          Sa.AErr{"Goal objective must be at most 4000 characters."}
-        case False{}:
-          Sa.ATask{o, b}
-
-def sa_trim_end.at(b: Bool, c: Char, r: String) -> String:
-  match b:
-    case True{}:
-      match r:
-        case SNil{}:
-          SNil{}
-        case SCon{x, u}:
-          SCon{c, SCon{x, u}}
-    case False{}:
-      SCon{c, r}
-
-# s without its trailing whitespace
-def sa_trim_end(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, t}:
-      sa_trim_end.at(GatewayAnswer.ga_white(c), c, sa_trim_end(t))
-
-def sa_trim_start.at(b: Bool, c: Char, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      r
-    case False{}:
-      SCon{c, t}
-
-# s without its leading whitespace
-def sa_trim_start(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      sa_trim_start.at(GatewayAnswer.ga_white(c), c, t, sa_trim_start(t))
-
-def sa_trim(s: String) -> String:
-  sa_trim_end(sa_trim_start(s))
-
-# the task of the objective o (trimmed) with the budget b
-def sa_goal.objective(o: String, b: Maybe<&2, String>) -> Sa.Auto:
-  +t = sa_trim(o)
-  sa_goal.objective.at(String.is_empty(t), Bool.not(Nat.is_le(String.length(t), 4000n)), t, b)
-
-def sa_goal_bad_budget() -> String:
-  "Goal token budget must be a positive integer."
-
-def sa_goal.budget(ok: Bool, v: String, o: String) -> Sa.Auto:
-  match ok:
-    case True{}:
-      sa_goal.objective(o, Some{v})
-    case False{}:
-      Sa.AErr{sa_goal_bad_budget()}
-
-# What `/goal` asks
-def sa_goal_usage() -> String:
-  "Usage: /goal [--budget <tokens>] <objective>"
-
-def sa_all_digits(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{c, t}:
-      Bool.and(Char.is_digit(c), sa_all_digits(t))
-
-# s is digits without a leading 0, one or more (a positive number)
-def sa_positive(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{+c, +t}:
-      Bool.and(Bool.not(Char.is_eq(c, '0')), Bool.and(Char.is_digit(c), sa_all_digits(t)))
-
-# positive digits that a Rust u64 holds
-def sa_u64(+s: String) -> Bool:
-  +n = String.length(s)
-  Bool.and(sa_positive(s), Bool.or(Nat.is_lt(n, 20n), Bool.and(Nat.is_eq(n, 20n), String.is_le(s, "18446744073709551615"))))
-
-# `--budget N objective`: the value and the objective after the flag
-def sa_goal.spaced(c: Sa.Cut) -> Sa.Auto:
-  match c:
-    case Sa.Cut{+v, u}:
-      match u:
-        case SNil{}:
-          Sa.AErr{sa_goal_usage()}
-        case SCon{w, o}:
-          sa_goal.budget(sa_u64(v), v, o)
-
-def sa_goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Sa.Auto:
-  match bare:
-    case True{}:
-      sa_goal.spaced(sa_cut(sa_trim_start(tail)))
-    case False{}:
-      match eq:
-        case True{}:
-          +v = sa_after_eq(first)
-          sa_goal.budget(sa_u64(v), v, tail)
-        case False{}:
-          sa_goal.objective(rest, None{})
-
-def sa_goal.start(c: Sa.Cut, rest: String) -> Sa.Auto:
-  match c:
-    case Sa.Cut{+first, tail}:
-      sa_goal.flag(Bool.or(String.eq(first, "--budget"), String.eq(first, "--token-budget")), Bool.or(String.starts_with(first, "--budget="), String.starts_with(first, "--token-budget=")), first, tail, rest)
-
-def sa_goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Sa.Auto:
-  match status:
-    case True{}:
-      Sa.AStatus{}
-    case False{}:
-      match clear:
-        case True{}:
-          Sa.AOff{}
-        case False{}:
-          match pause:
-            case True{}:
-              Sa.AOff{}
-            case False{}:
-              match resume:
-                case True{}:
-                  Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}
-                case False{}:
-                  sa_goal.start(sa_cut(rest), rest)
-
-def sa_goal.of(+rest: String, +l: String) -> Sa.Auto:
-  sa_goal.kw(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), rest)
-
-# the `/auto` answer of `/goal <args>`
-def sa_goal(args: String) -> Sa.Auto:
-  +rest = sa_trim(args)
-  sa_goal.of(rest, String.to_lower(rest))
-
-# LAW slash_args_goal_spec (R1, R3-R5): what every `/goal` text asks is the
-# spec's
-# EXCLUDES: a case-sensitive keyword, `stop` not turning off, a budget
-#   flag read anywhere but first, a value with a leading 0 or past u64
-#   taken, the usage error lost, an untrimmed or overlong objective, an
-#   empty objective taken
-law slash_args_goal_spec:
-  for +s: String
-  {Sa.goal(s) == sa_goal(s) : Sa.Auto}
-
-# The tokenizer's state: the quote open, the word so far (reversed), a
-# quote seen in it, the words so far (reversed)
-def sa_tok.push(cur: String, quoted: Bool, done: List<&2, String>) -> List<&2, String>:
-  match cur:
-    case SNil{}:
-      match quoted:
-        case True{}:
-          SNil{} <> done
-        case False{}:
-          done
-    case SCon{c, t}:
-      String.reverse(SCon{c, t}) <> done
-
-def sa_tok.fin(st: Sa.Tok) -> List<&2, String>:
-  match st:
-    case Sa.Tok{q, cur, quoted, done}:
-      List.reverse(&2, String, sa_tok.push(cur, quoted, done))
-
-def sa_tok.in_quote(same: Bool, q: Char, c: Char, cur: String, quoted: Bool, done: List<&2, String>) -> Sa.Tok:
-  match same:
-    case True{}:
-      Sa.Tok{None{}, cur, quoted, done}
-    case False{}:
-      Sa.Tok{Some{q}, SCon{c, cur}, quoted, done}
-
-def sa_tok.out(opens: Bool, white: Bool, c: Char, cur: String, quoted: Bool, done: List<&2, String>) -> Sa.Tok:
-  match opens:
-    case True{}:
-      Sa.Tok{Some{c}, cur, True{}, done}
-    case False{}:
-      match white:
-        case True{}:
-          Sa.Tok{None{}, SNil{}, False{}, sa_tok.push(cur, quoted, done)}
-        case False{}:
-          Sa.Tok{None{}, SCon{c, cur}, quoted, done}
-
-# one char of the argument text
-def sa_tok.step(+c: Char, st: Sa.Tok) -> Sa.Tok:
-  match st:
-    case Sa.Tok{q, cur, quoted, done}:
-      match q:
-        case Some{+x}:
-          sa_tok.in_quote(Char.is_eq(c, x), x, c, cur, quoted, done)
-        case None{}:
-          sa_tok.out(Bool.or(Char.is_eq(c, '"'), Char.is_eq(c, '\'')), GatewayAnswer.ga_white(c), c, cur, quoted, done)
-
-def sa_tok.go(s: String, st: Sa.Tok) -> List<&2, String>:
-  match s:
-    case SNil{}:
-      sa_tok.fin(st)
-    case SCon{+c, t}:
-      sa_tok.go(t, sa_tok.step(c, st))
-
-# the words of an argument text
-def sa_words(s: String) -> List<&2, String>:
-  sa_tok.go(s, Sa.Tok{None{}, SNil{}, False{}, Nil{}})
-
-# A limit: unlimited, or its digits
-# The gate options named: the commands, retries and timeout digits
-# The options of `/auto on`
-# What `/auto` asks
-def sa_auto_usage() -> String:
-  "Usage: /auto [status|off|<task>] or /auto on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
-
-# `<head>: <word>. <usage>`
-def sa_auto_err(+head: String, w: String) -> String:
-  String.append(head, String.append(w, String.append(". ", sa_auto_usage())))
-
-def sa_auto.alone(ws: List<&2, String>, a: Sa.Auto) -> Sa.Auto:
-  match ws:
-    case Nil{}:
-      a
-    case w <> t:
-      Sa.AErr{sa_auto_err("Unexpected autonomous argument: ", w)}
-
-def sa_conf.gates(cmds: List<&2, String>, gated: Bool, r: Maybe<&2, String>, s: Maybe<&2, String>) -> Maybe<&2, Sa.Gates>:
-  match cmds:
-    case Nil{}:
-      match gated:
-        case True{}:
-          Some{Sa.Gates{None{}, r, s}}
-        case False{}:
-          None{}
-    case c <> t:
-      Some{Sa.Gates{Some{c <> t}, r, s}}
-
-def sa_unl(m: Maybe<&2, Sa.Lim>) -> Maybe<&2, Sa.Lim>:
-  match m:
-    case None{}:
-      Some{Sa.LUnl{}}
-    case Some{l}:
-      Some{l}
-
-def sa_conf.limits(named: Bool, c: Maybe<&2, Sa.Lim>, t: Maybe<&2, Sa.Lim>, k: Maybe<&2, Sa.Lim>, m: Maybe<&2, Sa.Lim>, g: Maybe<&2, Sa.Gates>, p: Maybe<&2, String>) -> Sa.Conf:
-  match named:
-    case True{}:
-      Sa.Conf{sa_unl(c), sa_unl(t), sa_unl(k), sa_unl(m), g, p}
-    case False{}:
-      Sa.Conf{c, t, k, m, g, p}
-
-def sa_some(-A: Data, m: Maybe<&2, A>) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{x}:
-      True{}
-
-# the options read, as `/auto on` takes them
-def sa_conf(o: Sa.Opts) -> Sa.Conf:
-  match o:
-    case Sa.Opts{+c, +t, +k, +m, g, d, r, s, p}:
-      sa_conf.limits(Bool.or(Bool.or(sa_some(Sa.Lim, c), sa_some(Sa.Lim, t)), Bool.or(sa_some(Sa.Lim, k), sa_some(Sa.Lim, m))), c, t, k, m, sa_conf.gates(g, d, r, s), p)
-
-def sa_auto.on(r: Sa.Read) -> Sa.Auto:
-  match r:
-    case Sa.ROk{o}:
-      Sa.AOn{sa_conf(o)}
-    case Sa.RErr{e}:
-      Sa.AErr{e}
-
-# the options of the words ws
-def sa_options.fst(rr: Sa.Read & Sa.Read) -> Sa.Read:
-  (r, s) = rr
-  r
-
-# The options read so far: each value named, the gate commands in order,
-# whether a gate retry or timeout was named
-# Options read, or the first bad word's error
-def sa_opts.none() -> Sa.Opts:
-  Sa.Opts{None{}, None{}, None{}, None{}, Nil{}, False{}, None{}, None{}, None{}}
-
-# the flag of a word: before its first `=`
-def sa_before_eq.at(b: Bool, c: Char, r: String) -> String:
-  match b:
-    case True{}:
-      SNil{}
-    case False{}:
-      SCon{c, r}
-
-def sa_before_eq(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, t}:
-      sa_before_eq.at(Char.is_eq(c, '='), c, sa_before_eq(t))
-
-# The flags, in order
-def sa_flags() -> List<&2, String>:
-  ["max-continuations", "max-turns", "max-tokens", "timeout-ms", "gate", "gate-retries", "gate-timeout-ms", "subagent-keep-alive-ms"]
-
-def sa_index.at(b: Bool, i: Nat, r: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match b:
-    case True{}:
-      Some{i}
-    case False{}:
-      r
-
-# the index of n in xs, counted from i
-def sa_index(+n: String, xs: List<&2, String>, +i: Nat) -> Maybe<&2, Nat>:
-  match xs:
-    case Nil{}:
-      None{}
-    case x <> t:
-      sa_index.at(String.eq(n, x), i, sa_index(n, t, 1n+i))
-
-# the flag's name: without `--autonomous-`, else without `--`
-def sa_name.dashes(b: Bool, raw: String) -> String:
-  match b:
-    case True{}:
-      String.drop(raw, 2n)
-    case False{}:
-      raw
-
-def sa_name.of(b: Bool, +raw: String) -> String:
-  match b:
-    case True{}:
-      String.drop(raw, 13n)
-    case False{}:
-      sa_name.dashes(String.starts_with(raw, "--"), raw)
-
-# keep-alive digits: 0, or positive up to 2147483647
-def sa_keep_ok(+d: String) -> Bool:
-  +n = String.length(d)
-  Bool.or(String.eq(d, "0"), Bool.and(sa_positive(d), Bool.or(Nat.is_lt(n, 10n), Bool.and(Nat.is_eq(n, 10n), String.is_le(d, "2147483647")))))
-
-def sa_lim.num(ok: Bool, d: String) -> Maybe<&2, Sa.Lim>:
-  match ok:
-    case True{}:
-      Some{Sa.LNum{d}}
-    case False{}:
-      None{}
-
-# a limit's value: `unlimited`, or digits
-def sa_lim.of(unl: Bool, +v: String) -> Maybe<&2, Sa.Lim>:
-  match unl:
-    case True{}:
-      Some{Sa.LUnl{}}
-    case False{}:
-      +d = sa_ungroup(v)
-      sa_lim.num(sa_u64(d), d)
-
-def sa_int_err(+name: String, unl: Bool) -> String:
-  match unl:
-    case True{}:
-      String.append("--", String.append(name, String.append(" must be a positive integer or \"unlimited\". ", sa_auto_usage())))
-    case False{}:
-      String.append("--", String.append(name, String.append(" must be a positive integer. ", sa_auto_usage())))
-
-# a gate number: digits only
-def sa_opt.gate(+name: String, ok: Bool, d: String, retries: Bool) -> Sa.Read:
-  match ok:
-    case True{}:
-      match retries:
-        case True{}:
-          Sa.ROk{Sa.Opts{None{}, None{}, None{}, None{}, Nil{}, True{}, Some{d}, None{}, None{}}}
-        case False{}:
-          Sa.ROk{Sa.Opts{None{}, None{}, None{}, None{}, Nil{}, True{}, None{}, Some{d}, None{}}}
-    case False{}:
-      Sa.RErr{sa_int_err(name, False{})}
-
-def sa_keep_err() -> String:
-  String.append("--subagent-keep-alive-ms must be 0 or a positive integer up to 2147483647. ", sa_auto_usage())
-
-def sa_opt.keep(ok: Bool, d: String) -> Sa.Read:
-  match ok:
-    case True{}:
-      Sa.ROk{Sa.Opts{None{}, None{}, None{}, None{}, Nil{}, False{}, None{}, None{}, Some{d}}}
-    case False{}:
-      Sa.RErr{sa_keep_err()}
-
-def sa_opt.lim(+name: String, m: Maybe<&2, Sa.Lim>, k: Nat) -> Sa.Read:
-  match m:
-    case None{}:
-      Sa.RErr{sa_int_err(name, True{})}
-    case Some{l}:
-      match k:
-        case 0n:
-          Sa.ROk{Sa.Opts{Some{l}, None{}, None{}, None{}, Nil{}, False{}, None{}, None{}, None{}}}
-        case 1n:
-          Sa.ROk{Sa.Opts{None{}, Some{l}, None{}, None{}, Nil{}, False{}, None{}, None{}, None{}}}
-        case 2n:
-          Sa.ROk{Sa.Opts{None{}, None{}, Some{l}, None{}, Nil{}, False{}, None{}, None{}, None{}}}
-        case 3n+u:
-          Sa.ROk{Sa.Opts{None{}, None{}, None{}, Some{l}, Nil{}, False{}, None{}, None{}, None{}}}
-
-# the option of flag index k with the value v
-def sa_opt.value(k: Nat, +name: String, +v: String) -> Sa.Read:
-  match k:
-    case 0n:
-      sa_opt.lim(name, sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), 0n)
-    case 1n:
-      sa_opt.lim(name, sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), 1n)
-    case 2n:
-      sa_opt.lim(name, sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), 2n)
-    case 3n:
-      sa_opt.lim(name, sa_lim.of(String.eq(String.to_lower(v), "unlimited"), v), 3n)
-    case 4n:
-      Sa.ROk{Sa.Opts{None{}, None{}, None{}, None{}, [v], False{}, None{}, None{}, None{}}}
-    case 5n:
-      +d = sa_ungroup(v)
-      sa_opt.gate(name, sa_u64(d), d, True{})
-    case 6n:
-      +d = sa_ungroup(v)
-      sa_opt.gate(name, sa_u64(d), d, False{})
-    case 7n+u:
-      +d = sa_ungroup(v)
-      sa_opt.keep(sa_keep_ok(d), d)
-
-# the later of two values: b when named
-def sa_later(-A: Data, a: Maybe<&2, A>, b: Maybe<&2, A>) -> Maybe<&2, A>:
-  match b:
-    case None{}:
-      a
-    case Some{x}:
-      Some{x}
-
-# the options a, then the options b read after them
-def sa_opts.then(a: Sa.Opts, b: Sa.Opts) -> Sa.Opts:
-  match a:
-    case Sa.Opts{c1, t1, k1, m1, g1, d1, r1, s1, p1}:
-      match b:
-        case Sa.Opts{c2, t2, k2, m2, g2, d2, r2, s2, p2}:
-          Sa.Opts{sa_later(Sa.Lim, c1, c2), sa_later(Sa.Lim, t1, t2), sa_later(Sa.Lim, k1, k2), sa_later(Sa.Lim, m1, m2), List.append(&2, String, g1, g2), Bool.or(d1, d2), sa_later(String, r1, r2), sa_later(String, s1, s2), sa_later(String, p1, p2)}
-
-def sa_read.then(a: Sa.Read, b: Sa.Read) -> Sa.Read:
-  match a:
-    case Sa.ROk{x}:
-      match b:
-        case Sa.ROk{y}:
-          Sa.ROk{sa_opts.then(x, y)}
-        case Sa.RErr{e}:
-          Sa.RErr{e}
-    case Sa.RErr{e}:
-      Sa.RErr{e}
-
-# One step of the options: the option of the word w (with the next word
-# when it takes it), the reads of the words after w (r1) and after the
-# next word (r2)
-def sa_step.took(empty: Bool, took: Bool, +raw: String, k: Nat, +name: String, x: String, r1: Sa.Read, r2: Sa.Read) -> Sa.Read:
-  match empty:
-    case True{}:
-      Sa.RErr{sa_auto_err("Missing value for ", raw)}
-    case False{}:
-      match took:
-        case True{}:
-          sa_read.then(sa_opt.value(k, name, x), r2)
-        case False{}:
-          sa_read.then(sa_opt.value(k, name, x), r1)
-
-def sa_step.val(v: Sa.Val, +raw: String, k: Nat, +name: String, r1: Sa.Read, r2: Sa.Read) -> Sa.Read:
-  match v:
-    case Sa.VNone{}:
-      Sa.RErr{sa_auto_err("Missing value for ", raw)}
-    case Sa.VAt{+x, took}:
-      sa_step.took(String.is_empty(x), took, raw, k, name, x, r1, r2)
-
-# The value of an option: given with `=`, or the next word
-def sa_val.next.at(flag: Bool, w: String) -> Sa.Val:
-  match flag:
-    case True{}:
-      Sa.VNone{}
-    case False{}:
-      Sa.VAt{w, True{}}
-
-def sa_val.next(ws: List<&2, String>) -> Sa.Val:
-  match ws:
-    case Nil{}:
-      Sa.VNone{}
-    case +w <> t:
-      sa_val.next.at(String.starts_with(w, "--"), w)
-
-def sa_val.of(eq: Bool, +tok: String, ws: List<&2, String>) -> Sa.Val:
-  match eq:
-    case True{}:
-      Sa.VAt{sa_after_eq(tok), False{}}
-    case False{}:
-      sa_val.next(ws)
-
-def sa_step.known(m: Maybe<&2, Nat>, +w: String, +raw: String, +name: String, ws: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> Sa.Read:
-  match m:
-    case None{}:
-      Sa.RErr{sa_auto_err("Unknown autonomous budget flag: ", raw)}
-    case Some{k}:
-      sa_step.val(sa_val.of(String.contains(w, "="), w, ws), raw, k, name, r1, r2)
-
-def sa_step.flag(+w: String, ws: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> Sa.Read:
-  +raw = sa_before_eq(w)
-  +name = sa_name.of(String.starts_with(raw, "--autonomous-"), raw)
-  sa_step.known(sa_index(name, sa_flags(), 0n), w, raw, name, ws, r1, r2)
-
-def sa_step_orig(dash: Bool, +w: String, ws: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> Sa.Read:
-  match dash:
-    case True{}:
-      sa_step.flag(w, ws, r1, r2)
-    case False{}:
-      Sa.RErr{sa_auto_err("Unexpected autonomous argument: ", w)}
-
-def sa_reads.of(+w: String, +t: List<&2, String>, rr: Sa.Read & Sa.Read) -> Sa.Read & Sa.Read:
-  (r1, r2) = rr
-  +x = r1
-  (sa_step_orig(String.starts_with(w, "--"), w, t, x, r2), x)
-
-# the reads of ws and of ws without its first word
-def sa_reads(ws: List<&2, String>) -> Sa.Read & Sa.Read:
-  match ws:
-    case Nil{}:
-      (Sa.ROk{sa_opts.none()}, Sa.ROk{sa_opts.none()})
-    case +w <> +t:
-      sa_reads.of(w, t, sa_reads(t))
-
-def sa_options(ws: List<&2, String>) -> Sa.Read:
-  sa_options.fst(sa_reads(ws))
-
-def sa_auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>, args: String) -> Sa.Auto:
-  match status:
-    case True{}:
-      sa_auto.alone(ws, Sa.AStatus{})
-    case False{}:
-      match on:
-        case True{}:
-          sa_auto.on(sa_options(ws))
-        case False{}:
-          match off:
-            case True{}:
-              sa_auto.alone(ws, Sa.AOff{})
-            case False{}:
-              Sa.ATask{args, None{}}
-
-def sa_auto.first(+l: String, ws: List<&2, String>, args: String) -> Sa.Auto:
-  sa_auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws, args)
-
-def sa_auto.words(ws: List<&2, String>, args: String) -> Sa.Auto:
-  match ws:
-    case Nil{}:
-      Sa.AStatus{}
-    case w <> t:
-      sa_auto.first(String.to_lower(w), t, args)
-
-# what `/auto <args>` asks
-def sa_auto(+args: String) -> Sa.Auto:
-  sa_auto.words(sa_words(args), args)
-
-# LAW slash_args_auto_spec (R1, R2, R6-R9): what every `/auto` text asks
-# is the spec's
-# EXCLUDES: a word after `status`/`off` ignored, an unknown flag accepted,
-#   the `--autonomous-` prefix refused, a value taken from a flag word, an
-#   empty value accepted, `unlimited` for a gate number, a keep-alive past
-#   2147483647, the first value of a repeated flag kept, gate commands out
-#   of order, unnamed limits left unset after a named one, a later error
-#   reported before an earlier one, a task's text changed
-law slash_args_auto_spec:
-  for +s: String
-  {Sa.auto(s) == sa_auto(s) : Sa.Auto}
