@@ -44,7 +44,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
       - name: Build and push jammy-<date>-${{ matrix.arch }} (prints the installed packages)
-        run: .github/scripts/release/build_image.sh push "${TAG}"
+        run: python3 .github/scripts/release/build_image.py push "${TAG}"
 
   merge:
     needs: build
@@ -63,4 +63,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
       - name: The multi-arch tag (prints the digest to pin)
-        run: .github/scripts/release/build_image.sh merge "${TAG}"
+        run: python3 .github/scripts/release/build_image.py merge "${TAG}"

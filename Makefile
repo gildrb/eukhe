@@ -10,7 +10,7 @@ check:
 	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
 
-# The CI gates (.github/scripts/ci_local.sh). GitHub runs no gate: they run only
+# The CI gates (.github/scripts/ci_local.py). GitHub runs no gate: they run only
 # here. ci-fast is the pre-commit gate (< 1 min): rustfmt, the crate
 # layering (.github/scripts/check_crate_layers.py), the secrets scan of the staged
 # diff (when gitleaks is installed), the embedded JavaScript against its
@@ -24,7 +24,7 @@ check:
 # (when they touch crates/eukhe-dashboard/ui/), the laws against
 # LAWS.lock. ci-local is
 # the full gate (< 30 min): every test (nextest profile nightly) and `bend
-# PROOF.bend --verdict`; the nightly run (.github/scripts/ci_nightly.sh, a systemd
+# PROOF.bend --verdict`; the nightly run (.github/scripts/ci_nightly.py, a systemd
 # user timer) runs it on origin/main and starts the release only when it
 # passes. lock re-locks the laws in seconds: the proofs the change since
 # origin/main can reach, then LAWS.lock. Tools: mise.toml.
@@ -32,19 +32,19 @@ check:
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
 ci-fast:
-	@.github/scripts/ci_local.sh fast
+	@python3 .github/scripts/ci_local.py fast
 
 ci-local:
-	@.github/scripts/ci_local.sh full
+	@python3 .github/scripts/ci_local.py full
 
 lock:
-	@.github/scripts/ci_local.sh lock
+	@python3 .github/scripts/ci_local.py lock
 
 nightly:
-	@.github/scripts/ci_nightly.sh run
+	@python3 .github/scripts/ci_nightly.py run
 
 nightly-status:
-	@.github/scripts/ci_nightly.sh status
+	@python3 .github/scripts/ci_nightly.py status
 
 hooks:
 	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (mise use -g github:j178/prek@0.5.7)"; exit 1; }
@@ -55,8 +55,8 @@ hooks:
 runtime-test:
 	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
 
-# The Home Manager module's settings merge (nix/merge-settings.sh): the
-# declared settings never drop the model choice eukhe saved. Needs jq.
+# The Home Manager module's settings merge (nix/merge_settings.py): the
+# declared settings never drop the model choice eukhe saved.
 nix-test:
 	python3 nix/test_merge_settings.py
 
@@ -78,9 +78,9 @@ include .github/scripts/toolchain.env
 
 # The laws (LAWS.bend, proven in PROOF.bend). The full gate
 # (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION). Every Bend
-# target runs the pinned Bend $(BEND_VERSION) (.github/scripts/pinned_bend.sh).
+# target runs the pinned Bend $(BEND_VERSION) (.github/scripts/pinned_bend.py).
 laws:
-	@bend="$$(.github/scripts/pinned_bend.sh)" && \
+	@bend="$$(python3 .github/scripts/pinned_bend.py)" && \
 	"$$bend" PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK' && \
 	"$$bend" PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 
@@ -90,10 +90,10 @@ laws:
 # bend-core-check fails when a committed one differs. Run bend-core after
 # every change to a bend/ file.
 bend-core:
-	BEND_BIN="$$(.github/scripts/pinned_bend.sh)" && export BEND_BIN && python3 .github/scripts/bend_core.py generate
+	BEND_BIN="$$(python3 .github/scripts/pinned_bend.py)" && export BEND_BIN && python3 .github/scripts/bend_core.py generate
 
 bend-core-check:
-	BEND_BIN="$$(.github/scripts/pinned_bend.sh)" && export BEND_BIN && python3 .github/scripts/bend_core.py check
+	BEND_BIN="$$(python3 .github/scripts/pinned_bend.py)" && export BEND_BIN && python3 .github/scripts/bend_core.py check
 
 # The JavaScript the crates embed (include_str!) and the dashboard's
 # public/ scripts are generated from TypeScript sources and committed; the

@@ -1,7 +1,7 @@
 # eukhe releases: the four Unix targets built and packaged with the
 # repository's own release scripts, published as a GitHub release.
 #
-# A release starts only from .github/scripts/ci_nightly.sh (`gh workflow run
+# A release starts only from .github/scripts/ci_nightly.py (`gh workflow run
 # eukhe-release.yml -f sha=<commit>`), once a night, after the full gate
 # passed on that commit locally. GitHub runs no gate and no schedule: a
 # commit that broke a test never ships. The version job checks the named

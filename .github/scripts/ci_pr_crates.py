@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Map a staged change's files to the crates that the pre-commit clippy checks.
 
-.github/scripts/ci_local.sh `clippy_touched` (the pre-commit gate, `make ci-fast`)
+.github/scripts/ci_local.py `clippy_touched` (the pre-commit gate, `make ci-fast`)
 runs clippy on the selection: the touched crates and their reverse
 dependencies. The mapping is fail-safe by construction: a selection that
 cannot be made is the FULL selection (the workspace). A wrong guess can
 only cost time, never coverage.
 
 The input is one TSV row per file: `<path>` TAB `<old path>` (the old path
-of a rename or copy; empty for ordinary rows). ci_local.sh makes the rows
+of a rename or copy; empty for ordinary rows). ci_local.py makes the rows
 from `git diff --cached --name-status -M`.
 
 The output is `crates` (a comma list, empty for the full selection) and
 `scope` (the human-readable decision), written to the file in
 `GITHUB_OUTPUT` (a plain report otherwise), plus a per-path report on stdout.
 
-Usage (.github/scripts/ci_local.sh):
+Usage:
 
     GITHUB_OUTPUT="${out}" python3 .github/scripts/ci_pr_crates.py <<<"${rows}"
+
+.github/scripts/ci_local.py imports `select_crates` and `write_outputs`.
 
 Tests: python3 .github/scripts/test_ci_pr_crates.py
 """

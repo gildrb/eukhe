@@ -23,11 +23,11 @@ other than an import changes, or when half of the entries or more are
 selected (one run of everything costs no more than such an index).
 
 --list prints the decision and the selection and runs nothing. The bend
-run is --bend, else BEND_BIN (.github/scripts/ci_local.sh sets it to the pinned
+run is --bend, else BEND_BIN (.github/scripts/ci_local.py sets it to the pinned
 release: a version manager's `python3` shim rewrites PATH for this
 process, so `bend` on PATH could be another release), else `bend`.
 
-Callers: .github/scripts/ci_local.sh (the pre-push proofs gate, REF = the pushed
+Callers: .github/scripts/ci_local.py (the pre-push proofs gate, REF = the pushed
 range's base) and `make lock` (REF = the merge base with origin/main).
 Tests: python3 .github/scripts/test_bend_proofs.py
 """

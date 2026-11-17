@@ -1,7 +1,7 @@
 # The Bend release .github/scripts/toolchain.env pins (BEND_VERSION, the single
 # pin), for the dev shell: the gates run `bend PROOF.bend`, `bend
 # --verdict` and `make bend-core` with exactly this release
-# (.github/scripts/pinned_bend.sh). The release archive is the `bend/` tree:
+# (.github/scripts/pinned_bend.py). The release archive is the `bend/` tree:
 # `bin/bend` beside the libraries it reads, kept together under libexec.
 # A new BEND_VERSION fails the fetch here until `hashes` names its archives.
 {

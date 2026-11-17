@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Test battery for the change-to-crates mapping (.github/scripts/ci_pr_crates.py,
-the selection of the pre-commit clippy in .github/scripts/ci_local.sh).
+the selection of the pre-commit clippy in .github/scripts/ci_local.py).
 
 The contracts, pinned on the row shape (`<path>` TAB `<old path>`):
   - a crate-only change maps to those crates and their transitive dependents;

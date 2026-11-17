@@ -1,5 +1,5 @@
 # The test runner of the gates: cargo-nextest (pinned in mise.toml), run by
-# .github/scripts/ci_local.sh. Every test runs in its own process, all binaries at
+# .github/scripts/ci_local.py. Every test runs in its own process, all binaries at
 # once on one build.
 #
 # Profiles:
@@ -11,7 +11,7 @@
 # The e2e suites, which pre-push leaves to the nightly run: the integration
 # test binaries named `*_e2e` (crates/*/tests/*_e2e.rs and *_e2e/main.rs:
 # they start a daemon, a pty, a kitty probe, ACP or a real kernel). A new
-# suite of that kind takes the `_e2e` suffix; .github/scripts/ci_local.sh skips
+# suite of that kind takes the `_e2e` suffix; .github/scripts/ci_local.py skips
 # building those binaries in pre-push by the same suffix.
 #
 # A failed test runs once more (retries = 1): a pass on the retry is FLAKY,

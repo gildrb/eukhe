@@ -3,7 +3,7 @@
 # glibc 2.35 baseline (Ubuntu 22.04) with the release build's prerequisites,
 # from the jammy, jammy-updates and jammy-security archive on the day it is
 # built. Built once by .github/workflows/build-image.yml
-# (.github/scripts/release/build_image.sh, which prints the installed packages and
+# (.github/scripts/release/build_image.py, which prints the installed packages and
 # records them in the image's labels); the release pins the result by
 # digest, so no release installs a package.
 FROM buildpack-deps:jammy-curl@sha256:6326f638affaad95fcc68973d732ecee04d8746fd1529ec113e88c76be9b3ad0

@@ -6,7 +6,7 @@
 # staged diff, the embedded JavaScript against its TypeScript sources when
 # the staged change touches them, clippy on the crates the staged change
 # touches).
-# pre-push (< 5 min): .github/scripts/ci_local.sh pre-push, on the pushed commits
+# pre-push (< 5 min): .github/scripts/ci_local.py pre-push, on the pushed commits
 # in this worktree: rustfmt, their secrets scan, clippy and the unit tests
 # (no e2e suite) of the crates they touch, the compiled Bend core up to
 # date (.github/scripts/bend_core.py check), the proofs the Bend change can reach
@@ -16,7 +16,7 @@
 # source build (`make nix-vendor`, when they touch Cargo.lock, the flake or
 # nix/), the laws against LAWS.lock. No lock: every
 # worktree pushes at any time. The full gate runs nightly
-# (.github/scripts/ci_nightly.sh).
+# (.github/scripts/ci_nightly.py).
 # Skip rule: a push that changes only Markdown files at the repository
 # root, or only files of site/ (the website: its own toolchain,
 # laws and check, `make site-check`), does not run the gate (the `exclude`
@@ -34,7 +34,7 @@ repos:
         stages: [pre-commit]
       - id: ci-push
         name: ci-push (fmt, secrets, clippy and unit tests on the touched crates, bend core check, the reached proofs, embedded js, dashboard ui, nix vendor, laws lock)
-        entry: nice -n 10 .github/scripts/ci_local.sh pre-push
+        entry: nice -n 10 python3 .github/scripts/ci_local.py pre-push
         language: system
         pass_filenames: false
         exclude: '^([^/]+\.md|site/.*)$'

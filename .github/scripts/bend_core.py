@@ -23,8 +23,8 @@ committed file differs or when `bend version` is not the BEND_VERSION of
 .github/scripts/toolchain.env.
 
 BEND_BIN names the bend executable (default: `bend` on PATH). The Makefile
-and .github/scripts/ci_local.sh set it to the pinned release that
-.github/scripts/pinned_bend.sh finds: a version manager's `python3` shim (mise)
+and .github/scripts/ci_local.py set it to the pinned release that
+.github/scripts/pinned_bend.py finds: a version manager's `python3` shim (mise)
 rewrites PATH for this process, so `bend` here could otherwise be the
 manager's global release."""
 import difflib

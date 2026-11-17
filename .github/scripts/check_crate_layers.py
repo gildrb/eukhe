@@ -14,7 +14,7 @@ Two rules, over every dependency kind (normal, build, dev):
 The graph comes from `cargo metadata --no-deps` (no build, no network).
 Prints each violation and exits 1, else prints a summary and exits 0.
 
-Usage (.github/scripts/ci_local.sh): python3 .github/scripts/check_crate_layers.py .
+Usage (.github/scripts/ci_local.py): python3 .github/scripts/check_crate_layers.py .
 
 Tests: python3 .github/scripts/test_check_crate_layers.py
 """

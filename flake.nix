@@ -72,7 +72,7 @@
       });
 
       # The build inputs of the source package plus the tools the gates
-      # (.github/scripts/ci_local.sh) and the tiny-model worker need at run time.
+      # (.github/scripts/ci_local.py) and the tiny-model worker need at run time.
       # Rust is nixpkgs' rustc, which checks.eval holds to the version
       # rust-toolchain.toml pins. Lean (bend --verdict) is not here:
       # .github/scripts/toolchain.env pins a Lean release nixpkgs does not carry.
