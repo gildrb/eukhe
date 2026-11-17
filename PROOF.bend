@@ -4163,9 +4163,9 @@ import ./proof/headless_exit/headless_exit_compaction_last.bend as PHeadlessExit
 import ./proof/headless_exit/headless_exit_compaction_failed_fails.bend as PHeadlessExitCompactionFailedFails
 import ./proof/headless_exit/headless_exit_entry_answers.bend as PHeadlessExitEntryAnswers
 import ./proof/headless_exit/headless_exit_entry_example.bend as PHeadlessExitEntryExample
-import ./proof/headless_exit/headless_exit_entry_malformed_exact.bend as PHeadlessExitEntryMalformedExact
 import ./proof/headless_exit/headless_exit_entry_left_over.bend as PHeadlessExitEntryLeftOver
 import ./proof/headless_exit/headless_exit_entry_reads_only_requests.bend as PHeadlessExitEntryReadsOnlyRequests
+import ./proof/headless_exit/headless_exit_entry_refuses.bend as PHeadlessExitEntryRefuses
 import ./proof/headless_exit/headless_exit_no_failure_answered.bend as PHeadlessExitNoFailureAnswered
 import ./proof/headless_exit/headless_exit_example.bend as PHeadlessExitExample
 import ./proof/headless_exit/headless_exit_faulted_fails.bend as PHeadlessExitFaultedFails
@@ -4190,7 +4190,8 @@ import ./proof/headless_task/headless_task_asks_iff_unread.bend as PHeadlessTask
 import ./proof/headless_task/headless_task_entry_answers.bend as PHeadlessTaskEntryAnswers
 import ./proof/headless_task/headless_task_entry_example.bend as PHeadlessTaskEntryExample
 import ./proof/headless_task/headless_task_entry_left_over.bend as PHeadlessTaskEntryLeftOver
-import ./proof/headless_task/headless_task_entry_malformed_exact.bend as PHeadlessTaskEntryMalformedExact
+import ./proof/headless_task/headless_task_entry_reads_only_requests.bend as PHeadlessTaskEntryReadsOnlyRequests
+import ./proof/headless_task/headless_task_entry_refuses.bend as PHeadlessTaskEntryRefuses
 import ./proof/headless_task/headless_task_example.bend as PHeadlessTaskExample
 import ./proof/headless_task/headless_task_exit_stands.bend as PHeadlessTaskExitStands
 import ./proof/headless_task/headless_task_incomplete_iff_unfinished.bend as PHeadlessTaskIncompleteIffUnfinished

@@ -375,21 +375,3 @@ def r_exit.command(d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
 # an exit request at the start of s, read with the wire's decoders
 def r_exit(s: String) -> Wr.Dec<Hx.Facts>:
   r_exit.command(Wr.get_bool(s))
-
-def r_exit_whole.end(e: Bool, f: Hx.Facts) -> Maybe<&2, Hx.Facts>:
-  match e:
-    case True{}:
-      Some{f}
-    case False{}:
-      None{}
-
-def r_exit_whole(d: Wr.Dec<Hx.Facts>) -> Maybe<&2, Hx.Facts>:
-  match d:
-    case Wr.Got{f, +s}:
-      r_exit_whole.end(Wr.end(s), f)
-    case Wr.Bad{}:
-      None{}
-
-# the exit request s spells whole, with nothing after it
-def read_exit(s: String) -> Maybe<&2, Hx.Facts>:
-  r_exit_whole(r_exit(s))
