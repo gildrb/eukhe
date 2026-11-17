@@ -184,7 +184,7 @@ def sab.words(s: String) -> {Sa.words(s) == SlashArgs.sa_words(s) : List<&2, Str
 # /goal
 # -----
 
-def sab.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> {Sa.goal.objective.at(empty, long, o, b) == SlashArgs.sa_goal.objective.at(empty, long, o, b) : Sa.Goal}:
+def sab.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> {Sa.goal.objective.at(empty, long, o, b) == SlashArgs.sa_goal.objective.at(empty, long, o, b) : Sa.Auto}:
   match empty:
     case True{}:
       {==}
@@ -195,49 +195,49 @@ def sab.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -
         case False{}:
           {==}
 
-def sab.objective(+o: String, +b: Maybe<&2, String>) -> {Sa.goal.objective(o, b) == SlashArgs.sa_goal.objective(o, b) : Sa.Goal}:
-  %Equal.sym(String, Sa.trim(o), SlashArgs.sa_trim(o), sab.trim(o)) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, b) == SlashArgs.sa_goal.objective(o, b) : Sa.Goal}
+def sab.objective(+o: String, +b: Maybe<&2, String>) -> {Sa.goal.objective(o, b) == SlashArgs.sa_goal.objective(o, b) : Sa.Auto}:
+  %Equal.sym(String, Sa.trim(o), SlashArgs.sa_trim(o), sab.trim(o)) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, b) == SlashArgs.sa_goal.objective(o, b) : Sa.Auto}
   +t = SlashArgs.sa_trim(o)
   sab.objective.at(String.is_empty(t), Bool.not(Nat.is_le(String.length(t), 4000n)), t, b)
 
-def sab.budget(ok: Bool, +v: String, +o: String) -> {Sa.goal.budget(ok, v, o) == SlashArgs.sa_goal.budget(ok, v, o) : Sa.Goal}:
+def sab.budget(ok: Bool, +v: String, +o: String) -> {Sa.goal.budget(ok, v, o) == SlashArgs.sa_goal.budget(ok, v, o) : Sa.Auto}:
   match ok:
     case True{}:
       sab.objective(o, Some{v})
     case False{}:
       {==}
 
-def sab.spaced(c: Sa.Cut) -> {Sa.goal.spaced(c) == SlashArgs.sa_goal.spaced(c) : Sa.Goal}:
+def sab.spaced(c: Sa.Cut) -> {Sa.goal.spaced(c) == SlashArgs.sa_goal.spaced(c) : Sa.Auto}:
   match c:
     case Sa.Cut{+v, u}:
       match u:
         case SNil{}:
           {==}
         case SCon{w, +o}:
-          %Equal.sym(Bool, Sa.u64(v), SlashArgs.sa_u64(v), sab.u64(v)) : {Sa.goal.budget(_, v, o) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(v), v, o) : Sa.Goal}
+          %Equal.sym(Bool, Sa.u64(v), SlashArgs.sa_u64(v), sab.u64(v)) : {Sa.goal.budget(_, v, o) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(v), v, o) : Sa.Auto}
           sab.budget(SlashArgs.sa_u64(v), v, o)
 
-def sab.flag(bare: Bool, eq: Bool, +first: String, +tail: String, +rest: String) -> {Sa.goal.flag(bare, eq, first, tail, rest) == SlashArgs.sa_goal.flag(bare, eq, first, tail, rest) : Sa.Goal}:
+def sab.flag(bare: Bool, eq: Bool, +first: String, +tail: String, +rest: String) -> {Sa.goal.flag(bare, eq, first, tail, rest) == SlashArgs.sa_goal.flag(bare, eq, first, tail, rest) : Sa.Auto}:
   match bare:
     case True{}:
-      %Equal.sym(String, Sa.trim_start(tail), SlashArgs.sa_trim_start(tail), sab.trim_start(tail)) : {Sa.goal.spaced(Sa.cut(_)) == SlashArgs.sa_goal.spaced(SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail))) : Sa.Goal}
-      %Equal.sym(Sa.Cut, Sa.cut(SlashArgs.sa_trim_start(tail)), SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail)), sab.cut(SlashArgs.sa_trim_start(tail))) : {Sa.goal.spaced(_) == SlashArgs.sa_goal.spaced(SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail))) : Sa.Goal}
+      %Equal.sym(String, Sa.trim_start(tail), SlashArgs.sa_trim_start(tail), sab.trim_start(tail)) : {Sa.goal.spaced(Sa.cut(_)) == SlashArgs.sa_goal.spaced(SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail))) : Sa.Auto}
+      %Equal.sym(Sa.Cut, Sa.cut(SlashArgs.sa_trim_start(tail)), SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail)), sab.cut(SlashArgs.sa_trim_start(tail))) : {Sa.goal.spaced(_) == SlashArgs.sa_goal.spaced(SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail))) : Sa.Auto}
       sab.spaced(SlashArgs.sa_cut(SlashArgs.sa_trim_start(tail)))
     case False{}:
       match eq:
         case True{}:
-          %Equal.sym(String, Sa.after_eq(first), SlashArgs.sa_after_eq(first), sab.after_eq(first)) : {Sa.goal.budget(Sa.u64(_), _, tail) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_after_eq(first), tail) : Sa.Goal}
-          %Equal.sym(Bool, Sa.u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), sab.u64(SlashArgs.sa_after_eq(first))) : {Sa.goal.budget(_, SlashArgs.sa_after_eq(first), tail) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_after_eq(first), tail) : Sa.Goal}
+          %Equal.sym(String, Sa.after_eq(first), SlashArgs.sa_after_eq(first), sab.after_eq(first)) : {Sa.goal.budget(Sa.u64(_), _, tail) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_after_eq(first), tail) : Sa.Auto}
+          %Equal.sym(Bool, Sa.u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), sab.u64(SlashArgs.sa_after_eq(first))) : {Sa.goal.budget(_, SlashArgs.sa_after_eq(first), tail) == SlashArgs.sa_goal.budget(SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_after_eq(first), tail) : Sa.Auto}
           sab.budget(SlashArgs.sa_u64(SlashArgs.sa_after_eq(first)), SlashArgs.sa_after_eq(first), tail)
         case False{}:
           sab.objective(rest, None{})
 
-def sab.start(c: Sa.Cut, +rest: String) -> {Sa.goal.start(c, rest) == SlashArgs.sa_goal.start(c, rest) : Sa.Goal}:
+def sab.start(c: Sa.Cut, +rest: String) -> {Sa.goal.start(c, rest) == SlashArgs.sa_goal.start(c, rest) : Sa.Auto}:
   match c:
     case Sa.Cut{+first, +tail}:
       sab.flag(Bool.or(String.eq(first, "--budget"), String.eq(first, "--token-budget")), Bool.or(String.starts_with(first, "--budget="), String.starts_with(first, "--token-budget=")), first, tail, rest)
 
-def sab.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> {Sa.goal.kw(status, clear, pause, resume, rest) == SlashArgs.sa_goal.kw(status, clear, pause, resume, rest) : Sa.Goal}:
+def sab.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> {Sa.goal.kw(status, clear, pause, resume, rest) == SlashArgs.sa_goal.kw(status, clear, pause, resume, rest) : Sa.Auto}:
   match status:
     case True{}:
       {==}
@@ -254,11 +254,11 @@ def sab.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) 
                 case True{}:
                   {==}
                 case False{}:
-                  %Equal.sym(Sa.Cut, Sa.cut(rest), SlashArgs.sa_cut(rest), sab.cut(rest)) : {Sa.goal.start(_, rest) == SlashArgs.sa_goal.start(SlashArgs.sa_cut(rest), rest) : Sa.Goal}
+                  %Equal.sym(Sa.Cut, Sa.cut(rest), SlashArgs.sa_cut(rest), sab.cut(rest)) : {Sa.goal.start(_, rest) == SlashArgs.sa_goal.start(SlashArgs.sa_cut(rest), rest) : Sa.Auto}
                   sab.start(SlashArgs.sa_cut(rest), rest)
 
-def sab.goal(+args: String) -> {Sa.goal(args) == SlashArgs.sa_goal(args) : Sa.Goal}:
-  %Equal.sym(String, Sa.trim(args), SlashArgs.sa_trim(args), sab.trim(args)) : {Sa.goal.of(_, String.to_lower(_)) == SlashArgs.sa_goal(args) : Sa.Goal}
+def sab.goal(+args: String) -> {Sa.goal(args) == SlashArgs.sa_goal(args) : Sa.Auto}:
+  %Equal.sym(String, Sa.trim(args), SlashArgs.sa_trim(args), sab.trim(args)) : {Sa.goal.of(_, String.to_lower(_)) == SlashArgs.sa_goal(args) : Sa.Auto}
   +rest = SlashArgs.sa_trim(args)
   +l = String.to_lower(rest)
   sab.kw(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), rest)

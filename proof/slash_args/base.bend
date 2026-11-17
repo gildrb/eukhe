@@ -247,23 +247,23 @@ def sab.trim_nil(+w: String, +b: {SlashArgs.sa_blank(w) == True{} : Bool}) -> {S
 # Objectives
 # ----------
 
-def sab.obj.at(lo: Bool, +o: String, b: Maybe<&2, String>) -> {Sa.goal.objective.at(False{}, Bool.not(lo), o, b) == SlashArgs.sa_verdict.at(lo, o, b) : Sa.Goal}:
+def sab.obj.at(lo: Bool, +o: String, b: Maybe<&2, String>) -> {Sa.goal.objective.at(False{}, Bool.not(lo), o, b) == SlashArgs.sa_verdict.at(lo, o, b) : Sa.Auto}:
   match lo:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def sab.obj.ne(o: String, b: Maybe<&2, String>, +e: {SlashArgs.sa_edge(o) == True{} : Bool}) -> {Sa.goal.objective.at(String.is_empty(o), Bool.not(Nat.is_le(String.length(o), 4000n)), o, b) == SlashArgs.sa_verdict(o, b) : Sa.Goal}:
+def sab.obj.ne(o: String, b: Maybe<&2, String>, +e: {SlashArgs.sa_edge(o) == True{} : Bool}) -> {Sa.goal.objective.at(String.is_empty(o), Bool.not(Nat.is_le(String.length(o), 4000n)), o, b) == SlashArgs.sa_verdict(o, b) : Sa.Auto}:
   match o:
     case SNil{}:
-      LStg.stg.absurdF({Sa.goal.objective.at(True{}, Bool.not(Nat.is_le(0n, 4000n)), SNil{}, b) == SlashArgs.sa_verdict(SNil{}, b) : Sa.Goal}, e)
+      LStg.stg.absurdF({Sa.goal.objective.at(True{}, Bool.not(Nat.is_le(0n, 4000n)), SNil{}, b) == SlashArgs.sa_verdict(SNil{}, b) : Sa.Auto}, e)
     case SCon{+c, +u}:
       sab.obj.at(Nat.is_le(String.length(SCon{c, u}), 4000n), SCon{c, u}, b)
 
 # an objective whose trim is the trimmed text o is judged as o
-def sab.obj(+x: String, +o: String, b: Maybe<&2, String>, et: {Sa.trim(x) == o : String}, +e: {SlashArgs.sa_edge(o) == True{} : Bool}) -> {Sa.goal.objective(x, b) == SlashArgs.sa_verdict(o, b) : Sa.Goal}:
-  %Equal.sym(String, Sa.trim(x), o, et) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, b) == SlashArgs.sa_verdict(o, b) : Sa.Goal}
+def sab.obj(+x: String, +o: String, b: Maybe<&2, String>, et: {Sa.trim(x) == o : String}, +e: {SlashArgs.sa_edge(o) == True{} : Bool}) -> {Sa.goal.objective(x, b) == SlashArgs.sa_verdict(o, b) : Sa.Auto}:
+  %Equal.sym(String, Sa.trim(x), o, et) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, b) == SlashArgs.sa_verdict(o, b) : Sa.Auto}
   sab.obj.ne(o, b, e)
 
 # Cutting at the first White_Space
@@ -384,24 +384,24 @@ def sab.or_ff(a: Bool, b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : B
   eb
 
 # a trimmed text: `/goal` asks what its lowercase says of it
-def sab.goal_edge(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}) -> {Sa.goal(t) == Sa.goal.of(t, String.to_lower(t)) : Sa.Goal}:
-  %Equal.sym(String, Sa.trim(t), t, sab.trim_edge(t, e)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.goal.of(t, String.to_lower(t)) : Sa.Goal}
+def sab.goal_edge(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}) -> {Sa.goal(t) == Sa.goal.of(t, String.to_lower(t)) : Sa.Auto}:
+  %Equal.sym(String, Sa.trim(t), t, sab.trim_edge(t, e)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.goal.of(t, String.to_lower(t)) : Sa.Auto}
   {==}
 
 # a trimmed text whose lowercase is kw
-def sab.goal_kw(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, +kw: String, k: {String.eq(String.to_lower(t), kw) == True{} : Bool}) -> {Sa.goal(t) == Sa.goal.of(t, kw) : Sa.Goal}:
-  %sab.str_eq(String.to_lower(t), kw, k) : {Sa.goal(t) == Sa.goal.of(t, _) : Sa.Goal}
+def sab.goal_kw(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, +kw: String, k: {String.eq(String.to_lower(t), kw) == True{} : Bool}) -> {Sa.goal(t) == Sa.goal.of(t, kw) : Sa.Auto}:
+  %sab.str_eq(String.to_lower(t), kw, k) : {Sa.goal(t) == Sa.goal.of(t, _) : Sa.Auto}
   sab.goal_edge(t, e)
 
-def sab.kw4(st: Bool, cl: Bool, pa: Bool, re: Bool, +t: String, est: {st == False{} : Bool}, ecl: {cl == False{} : Bool}, epa: {pa == False{} : Bool}, ere: {re == False{} : Bool}) -> {Sa.goal.kw(st, cl, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}:
-  %Equal.sym(Bool, st, False{}, est) : {Sa.goal.kw(_, cl, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}
-  %Equal.sym(Bool, cl, False{}, ecl) : {Sa.goal.kw(False{}, _, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}
-  %Equal.sym(Bool, pa, False{}, epa) : {Sa.goal.kw(False{}, False{}, _, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}
-  %Equal.sym(Bool, re, False{}, ere) : {Sa.goal.kw(False{}, False{}, False{}, _, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}
+def sab.kw4(st: Bool, cl: Bool, pa: Bool, re: Bool, +t: String, est: {st == False{} : Bool}, ecl: {cl == False{} : Bool}, epa: {pa == False{} : Bool}, ere: {re == False{} : Bool}) -> {Sa.goal.kw(st, cl, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}:
+  %Equal.sym(Bool, st, False{}, est) : {Sa.goal.kw(_, cl, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}
+  %Equal.sym(Bool, cl, False{}, ecl) : {Sa.goal.kw(False{}, _, pa, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}
+  %Equal.sym(Bool, pa, False{}, epa) : {Sa.goal.kw(False{}, False{}, _, re, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}
+  %Equal.sym(Bool, re, False{}, ere) : {Sa.goal.kw(False{}, False{}, False{}, _, t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}
   {==}
 
 # a trimmed text that is no keyword: its first piece decides
-def sab.goal_plain(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, +k: {SlashArgs.sa_keyword(String.to_lower(t)) == False{} : Bool}) -> {Sa.goal(t) == Sa.goal.start(Sa.cut(t), t) : Sa.Goal}:
+def sab.goal_plain(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, +k: {SlashArgs.sa_keyword(String.to_lower(t)) == False{} : Bool}) -> {Sa.goal(t) == Sa.goal.start(Sa.cut(t), t) : Sa.Auto}:
   +l = String.to_lower(t)
   +r1 = sab.or_fr(String.eq(l, "status"), Bool.or(String.eq(l, "clear"), Bool.or(String.eq(l, "stop"), Bool.or(String.eq(l, "pause"), String.eq(l, "resume")))), k)
   +r2 = sab.or_fr(String.eq(l, "clear"), Bool.or(String.eq(l, "stop"), Bool.or(String.eq(l, "pause"), String.eq(l, "resume"))), r1)
@@ -410,21 +410,21 @@ def sab.goal_plain(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, +k: 
   +ecl = sab.or_ff(String.eq(l, "clear"), String.eq(l, "stop"), sab.or_fl(String.eq(l, "clear"), Bool.or(String.eq(l, "stop"), Bool.or(String.eq(l, "pause"), String.eq(l, "resume"))), r1), sab.or_fl(String.eq(l, "stop"), Bool.or(String.eq(l, "pause"), String.eq(l, "resume")), r2))
   +epa = sab.or_fl(String.eq(l, "pause"), String.eq(l, "resume"), r3)
   +ere = sab.or_fr(String.eq(l, "pause"), String.eq(l, "resume"), r3)
-  Equal.trans(Sa.Goal, Sa.goal(t), Sa.goal.of(t, l), Sa.goal.start(Sa.cut(t), t), sab.goal_edge(t, e), sab.kw4(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), t, est, ecl, epa, ere))
+  Equal.trans(Sa.Auto, Sa.goal(t), Sa.goal.of(t, l), Sa.goal.start(Sa.cut(t), t), sab.goal_edge(t, e), sab.kw4(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), t, est, ecl, epa, ere))
 
-def sab.flag2(bare: Bool, eq: Bool, eb: {bare == False{} : Bool}, ee: {eq == False{} : Bool}, +first: String, tail: String, rest: String) -> {Sa.goal.flag(bare, eq, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Goal}:
-  %Equal.sym(Bool, bare, False{}, eb) : {Sa.goal.flag(_, eq, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Goal}
-  %Equal.sym(Bool, eq, False{}, ee) : {Sa.goal.flag(False{}, _, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Goal}
+def sab.flag2(bare: Bool, eq: Bool, eb: {bare == False{} : Bool}, ee: {eq == False{} : Bool}, +first: String, tail: String, rest: String) -> {Sa.goal.flag(bare, eq, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Auto}:
+  %Equal.sym(Bool, bare, False{}, eb) : {Sa.goal.flag(_, eq, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Auto}
+  %Equal.sym(Bool, eq, False{}, ee) : {Sa.goal.flag(False{}, _, first, tail, rest) == Sa.goal.objective(rest, None{}) : Sa.Auto}
   {==}
 
 # a first piece that asks for no budget: the whole text is the objective
-def sab.start_plain(+t: String, +f: {SlashArgs.sa_asks(SlashArgs.sa_piece(t)) == False{} : Bool}) -> {Sa.goal.start(Sa.cut(t), t) == Sa.goal.objective(t, None{}) : Sa.Goal}:
+def sab.start_plain(+t: String, +f: {SlashArgs.sa_asks(SlashArgs.sa_piece(t)) == False{} : Bool}) -> {Sa.goal.start(Sa.cut(t), t) == Sa.goal.objective(t, None{}) : Sa.Auto}:
   +p = SlashArgs.sa_piece(t)
   +r1 = sab.or_fr(String.eq(p, "--budget"), Bool.or(String.eq(p, "--token-budget"), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="))), f)
   +r2 = sab.or_fr(String.eq(p, "--token-budget"), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget=")), r1)
   +eb = sab.or_ff(String.eq(p, "--budget"), String.eq(p, "--token-budget"), sab.or_fl(String.eq(p, "--budget"), Bool.or(String.eq(p, "--token-budget"), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="))), f), sab.or_fl(String.eq(p, "--token-budget"), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget=")), r1))
   +ee = sab.or_ff(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="), sab.or_fl(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="), r2), sab.or_fr(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="), r2))
-  %Equal.sym(Sa.Cut, Sa.cut(t), Sa.Cut{p, sab.tail(t)}, sab.cut(t)) : {Sa.goal.start(_, t) == Sa.goal.objective(t, None{}) : Sa.Goal}
+  %Equal.sym(Sa.Cut, Sa.cut(t), Sa.Cut{p, sab.tail(t)}, sab.cut(t)) : {Sa.goal.start(_, t) == Sa.goal.objective(t, None{}) : Sa.Auto}
   sab.flag2(Bool.or(String.eq(p, "--budget"), String.eq(p, "--token-budget")), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget=")), eb, ee, p, sab.tail(t), t)
 
 # p before a cut with nothing before its White_Space: p
@@ -444,14 +444,14 @@ def sab.ld_solid(v: String, +x: Char, +vs: {SlashArgs.sa_solid(v) == True{} : Bo
     case SCon{+d, +u}:
       sab.ld_solid(u, d, LStg.stg.and_r(Bool.not(SlashArgs.sa_white(d)), SlashArgs.sa_solid(u), vs), LStg.stg.and_l(Bool.not(SlashArgs.sa_white(d)), SlashArgs.sa_solid(u), vs))
 
-def sab.budget.at(b: Bool, +v: String, +x: String, +o: String, +e: {SlashArgs.sa_edge(o) == True{} : Bool}, et: {Sa.trim(x) == o : String}) -> {Sa.goal.budget(b, v, x) == SlashArgs.sa_budget.at(b, v, o) : Sa.Goal}:
+def sab.budget.at(b: Bool, +v: String, +x: String, +o: String, +e: {SlashArgs.sa_edge(o) == True{} : Bool}, et: {Sa.trim(x) == o : String}) -> {Sa.goal.budget(b, v, x) == SlashArgs.sa_budget.at(b, v, o) : Sa.Auto}:
   match b:
     case True{}:
       sab.obj(x, o, Some{v}, et, e)
     case False{}:
       {==}
 
-def sab.budget_none(b: Bool, +v: String) -> {Sa.goal.budget(b, v, SNil{}) == SlashArgs.sa_budget_none(b) : Sa.Goal}:
+def sab.budget_none(b: Bool, +v: String) -> {Sa.goal.budget(b, v, SNil{}) == SlashArgs.sa_budget_none(b) : Sa.Auto}:
   match b:
     case True{}:
       {==}
@@ -804,13 +804,13 @@ def sab.one_ok(+c: Char, +t: String, b: Bool, eb: {SlashArgs.sa_qc(c) == b : Boo
   %Equal.sym(Bool, SlashArgs.sa_qc(c), b, eb) : {Bool.or(Bool.not(String.is_empty(SlashArgs.sa_unquote.at(_, c, SlashArgs.sa_unquote(t, SlashArgs.sa_step.out(_, c))))), sab.orq(t, SlashArgs.sa_step.out(_, c), Bool.or(_, False{}))) == True{} : Bool}
   sab.one_ok.at(b, c, t)
 
-# `/autonomous`
-# -------------
+# `/auto`
+# -------
 
-def sab.auto_ws(+s: String, +ws: List<&2, String>, e: {Sa.words(s) == ws : List<&2, String>}) -> {Sa.auto(s) == Sa.auto.words(ws) : Sa.Auto}:
-  Equal.cong(List<&2, String>, Sa.Auto, z => Sa.auto.words(z), Sa.words(s), ws, e)
+def sab.auto_ws(+s: String, +ws: List<&2, String>, e: {Sa.words(s) == ws : List<&2, String>}) -> {Sa.auto(s) == Sa.auto.words(ws, s) : Sa.Auto}:
+  Equal.cong(List<&2, String>, Sa.Auto, z => Sa.auto.words(z, s), Sa.words(s), ws, e)
 
-def sab.alone.at(st: Bool, on: Bool, off: Bool) -> {Sa.auto.kw(st, on, off, Nil{}) == SlashArgs.sa_alone.at(st, on, off) : Sa.Auto}:
+def sab.alone.at(st: Bool, on: Bool, off: Bool, s: String) -> {Sa.auto.kw(st, on, off, Nil{}, s) == SlashArgs.sa_alone.at(st, on, off, s) : Sa.Auto}:
   match st on off:
     case True{} _ _:
       {==}

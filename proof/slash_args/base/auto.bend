@@ -1,4 +1,4 @@
-# eukhe: lemmas shared by the proofs of the `/autonomous` laws (area
+# eukhe: lemmas shared by the proofs of the `/auto` laws (area
 # slash_args)
 
 import Base
@@ -9,10 +9,10 @@ import ../../base/staging.bend as LStg
 import ../base.bend as LA
 import ./text.bend as LT
 
-# an on word: `/autonomous` reads the options of the words after it
-def saa.on(+l: String, +k: {SlashArgs.sa_on(l) == True{} : Bool}, +ws: List<&2, String>) -> {Sa.auto.kw(String.eq(l, "status"), SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}:
-  %Equal.sym(Bool, String.eq(l, "status"), False{}, LA.sab.ne_on(l, "status", k, {==})) : {Sa.auto.kw(_, SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
-  %Equal.sym(Bool, SlashArgs.sa_on(l), True{}, k) : {Sa.auto.kw(False{}, _, SlashArgs.sa_off(l), ws) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
+# an on word: `/auto` reads the options of the words after it
+def saa.on(+l: String, +k: {SlashArgs.sa_on(l) == True{} : Bool}, +ws: List<&2, String>, a: String) -> {Sa.auto.kw(String.eq(l, "status"), SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws, a) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}:
+  %Equal.sym(Bool, String.eq(l, "status"), False{}, LA.sab.ne_on(l, "status", k, {==})) : {Sa.auto.kw(_, SlashArgs.sa_on(l), SlashArgs.sa_off(l), ws, a) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
+  %Equal.sym(Bool, SlashArgs.sa_on(l), True{}, k) : {Sa.auto.kw(False{}, _, SlashArgs.sa_off(l), ws, a) == Sa.auto.on(Sa.options(ws)) : Sa.Auto}
   {==}
 
 # a `--` word's step: the flag and name are R7's (LA.sab.raw, LA.sab.name)
@@ -26,7 +26,7 @@ def saa.flag(+x: String, t: List<&2, String>, r1: Sa.Read, r2: Sa.Read) -> {Sa.s
 def saa.opts(+s: String, +w: String, +x: String, +t: List<&2, String>, ws: {Sa.words(s) == w <> x <> t : List<&2, String>}, +k: {SlashArgs.sa_on(String.to_lower(w)) == True{} : Bool}, b: Bool, eb: {String.starts_with(x, "--") == b : Bool}) -> {Sa.auto(s) == Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))) : Sa.Auto}:
   +l = String.to_lower(w)
   +fw = Equal.trans(Sa.Read, Sa.options(x <> t), Sa.step(String.starts_with(x, "--"), x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), LA.sab.first_word(x, t, Sa.reads(t)), Equal.cong(Bool, Sa.Read, z => Sa.step(z, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), String.starts_with(x, "--"), b, eb))
-  Equal.trans(Sa.Auto, Sa.auto(s), Sa.auto.words(w <> x <> t), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), LA.sab.auto_ws(s, w <> x <> t, ws), Equal.trans(Sa.Auto, Sa.auto.words(w <> x <> t), Sa.auto.on(Sa.options(x <> t)), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), saa.on(l, k, x <> t), Equal.cong(Sa.Read, Sa.Auto, z => Sa.auto.on(z), Sa.options(x <> t), Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), fw)))
+  Equal.trans(Sa.Auto, Sa.auto(s), Sa.auto.words(w <> x <> t, s), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), LA.sab.auto_ws(s, w <> x <> t, ws), Equal.trans(Sa.Auto, Sa.auto.words(w <> x <> t, s), Sa.auto.on(Sa.options(x <> t)), Sa.auto.on(Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t)))), saa.on(l, k, x <> t, s), Equal.cong(Sa.Read, Sa.Auto, z => Sa.auto.on(z), Sa.options(x <> t), Sa.step(b, x, t, Sa.options(t), LA.sab.snd(Sa.reads(t))), fw)))
 
 def saa.after.at(e: Bool, t: String, r: String) -> {Sa.after_eq.at(e, t, r) == SlashArgs.sa_after.at(e, t, r) : String}:
   match e:
@@ -367,7 +367,7 @@ def saa.options(+ws: List<&2, String>) -> {Sa.options(ws) == SlashArgs.sa_option
   %Equal.sym(Sa.Read & Sa.Read, Sa.reads(ws), SlashArgs.sa_reads(ws), saa.reads(ws)) : {Sa.options.fst(_) == SlashArgs.sa_options(ws) : Sa.Read}
   saa.fst(SlashArgs.sa_reads(ws))
 
-def saa.kw(status: Bool, on: Bool, off: Bool, +ws: List<&2, String>) -> {Sa.auto.kw(status, on, off, ws) == SlashArgs.sa_auto.kw(status, on, off, ws) : Sa.Auto}:
+def saa.kw(status: Bool, on: Bool, off: Bool, +ws: List<&2, String>, a: String) -> {Sa.auto.kw(status, on, off, ws, a) == SlashArgs.sa_auto.kw(status, on, off, ws, a) : Sa.Auto}:
   match status:
     case True{}:
       saa.alone(ws, Sa.AStatus{})
@@ -383,14 +383,14 @@ def saa.kw(status: Bool, on: Bool, off: Bool, +ws: List<&2, String>) -> {Sa.auto
             case False{}:
               {==}
 
-def saa.words(ws: List<&2, String>) -> {Sa.auto.words(ws) == SlashArgs.sa_auto.words(ws) : Sa.Auto}:
+def saa.words(ws: List<&2, String>, +a: String) -> {Sa.auto.words(ws, a) == SlashArgs.sa_auto.words(ws, a) : Sa.Auto}:
   match ws:
     case Nil{}:
       {==}
     case w <> +t:
       +l = String.to_lower(w)
-      saa.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), t)
+      saa.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), t, a)
 
 def saa.auto(+s: String) -> {Sa.auto(s) == SlashArgs.sa_auto(s) : Sa.Auto}:
-  %Equal.sym(List<&2, String>, Sa.words(s), SlashArgs.sa_words(s), LT.sab.words(s)) : {Sa.auto.words(_) == SlashArgs.sa_auto(s) : Sa.Auto}
-  saa.words(SlashArgs.sa_words(s))
+  %Equal.sym(List<&2, String>, Sa.words(s), SlashArgs.sa_words(s), LT.sab.words(s)) : {Sa.auto.words(_, s) == SlashArgs.sa_auto(s) : Sa.Auto}
+  saa.words(SlashArgs.sa_words(s), s)

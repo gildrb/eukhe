@@ -11,8 +11,8 @@ import ../../laws/slash_args/model.bend as SlashArgs
 import ../base/staging.bend as LStg
 import ./base.bend as LA
 
-def sgo.blank(+w: String, +b: {SlashArgs.sa_blank(w) == True{} : Bool}, m: Maybe<&2, String>) -> {Sa.goal.objective(w, m) == Sa.GErr{"Goal objective must not be empty."} : Sa.Goal}:
-  %Equal.sym(String, Sa.trim(w), SNil{}, LA.sab.trim_nil(w, b)) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, m) == Sa.GErr{"Goal objective must not be empty."} : Sa.Goal}
+def sgo.blank(+w: String, +b: {SlashArgs.sa_blank(w) == True{} : Bool}, m: Maybe<&2, String>) -> {Sa.goal.objective(w, m) == Sa.AErr{"Goal objective must not be empty."} : Sa.Auto}:
+  %Equal.sym(String, Sa.trim(w), SNil{}, LA.sab.trim_nil(w, b)) : {Sa.goal.objective.at(String.is_empty(_), Bool.not(Nat.is_le(String.length(_), 4000n)), _, m) == Sa.AErr{"Goal objective must not be empty."} : Sa.Auto}
   {==}
 
 def SlashArgs.slash_args_objective_judged(w1, b1, o, oe, w2, b2, b):

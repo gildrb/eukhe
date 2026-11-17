@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW slash_args_goal_clear
 #
 # PROOF: the text is its own trim (LA.sab.trim_edge) and its lowercase is
-# `clear` or `stop` (LA.sab.str_eq), both of which clear the goal.
+# `clear` or `stop` (LA.sab.str_eq), both of which answer `/auto off`.
 
 import Base
 import ../../bend/slash_args.bend as Sa
@@ -10,7 +10,7 @@ import ../../laws/slash_args/model.bend as SlashArgs
 import ../base/staging.bend as LStg
 import ./base.bend as LA
 
-def sgc.at(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, b: Bool, eb: {String.eq(String.to_lower(t), "clear") == b : Bool}, k: {Bool.or(b, String.eq(String.to_lower(t), "stop")) == True{} : Bool}) -> {Sa.goal(t) == Sa.GClear{} : Sa.Goal}:
+def sgc.at(+t: String, +e: {SlashArgs.sa_edge(t) == True{} : Bool}, b: Bool, eb: {String.eq(String.to_lower(t), "clear") == b : Bool}, k: {Bool.or(b, String.eq(String.to_lower(t), "stop")) == True{} : Bool}) -> {Sa.goal(t) == Sa.auto("off") : Sa.Auto}:
   match b:
     case True{}:
       LA.sab.goal_kw(t, e, "clear", eb)

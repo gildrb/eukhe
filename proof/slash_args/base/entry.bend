@@ -26,22 +26,6 @@ def sae.mstr(m: Maybe<&2, String>, rest: String) -> {FSa.put_mstr(m, rest) == Sl
     case Some{x}:
       {==}
 
-def sae.goal(g: Sa.Goal) -> {FSa.put_goal(g) == SlashArgsEntry.sae_goal(g) : String}:
-  match g:
-    case Sa.GStatus{}:
-      {==}
-    case Sa.GClear{}:
-      {==}
-    case Sa.GPause{}:
-      {==}
-    case Sa.GResume{}:
-      {==}
-    case Sa.GStart{+o, +b}:
-      %Equal.sym(String, FSa.put_mstr(b, ""), SlashArgsEntry.sae_mstr(b, ""), sae.mstr(b, "")) : {Wr.put_nat(4n, Wr.put_str(o, _)) == Wr.put_nat(4n, Wr.put_str(o, SlashArgsEntry.sae_mstr(b, ""))) : String}
-      {==}
-    case Sa.GErr{e}:
-      {==}
-
 def sae.lim(m: Maybe<&2, Sa.Lim>, rest: String) -> {FSa.put_mlim(m, rest) == SlashArgsEntry.sae_lim(m, rest) : String}:
   match m:
     case None{}:
@@ -99,24 +83,12 @@ def sae.auto(a: Sa.Auto) -> {FSa.put_auto(a) == SlashArgsEntry.sae_auto(a) : Str
       {==}
     case Sa.AErr{e}:
       {==}
+    case Sa.ATask{+t, +b}:
+      %Equal.sym(String, FSa.put_mstr(b, ""), SlashArgsEntry.sae_mstr(b, ""), sae.mstr(b, "")) : {Wr.put_nat(4n, Wr.put_str(t, _)) == Wr.put_nat(4n, Wr.put_str(t, SlashArgsEntry.sae_mstr(b, ""))) : String}
+      {==}
 
 # Replies never open with 'E'
 # ---------------------------
-
-def sae.goal_ok(g: Sa.Goal) -> {LawsBase.wire_opens_err(FSa.put_goal(g)) == False{} : Bool}:
-  match g:
-    case Sa.GStatus{}:
-      {==}
-    case Sa.GClear{}:
-      {==}
-    case Sa.GPause{}:
-      {==}
-    case Sa.GResume{}:
-      {==}
-    case Sa.GStart{o, b}:
-      {==}
-    case Sa.GErr{e}:
-      {==}
 
 def sae.auto_ok(a: Sa.Auto) -> {LawsBase.wire_opens_err(FSa.put_auto(a)) == False{} : Bool}:
   match a:
@@ -128,17 +100,21 @@ def sae.auto_ok(a: Sa.Auto) -> {LawsBase.wire_opens_err(FSa.put_auto(a)) == Fals
       {==}
     case Sa.AErr{e}:
       {==}
+    case Sa.ATask{t, b}:
+      {==}
 
 def sae.answer_ok(q: FSa.Req) -> {LawsBase.wire_opens_err(FSa.answer(q)) == False{} : Bool}:
   match q:
     case FSa.QGoal{a}:
-      sae.goal_ok(Sa.goal(a))
+      {==}
     case FSa.QAuto{a}:
-      sae.auto_ok(Sa.auto(a))
+      {==}
     case FSa.QWords{a}:
       LE.dcw.fin_ok(Wr.put_list.go(~String, ~Wr.put_str, Sa.words(a), ""))
     case FSa.QObjective{a}:
-      sae.goal_ok(Sa.goal.objective(a, None{}))
+      sae.auto_ok(Sa.goal.objective(a, None{}))
+    case FSa.QAutonomous{a}:
+      {==}
 
 # Decoded requests are spelled
 # ----------------------------
@@ -194,6 +170,18 @@ def sax.obj(-s: String, -s1: String, d: Wr.Dec<String>, sp: LE.dcw.SP(s1, d), es
     case Wr.Bad{}:
       LStg.stg.absurd(sax.T(s), ok)
 
+def sax.autonomous(-s: String, -s1: String, d: Wr.Dec<String>, sp: LE.dcw.SP(s1, d), es: {s == Wr.put_nat(4n, s1) : String}, ok: {LawsBase.wire_opens_err(FSa.ffi.got(FSa.get_autonomous(d))) == False{} : Bool}) -> sax.T(s):
+  match d:
+    case Wr.Got{+a, rest}:
+      match rest:
+        case SNil{}:
+          (e1, fit) = sp
+          (FSa.QAutonomous{a}, (LE.dcw.after(s, 4n, s1, Wr.put_str(a, ""), es, e1), fit))
+        case SCon{x, y}:
+          LStg.stg.absurd(sax.T(s), ok)
+    case Wr.Bad{}:
+      LStg.stg.absurd(sax.T(s), ok)
+
 # a reply that is no error comes from a spelled request
 def sax.top(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}, ok: {LawsBase.wire_opens_err(FSa.ffi.got(FSa.get_req.start(d))) == False{} : Bool}) -> sax.T(s):
   match d:
@@ -207,7 +195,9 @@ def sax.top(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}, 
           sax.words(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 2n, s1, ed), ok)
         case 3n:
           sax.obj(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 3n, s1, ed), ok)
-        case 4n+u:
+        case 4n:
+          sax.autonomous(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 4n, s1, ed), ok)
+        case 5n+u:
           LStg.stg.absurd(sax.T(s), ok)
     case Wr.Bad{}:
       LStg.stg.absurd(sax.T(s), ok)

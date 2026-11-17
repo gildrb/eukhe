@@ -144,7 +144,7 @@ Law areas outside the pillars above, with what their laws state. An anchor (`*_e
 - [`refine_plan`](../laws/refine_plan/) (35): the `/refine` planner's slugs and ids, the apply and rollback of a proposal, and the truncation scan and fit of its request follow the stated rules.
 - [`screen`](../laws/screen/) (40): transcript blocks open with fresh ids, grow only while active, and commit final blocks in order with no gap; scrollback only grows; the width never changes what is committed.
 - [`selection`](../laws/selection.bend) (30): a release copies exactly the selected text, in reading order, once; a plain click copies nothing.
-- [`slash_args`](../laws/slash_args/) (33): the words of a command and the arguments of `/goal` and `/autonomous` are read by the stated rules (quotes, whitespace, keywords).
+- [`slash_args`](../laws/slash_args/) (34): the words of a command and the arguments of `/auto` (and its aliases `/autonomous` and the removed `/goal`, which answers the `/auto` reply it maps to) are read by the stated rules (quotes, whitespace, keywords).
 - [`slash_suggest`](../laws/slash_suggest.bend) (10): a mistyped slash command suggests the closest command by edit distance, the first on a tie, within a threshold of the typed length.
 - [`theme_entry`](../laws/theme_entry.bend) (2): the theme entry refuses every input that is not a request Rust spells.
 - [`theme_pick`](../laws/theme_pick.bend) (17): a theme name picks the registered, built-in, custom or default theme in the stated order (the empty name the default quietly; eukhe, the default theme's old name, picks forge), naming a broken theme once.
