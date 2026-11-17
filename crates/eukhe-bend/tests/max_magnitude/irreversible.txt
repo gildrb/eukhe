@@ -1,0 +1,7 @@
+# class codes, keys, runs and ids at the largest the wire carries
+call 0,2,{MAX},2,
+call 1,4,{MAX},{MAX},{MAX},{MAX},{MAX},
+call 1,2,{MAX},{MAX},{MAX},
+call 2,4,{MAX},{MAX},{MAX},{MAX},{MAX},
+refuse 0,1,{LONG},
+refuse 2,0,{LONG},

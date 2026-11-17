@@ -226,3 +226,4 @@ import ./laws/work_list.bend as WorkList
 import ./laws/fallback.bend as Fallback
 import ./laws/strength.bend as Strength
 import ./laws/attack.bend as Attack
+import ./laws/irreversible.bend as Irreversible

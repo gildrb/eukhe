@@ -9,15 +9,16 @@
 # 3. A path. An internal URL's path is a list of segments under the root
 #    of its scheme. `..` goes up one; a path that goes above its root is
 #    rejected, never clamped.
-# 4. The approval gate. A shell script runs step by step. A step has a
-#    set of effects: every effect of every part of it (its command, each
+# 4. The shell step. A shell script runs step by step. A step has a set
+#    of effects: every effect of every part of it (its command, each
 #    redirection, each path it names; every command an external script
-#    holds). A step runs without a question only when every effect is in
-#    the auto set (every effect may be there, a secret access included:
-#    the user's `shell.autoEffects` decides); a step has the secret effect
-#    only when a part of it
-#    names a path that is or holds a secret. A denial stops the script:
-#    no later step runs.
+#    holds); a step has the secret effect only when a part of it names a
+#    path that is or holds a secret. Every step runs unasked, but a step
+#    a part of which writes an own path (eukhe's own config and
+#    credentials, the session record, a protected file of a check): it is
+#    refused, and the script stops at it: it and no later step runs
+#    (`verdict`, `script`). The approval gate of the auto set (`within`,
+#    `exec`) stays only for the callers that still ask it.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
@@ -387,6 +388,92 @@ def exec.go(ss: List<&2, Step>, +auto: List<&2, Nat>, free: Bool, answers: List<
 
 def exec(+ss: List<&2, Step>, +auto: List<&2, Nat>, answers: List<&2, Bool>) -> Ran:
   exec.go(ss, auto, free.at(ss, auto), answers)
+
+# A part of a step as its verdict reads it: its own effect codes, whether
+# it names a path that is or holds a secret, and whether it writes an own
+# path (eukhe's own config and credentials, the session record, a
+# protected file of a check)
+type Piece is Data:
+  Piece{own: List<&2, Nat>, secret: Bool, mine: Bool}
+
+# the part's effects: those of the same part without the own fact
+def piece.effs(p: Piece) -> List<&2, Nat>:
+  match p:
+    case Piece{o, s, m}:
+      part.effs(Part{o, s})
+
+# the effects of a step made of pieces: every effect of every piece
+def pieces.effs(ps: List<&2, Piece>) -> List<&2, Nat>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      List.append(&2, Nat, piece.effs(p), pieces.effs(rest))
+
+# some piece writes an own path
+def pieces.mine(ps: List<&2, Piece>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> rest:
+      match p:
+        case Piece{o, s, m}:
+          Bool.or(m, pieces.mine(rest))
+
+# What becomes of a step: it runs, or it is refused (it writes an own path)
+type Verdict is Data:
+  Runs{}
+  Refused{}
+
+def verdict.of(mine: Bool) -> Verdict:
+  match mine:
+    case True{}:
+      Refused{}
+    case False{}:
+      Runs{}
+
+# the verdict of a step made of pieces: refused exactly when a piece
+# writes an own path
+def verdict(ps: List<&2, Piece>) -> Verdict:
+  verdict.of(pieces.mine(ps))
+
+# A step of a script as it is about to run: its id, its effects, and
+# whether it writes an own path
+type Planned is Data:
+  Planned{id: Nat, effs: List<&2, Nat>, mine: Bool}
+
+# the step with id i made of pieces ps
+def plan(i: Nat, +ps: List<&2, Piece>) -> Planned:
+  Planned{i, pieces.effs(ps), pieces.mine(ps)}
+
+# How a script ended
+type Halt is Data:
+  AllRan{}           # every step ran
+  StoppedAt{at: Nat} # step `at` writes an own path: it and later steps did not run
+
+# How a script ran: the steps that ran, in order, and how it ended
+type Did is Data:
+  Did{ran: List<&2, Step>, end: Halt}
+
+def did.add(s: Step, d: Did) -> Did:
+  match d:
+    case Did{ss, e}:
+      Did{s <> ss, e}
+
+# run a script: each step runs in order, until a step that writes an own
+# path; that one and every later step do not run
+def script(ss: List<&2, Planned>) -> Did:
+  match ss:
+    case Nil{}:
+      Did{Nil{}, AllRan{}}
+    case s <> rest:
+      match s:
+        case Planned{i, e, m}:
+          match m:
+            case True{}:
+              Did{Nil{}, StoppedAt{i}}
+            case False{}:
+              did.add(Step{i, e}, script(rest))
 
 # What the laws speak of
 # ----------------------
