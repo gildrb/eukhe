@@ -1,7 +1,7 @@
 # eukhe releases: the four Unix targets built and packaged with the
 # repository's own release scripts, published as a GitHub release.
 #
-# A release starts only from scripts/ci_nightly.sh (`gh workflow run
+# A release starts only from .github/scripts/ci_nightly.sh (`gh workflow run
 # eukhe-release.yml -f sha=<commit>`), once a night, after the full gate
 # passed on that commit locally. GitHub runs no gate and no schedule: a
 # commit that broke a test never ships. The version job checks the named
@@ -12,7 +12,7 @@
 # `eukhe-next-version` (crate eukhe-build-info) runs the rule bend/semver.bend
 # as compiled Bend; laws/semver.bend (R1, R2) proves it. The release notes are
 # the first-parent commit subjects since the previous `eukhe-v*` tag,
-# grouped by area without the internal ones (scripts/release/
+# grouped by area without the internal ones (.github/scripts/release/
 # release_notes.py). The release is tagged `eukhe-v<version>`, titled
 # `Eukhe v<version>`, marked latest (mise installs it), and pinned for the
 # Nix flake (nix/release.json: url + SRI hash per system). One release
@@ -23,7 +23,7 @@
 # Supply chain: every action is pinned by full commit SHA; the build jobs
 # use no cache (a poisoned cache would ride the shipped binary); the Linux
 # build jobs run in a toolchain image pinned by its multi-arch digest
-# (ghcr.io/gildrb/eukhe-build, scripts/release/Dockerfile), so no release
+# (ghcr.io/gildrb/eukhe-build, .github/scripts/release/Dockerfile), so no release
 # installs a package; to rebuild it, `gh workflow run build-image.yml -f
 # tag=jammy-<YYYYMMDD>` and pin the digest its merge job prints; rustup-init is
 # a pinned version checked against committed sha256; the bundled models
@@ -109,7 +109,7 @@ jobs:
             echo "sha=${sha}"
             echo "previous=${previous}"
           } >> "${GITHUB_OUTPUT}"
-      - name: The release notes (the commit subjects since the previous release, scripts/release/release_notes.py)
+      - name: The release notes (the commit subjects since the previous release, .github/scripts/release/release_notes.py)
         env:
           SHA: ${{ steps.version.outputs.sha }}
           PREVIOUS: ${{ steps.version.outputs.previous }}
@@ -117,7 +117,7 @@ jobs:
         run: |
           set -euo pipefail
           git log --first-parent --format=%s "${PREVIOUS:+${PREVIOUS}..}${SHA}" \
-            | python3 scripts/release/release_notes.py --version "${VERSION}" --sha "${SHA}" ${PREVIOUS:+--previous "${PREVIOUS}"} \
+            | python3 .github/scripts/release/release_notes.py --version "${VERSION}" --sha "${SHA}" ${PREVIOUS:+--previous "${PREVIOUS}"} \
             > "${RUNNER_TEMP}/release-notes.md"
           cat "${RUNNER_TEMP}/release-notes.md"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -132,7 +132,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     # The glibc 2.35 baseline (Ubuntu 22.04): buildpack-deps:jammy-curl plus
     # build-essential, clang, python3, git and binutils
-    # (scripts/release/Dockerfile), pinned by its multi-arch digest.
+    # (.github/scripts/release/Dockerfile), pinned by its multi-arch digest.
     container:
       image: ghcr.io/gildrb/eukhe-build:jammy-20261112@sha256:d3e93c32a2bcaad63578d31d334d887ce096ee6ead21346d5cba98d53975bf11
     defaults:
@@ -201,7 +201,7 @@ jobs:
       - name: Split the shipped binary and its debug decoder
         run: |
           set -euo pipefail
-          python3 scripts/release/split_debug.py \
+          python3 .github/scripts/release/split_debug.py \
             --binary "target/${TARGET}/dist/eukhe" \
             --shipped "target/${TARGET}/package/eukhe" \
             --out "target/${TARGET}/package" \
@@ -221,11 +221,11 @@ jobs:
           top="$(printf '%s\nGLIBC_2.35\n' "${max_glibc}" | sort -Vu | tail -1)"
           [[ "${top}" == "GLIBC_2.35" ]] || { echo "::error::binary requires ${max_glibc}"; exit 1; }
       - name: Generate bundled catalog asset (committed models.dev snapshot)
-        run: python3 scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
+        run: python3 .github/scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail
-          python3 scripts/release/assemble_artifacts.py \
+          python3 .github/scripts/release/assemble_artifacts.py \
             --repo-root . \
             --version "${VERSION}" \
             --target "${TARGET}" \
@@ -233,7 +233,7 @@ jobs:
             --decoder "target/${TARGET}/package/eukhe-${VERSION}-${{ matrix.alias }}.debug.gz" \
             --catalog-assets "target/${TARGET}/catalog-assets" \
             --out-dir "target/${TARGET}/package"
-          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
+          python3 .github/scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: artifacts-${{ matrix.target }}
@@ -298,18 +298,18 @@ jobs:
           out="$("target/${TARGET}/dist/eukhe" --version)"
           [[ "${out}" == "${VERSION}" ]] || { echo "::error::binary reports '${out}', expected '${VERSION}'"; exit 1; }
       - name: Generate bundled catalog asset (committed models.dev snapshot)
-        run: python3 scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
+        run: python3 .github/scripts/release/bundle_catalog.py generate --out "target/${TARGET}/catalog-assets"
       - name: Assemble tarball, checksums, manifest
         run: |
           set -euo pipefail
-          python3 scripts/release/assemble_artifacts.py \
+          python3 .github/scripts/release/assemble_artifacts.py \
             --repo-root . \
             --version "${VERSION}" \
             --target "${TARGET}" \
             --binary "target/${TARGET}/dist/eukhe" \
             --catalog-assets "target/${TARGET}/catalog-assets" \
             --out-dir "target/${TARGET}/package"
-          python3 scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
+          python3 .github/scripts/release/verify_release.py --dist-dir "target/${TARGET}/package" --version "${VERSION}" --target "${TARGET}"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: artifacts-${{ matrix.target }}
@@ -350,10 +350,10 @@ jobs:
           path: src
           sparse-checkout: |
             install.sh
-            scripts/release/xz_archives.py
+            .github/scripts/release/xz_archives.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # Each .tar.gz gets its .tar.xz twin (scripts/release/xz_archives.py:
+      # Each .tar.gz gets its .tar.xz twin (.github/scripts/release/xz_archives.py:
       # the same tar, a third smaller), which install.sh and `eukhe update`
       # download; release.json lists it under the system's `xz`. The .tar.gz
       # stays the system's `url`: the updaters of earlier releases look it up
@@ -362,7 +362,7 @@ jobs:
         shell: python3 {0}
         run: |
           import base64, concurrent.futures, hashlib, json, os, pathlib, shutil, sys
-          sys.path.insert(0, "src/scripts/release")
+          sys.path.insert(0, "src/.github/scripts/release")
           from xz_archives import check_xz, twin
           systems = {
               "linux-x64": "x86_64-linux",

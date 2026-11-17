@@ -578,7 +578,7 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
 }
 
 /// A tiny real ELF split into the paired shipped image + decoder that the
-/// fail-closed Linux packer/assembler require (`scripts/release/`
+/// fail-closed Linux packer/assembler require (`.github/scripts/release/`
 /// `test_catalog_assets.py` stages the same fixture shape). The directory
 /// must outlive the invocation; the caller keeps it.
 struct PairedFixture {
@@ -633,6 +633,7 @@ fn split_paired_fixture(
     let split = Command::new(python)
         .arg(
             repo_root()
+                .join(".github")
                 .join("scripts")
                 .join("release")
                 .join("split_debug.py"),
@@ -735,6 +736,7 @@ fn packaging_dry_run_produces_artifact() {
     let bundle = Command::new(python)
         .arg(
             repo_root()
+                .join(".github")
                 .join("scripts")
                 .join("release")
                 .join("bundle_catalog.py"),
@@ -787,7 +789,12 @@ fn packaging_dry_run_produces_artifact() {
     };
     let mut command = Command::new(python);
     command
-        .arg(repo_root().join("scripts").join("package_release.py"))
+        .arg(
+            repo_root()
+                .join(".github")
+                .join("scripts")
+                .join("package_release.py"),
+        )
         .arg("--root")
         .arg(tree.path())
         .arg("--binary")

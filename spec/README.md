@@ -14,7 +14,7 @@ record, orchestration at scale, stable SDK contract.
 ```
 bend PROOF.bend             # every law checks
 bend PROOF.bend --verdict   # the same, Lean-proven BendTT kernel
-python3 scripts/check_laws_wired.py .
+python3 .github/scripts/check_laws_wired.py .
 ```
 
 Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry

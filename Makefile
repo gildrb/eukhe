@@ -10,21 +10,21 @@ check:
 	$(MAKE) runtime-test
 	cargo build --release --workspace --locked
 
-# The CI gates (scripts/ci_local.sh). GitHub runs no gate: they run only
+# The CI gates (.github/scripts/ci_local.sh). GitHub runs no gate: they run only
 # here. ci-fast is the pre-commit gate (< 1 min): rustfmt, the crate
-# layering (scripts/check_crate_layers.py), the secrets scan of the staged
+# layering (.github/scripts/check_crate_layers.py), the secrets scan of the staged
 # diff (when gitleaks is installed), the embedded JavaScript against its
 # TypeScript sources (embedded-js-check, when the staged change touches a
 # .ts or .js file under crates/), clippy on the crates the staged change
-# touches (scripts/ci_pr_crates.py). The pre-push gate
+# touches (.github/scripts/ci_pr_crates.py). The pre-push gate
 # (< 5 min) checks the pushed commits: rustfmt, their secrets scan, clippy
 # and the unit tests (nextest profile pre-push, .config/nextest.toml: no
 # e2e suite) of the crates they touch, the proofs their Bend change can
-# reach (scripts/bend_proofs.py), the embedded JavaScript, the dashboard UI
+# reach (.github/scripts/bend_proofs.py), the embedded JavaScript, the dashboard UI
 # (when they touch crates/eukhe-dashboard/ui/), the laws against
 # LAWS.lock. ci-local is
 # the full gate (< 30 min): every test (nextest profile nightly) and `bend
-# PROOF.bend --verdict`; the nightly run (scripts/ci_nightly.sh, a systemd
+# PROOF.bend --verdict`; the nightly run (.github/scripts/ci_nightly.sh, a systemd
 # user timer) runs it on origin/main and starts the release only when it
 # passes. lock re-locks the laws in seconds: the proofs the change since
 # origin/main can reach, then LAWS.lock. Tools: mise.toml.
@@ -32,19 +32,19 @@ check:
 # the hooks are in the git common dir, so every worktree shares them; a
 # worktree of an older commit, without the config, skips them).
 ci-fast:
-	@scripts/ci_local.sh fast
+	@.github/scripts/ci_local.sh fast
 
 ci-local:
-	@scripts/ci_local.sh full
+	@.github/scripts/ci_local.sh full
 
 lock:
-	@scripts/ci_local.sh lock
+	@.github/scripts/ci_local.sh lock
 
 nightly:
-	@scripts/ci_nightly.sh run
+	@.github/scripts/ci_nightly.sh run
 
 nightly-status:
-	@scripts/ci_nightly.sh status
+	@.github/scripts/ci_nightly.sh status
 
 hooks:
 	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (mise use -g github:j178/prek@0.5.7)"; exit 1; }
@@ -74,13 +74,13 @@ nix-vendor:
 	nix build --no-link .#eukhe-from-source.cargoDeps
 
 # The pinned Bend and Lean releases: BEND_VERSION, LEAN_VERSION.
-include scripts/toolchain.env
+include .github/scripts/toolchain.env
 
 # The laws (LAWS.bend, proven in PROOF.bend). The full gate
 # (ci-local) runs them too. --verdict needs Lean $(LEAN_VERSION). Every Bend
-# target runs the pinned Bend $(BEND_VERSION) (scripts/pinned_bend.sh).
+# target runs the pinned Bend $(BEND_VERSION) (.github/scripts/pinned_bend.sh).
 laws:
-	@bend="$$(scripts/pinned_bend.sh)" && \
+	@bend="$$(.github/scripts/pinned_bend.sh)" && \
 	"$$bend" PROOF.bend | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK' && \
 	"$$bend" PROOF.bend --verdict | tee /dev/stderr | grep -qx 'ALL PROOFS CHECK'
 
@@ -90,10 +90,10 @@ laws:
 # bend-core-check fails when a committed one differs. Run bend-core after
 # every change to a bend/ file.
 bend-core:
-	BEND_BIN="$$(scripts/pinned_bend.sh)" && export BEND_BIN && python3 scripts/bend_core.py generate
+	BEND_BIN="$$(.github/scripts/pinned_bend.sh)" && export BEND_BIN && python3 .github/scripts/bend_core.py generate
 
 bend-core-check:
-	BEND_BIN="$$(scripts/pinned_bend.sh)" && export BEND_BIN && python3 scripts/bend_core.py check
+	BEND_BIN="$$(.github/scripts/pinned_bend.sh)" && export BEND_BIN && python3 .github/scripts/bend_core.py check
 
 # The JavaScript the crates embed (include_str!) and the dashboard's
 # public/ scripts are generated from TypeScript sources and committed; the
@@ -171,7 +171,7 @@ RUNTIME_FLAG = $(if $(RUNTIME_DIR),--runtime-dir $(RUNTIME_DIR),)
 
 # Bundled catalog asset (catalog spec §3.2 layer 2): generated at build
 # time, never committed, offline from the pinned models.dev snapshot in
-# crates/eukhe-models/catalog (scripts/release/models_dev.py).
+# crates/eukhe-models/catalog (.github/scripts/release/models_dev.py).
 CATALOG_ASSETS_DIR = target/catalog-assets
 CATALOG_ASSETS_FLAG = --catalog-assets $(CATALOG_ASSETS_DIR)
 
@@ -182,8 +182,8 @@ ifneq ($(filter %-unknown-linux-gnu,$(TARGET)),)
 RELEASE_BINARY = target/package/eukhe
 RELEASE_DECODER = target/package/eukhe-$(VERSION)-$(if $(filter aarch64-%,$(TARGET)),linux-arm64,linux-x64).debug.gz
 RELEASE_ASSEMBLE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER)
-RELEASE_SPLIT = python3 scripts/release/split_debug.py --binary target/dist/eukhe --shipped $(RELEASE_BINARY) --out target/package --version "$(VERSION)" --target "$(TARGET)"
-RELEASE_VERIFY_DECODER = python3 scripts/release/verify_decoders.py target/package
+RELEASE_SPLIT = python3 .github/scripts/release/split_debug.py --binary target/dist/eukhe --shipped $(RELEASE_BINARY) --out target/package --version "$(VERSION)" --target "$(TARGET)"
+RELEASE_VERIFY_DECODER = python3 .github/scripts/release/verify_decoders.py target/package
 RELEASE_PACKAGE_BUILD = $(RELEASE_CARGO_BUILD)
 RELEASE_PACKAGE_FLAGS = --binary $(RELEASE_BINARY) --decoder $(RELEASE_DECODER) --skip-build
 GLIBC_BINARY = $(RELEASE_BINARY)
@@ -208,7 +208,7 @@ RELEASE_CARGO_BUILD = SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)" RUSTFLAGS=
 
 # Asset generation (the release workflow's step).
 catalog-assets:
-	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
+	python3 .github/scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
 
 # Move the models.dev snapshot (crates/eukhe-models/catalog) to MODELS_DEV_REF
 # (default main; needs git and bun): builds models.dev's v1 API at that
@@ -216,19 +216,19 @@ catalog-assets:
 # regenerates the catalog fixture. Review the diff before committing it.
 MODELS_DEV_REF ?= main
 models-dev-pin:
-	python3 scripts/release/models_dev.py refresh --commit $(MODELS_DEV_REF)
-	python3 scripts/generate-catalog-fixture.py
+	python3 .github/scripts/release/models_dev.py refresh --commit $(MODELS_DEV_REF)
+	python3 .github/scripts/generate-catalog-fixture.py
 
 release-dry-run:
 	$(RELEASE_CARGO_BUILD)
 	$(RELEASE_SPLIT)
 	$(MAKE) glibc-gate
-	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
-	python3 scripts/release/assemble_artifacts.py \
+	python3 .github/scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
+	python3 .github/scripts/release/assemble_artifacts.py \
 		--repo-root . --version "$(VERSION)" --target "$(TARGET)" $(RUNTIME_FLAG) \
 		$(RELEASE_ASSEMBLE_FLAGS) $(CATALOG_ASSETS_FLAG) --out-dir target/package
 	$(RELEASE_VERIFY_DECODER)
-	python3 scripts/release/verify_release.py \
+	python3 .github/scripts/release/verify_release.py \
 		--dist-dir target/package --version "$(VERSION)" --target "$(TARGET)"
 
 # Optional hardening: embed the dependency list in the binary for incident
@@ -243,17 +243,17 @@ audit-build:
 package:
 	$(RELEASE_PACKAGE_BUILD)
 	$(RELEASE_SPLIT)
-	python3 scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
-	python3 scripts/package_release.py $(RELEASE_PACKAGE_FLAGS) $(CATALOG_ASSETS_FLAG)
+	python3 .github/scripts/release/bundle_catalog.py generate --out $(CATALOG_ASSETS_DIR)
+	python3 .github/scripts/package_release.py $(RELEASE_PACKAGE_FLAGS) $(CATALOG_ASSETS_FLAG)
 
-# Bundled-catalog gates (scripts/release/test_catalog_assets.py and
+# Bundled-catalog gates (.github/scripts/release/test_catalog_assets.py and
 # test_models_dev.py): the generated asset passes the full packer
 # validation, the packer hard-fails on missing/invalid assets, the asset
 # lands in the tarball layout the binary expects, and the models.dev
 # mapping and its committed fixture agree.
 catalog-assets-gates:
-	python3 scripts/release/test_catalog_assets.py
-	python3 scripts/release/test_models_dev.py
+	python3 .github/scripts/release/test_catalog_assets.py
+	python3 .github/scripts/release/test_models_dev.py
 
 # Eukhe's package lock: eukhe-runtime/uv.lock (the `kernel` group, resolved
 # for the pinned Python of eukhe-runtime/kernel-toolchain.json) exported to
@@ -261,7 +261,7 @@ catalog-assets-gates:
 # Eukhe's packages from, on demand. runtime-lock re-resolves (network) and re-exports;
 # runtime-lock-check is offline: uv.lock must match pyproject.toml, the
 # committed export must equal a fresh frozen export, and every pin must be
-# exact, hashed, and in uv.lock (scripts/release/runtime_lock.py).
+# exact, hashed, and in uv.lock (.github/scripts/release/runtime_lock.py).
 RUNTIME_LOCK_EXPORT = uv export --frozen --no-header --format requirements-txt --no-emit-project --no-default-groups --group kernel
 
 runtime-lock:
@@ -270,7 +270,7 @@ runtime-lock:
 runtime-lock-check:
 	cd eukhe-runtime && uv lock --check --offline
 	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
-	python3 scripts/release/test_runtime_lock.py
+	python3 .github/scripts/release/test_runtime_lock.py
 
 # The dashboard web app: install the locked packages, check (format, lint,
 # types), test (`vp test`) and build crates/eukhe-dashboard/ui into

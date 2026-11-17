@@ -1,5 +1,5 @@
 # The per-project tools of the gates and the dev build (AGENTS.md, CI).
-# scripts/ci_local.sh trusts, installs and loads this file itself; a shell
+# .github/scripts/ci_local.sh trusts, installs and loads this file itself; a shell
 # with `mise activate` loads it in the repository.
 [tools]
 "github:nextest-rs/nextest" = { version = "0.9.150", version_prefix = "cargo-nextest-" }

@@ -1,6 +1,6 @@
 // The C boundary of the compiled Bend core (crates/eukhe-bend).
 //
-// core.c is `bend bend/core.bend -o core.c` (scripts/bend_core.py, Bend
+// core.c is `bend bend/core.bend -o core.c` (.github/scripts/bend_core.py, Bend
 // 2.0.40): the Bend runtime plus every def bend/core.bend reaches. This file
 // includes it in the same translation unit (its `main`, the debugging CLI, is
 // renamed away) and drives it with the runtime's own functions, the ones its

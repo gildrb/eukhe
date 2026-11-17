@@ -10,7 +10,7 @@
 //! - `packages/coding-agent/src/core/bundled-model-catalog.ts` -> [`bundled`]
 //!
 //! The packaged `models.bundled.json` (generated at build time by
-//! `scripts/release/models_dev.py` from the pinned models.dev snapshot in
+//! `.github/scripts/release/models_dev.py` from the pinned models.dev snapshot in
 //! `crates/eukhe-models/catalog`: the models.dev models the compiled
 //! catalog lacks) and the compiled pi-ai table in `eukhe-ai` (converted by
 //! [`pi_ai_model`]) are the two sources of the built-in catalog;
