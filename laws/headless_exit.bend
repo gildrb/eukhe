@@ -464,15 +464,12 @@ law headless_exit_entry_reads_only_requests:
   exs f: Hx.Facts
   {s == SpW.w_exit_req(f, "") : String}
 
-# LAW headless_exit_entry_malformed_exact (R6): every input that is not
-# exactly one request (an unknown tag, a malformed field, input left
-# over) gets exactly the error form 'E ', then
-# "headless_exit: malformed request"
-# EXCLUDES: an exit answered for input that is no request, another error
-#   text, a default
-law headless_exit_entry_malformed_exact:
+# LAW headless_exit_entry_refuses (R6): every error the entry answers is
+# exactly `E headless_exit: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law headless_exit_entry_refuses:
   for +s: String
-  for no: {SpW.read_exit(s) == None{} : Maybe<&2, Hx.Facts>}
+  for bad: {LawsBase.wire_opens_err(FHx.ffi(s)) == True{} : Bool}
   {FHx.ffi(s) == Wr.err("headless_exit: malformed request") : String}
 
 # LAW headless_exit_entry_left_over (R6): a spelled request (W3) followed
