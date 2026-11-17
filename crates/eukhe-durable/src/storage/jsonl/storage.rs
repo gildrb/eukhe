@@ -20,7 +20,7 @@ use crate::types::{
     Page, Seq, Storage, StorageWrite, StoredDocument, StoredEntry, SubmissionId, SubmissionQuery,
     SubmissionRecord, TaskId, TaskQuery,
 };
-use eukhe_bend::rules::log::{self as plan, Act, Fsync, Plan, Tail};
+use eukhe_bend::rules::log::{self as plan, Act, Open, Plan, Tail};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonObject, JsonValue, MAX_SAFE_INTEGER};
 use futures::future::{try_join_all, BoxFuture};
@@ -716,8 +716,12 @@ impl JsonlStorage {
         fs.create_dir(&absolute, CreateDirOptions { recursive: true }, cx)
             .await
             .map_err(|error| failed(error_from_file("directory creation", error)))?;
-        let (plan, opening) =
-            Plan::open(if options.fsync { Fsync::On } else { Fsync::Off }).map_err(failed)?;
+        let (plan, opening) = Plan::open(if options.fsync {
+            Open::Synced
+        } else {
+            Open::Unsynced
+        })
+        .map_err(failed)?;
         let main_path = fs
             .join_path(&[absolute.as_str(), MAIN_FILE], cx)
             .await
@@ -919,6 +923,11 @@ impl JsonlStorage {
                         .map_err(|error| error_from_file(format!("flush of {MAIN_FILE}"), error))?;
                 }
                 Act::Ack => acked = true,
+                Act::Stamp => {
+                    return Err(
+                        JsonlPlanError(format!("{step:?}: a session's log keeps no stamp")).into(),
+                    )
+                }
             }
         }
         Ok(acked)

@@ -7,11 +7,18 @@ call 0,0,
 refuse {LONG},0,
 refuse {MAX},1,{LONG},
 # the stepper: an fsync open, commits with sidecars (the indexes count up), a commit without fsync
-open T
+open 1,
 step 0,
 step 3,TFT
 step 5,FFFFF
 refuse-step {LONG},T
 step 1,T
-open F
+open 0,
 step 2,TT
+# a stamped open, kept and not; a tag past the last refused
+open 2,T
+step 3,TTT
+open 2,F
+step 1,F
+refuse-open 3,
+refuse-open {LONG},

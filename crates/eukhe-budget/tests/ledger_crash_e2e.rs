@@ -8,14 +8,18 @@
 //! right after an acknowledged one, and while one runs, round after round
 //! on the same account, each child recovering what the one before left in
 //! flight. After every kill the account holds every record acknowledged
-//! before it, unchanged and in order, each once, and replays exactly.
+//! before it, unchanged and in order, each once, and replays exactly. Each
+//! child opens the account the ones before stamped, as every process
+//! after the first does.
 //!
 //! A kill inside a record's write leaves its first bytes: the account is
-//! then cut at every byte of each append in turn. An open reads exactly
-//! the complete records, and the next operation appends its record right
-//! after them, byte for byte what it appends to the uncut account.
+//! then cut, in place as a crash leaves it (the same file, its stamp
+//! still naming it), at every byte of each append in turn. An open reads
+//! exactly the complete records, and the next operation appends its record
+//! right after them, byte for byte what it appends to the uncut account.
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Duration;
@@ -224,6 +228,14 @@ fn a_ledger_killed_at_every_append_point_keeps_every_acknowledged_record() {
     last.kill();
     assert_holds(dir.path(), &kept);
     assert_eq!(at(dir.path()).holds(ROOT).unwrap(), Vec::new());
+    // The stamp names the account: the next process flushes only the file.
+    let account = at(dir.path()).path();
+    let mut stamp = account.clone().into_os_string();
+    stamp.push(".stamp");
+    assert_eq!(
+        std::fs::metadata(stamp).expect("the stamp").ino(),
+        std::fs::metadata(account).unwrap().ino()
+    );
 }
 
 /// The account's bytes after each of the first `count` operations of one
@@ -240,14 +252,21 @@ fn appended(count: usize) -> Vec<(Vec<u8>, Option<u64>)> {
     files
 }
 
-/// The account after its record `index`, cut at byte `cut` (`files`: the
-/// account after each record): no read counts the torn record, and the
-/// next operation appends exactly what it appends to the uncut account.
-fn cut_then_append(files: &[(Vec<u8>, Option<u64>)], index: usize, cut: usize) {
+/// The account under `dir` after its record `index`, cut at byte `cut`
+/// in place (`files`: the account after each record): no read counts the
+/// torn record, and the next operation appends exactly what it appends to
+/// the uncut account.
+fn cut_then_append(dir: &Path, files: &[(Vec<u8>, Option<u64>)], index: usize, cut: usize) {
     let ((_, held), (after, _)) = (&files[index], &files[index + 1]);
-    let dir = tempfile::tempdir().unwrap();
-    let ledger = at(dir.path());
-    std::fs::write(ledger.path(), &after[..cut]).unwrap();
+    let ledger = at(dir);
+    let mut account = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(ledger.path())
+        .unwrap();
+    account.write_all(&after[..cut]).unwrap();
+    drop(account);
     if index == 0 {
         assert_eq!(ledger.report(ROOT).unwrap(), None, "cut at byte {cut}");
         ledger.open_root(limits()).expect("open");
@@ -273,14 +292,18 @@ fn a_record_cut_at_any_byte_is_never_read_and_the_next_append_follows_the_comple
         assert!(after.starts_with(before));
         cuts.extend((before.len()..after.len()).map(|cut| (index, cut)));
     }
-    // Each cut has an account of its own: they run on every core.
+    // The cuts run on every core, each core cutting one account per kind
+    // of record again and again.
     let workers = std::thread::available_parallelism().map_or(1, usize::from);
     std::thread::scope(|scope| {
         for worker in 0..workers {
             let (files, cuts) = (&files, &cuts);
             scope.spawn(move || {
+                let accounts: Vec<_> = (1..files.len())
+                    .map(|_| tempfile::tempdir().unwrap())
+                    .collect();
                 for &(index, cut) in cuts.iter().skip(worker).step_by(workers) {
-                    cut_then_append(files, index, cut);
+                    cut_then_append(accounts[index].path(), files, index, cut);
                 }
             });
         }

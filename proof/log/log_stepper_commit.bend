@@ -27,6 +27,8 @@ def pl.act(a: Lr.Act, +s: String) -> {FLg.put_act(a, s) == Log.log_spell_act(a, 
       {==}
     case Lr.Ack{}:
       {==}
+    case Lr.Stamp{}:
+      {==}
 
 def pl.step(+a: Lr.Act, r: Nat & String) -> {Wr.put_list.step(~Lr.Act, ~FLg.put_act, a, r) == Wr.put_list.step(~Lr.Act, ~Log.log_spell_act, a, r) : Nat & String}:
   (n, +s) = r

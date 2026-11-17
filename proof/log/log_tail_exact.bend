@@ -3,14 +3,34 @@
 # The file of the facts has the length of the facts (lte.len) and its last
 # newline where the facts put it (lte.none, lte.some): the open's decision
 # on it is the spec's (log_open_cuts_the_torn_tail). A newline at or past
-# the end is refused (log_open_refuses_odd_facts).
+# the end is refused: it lies inside a file of len bytes exactly when
+# 1 + i <= len, that is i < len (lte.le_succ_lt).
 
 import Base
 import ../../bend/log.bend as Lr
 import ../../laws/log.bend as Log
 import ../base/logic/logic.bend as LLogicLogic
 import ./log_open_cuts_the_torn_tail.bend as PLogOpenCutsTheTornTail
-import ./log_open_refuses_odd_facts.bend as PLogOpenRefusesOddFacts
+
+def lte.le_succ_lt(i: Nat, n: Nat) -> {Nat.is_lt(i, n) == Nat.is_le(1n+i, n) : Bool}:
+  match i n:
+    case 0n 0n:
+      {==}
+    case 0n 1n+m:
+      match m:
+        case 0n:
+          {==}
+        case 1n+k:
+          {==}
+    case 1n+j 0n:
+      {==}
+    case 1n+j 1n+m:
+      lte.le_succ_lt(j, m)
+
+def lte.odd(len: Nat, i: Nat, past: {Nat.is_lt(i, len) == False{} : Bool}) -> {Lr.tail(len, Some{i}) == Lr.Odd{} : Lr.Tail}:
+  %lte.le_succ_lt(i, len) : {Lr.tail.in(_, len, 1n+i) == Lr.Odd{} : Lr.Tail}
+  %Equal.sym(Bool, Nat.is_lt(i, len), False{}, past) : {Lr.tail.in(_, len, 1n+i) == Lr.Odd{} : Lr.Tail}
+  {==}
 
 def lte.len(len: Nat, last: Maybe<&2, Nat>) -> {List.length(&2, Nat, Log.log_file(len, last)) == len : Nat}:
   match len:
@@ -64,7 +84,7 @@ def lte.in(b: Bool, +len: Nat, +i: Nat, h: {Nat.is_lt(i, len) == b : Bool}) -> {
       %lte.some(len, i, h) : {Lr.tail(List.length(&2, Nat, f), _) == Log.log_tail_spec(f) : Lr.Tail}
       Log.log_open_cuts_the_torn_tail(f)
     case False{}:
-      Log.log_open_refuses_odd_facts(len, i, h)
+      lte.odd(len, i, h)
 
 def Log.log_tail_exact(len, last):
   match last:

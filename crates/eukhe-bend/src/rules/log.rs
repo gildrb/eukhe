@@ -4,8 +4,8 @@
 //! at open and per commit ([`Plan`]). The storage reads the facts and does
 //! the steps: a session's commit log (`main.jsonl`, eukhe-durable's
 //! `JsonlStorage`), and each account file of a budget's ledger
-//! (eukhe-budget's `Ledger`: commits that touch no sidecar file, one per
-//! open; law `ledger_ack_durable`).
+//! (eukhe-budget's `Ledger`: a stamped storage whose commits touch no
+//! sidecar file; laws `ledger_ack_durable`, `ledger_kept_flushes_once`).
 
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, Entry, Error, Stepper};
@@ -66,6 +66,9 @@ pub enum Act {
     FlushMain,
     /// Acknowledge the commit.
     Ack,
+    /// Link the storage's stamp to `main.jsonl`: its directory entry and
+    /// the storage directory's are durable.
+    Stamp,
 }
 
 fn read_acts(reply: &str) -> Result<Vec<Act>, WireError> {
@@ -73,7 +76,7 @@ fn read_acts(reply: &str) -> Result<Vec<Act>, WireError> {
     let count = reader.count()?;
     let mut acts = Vec::new();
     for _ in 0..count {
-        let tag = reader.tag_of(7, "a step of the plan")?;
+        let tag = reader.tag_of(8, "a step of the plan")?;
         acts.push(if tag == 0 {
             Act::FlushParent
         } else if tag == 1 {
@@ -86,44 +89,54 @@ fn read_acts(reply: &str) -> Result<Vec<Act>, WireError> {
             Act::AppendMain
         } else if tag == 5 {
             Act::FlushMain
-        } else {
+        } else if tag == 6 {
             Act::Ack
+        } else {
+            Act::Stamp
         });
     }
     reader.end()?;
     Ok(acts)
 }
 
-/// Whether a storage flushes (`fsync`) what it writes.
+/// How a storage opens (`Lr.How`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fsync {
-    /// Every write is flushed before it is acknowledged.
-    On,
+pub enum Open {
     /// Nothing is flushed.
-    Off,
+    Unsynced,
+    /// Every write is flushed before it is acknowledged.
+    Synced,
+    /// Synced, and a stamp keeps on disk that the directory entries of
+    /// `main.jsonl` and of the storage directory are durable: `kept` when
+    /// the stamp names `main.jsonl`, so the open flushes no directory.
+    Stamped {
+        /// The stamp names `main.jsonl`.
+        kept: bool,
+    },
 }
 
 /// The plan of one storage: the compiled core's stepper, which keeps
-/// whether the storage syncs and whether `main.jsonl`'s directory entry is
-/// durable (`Lg.Store`).
+/// whether the storage syncs, whether `main.jsonl`'s directory entry is
+/// durable and whether it stamps it (`Lg.Store`).
 #[derive(Debug)]
 pub struct Plan {
     core: Stepper,
 }
 
 impl Plan {
-    /// The plan of a storage that syncs or not, and the steps of its open
-    /// (`Lg.Store.open`).
+    /// The plan of a storage opened as `open` says, and the steps of its
+    /// open (`Lg.Store.open`).
     ///
     /// # Errors
     ///
     /// [`Error`] only from an inconsistent build (see [`crate::expect_core`]).
-    pub fn open(fsync: Fsync) -> Result<(Plan, Vec<Act>), Error> {
+    pub fn open(open: Open) -> Result<(Plan, Vec<Act>), Error> {
         let mut request = Writer::new();
-        request.bool(match fsync {
-            Fsync::On => true,
-            Fsync::Off => false,
-        });
+        match open {
+            Open::Unsynced => request.tag(0),
+            Open::Synced => request.tag(1),
+            Open::Stamped { kept } => request.tag(2).bool(kept),
+        };
         let (core, reply) = Stepper::open(Entry::Log, &request.finish()?)?;
         Ok((Plan { core }, read_acts(&reply)?))
     }
@@ -147,7 +160,7 @@ impl Plan {
 
 #[cfg(test)]
 mod tests {
-    use super::{tail, Act, Fsync, Plan, Tail};
+    use super::{tail, Act, Open, Plan, Tail};
     use crate::wire::NAT_MAX;
 
     #[test]
@@ -170,7 +183,7 @@ mod tests {
 
     #[test]
     fn a_plan_asks_the_compiled_core() {
-        let (mut plan, opening) = Plan::open(Fsync::On).unwrap();
+        let (mut plan, opening) = Plan::open(Open::Synced).unwrap();
         assert_eq!(opening, vec![Act::FlushParent]);
         assert_eq!(
             plan.commit(&[true, false]).unwrap(),
@@ -188,11 +201,11 @@ mod tests {
         );
     }
 
-    /// A ledger's account file: commits with no sidecar file; the first
-    /// of an open also makes the file's directory entry durable.
+    /// Commits with no sidecar file: the first of an open also makes the
+    /// file's directory entry durable; without fsync nothing is flushed.
     #[test]
     fn a_plan_of_commits_without_sidecars() {
-        let (mut plan, opening) = Plan::open(Fsync::On).unwrap();
+        let (mut plan, opening) = Plan::open(Open::Synced).unwrap();
         assert_eq!(opening, vec![Act::FlushParent]);
         assert_eq!(
             plan.commit(&[]).unwrap(),
@@ -202,11 +215,42 @@ mod tests {
             plan.commit(&[]).unwrap(),
             vec![Act::AppendMain, Act::FlushMain, Act::Ack]
         );
-        let (mut unsynced, opening) = Plan::open(Fsync::Off).unwrap();
+        let (mut unsynced, opening) = Plan::open(Open::Unsynced).unwrap();
         assert_eq!(opening, Vec::new());
         assert_eq!(
             unsynced.commit(&[]).unwrap(),
             vec![Act::AppendMain, Act::Ack]
         );
+    }
+
+    /// A ledger's account file: a stamped storage. One its stamp does not
+    /// name flushes both directories and links the stamp before its first
+    /// ack; one its stamp names flushes only the file, once per record.
+    #[test]
+    fn a_plan_of_a_stamped_storage() {
+        let (mut fresh, opening) = Plan::open(Open::Stamped { kept: false }).unwrap();
+        assert_eq!(opening, vec![Act::FlushParent]);
+        assert_eq!(
+            fresh.commit(&[]).unwrap(),
+            vec![
+                Act::AppendMain,
+                Act::FlushMain,
+                Act::FlushDir,
+                Act::Stamp,
+                Act::Ack
+            ]
+        );
+        assert_eq!(
+            fresh.commit(&[]).unwrap(),
+            vec![Act::AppendMain, Act::FlushMain, Act::Ack]
+        );
+        let (mut kept, opening) = Plan::open(Open::Stamped { kept: true }).unwrap();
+        assert_eq!(opening, Vec::new());
+        for _ in 0..2 {
+            assert_eq!(
+                kept.commit(&[]).unwrap(),
+                vec![Act::AppendMain, Act::FlushMain, Act::Ack]
+            );
+        }
     }
 }

@@ -3,17 +3,18 @@
 #
 #   ffi    the open of a file: its length (Nat), then its last
 #          newline (Maybe<Nat>: 0 none | 1 the index)      -> a Tail
-#   open   the storage's stepper: fsync (Bool)            -> the open's acts
+#   open   the storage's stepper: how it opens (0 without
+#          fsync | 1 with fsync | 2 stamped, then kept: Bool) -> the open's acts
 #   step   a commit: the durability of the directory entries
 #          of its sidecar files, in order (List<Bool>)     -> the commit's acts
 #
 # A Tail is 0 (whole), 1 then the length to cut to (torn), or 2 (odd). An
-# act is its tag in declaration order (FlushParent 0 .. Ack 6), then the
-# sidecar's index for AppendSide (1) and FlushSide (2); a plan answers its
-# acts as a list. Malformed input answers the wire's error form, never a
-# default; a step with malformed input keeps the state. laws/log.bend
-# states the laws of this entry; PROOF.bend proves them. Pure: no IO, no
-# @unsafe.
+# act is its tag in declaration order (FlushParent 0 .. Ack 6, Stamp 7),
+# then the sidecar's index for AppendSide (1) and FlushSide (2); a plan
+# answers its acts as a list. Malformed input answers the wire's error
+# form, never a default; a step with malformed input keeps the state.
+# laws/log.bend states the laws of this entry; PROOF.bend proves them.
+# Pure: no IO, no @unsafe.
 
 import Base
 import ./wire.bend as W
@@ -114,6 +115,8 @@ def put_act(a: M.Act, rest: String) -> String:
       W.put_nat(5n, rest)
     case M.Ack{}:
       W.put_nat(6n, rest)
+    case M.Stamp{}:
+      W.put_nat(7n, rest)
 
 # the stepper's state: the storage, or a refused open
 type St is Data:
@@ -126,23 +129,49 @@ def reply(p: M.Plan) -> St & String:
     case M.Plan{s, acts}:
       (Running{s}, W.put_list(~M.Act, ~put_act, acts, ""))
 
-def open.end(done: Bool, fsync: Bool) -> St & String:
+def open.end(done: Bool, h: M.How) -> St & String:
   match done:
     case True{}:
-      reply(M.Store.open(fsync))
+      reply(M.Store.open(h))
     case False{}:
       (Shut{}, W.err("log: input left over"))
 
-def open.go(r: W.Dec<Bool>) -> St & String:
+def open.go(r: W.Dec<M.How>) -> St & String:
   match r:
-    case W.Got{b, s}:
-      open.end(W.end(s), b)
+    case W.Got{h, s}:
+      open.end(W.end(s), h)
     case W.Bad{}:
       (Shut{}, W.err("log: malformed open"))
 
-# open: fsync in; the storage and the open's acts out
+def get_how.kept(r: W.Dec<Bool>) -> W.Dec<M.How>:
+  match r:
+    case W.Got{b, s}:
+      W.Got{M.Stamped{b}, s}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_how.tag(r: W.Dec<Nat>) -> W.Dec<M.How>:
+  match r:
+    case W.Got{t, s}:
+      match t:
+        case 0n:
+          W.Got{M.Unsynced{}, s}
+        case 1n:
+          W.Got{M.Synced{}, s}
+        case 2n:
+          get_how.kept(W.get_bool(s))
+        case 3n+k:
+          W.Bad{}
+    case W.Bad{}:
+      W.Bad{}
+
+# how a storage opens: its tag, then kept for a stamped one
+def get_how(s: String) -> W.Dec<M.How>:
+  get_how.tag(W.get_nat(s))
+
+# open: how the storage opens in; the storage and the open's acts out
 def open(input: String) -> St & String:
-  open.go(W.get_bool(input))
+  open.go(get_how(input))
 
 def step.end(done: Bool, s: M.Store, ds: List<&2, Bool>) -> St & String:
   match done:

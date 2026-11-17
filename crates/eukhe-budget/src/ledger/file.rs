@@ -3,15 +3,25 @@
 //! `main.jsonl` is kept by; laws `laws/log.bend`, `ledger_ack_durable`):
 //! an open reads the last record from the file's end and keeps the
 //! complete lines, cutting a torn tail ([`log::tail`]); each new record is
-//! one commit with no sidecar file of a storage that syncs, the plan of
-//! the open done before its first ([`Plan`]), and it is acknowledged at its
+//! one commit with no sidecar file of a stamped storage, the plan of the
+//! open done before its first ([`Plan`]), and it is acknowledged at its
 //! plan's `Ack`.
+//!
+//! The stamp of `<owner>.jsonl` is `<owner>.jsonl.stamp`, a hard link to
+//! it that the plan makes once the file's directory entry and the ledger
+//! directory's are durable. An open whose stamp names the file (the same
+//! file: device and inode) flushes no directory, so a record costs one
+//! flush, of the file. A file made anew (a first open, or one set aside
+//! and made again) is no file its stamp names, nor one an earlier release
+//! left (they make no stamp): its first record flushes the directories
+//! and stamps it.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use eukhe_bend::rules::log::{self, Act, Fsync, Plan};
+use eukhe_bend::rules::log::{self, Act, Open, Plan};
 use eukhe_types::budget::{BudgetAmounts, BudgetPhase, BudgetReport};
 use serde::Deserialize;
 
@@ -225,7 +235,37 @@ fn flush_dir(dir: &Path) -> std::io::Result<()> {
     } else {
         dir
     };
-    File::open(dir)?.sync_all()
+    flushed(File::open(dir)?.sync_all())
+}
+
+/// A flush done (the tests count them).
+fn flushed(done: std::io::Result<()>) -> std::io::Result<()> {
+    #[cfg(test)]
+    tests::FLUSHES.with(|count| count.set(count.get() + 1));
+    done
+}
+
+/// The stamp of the account file at `path`: `<path>.stamp`.
+fn stamp_path(path: &Path) -> PathBuf {
+    let mut stamp = path.as_os_str().to_owned();
+    stamp.push(".stamp");
+    PathBuf::from(stamp)
+}
+
+/// Whether `at` names the file `file` is (the same device and inode).
+fn names(at: &Path, file: &std::fs::Metadata) -> std::io::Result<bool> {
+    match std::fs::metadata(at) {
+        Ok(meta) => Ok(meta.dev() == file.dev() && meta.ino() == file.ino()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn remove_stamp(stamp: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(stamp) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
 }
 
 /// A ledger file held under its exclusive lock: the lock lasts as long as
@@ -239,6 +279,9 @@ pub(super) struct Locked {
     end: u64,
     /// The length of the last line: the next one is about as long.
     line_len: usize,
+    /// The file's stamp names it: its directory entry and the ledger
+    /// directory's are durable.
+    kept: bool,
     /// The plan of this open, made at its first record.
     plan: Option<Plan>,
 }
@@ -277,7 +320,12 @@ impl Locked {
             Err(error) => return Err(io(error)),
         };
         file.lock().map_err(io)?;
-        let len = file.metadata().map_err(io)?.len();
+        let meta = file.metadata().map_err(io)?;
+        // Under the lock the path names the file unless it was set aside
+        // (and its stamp then names no file at the path).
+        let kept =
+            names(path, &meta).map_err(io)? && names(&stamp_path(path), &meta).map_err(io)?;
+        let len = meta.len();
         let tail = read_tail(path, &file, len)?;
         let end = keep_complete(path, &file, len, tail.newline)?;
         Ok(Some(Locked {
@@ -286,6 +334,7 @@ impl Locked {
             last: tail.last,
             end,
             line_len: tail.line_len,
+            kept,
             plan: None,
         }))
     }
@@ -378,14 +427,15 @@ impl Locked {
     }
 
     /// Appends `line` (a record and its newline) as one commit of the
-    /// plan, the plan of the open done before the first: it answers the
-    /// plan once it acknowledged the record, on disk. A failed step drops
-    /// the plan with the file.
+    /// plan, the plan of the open done before the first (a stamped
+    /// storage, kept when the file's stamp names it): it answers the plan
+    /// once it acknowledged the record, on disk. A failed step drops the
+    /// plan with the file.
     fn commit(&mut self, line: &[u8]) -> Result<Plan, LedgerError> {
         let mut plan = if let Some(plan) = self.plan.take() {
             plan
         } else {
-            let (plan, opening) = Plan::open(Fsync::On)?;
+            let (plan, opening) = Plan::open(Open::Stamped { kept: self.kept })?;
             if self.run(&opening, None)? == Ack::Given {
                 return Err(plan_error(
                     &self.path,
@@ -430,8 +480,9 @@ impl Locked {
                     };
                     (&self.file).write_all(line).map_err(|e| self.io(e))?;
                 }
-                Act::FlushMain => self.file.sync_data().map_err(|e| self.io(e))?,
+                Act::FlushMain => flushed(self.file.sync_data()).map_err(|e| self.io(e))?,
                 Act::Ack => ack = Ack::Given,
+                Act::Stamp => self.stamp().map_err(|e| self.io(e))?,
                 Act::AppendSide(_) | Act::FlushSide(_) => {
                     return Err(plan_error(
                         &self.path,
@@ -441,6 +492,26 @@ impl Locked {
             }
         }
         Ok(ack)
+    }
+
+    /// Links the file's stamp, in place of one of another file: its
+    /// directory entry and the ledger directory's are durable. Only the
+    /// file at the path is stamped: a file set aside since its open (the
+    /// path names another, or none) is not, nor is it when the link names
+    /// another file than this one.
+    fn stamp(&self) -> std::io::Result<()> {
+        let stamp = stamp_path(&self.path);
+        remove_stamp(&stamp)?;
+        let meta = self.file.metadata()?;
+        if !names(&self.path, &meta)? {
+            return Ok(());
+        }
+        std::fs::hard_link(&self.path, &stamp)?;
+        if names(&stamp, &meta)? {
+            Ok(())
+        } else {
+            remove_stamp(&stamp)
+        }
     }
 
     /// The complete lines, each with its newline.
@@ -480,10 +551,88 @@ pub(super) fn remove_link(dir: &Path, session_id: &str) -> Result<(), LedgerErro
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::collections::BTreeMap;
+
+    use eukhe_types::budget::BudgetLimits;
 
     use super::*;
     use crate::record::Member;
+
+    thread_local! {
+        /// The flushes (of a file or a directory) this thread's plans did.
+        pub(super) static FLUSHES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// The flushes of one operation on the file at `path`: an open and
+    /// the records of `ops`.
+    fn flushes(path: &Path, ops: Vec<Op>) -> usize {
+        let before = FLUSHES.with(Cell::get);
+        Locked::open(path, OpenMode::Create)
+            .unwrap()
+            .unwrap()
+            .apply_all(ops, 1)
+            .unwrap();
+        FLUSHES.with(Cell::get) - before
+    }
+
+    fn open() -> Op {
+        Op::Open {
+            agent: "a".to_owned(),
+            limits: BudgetLimits::default(),
+            deadline_ms: None,
+            parent: None,
+            run: None,
+        }
+    }
+
+    fn recover() -> Op {
+        Op::Recover {
+            agent: "a".to_owned(),
+        }
+    }
+
+    /// What a record costs in flushes (laws `ledger_kept_flushes_once` and
+    /// `ledger_stamped_after_ack`): the first record of a file no stamp
+    /// names flushes the ledger directory's parent, the file and the ledger
+    /// directory, and links the stamp; every record after it, in the same
+    /// operation or a later one (each opens the file again, as another
+    /// process does), flushes only the file, once. A file an earlier
+    /// release left (no stamp) and a file made anew where one was set
+    /// aside (the stamp names the old one) pay the directories once more.
+    #[test]
+    fn a_record_costs_one_flush_once_the_file_is_stamped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("budgets").join("a.jsonl");
+        let stamp = stamp_path(&path);
+        assert_eq!(flushes(&path, vec![open()]), 3);
+        assert_eq!(
+            std::fs::metadata(&stamp).unwrap().ino(),
+            std::fs::metadata(&path).unwrap().ino()
+        );
+        for _ in 0..3 {
+            assert_eq!(flushes(&path, vec![recover()]), 1);
+        }
+        assert_eq!(flushes(&path, vec![recover(), recover()]), 2);
+        // A file an earlier release left: no stamp.
+        std::fs::remove_file(&stamp).unwrap();
+        assert_eq!(flushes(&path, vec![recover(), recover()]), 4);
+        assert_eq!(flushes(&path, vec![recover()]), 1);
+        // Set aside and made anew: the stamp names the file set aside.
+        let aside = dir.path().join("budgets").join("a.jsonl.1.returned");
+        std::fs::rename(&path, &aside).unwrap();
+        assert_eq!(flushes(&path, vec![open()]), 3);
+        assert_eq!(
+            std::fs::metadata(&stamp).unwrap().ino(),
+            std::fs::metadata(&path).unwrap().ino()
+        );
+        assert_eq!(flushes(&path, vec![recover()]), 1);
+        // The file's records are whole, the set-aside file's too.
+        for (file, records) in [(&path, 2), (&aside, 9)] {
+            let text = std::fs::read_to_string(file).unwrap();
+            assert_eq!(text.lines().count(), records, "{}", file.display());
+        }
+    }
 
     /// The last complete line of `text` as the backward search finds it,
     /// chunk by chunk of `size` bytes.

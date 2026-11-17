@@ -11,7 +11,7 @@ import ../../spec/durable/log.bend as Lg
 import ../../bend/log.bend as Lr
 import ../../laws/log.bend as Log
 
-def pl.plan_more(cs: List<&2, List<&2, Nat>>, +p: Nat, s: Lg.St) -> {Log.log_exec(Log.log_plan(cs, Lr.Store{True{}, True{}}), p, s) == Lg.more(cs, p, s) : Lg.St}:
+def pl.plan_more(cs: List<&2, List<&2, Nat>>, +p: Nat, s: Lg.St) -> {Log.log_exec(Log.log_plan(cs, Lr.Store{True{}, True{}, False{}}), p, s) == Lg.more(cs, p, s) : Lg.St}:
   match cs:
     case Nil{}:
       {==}
@@ -26,7 +26,7 @@ def pl.plan_more(cs: List<&2, List<&2, Nat>>, +p: Nat, s: Lg.St) -> {Log.log_exe
             case 1n+p2:
               pl.plan_more(rest, p2, Lg.ack(c, Lg.flush(Lg.append(c, s))))
 
-def pl.plan_first(cs: List<&2, List<&2, Nat>>, +q: Nat, s: Lg.St) -> {Log.log_exec(Log.log_plan(cs, Lr.Store{True{}, False{}}), q, s) == Lg.first(cs, q, s) : Lg.St}:
+def pl.plan_first(cs: List<&2, List<&2, Nat>>, +q: Nat, s: Lg.St) -> {Log.log_exec(Log.log_plan(cs, Lr.Store{True{}, False{}, False{}}), q, s) == Lg.first(cs, q, s) : Lg.St}:
   match cs:
     case Nil{}:
       {==}

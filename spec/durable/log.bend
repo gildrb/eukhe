@@ -257,3 +257,52 @@ def acked(d: Disk, e: Epoch) -> List<&2, List<&2, Nat>>:
   match e:
     case Epoch{cs, p, k, drop}:
       St.acked(run(d, cs, p))
+
+# An account file of the budget ledger, between operations
+# ---------------------------------------------------------
+# The ledger opens the file again at every operation, and an open no
+# longer flushes what is durable already. So the model keeps, between
+# operations, whether the file's entries are durable: a crash that does
+# not drop entries (a process killed) keeps the file with entries that may
+# not be durable, and a later crash that drops them (power lost) loses it.
+# The file's stamp (a link to it, a step like any other) names it once
+# made; a crash keeps it with the file. A file made anew is named by no
+# stamp.
+
+# the file at rest: the disk, whether both entries are durable, whether
+# the stamp names the file
+type Rest is Data:
+  Rest{d: Disk, dur: Bool, sp: Bool}
+
+def Rest.d(r: Rest) -> Disk:
+  match r:
+    case Rest{d, dur, sp}:
+      d
+
+# the storage an operation opens: the entries of a file that is there are
+# durable as the rest says
+def Rest.open(r: Rest) -> St:
+  match r:
+    case Rest{d, +dur, sp}:
+      match d:
+        case Absent{}:
+          St{False{}, False{}, Nil{}, None{}, Nil{}}
+        case Present{b}:
+          St{dur, dur, recover(b), None{}, Nil{}}
+
+# the stamp names the file (an absent file is made anew)
+def Rest.kept(r: Rest) -> Bool:
+  match r:
+    case Rest{d, dur, sp}:
+      match d:
+        case Absent{}:
+          False{}
+        case Present{b}:
+          sp
+
+# the file at rest after the crash of the storage s, sp: the stamp names
+# the file
+def rest(+k: Nat, +drop: Bool, s: St, sp: Bool) -> Rest:
+  match s:
+    case St{+de, +fe, log, pend, acked}:
+      Rest{crash(k, drop, St{de, fe, log, pend, acked}), Bool.and(de, fe), Bool.and(sp, keeps(drop, de, fe))}

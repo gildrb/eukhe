@@ -4,7 +4,7 @@
 # bend/ffi_log.bend; Rust crates/eukhe-bend/src/rules/log.rs). The budget
 # ledger keeps each account file by the same rules
 # (crates/eukhe-budget/src/ledger/file.rs: the file is its main.jsonl,
-# every record a commit with no sidecar file, fsync on). The laws
+# every record a commit with no sidecar file, a marked storage). The laws
 # (laws/log.bend) state they refine the model of the log under power loss
 # (spec/durable/log.bend).
 #
@@ -18,7 +18,14 @@
 # durability of the directory entries of the commit's sidecar files (Rust
 # keeps which entries it made durable) and of main.jsonl (the Store keeps
 # it). A commit is acknowledged at its plan's Ack; a step that fails
-# poisons the storage, so no later plan runs.
+# poisons the storage, so no later plan runs (Rust's part, not these
+# rules': laws/log.bend "A failed step" names its tests).
+#
+# A stamped storage (the ledger's) keeps on disk that the entries of
+# main.jsonl and of the storage directory are durable: a stamp, a link to
+# main.jsonl made once both are flushed. An open whose stamp names
+# main.jsonl (kept) flushes no directory, so each commit flushes only the
+# file.
 
 import Base
 
@@ -71,10 +78,20 @@ type Act is Data:
   AppendMain{}          # append the commit's marker to main.jsonl
   FlushMain{}           # flush main.jsonl
   Ack{}                 # acknowledge the commit
+  Stamp{}               # link the stamp to main.jsonl: its entry and the
+                        # storage directory's are durable
 
-# the storage: fsync on, and main.jsonl's directory entry durable
+# how a storage opens: without fsync, with fsync, or with fsync and a
+# stamp (kept: the stamp names main.jsonl)
+type How is Data:
+  Unsynced{}
+  Synced{}
+  Stamped{kept: Bool}
+
+# the storage: fsync on, main.jsonl's directory entry durable, and whether
+# it stamps main.jsonl once that entry is durable
 type Store is Data:
-  Store{fsync: Bool, main: Bool}
+  Store{fsync: Bool, main: Bool, stamp: Bool}
 
 # a plan: the storage after it, and its steps in order
 type Plan is Data:
@@ -85,6 +102,15 @@ def plan.dir(need: Bool, rest: List<&2, Act>) -> List<&2, Act>:
   match need:
     case True{}:
       FlushDir{} <> rest
+    case False{}:
+      rest
+
+# the stamp before rest, when the storage stamps and has just made
+# main.jsonl's entry durable
+def plan.stamp(need: Bool, rest: List<&2, Act>) -> List<&2, Act>:
+  match need:
+    case True{}:
+      Stamp{} <> rest
     case False{}:
       rest
 
@@ -116,24 +142,32 @@ def plan.fresh(ds: List<&2, Bool>) -> Bool:
         case False{}:
           True{}
 
-# the open of a storage: with fsync, its directory's entry is made durable
-def Store.open(fsync: Bool) -> Plan:
-  match fsync:
-    case True{}:
-      Plan{Store{True{}, False{}}, [FlushParent{}]}
-    case False{}:
-      Plan{Store{False{}, False{}}, Nil{}}
+# the open of a storage: with fsync, its directory's entry is made durable,
+# unless the storage's stamp names main.jsonl (both entries are durable)
+def Store.open(h: How) -> Plan:
+  match h:
+    case Unsynced{}:
+      Plan{Store{False{}, False{}, False{}}, Nil{}}
+    case Synced{}:
+      Plan{Store{True{}, False{}, False{}}, [FlushParent{}]}
+    case Stamped{kept}:
+      match kept:
+        case True{}:
+          Plan{Store{True{}, True{}, True{}}, Nil{}}
+        case False{}:
+          Plan{Store{True{}, False{}, True{}}, [FlushParent{}]}
 
 # a commit whose sidecar files have the durable directory entries ds (in
 # the commit's order): its records, then its marker, then the ack. With
 # fsync, every file is flushed, and the storage directory too while an
 # entry is not durable, before the marker that depends on it and before
-# the ack; main.jsonl's entry is durable after it
+# the ack; main.jsonl's entry is durable after it. A stamped storage links
+# its stamp once that entry is durable, before the ack
 def Store.commit(s: Store, +ds: List<&2, Bool>) -> Plan:
   match s:
-    case Store{fsync, main}:
+    case Store{fsync, +main, +stamp}:
       match fsync:
         case False{}:
-          Plan{Store{False{}, main}, plan.appends(ds, 0n, [AppendMain{}, Ack{}])}
+          Plan{Store{False{}, main, stamp}, plan.appends(ds, 0n, [AppendMain{}, Ack{}])}
         case True{}:
-          Plan{Store{True{}, True{}}, plan.appends(ds, 0n, plan.flushes(ds, 0n, plan.dir(plan.fresh(ds), AppendMain{} <> FlushMain{} <> plan.dir(Bool.not(main), [Ack{}]))))}
+          Plan{Store{True{}, True{}, stamp}, plan.appends(ds, 0n, plan.flushes(ds, 0n, plan.dir(plan.fresh(ds), AppendMain{} <> FlushMain{} <> plan.dir(Bool.not(main), plan.stamp(Bool.and(stamp, Bool.not(main)), [Ack{}])))))}
