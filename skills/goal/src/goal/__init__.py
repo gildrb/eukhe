@@ -74,10 +74,14 @@ async def remaining(text: str) -> dict[str, Any]:
 async def acceptance() -> dict[str, Any]:
     """Read the acceptance checks of this task and their last verdicts.
 
-    Returns a dict with `label` (`checks_passed_unconfined`, `failed` or
-    `unverified`), `checks` (each with its `spec` and, once judged, its
-    `result`: `verdict`, `summary`, `evidence`), `claimed`, `tries` and
-    `maxReturns`. Only the task's owner sets the checks.
+    Returns a dict with `label` (`checks_passed_unconfined`,
+    `checks_passed_not_certified`, `failed` or `unverified`), `checks` (each
+    with its `spec` and, once judged, its `result`: `verdict`, `summary`,
+    `evidence`; once measured, its `strength`: `caught`, `ran`, `planned`,
+    `survivors`), `claimed`, `tries` and `maxReturns`.
+    `checks_passed_not_certified`: the checks passed but none was shown to
+    catch deliberate breaks of the changed code, so the task is not done.
+    Only the task's owner sets the checks.
     """
     return await host_request("acceptance.get")
 
