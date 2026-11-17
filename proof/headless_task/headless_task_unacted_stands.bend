@@ -215,28 +215,6 @@ def HeadlessTask.headless_task_unacted_stands(f, u):
                   {==}
                 case Ht.RUnjudged{}:
                   {==}
-        case Hx.CAutonomousFailed{}:
-          match a:
-            case True{}:
-              match r:
-                case Ht.RUnasked{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnasked{}})), Ht.Stands{}} : Ht.Verdict}, u)
-                case Ht.RDone{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RDone{}})), Ht.Stands{}} : Ht.Verdict}, u)
-                case Ht.RLeft{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RLeft{}})), Ht.Stands{}} : Ht.Verdict}, u)
-                case Ht.RUnjudged{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{Hx.code(SpT.cause_of(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnjudged{}})), Ht.Stands{}} : Ht.Verdict}, u)
-            case False{}:
-              match r:
-                case Ht.RUnasked{}:
-                  {==}
-                case Ht.RDone{}:
-                  {==}
-                case Ht.RLeft{}:
-                  {==}
-                case Ht.RUnjudged{}:
-                  {==}
         case Hx.CBudgetLimited{}:
           match a:
             case True{}:

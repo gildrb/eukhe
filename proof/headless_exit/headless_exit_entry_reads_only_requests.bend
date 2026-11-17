@@ -168,20 +168,11 @@ def hxo.RP(s: String, x: Wr.Dec<Hx.Facts>) -> Type:
     case Wr.Bad{}:
       Unit
 
-def hxo.budget(-s: String, +cf: Bool, +w: Hx.Wait, +run: Hx.Run, +p: Hx.Primary, +c: Bool, +a: Bool, +s6: String, pre: {s == Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(a, s6)))))) : String}, x: Wr.Dec<Bool>, ed: {Wr.get_bool(s6) == x : Wr.Dec<Bool>}) -> hxo.RP(s, FHx.get_facts.budget(cf, w, run, p, c, a, x)):
+def hxo.budget(-s: String, +cf: Bool, +w: Hx.Wait, +run: Hx.Run, +p: Hx.Primary, +c: Bool, +s5: String, pre: {s == Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, s5))))) : String}, x: Wr.Dec<Bool>, ed: {Wr.get_bool(s5) == x : Wr.Dec<Bool>}) -> hxo.RP(s, FHx.get_facts.budget(cf, w, run, p, c, x)):
   match x:
-    case Wr.Got{+ba, +s7}:
+    case Wr.Got{+ba, +s6}:
       +e = ed
-      Equal.trans(String, s, Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(a, s6)))))), Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(a, Wr.put_bool(ba, s7))))))), pre, Equal.cong(String, String, z => Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(a, z)))))), s6, Wr.put_bool(ba, s7), Wire.wire_bool_exact(s6, ba, s7, e)))
-    case Wr.Bad{}:
-      Unit{}
-
-def hxo.auto(-s: String, +cf: Bool, +w: Hx.Wait, +run: Hx.Run, +p: Hx.Primary, +c: Bool, +s5: String, pre: {s == Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, s5))))) : String}, x: Wr.Dec<Bool>, ed: {Wr.get_bool(s5) == x : Wr.Dec<Bool>}) -> hxo.RP(s, FHx.get_facts.auto(cf, w, run, p, c, x)):
-  match x:
-    case Wr.Got{+a, +s6}:
-      +e = ed
-      +pre2 = Equal.trans(String, s, Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, s5))))), Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(a, s6)))))), pre, Equal.cong(String, String, z => Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, z))))), s5, Wr.put_bool(a, s6), Wire.wire_bool_exact(s5, a, s6, e)))
-      hxo.budget(s, cf, w, run, p, c, a, s6, pre2, Wr.get_bool(s6), {==})
+      Equal.trans(String, s, Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, s5))))), Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, Wr.put_bool(ba, s6)))))), pre, Equal.cong(String, String, z => Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, z))))), s5, Wr.put_bool(ba, s6), Wire.wire_bool_exact(s5, ba, s6, e)))
     case Wr.Bad{}:
       Unit{}
 
@@ -190,7 +181,7 @@ def hxo.comp(-s: String, +cf: Bool, +w: Hx.Wait, +run: Hx.Run, +p: Hx.Primary, +
     case Wr.Got{+c, +s5}:
       +e = ed
       +pre2 = Equal.trans(String, s, Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, s4)))), Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, Wr.put_bool(c, s5))))), pre, Equal.cong(String, String, z => Wr.put_bool(cf, SpW.w_wait(w, SpW.w_run(run, SpW.w_primary(p, z)))), s4, Wr.put_bool(c, s5), Wire.wire_bool_exact(s4, c, s5, e)))
-      hxo.auto(s, cf, w, run, p, c, s5, pre2, Wr.get_bool(s5), {==})
+      hxo.budget(s, cf, w, run, p, c, s5, pre2, Wr.get_bool(s5), {==})
     case Wr.Bad{}:
       Unit{}
 

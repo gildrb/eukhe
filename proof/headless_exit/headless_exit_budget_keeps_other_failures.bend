@@ -11,15 +11,15 @@ import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
 
-def hxk.gave_up(cf: Bool, -r: Hx.Run, -p: Hx.Primary, -c: Bool, -a: Bool) -> {HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, a, True{}})) == 1n : Nat}:
+def hxk.gave_up(cf: Bool, -r: Hx.Run, -p: Hx.Primary, -c: Bool) -> {HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, True{}})) == 1n : Nat}:
   match cf:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def HeadlessExit.headless_exit_budget_keeps_other_failures(cf, w, r, p, c, a):
-  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, Hx.Unanswered{Hx.ModelError{}}, p, c, a, True{}})), 1n, LAHeadlessExit.hx.facts_fail(cf, w, Hx.Unanswered{Hx.ModelError{}}, p, c, a, True{}, {==})) : {[_, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, a, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, a, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, a, True{}}))] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
-  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, a, True{}})), 1n, hxk.gave_up(cf, r, p, c, a)) : {[1n, _, HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, a, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, a, True{}}))] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
-  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, a, True{}})), 1n, LAHeadlessExit.hx.facts_fail(cf, w, r, p, True{}, a, True{}, LAHeadlessExit.hx.run_fails(r, p, True{}, a, True{}, LAHeadlessExit.hx.comp_fails(p, a, True{})))) : {[1n, 1n, HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, a, True{}})), _] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
+def HeadlessExit.headless_exit_budget_keeps_other_failures(cf, w, r, p, c):
+  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, Hx.Unanswered{Hx.ModelError{}}, p, c, True{}})), 1n, LAHeadlessExit.hx.facts_fail(cf, w, Hx.Unanswered{Hx.ModelError{}}, p, c, True{}, {==})) : {[_, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, True{}}))] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
+  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, Hx.GaveUp{}, r, p, c, True{}})), 1n, hxk.gave_up(cf, r, p, c)) : {[1n, _, HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, True{}})), HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, True{}}))] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
+  %Equal.sym(Nat, HeadlessExit.code_of(Hx.decide(Hx.Facts{cf, w, r, p, True{}, True{}})), 1n, LAHeadlessExit.hx.facts_fail(cf, w, r, p, True{}, True{}, LAHeadlessExit.hx.run_fails(r, p, True{}, True{}, LAHeadlessExit.hx.comp_fails(p, True{})))) : {[1n, 1n, HeadlessExit.code_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, True{}})), _] == [1n, 1n, 1n, 1n] : List<&2, Nat>}
   {==}

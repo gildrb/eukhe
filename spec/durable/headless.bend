@@ -19,7 +19,7 @@
 #     unanswered for a failure (every reason but a reset, a stale run and
 #     a withdrawn input); a terminal transcript entry that is a provider
 #     error, a budget refusal, an aborted reply, an unfinished reply or a
-#     failed slash command; a failed compaction; a failed autonomous turn.
+#     failed slash command; a failed compaction.
 #     Without one the run answered. When the agent's final answer from
 #     the budget's reserve was delivered, the facts a used-up budget
 #     leaves (the wait at the deadline, a run or a terminal entry the
@@ -167,8 +167,6 @@ def excused(c: Hx.Cause) -> Bool:
       False{}
     case Hx.CCompactionFailed{}:
       False{}
-    case Hx.CAutonomousFailed{}:
-      False{}
     case Hx.CBudgetLimited{}:
       False{}
     case Hx.CBudgetUnanswered{}:
@@ -211,17 +209,16 @@ def unfailed(ba: Bool) -> Hx.Cause:
 
 # E1: the failures of the facts in E1's order: a failed command, the
 # wait, the last run, the terminal transcript entry (those three as the
-# delivered final answer counts them), a failed compaction, a failed
-# autonomous turn
+# delivered final answer counts them), a failed compaction
 def failures(f: Hx.Facts) -> List<&2, Maybe<&2, Hx.Cause>>:
   match f:
-    case Hx.Facts{cf, w, run, p, c, a, +ba}:
-      [when(cf, Hx.CCommandFailed{}), counts(wait_cause(w), ba), counts(run_cause(run), ba), counts(primary_cause(p), ba), when(c, Hx.CCompactionFailed{}), when(a, Hx.CAutonomousFailed{})]
+    case Hx.Facts{cf, w, run, p, c, +ba}:
+      [when(cf, Hx.CCommandFailed{}), counts(wait_cause(w), ba), counts(run_cause(run), ba), counts(primary_cause(p), ba), when(c, Hx.CCompactionFailed{})]
 
 # whether the final answer from the budget's reserve was delivered
 def delivered(f: Hx.Facts) -> Bool:
   match f:
-    case Hx.Facts{cf, w, run, p, c, a, ba}:
+    case Hx.Facts{cf, w, run, p, c, ba}:
       ba
 
 # E1: the cause of the exit of the facts f: the first failure in E1's

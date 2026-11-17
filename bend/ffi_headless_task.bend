@@ -4,7 +4,7 @@
 # Grammar: crates/eukhe-bend/WIRE.md.
 #
 #   request  the exit's cause as ffi_headless_exit replies it (0 answered
-#            .. 11 budget unanswered; 3 run failed is followed by its
+#            .. 10 budget unanswered; 3 run failed is followed by its
 #            reason), whether the run acted (a Bool), then the judge's
 #            reading of the final answer: 0 not asked | 1 no work left |
 #            2 work left | 3 no verdict
@@ -54,12 +54,10 @@ def get_cause(r: W.Dec<Nat>) -> W.Dec<Hx.Cause>:
         case 8n:
           W.Got{Hx.CCompactionFailed{}, s}
         case 9n:
-          W.Got{Hx.CAutonomousFailed{}, s}
-        case 10n:
           W.Got{Hx.CBudgetLimited{}, s}
-        case 11n:
+        case 10n:
           W.Got{Hx.CBudgetUnanswered{}, s}
-        case 12n+u:
+        case 11n+u:
           W.Bad{}
     case W.Bad{}:
       W.Bad{}

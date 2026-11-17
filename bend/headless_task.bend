@@ -75,8 +75,6 @@ def answered(c: Hx.Cause) -> Bool:
       False{}
     case Hx.CCompactionFailed{}:
       False{}
-    case Hx.CAutonomousFailed{}:
-      False{}
     case Hx.CBudgetLimited{}:
       False{}
     case Hx.CBudgetUnanswered{}:
