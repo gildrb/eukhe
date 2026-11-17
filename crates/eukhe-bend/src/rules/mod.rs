@@ -60,6 +60,7 @@ pub mod shell;
 pub mod slash;
 pub mod slash_args;
 pub mod stream_failure;
+pub mod strength;
 pub mod submission;
 pub mod task_life;
 pub mod theme;
