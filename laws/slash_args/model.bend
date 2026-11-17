@@ -240,7 +240,7 @@ def sa_budget.at(ok: Bool, v: String, +o: String) -> Sa.Auto:
       Sa.AErr{"Goal token budget must be a positive integer."}
 
 # R4: the answer of the budget digits v before the objective o: v must be
-# R4's u64 digits (Sa.u64, pinned by slash_args_digits_fit and
+# R4's u64 digits (Sa.u64, pinned by slash_args_digits_value and
 # slash_args_digits_refused)
 def sa_budget(+v: String, +o: String) -> Sa.Auto:
   sa_budget.at(Sa.u64(v), v, o)
@@ -475,7 +475,7 @@ def sa_option.keep(ok: Bool, d: String) -> Sa.Auto:
 
 # R8, R9: `/autonomous on` with the one option of flag k and the non-empty
 # value v: a limit is `unlimited` (lowercased) or R4's u64 digits after
-# R8's drop (Sa.u64, pinned by slash_args_digits_fit and
+# R8's drop (Sa.u64, pinned by slash_args_digits_value and
 # slash_args_digits_refused), else its error; `--gate` names the one
 # command v; gate retries and timeout are such digits, else their error;
 # the keep-alive is 0 or positive digits up to 2147483647 (Sa.keep_ok,
@@ -1075,29 +1075,37 @@ def sa_lead(s: String) -> Bool:
     case SCon{+c, t}:
       Bool.and(Bool.and(Char.is_digit(c), Bool.not(Char.is_eq(c, '0'))), sa_digits(t))
 
-# R4, R8: the digits s fit below the bound m of n digits: fewer than n
-# digits, or n and at most m (digits of one length compare in text order
-# as in number order)
-def sa_fits(+s: String, +n: Nat, m: String) -> Bool:
-  Bool.or(Nat.is_lt(String.length(s), n), Bool.and(Nat.is_eq(String.length(s), n), String.is_le(s, m)))
+# R4, R8: the value of an ASCII digit (its code past the code of `0`)
+def sa_dval(c: Char) -> Nat:
+  Nat.sub(U32.to_nat(Char.to_u32(c)), 48n)
+
+# R4, R8: the number a decimal numeral writes: each digit's value times ten
+# to the count of the digits after it, summed
+def sa_number(s: String) -> Nat:
+  match s:
+    case SNil{}:
+      0n
+    case SCon{c, +t}:
+      Nat.add(Nat.mul(sa_dval(c), Nat.pow(10n, String.length(t))), sa_number(t))
 
 # Laws: digits (R4, R8)
 # ---------------------
 
-# LAW slash_args_digits_fit (R4, R8): for every ASCII digit d other than
-# `0` and every text t of ASCII digits, d then t is R4's u64 digits
-# exactly when a u64 holds it (fewer than 20 digits, or 20 up to
-# 18446744073709551615), and R8's keep-alive digits exactly when it is at
-# most 2147483647 (fewer than 10 digits, or 10 up to it)
-# EXCLUDES: a bound off by one digit or by one at 2^64-1 or 2^31-1, a
-#   value past the bound taken, a value under it refused
-law slash_args_digits_fit:
+# LAW slash_args_digits_value (R4, R8): for every ASCII digit d other than
+# `0` and every text t of ASCII digits, the numeral d then t is R4's u64
+# digits exactly when its value is at most 18446744073709551615 (2^64-1),
+# and R8's keep-alive digits exactly when its value is at most 2147483647
+# (2^31-1). Each bound is the value of its numeral: a Nat literal stops at
+# 2^32-1, and the checker counts in unary.
+# EXCLUDES: a bound off by one (2^64 or 2^31 taken, 2^64-1 or 2^31-1
+#   refused), a bound off by a digit, a number under the bound refused
+law slash_args_digits_value:
   for +d: Char
   for +t: String
   for +dz: {Bool.and(Char.is_digit(d), Bool.not(Char.is_eq(d, '0'))) == True{} : Bool}
   for td: {sa_digits(t) == True{} : Bool}
-  {Sa.u64(SCon{d, t}) == sa_fits(SCon{d, t}, 20n, "18446744073709551615") : Bool} &
-  {Sa.keep_ok(SCon{d, t}) == sa_fits(SCon{d, t}, 10n, "2147483647") : Bool}
+  {Sa.u64(SCon{d, t}) == Nat.is_le(sa_number(SCon{d, t}), sa_number("18446744073709551615")) : Bool} &
+  {Sa.keep_ok(SCon{d, t}) == Nat.is_le(sa_number(SCon{d, t}), sa_number("2147483647")) : Bool}
 
 # LAW slash_args_digits_refused (R4, R8): every text that is not an ASCII
 # digit other than `0` then ASCII digits (the empty text, a leading `0`, a
