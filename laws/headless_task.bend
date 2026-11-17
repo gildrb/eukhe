@@ -35,6 +35,22 @@ import ../spec/durable/headless_task.bend as SpT
 #     request with anything but the error form, and answers any input
 #     that is not exactly one request with exactly
 #     `E headless_task: malformed request`.
+#
+# Rust's part of D5, which no law here states (the core decides the exit;
+# Rust asks the judge and prints), each owned by a Rust test:
+# - the final answer is read by one judge request of its own (one model
+#   request with no tools, `tools: None` in the product judge, and nothing
+#   of the conversation; a tool call in its reply runs nothing and asks
+#   nothing more): crates/eukhe-core/src/durable/acceptance/tests.rs
+#   `the_final_answer_judge_sends_one_request_with_the_answer_only`; a run
+#   that did not act makes no judge request:
+#   crates/eukhe-cli/tests/print_runtime_e2e.rs
+#   `a_plain_answer_is_never_judged`;
+# - an incomplete run prints what remains on stderr (in json mode also as
+#   the stream's last record): crates/eukhe-cli/tests/print_runtime_e2e.rs
+#   `an_answer_that_lists_items_left_exits_one_with_them`,
+#   crates/eukhe-cli/src/print_runtime/tests.rs
+#   `an_incomplete_task_says_what_remains`.
 
 # Laws: the task (R1-R3, R5, R6)
 # ------------------------------
