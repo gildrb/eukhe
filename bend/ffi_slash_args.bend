@@ -1,23 +1,24 @@
 # ffi_slash_args: the entry of the compiled Bend core for the arguments of
-# `/goal` and `/autonomous` and the words of a command's argument text
-# (bend/slash_args.bend; Rust: eukhe-bend rules/slash_args.rs). Grammar:
-# crates/eukhe-bend/WIRE.md.
+# `/auto` (typed as `/auto`, `/autonomous` or `/goal`), a goal objective
+# and the words of a command's argument text (bend/slash_args.bend; Rust:
+# eukhe-bend rules/slash_args.rs). Grammar: crates/eukhe-bend/WIRE.md.
 #
 #   request  a question, its tag then the text (String):
-#            0 goal | 1 autonomous | 2 words | 3 objective
-#   reply    goal: 0 status | 1 clear | 2 pause | 3 resume
-#                  | 4 start, the objective (String), the budget's digits
-#                    (Maybe<String>) | 5 error, its text (String)
-#            autonomous: 0 status | 1 on, the options | 2 off
+#            0 /goal | 1 /auto | 2 words | 3 objective | 4 /autonomous
+#   reply    /auto, /autonomous, /goal: how it was typed (0 /auto or
+#              /autonomous | 1 /goal), then the answer
+#            answer: 0 status | 1 on, the options | 2 off
 #                  | 3 error, its text (String)
+#                  | 4 task, its text (String), the token budget's digits
+#                    (Maybe<String>)
 #              options: four limits (continuations, turns, tokens,
 #                timeout), each Maybe of 0 unlimited | 1 digits (String);
 #                the gates, Maybe of: the commands (Maybe<List<String>>),
 #                the retries and the timeout digits (Maybe<String> each);
 #                the keep-alive digits (Maybe<String>)
 #            words: the words (List<String>)
-#            objective: the reply of goal: 4 start, the objective trimmed
-#              and no budget (0), or 5 error
+#            objective: the answer: 4 task, the objective trimmed and no
+#              budget (0), or 3 error
 #
 # Malformed input, or input left after the request, answers
 # `E slash_args: malformed request`, never a default.
@@ -32,8 +33,9 @@ type Req is Data:
   QGoal{args: String}
   QAuto{args: String}
   QWords{args: String}
-  # a goal objective as a goal tool or command gives it
+  # a goal objective as a goal tool gives it
   QObjective{text: String}
+  QAutonomous{args: String}
 
 def get_goal(r: W.Dec<String>) -> W.Dec<Req>:
   match r:
@@ -63,6 +65,13 @@ def get_objective(r: W.Dec<String>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+def get_autonomous(r: W.Dec<String>) -> W.Dec<Req>:
+  match r:
+    case W.Got{a, s}:
+      W.Got{QAutonomous{a}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -73,7 +82,9 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
       get_words(W.get_str(s))
     case 3n:
       get_objective(W.get_str(s))
-    case 4n+u:
+    case 4n:
+      get_autonomous(W.get_str(s))
+    case 5n+u:
       W.Bad{}
 
 def get_req.start(r: W.Dec<Nat>) -> W.Dec<Req>:
@@ -96,21 +107,6 @@ def put_mstr(m: Maybe<&2, String>, rest: String) -> String:
       W.put_nat(0n, rest)
     case Some{x}:
       W.put_nat(1n, W.put_str(x, rest))
-
-def put_goal(g: Sa.Goal) -> String:
-  match g:
-    case Sa.GStatus{}:
-      W.put_nat(0n, "")
-    case Sa.GClear{}:
-      W.put_nat(1n, "")
-    case Sa.GPause{}:
-      W.put_nat(2n, "")
-    case Sa.GResume{}:
-      W.put_nat(3n, "")
-    case Sa.GStart{o, b}:
-      W.put_nat(4n, W.put_str(o, put_mstr(b, "")))
-    case Sa.GErr{e}:
-      W.put_nat(5n, W.put_str(e, ""))
 
 def put_mlim(m: Maybe<&2, Sa.Lim>, rest: String) -> String:
   match m:
@@ -154,18 +150,22 @@ def put_auto(a: Sa.Auto) -> String:
       W.put_nat(2n, "")
     case Sa.AErr{e}:
       W.put_nat(3n, W.put_str(e, ""))
+    case Sa.ATask{t, b}:
+      W.put_nat(4n, W.put_str(t, put_mstr(b, "")))
 
 # the reply of a request: the model's answer, encoded
 def answer(q: Req) -> String:
   match q:
     case QGoal{a}:
-      put_goal(Sa.goal(a))
+      W.put_nat(1n, put_auto(Sa.goal(a)))
     case QAuto{a}:
-      put_auto(Sa.auto(a))
+      W.put_nat(0n, put_auto(Sa.auto(a)))
     case QWords{a}:
       W.put_list(~String, ~W.put_str, Sa.words(a), "")
     case QObjective{a}:
-      put_goal(Sa.goal.objective(a, None{}))
+      put_auto(Sa.goal.objective(a, None{}))
+    case QAutonomous{a}:
+      W.put_nat(0n, put_auto(Sa.auto(a)))
 
 def ffi.done(q: Req, end: Bool) -> String:
   match end:

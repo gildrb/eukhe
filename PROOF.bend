@@ -3071,6 +3071,7 @@ import ./proof/slash_args/slash_args_entry_left_over.bend as PSlashArgsEntryLeft
 import ./proof/slash_args/slash_args_entry_exact.bend as PSlashArgsEntryExact
 import ./proof/slash_args/slash_args_entry_refuses.bend as PSlashArgsEntryRefuses
 import ./proof/slash_args/slash_args_entry_unknown_tag.bend as PSlashArgsEntryUnknownTag
+import ./proof/slash_args/slash_args_entry_alias.bend as PSlashArgsEntryAlias
 import ./proof/slash_args/slash_args_entry_example.bend as PSlashArgsEntryExample
 import ./proof/slash_args/slash_args_words_split.bend as PSlashArgsWordsSplit
 import ./proof/slash_args/slash_args_words_one.bend as PSlashArgsWordsOne
@@ -3087,7 +3088,7 @@ import ./proof/slash_args/slash_args_objective_judged.bend as PSlashArgsObjectiv
 import ./proof/slash_args/slash_args_auto_none.bend as PSlashArgsAutoNone
 import ./proof/slash_args/slash_args_auto_alone.bend as PSlashArgsAutoAlone
 import ./proof/slash_args/slash_args_auto_more.bend as PSlashArgsAutoMore
-import ./proof/slash_args/slash_args_auto_other.bend as PSlashArgsAutoOther
+import ./proof/slash_args/slash_args_auto_task.bend as PSlashArgsAutoTask
 import ./proof/slash_args/slash_args_auto_unexpected.bend as PSlashArgsAutoUnexpected
 import ./proof/slash_args/slash_args_auto_unknown.bend as PSlashArgsAutoUnknown
 import ./proof/slash_args/slash_args_auto_missing.bend as PSlashArgsAutoMissing
