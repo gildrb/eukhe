@@ -48,6 +48,7 @@ mod bash_tool;
 mod cases;
 mod codemode;
 mod fire;
+mod irreversible_net;
 mod job;
 mod queue_edit;
 mod request;
@@ -393,6 +394,12 @@ fn script(request: &Request, release: &Path) -> Reply {
                     format!("call-{prompt}"),
                     "codemode",
                     json!({ "code": codemode::SCRIPT }),
+                )
+            } else if request.prompt.contains(irreversible_net::TAG) {
+                Reply::tool_call(
+                    format!("call-{prompt}"),
+                    "bash",
+                    json!({ "script": irreversible_net::script(release) }),
                 )
             } else if request.prompt.contains(bash_tool::TAG) {
                 Reply::tool_call(

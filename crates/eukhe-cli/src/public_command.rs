@@ -887,7 +887,9 @@ mod incident_dispatch_tests {
             "{help}"
         );
         assert!(
-            help.contains("resolve  Settle an interrupted effect after checking whether it ran"),
+            help.contains(
+                "resolve  Correct a step treated as not run after checking whether it ran"
+            ),
             "{help}"
         );
         let resolve = format_command_help(&["effects", "resolve"]).expect("the resolve spec");

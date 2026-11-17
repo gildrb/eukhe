@@ -72,7 +72,8 @@ impl Lead {
 /// The live values an interface supplies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LiveValues {
-    /// The ids of the session's interrupted effects nobody settled.
+    /// The ids of the session's steps treated as not run that nobody
+    /// corrected.
     OpenEffects,
 }
 

@@ -127,19 +127,21 @@ for a node that comes back, restore for a node that changes.",
     CommandSpec::new(
         &["effects"],
         "effects [<agent>] [--json]",
-        "List an agent's interrupted effects whose outcome is unknown",
+        "List the steps a restart treated as not run",
     )
     .description(
-        "A restart that cannot prove whether an effect ran (a tool call, a file write, a model \
-request, a job, a spawn, a scheduled fire, a message delivery) reports it interrupted and keeps it \
-in the session's ledger, never running it again by itself. Each line shows the effect id, its \
-kind, its state (unknown, ran, not-run), and what it is. Without <agent>, the only active agent.",
+        "After a crash, Eukhe settles each step of unknown outcome itself (a tool call, a file \
+write, a model request, a job, a spawn, a scheduled fire, a message delivery): it checks the \
+evidence (the file, the git ref, the job's exit record), runs again a step safe to repeat, and \
+otherwise treats the step as not run, lists it in the run's end-of-run report, and goes on. Each \
+line shows the step id, its kind, its state (treated-not-run, or a correction: ran, not-run), and \
+what it is. Without <agent>, the only active agent.",
     )
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
         &["effects", "resolve"],
         "effects resolve <id> <ran|not-run> [<agent>] [--json]",
-        "Settle an interrupted effect after checking whether it ran",
+        "Correct a step treated as not run after checking whether it ran",
     )
     .options(&["--json  Print JSON"])
     .examples(&["effects resolve tool:call_1 not-run worker"]),

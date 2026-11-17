@@ -72,7 +72,16 @@ pub(super) fn document_tool(
     );
     registration.dialect = function.dialect();
     match function {
-        Function::Edit | Function::Write => {
+        // A write of a known content leaves the file as one write does,
+        // however often it runs: a restart that cannot tell whether it
+        // landed runs it again (spec O13). An edit's change depends on the
+        // bytes it finds: never repeated.
+        Function::Write => {
+            registration.execution_mode = Some(ToolExecutionMode::Sequential);
+            registration.replay = Some(ToolReplay::Safe);
+            registration.probe = Some(probe::probe());
+        }
+        Function::Edit => {
             registration.execution_mode = Some(ToolExecutionMode::Sequential);
             registration.replay = Some(ToolReplay::Unsafe);
             registration.probe = Some(probe::probe());

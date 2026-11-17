@@ -913,8 +913,8 @@ fn parse_effects_args(args: &[String]) -> Result<EffectsRequest<'_>> {
 }
 
 /// `effects [<agent>]` and `effects resolve <id> <ran|not-run>
-/// [<agent>]`: the interrupted effects of one live agent whose outcome is
-/// unknown, and settling one.
+/// [<agent>]`: the steps of one live agent a restart treated as not run,
+/// and an optional correction of one.
 fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let request = parse_effects_args(args)?;
     let selector = match &request {
@@ -950,7 +950,7 @@ fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     if resolving {
         let reply: ResolvedEffectReply =
             serde_json::from_value(data).context("malformed resolved effect")?;
-        println!("Resolved {}", crate::sanitize::line(&reply.effect.line()));
+        println!("Corrected {}", crate::sanitize::line(&reply.effect.line()));
         return Ok(());
     }
     let reply: UnknownEffectsReply =
@@ -959,11 +959,11 @@ fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     Ok(())
 }
 
-/// The ledger as `eukhe effects` prints it: one line per effect, oldest
-/// first (`<id> <kind> <unknown|ran|not-run> <what>`).
+/// The ledger as `eukhe effects` prints it: one line per step, oldest
+/// first (`<id> <kind> <treated-not-run|ran|not-run> <what>`).
 fn effects_lines(effects: &[UnknownEffect]) -> Vec<String> {
     if effects.is_empty() {
-        return vec!["No interrupted effects with an unknown outcome.".to_owned()];
+        return vec!["No step was treated as not run after a crash.".to_owned()];
     }
     effects
         .iter()
@@ -1440,18 +1440,20 @@ mod tests {
     fn effects_lines_show_each_effect_or_none() {
         assert_eq!(
             effects_lines(&[]),
-            ["No interrupted effects with an unknown outcome."]
+            ["No step was treated as not run after a crash."]
         );
         let effect = UnknownEffect {
             id: "tool:c1".to_owned(),
             kind: eukhe_types::effects::EffectKind::Tool,
             what: "bash: make deploy".to_owned(),
             at: 0.0,
+            cause: Some(eukhe_types::effects::UnknownCause::NotRepeatSafe),
+            settled_run: Some(1),
             resolution: None,
         };
         assert_eq!(
             effects_lines(&[effect]),
-            ["tool:c1 tool unknown bash: make deploy"]
+            ["tool:c1 tool treated-not-run bash: make deploy"]
         );
     }
 

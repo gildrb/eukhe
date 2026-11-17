@@ -42,7 +42,7 @@ pub use self::nested::{NestedResultState, NESTED_RESULT_DOC};
 pub(crate) use self::result::tool_unavailable_message;
 pub use self::result::{append_tool_result, harness_error, ToolResultMeta};
 use self::result::{from_slot, ToolEnding};
-use super::effects::{note_unknown, EffectKind, UnknownEffect};
+use super::effects::{note_unknown, EffectKind, UnknownCause, UnknownEffect};
 use super::live::{
     clear_progress, finish_slot, is_nested_slot, remove_nested_slots, tool_slot, SlotProgress,
     LIVE_DOC,
@@ -68,11 +68,6 @@ use crate::types::{
 /// text at "may have partially run").
 const INTERRUPTED_NEXT_STEP: &str =
     "Check the state it changes (files, processes, jobs) before you run it again.";
-
-/// The kind of effect a call is, as its kill points and its id in the
-/// effects ledger spell it: a call of a probed tool writes files.
-const EFFECT_TOOL: &str = "tool";
-const EFFECT_WRITE: &str = "write";
 
 /// The most chars of a call's arguments its ledger entry shows.
 const NOTED_ARGUMENT_CHARS: usize = 120;
@@ -317,7 +312,7 @@ async fn call(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()>
             &cx,
         )
         .await?;
-    kill_point(effect_of(&tool).1, "intended");
+    kill_point(effect_of(&tool).name(), "intended");
     run(&runtime, &input, &call, &tool, args, repairs, journal, &cx).await
 }
 
@@ -340,12 +335,14 @@ fn begin_slot(slot: &Draft, begin: Begin, changed: Option<JsonValue>) -> Session
     Ok(())
 }
 
-/// Recovery after intent. A call of a probed tool asks its probe what the
-/// world shows of the change it was making, and the compiled core what a
-/// resumed run does with it (`bend/once.bend`): adopt a change that
-/// landed, run again one that never will, settle interrupted one nobody
-/// can tell. Any other call asks the effect gate: rerun only when the
-/// stored and the current policy both say `safe`, else settle interrupted.
+/// Recovery after intent, in the order of spec O13. A call of a probed
+/// tool that recorded what it changes asks its probe what the world shows
+/// of that change, and the compiled core what a resumed run does with it
+/// (`bend/once.bend`): adopt a change that landed, run again one that
+/// never will; when the world tells nothing, run it again only when the
+/// stored and the current policy both say `safe`, else treat it as not
+/// run. Any other call asks the effect gate, which decides the same by the
+/// policy alone.
 async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()> {
     let ToolTaskCheckpoint::Execute {
         arguments,
@@ -366,8 +363,9 @@ async fn execute(task: Running, runtime: Runtime, cx: Context) -> SessionResult<
     };
     let probe = tool.as_ref().and_then(|(tool, _)| tool.probe.clone());
     let (call, tool) = match (call, tool, probe) {
-        (Some(call), Some((tool, _)), Some(probe)) => {
-            match probed(&probe, record, Mode::Resume).await {
+        (Some(call), Some((tool, now)), Some(probe)) => {
+            let policy = repeat_policy(policy(replay), now);
+            match probed(&probe, record, Mode::Resume, policy).await {
                 Verdict::Launch => (call, tool),
                 Verdict::Adopt => {
                     let result = landed(&call);
@@ -456,8 +454,9 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
             (call, "aborted", message, None)
         }
         Stop::Interrupted(call) => {
+            // A stopped run launches nothing, whatever the policy.
             let verdict = match tool.as_ref().and_then(|tool| tool.probe.as_ref()) {
-                Some(probe) => probed(probe, record, Mode::Stop).await,
+                Some(probe) => probed(probe, record, Mode::Stop, Policy::Never).await,
                 None => Verdict::Interrupt,
             };
             match verdict {
@@ -477,7 +476,8 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
                         "Tool {} was interrupted by a restart and may have partially run. {INTERRUPTED_NEXT_STEP}",
                         call.name
                     );
-                    let noted = unknown(&runtime, &call, tool.as_deref())?;
+                    let noted =
+                        unknown(&runtime, &call, tool.as_deref(), UnknownCause::RunStopped)?;
                     (call, "interrupted", message, Some(noted))
                 }
                 Verdict::Launch | Verdict::Skip | Verdict::Settled => {
@@ -510,20 +510,33 @@ async fn abort(task: Running, runtime: Runtime, cx: Context) -> SessionResult<()
 /// What a restart of the run (`mode`) does with a call of a probed tool
 /// whose intent holds `record`: its journal is intended and started, the
 /// tool's `probe` says what the world shows of its change (no record: the
-/// call never got to its change, but nothing on record says so), and the
-/// compiled core decides (`eukhe_bend::rules::once`).
-async fn probed(probe: &ToolProbe, record: Option<JsonValue>, mode: Mode) -> Verdict {
+/// call never got to the step it records, but nothing on record says so),
+/// `policy` says whether a repeat is safe, and the compiled core decides
+/// (`eukhe_bend::rules::once`).
+async fn probed(
+    probe: &ToolProbe,
+    record: Option<JsonValue>,
+    mode: Mode,
+    policy: Policy,
+) -> Verdict {
     let seen = match record {
-        Some(record) => probe(record).await,
+        Some(record) => (probe.look)(record).await,
         None => Seen::Dark,
     };
-    let (_, verdict) = once::restart(
-        [Record::Intended, Record::Started],
-        mode,
-        Policy::Never,
-        seen,
-    );
+    let (_, verdict) = once::restart([Record::Intended, Record::Started], mode, policy, seen);
     verdict
+}
+
+/// The once policy of a call whose intent recorded `stored` and whose tool
+/// now says `now`: a repeat is safe only when both say so (the effect
+/// gate's rule, `once_tool_gate_agrees`).
+fn repeat_policy(stored: Replay, now: Replay) -> Policy {
+    match (stored, now) {
+        (Replay::Safe, Replay::Safe) => Policy::Safe,
+        (Replay::Safe | Replay::Unsafe, Replay::Unsafe) | (Replay::Unsafe, Replay::Safe) => {
+            Policy::Never
+        }
+    }
 }
 
 /// The error of a verdict the core never gives a started call (an
@@ -548,10 +561,11 @@ fn landed(call: &ToolCall) -> ToolExecutionResult {
     }
 }
 
-/// Settle a call a restart cut and nobody can tell the outcome of: its
-/// result says it was interrupted, and the effects ledger notes it in the
-/// same commit. `failed` records cancellation intent, so the call's owned
-/// conversations, left unsupervised, are aborted.
+/// Settle a call a restart cut, whose outcome nobody can tell and whose
+/// repeat is not safe: it is treated as not run. Its result says it was
+/// interrupted, and the effects ledger notes it in the same commit, for
+/// its run's end-of-run report. `failed` records cancellation intent, so
+/// the call's owned conversations, left unsupervised, are aborted.
 async fn interrupt(
     runtime: &Runtime,
     input: &ToolTaskInput,
@@ -567,7 +581,11 @@ async fn interrupt(
     let ending = ToolEnding::Failed {
         message: message.clone(),
     };
-    let noted = unknown(runtime, call, tool)?;
+    let cause = match tool {
+        Some(_) => UnknownCause::NotRepeatSafe,
+        None => UnknownCause::ToolGone,
+    };
+    let noted = unknown(runtime, call, tool, cause)?;
     settle(
         runtime,
         input,
@@ -581,36 +599,43 @@ async fn interrupt(
     .await
 }
 
-/// The ledger's record of a call a restart settled interrupted: the tool
-/// (no longer offered: a plain tool call) and a short form of its
-/// arguments.
+/// The ledger's record of a call a restart treated as not run, for
+/// `cause`: the tool (no longer offered: a plain tool call) and a short
+/// form of its call (`bash: git push`: a call of one string argument by
+/// that string, any other by its arguments).
 fn unknown(
     runtime: &Runtime,
     call: &ToolHookCall,
     tool: Option<&ToolRegistration>,
+    cause: UnknownCause,
 ) -> SessionResult<UnknownEffect> {
-    let (kind, name) = tool.map_or((EffectKind::Tool, EFFECT_TOOL), effect_of);
-    let arguments = PiJsonValue::Object(call.arguments.clone()).to_string();
-    let what = match arguments.char_indices().nth(NOTED_ARGUMENT_CHARS) {
-        Some((cut, _)) => format!("{} {}…", call.name, &arguments[..cut]),
-        None => format!("{} {arguments}", call.name),
+    let kind = tool.map_or(EffectKind::Tool, effect_of);
+    let mut values = call.arguments.values();
+    let shown = match (values.next(), values.next()) {
+        (Some(PiJsonValue::String(text)), None) => text.clone(),
+        _ => PiJsonValue::Object(call.arguments.clone()).to_string(),
+    };
+    let what = match shown.char_indices().nth(NOTED_ARGUMENT_CHARS) {
+        Some((cut, _)) => format!("{}: {}…", call.name, &shown[..cut]),
+        None => format!("{}: {shown}", call.name),
     };
     Ok(UnknownEffect {
-        id: format!("{name}:{}", call.id),
+        id: format!("{}:{}", kind.name(), call.id),
         kind,
         what,
         at: runtime.now()?,
+        cause: Some(cause),
+        settled_run: None,
         resolution: None,
     })
 }
 
-/// The effect a call of `tool` is, and the name its kill points and ledger
-/// id spell it with.
-fn effect_of(tool: &ToolRegistration) -> (EffectKind, &'static str) {
-    match tool.probe {
-        Some(_) => (EffectKind::Write, EFFECT_WRITE),
-        None => (EffectKind::Tool, EFFECT_TOOL),
-    }
+/// The effect a call of `tool` is, as its kill points and ledger id spell
+/// it: what its probe declares, else a tool call.
+fn effect_of(tool: &ToolRegistration) -> EffectKind {
+    tool.probe
+        .as_ref()
+        .map_or(EffectKind::Tool, |probe| probe.effect)
 }
 
 /// The gate's policy of a tool's replay.

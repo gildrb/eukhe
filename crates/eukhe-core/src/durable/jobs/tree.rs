@@ -29,7 +29,7 @@ use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_durable::documents::{DocFamilyDefinition, SessionDocFamily};
 use eukhe_durable::harness::define::section;
-use eukhe_durable::harness::effects::{note_unknown, EffectKind, UnknownEffect};
+use eukhe_durable::harness::effects::{note_unknown, EffectKind, UnknownCause, UnknownEffect};
 use eukhe_durable::harness::types::{InputSubmissionDraft, PromptInput, PromptSection, WhenBusy};
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{CommitListener, SessionError, SessionResult};
@@ -334,6 +334,11 @@ pub(super) async fn settle_stale(
                 kind: EffectKind::Job,
                 what: job.label,
                 at,
+                cause: Some(match mode {
+                    Mode::Resume => UnknownCause::NotRepeatSafe,
+                    Mode::Stop => UnknownCause::RunStopped,
+                }),
+                settled_run: None,
                 resolution: None,
             })
         }

@@ -51,6 +51,6 @@ pub use settings::{
 pub use tools::{
     ExecuteToolOptions, InvocationTaskOptions, NestedToolExecutionResult, OutputRetain,
     PrepareArguments, RetainedOutput, ToolCaller, ToolCommitChange, ToolControl, ToolExecute,
-    ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult, ToolOutputChunk, ToolProbe,
-    ToolRegistration, ToolReplay,
+    ToolExecutionApi, ToolExecutionApiExt, ToolExecutionResult, ToolLook, ToolOutputChunk,
+    ToolProbe, ToolRegistration, ToolReplay,
 };

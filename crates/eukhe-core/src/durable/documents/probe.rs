@@ -15,6 +15,7 @@ use eukhe_bend::rules::once::Seen;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_docs::{Change, Witness};
+use eukhe_durable::harness::effects::EffectKind;
 use eukhe_durable::harness::types::{ToolExecutionApi, ToolProbe};
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
@@ -85,18 +86,21 @@ impl Witness for ProbeWitness {
     }
 }
 
-/// The probe of the documents tools that write: what the files of a
-/// call's record show, read on a blocking thread.
+/// The probe of the documents tools that write: a file write, whose
+/// record's files are read on a blocking thread.
 pub(super) fn probe() -> ToolProbe {
-    Arc::new(|record: JsonValue| {
-        async move {
-            // A probe that could not finish tells nothing.
-            tokio::task::spawn_blocking(move || seen(&record))
-                .await
-                .unwrap_or(Seen::Dark)
-        }
-        .boxed()
-    })
+    ToolProbe {
+        effect: EffectKind::Write,
+        look: Arc::new(|record: JsonValue| {
+            async move {
+                // A probe that could not finish tells nothing.
+                tokio::task::spawn_blocking(move || seen(&record))
+                    .await
+                    .unwrap_or(Seen::Dark)
+            }
+            .boxed()
+        }),
+    }
 }
 
 /// What the files of `record` show: every file holds the bytes the call

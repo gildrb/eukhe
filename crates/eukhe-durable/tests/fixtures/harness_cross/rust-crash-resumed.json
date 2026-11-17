@@ -780,10 +780,13 @@
 						{
 							"id": "tool:call-1",
 							"kind": "tool",
-							"what": "probe {\"target\":\"disk\"}",
-							"at": 1000000
+							"what": "probe: disk",
+							"at": 1000000,
+							"cause": "notRepeatSafe",
+							"settledRun": 0
 						}
-					]
+					],
+					"run": 0
 				},
 				"deltasSinceBase": 0
 			}

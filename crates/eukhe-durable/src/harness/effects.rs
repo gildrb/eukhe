@@ -1,19 +1,22 @@
-//! Exactly-once effects (spec O1-O10): the `eukhe.effects` document, the
-//! ledger of one conversation's effects whose outcome a restart could not
-//! tell.
+//! Exactly-once effects (spec O1-O13): the `eukhe.effects` document, the
+//! ledger of one conversation's steps whose outcome a restart could not
+//! tell and that were not safe to repeat.
 //!
 //! Every effect is journaled where its owner keeps it (a tool call in its
 //! task's checkpoints, a provider request in its generation's, a job in its
-//! node), and at a restart the owner asks the compiled core what to do
-//! with it (`eukhe_bend::rules::once`). An effect the core says to
-//! interrupt ended `unknown`: its owner reports it interrupted where the
-//! model reads it (a tool result, a notice) and, in the same commit, notes
-//! it here ([`note_unknown`]), so any client can list the effects nobody
-//! knows the outcome of ([`unknown_effects`]) and settle one after looking
-//! ([`resolve_unknown`]). The ledger is durable with the session and never
-//! drops an open effect. Clients read it ([`read_unknown_effects`]) and
-//! follow it ([`watch_unknown_effects`]); its vocabulary is the shared
-//! wire one (`eukhe_types::effects`).
+//! node), and at a restart the owner settles it itself (spec O13): it looks
+//! at the evidence the step declares (a write's files, a git command's
+//! refs, a job's exit record), runs again a step safe to repeat, and asks
+//! the compiled core (`eukhe_bend::rules::once`). A step the core says to
+//! interrupt ended `unknown` and is treated as not run: its owner tells the
+//! model where it reads it (a tool result, a notice) and, in the same
+//! commit, notes it here ([`note_unknown`]) under the run in flight
+//! ([`EffectsState::run`]), whose end-of-run report lists it once. Nothing
+//! waits on a person: a client may list the entries
+//! ([`unknown_effects`]) and correct one after looking
+//! ([`resolve_unknown`]). Clients read the ledger
+//! ([`read_unknown_effects`]) and follow it ([`watch_unknown_effects`]);
+//! its vocabulary is the shared wire one (`eukhe_types::effects`).
 
 use std::sync::Arc;
 
@@ -23,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-pub use eukhe_types::effects::{EffectKind, EffectResolution, UnknownEffect};
+pub use eukhe_types::effects::{EffectKind, EffectResolution, UnknownCause, UnknownEffect};
 
 use crate::documents::{ConversationDoc, DocDefinition};
 use crate::harness::Harness;
@@ -33,17 +36,22 @@ use crate::types::{
     LatestFork,
 };
 
-/// The resolved effects the ledger keeps for people to read; an open one
-/// is never dropped, whatever their number.
+/// The corrected entries the ledger keeps for people to read; an
+/// uncorrected one is never dropped, whatever their number.
 pub const RESOLVED_KEPT: usize = 64;
 
 /// The persisted kind of [`EFFECTS_DOC`].
 const EFFECTS_DOC_KIND: &str = "eukhe.effects";
 
-/// The ledger: the unknown effects, oldest first.
+/// The ledger: the steps treated as not run, oldest first, and the run of
+/// the root session in flight.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EffectsState {
     pub unknown: Vec<UnknownEffect>,
+    /// The root session's current run (0: none yet): a step noted now is
+    /// listed in that run's end-of-run report.
+    #[serde(default)]
+    pub run: u64,
 }
 
 /// The `eukhe.effects` document token.
@@ -65,9 +73,10 @@ fn index(at: usize) -> SessionResult<i64> {
     i64::try_from(at).map_err(|_| SessionError::error("An effect ledger index past i64"))
 }
 
-/// Note that a restart settled `effect` unknown, in the commit that
-/// reports it interrupted. An effect is noted once: a second note of its
-/// id changes nothing.
+/// Note that a restart treated `effect` as not run, in the commit that
+/// tells the model, under the run in flight ([`EffectsState::run`]), so
+/// that run's end-of-run report lists it. An effect is noted once: a
+/// second note of its id changes nothing.
 ///
 /// # Errors
 ///
@@ -77,30 +86,38 @@ pub async fn note_unknown(
     conversation_id: ConversationId,
     effect: &UnknownEffect,
 ) -> SessionResult<()> {
-    let unknown = tx
-        .doc(&EFFECTS_DOC, conversation_id)
-        .await?
-        .child("unknown")?;
-    let held: Vec<UnknownEffect> = from_json(&unknown.value()?)?;
-    if held.iter().any(|noted| noted.id == effect.id) {
+    let doc = tx.doc(&EFFECTS_DOC, conversation_id).await?;
+    let state: EffectsState = from_json(&doc.value()?)?;
+    if state.unknown.iter().any(|noted| noted.id == effect.id) {
         return Ok(());
     }
-    // The oldest resolved effect makes room; an open one stays.
-    let resolved = held
+    let unknown = doc.child("unknown")?;
+    // The oldest corrected entry makes room; an uncorrected one stays.
+    let resolved = state
+        .unknown
         .iter()
         .filter(|noted| noted.resolution.is_some())
         .count();
     if resolved >= RESOLVED_KEPT {
-        if let Some(oldest) = held.iter().position(|noted| noted.resolution.is_some()) {
+        if let Some(oldest) = state
+            .unknown
+            .iter()
+            .position(|noted| noted.resolution.is_some())
+        {
             unknown.splice(index(oldest)?, 1, Vec::<JsonValue>::new())?;
         }
     }
-    unknown.push([to_json(effect)?])?;
+    let noted = UnknownEffect {
+        settled_run: Some(state.run),
+        ..effect.clone()
+    };
+    unknown.push([to_json(&noted)?])?;
     Ok(())
 }
 
-/// Settle the open unknown effect `id` as `resolution`: the effect as
-/// resolved, or `None` when the ledger holds no open effect of that id.
+/// Correct the uncorrected entry `id` as `resolution` (optional: nothing
+/// waits for it): the entry as corrected, or `None` when the ledger holds
+/// no uncorrected entry of that id.
 ///
 /// # Errors
 ///
