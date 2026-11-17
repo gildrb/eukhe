@@ -121,20 +121,20 @@ change_rows() {
 }
 
 # A docs-only change (the hooks skip rule): every path is a Markdown file
-# in docs/ or at the repository root. Crates embed their own Markdown, so
-# Markdown elsewhere counts as code.
+# at the repository root. Crates embed their own Markdown, so Markdown
+# elsewhere counts as code.
 docs_only() {
   local path any=0
   while IFS= read -r path; do
     [[ -z "${path}" ]] && continue
     any=1
-    [[ "${path}" == *.md && ( "${path}" != */* || "${path}" == docs/* ) ]] || return 1
+    [[ "${path}" == *.md && "${path}" != */* ]] || return 1
   done
   [[ ${any} -eq 1 ]]
 }
 
 # A path no crate builds or tests from: the gate tooling, the GitHub and Nix
-# files, the agent rules, the docs (docs/, spec/, and the root's
+# files, the agent rules, the docs (spec/, and the root's
 # PHILOSOPHY.md and SECURITY.md), the laws and proofs (the proofs and laws
 # lock gates check them, spec/'s Bend files included), and site/ (the
 # website: no gate runs on it; `make site-check` is its own check).
@@ -145,7 +145,7 @@ outside_crates() {
     .github/scripts/ci_* | .github/scripts/test_ci_* | .github/scripts/bend_proofs.py | \
       .github/scripts/test_bend_proofs.py) return 0 ;;
     .github/scripts/*) return 1 ;;
-    "" | .github/* | nix/* | docs/* | spec/* | .config/nextest.toml | mise.toml | \
+    "" | .github/* | nix/* | spec/* | .config/nextest.toml | mise.toml | \
       .pre-commit-config.yaml | .gitleaks.toml | AGENTS.md | PHILOSOPHY.md | SECURITY.md | \
       Makefile | flake.nix | flake.lock | \
       LAWS.bend | PROOF.bend | LAWS.lock | laws/* | proof/* | site/*) return 0 ;;
@@ -183,7 +183,7 @@ select_crates() {
     return 0
   fi
   if cut -f1,2 <<<"${rows}" | tr '\t' '\n' | docs_only; then
-    echo "docs-only change (Markdown in docs/ or at the root)"
+    echo "docs-only change (Markdown at the root)"
     return 0
   fi
   while IFS=$'\t' read -r path old; do

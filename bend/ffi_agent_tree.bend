@@ -1,6 +1,6 @@
 # ffi_agent_tree: the entry of the compiled Bend core for the decisions of
 # the binary agent tree and its help leaves (bend/agent_tree.bend,
-# bend/agent_crown.bend; design docs/internals/agent-tree.md). Grammar:
+# bend/agent_crown.bend; requirements T1-T16 of spec/README.md). Grammar:
 # crates/eukhe-bend/WIRE.md.
 #
 #   Lim      a tag: 0 Unlimited | 1 then the value (Nat)

@@ -2,7 +2,6 @@
 # without the crown's code (bend/agent_crown.bend). The laws of area
 # agent_crown (laws/agent_crown.bend) state T14 of the code with the
 # helpers below. A spec: the shipped code never calls it.
-# docs/internals/agent-tree.md (Help leaves) is the design.
 #
 # T14: writers form the binary tree (T1-T11); a running node may ask a
 #      read-only helper (help(task)): an extra leaf with no write scope
