@@ -1178,10 +1178,10 @@ async fn seed_checks(
 }
 
 /// The create config's autonomous flags on the main conversation (TS
-/// `createAgentSession` parity, the rpc startup seed's rule): enable with
-/// the given limits (the turn, token and time limits on the session's
-/// budget) unless the session already runs autonomously (a reopened
-/// session keeps its state).
+/// `createAgentSession` parity, the rpc startup seed's rule): turn the run
+/// on with its checks and the limits its removed options ask unless the
+/// session already runs autonomously (a reopened session keeps its
+/// state).
 async fn enable_autonomous(
     hosted: &HostedSession,
     config: &AgentAutonomousConfig,
@@ -1199,6 +1199,7 @@ async fn enable_autonomous(
             &hosted.deps().budget,
             main.id(),
             config.clone(),
+            &hosted.deps().cwd,
             cx,
         )
         .await?;

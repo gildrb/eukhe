@@ -4635,3 +4635,14 @@ import ./proof/work_list/work_list_entry_reads.bend as PWorkListEntryReads
 import ./proof/work_list/work_list_entry_exact.bend as PWorkListEntryExact
 import ./proof/work_list/work_list_entry_refuses.bend as PWorkListEntryRefuses
 import ./proof/work_list/work_list_entry_example.bend as PWorkListEntryExample
+import ./proof/autonomous/base.bend as LAAutonomous
+import ./proof/autonomous/autonomous_claim_end_stops.bend as PAutonomousClaimEndStops
+import ./proof/autonomous/autonomous_continues_iff.bend as PAutonomousContinuesIff
+import ./proof/autonomous/autonomous_entry_answers.bend as PAutonomousEntryAnswers
+import ./proof/autonomous/autonomous_entry_example.bend as PAutonomousEntryExample
+import ./proof/autonomous/autonomous_entry_left_over.bend as PAutonomousEntryLeftOver
+import ./proof/autonomous/autonomous_entry_malformed_exact.bend as PAutonomousEntryMalformedExact
+import ./proof/autonomous/autonomous_example.bend as PAutonomousExample
+import ./proof/autonomous/autonomous_holds_iff.bend as PAutonomousHoldsIff
+import ./proof/autonomous/autonomous_off_iff.bend as PAutonomousOffIff
+import ./proof/autonomous/autonomous_short_stops.bend as PAutonomousShortStops

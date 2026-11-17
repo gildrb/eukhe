@@ -30,7 +30,9 @@ use super::children::worker_session_command;
 use super::deps::SessionShape;
 use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
-use super::goals::{autonomous_state, budget_report, set_autonomous, AutonomousChange};
+use super::goals::{
+    autonomous_state, budget_report, set_autonomous, set_run_limits, AutonomousChange,
+};
 use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
@@ -48,6 +50,7 @@ use crate::slash_command_args::{
 use eukhe_bend::rules::slash_args::{AutoName, AutoVia};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_types::acceptance::{owner_checks, AcceptanceState, CheckSpec};
+use eukhe_types::budget::{BudgetDimension, LimitValue, RunLimits};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::workflow::WorkflowSize;
 
@@ -659,10 +662,11 @@ async fn execute_accept(
 /// action it maps to.
 const GOAL_REMOVED: &str = "/goal is removed: use /auto";
 
-/// `/auto`: status, on (with limits that go on the session's budget), off,
-/// or a task: on, then the task submitted as the user's message. Each
-/// appends the `autonomous_status` row; typed as `/goal`, the
-/// [`GOAL_REMOVED`] row comes first.
+/// `/auto`: status, on (the run's checks and the limits its removed
+/// options ask, which go on the session's budget), off, or a task: on,
+/// then the task submitted as the user's message (`--budget N`: the run's
+/// token limit). Each appends the `autonomous_status` row; typed as
+/// `/goal`, the [`GOAL_REMOVED`] row comes first.
 async fn execute_auto(
     session: &EukheSession,
     conversation: &Conversation,
@@ -682,25 +686,27 @@ async fn execute_auto(
     let harness = session.harness();
     let budget = session.budget();
     let id = conversation.id();
+    let cwd = &session.deps().cwd;
     match parsed.command? {
         AutonomousCommand::On { config } => {
             let status =
-                set_autonomous(harness, &budget, id, AutonomousChange::On(config), cx).await?;
+                set_autonomous(harness, &budget, id, AutonomousChange::On(config), cwd, cx).await?;
             outcome.autonomous = Some(status);
             Ok(())
         }
         AutonomousCommand::Off => {
-            let status = set_autonomous(harness, &budget, id, AutonomousChange::Off, cx).await?;
+            let status =
+                set_autonomous(harness, &budget, id, AutonomousChange::Off, cwd, cx).await?;
             outcome.autonomous = Some(status);
             Ok(())
         }
         AutonomousCommand::Task { text, token_budget } => {
-            let config = AgentAutonomousConfig {
-                max_tokens: token_budget,
-                ..AgentAutonomousConfig::default()
-            };
+            let limits = RunLimits::default()
+                .with(BudgetDimension::Tokens, token_budget.map(LimitValue::At));
+            set_run_limits(&budget, limits).await?;
+            let config = AgentAutonomousConfig::default();
             let status =
-                set_autonomous(harness, &budget, id, AutonomousChange::On(config), cx).await?;
+                set_autonomous(harness, &budget, id, AutonomousChange::On(config), cwd, cx).await?;
             outcome.autonomous = Some(status);
             conversation
                 .submit(

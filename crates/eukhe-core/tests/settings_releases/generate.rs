@@ -71,7 +71,7 @@ fn json_candidates(id: &str) -> Vec<Value> {
 }
 
 /// `document` with `value` at the dotted `id`.
-fn set(document: &mut Map<String, Value>, id: &str, value: Value) {
+pub fn set(document: &mut Map<String, Value>, id: &str, value: Value) {
     let mut path: Vec<&str> = id.split('.').collect();
     let Some(last) = path.pop() else { return };
     let mut at = document;

@@ -5,13 +5,14 @@
 
 use std::path::Path;
 
+use eukhe_bend::rules::autonomous;
 use eukhe_bend::rules::verify::{self, Actor, Label, Op};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckSpec,
+    owner_checks, AcceptanceCheck, AcceptanceLabel, AcceptanceSeed, AcceptanceState, CheckSpec,
 };
 
 use super::docs::{AcceptanceDoc, ACCEPTANCE_DOC};
@@ -277,6 +278,91 @@ pub async fn seed_acceptance(
     }
     set_acceptance(harness, conversation_id, specs, seed.max_returns, cwd, cx).await?;
     Ok(true)
+}
+
+/// What the checks of `conversation_id` did with the final answer of
+/// generation `task_id`, for the autonomous rule
+/// (`eukhe_bend::rules::autonomous`): none; the claim went back to the
+/// worker; the claim ended with a label (now, or already on this state).
+/// The verifier runs before the autonomous run at a final answer
+/// (`super::extension`), so its record of this answer is there.
+///
+/// # Errors
+///
+/// Read failures.
+pub(crate) async fn checks_at(
+    reader: &(impl DocumentReader + ?Sized),
+    conversation_id: ConversationId,
+    task_id: eukhe_durable::types::TaskId,
+    cx: &Context,
+) -> SessionResult<autonomous::Checks> {
+    let Some(doc) = stored(reader, conversation_id, cx).await? else {
+        return Ok(autonomous::Checks::Unchecked);
+    };
+    if doc.checks.is_empty() {
+        return Ok(autonomous::Checks::Unchecked);
+    }
+    let returned = doc
+        .yield_record
+        .as_ref()
+        .filter(|record| record.task_id == task_id)
+        .is_some_and(|record| record.r#continue.is_some());
+    Ok(match (returned, &doc.last_end) {
+        (false, Some(end)) => autonomous::Checks::Ended(core_label(end.label)),
+        // A claim went back, or the answer was no claim the verifier
+        // judged: the run adds nothing of its own.
+        (true, _) | (false, None) => autonomous::Checks::Returned,
+    })
+}
+
+/// The compiled core's label of `label`.
+fn core_label(label: AcceptanceLabel) -> Label {
+    match label {
+        AcceptanceLabel::Verified => Label::Verified,
+        AcceptanceLabel::Failed => Label::Failed,
+        AcceptanceLabel::Unverified => Label::Unverified,
+        AcceptanceLabel::ChecksPassedUnconfined => Label::Passed,
+    }
+}
+
+/// The checks an autonomous run starts with, as its owner: the current
+/// checks plus the commands of `added` (the removed gates), else, when the
+/// run has no check at all, the intent check (the judge of whether the
+/// conversation's asks are met), so every final answer of the run is a
+/// claim the checks judge. `max_returns` replaces the cap of returns in a
+/// row when given. Checks already held are kept with their verdicts when
+/// nothing changes.
+///
+/// # Errors
+///
+/// As [`set_acceptance`].
+pub(crate) async fn autonomous_checks(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    added: Vec<CheckSpec>,
+    max_returns: Option<u64>,
+    cwd: &Path,
+    cx: &Context,
+) -> SessionResult<()> {
+    let current: Vec<CheckSpec> = stored(harness, conversation_id, cx)
+        .await?
+        .unwrap_or_default()
+        .checks
+        .into_iter()
+        .map(|check| check.spec)
+        .collect();
+    let fresh: Vec<CheckSpec> = added
+        .into_iter()
+        .filter(|spec| !current.contains(spec))
+        .collect();
+    let specs = match (current.is_empty(), fresh.is_empty()) {
+        (true, true) => owner_checks(Vec::new(), true),
+        (true, false) => owner_checks(fresh, true),
+        (false, true) if max_returns.is_none() => return Ok(()),
+        (false, _) => current.into_iter().chain(fresh).collect(),
+    };
+    set_acceptance(harness, conversation_id, specs, max_returns, cwd, cx).await?;
+    Ok(())
 }
 
 /// What a claim of "done" met.

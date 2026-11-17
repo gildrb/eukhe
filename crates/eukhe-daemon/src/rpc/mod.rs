@@ -218,7 +218,15 @@ async fn seed_startup_state(
     }
     if let Some(config) = autonomous_config {
         if !autonomous_state(opened.harness(), main, &cx).await?.enabled {
-            configure_autonomous(opened.harness(), &budget, main, config, &cx).await?;
+            configure_autonomous(
+                opened.harness(),
+                &budget,
+                main,
+                config,
+                &opened.deps().cwd,
+                &cx,
+            )
+            .await?;
         }
     }
     Ok(())

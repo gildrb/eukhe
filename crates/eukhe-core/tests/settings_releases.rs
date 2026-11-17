@@ -9,6 +9,8 @@
 //! [`the_current_schema_is_stored`] until its documents are stored, and
 //! fails [`every_value_an_earlier_schema_accepted_loads_with_its_effect`]
 //! until `settings/migrate.rs` maps each value earlier schemas accepted.
+//! A setting the current build no longer declares has the effect of a
+//! retired one: its value loads with no error and is named retired.
 //! Store the current schema with
 //! `EUKHE_BLESS_SETTINGS=1 cargo test -p eukhe-core --test settings_releases`.
 
@@ -61,12 +63,33 @@ fn differences(name: &str, index: usize, case: &Value) -> Vec<String> {
         .as_object()
         .expect("the effective values")
         .iter()
-        .filter_map(|(id, then)| {
-            let now = registry().find(id).map(|decl| manager.cvars().value(decl));
-            (now.as_ref() != Some(then))
-                .then(|| format!("{name} document {index}: `{id}` was {then}, now {now:?}"))
+        .filter_map(|(id, then)| match registry().find(id) {
+            Some(decl) => {
+                let now = manager.cvars().value(decl);
+                (now != *then)
+                    .then(|| format!("{name} document {index}: `{id}` was {then}, now {now}"))
+            }
+            None => (!retired(id, then)).then(|| {
+                format!("{name} document {index}: `{id}` is neither declared nor retired")
+            }),
         });
     errors.chain(effects).collect()
+}
+
+/// Whether `value` at the dotted `id` loads alone with no settings error
+/// and named as a retired setting (the id, or a section holding it).
+fn retired(id: &str, value: &Value) -> bool {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut document = serde_json::Map::new();
+    generate::set(&mut document, id, value.clone());
+    let (errors, manager) = generate::load(dir.path(), &document);
+    errors.is_empty()
+        && manager.unnamed_retired().iter().any(|setting| {
+            id == setting.id
+                || id
+                    .strip_prefix(setting.id)
+                    .is_some_and(|rest| rest.starts_with('.'))
+        })
 }
 
 #[test]

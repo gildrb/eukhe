@@ -97,52 +97,21 @@ impl Diagnostic {
     }
 }
 
-/// Autonomous gate options, mirroring `runtimeAutonomousConfigFromArgs`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AutonomousGates {
-    pub commands: Vec<String>,
-    pub max_retries: Option<u32>,
-    pub timeout_ms: Option<u64>,
-}
-
-/// The autonomous configuration inferred from the CLI flags.
+/// The autonomous run the CLI flags ask: `--auto` (alias `--autonomous`)
+/// or any removed `--autonomous-*` flag turns it on; `returns` is the
+/// checks' return cap the removed `--autonomous-max-continuations` and
+/// `--autonomous-gate-retries` ask.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AutonomousConfig {
-    pub max_continuations: Option<u32>,
-    pub max_turns: Option<u32>,
-    pub max_tokens: Option<u64>,
-    pub timeout_ms: Option<u64>,
-    pub gates: Option<AutonomousGates>,
+    pub returns: Option<u32>,
 }
 
 impl AutonomousConfig {
-    /// Build the autonomous runtime config from parsed args; `None` when no
-    /// autonomous flag was given at all.
+    /// The autonomous run of parsed args; `None` when no autonomous flag
+    /// was given at all.
     pub fn from_args(args: &Args) -> Option<AutonomousConfig> {
-        let has_autonomous_options = args.autonomous
-            || args.autonomous_gates.is_some()
-            || args.autonomous_gate_retries.is_some()
-            || args.autonomous_gate_timeout_ms.is_some()
-            || args.autonomous_max_continuations.is_some()
-            || args.autonomous_max_turns.is_some()
-            || args.autonomous_max_tokens.is_some()
-            || args.autonomous_timeout_ms.is_some();
-        if !has_autonomous_options {
-            return None;
-        }
-        let has_gate_options = args.autonomous_gates.is_some()
-            || args.autonomous_gate_retries.is_some()
-            || args.autonomous_gate_timeout_ms.is_some();
-        Some(AutonomousConfig {
-            max_continuations: args.autonomous_max_continuations,
-            max_turns: args.autonomous_max_turns,
-            max_tokens: args.autonomous_max_tokens,
-            timeout_ms: args.autonomous_timeout_ms,
-            gates: has_gate_options.then(|| AutonomousGates {
-                commands: args.autonomous_gates.clone().unwrap_or_default(),
-                max_retries: args.autonomous_gate_retries,
-                timeout_ms: args.autonomous_gate_timeout_ms,
-            }),
+        args.autonomous.then_some(AutonomousConfig {
+            returns: args.autonomous_returns,
         })
     }
 }
@@ -184,14 +153,14 @@ pub struct Args {
     pub themes: Vec<String>,
     pub no_themes: bool,
     pub no_context_files: bool,
+    /// `--auto` / `--autonomous`, or a removed `--autonomous-*` flag.
     pub autonomous: bool,
-    pub autonomous_gates: Option<Vec<String>>,
-    pub autonomous_gate_retries: Option<u32>,
-    pub autonomous_gate_timeout_ms: Option<u64>,
-    pub autonomous_max_continuations: Option<u32>,
-    pub autonomous_max_turns: Option<u32>,
-    pub autonomous_max_tokens: Option<u64>,
-    pub autonomous_timeout_ms: Option<u64>,
+    /// The checks' return cap of the removed `--autonomous-max-continuations`
+    /// and `--autonomous-gate-retries`.
+    pub autonomous_returns: Option<u32>,
+    /// The time limit of each `--accept-cmd` check (the removed
+    /// `--autonomous-gate-timeout-ms`).
+    pub accept_cmd_timeout_ms: Option<u64>,
     /// `--wait-limit-ms`: how long print/json mode waits on background
     /// jobs and subagents after a turn ends.
     pub wait_limit_ms: Option<u64>,
@@ -318,6 +287,7 @@ pub(crate) const KNOWN_LONG_OPTIONS: &[&str] = &[
     "no-prompt-templates",
     "no-themes",
     "no-context-files",
+    "auto",
     "autonomous",
     "autonomous-gate",
     "autonomous-gate-retries",
@@ -541,50 +511,46 @@ pub fn parse_args(args: &[String]) -> Args {
                     "-nc is deprecated. Use --no-context-files.",
                 ));
             }
-            "--autonomous" => result.autonomous = true,
+            "--auto" | "--autonomous" => result.autonomous = true,
             "--autonomous-gate" => {
                 result.autonomous = true;
-                let value = require_value!(arg);
-                result
-                    .autonomous_gates
-                    .get_or_insert_with(Vec::new)
-                    .push(value);
+                result.accept_cmds.push(require_value!(arg));
+                result.diagnostics.push(Diagnostic::warning(
+                    "--autonomous-gate is deprecated. Use --accept-cmd.",
+                ));
             }
-            "--autonomous-gate-retries" => {
+            "--autonomous-gate-retries" | "--autonomous-max-continuations" => {
                 result.autonomous = true;
                 let value = require_value!(arg);
-                result.autonomous_gate_retries =
+                result.autonomous_returns =
                     parse_positive_u32(&value, arg, &mut result.diagnostics);
+                result.diagnostics.push(Diagnostic::warning(format!(
+                    "{arg} is deprecated. Use --accept-returns."
+                )));
             }
             "--autonomous-gate-timeout-ms" => {
                 result.autonomous = true;
                 let value = require_value!(arg);
-                result.autonomous_gate_timeout_ms =
+                result.accept_cmd_timeout_ms =
                     parse_positive_u64(&value, arg, &mut result.diagnostics);
+                result.diagnostics.push(Diagnostic::warning(
+                    "--autonomous-gate-timeout-ms is deprecated: it sets the time limit of each --accept-cmd check.",
+                ));
             }
-            "--autonomous-max-continuations" => {
+            "--autonomous-max-turns" | "--autonomous-max-tokens" | "--autonomous-timeout-ms" => {
                 result.autonomous = true;
+                let (dimension, replacement) = match arg {
+                    "--autonomous-max-turns" => (BudgetDimension::Requests, "--budget-requests"),
+                    "--autonomous-max-tokens" => (BudgetDimension::Tokens, "--budget-tokens"),
+                    _ => (BudgetDimension::Time, "--budget-time (90s, 10m, 2h)"),
+                };
                 let value = require_value!(arg);
-                result.autonomous_max_continuations =
-                    parse_positive_u32(&value, arg, &mut result.diagnostics);
-            }
-            "--autonomous-max-turns" => {
-                result.autonomous = true;
-                let value = require_value!(arg);
-                result.autonomous_max_turns =
-                    parse_positive_u32(&value, arg, &mut result.diagnostics);
-            }
-            "--autonomous-max-tokens" => {
-                result.autonomous = true;
-                let value = require_value!(arg);
-                result.autonomous_max_tokens =
-                    parse_positive_u64(&value, arg, &mut result.diagnostics);
-            }
-            "--autonomous-timeout-ms" => {
-                result.autonomous = true;
-                let value = require_value!(arg);
-                result.autonomous_timeout_ms =
-                    parse_positive_u64(&value, arg, &mut result.diagnostics);
+                if let Some(limit) = parse_positive_u64(&value, arg, &mut result.diagnostics) {
+                    result.budget = result.budget.with(dimension, Some(LimitValue::At(limit)));
+                }
+                result.diagnostics.push(Diagnostic::warning(format!(
+                    "{arg} is deprecated. Use {replacement}."
+                )));
             }
             "--wait-limit-ms" => {
                 let value = require_value!(arg);
@@ -1029,15 +995,15 @@ mod tests {
 
     #[test]
     fn positive_int_rejects_zero_and_text() {
-        let parsed = parse(&["--autonomous-max-turns", "0"]);
+        let parsed = parse(&["--autonomous-max-continuations", "0"]);
         assert_eq!(
             last_error(&parsed),
-            "--autonomous-max-turns must be a positive integer between 1 and u32::MAX (4294967295)"
+            "--autonomous-max-continuations must be a positive integer between 1 and u32::MAX (4294967295)"
         );
-        let parsed = parse(&["--autonomous-max-turns", "abc"]);
+        let parsed = parse(&["--autonomous-max-continuations", "abc"]);
         assert_eq!(
             last_error(&parsed),
-            "--autonomous-max-turns must be a positive integer between 1 and u32::MAX (4294967295)"
+            "--autonomous-max-continuations must be a positive integer between 1 and u32::MAX (4294967295)"
         );
     }
 
@@ -1045,14 +1011,70 @@ mod tests {
     fn positive_int_rejects_past_the_field_range() {
         // 2**32: the u32 flags reject it out loud instead of silently
         // truncating into the flag's u32 field.
-        let parsed = parse(&["--autonomous-max-turns", "4294967296"]);
+        let parsed = parse(&["--autonomous-max-continuations", "4294967296"]);
         assert_eq!(
             last_error(&parsed),
-            "--autonomous-max-turns must be a positive integer between 1 and u32::MAX (4294967295)"
+            "--autonomous-max-continuations must be a positive integer between 1 and u32::MAX (4294967295)"
         );
         // The u64 flags accept the same value.
-        let parsed = parse(&["--autonomous-timeout-ms", "4294967296"]);
-        assert_eq!(parsed.autonomous_timeout_ms, Some(4_294_967_296));
+        let parsed = parse(&["--autonomous-max-tokens", "4294967296"]);
+        assert_eq!(parsed.budget.tokens, Some(LimitValue::At(4_294_967_296)));
+    }
+
+    /// The removed `--autonomous-*` flags turn the run on and land on the
+    /// budget and the checks, each with a note naming its replacement.
+    #[test]
+    fn removed_autonomous_flags_are_aliases() {
+        let parsed = parse(&[
+            "--autonomous-max-turns",
+            "7",
+            "--autonomous-max-tokens",
+            "900",
+            "--autonomous-timeout-ms",
+            "60000",
+            "--autonomous-gate",
+            "make check",
+            "--autonomous-gate-retries",
+            "2",
+            "--autonomous-gate-timeout-ms",
+            "5000",
+        ]);
+        let notes: Vec<&str> = parsed
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+        assert_eq!(
+            (
+                parsed.autonomous,
+                parsed.budget,
+                parsed.accept_cmds.clone(),
+                parsed.autonomous_returns,
+                parsed.accept_cmd_timeout_ms,
+                notes,
+            ),
+            (
+                true,
+                RunLimits {
+                    requests: Some(LimitValue::At(7)),
+                    tokens: Some(LimitValue::At(900)),
+                    time_ms: Some(LimitValue::At(60_000)),
+                    ..RunLimits::default()
+                },
+                vec!["make check".to_owned()],
+                Some(2),
+                Some(5_000),
+                vec![
+                    "--autonomous-max-turns is deprecated. Use --budget-requests.",
+                    "--autonomous-max-tokens is deprecated. Use --budget-tokens.",
+                    "--autonomous-timeout-ms is deprecated. Use --budget-time (90s, 10m, 2h).",
+                    "--autonomous-gate is deprecated. Use --accept-cmd.",
+                    "--autonomous-gate-retries is deprecated. Use --accept-returns.",
+                    "--autonomous-gate-timeout-ms is deprecated: it sets the time limit of each --accept-cmd check.",
+                ],
+            )
+        );
+        assert!(parse(&["--auto"]).autonomous);
     }
 
     /// The five `--budget-*` flags are the limits the principal sets, each

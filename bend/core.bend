@@ -9,6 +9,7 @@ import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
+import ./ffi_autonomous.bend as ffi_autonomous
 import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_aws_text.bend as ffi_aws_text
@@ -384,6 +385,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work_list.ffi(input)
     case 464:
       ffi_headless_task.ffi(input)
+    case 465:
+      ffi_autonomous.ffi(input)
     case _:
       W.err("unknown entry")
 

@@ -622,16 +622,17 @@ fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
 }
 
 #[test]
-fn acp_auto_task_runs_the_task_and_its_continuations() {
-    // `/auto <task>` turns the run on and sends the task as the user's
-    // message: the run's continuations (the default three) run inside the
-    // same session/prompt request, the completion envelope carries the
-    // run's accounting, and the continuation limit settles the prompt with
-    // `max_turn_requests` instead of looping forever.
-    let script = json!({
-        "engine": "faux",
-        "responses": ["AUTO-PROGRESS", "STEP-TWO", "STEP-THREE", "WRAP-UP"],
-    });
+fn acp_goal_command_runs_the_auto_task_under_its_token_limit() {
+    // The removed `/goal --budget N <task>` is `/auto <task> --budget N`:
+    // the run turns autonomous, N is the token limit of the run's budget
+    // (not a goal's), and the task is the user's message. Its answer is a
+    // claim the intent check judges (the second scripted reply is the
+    // judge's); the claim passes, so the checks stop the run: end_turn.
+    let script = json!({ "engine": "faux", "responses": [
+        "GOAL-PROGRESS",
+        "PASS\n1. reply with exactly GOAL-PROGRESS: the reply",
+        "unused",
+    ] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
@@ -644,42 +645,54 @@ fn acp_auto_task_runs_the_task_and_its_continuations() {
 
     let prompt = client.request(
         "session/prompt",
-        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/auto reply with exactly: AUTO-PROGRESS" }] }),
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/goal --budget 90000 reply with exactly: GOAL-PROGRESS" }] }),
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
 
-    // The task's answer and the last continuation's both streamed (the
-    // faux pacing may split one answer into chunks, so the joined text
-    // carries the observable contract).
     let streamed: String = updates
         .iter()
         .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
         .collect();
-    assert!(streamed.contains("AUTO-PROGRESS"), "updates: {updates:?}");
-    assert!(streamed.contains("WRAP-UP"), "updates: {updates:?}");
-    let accounted = updates
-        .iter()
-        .map(|frame| &update_meta(frame)["autonomous"])
-        .rfind(|meta| !meta.is_null())
-        .expect("the run's accounting reached the surface");
-    assert_eq!(
-        (&accounted["enabled"], &accounted["continuationsUsed"]),
-        (&json!(true), &json!(3)),
-        "the run's accounting: {accounted}"
+    assert!(streamed.contains("GOAL-PROGRESS"), "updates: {updates:?}");
+    assert!(
+        updates
+            .iter()
+            .all(|update| update_meta(update)["goal"].is_null()),
+        "no goal: {updates:?}"
     );
+    let budget_tokens = updates
+        .iter()
+        .rev()
+        .find_map(|update| update_meta(update)["budget"]["limits"]["tokens"].as_u64());
+    assert_eq!(budget_tokens, Some(90_000), "updates: {updates:?}");
+    let autonomous = updates
+        .iter()
+        .rev()
+        .find_map(|update| {
+            let meta = &update_meta(update)["autonomous"];
+            (!meta.is_null()).then(|| meta.clone())
+        })
+        .expect("the run's accounting");
+    assert_eq!(autonomous["enabled"], true);
     assert_eq!(
         prompt_response["result"],
-        json!({ "stopReason": "max_turn_requests" })
+        json!({ "stopReason": "end_turn" }),
+        "{prompt_response}"
     );
 }
 
 #[test]
 fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
-    // `--autonomous-max-tokens 1` is the run's own soft limit: the first
-    // turn runs and spends more than one token, the run stops at its token
-    // limit between continuations, the completion envelope carries the
-    // autonomous accounting, and the stop reason is `max_tokens`.
-    let script = json!({ "engine": "faux", "responses": ["an answer"] });
+    // `--autonomous-max-tokens` (removed: the run has no limit of its own)
+    // is the token limit of the run's budget: 25,000 holds the first
+    // request with the final answer's reserve; its answer is continued,
+    // and the continuation is the final answer from the reserve. Without
+    // checks (cleared: the flag gives the run the intent check), the
+    // budget then stops the run: the
+    // completion envelope carries the autonomous accounting, and the budget
+    // short in tokens is the stop reason `max_tokens`.
+    let script =
+        json!({ "engine": "faux", "responses": ["an answer", "the final answer", "unused"] });
     let mut client = AcpChild::spawn(
         &[
             "--mode",
@@ -687,7 +700,7 @@ fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
             "--no-session",
             "--autonomous",
             "--autonomous-max-tokens",
-            "1",
+            "25000",
         ],
         &script,
     );
@@ -699,6 +712,12 @@ fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
         .as_str()
         .unwrap()
         .to_string();
+    let clear = client.request(
+        "session/prompt",
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/accept clear" }] }),
+    );
+    let (clear_response, _) = client.wait_response(clear, TIMEOUT);
+    assert_eq!(clear_response["result"]["stopReason"], "end_turn");
 
     let prompt = client.request(
         "session/prompt",
@@ -708,20 +727,22 @@ fn acp_autonomous_token_limit_maps_to_max_tokens_stop_reason() {
 
     let completion = updates
         .iter()
+        .rev()
         .find(|update| {
             let meta = &update["params"]["update"]["_meta"]["com.eukhe"];
             meta["phase"] == "event" && meta.get("autonomous").is_some_and(|v| !v.is_null())
         })
         .expect("an autonomous completion meta");
     let autonomous = &completion["params"]["update"]["_meta"]["com.eukhe"]["autonomous"];
-    assert_eq!(autonomous["enabled"], true);
-    assert_eq!(autonomous["turnsUsed"], 1);
+    assert_eq!(autonomous["enabled"], true, "{autonomous}");
+    assert_eq!(autonomous["continuationsUsed"], 1, "{autonomous}");
     let quiescence = &completion["params"]["update"]["_meta"]["com.eukhe"]["quiescence"];
     assert_eq!(quiescence["outstandingSubagents"], 0);
 
     assert_eq!(
         prompt_response["result"],
-        json!({ "stopReason": "max_tokens" })
+        json!({ "stopReason": "max_tokens" }),
+        "{prompt_response}"
     );
 }
 
@@ -761,15 +782,20 @@ fn acp_autonomous_disabled_reports_end_turn_without_accounting() {
 
 #[test]
 fn acp_daemon_attached_reports_autonomous_accounting_and_limit_stop_reason() {
-    // An autonomous run with --max-turns 1: the completion envelope carries
-    // the _meta.autonomous accounting (TS waitForHeadlessCompletion), the
-    // quiescence observation counts the remaining continuations, and the
-    // turn limit surfaces as max_turn_requests (TS acpStopReason).
+    // An autonomous run with the removed --max-turns 2 (a model-request
+    // limit of 2 on the run's budget) and no checks: the first answer is
+    // continued, the second is the final answer from the budget's reserve,
+    // and the budget stops the run. The completion envelope carries the
+    // _meta.autonomous accounting (TS waitForHeadlessCompletion), the
+    // quiescence observation has no continuation left (the run has no cap
+    // of its own), and the budget short in requests surfaces as
+    // max_turn_requests (TS acpStopReason).
     let mut client = AcpChild::spawn(
         &["--mode", "acp", "--no-session"],
         &json!({ "engine": "faux", "responses": [
-            "enabling the run",
-            "one turn runs, then the limit stops the run",
+            "the first answer",
+            "the final answer",
+            "unused",
         ] }),
     );
     let init = client.request("initialize", &initialize_params());
@@ -784,12 +810,12 @@ fn acp_daemon_attached_reports_autonomous_accounting_and_limit_stop_reason() {
         .as_str()
         .unwrap()
         .to_string();
-    // Turn on the run with a one-turn budget.
+    // Turn on the run with a two-request budget.
     let enable = client.request(
         "session/prompt",
         &json!({
             "sessionId": session_id,
-            "prompt": [{ "type": "text", "text": "/autonomous on --max-turns 1" }],
+            "prompt": [{ "type": "text", "text": "/autonomous on --max-turns 2" }],
         }),
     );
     let (enable_response, updates) = client.wait_response(enable, Duration::from_mins(2));
@@ -802,7 +828,17 @@ fn acp_daemon_attached_reports_autonomous_accounting_and_limit_stop_reason() {
     });
     let enabled_meta = enabled_meta.expect("the enabled run's accounting reached the surface");
     assert_eq!(enabled_meta["enabled"], true);
-    // The model turn: one turn runs, the max-turns limit stops the run.
+    // Turning the run on gave it the intent check: clear it.
+    let clear = client.request(
+        "session/prompt",
+        &json!({
+            "sessionId": session_id,
+            "prompt": [{ "type": "text", "text": "/accept clear" }],
+        }),
+    );
+    let (clear_response, _) = client.wait_response(clear, Duration::from_mins(2));
+    assert_eq!(clear_response["result"]["stopReason"], "end_turn");
+    // The model turn: one continuation, then the budget stops the run.
     let prompt = client.request(
         "session/prompt",
         &json!({
@@ -814,27 +850,22 @@ fn acp_daemon_attached_reports_autonomous_accounting_and_limit_stop_reason() {
     assert_eq!(
         prompt_response["result"],
         json!({ "stopReason": "max_turn_requests" }),
-        "the turn limit maps to the TS stop reason: {prompt_response}"
+        "the budget's request limit maps to the TS stop reason: {prompt_response}"
     );
-    let accounted = updates.iter().find_map(|update| {
+    let accounted = updates.iter().rev().find_map(|update| {
         let meta = &update["params"]["update"]["_meta"]["com.eukhe"]["autonomous"];
-        (meta["enabled"] == json!(true) && meta["turnsUsed"] == json!(1)).then(|| meta.clone())
+        (meta["enabled"] == json!(true)).then(|| meta.clone())
     });
     let accounted = accounted.expect("the limited turn's accounting reached the surface");
-    assert_eq!(accounted["continuationsUsed"], 0);
-    // The quiescence observation subtracts the run's own limits (TS
-    // quiescenceMeta): the named budget flag `--max-turns 1` makes the
-    // unnamed limits the JSON-safe unlimited sentinel (TS
-    // parseAutonomousCommand budget fill), so the remaining continuation
-    // slots are that sentinel minus the zero the stopped run consumed.
+    assert_eq!(accounted["continuationsUsed"], 1);
     let remaining = updates.iter().find_map(|update| {
         let quiescence = &update["params"]["update"]["_meta"]["com.eukhe"]["quiescence"];
         (!quiescence.is_null()).then(|| quiescence["remainingAutonomousContinuations"].clone())
     });
     assert_eq!(
         remaining,
-        Some(json!(9_007_199_254_740_991u64)),
-        "the run's unlimited continuation budget minus used"
+        Some(json!(0)),
+        "no continuation cap of the run's own"
     );
     let close = client.request("session/close", &json!({ "sessionId": session_id }));
     let (close_response, _) = client.wait_response(close, Duration::from_mins(1));

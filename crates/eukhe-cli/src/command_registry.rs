@@ -829,40 +829,10 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
     },
     OptionGroup {
         heading: "Autonomous options",
-        options: &[
-            (
-                "--autonomous",
-                "Continue until gates pass or a limit is reached",
-            ),
-            (
-                "--autonomous-gate <COMMAND>",
-                "Run a completion gate (repeatable)",
-            ),
-            (
-                "--autonomous-gate-retries <NUMBER>",
-                "Set positive retries per failed gate (default: 3)",
-            ),
-            (
-                "--autonomous-gate-timeout-ms <NUMBER>",
-                "Set positive per-gate timeout in ms (default: 300000)",
-            ),
-            (
-                "--autonomous-max-continuations <NUMBER>",
-                "Set positive follow-up limit (default: 3)",
-            ),
-            (
-                "--autonomous-max-turns <NUMBER>",
-                "Set positive assistant-turn limit (default: 12)",
-            ),
-            (
-                "--autonomous-max-tokens <NUMBER>",
-                "Set positive token limit (default: 80000)",
-            ),
-            (
-                "--autonomous-timeout-ms <NUMBER>",
-                "Set positive wall-clock limit in ms (default: 1800000)",
-            ),
-        ],
+        options: &[(
+            "--auto",
+            "Go on without a human until the checks pass or a limit is reached (alias: --autonomous)",
+        )],
     },
     OptionGroup {
         heading: "Help",
