@@ -578,6 +578,7 @@ fn verification_segment_shows_the_label() {
             evidence: String::new(),
             judged_at: 0,
         }),
+        strength: None,
     };
     let failed = AcceptanceState {
         label: AcceptanceLabel::Failed,

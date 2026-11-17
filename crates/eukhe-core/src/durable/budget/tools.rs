@@ -34,7 +34,7 @@ pub(super) const TOOL_OFFER: BudgetAmounts = BudgetAmounts {
 
 /// How a tool call came through the gate.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum ToolOutcome<T> {
+pub(crate) enum ToolOutcome<T> {
     /// It ran: its result.
     Ran(T),
     /// It did not run, or was stopped at its granted time: the tool error
@@ -48,7 +48,9 @@ impl BudgetGate {
     /// `run` the call under `cx` when granted; settle the one call. A
     /// budget with a deadline also cancels the call's context once its
     /// granted time passed. A session without a budget just runs the call.
-    pub(super) async fn gated_call<T, F, Fut>(
+    /// The verifier's breaks of a check's strength pass it too: each break
+    /// counts as one program run.
+    pub(crate) async fn gated_call<T, F, Fut>(
         self: &Arc<Self>,
         label: String,
         cx: Context,

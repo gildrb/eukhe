@@ -26,6 +26,7 @@ mod evidence;
 mod host;
 mod ops;
 mod report;
+mod strength;
 mod verifier;
 mod watch;
 mod workspace;
@@ -39,16 +40,20 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
 pub use command::format_acceptance_status;
-pub(crate) use command::{parse_accept_command, AcceptCommand, ACCEPT_USAGE};
+pub(crate) use command::{bend_check, parse_accept_command, AcceptCommand, ACCEPT_USAGE};
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
-pub(crate) use ops::{claim, Claimed};
+pub(crate) use ops::{claim, held_files, Claimed, HeldFile};
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;
 pub use watch::{watch_acceptance_updates, AcceptanceUpdates};
 
 use self::evidence::Gatherer;
 pub(crate) use self::evidence::{read_answer, ModelJudge};
+pub(crate) use self::strength::Breaker;
+use self::strength::MutantBreaker;
+#[cfg(test)]
+pub(crate) use self::strength::{Measurement, Probe};
 use self::verifier::Verifier;
 pub(crate) use self::workspace::workspace_files;
 use super::HostDeps;
@@ -74,23 +79,35 @@ pub const ACCEPTANCE_CUSTOM_TYPE: &str = "eukhe.acceptance";
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     acceptance_extension(
         deps.harness.clone(),
-        Arc::new(ShellGateRunner::new(deps.cwd.clone())),
-        Arc::new(ModelJudge {
-            harness: deps.harness.clone(),
-            models: deps.models.clone(),
-        }),
+        Services {
+            runner: Arc::new(ShellGateRunner::new(deps.cwd.clone())),
+            judge: Arc::new(ModelJudge {
+                harness: deps.harness.clone(),
+                models: deps.models.clone(),
+            }),
+            breaker: Arc::new(MutantBreaker {
+                budget: Arc::clone(&deps.budget),
+            }),
+        },
         deps.cwd.clone(),
         &deps.host_requests,
         Some(Arc::downgrade(deps)),
     )
 }
 
-/// [`extension`] over explicit services (the command runner and the judge
-/// are the seams the tests script).
+/// What the verifier works with: the runner of the checks' commands, the
+/// judge, and the breaker that measures a check's strength (the seams the
+/// tests script).
+pub(crate) struct Services {
+    pub(crate) runner: Arc<dyn GateCommandRunner>,
+    pub(crate) judge: Arc<dyn Judge>,
+    pub(crate) breaker: Arc<dyn Breaker>,
+}
+
+/// [`extension`] over explicit [`Services`].
 pub(crate) fn acceptance_extension(
     harness: HarnessCell,
-    runner: Arc<dyn GateCommandRunner>,
-    judge: Arc<dyn Judge>,
+    services: Services,
     cwd: std::path::PathBuf,
     host_requests: &HostRequestRegistry,
     deps: Option<Weak<HostDeps>>,
@@ -100,10 +117,11 @@ pub(crate) fn acceptance_extension(
         harness: harness.clone(),
         gatherer: Gatherer {
             harness,
-            runner,
-            judge,
+            runner: services.runner,
+            judge: services.judge,
             cwd,
         },
+        breaker: services.breaker,
         deps,
     };
     define_extension(Extension {

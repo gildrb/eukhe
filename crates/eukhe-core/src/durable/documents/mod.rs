@@ -27,6 +27,7 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{Extension, ToolExecutionApi};
 
 use self::contract::Function;
+use super::acceptance::HeldFile;
 use super::path_policy::{session_policy, DocumentsGate};
 use super::settings::EukheSettings;
 use super::{HostDeps, ShellApprovalSink};
@@ -68,9 +69,15 @@ impl DocumentsHost {
     /// policy, its auto set and its approval sink; each question's id
     /// starts with the id of `api`'s tool call (a kernel request without
     /// one: a fresh id).
-    fn gate(&self, workspace: &Path, api: Option<&dyn ToolExecutionApi>) -> DocumentsGate {
+    fn gate(
+        &self,
+        workspace: &Path,
+        api: Option<&dyn ToolExecutionApi>,
+        held: Vec<HeldFile>,
+    ) -> DocumentsGate {
         DocumentsGate {
-            policy: session_policy(&self.gate.agent_dir, &self.gate.settings, workspace),
+            policy: session_policy(&self.gate.agent_dir, &self.gate.settings, workspace, &held),
+            held,
             auto: super::shell::auto_set(&self.gate.settings),
             sink: self.gate.sink.clone(),
             call: api.map_or_else(

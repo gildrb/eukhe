@@ -8,12 +8,14 @@
 
 use std::path::PathBuf;
 
+use eukhe_bend::rules::strength::{self, Bar, Gauge, Mark};
 use eukhe_bend::rules::verify::{self, Slot, Verdict};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{LatestFork, TaskId};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceEnd, CheckResult, CheckVerdict, DEFAULT_MAX_RETURNS,
+    AcceptanceCheck, AcceptanceEnd, CheckResult, CheckVerdict, StrengthBar, StrengthMark,
+    DEFAULT_MAX_RETURNS,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +74,11 @@ pub(crate) struct AcceptanceDoc {
     /// set): its fingerprint is part of the state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<PathBuf>,
+    /// The git commit of the workspace when the checks were set: the
+    /// changed lines the strength measurement breaks are those of the
+    /// workspace against it. `None`: no git repository there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline: Option<String>,
 }
 
 impl Default for AcceptanceDoc {
@@ -86,6 +93,7 @@ impl Default for AcceptanceDoc {
             last_end: None,
             yield_record: None,
             workspace: None,
+            baseline: None,
         }
     }
 }
@@ -143,6 +151,38 @@ impl AcceptanceDoc {
         }
     }
 
+    /// The gauges of the checks (the owner's bar and the verifier's last
+    /// mark), as the compiled core reads them.
+    pub(crate) fn gauges(&self) -> Vec<Gauge> {
+        self.checks.iter().map(gauge_of).collect()
+    }
+
+    /// Take the gauges the compiled core answered for the verifier's
+    /// record of `mark` at `index`: only that check's mark may differ.
+    ///
+    /// # Errors
+    ///
+    /// The core's gauges do not match the checks (an inconsistent build).
+    pub(crate) fn adopt_mark(
+        &mut self,
+        next: &[Gauge],
+        index: usize,
+        mark: StrengthMark,
+    ) -> SessionResult<()> {
+        let mut marked = self.checks.clone();
+        if let Some(check) = marked.get_mut(index) {
+            check.strength = Some(mark);
+        }
+        let expected: Vec<Gauge> = marked.iter().map(gauge_of).collect();
+        if expected != next {
+            return Err(SessionError::error(format!(
+                "the compiled core answered strength marks that the session does not hold (check {index})"
+            )));
+        }
+        self.checks = marked;
+        Ok(())
+    }
+
     /// Take the acceptance the compiled core answered: its revision,
     /// claim and tries, and per slot an open one clears the check's
     /// result, the slot at `recorded`'s index takes that result, and every
@@ -190,4 +230,37 @@ impl AcceptanceDoc {
         self.tries = next.tries;
         Ok(())
     }
+}
+
+/// The gauge of one check: its bar, and its last mark.
+pub(crate) fn gauge_of(check: &AcceptanceCheck) -> Gauge {
+    Gauge {
+        bar: match check.spec.bar() {
+            StrengthBar::Exempt => Bar::Exempt,
+            StrengthBar::Waived => Bar::Waived,
+            StrengthBar::Needs(pct) => Bar::Needs {
+                pct: u64::from(pct),
+            },
+        },
+        mark: check.strength.as_ref().map_or(Mark::Unmeasured, mark_of),
+    }
+}
+
+/// A stored measurement as the compiled core reads it.
+pub(crate) fn mark_of(mark: &StrengthMark) -> Mark {
+    Mark::Measured {
+        caught: mark.caught,
+        ran: mark.ran,
+        planned: mark.planned,
+        at: mark.at,
+    }
+}
+
+/// The strength of `check` on the state `now`: the compiled core's.
+///
+/// # Errors
+///
+/// A compiled-core failure.
+pub(crate) fn strength_of(check: &AcceptanceCheck, now: u64) -> SessionResult<strength::Strength> {
+    strength::strength(now, gauge_of(check)).map_err(SessionError::other)
 }

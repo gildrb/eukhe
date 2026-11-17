@@ -29,6 +29,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
+use eukhe_types::acceptance::AcceptanceLabel;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::goal::{GoalState, GoalStatus};
@@ -521,13 +522,25 @@ async fn run_prompts(
     let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
     let exit = task_exit(opened, &conversation, exit, since, json_mode, cx).await?;
     // "Done" is a claim: with acceptance checks the run exits 0 only when
-    // each is confirmed on the final state (`laws/verify.bend`); the label
+    // each is confirmed on the final state (`laws/verify.bend`) and done is
+    // certified (`laws/strength.bend`): a run whose checks passed without
+    // being shown to catch broken code exits 3 (`UNJUDGED_CODE`). The label
     // goes to stderr in both modes.
     let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
     if !acceptance.checks.is_empty() {
-        eprintln!("{}", format_acceptance_status(&acceptance));
+        eprintln!("{}", format_acceptance_status(&acceptance)?);
     }
     let code = acceptance_exit_code(harness, conversation.id(), u64::from(exit.code), cx).await?;
+    if acceptance.label == AcceptanceLabel::ChecksPassedNotCertified
+        && code == u64::from(UNJUDGED_CODE)
+    {
+        eprintln!(
+            "eukhe: the checks passed but were not shown to catch broken code: exit {UNJUDGED_CODE}, the run counts as not done"
+        );
+        if json_mode {
+            println!("{}", serde_json::json!({ "type": "task_uncertified" }));
+        }
+    }
     Ok(i32::try_from(code).unwrap_or(1))
 }
 

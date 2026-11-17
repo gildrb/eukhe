@@ -15,6 +15,7 @@
 
 mod gates;
 
+pub(crate) use gates::run_gate_command;
 pub use gates::{
     should_autonomously_continue, ChildProcessResult, GateCommandRunner, ShellGateRunner,
 };

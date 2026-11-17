@@ -312,6 +312,10 @@ fn verification_segment(verification: Verification, theme: &Theme) -> Line {
                     AcceptanceLabel::ChecksPassedUnconfined.text()
                 ),
             ),
+            AcceptanceLabel::ChecksPassedNotCertified => (
+                ThemeColor::Warning,
+                AcceptanceLabel::ChecksPassedNotCertified.text().to_owned(),
+            ),
         }
     };
     vec![theme.fg(

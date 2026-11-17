@@ -5,7 +5,8 @@
 
 use std::path::Path;
 
-use eukhe_bend::rules::verify::{self, Actor, Label, Op};
+use eukhe_bend::rules::strength;
+use eukhe_bend::rules::verify::{self, Actor, Op};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -23,12 +24,13 @@ pub(crate) fn core_error(error: eukhe_bend::Error) -> SessionError {
     SessionError::other(error)
 }
 
-pub(crate) fn label_of(label: Label) -> AcceptanceLabel {
+pub(crate) fn label_of(label: strength::Label) -> AcceptanceLabel {
     match label {
-        Label::Verified => AcceptanceLabel::Verified,
-        Label::Failed => AcceptanceLabel::Failed,
-        Label::Unverified => AcceptanceLabel::Unverified,
-        Label::Passed => AcceptanceLabel::ChecksPassedUnconfined,
+        strength::Label::Verified => AcceptanceLabel::Verified,
+        strength::Label::Failed => AcceptanceLabel::Failed,
+        strength::Label::Unverified => AcceptanceLabel::Unverified,
+        strength::Label::Passed => AcceptanceLabel::ChecksPassedUnconfined,
+        strength::Label::Uncertified => AcceptanceLabel::ChecksPassedNotCertified,
     }
 }
 
@@ -61,10 +63,12 @@ pub(crate) async fn doc_parts(
 }
 
 /// `doc` as every surface reads it on the state `now`: its label is the
-/// compiled core's.
+/// compiled core's (verify's, not certified while a check was not shown
+/// to catch broken code on `now`).
 pub(crate) fn served(doc: &AcceptanceDoc, now: u64) -> SessionResult<AcceptanceState> {
+    let checked = verify::label(now, &doc.slots()).map_err(core_error)?;
     Ok(AcceptanceState {
-        label: label_of(verify::label(now, &doc.slots()).map_err(core_error)?),
+        label: label_of(strength::label(checked, now, &doc.gauges()).map_err(core_error)?),
         state: now,
         revision: doc.revision,
         checks: doc.checks.clone(),
@@ -104,10 +108,53 @@ pub(crate) async fn stored(
     read_doc(reader, &ACCEPTANCE_DOC, conversation_id, cx).await
 }
 
+/// A file an acceptance check protects: its real path, the path its owner
+/// named, and the check (from 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HeldFile {
+    pub(crate) real: std::path::PathBuf,
+    pub(crate) named: String,
+    pub(crate) check: usize,
+}
+
+/// The files the checks of `conversation_id` protect, in the workspace
+/// they judge (`cwd` when the doc names none): the worker's writes to them
+/// are refused (the documents tools refuse them outright; `bash` asks the
+/// user as for any protected path).
+///
+/// # Errors
+///
+/// Read failures.
+pub(crate) async fn held_files(
+    reader: &(impl DocumentReader + ?Sized),
+    conversation_id: ConversationId,
+    cwd: &Path,
+    cx: &Context,
+) -> SessionResult<Vec<HeldFile>> {
+    let Some(doc) = stored(reader, conversation_id, cx).await? else {
+        return Ok(Vec::new());
+    };
+    let workspace = doc.workspace.clone().unwrap_or_else(|| cwd.to_path_buf());
+    Ok(doc
+        .checks
+        .iter()
+        .enumerate()
+        .flat_map(|(index, check)| {
+            let workspace = &workspace;
+            check.protected.iter().map(move |file| HeldFile {
+                real: eukhe_types::path_policy::real_path(&workspace.join(&file.path)),
+                named: file.path.clone(),
+                check: index + 1,
+            })
+        })
+        .collect())
+}
+
 /// The exit code of a headless run of `conversation_id` whose own code is
-/// `base`: the compiled core's (`verify::exit`): `base` when every
-/// acceptance check is confirmed on the final state (also with no checks),
-/// else nonzero.
+/// `base`: the compiled core's (`strength::exit`): `base` when every
+/// acceptance check is confirmed on the final state and done is certified
+/// (also with no checks); 3 for a run of code 0 whose checks passed
+/// without being shown to catch broken code; else nonzero.
 ///
 /// # Errors
 ///
@@ -123,7 +170,7 @@ pub async fn acceptance_exit_code(
         .unwrap_or_default();
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     let now = doc_state(&conversation, &doc, cx).await?;
-    verify::exit(base, now, &doc.slots()).map_err(core_error)
+    strength::exit(base, now, &doc.slots(), &doc.gauges()).map_err(core_error)
 }
 
 /// Why a check is no check.
@@ -176,11 +223,13 @@ pub(crate) async fn assign(
                 spec,
                 protected,
                 result: None,
+                strength: None,
             }
         })
         .collect();
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     let workspace = cwd.to_path_buf();
+    let baseline = super::strength::baseline(cwd).await;
     let doc = conversation
         .commit(
             move |tx| async move {
@@ -206,6 +255,7 @@ pub(crate) async fn assign(
                 doc.last_end = None;
                 doc.yield_record = None;
                 doc.workspace = Some(workspace);
+                doc.baseline = baseline;
                 write_doc(&draft, &doc)?;
                 Ok(doc)
             },

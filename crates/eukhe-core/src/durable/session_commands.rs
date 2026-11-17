@@ -22,7 +22,7 @@ use eukhe_types::slash_commands::SlashCommandRegistry;
 use serde_json::{json, Value};
 
 use super::acceptance::{
-    acceptance_state, format_acceptance_status, parse_accept_command, set_acceptance,
+    acceptance_state, bend_check, format_acceptance_status, parse_accept_command, set_acceptance,
     AcceptCommand, ACCEPT_USAGE,
 };
 use super::children::worker_session_command;
@@ -71,6 +71,10 @@ pub enum SessionCommandError {
     /// `/accept` arguments that name no check.
     #[error("{ACCEPT_USAGE}")]
     AcceptUsage,
+    /// `/accept` named a check the workspace cannot carry (`/accept bend`
+    /// with no entry or no law).
+    #[error("{0}")]
+    Accept(String),
     /// The compiled core refused `/goal` or `/autonomous` arguments.
     #[error(transparent)]
     SlashArgs(#[from] SlashArgsRefusal),
@@ -701,14 +705,27 @@ async fn execute_accept(
             set_acceptance(harness, id, specs(&current), Some(max_returns), cwd, cx).await?
         }
         AcceptCommand::Add(check) => {
-            // The first check brings the intent judge; later ones keep
-            // whether it is there, and it stays last.
-            let all = specs(&current);
-            let intent = all.is_empty() || all.iter().any(is_intent);
-            let mut checks: Vec<CheckSpec> =
-                all.into_iter().filter(|spec| !is_intent(spec)).collect();
-            checks.push(check);
-            set_acceptance(harness, id, owner_checks(checks, intent), None, cwd, cx).await?
+            set_acceptance(
+                harness,
+                id,
+                with_check(specs(&current), check),
+                None,
+                cwd,
+                cx,
+            )
+            .await?
+        }
+        AcceptCommand::Bend { entry, strength } => {
+            let check = bend_check(cwd, &entry, strength).map_err(SessionCommandError::Accept)?;
+            set_acceptance(
+                harness,
+                id,
+                with_check(specs(&current), check),
+                None,
+                cwd,
+                cx,
+            )
+            .await?
         }
         AcceptCommand::Intent(on) => {
             let checks: Vec<CheckSpec> = specs(&current)
@@ -718,7 +735,7 @@ async fn execute_accept(
             set_acceptance(harness, id, owner_checks(checks, on), None, cwd, cx).await?
         }
     };
-    let text = format_acceptance_status(&state);
+    let text = format_acceptance_status(&state)?;
     outcome.acceptance = Some(state);
     append_rows(
         conversation,
@@ -726,6 +743,15 @@ async fn execute_accept(
         cx,
     )
     .await
+}
+
+/// The checks `all` with `check` added: the first check brings the intent
+/// judge; later ones keep whether it is there, and it stays last.
+fn with_check(all: Vec<CheckSpec>, check: CheckSpec) -> Vec<CheckSpec> {
+    let intent = all.is_empty() || all.iter().any(is_intent);
+    let mut checks: Vec<CheckSpec> = all.into_iter().filter(|spec| !is_intent(spec)).collect();
+    checks.push(check);
+    owner_checks(checks, intent)
 }
 
 /// `/autonomous`: status, on (with limits that go on the session's

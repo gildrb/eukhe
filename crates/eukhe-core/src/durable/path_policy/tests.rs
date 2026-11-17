@@ -146,6 +146,7 @@ fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
         call: "call".to_owned(),
         asked: AtomicU64::new(0),
         runtime: runtime.handle().clone(),
+        held: Vec::new(),
     };
     let locks = tempfile::tempdir().unwrap();
     let written = Documents::new(locks.path().to_path_buf(), None)
@@ -171,4 +172,54 @@ use read-only steps."
             false
         )
     );
+}
+
+/// A file an acceptance check protects belongs to the task's owner: the
+/// worker's documents write to it is refused even when the user's auto set
+/// lets workspace writes run, and the file keeps its bytes; another file of
+/// the workspace is written as before.
+#[test]
+fn a_write_to_a_file_a_check_protects_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().canonicalize().unwrap();
+    std::fs::write(ws.join("LAWS.bend"), "law a:\n").unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let gate = DocumentsGate {
+        policy: PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new()),
+        auto: AutoSet::new([ShellEffect::Read, ShellEffect::Write]),
+        sink: None,
+        call: "call".to_owned(),
+        asked: AtomicU64::new(0),
+        runtime: runtime.handle().clone(),
+        held: vec![HeldFile {
+            real: ws.join("LAWS.bend"),
+            named: "LAWS.bend".to_owned(),
+            check: 1,
+        }],
+    };
+    let locks = tempfile::tempdir().unwrap();
+    let documents = Documents::new(locks.path().to_path_buf(), None);
+    let written = documents
+        .write(&ws, "LAWS.bend", "", &gate, &eukhe_docs::Unwitnessed)
+        .map(|outcome| outcome.bytes)
+        .map_err(|error| match error {
+            WriteError::Refused { reason, .. } => reason.to_string(),
+            WriteError::IsDirectory { .. }
+            | WriteError::Changed { .. }
+            | WriteError::Unseen { .. }
+            | WriteError::Io { .. } => error.to_string(),
+        });
+    assert_eq!(
+        (written, std::fs::read_to_string(ws.join("LAWS.bend")).unwrap()),
+        (
+            Err("(write protected) LAWS.bend belongs to acceptance check 1: only the task's owner changes it".to_owned()),
+            "law a:\n".to_owned()
+        )
+    );
+    // Another file of the workspace is written as before.
+    assert!(documents
+        .write(&ws, "notes.txt", "text", &gate, &eukhe_docs::Unwitnessed)
+        .is_ok());
 }

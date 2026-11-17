@@ -28,6 +28,8 @@ mod rows;
 mod runs;
 mod tools;
 
+pub(crate) use tools::ToolOutcome;
+
 #[cfg(test)]
 mod notices_tests;
 #[cfg(test)]

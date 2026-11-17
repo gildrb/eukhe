@@ -836,6 +836,7 @@ async fn accept_sets_shows_and_clears_the_checks() {
         expect: 0,
         timeout_ms: None,
         protect: Vec::new(),
+        strength: None,
     };
     let judge_check = CheckSpec::Judge {
         condition: "the README names the flag".to_owned(),
@@ -875,7 +876,9 @@ async fn accept_sets_shows_and_clears_the_checks() {
             .map(|state| (state.revision, state.label, state.checks)),
         Some((4, AcceptanceLabel::Unverified, Vec::new()))
     );
-    let judged = "Acceptance: unverified (revision 3, returns 0 of 1).\n1. command `cargo test` (expect exit 0): not judged\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged";
+    // A command check shows its strength; the judges have none.
+    let unmeasured = "; strength: not measured on this state (needs 80 % of the breaks caught)";
+    let judged = format!("Acceptance: unverified (revision 3, returns 0 of 1).\n1. command `cargo test` (expect exit 0): not judged{unmeasured}\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged");
     assert_eq!(
         fixture.command_rows().await,
         vec![
@@ -888,21 +891,21 @@ async fn accept_sets_shows_and_clears_the_checks() {
             echo("/accept cmd cargo test"),
             result(
                 "/accept cmd cargo test",
-                "Acceptance: unverified (revision 1, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged\n2. intent: what the user's messages ask for now holds on the final state: not judged",
+                &format!("Acceptance: unverified (revision 1, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged{unmeasured}\n2. intent: what the user's messages ask for now holds on the final state: not judged"),
                 true
             ),
             echo("/accept judge the README names the flag"),
             result(
                 "/accept judge the README names the flag",
-                "Acceptance: unverified (revision 2, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged",
+                &format!("Acceptance: unverified (revision 2, returns 0 of 3).\n1. command `cargo test` (expect exit 0): not judged{unmeasured}\n2. judge: the README names the flag: not judged\n3. intent: what the user's messages ask for now holds on the final state: not judged"),
                 true
             ),
             echo("/accept returns 1"),
-            result("/accept returns 1", judged, true),
+            result("/accept returns 1", &judged, true),
             echo("/accept cmd"),
             failure("/accept cmd", ACCEPT_USAGE),
             echo("/accept status"),
-            result("/accept status", judged, true),
+            result("/accept status", &judged, true),
             echo("/accept clear"),
             result(
                 "/accept clear",

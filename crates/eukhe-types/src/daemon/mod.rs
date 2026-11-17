@@ -16,13 +16,14 @@ use crate::JsonMap;
 
 pub const DAEMON_PROTOCOL_NAME: &str = "eukhe.daemon";
 pub const DAEMON_PROTOCOL_VERSION: u64 = 7;
-/// Revision 31: the acceptance label (`acceptance_update`,
-/// `state.acceptance`, `get_acceptance`, `set_acceptance`) gains
-/// `checks_passed_unconfined`, the label of a result whose every check is
-/// confirmed while programs run unconfined; `verified` stays for confined
-/// runs and no run reaches it yet.
-pub const DAEMON_SCHEMA_REVISION: u64 = 31;
-pub const DAEMON_SCHEMA_ID: &str = "protocol-7-schema-31-556a78d5ef8d";
+/// Revision 32: the acceptance label gains `checks_passed_not_certified`
+/// (every check confirmed, but not shown to catch broken code); a command
+/// and an until check gain `strength` (the share of deliberate breaks it
+/// must catch, percent); each check gains `strength`, the verifier's last
+/// measurement (`caught`, `ran`, `planned`, `at`, `survivors`, `note`,
+/// `measuredAt`).
+pub const DAEMON_SCHEMA_REVISION: u64 = 32;
+pub const DAEMON_SCHEMA_ID: &str = "protocol-7-schema-32-6e4abce56683";
 /// The server capability that advertises `shutdown` with `ifIdle`: the
 /// supervisor stops only when every session is idle, and refuses a busy
 /// daemon with [`DaemonErrorInfo::DaemonBusy`]. A daemon without it does
@@ -206,7 +207,7 @@ mod tests {
     fn protocol_constants_match_ts() {
         assert_eq!(DAEMON_PROTOCOL_NAME, "eukhe.daemon");
         assert_eq!(DAEMON_PROTOCOL_VERSION, 7);
-        assert_eq!(DAEMON_SCHEMA_REVISION, 31);
-        assert_eq!(DAEMON_SCHEMA_ID, "protocol-7-schema-31-556a78d5ef8d");
+        assert_eq!(DAEMON_SCHEMA_REVISION, 32);
+        assert_eq!(DAEMON_SCHEMA_ID, "protocol-7-schema-32-6e4abce56683");
     }
 }
