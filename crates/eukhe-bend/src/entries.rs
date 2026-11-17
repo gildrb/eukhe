@@ -288,6 +288,8 @@ pub enum Entry {
     Fallback = 472,
     /// `bend/ffi_path_own.bend`: a call.
     PathOwn = 473,
+    /// `bend/ffi_autonomous.bend`: a call.
+    Autonomous = 474,
 }
 
 impl Entry {
@@ -434,6 +436,7 @@ impl Entry {
         Entry::GatewayReport,
         Entry::Fallback,
         Entry::PathOwn,
+        Entry::Autonomous,
     ];
 
     /// The id `bend/core.bend` dispatches on.

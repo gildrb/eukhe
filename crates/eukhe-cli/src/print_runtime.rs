@@ -1005,16 +1005,17 @@ async fn drive_prompts(
             }
         }
     });
-    // The CLI autonomous flags enable the run on the main conversation (no
-    // status row, as TS `createAgentSession({ autonomous })`) with its own
-    // limits; a run without flags keeps the session's state
-    // (`/autonomous` rewrites it live).
+    // The CLI autonomous flags turn the run on for the main conversation
+    // (no status row), with the intent check when no `--accept-*` check
+    // is given; a run without flags keeps the session's state (`/auto`
+    // rewrites it live).
     if let Some(autonomous) = &config.autonomous {
         configure_autonomous(
             harness,
             &session.budget(),
             conversation.id(),
             autonomous_runtime_config(autonomous),
+            &opened.cwd,
             cx,
         )
         .await?;

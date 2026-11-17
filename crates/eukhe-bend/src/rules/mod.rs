@@ -6,6 +6,7 @@ pub mod agent_tree;
 pub mod ai_text;
 pub mod arg_repair;
 pub mod attack;
+pub mod autonomous;
 pub mod autoresearch;
 pub mod aws_text;
 pub mod bound;

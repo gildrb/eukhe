@@ -3,20 +3,19 @@ use serde_json::Value;
 
 use super::*;
 use crate::settings::types::{
-    AutoRefineSettings, AutonomousLimitSetting, AutonomousSettings, BranchSummarySettings,
-    BudgetSettings, CompactionSettings, DirectorSettings, FactorySettings, FallbackChainsSettings,
-    GatewaySettings, ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode,
-    ModelRolesSettings, PrivacySettings, ProviderRetrySettings, ProviderWaitSettings,
-    ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
-    Settings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
-    TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
-    TransportSetting, TtsSettings, UndoSettings, UpdateSettings, WarningSettings,
+    AutoRefineSettings, BranchSummarySettings, BudgetSettings, CompactionSettings,
+    DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings, ImageSettings,
+    MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings, PrivacySettings,
+    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
+    RetryFailoverSettings, RetrySettings, RlmSettings, Settings, SignalGatewaySettings,
+    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
+    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, UndoSettings,
+    UpdateSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
 /// until it is filled here (and then declared in the table).
 fn populated() -> Settings {
-    let limit = || Some(AutonomousLimitSetting::Number(1.0));
     Settings {
         onboarding_shown: Some(true),
         onboarding_completed: Some(true),
@@ -113,12 +112,6 @@ fn populated() -> Settings {
         }),
         provider_backup_model: Some("m".into()),
         image_model: Some("m".into()),
-        autonomous: Some(AutonomousSettings {
-            max_continuations: limit(),
-            max_turns: limit(),
-            max_tokens: limit(),
-            timeout_ms: limit(),
-        }),
         directors: Some(DirectorSettings {
             stack_cap: Some(1),
             max_steps: Some(1),

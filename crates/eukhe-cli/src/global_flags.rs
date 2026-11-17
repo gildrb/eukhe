@@ -55,7 +55,7 @@ pub const PROMPT_RUN_FLAGS: [&str; 6] = [
 ];
 
 /// parseArgs-known long flags that take no separate value.
-const GLOBAL_BOOLEAN_FLAGS: [&str; 11] = [
+const GLOBAL_BOOLEAN_FLAGS: [&str; 12] = [
     "--help",
     "--version",
     "--continue",
@@ -64,6 +64,7 @@ const GLOBAL_BOOLEAN_FLAGS: [&str; 11] = [
     "--no-prompt-templates",
     "--no-themes",
     "--no-context-files",
+    "--auto",
     "--autonomous",
     "--verbose",
     "--offline",

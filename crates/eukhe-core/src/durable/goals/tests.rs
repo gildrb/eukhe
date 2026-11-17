@@ -1,11 +1,10 @@
 //! The goal extension on a real Harness with faux models: goal
 //! continuation and completion, durable counters across a reopen, the
-//! autonomous limits and gates, the goal failure at empty replies, the
-//! goal's and the autonomous run's own limits, the session's budget, and
-//! aborts.
+//! autonomous run (its checks, and the session's budget as its only
+//! limit), the goal failure at empty replies, the goal's own token
+//! budget, the session's budget, and aborts.
 
-use std::future::Future;
-use std::pin::Pin;
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
@@ -40,49 +39,21 @@ use tokio::sync::watch;
 use super::docs::{read_doc, AUTONOMOUS_DOC, GOAL_DOC};
 use super::{
     goal_state, goals_extension, resume_goal, set_autonomous, start_goal, watch_goal_updates,
-    AutonomousChange, AutonomousStop,
+    AutonomousChange,
 };
-use crate::autonomous::{
-    AgentAutonomousConfig, AgentAutonomousGateConfig, ChildProcessResult, GateCommandRunner,
-};
-use crate::durable::budget::{wrap_models_with_budget, BudgetGate};
+use crate::autonomous::{AgentAutonomousConfig, AutonomousStop};
+use crate::durable::acceptance::{acceptance_state, set_acceptance};
+use crate::durable::budget::{wrap_models_with_budget, BudgetGate, RunStart};
 use crate::durable::directors::{DirectorLimits, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::{GoalContextKind, GoalState, GoalStatus};
-use eukhe_types::budget::{BudgetLimits, BudgetReport};
+use eukhe_types::acceptance::CheckSpec;
+use eukhe_types::budget::{BudgetLimits, BudgetReport, RunKind, RunLimits};
 use eukhe_types::input_origin::{AutonomousNudge, InputOrigin};
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
-}
-
-/// Gate runs scripted in order; the workspace snapshot is unavailable, so a
-/// failed gate always re-runs.
-#[derive(Default)]
-struct ScriptedGates {
-    results: Mutex<Vec<ChildProcessResult>>,
-    commands: Mutex<Vec<String>>,
-}
-
-impl GateCommandRunner for ScriptedGates {
-    fn run_gate(
-        &self,
-        command: &str,
-        _timeout_ms: u64,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<ChildProcessResult>> + Send + '_>> {
-        self.commands
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(command.to_owned());
-        let mut results = self.results.lock().unwrap_or_else(PoisonError::into_inner);
-        let result = if results.is_empty() {
-            Err(anyhow::anyhow!("no scripted gate result"))
-        } else {
-            Ok(results.remove(0))
-        };
-        Box::pin(async move { result })
-    }
 }
 
 /// Models, registry, and host services that survive a close/reopen.
@@ -92,7 +63,6 @@ pub(crate) struct Setup {
     registry: Registry,
     pub(crate) cell: HarnessCell,
     requests: HostRequestRegistry,
-    gates: Arc<ScriptedGates>,
     /// The Director stack's limits each step reads.
     pub(crate) limits: Arc<Mutex<DirectorLimits>>,
     /// The session's budget: every model request passes it (none until a
@@ -100,6 +70,8 @@ pub(crate) struct Setup {
     pub(crate) budget: Arc<BudgetGate>,
     /// The agent directory of the budget's ledger.
     _agent_dir: tempfile::TempDir,
+    /// The session's working directory (the checks run there).
+    cwd: tempfile::TempDir,
 }
 
 pub(crate) fn setup() -> Setup {
@@ -125,7 +97,6 @@ pub(crate) fn setup_with(beside: impl FnOnce(Beside<'_>) -> Vec<Arc<Extension>>)
     let registry = create_registry();
     let cell = HarnessCell::default();
     let requests = HostRequestRegistry::default();
-    let gates = Arc::new(ScriptedGates::default());
     let limits = Arc::new(Mutex::new(DirectorLimits::default()));
     let read = Arc::clone(&limits);
     let limits_of: Arc<dyn Fn() -> DirectorLimits + Send + Sync> =
@@ -139,7 +110,6 @@ pub(crate) fn setup_with(beside: impl FnOnce(Beside<'_>) -> Vec<Arc<Extension>>)
         .install(goals_extension(
             cell.clone(),
             Arc::clone(&budget),
-            Arc::clone(&gates) as Arc<dyn GateCommandRunner>,
             limits_of,
             &requests,
             Vec::new(),
@@ -159,10 +129,10 @@ pub(crate) fn setup_with(beside: impl FnOnce(Beside<'_>) -> Vec<Arc<Extension>>)
         registry,
         cell,
         requests,
-        gates,
         limits,
         budget,
         _agent_dir: agent_dir,
+        cwd: tempfile::tempdir().expect("tempdir"),
     }
 }
 
@@ -250,6 +220,11 @@ impl Setup {
     /// The session budget's report.
     pub(crate) fn report(&self) -> Option<BudgetReport> {
         self.budget.report()
+    }
+
+    /// The session's working directory.
+    pub(crate) fn cwd(&self) -> &Path {
+        self.cwd.path()
     }
 }
 
@@ -723,6 +698,7 @@ async fn no_continuation_after_an_abort() {
         &setup.budget,
         root.id(),
         AutonomousChange::On(AgentAutonomousConfig::default()),
+        setup.cwd(),
         cx(),
     )
     .await
@@ -823,28 +799,74 @@ async fn withdrawing_goal_contexts_keeps_user_words_shaped_like_one() {
     harness.close(cx()).await.expect("close");
 }
 
+/// Turn the autonomous run on as its principal, then clear its checks
+/// (turning it on gives it the intent check): a run without checks.
+pub(crate) async fn autonomous_unchecked(
+    setup: &Setup,
+    harness: &Harness,
+    root: &Conversation,
+    config: AgentAutonomousConfig,
+) {
+    set_autonomous(
+        harness,
+        &setup.budget,
+        root.id(),
+        AutonomousChange::On(config),
+        setup.cwd(),
+        cx(),
+    )
+    .await
+    .expect("autonomous on");
+    set_acceptance(harness, root.id(), Vec::new(), None, setup.cwd(), cx())
+        .await
+        .expect("the checks clear");
+}
+
+/// AU1, AU5: turning the run on gives it the intent check, and puts no
+/// limit of its own anywhere: the session's budget stays as it was.
 #[tokio::test]
-async fn autonomous_runs_continue_until_their_continuation_limit() {
+async fn turning_an_autonomous_run_on_gives_it_the_intent_check() {
     let setup = setup();
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     let status = set_autonomous(
         &harness,
         &setup.budget,
         root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
-            max_continuations: Some(2),
-            max_turns: Some(10),
-            ..AgentAutonomousConfig::default()
-        }),
+        AutonomousChange::On(AgentAutonomousConfig::default()),
+        setup.cwd(),
         cx(),
     )
     .await
     .expect("autonomous on");
     assert!(status.enabled);
-    assert_eq!(status.limits.max_continuations, 2);
-    // The run's limits are its own: nothing goes on the session's budget.
-    assert_eq!(status.limits.max_turns, 10);
-    assert_eq!(status.budget, None);
+    assert_eq!((status.budget, setup.report()), (None, None));
+    let checks: Vec<CheckSpec> = acceptance_state(&harness, root.id(), cx())
+        .await
+        .expect("the checks read")
+        .checks
+        .into_iter()
+        .map(|check| check.spec)
+        .collect();
+    assert_eq!(checks, vec![CheckSpec::intent()]);
+    harness.close(cx()).await.expect("close");
+}
+
+/// AU3, AU4: an autonomous run without checks is continued with its
+/// prompt at each final answer while the session's budget admits work,
+/// and the budget stops it: the run counts no turn, token or
+/// continuation limit of its own.
+#[tokio::test]
+async fn an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it() {
+    let setup = setup();
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    setup
+        .budget
+        .set(BudgetLimits {
+            requests: Some(3),
+            ..BudgetLimits::default()
+        })
+        .expect("the budget is set");
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
     setup.faux.set_responses(vec![
         answer("a"),
         answer("b"),
@@ -870,14 +892,12 @@ async fn autonomous_runs_continue_until_their_continuation_limit() {
         .await
         .expect("read")
         .expect("exists");
-    assert_eq!(state.continuations_used, 2);
-    assert_eq!(state.last_stop, Some(AutonomousStop::MaxContinuations));
-    // The run counted its three turns; the session has no budget.
-    assert_eq!(state.turns_used, 3);
-    assert!(state.tokens_used > 0, "{state:?}");
-    assert_eq!(setup.report(), None);
+    assert_eq!(
+        (state.enabled, state.continuations_used, state.last_stop),
+        (true, 2, Some(AutonomousStop::Budget))
+    );
     assert_eq!(setup.faux.get_pending_response_count(), 1);
-    // The `/autonomous` row.
+    // The `/auto` row.
     let rows: Vec<_> = entries
         .iter()
         .filter(|entry| entry.kind == CUSTOM_ENTRY.kind())
@@ -923,163 +943,61 @@ fn missing_tool_call() -> FauxResponseStep {
     .into()
 }
 
-/// `--autonomous-max-turns 1` (the ACP `autonomous_limit` capture): the
-/// prompt's one answer is the run's one turn, and the run stops at
-/// `maxTurns` with no continuation and no other request. No side request
-/// and no budget is involved: the run counts its own turns.
+/// AU5: the removed `maxTurns` (`--autonomous-max-turns`) is the
+/// model-request limit of the run the principal starts next: the budget
+/// stops the run at it, with the run's final answer from the reserve, and
+/// no count of its own.
 #[tokio::test]
-async fn autonomous_max_turns_one_answers_once_and_stops() {
+async fn the_removed_max_turns_is_the_runs_request_limit() {
     let setup = setup();
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    set_autonomous(
+    autonomous_unchecked(
+        &setup,
         &harness,
-        &setup.budget,
-        root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
-            max_turns: Some(1),
-            ..AgentAutonomousConfig::default()
-        }),
-        cx(),
-    )
-    .await
-    .expect("autonomous on");
-    let seen = Saw::default();
-    setup
-        .faux
-        .set_responses(vec![seeing(&seen, "a river essay"), answer("unused")]);
-
-    submit(&root, "Write a 100-word essay about rivers.").await;
-    harness.wait_for_idle(cx()).await.expect("idle");
-
-    assert_eq!(user_origins(&entries(&root).await), vec![InputOrigin::User]);
-    let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
-        .await
-        .expect("read")
-        .expect("exists");
-    assert_eq!(
-        (state.turns_used, state.last_stop),
-        (1, Some(AutonomousStop::MaxTurns))
-    );
-    assert_eq!(
-        *seen.lock().unwrap_or_else(PoisonError::into_inner),
-        vec![(true, "Write a 100-word essay about rivers.".to_owned())]
-    );
-    assert_eq!(setup.report(), None);
-    assert_eq!(setup.faux.get_pending_response_count(), 1);
-    harness.close(cx()).await.expect("close");
-}
-
-/// `maxTurns` is soft, as in v0.10.67: the run counts each settled
-/// response of the agent, and checks the limit only between
-/// continuations, so a turn that makes more requests than the limit runs
-/// to its own final answer (with its tools), and the run then stops at
-/// `maxTurns` with no continuation.
-#[tokio::test]
-async fn autonomous_max_turns_lets_the_turn_that_crosses_it_finish() {
-    let setup = setup();
-    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    set_autonomous(
-        &harness,
-        &setup.budget,
-        root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
+        &root,
+        AgentAutonomousConfig {
             max_turns: Some(2),
             ..AgentAutonomousConfig::default()
-        }),
-        cx(),
-    )
-    .await
-    .expect("autonomous on");
-    let seen = Saw::default();
-    setup.faux.set_responses(vec![
-        missing_tool_call(),
-        missing_tool_call(),
-        seeing(&seen, "what is done"),
-        answer("unused"),
-    ]);
-
-    submit(&root, "go").await;
-    harness.wait_for_idle(cx()).await.expect("idle");
-
-    assert_eq!(user_origins(&entries(&root).await), vec![InputOrigin::User]);
-    let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
-        .await
-        .expect("read")
-        .expect("exists");
-    assert_eq!(
-        (state.turns_used, state.last_stop),
-        (3, Some(AutonomousStop::MaxTurns))
-    );
-    // The third request is the turn's own, with its tools and no notice.
-    assert_eq!(
-        *seen.lock().unwrap_or_else(PoisonError::into_inner),
-        vec![(true, String::new())]
-    );
-    assert_eq!(setup.report(), None);
-    assert_eq!(setup.faux.get_pending_response_count(), 1);
-    harness.close(cx()).await.expect("close");
-}
-
-#[tokio::test]
-async fn autonomous_gates_continue_on_failure_and_stop_on_pass() {
-    let setup = setup();
-    *setup
-        .gates
-        .results
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = vec![
-        ChildProcessResult {
-            status: Some(1),
-            stdout: "1 failed".to_owned(),
-            ..ChildProcessResult::default()
         },
-        ChildProcessResult {
-            status: Some(0),
-            ..ChildProcessResult::default()
-        },
-    ];
-    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    set_autonomous(
-        &harness,
-        &setup.budget,
-        root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
-            gates: Some(AgentAutonomousGateConfig {
-                commands: Some(vec!["make test".to_owned()]),
-                ..AgentAutonomousGateConfig::default()
-            }),
-            ..AgentAutonomousConfig::default()
-        }),
-        cx(),
     )
-    .await
-    .expect("autonomous on");
+    .await;
+    // The session's input path starts the run (none runs in this harness).
+    let started = setup
+        .budget
+        .start_run(RunStart {
+            kind: RunKind::Interactive,
+            set: RunLimits::default(),
+            presets: Vec::new(),
+            standing: None,
+        })
+        .expect("the run starts")
+        .expect("a root session's run");
+    assert_eq!(started.limits.requests, Some(2));
     setup
         .faux
-        .set_responses(vec![answer("try"), answer("fixed"), answer("unused")]);
+        .set_responses(vec![answer("a"), answer("b"), answer("unused")]);
 
     submit(&root, "go").await;
     harness.wait_for_idle(cx()).await.expect("idle");
 
-    let texts = user_texts(&entries(&root).await);
-    assert_eq!(texts.len(), 2, "{texts:?}");
-    assert!(texts[1].starts_with(
-        "[autonomous-continuation: gate-failed]\n\nAutonomous quality gate failed (attempt 1/3): `make test`"
-    ));
     assert_eq!(
-        *setup
-            .gates
-            .commands
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner),
-        vec!["make test".to_owned(), "make test".to_owned()]
+        user_origins(&entries(&root).await),
+        vec![
+            InputOrigin::User,
+            InputOrigin::Autonomous {
+                nudge: AutonomousNudge::Continuation,
+            },
+        ]
     );
     let state = read_doc(&harness, &AUTONOMOUS_DOC, root.id(), cx())
         .await
         .expect("read")
         .expect("exists");
-    assert_eq!(state.last_stop, Some(AutonomousStop::GatePassed));
-    assert_eq!(state.continuations_used, 1);
+    assert_eq!(
+        (state.continuations_used, state.last_stop),
+        (1, Some(AutonomousStop::Budget))
+    );
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
     harness.close(cx()).await.expect("close");
 }
 

@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn acp_daemon_attached_forwards_cli_session_options() {
     // --append-system-prompt and --skill land in the daemon worker's system
-    // prompt, and --autonomous-max-turns 1 stops the run.
+    // prompt; the turn's one answer ends it.
     // Outside the agent dir: only --skill loads it.
     let skill_home = tempfile::TempDir::new().unwrap();
     let skill_dir = skill_home.path().join("argv-skill");
@@ -26,11 +26,8 @@ fn acp_daemon_attached_forwards_cli_session_options() {
             "ACP_ARGV_MARKER",
             "--skill",
             &skill,
-            "--autonomous",
-            "--autonomous-max-turns",
-            "1",
         ],
-        &json!({ "engine": "faux", "responses": ["one turn, then the limit stops"] }),
+        &json!({ "engine": "faux", "responses": ["one turn, then the turn ends"] }),
     );
     let socket = client.socket.clone();
     let init = client.request("initialize", &initialize_params());
@@ -57,10 +54,7 @@ fn acp_daemon_attached_forwards_cli_session_options() {
         &json!({ "sessionId": new_response["result"]["sessionId"], "prompt": [{ "type": "text", "text": "say something" }] }),
     );
     let (turn_response, _) = client.wait_response(turn, Duration::from_mins(2));
-    assert_eq!(
-        turn_response["result"],
-        json!({ "stopReason": "max_turn_requests" })
-    );
+    assert_eq!(turn_response["result"], json!({ "stopReason": "end_turn" }));
     drop(client);
 }
 
