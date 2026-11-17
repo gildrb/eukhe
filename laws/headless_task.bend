@@ -135,6 +135,36 @@ law headless_task_exit_stands:
   for k: {SpT.asks(f) == False{} : Bool}
   {Ht.decide(f) == Ht.Verdict{Hx.code(SpT.cause_of(f)), Ht.Stands{}} : Ht.Verdict}
 
+# the code of headless_exit's exit
+def exit_code(v: Hx.Verdict) -> Nat:
+  match v:
+    case Hx.Verdict{n, c}:
+      n
+
+# the cause of headless_exit's exit
+def exit_cause(v: Hx.Verdict) -> Hx.Cause:
+  match v:
+    case Hx.Verdict{n, c}:
+      c
+
+# LAW headless_task_stands_with_exit_code (R2): for every run headless_exit
+# decided (any exit facts g), asked with the cause headless_exit gave, any
+# acted fact and any reading under which the task stands (not unfinished,
+# not unjudged, not waiting for the judge), the task's code is exactly the
+# code headless_exit gave for g
+# EXCLUDES: a failure headless_exit reported with code 1 turned into exit 0
+#   by the task core (a failed compaction, `8,F0,` answered `0,0,`), a
+#   code the task core reads from the cause by another table than
+#   headless_exit's exit
+law headless_task_stands_with_exit_code:
+  for +g: Hx.Facts
+  for +a: Bool
+  for +r: Ht.Report
+  for h: {SpT.unfinished(Ht.Facts{exit_cause(Hx.decide(g)), a, r}) == False{} : Bool}
+  for u: {SpT.unjudged(Ht.Facts{exit_cause(Hx.decide(g)), a, r}) == False{} : Bool}
+  for k: {SpT.asks(Ht.Facts{exit_cause(Hx.decide(g)), a, r}) == False{} : Bool}
+  {SpT.code_of(Ht.decide(Ht.Facts{exit_cause(Hx.decide(g)), a, r})) == exit_code(Hx.decide(g)) : Nat}
+
 # LAW headless_task_zero_only_when_finished (R3): the code is 0 exactly
 # when headless_exit's code is 0 and the run is neither unfinished, nor
 # unjudged, nor waiting for the judge

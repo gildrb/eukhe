@@ -4163,6 +4163,7 @@ import ./proof/headless_task/headless_task_entry_reads_only_requests.bend as PHe
 import ./proof/headless_task/headless_task_entry_refuses.bend as PHeadlessTaskEntryRefuses
 import ./proof/headless_task/headless_task_example.bend as PHeadlessTaskExample
 import ./proof/headless_task/headless_task_exit_stands.bend as PHeadlessTaskExitStands
+import ./proof/headless_task/headless_task_stands_with_exit_code.bend as PHeadlessTaskStandsWithExitCode
 import ./proof/headless_task/headless_task_incomplete_iff_unfinished.bend as PHeadlessTaskIncompleteIffUnfinished
 import ./proof/headless_task/headless_task_unacted_stands.bend as PHeadlessTaskUnactedStands
 import ./proof/headless_task/headless_task_unfinished_exits_one.bend as PHeadlessTaskUnfinishedExitsOne
