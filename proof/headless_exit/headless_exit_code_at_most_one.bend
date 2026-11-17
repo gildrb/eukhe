@@ -26,8 +26,6 @@ def hx.small(x: Hx.Cause) -> {Nat.is_le(Hx.code(x), 1n) == True{} : Bool}:
       {==}
     case Hx.CCompactionFailed{}:
       {==}
-    case Hx.CAutonomousFailed{}:
-      {==}
     case Hx.CBudgetLimited{}:
       {==}
     case Hx.CBudgetUnanswered{}:

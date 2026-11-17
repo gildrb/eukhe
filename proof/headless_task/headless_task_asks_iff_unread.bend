@@ -214,28 +214,6 @@ def HeadlessTask.headless_task_asks_iff_unread(f):
                   {==}
                 case Ht.RUnjudged{}:
                   {==}
-        case Hx.CAutonomousFailed{}:
-          match a:
-            case True{}:
-              match r:
-                case Ht.RUnasked{}:
-                  {==}
-                case Ht.RDone{}:
-                  {==}
-                case Ht.RLeft{}:
-                  {==}
-                case Ht.RUnjudged{}:
-                  {==}
-            case False{}:
-              match r:
-                case Ht.RUnasked{}:
-                  {==}
-                case Ht.RDone{}:
-                  {==}
-                case Ht.RLeft{}:
-                  {==}
-                case Ht.RUnjudged{}:
-                  {==}
         case Hx.CBudgetLimited{}:
           match a:
             case True{}:

@@ -1,6 +1,6 @@
 # the exit request has no count: its largest tags (the wait, a reason,
 # the primary entry), every flag set, and a 15-digit tag refused
-call T2,2,10,7,TTT
-call F2,2,10,7,FFF
-call F0,1,1,FFF
-refuse F{LONG},1,1,FFF
+call T2,2,10,7,TT
+call F2,2,10,7,FF
+call F0,1,1,FF
+refuse F{LONG},1,1,FF

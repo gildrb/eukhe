@@ -204,8 +204,6 @@ pub struct ExitFacts {
     pub primary: Primary,
     /// A compaction failed.
     pub compaction_failed: bool,
-    /// An autonomous turn failed.
-    pub autonomous_failed: bool,
     /// The agent's budget phase is wrap-up or exhausted and its last
     /// reply is its final answer from the reserve, delivered.
     pub budget_answered: bool,
@@ -223,7 +221,6 @@ pub enum ExitCause {
     Unfinished,
     SlashFailed,
     CompactionFailed,
-    AutonomousFailed,
     /// The budget ended the run after its final answer from the reserve.
     BudgetLimited,
     /// The budget ended the run before a final answer was delivered.
@@ -266,7 +263,6 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
             Primary::BudgetRefused => 7,
         })
         .bool(facts.compaction_failed)
-        .bool(facts.autonomous_failed)
         .bool(facts.budget_answered);
     let reply = call(Entry::HeadlessExit, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
@@ -274,7 +270,7 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
         at: 0,
         expected: "an exit code",
     })?;
-    let cause = match reader.tag_of(12, "an exit cause")? {
+    let cause = match reader.tag_of(11, "an exit cause")? {
         0 => ExitCause::Answered,
         1 => ExitCause::CommandFailed,
         2 => ExitCause::GaveUp,
@@ -284,9 +280,8 @@ pub fn exit(facts: &ExitFacts) -> Result<Exit, Error> {
         6 => ExitCause::Unfinished,
         7 => ExitCause::SlashFailed,
         8 => ExitCause::CompactionFailed,
-        9 => ExitCause::AutonomousFailed,
-        10 => ExitCause::BudgetLimited,
-        // `tag_of` answers a tag below 12: this is 11.
+        9 => ExitCause::BudgetLimited,
+        // `tag_of` answers a tag below 11: this is 10.
         _ => ExitCause::BudgetUnanswered,
     };
     reader.end()?;
@@ -306,9 +301,8 @@ impl ExitCause {
             ExitCause::Unfinished => request.tag(6),
             ExitCause::SlashFailed => request.tag(7),
             ExitCause::CompactionFailed => request.tag(8),
-            ExitCause::AutonomousFailed => request.tag(9),
-            ExitCause::BudgetLimited => request.tag(10),
-            ExitCause::BudgetUnanswered => request.tag(11),
+            ExitCause::BudgetLimited => request.tag(9),
+            ExitCause::BudgetUnanswered => request.tag(10),
         };
     }
 }
@@ -482,7 +476,6 @@ mod tests {
         run: RunEnd::Answered,
         primary: Primary::Answer,
         compaction_failed: false,
-        autonomous_failed: false,
         budget_answered: false,
     };
 
@@ -515,7 +508,6 @@ mod tests {
             run: RunEnd::Unanswered(Unanswered::ModelError),
             primary: Primary::ProviderError,
             compaction_failed: true,
-            autonomous_failed: true,
             budget_answered: true,
         };
         assert_eq!(exit(&facts).unwrap(), failed(ExitCause::CommandFailed));
@@ -588,23 +580,13 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_compaction_exits_one_before_an_autonomous_failure() {
+    fn a_failed_compaction_exits_one() {
         let facts = ExitFacts {
+            primary: Primary::Nothing,
             compaction_failed: true,
-            autonomous_failed: true,
             ..ANSWERED
         };
         assert_eq!(exit(&facts).unwrap(), failed(ExitCause::CompactionFailed));
-    }
-
-    #[test]
-    fn a_failed_autonomous_turn_exits_one() {
-        let facts = ExitFacts {
-            primary: Primary::Nothing,
-            autonomous_failed: true,
-            ..ANSWERED
-        };
-        assert_eq!(exit(&facts).unwrap(), failed(ExitCause::AutonomousFailed));
     }
 
     /// The budget ended the run after its final answer from the reserve:
@@ -760,7 +742,6 @@ mod tests {
             (ExitCause::Unfinished, 1),
             (ExitCause::SlashFailed, 1),
             (ExitCause::CompactionFailed, 1),
-            (ExitCause::AutonomousFailed, 1),
             (ExitCause::BudgetLimited, 0),
             (ExitCause::BudgetUnanswered, 1),
         ]

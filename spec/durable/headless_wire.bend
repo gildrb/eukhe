@@ -15,10 +15,10 @@
 #     Wait), the run (0 no run | 1 answered | 2 unanswered, then its
 #     reason: 0 model error .. 10 budget refused, in the order of Reason),
 #     the primary entry (0 nothing .. 7 budget refused, in the order of
-#     Primary), then compaction failed, autonomous failed and budget
-#     answered (a Bool each).
+#     Primary), then compaction failed and budget answered (a Bool
+#     each).
 # W4: an exit reply is the code (Nat), then the cause (0 answered ..
-#     11 budget unanswered, in the order of Cause; 3 run failed is
+#     10 budget unanswered, in the order of Cause; 3 run failed is
 #     followed by its reason).
 # W5: anything else is no request.
 
@@ -201,8 +201,8 @@ def w_primary(p: Hx.Primary, rest: String) -> String:
 # an exit request, then rest
 def w_exit_req(f: Hx.Facts, rest: String) -> String:
   match f:
-    case Hx.Facts{cf, w, run, p, c, a, ba}:
-      Wr.put_bool(cf, w_wait(w, w_run(run, w_primary(p, Wr.put_bool(c, Wr.put_bool(a, Wr.put_bool(ba, rest)))))))
+    case Hx.Facts{cf, w, run, p, c, ba}:
+      Wr.put_bool(cf, w_wait(w, w_run(run, w_primary(p, Wr.put_bool(c, Wr.put_bool(ba, rest))))))
 
 def w_cause(c: Hx.Cause, rest: String) -> String:
   match c:
@@ -224,12 +224,10 @@ def w_cause(c: Hx.Cause, rest: String) -> String:
       Wr.put_nat(7n, rest)
     case Hx.CCompactionFailed{}:
       Wr.put_nat(8n, rest)
-    case Hx.CAutonomousFailed{}:
-      Wr.put_nat(9n, rest)
     case Hx.CBudgetLimited{}:
-      Wr.put_nat(10n, rest)
+      Wr.put_nat(9n, rest)
     case Hx.CBudgetUnanswered{}:
-      Wr.put_nat(11n, rest)
+      Wr.put_nat(10n, rest)
 
 def w_verdict(v: Hx.Verdict, rest: String) -> String:
   match v:
@@ -332,24 +330,17 @@ def r_primary(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Primary>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_exit.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, a: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
+def r_exit.budget(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{ba, s}:
-      Wr.Got{Hx.Facts{cf, w, run, p, c, a, ba}, s}
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_exit.auto(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, c: Bool, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
-  match d:
-    case Wr.Got{a, s}:
-      r_exit.budget(cf, w, run, p, c, a, Wr.get_bool(s))
+      Wr.Got{Hx.Facts{cf, w, run, p, c, ba}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
 def r_exit.comp(cf: Bool, w: Hx.Wait, run: Hx.Run, p: Hx.Primary, d: Wr.Dec<Bool>) -> Wr.Dec<Hx.Facts>:
   match d:
     case Wr.Got{c, s}:
-      r_exit.auto(cf, w, run, p, c, Wr.get_bool(s))
+      r_exit.budget(cf, w, run, p, c, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
