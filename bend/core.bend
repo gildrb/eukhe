@@ -64,6 +64,7 @@ import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
+import ./ffi_irreversible.bend as ffi_irreversible
 import ./ffi_job.bend as ffi_job
 import ./ffi_job_notice.bend as ffi_job_notice
 import ./ffi_job_rewind.bend as ffi_job_rewind
@@ -388,6 +389,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_task.ffi(input)
     case 465:
       ffi_strength.ffi(input)
+    case 466:
+      ffi_irreversible.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case _:

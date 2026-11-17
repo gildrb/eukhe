@@ -4,3 +4,6 @@ call 1,2,{MAX},2,2,{MAX},2,
 call 2,{MAX},F
 call 2,{MAX},T
 refuse 2,{LONG},F
+# a step's verdict, its parts' own codes at the largest a flat item carries
+call 3,8,2,1,99999999999998,0,1,2,99999999999998,0,
+refuse 3,1,{LONG},

@@ -32,6 +32,7 @@ pub mod headless;
 pub mod infer_force;
 pub mod infer_guard;
 pub mod infer_threshold;
+pub mod irreversible;
 pub mod job_notice;
 pub mod kin;
 pub mod limits;

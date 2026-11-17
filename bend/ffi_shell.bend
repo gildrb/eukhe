@@ -1,11 +1,19 @@
-# ffi_shell: the approval gate of a shell step (bend/tools.bend part 4)
-# as an entry of the compiled Bend core (crates/eukhe-shell/src/run.rs,
+# ffi_shell: the shell step (bend/tools.bend part 4) as an entry of the
+# compiled Bend core (crates/eukhe-shell/src/run.rs,
 # crates/eukhe-core/src/durable/path_policy.rs through
 # crates/eukhe-bend/src/rules/shell.rs). Rust gathers the facts of a step:
-# the auto set and, per part of the step, its own effect codes and whether
-# it names a path that is or holds a secret; the model decides the step's
-# effects, whether it runs unasked, and what an answer does. A request
-# names its question (crates/eukhe-bend/WIRE.md is the grammar):
+# per part of the step, its own effect codes, whether it names a path
+# that is or holds a secret and whether it writes an own path; the model
+# decides the step's effects and whether it runs. A request names its
+# question (crates/eukhe-bend/WIRE.md is the grammar):
+#
+#   tag 3  verdict  the parts (one List<Nat> of bend/wire_flat.bend: each
+#                   part is [1 when it names a secret path else 0, 1 when
+#                   it writes an own path else 0, then its own codes])
+#                   -> the step's effects (List<Nat>, `pieces.effs`), then
+#                      0 (it runs) | 1 (it is refused): `verdict`
+#
+# The approval gate's questions stay for the callers that still ask them:
 #
 #   tag 0  step     the auto set (List<Nat>), the parts (one List<Nat> of
 #                   bend/wire_flat.bend: each part is [1 when it names a
@@ -35,6 +43,7 @@ type Req is Data:
   QStep{auto: List<&2, Nat>, parts: List<&2, Tl.Part>}
   QAllows{auto: List<&2, Nat>, effs: List<&2, Nat>}
   QAnswer{id: Nat, yes: Bool}
+  QVerdict{parts: List<&2, Tl.Piece>}
 
 # Parts
 # -----
@@ -79,6 +88,70 @@ def parts.flat(m: Maybe<&2, List<&2, List<&2, Nat>>>) -> Maybe<&2, List<&2, Tl.P
       None{}
     case Some{xss}:
       parts.of(xss)
+
+# a flag of a part: 0 is False, 1 is True, anything else spells nothing
+def flag.of(f: Nat) -> Maybe<&2, Bool>:
+  match f:
+    case 0n:
+      Some{False{}}
+    case 1n+g:
+      match g:
+        case 0n:
+          Some{True{}}
+        case 1n+h:
+          None{}
+
+def piece.mine(s: Bool, m: Maybe<&2, Bool>, own: List<&2, Nat>) -> Maybe<&2, Tl.Piece>:
+  match m:
+    case None{}:
+      None{}
+    case Some{w}:
+      Some{Tl.Piece{own, s, w}}
+
+def piece.secret(m: Maybe<&2, Bool>, xs: List<&2, Nat>) -> Maybe<&2, Tl.Piece>:
+  match m:
+    case None{}:
+      None{}
+    case Some{s}:
+      match xs:
+        case Nil{}:
+          None{}
+        case w <> own:
+          piece.mine(s, flag.of(w), own)
+
+# the piece an inner list of the flat parts spells: its two flags, then
+# its codes
+def piece.of(xs: List<&2, Nat>) -> Maybe<&2, Tl.Piece>:
+  match xs:
+    case Nil{}:
+      None{}
+    case f <> rest:
+      piece.secret(flag.of(f), rest)
+
+def pieces.cons(m: Maybe<&2, Tl.Piece>, ms: Maybe<&2, List<&2, Tl.Piece>>) -> Maybe<&2, List<&2, Tl.Piece>>:
+  match m:
+    case None{}:
+      None{}
+    case Some{p}:
+      match ms:
+        case None{}:
+          None{}
+        case Some{ps}:
+          Some{p <> ps}
+
+def pieces.of(xss: List<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Tl.Piece>>:
+  match xss:
+    case Nil{}:
+      Some{Nil{}}
+    case xs <> rest:
+      pieces.cons(piece.of(xs), pieces.of(rest))
+
+def pieces.flat(m: Maybe<&2, List<&2, List<&2, Nat>>>) -> Maybe<&2, List<&2, Tl.Piece>>:
+  match m:
+    case None{}:
+      None{}
+    case Some{xss}:
+      pieces.of(xss)
 
 # Requests
 # --------
@@ -135,6 +208,20 @@ def get_answer(r: W.Dec<Nat>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
+def get_verdict.pieces(m: Maybe<&2, List<&2, Tl.Piece>>, s: String) -> W.Dec<Req>:
+  match m:
+    case None{}:
+      W.Bad{}
+    case Some{ps}:
+      W.Got{QVerdict{ps}, s}
+
+def get_verdict(r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
+  match r:
+    case W.Got{ns, s}:
+      get_verdict.pieces(pieces.flat(Fl.unflat(ns)), s)
+    case W.Bad{}:
+      W.Bad{}
+
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
@@ -143,7 +230,9 @@ def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
       get_allows(get_ns(s))
     case 2n:
       get_answer(W.get_nat(s))
-    case 3n+u:
+    case 3n:
+      get_verdict(get_ns(s))
+    case 4n+u:
       W.Bad{}
 
 def get_req.go(r: W.Dec<Nat>) -> W.Dec<Req>:
@@ -166,6 +255,13 @@ def put_end(e: Tl.End, rest: String) -> String:
     case Tl.Denied{i}:
       W.put_nat(1n, W.put_nat(i, rest))
 
+def put_verdict(v: Tl.Verdict, rest: String) -> String:
+  match v:
+    case Tl.Runs{}:
+      W.put_nat(0n, rest)
+    case Tl.Refused{}:
+      W.put_nat(1n, rest)
+
 def answer.step(+auto: List<&2, Nat>, +effs: List<&2, Nat>) -> String:
   W.put_list(~Nat, ~W.put_nat, effs, W.put_bool(Tl.within(effs, auto), ""))
 
@@ -178,6 +274,8 @@ def answer(q: Req) -> String:
       W.put_bool(Tl.within(es, auto), "")
     case QAnswer{i, y}:
       put_end(Tl.Ran.end(Tl.gate(y, Tl.Step{i, Nil{}}, Tl.Ran{Nil{}, Tl.Finished{}})), "")
+    case QVerdict{+ps}:
+      W.put_list(~Nat, ~W.put_nat, Tl.pieces.effs(ps), put_verdict(Tl.verdict(ps), ""))
 
 def malformed() -> String:
   W.err("shell: malformed request")
