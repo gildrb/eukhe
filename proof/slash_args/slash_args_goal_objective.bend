@@ -12,4 +12,4 @@ import ../base/staging.bend as LStg
 import ./base.bend as LA
 
 def SlashArgs.slash_args_goal_objective(t, e, k, f):
-  Equal.trans(Sa.Goal, Sa.goal(t), Sa.goal.start(Sa.cut(t), t), SlashArgs.sa_verdict(t, None{}), LA.sab.goal_plain(t, e, k), Equal.trans(Sa.Goal, Sa.goal.start(Sa.cut(t), t), Sa.goal.objective(t, None{}), SlashArgs.sa_verdict(t, None{}), LA.sab.start_plain(t, f), LA.sab.obj(t, t, None{}, LA.sab.trim_edge(t, e), e)))
+  Equal.trans(Sa.Auto, Sa.goal(t), Sa.goal.start(Sa.cut(t), t), SlashArgs.sa_verdict(t, None{}), LA.sab.goal_plain(t, e, k), Equal.trans(Sa.Auto, Sa.goal.start(Sa.cut(t), t), Sa.goal.objective(t, None{}), SlashArgs.sa_verdict(t, None{}), LA.sab.start_plain(t, f), LA.sab.obj(t, t, None{}, LA.sab.trim_edge(t, e), e)))

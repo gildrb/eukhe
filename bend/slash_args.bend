@@ -1,26 +1,29 @@
-# slash_args: the arguments of the session slash commands `/goal` and
-# `/autonomous`, and the quote-aware words of a command's argument text
-# (Rust: eukhe-bend rules/slash_args.rs; asked by eukhe-core
-# slash_command_args.rs for `/goal` and `/autonomous`, and by the prompt
-# templates for `$1`, `$@`). Whitespace is Unicode White_Space (Rust
-# `char::is_whitespace`, gateway_answer's `space`); a keyword compares
-# with the text's ASCII letters lowercased (no other char lowercases to
-# an ASCII letter of a keyword).
+# slash_args: the arguments of the session slash command `/auto` (its
+# alias `/autonomous`, and `/goal`, the removed command each of whose
+# answers is an `/auto` one), and the quote-aware words of a command's
+# argument text (Rust: eukhe-bend rules/slash_args.rs; asked by
+# eukhe-core slash_command_args.rs for `/auto`, by goals.rs for a goal
+# objective, and by the prompt templates for `$1`, `$@`). Whitespace is
+# Unicode White_Space (Rust `char::is_whitespace`, gateway_answer's
+# `space`); a keyword compares with the text's ASCII letters lowercased
+# (no other char lowercases to an ASCII letter of a keyword).
 #
 # Words: chars outside quotes split at whitespace; `"` or `'` opens a
 # quote that the same char closes, its chars kept (whitespace too); a
 # quoted word is a word even when empty.
 #
-# `/goal`: the trimmed text, lowercased, is empty or `status`, `clear` or
-# `stop`, `pause`, `resume`; else its first whitespace-separated piece may
-# be `--budget N` / `--token-budget N` (the value up to the next
-# whitespace, the objective after it) or `--budget=N` / `--token-budget=N`
-# (the objective after the piece); N must be digits without a leading 0,
-# at most 18446744073709551615; the objective, trimmed, must not be empty
-# and holds at most 4000 chars.
+# `/goal`: the trimmed text, lowercased, is empty or `status` (the
+# status), `clear`, `stop` or `pause` (off), `resume` (on, no option);
+# else its first whitespace-separated piece may be `--budget N` /
+# `--token-budget N` (the value up to the next whitespace, the objective
+# after it) or `--budget=N` / `--token-budget=N` (the objective after the
+# piece); N must be digits without a leading 0, at most
+# 18446744073709551615; the objective, trimmed, must not be empty and
+# holds at most 4000 chars; it is the task, with the token budget N.
 #
-# `/autonomous`: no words or `status` alone: the status; `on`, `enable`,
-# `enabled` then budget options; `off`, `disable`, `disabled` alone. An
+# `/auto`: no words or `status` alone: the status; `on`, `enable`,
+# `enabled` then budget options; `off`, `disable`, `disabled` alone; any
+# other first word: the task, the whole text as given. An
 # option is `--<flag>` or `--autonomous-<flag>`, its value after `=` or
 # the next word (not one opening `--`), never empty. Limits take digits
 # (`,` and `_` dropped) without a leading 0, at most 18446744073709551615,
@@ -210,56 +213,46 @@ def words(s: String) -> List<&2, String>:
 # /goal
 # -----
 
-# What `/goal` asks
-type Goal is Data:
-  GStatus{}
-  GClear{}
-  GPause{}
-  GResume{}
-  # the objective and the token budget's digits
-  GStart{objective: String, budget: Maybe<&2, String>}
-  GErr{text: String}
-
 def goal_usage() -> String:
   "Usage: /goal [--budget <tokens>] <objective>"
 
 def goal_bad_budget() -> String:
   "Goal token budget must be a positive integer."
 
-def goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Goal:
+def goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Auto:
   match empty:
     case True{}:
-      GErr{"Goal objective must not be empty."}
+      AErr{"Goal objective must not be empty."}
     case False{}:
       match long:
         case True{}:
-          GErr{"Goal objective must be at most 4000 characters."}
+          AErr{"Goal objective must be at most 4000 characters."}
         case False{}:
-          GStart{o, b}
+          ATask{o, b}
 
-# the objective o (trimmed) with the budget b
-def goal.objective(o: String, b: Maybe<&2, String>) -> Goal:
+# the task of the objective o (trimmed) with the budget b
+def goal.objective(o: String, b: Maybe<&2, String>) -> Auto:
   +t = trim(o)
   goal.objective.at(String.is_empty(t), Bool.not(Nat.is_le(String.length(t), 4000n)), t, b)
 
-def goal.budget(ok: Bool, v: String, o: String) -> Goal:
+def goal.budget(ok: Bool, v: String, o: String) -> Auto:
   match ok:
     case True{}:
       goal.objective(o, Some{v})
     case False{}:
-      GErr{goal_bad_budget()}
+      AErr{goal_bad_budget()}
 
 # `--budget N objective`: the value and the objective after the flag
-def goal.spaced(c: Cut) -> Goal:
+def goal.spaced(c: Cut) -> Auto:
   match c:
     case Cut{+v, u}:
       match u:
         case SNil{}:
-          GErr{goal_usage()}
+          AErr{goal_usage()}
         case SCon{w, o}:
           goal.budget(u64(v), v, o)
 
-def goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Goal:
+def goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Auto:
   match bare:
     case True{}:
       goal.spaced(cut(trim_start(tail)))
@@ -271,40 +264,40 @@ def goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) 
         case False{}:
           goal.objective(rest, None{})
 
-def goal.start(c: Cut, rest: String) -> Goal:
+def goal.start(c: Cut, rest: String) -> Auto:
   match c:
     case Cut{+first, tail}:
       goal.flag(Bool.or(String.eq(first, "--budget"), String.eq(first, "--token-budget")), Bool.or(String.starts_with(first, "--budget="), String.starts_with(first, "--token-budget=")), first, tail, rest)
 
-def goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Goal:
+def goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Auto:
   match status:
     case True{}:
-      GStatus{}
+      AStatus{}
     case False{}:
       match clear:
         case True{}:
-          GClear{}
+          AOff{}
         case False{}:
           match pause:
             case True{}:
-              GPause{}
+              AOff{}
             case False{}:
               match resume:
                 case True{}:
-                  GResume{}
+                  AOn{Conf{None{}, None{}, None{}, None{}, None{}, None{}}}
                 case False{}:
                   goal.start(cut(rest), rest)
 
-def goal.of(+rest: String, +l: String) -> Goal:
+def goal.of(+rest: String, +l: String) -> Auto:
   goal.kw(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), rest)
 
-# what `/goal <args>` asks
-def goal(args: String) -> Goal:
+# the `/auto` answer of `/goal <args>`
+def goal(args: String) -> Auto:
   +rest = trim(args)
   goal.of(rest, String.to_lower(rest))
 
-# /autonomous
-# -----------
+# /auto
+# -----
 
 # A limit: unlimited, or its digits
 type Lim is Data:
@@ -315,19 +308,21 @@ type Lim is Data:
 type Gates is Data:
   Gates{commands: Maybe<&2, List<&2, String>>, retries: Maybe<&2, String>, timeout: Maybe<&2, String>}
 
-# The options of `/autonomous on`
+# The options of `/auto on`
 type Conf is Data:
   Conf{cont: Maybe<&2, Lim>, turns: Maybe<&2, Lim>, tokens: Maybe<&2, Lim>, timeout: Maybe<&2, Lim>, gates: Maybe<&2, Gates>, keep: Maybe<&2, String>}
 
-# What `/autonomous` asks
+# What `/auto` asks
 type Auto is Data:
   AStatus{}
   AOn{conf: Conf}
   AOff{}
   AErr{text: String}
+  # the task text and the token budget's digits
+  ATask{text: String, budget: Maybe<&2, String>}
 
 def auto_usage() -> String:
-  "Usage: /autonomous [status|off] or /autonomous on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
+  "Usage: /auto [status|off|<task>] or /auto on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
 
 # `<head>: <word>. <usage>`
 def auto_err(+head: String, w: String) -> String:
@@ -630,7 +625,7 @@ def some(-A: Data, m: Maybe<&2, A>) -> Bool:
     case Some{x}:
       True{}
 
-# the options read, as `/autonomous on` takes them
+# the options read, as `/auto on` takes them
 def conf(o: Opts) -> Conf:
   match o:
     case Opts{+c, +t, +k, +m, g, d, r, s, p}:
@@ -650,7 +645,7 @@ def auto.alone(ws: List<&2, String>, a: Auto) -> Auto:
     case w <> t:
       AErr{auto_err("Unexpected autonomous argument: ", w)}
 
-def auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>) -> Auto:
+def auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>, args: String) -> Auto:
   match status:
     case True{}:
       auto.alone(ws, AStatus{})
@@ -663,18 +658,18 @@ def auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>) -> Auto:
             case True{}:
               auto.alone(ws, AOff{})
             case False{}:
-              AErr{auto_usage()}
+              ATask{args, None{}}
 
-def auto.first(+l: String, ws: List<&2, String>) -> Auto:
-  auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws)
+def auto.first(+l: String, ws: List<&2, String>, args: String) -> Auto:
+  auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws, args)
 
-def auto.words(ws: List<&2, String>) -> Auto:
+def auto.words(ws: List<&2, String>, args: String) -> Auto:
   match ws:
     case Nil{}:
       AStatus{}
     case w <> t:
-      auto.first(String.to_lower(w), t)
+      auto.first(String.to_lower(w), t, args)
 
-# what `/autonomous <args>` asks
-def auto(args: String) -> Auto:
-  auto.words(words(args))
+# what `/auto <args>` asks
+def auto(+args: String) -> Auto:
+  auto.words(words(args), args)

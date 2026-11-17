@@ -11,5 +11,5 @@ import ../base/staging.bend as LStg
 import ./base.bend as LA
 
 def SlashArgs.slash_args_goal_padding(w1, b1, s, w2, b2):
-  %Equal.sym(String, Sa.trim(String.append(w1, String.append(s, w2))), Sa.trim(s), LA.sab.trim_pad(w1, b1, s, w2, b2)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.goal(s) : Sa.Goal}
+  %Equal.sym(String, Sa.trim(String.append(w1, String.append(s, w2))), Sa.trim(s), LA.sab.trim_pad(w1, b1, s, w2, b2)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.goal(s) : Sa.Auto}
   {==}

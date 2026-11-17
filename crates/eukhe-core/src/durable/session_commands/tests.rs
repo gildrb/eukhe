@@ -3,14 +3,14 @@
 use std::sync::Arc;
 
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, FauxAssistantMessageOptions, FauxContentBlock, FauxResponseStep,
+    faux_assistant_message, FauxAssistantMessageOptions, FauxResponseStep,
 };
 use eukhe_ai::providers::faux_script::{
     create_faux_script_models, parse_faux_script, FauxScriptProvider,
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::{COMPACTION_ENTRY, USER_ENTRY};
-use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft};
+use eukhe_durable::harness::types::InputSubmissionDraft;
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::{EntryRecord, TaskOutcome};
 use eukhe_types::acceptance::{AcceptanceLabel, AcceptanceState, CheckSpec};
@@ -215,7 +215,7 @@ fn classify_recognizes_only_session_commands() {
     assert_eq!(
         classify_session_command("/goal"),
         Some(SessionCommand {
-            name: SessionCommandName::Goal,
+            name: SessionCommandName::Auto(AutoName::Goal),
             args: String::new(),
             text: "/goal".to_owned(),
         })
@@ -225,8 +225,12 @@ fn classify_recognizes_only_session_commands() {
         Some(SessionCommandName::Refine)
     );
     assert_eq!(
-        classify_session_command("/autonomous on").map(|command| command.name),
-        Some(SessionCommandName::Autonomous)
+        ["/auto ship it", "/autonomous on"]
+            .map(|text| classify_session_command(text).map(|command| command.name)),
+        [
+            Some(SessionCommandName::Auto(AutoName::Auto)),
+            Some(SessionCommandName::Auto(AutoName::Autonomous)),
+        ]
     );
     assert_eq!(classify_session_command("/model"), None);
     assert_eq!(classify_session_command("/unknown x"), None);
@@ -234,9 +238,8 @@ fn classify_recognizes_only_session_commands() {
     for name in [
         SessionCommandName::Compact,
         SessionCommandName::Refine,
-        SessionCommandName::Goal,
+        SessionCommandName::Auto(AutoName::Auto),
         SessionCommandName::Accept,
-        SessionCommandName::Autonomous,
         SessionCommandName::Remind,
         SessionCommandName::Force,
         SessionCommandName::Loop,
@@ -245,60 +248,70 @@ fn classify_recognizes_only_session_commands() {
     }
 }
 
+/// `/goal` notes that it is removed, then does the `/auto` action it maps
+/// to: alone, the status.
 #[tokio::test]
-async fn goal_status_without_a_goal_answers_no_active_goal() {
+async fn goal_notes_its_removal_then_answers_the_auto_status() {
     let fixture = open(&[]).await;
     let outcome = fixture.run("/goal").await;
     assert_eq!(failed(&outcome), None);
-    assert_eq!(outcome.goal, Some(GoalState::default()));
+    let status = outcome.autonomous.expect("the status");
     assert_eq!(
-        fixture.command_rows().await,
-        vec![echo("/goal"), result("/goal", "No active goal.", true)]
-    );
-    fixture.close().await;
-}
-
-#[tokio::test]
-async fn goal_start_submits_its_continuation_and_reports_the_goal() {
-    // The first run fails at the provider: no continuation follows it.
-    let fixture = open(&[error_response("provider exploded")]).await;
-    let outcome = fixture.run("/goal ship it").await;
-    assert_eq!(failed(&outcome), None);
-    let goal = outcome.goal.expect("the goal");
-    assert_eq!(goal.status, GoalStatus::Active);
-    assert_eq!(goal.objective.as_deref(), Some("ship it"));
-    fixture.idle().await;
-    assert_eq!(
-        fixture.command_rows().await,
+        fixture
+            .rows(&[
+                SESSION_SLASH_COMMAND_CUSTOM_TYPE,
+                SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+                AUTONOMOUS_STATUS_CUSTOM_TYPE,
+            ])
+            .await,
         vec![
-            echo("/goal ship it"),
-            result("/goal ship it", "Goal active: ship it", true),
+            echo("/goal"),
+            result("/goal", GOAL_REMOVED, true),
+            CustomEntryData {
+                custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE.to_owned(),
+                content: None,
+                display: true,
+                details: Some(serde_json::to_value(&status).expect("status json")),
+                input: false,
+                origin: None,
+            },
         ]
     );
-    let texts = fixture.user_texts().await;
-    assert_eq!(texts.len(), 1, "{texts:?}");
-    assert!(texts[0].starts_with("[goal: continuation]"), "{texts:?}");
     fixture.close().await;
 }
 
-/// On main (`main-worker`) `/goal` and `/autonomous` are the worker's: main
-/// sets no goal and starts no run of its own; with no worker yet the
-/// command says so.
+/// `/auto <task>` turns autonomous mode on, then sends the task as the
+/// user's message.
+#[tokio::test]
+async fn auto_task_turns_autonomous_on_and_sends_the_task() {
+    // The run fails at the provider: no continuation follows it.
+    let fixture = open(&[error_response("provider exploded")]).await;
+    let outcome = fixture.run("/auto ship it").await;
+    assert_eq!(failed(&outcome), None);
+    assert!(outcome.autonomous.expect("the status").enabled);
+    fixture.idle().await;
+    assert_eq!(
+        (fixture.command_rows().await, fixture.user_texts().await),
+        (vec![echo("/auto ship it")], vec!["ship it".to_owned()])
+    );
+    fixture.close().await;
+}
+
+/// On main (`main-worker`) `/auto` (as typed in any of its names) is the
+/// worker's: main starts no run of its own; with no worker yet the command
+/// says so.
 #[tokio::test]
 async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
     let fixture = open_with_settings(&[], &json!({ "sessionShape": "main-worker" })).await;
-    for (text, name) in [("/goal ship it", "goal"), ("/autonomous on", "autonomous")] {
-        let error = format!(
-            "No worker yet: /{name} applies to the worker, which main creates with the first work you give it"
-        );
+    let error = "No worker yet: /auto applies to the worker, which main creates with the first work you give it";
+    for text in ["/goal ship it", "/autonomous on"] {
         let outcome = fixture.run(text).await;
         assert_eq!(
             (
                 outcome.error.as_ref().map(ToString::to_string),
-                &outcome.goal,
                 outcome.autonomous.is_none()
             ),
-            (Some(error), &None, true),
+            (Some(error.to_owned()), true),
         );
     }
     fixture.idle().await;
@@ -307,15 +320,9 @@ async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
         (
             vec![
                 echo("/goal ship it"),
-                failure(
-                    "/goal ship it",
-                    "No worker yet: /goal applies to the worker, which main creates with the first work you give it",
-                ),
+                failure("/goal ship it", error),
                 echo("/autonomous on"),
-                failure(
-                    "/autonomous on",
-                    "No worker yet: /autonomous applies to the worker, which main creates with the first work you give it",
-                ),
+                failure("/autonomous on", error),
             ],
             Vec::<String>::new(),
         )
@@ -323,104 +330,54 @@ async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
     fixture.close().await;
 }
 
+/// `/goal pause` turns autonomous mode off, `/goal resume` on, each after
+/// the removal note.
 #[tokio::test]
-async fn goal_pause_resume_and_clear_report_each_state() {
-    // An active goal whose run ends on a terminal provider failure fails
-    // right away (the goal observer), so the goal's first run holds its
-    // model request until the pause lands, then the abort ends it without
-    // a provider failure. The resumed continuation's run fails afterwards.
+async fn goal_pause_and_resume_turn_autonomous_off_and_on() {
     let fixture = open(&[]).await;
-    let requested = Arc::new(tokio::sync::Notify::new());
-    let request_seen = Arc::clone(&requested);
-    let held = FauxResponseStep::Factory(Arc::new(move |_context, options, _state, _model| {
-        let signal = options
-            .and_then(|options| options.stream.request.signal.clone())
-            .expect("the generation's abort signal");
-        request_seen.notify_one();
-        Box::pin(async move {
-            signal.cancelled().await;
-            Ok(faux_assistant_message(
-                Vec::<FauxContentBlock>::new(),
-                FauxAssistantMessageOptions::default(),
-            ))
-        })
-    }));
-    let failure = parse_faux_script(
-        &json!({ "responses": [error_response("provider exploded again")] }).to_string(),
-    )
-    .expect("the faux script parses")
-    .responses
-    .remove(0);
-    fixture.provider.set_responses(vec![held, failure]);
-    fixture.run("/goal ship it").await;
-    requested.notified().await;
-
-    let paused = fixture.run("/goal pause").await;
-    assert_eq!(failed(&paused), None);
-    assert_eq!(
-        paused.goal.as_ref().map(|goal| goal.status),
-        Some(GoalStatus::Paused)
-    );
-    fixture
-        .session
-        .main()
-        .abort(ConversationAbortOptions::default(), cx())
-        .await
-        .expect("abort the held run");
-
     let resumed = fixture.run("/goal resume").await;
-    assert_eq!(failed(&resumed), None);
+    let paused = fixture.run("/goal pause").await;
     assert_eq!(
-        resumed.goal.as_ref().map(|goal| goal.status),
-        Some(GoalStatus::Active)
+        (
+            failed(&resumed),
+            resumed.autonomous.map(|status| status.enabled),
+            failed(&paused),
+            paused.autonomous.map(|status| status.enabled),
+        ),
+        (None, Some(true), None, Some(false))
     );
-    fixture.idle().await;
-    let texts = fixture.user_texts().await;
-    assert_eq!(texts.len(), 2, "{texts:?}");
-
-    let cleared = fixture.run("/goal clear").await;
-    assert_eq!(failed(&cleared), None);
-    let cleared_goal = cleared.goal.expect("the goal");
-    assert_eq!(
-        (cleared_goal.status, cleared_goal.objective),
-        (GoalStatus::Idle, None)
-    );
-    let again = fixture.run("/goal clear").await;
-    let again_goal = again.goal.expect("the goal");
-    assert_eq!(
-        (again_goal.status, again_goal.objective),
-        (GoalStatus::Idle, None)
-    );
-
     assert_eq!(
         fixture.command_rows().await,
         vec![
-            echo("/goal ship it"),
-            result("/goal ship it", "Goal active: ship it", true),
-            echo("/goal pause"),
-            result("/goal pause", "Goal paused: ship it", true),
             echo("/goal resume"),
-            result("/goal resume", "Goal active: ship it", true),
-            echo("/goal clear"),
-            result("/goal clear", "Goal cleared.", true),
-            echo("/goal clear"),
-            result("/goal clear", "No active goal.", true),
+            result("/goal resume", GOAL_REMOVED, true),
+            echo("/goal pause"),
+            result("/goal pause", GOAL_REMOVED, true),
         ]
     );
     fixture.close().await;
 }
 
+/// A `/goal` with a malformed budget keeps its refusal, after the note.
 #[tokio::test]
 async fn an_invalid_goal_command_appends_the_failure_row() {
     let fixture = open(&[]).await;
     let text = "/goal --budget nope ship it";
-    let expected = parse_goal_command(&command(text).args).expect_err("an invalid budget");
+    let expected = parse_auto_command(AutoName::Goal, &command(text).args)
+        .command
+        .expect_err("an invalid budget");
     let outcome = fixture.run(text).await;
-    assert_eq!(failed(&outcome), Some(expected.to_string()));
-    assert_eq!(outcome.goal, None);
+    assert_eq!(
+        (failed(&outcome), outcome.autonomous),
+        (Some(expected.to_string()), None)
+    );
     assert_eq!(
         fixture.command_rows().await,
-        vec![echo(text), failure(text, &expected.text)]
+        vec![
+            echo(text),
+            result(text, GOAL_REMOVED, true),
+            failure(text, &expected.text)
+        ]
     );
     fixture.close().await;
 }
@@ -438,7 +395,9 @@ async fn autonomous_status_on_and_off_append_status_rows() {
     let enabled = on.autonomous.expect("the status");
     assert!(enabled.enabled);
     let AutonomousCommand::On { config } =
-        parse_autonomous_command("on --max-turns 5").expect("parses")
+        parse_auto_command(AutoName::Autonomous, "on --max-turns 5")
+            .command
+            .expect("parses")
     else {
         panic!("expected on");
     };
@@ -503,7 +462,9 @@ async fn autonomous_status_on_and_off_append_status_rows() {
 async fn an_invalid_autonomous_command_appends_the_failure_row() {
     let fixture = open(&[]).await;
     let text = "/autonomous status now";
-    let expected = parse_autonomous_command(&command(text).args).expect_err("extra arguments");
+    let expected = parse_auto_command(AutoName::Autonomous, &command(text).args)
+        .command
+        .expect_err("extra arguments");
     let outcome = fixture.run(text).await;
     assert_eq!(failed(&outcome), Some(expected.to_string()));
     assert_eq!(outcome.autonomous, None);

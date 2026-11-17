@@ -1,7 +1,7 @@
 # eukhe: the proof of LAW slash_args_goal_blank
 #
 # PROOF: a White_Space text trims to nothing (LA.sab.trim_nil), the
-# status.
+# status, as `/auto` alone answers.
 
 import Base
 import ../../bend/slash_args.bend as Sa
@@ -11,5 +11,5 @@ import ../base/staging.bend as LStg
 import ./base.bend as LA
 
 def SlashArgs.slash_args_goal_blank(w, b):
-  %Equal.sym(String, Sa.trim(w), SNil{}, LA.sab.trim_nil(w, b)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.GStatus{} : Sa.Goal}
+  %Equal.sym(String, Sa.trim(w), SNil{}, LA.sab.trim_nil(w, b)) : {Sa.goal.of(_, String.to_lower(_)) == Sa.auto("") : Sa.Auto}
   {==}
