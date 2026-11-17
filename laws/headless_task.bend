@@ -5,6 +5,7 @@ import ../bend/headless_exit.bend as Hx
 import ../bend/headless_task.bend as Ht
 import ../bend/ffi_headless_task.bend as FHt
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 import ../spec/durable/headless_task.bend as SpT
 
 # (D5) A headless run exits 0 only for a finished task
@@ -30,8 +31,10 @@ import ../spec/durable/headless_task.bend as SpT
 # R3: the code is 0 exactly when headless_exit gave 0 and the run is
 #     neither incomplete, nor unjudged, nor waiting for the judge.
 # R4: the entry answers each request Rust writes (W6) with the spelling
-#     (W7) of the core's exit for it, and any input that is not exactly
-#     one request with exactly `E headless_task: malformed request`.
+#     (W7) of the core's exit for it, answers no input but exactly one
+#     request with anything but the error form, and answers any input
+#     that is not exactly one request with exactly
+#     `E headless_task: malformed request`.
 
 # Laws: the task (R1-R3, R5, R6)
 # ------------------------------
@@ -148,15 +151,24 @@ law headless_task_entry_answers:
   for +f: Ht.Facts
   {FHt.ffi(SpT.w_task_req(f, "")) == SpT.w_verdict(Ht.decide(f), "") : String}
 
-# LAW headless_task_entry_malformed_exact (R4): every input that is not
-# exactly one request (an unknown cause or reading tag, a malformed
-# field, input left over) gets exactly the error form 'E ', then
-# "headless_task: malformed request"
-# EXCLUDES: an exit answered for input that is no request, another error
-#   text, a default
-law headless_task_entry_malformed_exact:
+# LAW headless_task_entry_reads_only_requests (R4): every input the entry
+# does not answer with the error form is exactly one spelled request
+# (W6), with nothing before or after it
+# EXCLUDES: an exit answered for input that is no request (an unknown
+#   cause, reason or reading tag, a malformed acted fact, a short request,
+#   input left over, a lenient field reader)
+law headless_task_entry_reads_only_requests:
   for +s: String
-  for no: {SpT.read_task(s) == None{} : Maybe<&2, Ht.Facts>}
+  for ok: {LawsBase.wire_opens_err(FHt.ffi(s)) == False{} : Bool}
+  exs f: Ht.Facts
+  {s == SpT.w_task_req(f, "") : String}
+
+# LAW headless_task_entry_refuses (R4): every error the entry answers is
+# exactly `E headless_task: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law headless_task_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FHt.ffi(s)) == True{} : Bool}
   {FHt.ffi(s) == Wr.err("headless_task: malformed request") : String}
 
 # LAW headless_task_entry_left_over (R4): a spelled request (W6) followed
