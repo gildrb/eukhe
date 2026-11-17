@@ -26,3 +26,6 @@ def SlashArgsEntry.slash_args_entry_left_over(q, c, t, fit):
     case FSa.QObjective{+a}:
       %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(a, SCon{c, t})), Wr.Got{a, SCon{c, t}}, Wire.wire_str_round_trip(a, SCon{c, t}, fit)) : {FSa.ffi.got(FSa.get_objective(_)) == Wr.err("slash_args: malformed request") : String}
       {==}
+    case FSa.QAutonomous{+a}:
+      %Equal.sym(Wr.Dec<String>, Wr.get_str(Wr.put_str(a, SCon{c, t})), Wr.Got{a, SCon{c, t}}, Wire.wire_str_round_trip(a, SCon{c, t}, fit)) : {FSa.ffi.got(FSa.get_autonomous(_)) == Wr.err("slash_args: malformed request") : String}
+      {==}

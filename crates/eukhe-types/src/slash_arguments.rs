@@ -467,7 +467,7 @@ const HEARTBEAT: Grammar = Grammar {
     usage: Some("<instruction>"),
 };
 
-const AUTONOMOUS: Grammar = Grammar {
+const AUTO: Grammar = Grammar {
     words: &[
         word("status", "Show autonomous mode", &NOTHING),
         word("on", "Turn autonomous mode on", &NOTHING),
@@ -493,7 +493,7 @@ const GRAMMARS: &[(&str, &Grammar)] = &[
     ("accept", &ACCEPT),
     ("loop", &LOOP),
     ("heartbeat", &HEARTBEAT),
-    ("autonomous", &AUTONOMOUS),
+    ("auto", &AUTO),
     ("effects ran", &EFFECT_ID),
     ("effects not-run", &EFFECT_ID),
     (

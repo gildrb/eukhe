@@ -4,12 +4,13 @@ import Base
 import ../../bend/slash_args.bend as Sa
 import ../gateway_answer.bend as GatewayAnswer
 
-# (D1) The arguments of `/goal` and `/autonomous`, the words of a command
-# ------------------------------------------------------------------------
+# (D1) The arguments of `/auto` (and `/goal`), the words of a command
+# -------------------------------------------------------------------
 # bend/slash_args.bend, run as the compiled core by bend/ffi_slash_args.bend
 # (eukhe-bend rules/slash_args.rs; asked by eukhe-core slash_command_args.rs
-# for `/goal` and `/autonomous`, goals.rs for a goal objective, and the
-# prompt templates for a command's words). Every input is free: any text.
+# for `/auto`, `/autonomous` and `/goal`, goals.rs for a goal objective,
+# and the prompt templates for a command's words). Every input is free:
+# any text.
 #
 # R1: whitespace is Unicode White_Space (Rust `char::is_whitespace`:
 #     sa_white); trimming drops it at both ends. A keyword
@@ -20,8 +21,10 @@ import ../gateway_answer.bend as GatewayAnswer
 #     closes (the quote chars are dropped, the chars between kept), and
 #     whitespace ends a word that has chars or held a quote; a word that
 #     held a quote is kept even when empty; at the end the last such word.
-# R3: `/goal <args>`: the args trimmed, lowercased: empty or `status` is
-#     the status; `clear` or `stop` clears; `pause`; `resume`.
+# R3: `/goal <args>` (removed: each answer is the `/auto` one it maps to):
+#     the args trimmed, lowercased: empty or `status` is the status of
+#     `/auto` (`/auto` alone); `clear`, `stop` or `pause` is `/auto off`;
+#     `resume` is `/auto on`.
 # R4: else the first piece (up to the first whitespace char) `--budget` or
 #     `--token-budget`: the value is the next piece after the whitespace
 #     that follows, the objective the text after the one whitespace char
@@ -34,15 +37,16 @@ import ../gateway_answer.bend as GatewayAnswer
 #     budget, the objective is the whole args.
 # R5: the objective, trimmed: empty answers `Goal objective must not be
 #     empty.`, more than 4000 chars `Goal objective must be at most 4000
-#     characters.`, else the goal starts with it (and its budget digits).
+#     characters.`, else it is the `/auto` task (with its budget digits).
 #     A goal objective alone (the objective question) is judged so,
 #     without a budget.
-# R6: `/autonomous <args>`, over the words of R2: none, or a first word
+# R6: `/auto <args>`, over the words of R2: none, or a first word
 #     `status` alone, is the status (`status` with more:
 #     `Unexpected autonomous argument: <second word>. <usage>`); `on`,
 #     `enable`, `enabled` reads the options of the words after it; `off`,
 #     `disable`, `disabled` alone is off (with more: the unexpected error);
-#     anything else answers the usage text alone.
+#     any other first word: the task, its text the args as given (every
+#     char kept), no budget.
 # R7: options, read in order: a word that does not start with `--`
 #     answers `Unexpected autonomous argument: <word>. <usage>`. The flag
 #     is the word before its first `=`; its name the flag without
@@ -67,9 +71,7 @@ import ../gateway_answer.bend as GatewayAnswer
 #     named is unlimited; the gates are named when a command, a retry or a
 #     timeout was (the commands only when there is one).
 #
-# <usage> is the text sa_usage() (Eukhe's own: no Rust constant holds it;
-# Rust only checks that the error starts with `Usage: /autonomous
-# [status|off]`, crates/eukhe-core/src/slash_command_args.rs:208).
+# <usage> is the text sa_usage() (Eukhe's own: no Rust constant holds it).
 # Changed from the Rust it replaced: after `--budget N`, a value ended by a
 # multi-byte whitespace char (U+3000, U+00A0, ...) made the Rust slice
 # inside that char and panic; the objective is now the text after it.
@@ -218,37 +220,37 @@ def sa_flag(k: Bool) -> String:
     case False{}:
       "--token-budget"
 
-def sa_verdict.at(ok: Bool, o: String, b: Maybe<&2, String>) -> Sa.Goal:
+def sa_verdict.at(ok: Bool, o: String, b: Maybe<&2, String>) -> Sa.Auto:
   match ok:
     case True{}:
-      Sa.GStart{o, b}
+      Sa.ATask{o, b}
     case False{}:
-      Sa.GErr{"Goal objective must be at most 4000 characters."}
+      Sa.AErr{"Goal objective must be at most 4000 characters."}
 
-# R5: the goal of a trimmed, non-empty objective o with the budget b: it
-# starts when o has at most 4000 chars
-def sa_verdict(+o: String, b: Maybe<&2, String>) -> Sa.Goal:
+# R5: the answer of a trimmed, non-empty objective o with the budget b:
+# the task o when o has at most 4000 chars
+def sa_verdict(+o: String, b: Maybe<&2, String>) -> Sa.Auto:
   sa_verdict.at(Nat.is_le(String.length(o), 4000n), o, b)
 
-def sa_budget.at(ok: Bool, v: String, +o: String) -> Sa.Goal:
+def sa_budget.at(ok: Bool, v: String, +o: String) -> Sa.Auto:
   match ok:
     case True{}:
       sa_verdict(o, Some{v})
     case False{}:
-      Sa.GErr{"Goal token budget must be a positive integer."}
+      Sa.AErr{"Goal token budget must be a positive integer."}
 
-# R4: the goal of the budget digits v before the objective o: v must be
+# R4: the answer of the budget digits v before the objective o: v must be
 # R4's u64 digits (Sa.u64, pinned by slash_args_u64_example)
-def sa_budget(+v: String, +o: String) -> Sa.Goal:
+def sa_budget(+v: String, +o: String) -> Sa.Auto:
   sa_budget.at(Sa.u64(v), v, o)
 
-# R4, R5: the goal of a budget flag with the digits v and no objective
-def sa_budget_none(ok: Bool) -> Sa.Goal:
+# R4, R5: the answer of a budget flag with the digits v and no objective
+def sa_budget_none(ok: Bool) -> Sa.Auto:
   match ok:
     case True{}:
-      Sa.GErr{"Goal objective must not be empty."}
+      Sa.AErr{"Goal objective must not be empty."}
     case False{}:
-      Sa.GErr{"Goal token budget must be a positive integer."}
+      Sa.AErr{"Goal token budget must be a positive integer."}
 
 # R3: a keyword of `/goal` (lowercased)
 def sa_keyword(+l: String) -> Bool:
@@ -273,9 +275,9 @@ def sa_piece(s: String) -> String:
 def sa_asks(+p: String) -> Bool:
   Bool.or(String.eq(p, "--budget"), Bool.or(String.eq(p, "--token-budget"), Bool.or(String.starts_with(p, "--budget="), String.starts_with(p, "--token-budget="))))
 
-# R6: the usage text of `/autonomous`
+# R6: the usage text of `/auto`
 def sa_usage() -> String:
-  "Usage: /autonomous [status|off] or /autonomous on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
+  "Usage: /auto [status|off|<task>] or /auto on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
 
 # R6, R7: `<head><w>. <usage>`
 def sa_err(+head: String, w: String) -> String:
@@ -323,8 +325,8 @@ def sa_name.at(a: Bool, d: Bool, +f: String) -> String:
 def sa_name(+f: String) -> String:
   sa_name.at(String.starts_with(f, "--autonomous-"), String.starts_with(f, "--"), f)
 
-# R6: the answer to one word, lowercased l
-def sa_alone.at(st: Bool, on: Bool, off: Bool) -> Sa.Auto:
+# R6: the answer to the one word of the text s, lowercased l
+def sa_alone.at(st: Bool, on: Bool, off: Bool, s: String) -> Sa.Auto:
   match st:
     case True{}:
       Sa.AStatus{}
@@ -337,10 +339,10 @@ def sa_alone.at(st: Bool, on: Bool, off: Bool) -> Sa.Auto:
             case True{}:
               Sa.AOff{}
             case False{}:
-              Sa.AErr{sa_usage()}
+              Sa.ATask{s, None{}}
 
-def sa_alone(+l: String) -> Sa.Auto:
-  sa_alone.at(String.eq(l, "status"), sa_on(l), sa_off(l))
+def sa_alone(+l: String, s: String) -> Sa.Auto:
+  sa_alone.at(String.eq(l, "status"), sa_on(l), sa_off(l), s)
 
 # R7: the text after the first `=` of s (empty without one)
 def sa_after.at(e: Bool, t: String, r: String) -> String:
@@ -546,73 +548,74 @@ law slash_args_goal_padding:
   for +s: String
   for +w2: String
   for b2: {sa_blank(w2) == True{} : Bool}
-  {Sa.goal(String.append(w1, String.append(s, w2))) == Sa.goal(s) : Sa.Goal}
+  {Sa.goal(String.append(w1, String.append(s, w2))) == Sa.goal(s) : Sa.Auto}
 
 # LAW slash_args_goal_blank (R3): every White_Space text (the empty one
-# too) asks for the status
-# EXCLUDES: blank args starting a goal or answering an error
+# too) asks what `/auto` alone asks: the status
+# EXCLUDES: blank args starting a task or answering an error
 law slash_args_goal_blank:
   for +w: String
   for b: {sa_blank(w) == True{} : Bool}
-  {Sa.goal(w) == Sa.GStatus{} : Sa.Goal}
+  {Sa.goal(w) == Sa.auto("") : Sa.Auto}
 
 # LAW slash_args_goal_status (R3): every trimmed text whose lowercase is
-# `status` asks for the status
+# `status` asks what `/auto status` asks
 # EXCLUDES: a case-sensitive keyword
 law slash_args_goal_status:
   for +t: String
   for e: {sa_edge(t) == True{} : Bool}
   for k: {String.eq(String.to_lower(t), "status") == True{} : Bool}
-  {Sa.goal(t) == Sa.GStatus{} : Sa.Goal}
+  {Sa.goal(t) == Sa.auto("status") : Sa.Auto}
 
 # LAW slash_args_goal_clear (R3): every trimmed text whose lowercase is
-# `clear` or `stop` clears the goal
-# EXCLUDES: `stop` not clearing, a case-sensitive keyword
+# `clear` or `stop` asks what `/auto off` asks
+# EXCLUDES: `stop` not turning off, a case-sensitive keyword
 law slash_args_goal_clear:
   for +t: String
   for e: {sa_edge(t) == True{} : Bool}
   for k: {Bool.or(String.eq(String.to_lower(t), "clear"), String.eq(String.to_lower(t), "stop")) == True{} : Bool}
-  {Sa.goal(t) == Sa.GClear{} : Sa.Goal}
+  {Sa.goal(t) == Sa.auto("off") : Sa.Auto}
 
 # LAW slash_args_goal_pause (R3): every trimmed text whose lowercase is
-# `pause` pauses the goal
-# EXCLUDES: a case-sensitive keyword
+# `pause` asks what `/auto off` asks
+# EXCLUDES: a case-sensitive keyword, pause read as a task
 law slash_args_goal_pause:
   for +t: String
   for e: {sa_edge(t) == True{} : Bool}
   for k: {String.eq(String.to_lower(t), "pause") == True{} : Bool}
-  {Sa.goal(t) == Sa.GPause{} : Sa.Goal}
+  {Sa.goal(t) == Sa.auto("off") : Sa.Auto}
 
 # LAW slash_args_goal_resume (R3): every trimmed text whose lowercase is
-# `resume` resumes the goal
-# EXCLUDES: a case-sensitive keyword
+# `resume` asks what `/auto on` asks: on, no option named
+# EXCLUDES: a case-sensitive keyword, resume read as a task, an option
+#   named
 law slash_args_goal_resume:
   for +t: String
   for e: {sa_edge(t) == True{} : Bool}
   for k: {String.eq(String.to_lower(t), "resume") == True{} : Bool}
-  {Sa.goal(t) == Sa.GResume{} : Sa.Goal}
+  {Sa.goal(t) == Sa.auto("on") : Sa.Auto}
 
 # LAW slash_args_goal_objective (R3-R5): every trimmed text that is no
-# keyword (lowercased) and whose first piece asks for no budget starts the
-# goal with all of it as the objective and no budget, when it has at most
-# 4000 chars (else the too-long error)
+# keyword (lowercased) and whose first piece asks for no budget is the
+# task of all of it, no budget, when it has at most 4000 chars (else the
+# too-long error)
 # EXCLUDES: an objective cut at its first word, a keyword read inside an
-#   objective, an objective over 4000 chars started, a limit off by one
+#   objective, an objective over 4000 chars taken, a limit off by one
 law slash_args_goal_objective:
   for +t: String
   for +e: {sa_edge(t) == True{} : Bool}
   for k: {sa_keyword(String.to_lower(t)) == False{} : Bool}
   for f: {sa_asks(sa_piece(t)) == False{} : Bool}
-  {Sa.goal(t) == sa_verdict(t, None{}) : Sa.Goal}
+  {Sa.goal(t) == sa_verdict(t, None{}) : Sa.Auto}
 
 # LAW slash_args_goal_budget_eq (R4, R5): for both budget flags F, every
 # text v without White_Space, every White_Space char c, every White_Space
-# text w and every trimmed objective o: `F=v`, then c, w and o, asks for
-# o with the budget v when v is R4's digits (else the bad-budget error);
-# `F=v` alone asks for no objective (the empty-objective error) or answers
-# the bad-budget error
+# text w and every trimmed objective o: `F=v`, then c, w and o, is the
+# task o with the budget v when v is R4's digits (else the bad-budget
+# error); `F=v` alone asks for no objective (the empty-objective error) or
+# answers the bad-budget error
 # EXCLUDES: the value taken after a later `=`, the separator kept in the
-#   objective, a bad budget accepted, the empty objective started
+#   objective, a bad budget accepted, the empty objective taken
 law slash_args_goal_budget_eq:
   for +k: Bool
   for +v: String
@@ -623,13 +626,13 @@ law slash_args_goal_budget_eq:
   for +wb: {sa_blank(w) == True{} : Bool}
   for +o: String
   for +oe: {sa_edge(o) == True{} : Bool}
-  {Sa.goal(String.append(sa_flag(k), SCon{'=', String.append(v, SCon{c, String.append(w, o)})})) == sa_budget(v, o) : Sa.Goal} &
-  {Sa.goal(String.append(sa_flag(k), SCon{'=', v})) == sa_budget_none(Sa.u64(v)) : Sa.Goal}
+  {Sa.goal(String.append(sa_flag(k), SCon{'=', String.append(v, SCon{c, String.append(w, o)})})) == sa_budget(v, o) : Sa.Auto} &
+  {Sa.goal(String.append(sa_flag(k), SCon{'=', v})) == sa_budget_none(Sa.u64(v)) : Sa.Auto}
 
 # LAW slash_args_goal_budget_spaced (R4, R5): for both budget flags F,
 # every two White_Space chars c and d, every two White_Space texts w and x,
 # every non-empty text v without White_Space and every trimmed objective
-# o: F, c, w, v, d, x, o asks for o with the budget v when v is R4's
+# o: F, c, w, v, d, x, o is the task o with the budget v when v is R4's
 # digits (else the bad-budget error); F alone, or F then c, w and v, is
 # the usage error
 # EXCLUDES: a multi-byte whitespace char after the value mishandled, the
@@ -650,16 +653,16 @@ law slash_args_goal_budget_spaced:
   for +xb: {sa_blank(x) == True{} : Bool}
   for +o: String
   for +oe: {sa_edge(o) == True{} : Bool}
-  {Sa.goal(String.append(sa_flag(k), SCon{c, String.append(w, String.append(SCon{v0, vs}, SCon{d, String.append(x, o)}))})) == sa_budget(SCon{v0, vs}, o) : Sa.Goal} &
-  {Sa.goal(sa_flag(k)) == Sa.GErr{"Usage: /goal [--budget <tokens>] <objective>"} : Sa.Goal} &
-  {Sa.goal(String.append(sa_flag(k), SCon{c, String.append(w, SCon{v0, vs})})) == Sa.GErr{"Usage: /goal [--budget <tokens>] <objective>"} : Sa.Goal}
+  {Sa.goal(String.append(sa_flag(k), SCon{c, String.append(w, String.append(SCon{v0, vs}, SCon{d, String.append(x, o)}))})) == sa_budget(SCon{v0, vs}, o) : Sa.Auto} &
+  {Sa.goal(sa_flag(k)) == Sa.AErr{"Usage: /goal [--budget <tokens>] <objective>"} : Sa.Auto} &
+  {Sa.goal(String.append(sa_flag(k), SCon{c, String.append(w, SCon{v0, vs})})) == Sa.AErr{"Usage: /goal [--budget <tokens>] <objective>"} : Sa.Auto}
 
 # LAW slash_args_objective_judged (R5): for every two White_Space texts w1
 # and w2, every trimmed objective o and every budget b, the objective o
 # between them is judged as o (R5); a White_Space objective is the
 # empty-objective error
 # EXCLUDES: an untrimmed objective, ASCII-only trimming, a blank objective
-#   started, the 4000-char limit off by one
+#   taken, the 4000-char limit off by one
 law slash_args_objective_judged:
   for +w1: String
   for +b1: {sa_blank(w1) == True{} : Bool}
@@ -668,11 +671,11 @@ law slash_args_objective_judged:
   for +w2: String
   for b2: {sa_blank(w2) == True{} : Bool}
   for +b: Maybe<&2, String>
-  {Sa.goal.objective(String.append(w1, String.append(o, w2)), b) == sa_verdict(o, b) : Sa.Goal} &
-  {Sa.goal.objective(w1, b) == Sa.GErr{"Goal objective must not be empty."} : Sa.Goal}
+  {Sa.goal.objective(String.append(w1, String.append(o, w2)), b) == sa_verdict(o, b) : Sa.Auto} &
+  {Sa.goal.objective(w1, b) == Sa.AErr{"Goal objective must not be empty."} : Sa.Auto}
 
-# Laws: `/autonomous` (R6, R7)
-# ----------------------------
+# Laws: `/auto` (R6, R7)
+# ----------------------
 
 # LAW slash_args_auto_none (R6): a text of no words asks for the status
 # EXCLUDES: blank args read as an error
@@ -681,17 +684,17 @@ law slash_args_auto_none:
   for ws: {Sa.words(s) == [] : List<&2, String>}
   {Sa.auto(s) == Sa.AStatus{} : Sa.Auto}
 
-# LAW slash_args_auto_alone (R6): a text of one word w asks, by w
+# LAW slash_args_auto_alone (R6): a text s of one word w asks, by w
 # lowercased: `status` the status; `on`, `enable`, `enabled` autonomous
 # mode with no option named; `off`, `disable`, `disabled` off; anything
-# else answers the usage text
+# else the task s
 # EXCLUDES: a case-sensitive keyword, a keyword of one kind read as
-#   another, an unknown word accepted
+#   another, a keyword read as a task
 law slash_args_auto_alone:
   for +s: String
   for +w: String
   for ws: {Sa.words(s) == [w] : List<&2, String>}
-  {Sa.auto(s) == sa_alone(String.to_lower(w)) : Sa.Auto}
+  {Sa.auto(s) == sa_alone(String.to_lower(w), s) : Sa.Auto}
 
 # LAW slash_args_auto_more (R6): a text whose first word is `status`,
 # `off`, `disable` or `disabled` (lowercased) and has a second word v
@@ -706,16 +709,18 @@ law slash_args_auto_more:
   for k: {Bool.or(String.eq(String.to_lower(w), "status"), sa_off(String.to_lower(w))) == True{} : Bool}
   {Sa.auto(s) == Sa.AErr{sa_err("Unexpected autonomous argument: ", v)} : Sa.Auto}
 
-# LAW slash_args_auto_other (R6): a text whose first word (lowercased) is
-# no keyword answers the usage text alone, whatever follows
-# EXCLUDES: an unknown first word read as on, off or the status
-law slash_args_auto_other:
+# LAW slash_args_auto_task (R6): a text s whose first word (lowercased) is
+# no keyword is the task s, every char kept, no budget, whatever follows
+# EXCLUDES: an unknown first word read as on, off or the status or
+#   refused, the task cut to its first word, words or quotes dropped,
+#   the text trimmed or re-joined, a budget named
+law slash_args_auto_task:
   for +s: String
   for +w: String
   for +t: List<&2, String>
   for ws: {Sa.words(s) == w <> t : List<&2, String>}
   for k: {Bool.or(String.eq(String.to_lower(w), "status"), Bool.or(sa_on(String.to_lower(w)), sa_off(String.to_lower(w)))) == False{} : Bool}
-  {Sa.auto(s) == Sa.AErr{sa_usage()} : Sa.Auto}
+  {Sa.auto(s) == Sa.ATask{s, None{}} : Sa.Auto}
 
 # LAW slash_args_auto_unexpected (R7): after `on`, `enable` or `enabled`
 # (lowercased), a first option word x that does not start with `--`
@@ -791,26 +796,28 @@ law slash_args_auto_option:
 # Anchors
 # -------
 
-# LAW slash_args_goal_example (R3-R5): anchor: Rust's vectors, short; the
-# value ended by U+3000 (the header's change from the Rust)
+# LAW slash_args_goal_example (R3-R5): anchor: the `/goal` answers, short;
+# the value ended by U+3000 (the header's change from the Rust)
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law slash_args_goal_example:
-  {[Sa.goal(""), Sa.goal("Stop"), Sa.goal("PAUSE"), Sa.goal("resume"), Sa.goal("a b"), Sa.goal("--budget 50 go"), Sa.goal("--token-budget=3 x"), Sa.goal("--budget"), Sa.goal("--budget 0x x"), Sa.goal("--budget=5")] == [Sa.GStatus{}, Sa.GClear{}, Sa.GPause{}, Sa.GResume{}, Sa.GStart{"a b", None{}}, Sa.GStart{"go", Some{"50"}}, Sa.GStart{"x", Some{"3"}}, Sa.GErr{"Usage: /goal [--budget <tokens>] <objective>"}, Sa.GErr{"Goal token budget must be a positive integer."}, Sa.GErr{"Goal objective must not be empty."}] : List<&2, Sa.Goal>} &
-  {Sa.goal("--budget 5\u{3000}fix it") == Sa.GStart{"fix it", Some{"5"}} : Sa.Goal}
+  {[Sa.goal(""), Sa.goal("Stop"), Sa.goal("PAUSE"), Sa.goal("resume"), Sa.goal("a b"), Sa.goal("--budget 50 go"), Sa.goal("--token-budget=3 x"), Sa.goal("--budget"), Sa.goal("--budget 0x x"), Sa.goal("--budget=5")] == [Sa.AStatus{}, Sa.AOff{}, Sa.AOff{}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}, Sa.ATask{"a b", None{}}, Sa.ATask{"go", Some{"50"}}, Sa.ATask{"x", Some{"3"}}, Sa.AErr{"Usage: /goal [--budget <tokens>] <objective>"}, Sa.AErr{"Goal token budget must be a positive integer."}, Sa.AErr{"Goal objective must not be empty."}] : List<&2, Sa.Auto>} &
+  {Sa.goal("--budget 5\u{3000}fix it") == Sa.ATask{"fix it", Some{"5"}} : Sa.Auto}
 
 # LAW slash_args_auto_example (R6-R9): anchor: Rust's vectors, short; a
 # limit named again (the later value kept), gate commands in order, a gate
-# number's `_` dropped (R9); the first bad word's error before a later one
+# number's `_` dropped (R9); the first bad word's error before a later one;
+# tasks kept whole, a quote and a leading flag word included
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law slash_args_auto_example:
   {[Sa.auto(""), Sa.auto("STATUS"), Sa.auto("off"), Sa.auto("on"), Sa.auto("on --max-turns 5 --gate=ls"), Sa.auto("on --subagent-keep-alive-ms 0")] == [Sa.AStatus{}, Sa.AStatus{}, Sa.AOff{}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}, Sa.AOn{Sa.Conf{Some{Sa.LUnl{}}, Some{Sa.LNum{"5"}}, Some{Sa.LUnl{}}, Some{Sa.LUnl{}}, Some{Sa.Gates{Some{["ls"]}, None{}, None{}}}, None{}}}, Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, Some{"0"}}}] : List<&2, Sa.Auto>} &
-  {[Sa.auto("on --max-turns=1 --max-turns 2 --gate a --gate=b --gate-retries 3_0"), Sa.auto("on --gate=x --max-turns=0 --nope 1")] == [Sa.AOn{Sa.Conf{Some{Sa.LUnl{}}, Some{Sa.LNum{"2"}}, Some{Sa.LUnl{}}, Some{Sa.LUnl{}}, Some{Sa.Gates{Some{["a", "b"]}, Some{"30"}, None{}}}, None{}}}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}] : List<&2, Sa.Auto>}
+  {[Sa.auto("on --max-turns=1 --max-turns 2 --gate a --gate=b --gate-retries 3_0"), Sa.auto("on --gate=x --max-turns=0 --nope 1")] == [Sa.AOn{Sa.Conf{Some{Sa.LUnl{}}, Some{Sa.LNum{"2"}}, Some{Sa.LUnl{}}, Some{Sa.LUnl{}}, Some{Sa.Gates{Some{["a", "b"]}, Some{"30"}, None{}}}, None{}}}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}] : List<&2, Sa.Auto>} &
+  {[Sa.auto("x"), Sa.auto("fix  the 'red  build'"), Sa.auto("--max-turns 5")] == [Sa.ATask{"x", None{}}, Sa.ATask{"fix  the 'red  build'", None{}}, Sa.ATask{"--max-turns 5", None{}}] : List<&2, Sa.Auto>}
 
 # LAW slash_args_auto_errors_example (R6-R8): anchor: the error texts, with
 # the usage text sa_usage() spelled out
 # EXCLUDES: a spec that drifts from the Rust it replaced
 law slash_args_auto_errors_example:
-  {[Sa.auto("x"), Sa.auto("status x"), Sa.auto("on x"), Sa.auto("on --no 1"), Sa.auto("on --gate"), Sa.auto("on --max-turns=0"), Sa.auto("on --gate-retries=unlimited")] == [Sa.AErr{sa_usage()}, Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unknown autonomous budget flag: --no. ", sa_usage())}, Sa.AErr{String.append("Missing value for --gate. ", sa_usage())}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}, Sa.AErr{String.append("--gate-retries must be a positive integer. ", sa_usage())}] : List<&2, Sa.Auto>}
+  {[Sa.auto("status x"), Sa.auto("on x"), Sa.auto("on --no 1"), Sa.auto("on --gate"), Sa.auto("on --max-turns=0"), Sa.auto("on --gate-retries=unlimited")] == [Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unexpected autonomous argument: x. ", sa_usage())}, Sa.AErr{String.append("Unknown autonomous budget flag: --no. ", sa_usage())}, Sa.AErr{String.append("Missing value for --gate. ", sa_usage())}, Sa.AErr{String.append("--max-turns must be a positive integer or \"unlimited\". ", sa_usage())}, Sa.AErr{String.append("--gate-retries must be a positive integer. ", sa_usage())}] : List<&2, Sa.Auto>}
 
 # LAW slash_args_u64_example (R4, R8): anchor: R4's u64 digits at their
 # boundaries: 1, 0, a leading 0, 2^64-1, 2^64, a 20-digit value past it,
@@ -858,16 +865,16 @@ def sa_after_eq(s: String) -> String:
     case SCon{+c, +t}:
       sa_after_eq.at(Char.is_eq(c, '='), t, sa_after_eq(t))
 
-def sa_goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Sa.Goal:
+def sa_goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Sa.Auto:
   match empty:
     case True{}:
-      Sa.GErr{"Goal objective must not be empty."}
+      Sa.AErr{"Goal objective must not be empty."}
     case False{}:
       match long:
         case True{}:
-          Sa.GErr{"Goal objective must be at most 4000 characters."}
+          Sa.AErr{"Goal objective must be at most 4000 characters."}
         case False{}:
-          Sa.GStart{o, b}
+          Sa.ATask{o, b}
 
 def sa_trim_end.at(b: Bool, c: Char, r: String) -> String:
   match b:
@@ -906,20 +913,20 @@ def sa_trim_start(s: String) -> String:
 def sa_trim(s: String) -> String:
   sa_trim_end(sa_trim_start(s))
 
-# the objective o (trimmed) with the budget b
-def sa_goal.objective(o: String, b: Maybe<&2, String>) -> Sa.Goal:
+# the task of the objective o (trimmed) with the budget b
+def sa_goal.objective(o: String, b: Maybe<&2, String>) -> Sa.Auto:
   +t = sa_trim(o)
   sa_goal.objective.at(String.is_empty(t), Bool.not(Nat.is_le(String.length(t), 4000n)), t, b)
 
 def sa_goal_bad_budget() -> String:
   "Goal token budget must be a positive integer."
 
-def sa_goal.budget(ok: Bool, v: String, o: String) -> Sa.Goal:
+def sa_goal.budget(ok: Bool, v: String, o: String) -> Sa.Auto:
   match ok:
     case True{}:
       sa_goal.objective(o, Some{v})
     case False{}:
-      Sa.GErr{sa_goal_bad_budget()}
+      Sa.AErr{sa_goal_bad_budget()}
 
 # What `/goal` asks
 def sa_goal_usage() -> String:
@@ -946,16 +953,16 @@ def sa_u64(+s: String) -> Bool:
   Bool.and(sa_positive(s), Bool.or(Nat.is_lt(n, 20n), Bool.and(Nat.is_eq(n, 20n), String.is_le(s, "18446744073709551615"))))
 
 # `--budget N objective`: the value and the objective after the flag
-def sa_goal.spaced(c: Sa.Cut) -> Sa.Goal:
+def sa_goal.spaced(c: Sa.Cut) -> Sa.Auto:
   match c:
     case Sa.Cut{+v, u}:
       match u:
         case SNil{}:
-          Sa.GErr{sa_goal_usage()}
+          Sa.AErr{sa_goal_usage()}
         case SCon{w, o}:
           sa_goal.budget(sa_u64(v), v, o)
 
-def sa_goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Sa.Goal:
+def sa_goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Sa.Auto:
   match bare:
     case True{}:
       sa_goal.spaced(sa_cut(sa_trim_start(tail)))
@@ -967,47 +974,47 @@ def sa_goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: Strin
         case False{}:
           sa_goal.objective(rest, None{})
 
-def sa_goal.start(c: Sa.Cut, rest: String) -> Sa.Goal:
+def sa_goal.start(c: Sa.Cut, rest: String) -> Sa.Auto:
   match c:
     case Sa.Cut{+first, tail}:
       sa_goal.flag(Bool.or(String.eq(first, "--budget"), String.eq(first, "--token-budget")), Bool.or(String.starts_with(first, "--budget="), String.starts_with(first, "--token-budget=")), first, tail, rest)
 
-def sa_goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Sa.Goal:
+def sa_goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Sa.Auto:
   match status:
     case True{}:
-      Sa.GStatus{}
+      Sa.AStatus{}
     case False{}:
       match clear:
         case True{}:
-          Sa.GClear{}
+          Sa.AOff{}
         case False{}:
           match pause:
             case True{}:
-              Sa.GPause{}
+              Sa.AOff{}
             case False{}:
               match resume:
                 case True{}:
-                  Sa.GResume{}
+                  Sa.AOn{Sa.Conf{None{}, None{}, None{}, None{}, None{}, None{}}}
                 case False{}:
                   sa_goal.start(sa_cut(rest), rest)
 
-def sa_goal.of(+rest: String, +l: String) -> Sa.Goal:
+def sa_goal.of(+rest: String, +l: String) -> Sa.Auto:
   sa_goal.kw(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), rest)
 
-# what `/goal <args>` asks
-def sa_goal(args: String) -> Sa.Goal:
+# the `/auto` answer of `/goal <args>`
+def sa_goal(args: String) -> Sa.Auto:
   +rest = sa_trim(args)
   sa_goal.of(rest, String.to_lower(rest))
 
 # LAW slash_args_goal_spec (R1, R3-R5): what every `/goal` text asks is the
 # spec's
-# EXCLUDES: a case-sensitive keyword, `stop` not clearing, a budget flag
-#   read anywhere but first, a value with a leading 0 or past u64 taken, the
-#   usage error lost, an untrimmed or overlong objective, an empty
-#   objective started
+# EXCLUDES: a case-sensitive keyword, `stop` not turning off, a budget
+#   flag read anywhere but first, a value with a leading 0 or past u64
+#   taken, the usage error lost, an untrimmed or overlong objective, an
+#   empty objective taken
 law slash_args_goal_spec:
   for +s: String
-  {Sa.goal(s) == sa_goal(s) : Sa.Goal}
+  {Sa.goal(s) == sa_goal(s) : Sa.Auto}
 
 # The tokenizer's state: the quote open, the word so far (reversed), a
 # quote seen in it, the words so far (reversed)
@@ -1068,10 +1075,10 @@ def sa_words(s: String) -> List<&2, String>:
 
 # A limit: unlimited, or its digits
 # The gate options named: the commands, retries and timeout digits
-# The options of `/autonomous on`
-# What `/autonomous` asks
+# The options of `/auto on`
+# What `/auto` asks
 def sa_auto_usage() -> String:
-  "Usage: /autonomous [status|off] or /autonomous on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
+  "Usage: /auto [status|off|<task>] or /auto on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
 
 # `<head>: <word>. <usage>`
 def sa_auto_err(+head: String, w: String) -> String:
@@ -1116,7 +1123,7 @@ def sa_some(-A: Data, m: Maybe<&2, A>) -> Bool:
     case Some{x}:
       True{}
 
-# the options read, as `/autonomous on` takes them
+# the options read, as `/auto on` takes them
 def sa_conf(o: Sa.Opts) -> Sa.Conf:
   match o:
     case Sa.Opts{+c, +t, +k, +m, g, d, r, s, p}:
@@ -1382,7 +1389,7 @@ def sa_reads(ws: List<&2, String>) -> Sa.Read & Sa.Read:
 def sa_options(ws: List<&2, String>) -> Sa.Read:
   sa_options.fst(sa_reads(ws))
 
-def sa_auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>) -> Sa.Auto:
+def sa_auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>, args: String) -> Sa.Auto:
   match status:
     case True{}:
       sa_auto.alone(ws, Sa.AStatus{})
@@ -1395,30 +1402,30 @@ def sa_auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>) -> Sa.Au
             case True{}:
               sa_auto.alone(ws, Sa.AOff{})
             case False{}:
-              Sa.AErr{sa_auto_usage()}
+              Sa.ATask{args, None{}}
 
-def sa_auto.first(+l: String, ws: List<&2, String>) -> Sa.Auto:
-  sa_auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws)
+def sa_auto.first(+l: String, ws: List<&2, String>, args: String) -> Sa.Auto:
+  sa_auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws, args)
 
-def sa_auto.words(ws: List<&2, String>) -> Sa.Auto:
+def sa_auto.words(ws: List<&2, String>, args: String) -> Sa.Auto:
   match ws:
     case Nil{}:
       Sa.AStatus{}
     case w <> t:
-      sa_auto.first(String.to_lower(w), t)
+      sa_auto.first(String.to_lower(w), t, args)
 
-# what `/autonomous <args>` asks
-def sa_auto(args: String) -> Sa.Auto:
-  sa_auto.words(sa_words(args))
+# what `/auto <args>` asks
+def sa_auto(+args: String) -> Sa.Auto:
+  sa_auto.words(sa_words(args), args)
 
-# LAW slash_args_auto_spec (R1, R2, R6-R9): what every `/autonomous` text
-# asks is the spec's
+# LAW slash_args_auto_spec (R1, R2, R6-R9): what every `/auto` text asks
+# is the spec's
 # EXCLUDES: a word after `status`/`off` ignored, an unknown flag accepted,
 #   the `--autonomous-` prefix refused, a value taken from a flag word, an
 #   empty value accepted, `unlimited` for a gate number, a keep-alive past
 #   2147483647, the first value of a repeated flag kept, gate commands out
 #   of order, unnamed limits left unset after a named one, a later error
-#   reported before an earlier one
+#   reported before an earlier one, a task's text changed
 law slash_args_auto_spec:
   for +s: String
   {Sa.auto(s) == sa_auto(s) : Sa.Auto}

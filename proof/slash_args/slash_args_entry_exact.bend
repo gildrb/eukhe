@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW slash_args_entry_exact
 #
-# PROOF: the tag decoded is spelled (wire_nat_exact), so is the text with its length within the wire (dcw.str); a value is answered only for tags 0-3 with nothing left (sax.top).
+# PROOF: the tag decoded is spelled (wire_nat_exact), so is the text with its length within the wire (dcw.str); a value is answered only for tags 0-4 with nothing left (sax.top).
 
 import Base
 import ../../bend/slash_args.bend as Sa

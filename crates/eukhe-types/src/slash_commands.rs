@@ -14,12 +14,11 @@ use std::collections::HashMap;
 use crate::model_roles::ModelRole;
 
 /// Session-executed commands (their behavior lives in the session engine).
-pub const SESSION_SLASH_COMMAND_NAMES: [&str; 10] = [
+pub const SESSION_SLASH_COMMAND_NAMES: [&str; 9] = [
     "compact",
     "refine",
-    "goal",
+    "auto",
     "accept",
-    "autonomous",
     "remind",
     "force",
     "dynamic-workflow",
@@ -206,9 +205,8 @@ const CANONICAL_BUILTIN_SLASH_COMMANDS: &[BuiltinSlashCommand] = &[
     BuiltinSlashCommand { name: "new", description: "Start a new session, optionally named and/or with an initial prompt", execution: SlashCommandExecution::Client, argument_hint: Some("[--name \"session name\" --] [prompt]"), aliases: &["clear"], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "compact", description: "Compact the session context; optional instructions focus the summary", execution: SlashCommandExecution::Session, argument_hint: Some("[instructions]"), aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "refine", description: "Refine continual harness prompt notes, skills, subagents, and memory", execution: SlashCommandExecution::Session, argument_hint: None, aliases: &[], takes_argument: false, subcommands: &[], subcommand_optional: false },
-    BuiltinSlashCommand { name: "goal", description: "Set or view a persistent goal; supports pause, resume, and clear", execution: SlashCommandExecution::Session, argument_hint: Some("[objective]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
+    BuiltinSlashCommand { name: "auto", description: "Toggle autonomous mode, or start it on a task", execution: SlashCommandExecution::Session, argument_hint: Some("[on|off|status|<task>]"), aliases: &["autonomous", "goal"], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "accept", description: "Set or view the acceptance checks that must pass before a task is reported done", execution: SlashCommandExecution::Session, argument_hint: Some("[status|clear|cmd <command>|judge <condition>|until <command>|intent [on|off]|returns <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
-    BuiltinSlashCommand { name: "autonomous", description: "Set or view autonomous mode with an optional budget", execution: SlashCommandExecution::Session, argument_hint: Some("[status|off|on [--max-continuations <n>] [--max-turns <n>] [--max-tokens <n>] [--timeout-ms <n>] [--gate <command>]]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "remind", description: "Put a reminder on the Director stack; its text leads the next continuation", execution: SlashCommandExecution::Session, argument_hint: Some("<text>"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "force", description: "Force the next requests to call a tool until the model calls it", execution: SlashCommandExecution::Session, argument_hint: Some("<tool> [--tries <n>]"), aliases: &[], takes_argument: true, subcommands: &[], subcommand_optional: false },
     BuiltinSlashCommand { name: "dynamic-workflow", description: "Plan and run a multi-agent workflow script for a request", execution: SlashCommandExecution::Session, argument_hint: Some("[--size small|medium|large] <request>"), aliases: &["workflow", "wf"], takes_argument: true, subcommands: DYNAMIC_WORKFLOW_SUBCOMMANDS, subcommand_optional: true },
@@ -387,6 +385,8 @@ mod tests {
         assert_eq!(registry.resolve_name("usage"), Some("context"));
         assert_eq!(registry.resolve_name("rename"), Some("name"));
         assert_eq!(registry.resolve_name("side"), Some("btw"));
+        assert_eq!(registry.resolve_name("autonomous"), Some("auto"));
+        assert_eq!(registry.resolve_name("goal"), Some("auto"));
         assert!(registry.is_builtin("model"));
         assert!(!registry.is_builtin("nope"));
         // /clear remains the no-argument alias.

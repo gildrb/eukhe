@@ -1,36 +1,39 @@
-//! The arguments of the session slash commands `/goal` and `/autonomous`,
-//! a goal objective, and the quote-aware words of a command's argument text
-//! (`bend/slash_args.bend`, entry `bend/ffi_slash_args.bend`;
-//! `laws/slash_args/`). Rust sends the text and reads the answer; the
-//! numbers come back as digits the core checked to fit a `u64`.
+//! The arguments of the session slash command `/auto` (typed as `/auto`,
+//! `/autonomous` or the removed `/goal`), a goal objective, and the
+//! quote-aware words of a command's argument text (`bend/slash_args.bend`,
+//! entry `bend/ffi_slash_args.bend`; `laws/slash_args/`). Rust sends the
+//! text and reads the answer; the numbers come back as digits the core
+//! checked to fit a `u64`.
 
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, expect_core, Entry, Error};
 
-/// What `/goal <args>` asks, or a goal objective's verdict.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GoalArgs {
-    Status,
-    Clear,
-    Pause,
-    Resume,
-    /// The objective (trimmed) and the token budget, if one was named.
-    Start {
-        objective: String,
-        token_budget: Option<u64>,
-    },
-    /// The user-facing usage or validation error.
-    Error(String),
+/// The name `/auto` was typed as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoName {
+    Auto,
+    Autonomous,
+    /// The removed `/goal`: each of its answers is an `/auto` one.
+    Goal,
 }
 
-/// A limit named by an `/autonomous on` option.
+/// How the core read the typed name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoVia {
+    /// `/auto` or `/autonomous`.
+    Auto,
+    /// `/goal`: the answer is the `/auto` one it maps to.
+    GoalAlias,
+}
+
+/// A limit named by an `/auto on` option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Limit {
     Unlimited,
     Value(u64),
 }
 
-/// The gate options named by `/autonomous on`.
+/// The gate options named by `/auto on`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GateOptions {
     /// The `--gate` commands in order; `None` when none was named.
@@ -39,8 +42,8 @@ pub struct GateOptions {
     pub timeout_ms: Option<u64>,
 }
 
-/// The options of `/autonomous on`: once one limit is named, every other
-/// limit comes back [`Limit::Unlimited`].
+/// The options of `/auto on`: once one limit is named, every other limit
+/// comes back [`Limit::Unlimited`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutonomousOptions {
     pub max_continuations: Option<Limit>,
@@ -51,21 +54,35 @@ pub struct AutonomousOptions {
     pub subagent_keep_alive_ms: Option<u64>,
 }
 
-/// What `/autonomous <args>` asks.
+/// What `/auto <args>` asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AutonomousArgs {
+pub enum AutoArgs {
     Status,
     On(AutonomousOptions),
     Off,
+    /// Turn autonomous mode on and send `text` as the user's message.
+    Task {
+        text: String,
+        /// `/goal --budget N`: the run's token budget.
+        token_budget: Option<u64>,
+    },
     /// The user-facing usage or validation error.
     Error(String),
 }
 
+/// The core's reply to `/auto`: how it was typed, and what it asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoReply {
+    pub via: AutoVia,
+    pub args: AutoArgs,
+}
+
 /// The question tags of the entry.
 const GOAL: u32 = 0;
-const AUTONOMOUS: u32 = 1;
+const AUTO: u32 = 1;
 const WORDS: u32 = 2;
 const OBJECTIVE: u32 = 3;
+const AUTONOMOUS: u32 = 4;
 
 fn ask(tag: u32, text: &str) -> Result<String, Error> {
     Ok(call(
@@ -74,10 +91,10 @@ fn ask(tag: u32, text: &str) -> Result<String, Error> {
     )?)
 }
 
-/// What `/goal <args>` asks.
+/// What `/auto <args>` asks, typed as `name`.
 #[must_use]
-pub fn goal(args: &str) -> GoalArgs {
-    expect_core(Entry::SlashArgs, goal_call(GOAL, args))
+pub fn auto(name: AutoName, args: &str) -> AutoReply {
+    expect_core(Entry::SlashArgs, auto_call(name, args))
 }
 
 /// A goal objective (as a goal tool gives it): trimmed, or the
@@ -90,12 +107,6 @@ pub fn objective(text: &str) -> Result<String, String> {
     expect_core(Entry::SlashArgs, objective_call(text))
 }
 
-/// What `/autonomous <args>` asks.
-#[must_use]
-pub fn autonomous(args: &str) -> AutonomousArgs {
-    expect_core(Entry::SlashArgs, autonomous_call(args))
-}
-
 /// The words of a command's argument text: whitespace splits outside
 /// quotes; `"` or `'` quotes, kept chars and all; a quoted word counts even
 /// when empty.
@@ -104,45 +115,42 @@ pub fn words(args: &str) -> Vec<String> {
     expect_core(Entry::SlashArgs, words_call(args))
 }
 
-fn goal_call(tag: u32, text: &str) -> Result<GoalArgs, Error> {
-    let reply = ask(tag, text)?;
+fn name_tag(name: AutoName) -> u32 {
+    match name {
+        AutoName::Auto => AUTO,
+        AutoName::Autonomous => AUTONOMOUS,
+        AutoName::Goal => GOAL,
+    }
+}
+
+fn auto_call(name: AutoName, args: &str) -> Result<AutoReply, Error> {
+    let reply = ask(name_tag(name), args)?;
     let mut reader = Reader::reply(&reply)?;
-    let answer = match reader.tag_of(6, "a goal answer")? {
-        0 => GoalArgs::Status,
-        1 => GoalArgs::Clear,
-        2 => GoalArgs::Pause,
-        3 => GoalArgs::Resume,
-        4 => {
-            let objective = reader.str()?.to_string();
-            let token_budget = if reader.maybe()? {
-                Some(digits(reader.str()?)?)
-            } else {
-                None
-            };
-            GoalArgs::Start {
-                objective,
-                token_budget,
-            }
-        }
-        // `tag_of` answers a tag below 6: this is 5.
-        _ => GoalArgs::Error(reader.str()?.to_string()),
+    let via = match reader.tag_of(2, "how /auto was typed")? {
+        0 => AutoVia::Auto,
+        // `tag_of` answers a tag below 2: this is 1.
+        _ => AutoVia::GoalAlias,
     };
+    let args = answer(&mut reader)?;
     reader.end()?;
-    Ok(answer)
+    Ok(AutoReply { via, args })
 }
 
 fn objective_call(text: &str) -> Result<Result<String, String>, Error> {
-    match goal_call(OBJECTIVE, text)? {
-        GoalArgs::Start {
-            objective,
+    let reply = ask(OBJECTIVE, text)?;
+    let mut reader = Reader::reply(&reply)?;
+    let args = answer(&mut reader)?;
+    reader.end()?;
+    match args {
+        AutoArgs::Task {
+            text,
             token_budget: None,
-        } => Ok(Ok(objective)),
-        GoalArgs::Error(reason) => Ok(Err(reason)),
-        GoalArgs::Status
-        | GoalArgs::Clear
-        | GoalArgs::Pause
-        | GoalArgs::Resume
-        | GoalArgs::Start {
+        } => Ok(Ok(text)),
+        AutoArgs::Error(reason) => Ok(Err(reason)),
+        AutoArgs::Status
+        | AutoArgs::On(_)
+        | AutoArgs::Off
+        | AutoArgs::Task {
             token_budget: Some(_),
             ..
         } => Err(WireError::Malformed {
@@ -153,18 +161,18 @@ fn objective_call(text: &str) -> Result<Result<String, String>, Error> {
     }
 }
 
-fn autonomous_call(args: &str) -> Result<AutonomousArgs, Error> {
-    let reply = ask(AUTONOMOUS, args)?;
-    let mut reader = Reader::reply(&reply)?;
-    let answer = match reader.tag_of(4, "an autonomous answer")? {
-        0 => AutonomousArgs::Status,
-        1 => AutonomousArgs::On(options(&mut reader)?),
-        2 => AutonomousArgs::Off,
-        // `tag_of` answers a tag below 4: this is 3.
-        _ => AutonomousArgs::Error(reader.str()?.to_string()),
-    };
-    reader.end()?;
-    Ok(answer)
+fn answer(reader: &mut Reader<'_>) -> Result<AutoArgs, WireError> {
+    Ok(match reader.tag_of(5, "an /auto answer")? {
+        0 => AutoArgs::Status,
+        1 => AutoArgs::On(options(reader)?),
+        2 => AutoArgs::Off,
+        3 => AutoArgs::Error(reader.str()?.to_string()),
+        // `tag_of` answers a tag below 5: this is 4.
+        _ => AutoArgs::Task {
+            text: reader.str()?.to_string(),
+            token_budget: maybe_digits(reader)?,
+        },
+    })
 }
 
 fn words_call(args: &str) -> Result<Vec<String>, Error> {
@@ -242,31 +250,56 @@ fn digits(text: &str) -> Result<u64, WireError> {
 mod tests {
     use super::*;
 
-    /// The answers come from the compiled core: a budgeted goal, named
-    /// limits with the others unlimited, quoted words.
+    /// The answers come from the compiled core: a task, a budgeted `/goal`
+    /// task flagged as the alias, `/autonomous` read as `/auto` with named
+    /// limits (the others unlimited), a goal objective, quoted words.
     #[test]
     fn the_core_reads_slash_command_arguments() {
+        let on = AutoArgs::On(AutonomousOptions {
+            max_continuations: Some(Limit::Unlimited),
+            max_turns: Some(Limit::Value(5)),
+            max_tokens: Some(Limit::Unlimited),
+            timeout_ms: Some(Limit::Unlimited),
+            gates: Some(GateOptions {
+                commands: Some(vec!["npm test".to_string()]),
+                max_retries: None,
+                timeout_ms: None,
+            }),
+            subagent_keep_alive_ms: None,
+        });
         assert_eq!(
-            goal("--budget 5000 keep going"),
-            GoalArgs::Start {
-                objective: "keep going".to_string(),
-                token_budget: Some(5000),
-            }
+            [
+                auto(AutoName::Auto, "fix the 'red build'"),
+                auto(AutoName::Goal, "--budget 5000 keep going"),
+                auto(AutoName::Autonomous, "on --max-turns 5 --gate 'npm test'"),
+            ],
+            [
+                AutoReply {
+                    via: AutoVia::Auto,
+                    args: AutoArgs::Task {
+                        text: "fix the 'red build'".to_string(),
+                        token_budget: None,
+                    },
+                },
+                AutoReply {
+                    via: AutoVia::GoalAlias,
+                    args: AutoArgs::Task {
+                        text: "keep going".to_string(),
+                        token_budget: Some(5000),
+                    },
+                },
+                AutoReply {
+                    via: AutoVia::Auto,
+                    args: on,
+                },
+            ]
         );
         assert_eq!(
-            autonomous("on --max-turns 5 --gate 'npm test'"),
-            AutonomousArgs::On(AutonomousOptions {
-                max_continuations: Some(Limit::Unlimited),
-                max_turns: Some(Limit::Value(5)),
-                max_tokens: Some(Limit::Unlimited),
-                timeout_ms: Some(Limit::Unlimited),
-                gates: Some(GateOptions {
-                    commands: Some(vec!["npm test".to_string()]),
-                    max_retries: None,
-                    timeout_ms: None,
-                }),
-                subagent_keep_alive_ms: None,
-            })
+            (objective("  ship it "), objective(" ")),
+            (
+                Ok("ship it".to_string()),
+                Err("Goal objective must not be empty.".to_string())
+            )
         );
         assert_eq!(words("a \"b c\" ''"), ["a", "b c", ""]);
     }
