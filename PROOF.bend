@@ -3124,7 +3124,8 @@ import ./proof/slash_args/base/opts.bend as LASlashArgsOpts
 import ./proof/slash_args/slash_args_auto_options.bend as PSlashArgsAutoOptions
 import ./proof/slash_args/slash_args_auto_bad_value.bend as PSlashArgsAutoBadValue
 import ./proof/slash_args/slash_args_auto_first_error.bend as PSlashArgsAutoFirstError
-import ./proof/slash_args/slash_args_digits_fit.bend as PSlashArgsDigitsFit
+import ./proof/slash_args/base/num.bend as LASlashArgsNum
+import ./proof/slash_args/slash_args_digits_value.bend as PSlashArgsDigitsValue
 import ./proof/slash_args/slash_args_digits_refused.bend as PSlashArgsDigitsRefused
 import ./proof/cache_marks/base.bend as LACacheMarks
 import ./proof/cache_marks/cache_marks_excess.bend as PCacheMarksExcess
