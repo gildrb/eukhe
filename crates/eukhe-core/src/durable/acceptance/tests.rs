@@ -29,7 +29,7 @@ use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{EntryRecord, Storage};
 use eukhe_types::acceptance::{
     AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, AcceptanceState, CheckResult, CheckSpec,
-    CheckVerdict, ProtectedFile,
+    CheckVerdict, ProtectedFile, StrengthMark, Survivor,
 };
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{JsonObject, StopReason, TextContent, UserContent, UserContentBlock};
@@ -41,9 +41,10 @@ use tokio::sync::watch;
 
 use super::docs::ACCEPTANCE_DOC;
 use super::evidence::{judge_prompt, ModelJudge};
+use super::strength::{Measurement, Probe};
 use super::{
     acceptance_exit_code, acceptance_extension, acceptance_state, set_acceptance,
-    watch_acceptance_updates, Judge, JudgeQuestion, JudgeReply, JudgeRequest,
+    watch_acceptance_updates, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services,
     ACCEPTANCE_CUSTOM_TYPE,
 };
 use crate::autonomous::{ChildProcessResult, GateCommandRunner};
@@ -177,6 +178,82 @@ impl Judge for ScriptedJudge {
     }
 }
 
+/// A breaker whose measurements are scripted in order, then `fallback`
+/// (by default every break caught: a strong check); it records each probe.
+struct ScriptedBreaker {
+    script: Mutex<VecDeque<Measurement>>,
+    fallback: Mutex<Measurement>,
+    probes: Mutex<Vec<Probe>>,
+}
+
+impl Default for ScriptedBreaker {
+    fn default() -> Self {
+        Self {
+            script: Mutex::default(),
+            fallback: Mutex::new(measured(4, 4, &[])),
+            probes: Mutex::default(),
+        }
+    }
+}
+
+/// `caught` of `ran` breaks caught, all planned ones run; `survived` are the
+/// survivors' `(path, line)`.
+fn measured(caught: u64, ran: u64, survived: &[(&str, u32)]) -> Measurement {
+    Measurement {
+        caught,
+        ran,
+        planned: ran,
+        survivors: survived
+            .iter()
+            .map(|&(path, line)| Survivor {
+                path: path.to_owned(),
+                line,
+                change: "`<` to `<=`".to_owned(),
+            })
+            .collect(),
+        note: None,
+    }
+}
+
+impl ScriptedBreaker {
+    /// Every later measurement finds `measurement`.
+    fn always(&self, measurement: Measurement) {
+        *self.fallback.lock().unwrap_or_else(PoisonError::into_inner) = measurement;
+    }
+
+    fn probes(&self) -> Vec<Probe> {
+        self.probes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Breaker for ScriptedBreaker {
+    fn measure<'a>(
+        &'a self,
+        probe: Probe,
+        _cx: &'a Context,
+    ) -> BoxFuture<'a, eukhe_durable::session::SessionResult<Measurement>> {
+        self.probes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(probe);
+        let found = self
+            .script
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front()
+            .unwrap_or_else(|| {
+                self.fallback
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone()
+            });
+        async move { Ok(found) }.boxed()
+    }
+}
+
 /// Models, registry and services that survive a close and reopen.
 struct Setup {
     faux: FauxProviderHandle,
@@ -186,6 +263,7 @@ struct Setup {
     requests: HostRequestRegistry,
     runner: Arc<ScriptedRunner>,
     judge: Arc<ScriptedJudge>,
+    breaker: Arc<ScriptedBreaker>,
     /// The session cwd: protected files live here.
     dir: tempfile::TempDir,
 }
@@ -249,13 +327,17 @@ fn setup() -> Setup {
     let requests = HostRequestRegistry::default();
     let runner = Arc::new(ScriptedRunner::default());
     let judge = Arc::new(ScriptedJudge::default());
+    let breaker = Arc::new(ScriptedBreaker::default());
     let dir = tempfile::tempdir().expect("tempdir");
     // The product order: the verifier's hooks before the goal's.
     registry
         .install(acceptance_extension(
             cell.clone(),
-            Arc::clone(&runner) as Arc<dyn GateCommandRunner>,
-            Arc::clone(&judge) as Arc<dyn Judge>,
+            Services {
+                runner: Arc::clone(&runner) as Arc<dyn GateCommandRunner>,
+                judge: Arc::clone(&judge) as Arc<dyn Judge>,
+                breaker: Arc::clone(&breaker) as Arc<dyn Breaker>,
+            },
             dir.path().to_path_buf(),
             &requests,
             None,
@@ -290,6 +372,7 @@ fn setup() -> Setup {
         requests,
         runner,
         judge,
+        breaker,
         dir,
     }
 }
@@ -431,6 +514,7 @@ fn command(text: &str) -> CheckSpec {
         expect: 0,
         timeout_ms: None,
         protect: Vec::new(),
+        strength: None,
     }
 }
 
@@ -453,6 +537,9 @@ fn timeless(mut state: AcceptanceState) -> AcceptanceState {
     for check in &mut state.checks {
         if let Some(result) = &mut check.result {
             result.judged_at = 0;
+        }
+        if let Some(mark) = &mut check.strength {
+            mark.measured_at = 0;
         }
     }
     if let Some(end) = &mut state.last_end {
@@ -478,7 +565,23 @@ fn judged(
             evidence: evidence.to_owned(),
             judged_at: 0,
         }),
+        strength: None,
     }
+}
+
+/// `check` measured on the state `at` by the default scripted breaker:
+/// every one of 4 breaks caught.
+fn strong(mut check: AcceptanceCheck, at: u64) -> AcceptanceCheck {
+    check.strength = Some(StrengthMark {
+        caught: 4,
+        ran: 4,
+        planned: 4,
+        at,
+        survivors: Vec::new(),
+        note: None,
+        measured_at: 0,
+    });
+    check
 }
 
 /// V3, V4: a final answer is a claim; with every check confirmed on the
@@ -507,12 +610,15 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
             label: AcceptanceLabel::ChecksPassedUnconfined,
             state: at,
             revision: 1,
-            checks: vec![judged(
-                command("cargo test"),
-                CheckVerdict::Confirmed,
-                at,
-                "exited with code 0",
-                "3 passed"
+            checks: vec![strong(
+                judged(
+                    command("cargo test"),
+                    CheckVerdict::Confirmed,
+                    at,
+                    "exited with code 0",
+                    "3 passed"
+                ),
+                at
             )],
             claimed: false,
             tries: 0,
@@ -531,17 +637,92 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
     assert_eq!(
         (rows[0].0.as_str(), rows[0].1, &rows[0].2["outcome"]),
         (
-            "Acceptance checks passed, unconfined: 1 acceptance check confirmed.",
+            "Acceptance checks passed, unconfined: 1 acceptance check confirmed, caught 4 of 4 breaks.",
             false,
             &json!("checks_passed_unconfined")
         )
     );
     assert_eq!(setup.runner.commands(), vec!["cargo test".to_owned()]);
+    // The breaker measured the check once, on the final state, from the
+    // session's workspace.
+    let probes = setup.breaker.probes();
+    assert_eq!(
+        probes
+            .iter()
+            .map(|probe| (probe.command.as_str(), probe.at, probe.workspace.as_path()))
+            .collect::<Vec<_>>(),
+        vec![("cargo test", at, setup.cwd())]
+    );
     assert_eq!(
         acceptance_exit_code(&harness, root.id(), 0, cx())
             .await
             .expect("exit"),
         0
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// S1-S3, S6: a check that passes on the final state but lets the breaks
+/// of the changed code through is weak: the claim ends `checks passed, not
+/// certified` with the survivors shown, nothing returns to the worker, and
+/// the run exits 3.
+#[tokio::test]
+async fn a_passing_check_that_catches_no_break_ends_not_certified() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![command("true")], None)
+        .await;
+    setup.runner.script(vec![exited(0, "")]);
+    setup
+        .breaker
+        .always(measured(0, 2, &[("src/lib.rs", 3), ("src/lib.rs", 4)]));
+    setup
+        .faux
+        .set_responses(vec![call("work", "w1"), answer("done")]);
+
+    run(&harness, &root, "do it").await;
+
+    let got = state(&harness, &root).await;
+    let at = got.state;
+    assert_eq!(
+        (
+            got.label,
+            got.last_end.map(|end| end.label),
+            got.checks[0]
+                .strength
+                .as_ref()
+                .map(|mark| (mark.caught, mark.ran, mark.at))
+        ),
+        (
+            AcceptanceLabel::ChecksPassedNotCertified,
+            Some(AcceptanceLabel::ChecksPassedNotCertified),
+            Some((0, 2, at))
+        )
+    );
+    let entries = entries(&root).await;
+    assert_eq!(user_texts(&entries), vec!["do it".to_owned()]);
+    let rows = verdict_rows(&entries);
+    assert_eq!(
+        (rows.len(), rows[0].0.as_str(), &rows[0].2["outcome"]),
+        (
+            1,
+            "Acceptance checks passed, not certified: 1 acceptance check confirmed; check 1: weak, caught 0 of 2 breaks (needs 80 %); survived: src/lib.rs:3 `<` to `<=`; src/lib.rs:4 `<` to `<=`.",
+            &json!("checks_passed_not_certified")
+        )
+    );
+    assert_eq!(
+        acceptance_exit_code(&harness, root.id(), 0, cx())
+            .await
+            .expect("exit"),
+        3
+    );
+    // A nonzero code of the run itself is kept.
+    assert_eq!(
+        acceptance_exit_code(&harness, root.id(), 1, cx())
+            .await
+            .expect("exit"),
+        1
     );
     harness.close(cx()).await.expect("close");
 }
@@ -763,7 +944,7 @@ async fn a_goal_completes_only_when_its_checks_pass() {
         (goal.status, goal.last_reason.as_deref()),
         (
             GoalStatus::Complete,
-            Some("checks passed, unconfined (1 acceptance check confirmed)")
+            Some("checks passed, unconfined (1 acceptance check confirmed, caught 4 of 4 breaks)")
         )
     );
     assert_eq!(
@@ -871,6 +1052,7 @@ async fn a_check_whose_protected_file_changed_fails() {
         expect: 0,
         timeout_ms: None,
         protect: vec!["test_x.py".to_owned()],
+        strength: None,
     };
     let set = setup.accept(&harness, &root, vec![spec], Some(0)).await;
     assert_eq!(
@@ -1350,7 +1532,9 @@ async fn a_requirement_added_later_extends_the_task() {
         .set_responses(vec![call("work", "w1"), answer("hello.txt written")]);
     run(&harness, &root, "write hello.txt").await;
     let first = state(&harness, &root).await;
-    assert_eq!(first.label, AcceptanceLabel::ChecksPassedUnconfined);
+    // The intent check is a judge: it has no code to break, so it never
+    // certifies done on its own (S2).
+    assert_eq!(first.label, AcceptanceLabel::ChecksPassedNotCertified);
 
     // The worker answers the added requirement without doing it, then
     // does it once the evidence comes back.
@@ -1380,13 +1564,13 @@ async fn a_requirement_added_later_extends_the_task() {
     assert_eq!(
         outcomes,
         vec![
-            json!("checks_passed_unconfined"),
+            json!("checks_passed_not_certified"),
             json!("returned"),
-            json!("checks_passed_unconfined")
+            json!("checks_passed_not_certified")
         ]
     );
     let last = state(&harness, &root).await;
-    assert_eq!(last.label, AcceptanceLabel::ChecksPassedUnconfined);
+    assert_eq!(last.label, AcceptanceLabel::ChecksPassedNotCertified);
     assert_ne!(last.state, first.state);
     harness.close(cx()).await.expect("close");
 }
@@ -1414,7 +1598,7 @@ async fn a_side_question_neither_ends_nor_fails_the_task() {
     run(&harness, &root, "write the parser").await;
     assert_eq!(
         state(&harness, &root).await.label,
-        AcceptanceLabel::ChecksPassedUnconfined
+        AcceptanceLabel::ChecksPassedNotCertified
     );
 
     setup
@@ -1439,9 +1623,9 @@ async fn a_side_question_neither_ends_nor_fails_the_task() {
     assert_eq!(
         (got.label, got.tries, got.last_end.map(|end| end.label)),
         (
-            AcceptanceLabel::ChecksPassedUnconfined,
+            AcceptanceLabel::ChecksPassedNotCertified,
             0,
-            Some(AcceptanceLabel::ChecksPassedUnconfined)
+            Some(AcceptanceLabel::ChecksPassedNotCertified)
         )
     );
     harness.close(cx()).await.expect("close");
@@ -1587,6 +1771,7 @@ async fn the_verdict_its_checks_and_evidence_are_recorded_and_watched() {
     assert_eq!(rows.len(), 1);
     let mut recorded = rows[0].2["checks"].clone();
     recorded[0]["result"]["judgedAt"] = json!(0);
+    recorded[0]["strength"]["measuredAt"] = json!(0);
     assert_eq!(
         recorded,
         serde_json::to_value(&verified.checks).expect("encode")
@@ -1792,11 +1977,13 @@ async fn a_change_of_the_checks_discards_every_verdict() {
                     spec: command("cargo test"),
                     protected: Vec::new(),
                     result: None,
+                    strength: None,
                 },
                 AcceptanceCheck {
                     spec: command("cargo clippy"),
                     protected: Vec::new(),
                     result: None,
+                    strength: None,
                 },
             ],
             claimed: false,

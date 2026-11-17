@@ -1841,6 +1841,7 @@ mod tests {
                 expect: 0,
                 timeout_ms: None,
                 protect: Vec::new(),
+                strength: None,
             }]
         );
         assert_eq!((max_returns, intent), (None, None));

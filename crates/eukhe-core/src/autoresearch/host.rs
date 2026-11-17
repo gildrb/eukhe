@@ -72,10 +72,13 @@ fn gate(deps: &Weak<HostDeps>, request: &str) -> RunGate {
         Some(deps) => RunGate {
             env: local_env(&session_env(&deps)),
             auto: auto_set(&deps.settings),
+            // The experiment runs are judged by their metric, not by
+            // acceptance checks: no held files.
             paths: crate::durable::path_policy::session_policy(
                 &deps.agent_dir,
                 &deps.settings,
                 &deps.cwd,
+                &[],
             ),
             approver: SinkApprover {
                 sink: deps.shell_approval.clone(),

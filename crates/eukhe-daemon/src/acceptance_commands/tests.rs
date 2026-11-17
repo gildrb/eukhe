@@ -53,6 +53,7 @@ fn command_check(command: &str) -> CheckSpec {
         expect: 0,
         timeout_ms: None,
         protect: Vec::new(),
+        strength: None,
     }
 }
 

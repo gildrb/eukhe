@@ -37,6 +37,7 @@ use eukhe_shell::Refusal;
 use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
 use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects};
 
+use super::acceptance::HeldFile;
 use super::deps::ShellApprovalSink;
 use super::settings::EukheSettings;
 use super::shell::RefusalText;
@@ -151,16 +152,19 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
 
 /// The path policy of a call of a session (its agent dir and settings)
 /// working in `workspace` (the call's agent cwd, never a cwd the model
-/// can change).
+/// can change). The files the conversation's acceptance checks protect
+/// (`held`) are protected too: a `bash` step that writes one asks the
+/// user like any protected path.
 pub(crate) fn session_policy(
     agent_dir: &Path,
     settings: &EukheSettings,
     workspace: &Path,
+    held: &[HeldFile],
 ) -> PathPolicy {
     let home = eukhe_types::platform::home_dir();
     let executable = std::env::current_exe().ok();
     let path = std::env::var_os("PATH");
-    policy(
+    let base = policy(
         &Layout {
             agent_dir,
             settings,
@@ -170,7 +174,13 @@ pub(crate) fn session_policy(
             env: &|name| std::env::var_os(name),
         },
         workspace,
-    )
+    );
+    if held.is_empty() {
+        return base;
+    }
+    let mut protected = base.protected().to_vec();
+    protected.extend(held.iter().map(|file| PathRule::Tree(file.real.clone())));
+    PathPolicy::new(base.roots().to_vec(), protected, base.secret().to_vec())
 }
 
 /// The effects of `access` to `real` under `policy`, judged on `real` as
@@ -198,6 +208,10 @@ pub(crate) struct DocumentsGate {
     /// The runtime the sink's answer arrives on; the gate runs on a
     /// blocking thread of it.
     pub(crate) runtime: tokio::runtime::Handle,
+    /// The files the conversation's acceptance checks protect: a write to
+    /// one is refused whatever the user's auto set (only the task's owner
+    /// changes a check's files).
+    pub(crate) held: Vec<HeldFile>,
 }
 
 /// Why a [`DocumentsGate`] refused an access. The effects open the
@@ -210,8 +224,26 @@ pub(crate) struct DocumentsRefusal {
     refusal: RefusalText,
 }
 
+/// A write to a file an acceptance check protects, refused.
+#[derive(Debug, thiserror::Error)]
+#[error("(write protected) {named} belongs to acceptance check {check}: only the task's owner changes it")]
+pub(crate) struct HeldRefusal {
+    named: String,
+    check: usize,
+}
+
 impl AccessGate for DocumentsGate {
     fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
+        if let Some(file) = self
+            .held
+            .iter()
+            .find(|file| matches!(access, Access::Write) && real.path().starts_with(&file.real))
+        {
+            return Err(AccessRefusal::new(HeldRefusal {
+                named: file.named.clone(),
+                check: file.check,
+            }));
+        }
         let effects = effects(&self.policy, access, real);
         if eukhe_bend::rules::shell::allows(self.auto, effects) == Gate::Unasked {
             return Ok(());

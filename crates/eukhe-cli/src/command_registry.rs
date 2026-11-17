@@ -732,7 +732,15 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             (
                 "--accept-cmd <COMMAND>",
-                "Acceptance check: the run is done only if this command exits 0 on the final state (repeatable)",
+                "Acceptance check: the run is done only if this command exits 0 on the final state and catches deliberate breaks of the changed code (repeatable)",
+            ),
+            (
+                "--accept-protect <PATH>",
+                "A file the --accept-cmd checks protect: the agent's write to it is refused, and a changed one fails the check (repeatable)",
+            ),
+            (
+                "--accept-strength <PERCENT>",
+                "The share of deliberate breaks of the changed code each --accept-cmd check must catch before the run counts as done (default 80; 0 waives it)",
             ),
             (
                 "--accept-judge <CONDITION>",

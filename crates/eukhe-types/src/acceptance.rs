@@ -30,6 +30,11 @@ pub enum CheckSpec {
         /// script), relative to the session cwd.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         protect: Vec<String>,
+        /// The share of deliberate breaks of the changed code the check
+        /// must catch before it certifies done, in percent; absent:
+        /// [`DEFAULT_STRENGTH`]; 0: the owner waives it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strength: Option<u32>,
     },
     /// A condition a judge (a separate model request) decides from evidence the harness
     /// gathers: the output of the other checks of the round and of the
@@ -49,6 +54,9 @@ pub enum CheckSpec {
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        /// As [`CheckSpec::Command`]'s `strength`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strength: Option<u32>,
     },
     /// The task's intent: an independent judge reads the user's own
     /// messages (never the worker's), decides what the conversation asks
@@ -68,6 +76,37 @@ impl CheckSpec {
     pub fn intent() -> Self {
         Self::Intent { model: None }
     }
+
+    /// What the owner asks of the check's strength: a command and an
+    /// until-condition must catch their share of the breaks; a judge and
+    /// the intent check have no code to break.
+    #[must_use]
+    pub fn bar(&self) -> StrengthBar {
+        match self {
+            Self::Command { strength, .. } | Self::Until { strength, .. } => {
+                match strength.unwrap_or(DEFAULT_STRENGTH) {
+                    0 => StrengthBar::Waived,
+                    pct => StrengthBar::Needs(pct),
+                }
+            }
+            Self::Judge { .. } | Self::Intent { .. } => StrengthBar::Exempt,
+        }
+    }
+}
+
+/// The share of the breaks a gauged check must catch when its owner names
+/// none, in percent.
+pub const DEFAULT_STRENGTH: u32 = 80;
+
+/// What the owner asks of a check's strength.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrengthBar {
+    /// A judge or the intent check: no code to break for it.
+    Exempt,
+    /// The owner waived it (`--strength 0`): it neither shows nor blocks.
+    Waived,
+    /// It must catch at least this percent of the breaks.
+    Needs(u32),
 }
 
 /// The checks an owner's surface sets (the CLI's flags, `/accept`, the
@@ -128,8 +167,14 @@ pub enum AcceptanceLabel {
     Unverified,
     /// There is a check and every check is confirmed on the final state,
     /// while the run's programs ran unconfined: they could reach what the
-    /// checks read.
+    /// checks read. Done is certified: the checks were shown to catch
+    /// broken code.
     ChecksPassedUnconfined,
+    /// Every check is confirmed on the final state, but done is not
+    /// certified: a check let the deliberate breaks of the changed code
+    /// through, was not measured on that state, or no check could be
+    /// measured (only judges).
+    ChecksPassedNotCertified,
 }
 
 impl AcceptanceLabel {
@@ -141,6 +186,7 @@ impl AcceptanceLabel {
             Self::Failed => "failed",
             Self::Unverified => "unverified",
             Self::ChecksPassedUnconfined => "checks_passed_unconfined",
+            Self::ChecksPassedNotCertified => "checks_passed_not_certified",
         }
     }
 
@@ -152,15 +198,52 @@ impl AcceptanceLabel {
             Self::Failed => "failed",
             Self::Unverified => "unverified",
             Self::ChecksPassedUnconfined => "checks passed, unconfined",
+            Self::ChecksPassedNotCertified => "checks passed, not certified",
         }
     }
 
-    /// Every check is confirmed on the final state: verified or checks
-    /// passed, unconfined.
+    /// Done: every check is confirmed on the final state and done is
+    /// certified (verified, or checks passed, unconfined).
     #[must_use]
     pub fn passed(self) -> bool {
         matches!(self, Self::Verified | Self::ChecksPassedUnconfined)
     }
+}
+
+/// One deliberate break of the changed code that the check let through.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Survivor {
+    /// The file, relative to the workspace.
+    pub path: String,
+    /// The line, from 1.
+    pub line: u32,
+    /// What the break did (`` `<` to `<=` ``, `line dropped`).
+    pub change: String,
+}
+
+/// What the verifier measured of a check's strength on one state: it broke
+/// the code the task changed on purpose in a scratch copy and ran the
+/// check on each broken copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrengthMark {
+    /// The breaks the check caught (it did not pass on them).
+    pub caught: u64,
+    /// The breaks run.
+    pub ran: u64,
+    /// The breaks planned (the sample of the breaks of the changed lines).
+    pub planned: u64,
+    /// The state the breaks were made from.
+    pub at: u64,
+    /// The breaks the check let through (the first ones, cut to a bound).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub survivors: Vec<Survivor>,
+    /// Why fewer breaks ran than planned, or why none was planned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// When the measurement ended (ms since the epoch).
+    pub measured_at: u64,
 }
 
 /// A file a check protects, as its owner left it.
@@ -201,6 +284,10 @@ pub struct AcceptanceCheck {
     pub protected: Vec<ProtectedFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<CheckResult>,
+    /// The last measurement of the check's strength; only the verifier
+    /// records it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<StrengthMark>,
 }
 
 /// How the last claim ended.

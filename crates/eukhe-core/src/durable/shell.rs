@@ -368,9 +368,11 @@ async fn execute(
         api.probe(record, cx).await?;
     }
     let workspace = cwd.clone();
+    let held = super::acceptance::held_files(&*api, api.conversation_id(), &cwd, cx).await?;
     let mut running = {
         let (auto, env) = (auto_set(&deps.settings), local_env(&session_env(deps)));
-        let paths = super::path_policy::session_policy(&deps.agent_dir, &deps.settings, &cwd);
+        let paths =
+            super::path_policy::session_policy(&deps.agent_dir, &deps.settings, &cwd, &held);
         let (script, transcript) = (script.to_owned(), Arc::clone(&transcript));
         tokio::spawn(async move {
             Shell::new(cwd, env, "bash")

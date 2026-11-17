@@ -188,7 +188,7 @@ pub(crate) async fn fingerprint(cwd: &Path) -> [u8; 32] {
 
 /// `git <args>` in `dir`, its stdout when it succeeds. No optional lock is
 /// taken, so a concurrent git of the worker never meets a held index.
-fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
     let output = Command::new("git")
         .args(args)
         .current_dir(dir)

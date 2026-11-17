@@ -1951,6 +1951,29 @@ impl crate::durable::acceptance::Judge for NoJudge {
     }
 }
 
+/// A breaker that finds every break caught: the child's check is strong.
+struct StrongBreaker;
+
+impl crate::durable::acceptance::Breaker for StrongBreaker {
+    fn measure<'a>(
+        &'a self,
+        _probe: crate::durable::acceptance::Probe,
+        _cx: &'a Context,
+    ) -> BoxFuture<'a, eukhe_durable::session::SessionResult<crate::durable::acceptance::Measurement>>
+    {
+        async {
+            Ok(crate::durable::acceptance::Measurement {
+                caught: 4,
+                ran: 4,
+                planned: 4,
+                survivors: Vec::new(),
+                note: None,
+            })
+        }
+        .boxed()
+    }
+}
+
 /// A child tool: `drop_checks` asks `acceptance.set` with no checks (the
 /// worker's attempt to drop its parent's checks) and records the reply;
 /// `work` is an effect.
@@ -2075,6 +2098,7 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
         expect: 0,
         timeout_ms: Some(60_000),
         protect: Vec::new(),
+        strength: None,
     };
     let seed = AcceptanceSeed {
         checks: vec![check.clone()],
@@ -2114,8 +2138,11 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
     registry
         .install(crate::durable::acceptance::acceptance_extension(
             child_cell.clone(),
-            Arc::clone(&checks) as Arc<dyn crate::autonomous::GateCommandRunner>,
-            Arc::new(NoJudge),
+            crate::durable::acceptance::Services {
+                runner: Arc::clone(&checks) as Arc<dyn crate::autonomous::GateCommandRunner>,
+                judge: Arc::new(NoJudge),
+                breaker: Arc::new(StrongBreaker),
+            },
             dir.path().to_path_buf(),
             &child_requests,
             None,

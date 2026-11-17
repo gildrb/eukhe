@@ -2,8 +2,12 @@
 //! done. It gathers the evidence of each acceptance check on the
 //! conversation's state now, records each verdict, and lets the compiled
 //! core (`eukhe_bend::rules::verify::advance`) decide the step: run the
-//! next check, give the evidence back to the worker, or end the claim
-//! with its label (checks passed, unconfined; failed; unverified).
+//! next check, give the evidence back to the worker, or end the claim.
+//! A claim whose checks all passed is done only when the checks were shown
+//! to catch broken code: the core (`eukhe_bend::rules::strength::settle`)
+//! has each gauged check measured on the state now (the breaks of the
+//! changed code, in a scratch copy), then names the label (checks passed,
+//! unconfined; checks passed, not certified; failed; unverified).
 //!
 //! - A session without a goal claims at every final answer; an active
 //!   goal claims with `goal.complete()`, and its final answers before that
@@ -26,10 +30,15 @@
 //! - The worker's next effect clears the recorded end: the result has to
 //!   be earned again on the new state. Until then a further final answer
 //!   is no new claim: the verdict of that state stands.
+//! - A strength mark is committed like a verdict, by the verifier only,
+//!   and measures the state it was taken on: a later change measures
+//!   again. Breaks run only for a claim whose checks all passed.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::sync::{Arc, Weak};
 
+use eukhe_bend::rules::strength::{self, Step as StrengthStep, Strength};
 use eukhe_bend::rules::verify::{self, Action, Actor, AnswerFacts, Op, Verdict};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::hook;
@@ -37,19 +46,21 @@ use eukhe_durable::harness::types::{
     GenerationHooks, HookApi, HookRegistration, YieldContinuation,
 };
 use eukhe_durable::harness::{Conversation, GENERATION_TASK};
-use eukhe_durable::session::SessionResult;
+use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryDraft, TaskId};
 use eukhe_types::acceptance::{
     AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, CheckResult, CheckSpec, CheckVerdict,
+    StrengthBar, StrengthMark,
 };
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
 use futures::FutureExt;
 use serde_json::json;
 
-use super::docs::{AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
-use super::evidence::Gatherer;
+use super::docs::{mark_of, strength_of, AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
+use super::evidence::{Gatherer, DEFAULT_CHECK_TIMEOUT_MS};
 use super::ops::{core_error, doc_parts, doc_state, label_of};
+use super::strength::{Breaker, Pass, Probe};
 use super::ACCEPTANCE_CUSTOM_TYPE;
 use crate::autonomous::now_millis;
 use crate::durable::children::has_unsettled_children;
@@ -67,6 +78,9 @@ use crate::durable::{HarnessCell, HostDeps};
 pub(crate) struct Verifier {
     pub(crate) harness: HarnessCell,
     pub(crate) gatherer: Gatherer,
+    /// Measures a gauged check's strength: breaks the changed code in a
+    /// scratch copy and runs the check on each break.
+    pub(crate) breaker: Arc<dyn Breaker>,
     /// The session's deps (held weakly: the deps hold the Harness that
     /// holds this hook), for the running work that holds a verdict: jobs
     /// whose end wakes the session. `None` for a Harness without them.
@@ -120,6 +134,13 @@ enum Step {
         index: usize,
         check: Box<AcceptanceCheck>,
         round: Vec<AcceptanceCheck>,
+    },
+    /// Every check passed: measure this check's strength on the state
+    /// `at`, then record the mark for `revision`.
+    Measure {
+        revision: u64,
+        index: usize,
+        probe: Box<Probe>,
     },
 }
 
@@ -206,10 +227,12 @@ impl Verifier {
             // it, so no claim waits with nothing running.
             let unsettled = (runs >= current.checks.len().saturating_mul(2).saturating_add(4))
                 .then(|| unsettled_reason(&movers));
+            let cwd = self.gatherer.cwd.clone();
             let step = conversation
                 .commit(
                     move |tx| {
                         let unsettled = unsettled.clone();
+                        let cwd = cwd.clone();
                         async move {
                         let (draft, mut doc) =
                             open_doc(&tx, &ACCEPTANCE_DOC, conversation_id).await?;
@@ -300,9 +323,33 @@ impl Verifier {
                                     .await?;
                                 Step::Decided(Some(text))
                             }
-                            Action::End(label) => {
+                            Action::End(ended) => {
+                                // Every check passed: done only when the
+                                // gauged checks were shown to catch broken
+                                // code on this state; each one not measured
+                                // on it is measured first.
+                                let label = match strength::settle(ended, now, &doc.gauges())
+                                    .map_err(core_error)?
+                                {
+                                    StrengthStep::Measure { index } => {
+                                        let index = usize::try_from(index).unwrap_or(usize::MAX);
+                                        let probe = doc
+                                            .checks
+                                            .get(index)
+                                            .and_then(|check| probe_of(check, &doc, &cwd, now))
+                                            .ok_or_else(|| SessionError::error(format!(
+                                                "the compiled core asked to measure acceptance check {index}, which the session does not hold as a gauged check"
+                                            )))?;
+                                        write_doc(&draft, &doc)?;
+                                        return Ok(Step::Measure {
+                                            revision: doc.revision,
+                                            index,
+                                            probe: Box::new(probe),
+                                        });
+                                    }
+                                    StrengthStep::End(label) => label_of(label),
+                                };
                                 doc.adopt(&next, None)?;
-                                let label = label_of(label);
                                 doc.last_end = Some(AcceptanceEnd {
                                     label,
                                     at: now,
@@ -318,8 +365,8 @@ impl Verifier {
                                 )
                                 .await?;
                                 if goal_claimed {
-                                    end_claimed_goal(&tx, conversation_id, &goal_end(&doc, label))
-                                        .await?;
+                                    let end = goal_end(&doc, now, label)?;
+                                    end_claimed_goal(&tx, conversation_id, &end).await?;
                                 }
                                 Step::Decided(None)
                             }
@@ -333,6 +380,16 @@ impl Verifier {
                 .await?;
             let (revision, index, check, round) = match step {
                 Step::Decided(continuation) => return Ok(continuation),
+                Step::Measure {
+                    revision,
+                    index,
+                    probe,
+                } => {
+                    runs += 1;
+                    self.measure(conversation, revision, index, *probe, cx)
+                        .await?;
+                    continue;
+                }
                 Step::Run {
                     revision,
                     index,
@@ -388,6 +445,55 @@ impl Verifier {
         }
     }
 
+    /// Measure the strength of check `index` of `revision` with `probe` and
+    /// record the mark: the compiled core admits only the verifier's
+    /// record of a check that exists; a change of the checks meanwhile
+    /// (another revision) drops it.
+    async fn measure(
+        &self,
+        conversation: &Conversation,
+        revision: u64,
+        index: usize,
+        probe: Probe,
+        cx: &Context,
+    ) -> SessionResult<()> {
+        let at = probe.at;
+        let found = self.breaker.measure(probe, cx).await?;
+        let mark = StrengthMark {
+            caught: found.caught,
+            ran: found.ran,
+            planned: found.planned,
+            at,
+            survivors: found.survivors,
+            note: found.note,
+            measured_at: now_millis(),
+        };
+        let conversation_id = conversation.id();
+        conversation
+            .commit(
+                move |tx| async move {
+                    let (draft, mut doc) = open_doc(&tx, &ACCEPTANCE_DOC, conversation_id).await?;
+                    if doc.revision != revision {
+                        return Ok(());
+                    }
+                    let (admitted, next) = strength::record(
+                        Actor::Verifier,
+                        u64::try_from(index).unwrap_or(u64::MAX),
+                        mark_of(&mark),
+                        &doc.gauges(),
+                    )
+                    .map_err(core_error)?;
+                    if admitted {
+                        doc.adopt_mark(&next, index, mark)?;
+                        write_doc(&draft, &doc)?;
+                    }
+                    Ok(())
+                },
+                cx,
+            )
+            .await
+    }
+
     /// The worker's effect clears how the last claim ended: the result
     /// has to be earned again on the new state.
     async fn after_tools(&self, api: &HookApi, cx: &Context) -> SessionResult<()> {
@@ -413,20 +519,13 @@ impl Verifier {
 }
 
 /// How the verifier ends a goal's claim.
-fn goal_end(doc: &AcceptanceDoc, label: AcceptanceLabel) -> ClaimEnd {
-    if label.passed() {
-        ClaimEnd::Complete(format!(
-            "{} ({} confirmed)",
-            label.text(),
-            count_checks(doc.checks.len())
-        ))
+fn goal_end(doc: &AcceptanceDoc, now: u64, label: AcceptanceLabel) -> SessionResult<ClaimEnd> {
+    let line = end_line(doc, now, label)?;
+    Ok(if label.passed() {
+        ClaimEnd::Complete(format!("{} ({line})", label.text()))
     } else {
-        ClaimEnd::Pause(format!(
-            "Acceptance {}: {}",
-            label.text(),
-            outcome_line(doc)
-        ))
-    }
+        ClaimEnd::Pause(format!("Acceptance {}: {line}", label.text()))
+    })
 }
 
 fn count_checks(count: usize) -> String {
@@ -451,6 +550,40 @@ pub(crate) fn describe(spec: &CheckSpec) -> String {
     }
 }
 
+/// The measurement of `check`'s strength on the state `at` in `doc`'s
+/// workspace (`cwd` when the doc names none): its command, what passing
+/// means, and the files of every check, which are never broken. `None` for
+/// a judge and the intent check.
+fn probe_of(check: &AcceptanceCheck, doc: &AcceptanceDoc, cwd: &Path, at: u64) -> Option<Probe> {
+    let (command, pass, timeout_ms) = match &check.spec {
+        CheckSpec::Command {
+            command,
+            expect,
+            timeout_ms,
+            ..
+        } => (command, Pass::Exit(*expect), *timeout_ms),
+        CheckSpec::Until {
+            command,
+            timeout_ms,
+            ..
+        } => (command, Pass::Holds, *timeout_ms),
+        CheckSpec::Judge { .. } | CheckSpec::Intent { .. } => return None,
+    };
+    Some(Probe {
+        command: command.clone(),
+        pass,
+        timeout_ms: timeout_ms.unwrap_or(DEFAULT_CHECK_TIMEOUT_MS),
+        protected: doc
+            .checks
+            .iter()
+            .flat_map(|check| check.protected.iter().map(|file| file.path.clone()))
+            .collect(),
+        workspace: doc.workspace.clone().unwrap_or_else(|| cwd.to_path_buf()),
+        baseline: doc.baseline.clone(),
+        at,
+    })
+}
+
 /// The checks that are not confirmed, each with how it ended.
 fn outcome_line(doc: &AcceptanceDoc) -> String {
     let open: Vec<String> = doc
@@ -473,6 +606,116 @@ fn outcome_line(doc: &AcceptanceDoc) -> String {
     } else {
         open.join("; ")
     }
+}
+
+/// What the measurement of `check`'s strength on the state `now` shows;
+/// `None` for a judge and the intent check (no code to break for them).
+///
+/// # Errors
+///
+/// A compiled-core failure.
+pub(crate) fn strength_text(check: &AcceptanceCheck, now: u64) -> SessionResult<Option<String>> {
+    let pct = match check.spec.bar() {
+        StrengthBar::Exempt => return Ok(None),
+        StrengthBar::Waived => return Ok(Some("strength waived by the task's owner".to_owned())),
+        StrengthBar::Needs(pct) => pct,
+    };
+    let mark = check.strength.as_ref().filter(|mark| mark.at == now);
+    Ok(Some(match (strength_of(check, now)?, mark) {
+        (Strength::Strong, Some(mark)) => format!(
+            "caught {} of {} breaks (needs {pct} %)",
+            mark.caught, mark.ran
+        ),
+        (Strength::Weak, Some(mark)) if mark.ran == 0 => format!(
+            "weak, {}",
+            mark.note.as_deref().unwrap_or("nothing to break")
+        ),
+        (Strength::Weak, Some(mark)) => {
+            let caught = format!(
+                "weak, caught {} of {} breaks (needs {pct} %)",
+                mark.caught, mark.ran
+            );
+            if mark.survivors.is_empty() {
+                caught
+            } else {
+                let survived: Vec<String> = mark
+                    .survivors
+                    .iter()
+                    .map(|survivor| {
+                        format!("{}:{} {}", survivor.path, survivor.line, survivor.change)
+                    })
+                    .collect();
+                format!("{caught}; survived: {}", survived.join("; "))
+            }
+        }
+        (Strength::Unshown, Some(mark)) => format!(
+            "not shown to catch broken code, {} ({} of {} breaks ran)",
+            mark.note
+                .as_deref()
+                .unwrap_or("the measurement was cut short"),
+            mark.ran,
+            mark.planned
+        ),
+        (Strength::Strong | Strength::Weak | Strength::Unshown | Strength::Free, _) => {
+            format!("not measured on this state (needs {pct} % of the breaks caught)")
+        }
+    }))
+}
+
+/// How a claim whose checks all passed stands on the state `now`: the
+/// breaks its strong checks caught when done is certified, else what keeps
+/// it from being certified.
+fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> {
+    let (mut caught, mut ran, mut shown) = (0_u64, 0_u64, false);
+    let mut blocks = Vec::new();
+    for (index, check) in doc.checks.iter().enumerate() {
+        match strength_of(check, now)? {
+            Strength::Strong => {
+                shown = true;
+                if let Some(mark) = &check.strength {
+                    caught += mark.caught;
+                    ran += mark.ran;
+                }
+            }
+            Strength::Weak | Strength::Unshown => {
+                if let Some(text) = strength_text(check, now)? {
+                    blocks.push(format!("check {}: {text}", index + 1));
+                }
+            }
+            Strength::Free => {}
+        }
+    }
+    Ok(match (blocks.is_empty(), shown) {
+        (true, true) => Certification::Shown(format!("caught {caught} of {ran} breaks")),
+        (true, false) => Certification::Blocked(
+            "no check was shown to catch broken code (a judge or a waived check certifies nothing)"
+                .to_owned(),
+        ),
+        (false, _) => Certification::Blocked(blocks.join("; ")),
+    })
+}
+
+/// Whether a passed claim's checks were shown to catch broken code, in
+/// words.
+enum Certification {
+    Shown(String),
+    Blocked(String),
+}
+
+/// The line of a claim that ended with `label` on the state `now`: the
+/// checks that did not pass, or for a claim whose checks all passed, how
+/// their strength stands.
+fn end_line(doc: &AcceptanceDoc, now: u64, label: AcceptanceLabel) -> SessionResult<String> {
+    let outcome = outcome_line(doc);
+    Ok(match label {
+        AcceptanceLabel::Failed | AcceptanceLabel::Unverified => outcome,
+        AcceptanceLabel::Verified
+        | AcceptanceLabel::ChecksPassedUnconfined
+        | AcceptanceLabel::ChecksPassedNotCertified => match strength_line(doc, now)? {
+            Certification::Shown(text) => format!("{outcome}, {text}"),
+            Certification::Blocked(text) => format!("{outcome}; {text}"),
+        },
+    })
 }
 
 /// Why a check was recorded unjudged at the end of the runs: the state
@@ -534,7 +777,11 @@ fn verdict_row(
     let (outcome, text) = match ended {
         Some(label) => (
             label.slug(),
-            format!("Acceptance {}: {}.", label.text(), outcome_line(doc)),
+            format!(
+                "Acceptance {}: {}.",
+                label.text(),
+                end_line(doc, now, label)?
+            ),
         ),
         None => (
             "returned",

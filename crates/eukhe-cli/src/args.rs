@@ -215,6 +215,13 @@ pub struct Args {
     /// `--accept-returns`: how many times a failed check goes back to the
     /// worker before the run fails.
     pub accept_returns: Option<u32>,
+    /// `--accept-protect` (repeatable): files every `--accept-cmd` check
+    /// protects (the worker must not change them).
+    pub accept_protect: Vec<String>,
+    /// `--accept-strength`: the share (percent) of deliberate breaks of
+    /// the changed code each `--accept-cmd` check must catch before it
+    /// certifies done (default 80; 0 waives it).
+    pub accept_strength: Option<u32>,
     /// `--accept-intent`: verify the run by the intent judge alone (it
     /// joins every other acceptance check anyway).
     pub accept_intent: bool,
@@ -338,6 +345,8 @@ pub(crate) const KNOWN_LONG_OPTIONS: &[&str] = &[
     "accept-judge",
     "accept-evidence",
     "accept-returns",
+    "accept-protect",
+    "accept-strength",
     "accept-intent",
     "accept-no-intent",
     "list-models",
@@ -680,6 +689,25 @@ pub fn parse_args(args: &[String]) -> Args {
                     )),
                 }
             }
+            "--accept-protect" => {
+                let value = require_value!(arg);
+                if value.trim().is_empty() {
+                    result
+                        .diagnostics
+                        .push(Diagnostic::error("--accept-protect requires a path"));
+                } else {
+                    result.accept_protect.push(value);
+                }
+            }
+            "--accept-strength" => {
+                let value = require_value!(arg);
+                match value.trim().parse::<u32>() {
+                    Ok(pct) if pct <= 100 => result.accept_strength = Some(pct),
+                    Ok(_) | Err(_) => result.diagnostics.push(Diagnostic::error(
+                        "--accept-strength must be a whole percent from 0 to 100",
+                    )),
+                }
+            }
             "--list-models" => {
                 let has_search = args
                     .get(i + 1)
@@ -745,6 +773,13 @@ pub fn parse_args(args: &[String]) -> Args {
     if result.accept_returns.is_some() && !explicit && !result.accept_intent {
         result.diagnostics.push(Diagnostic::error(
             "--accept-returns requires --accept-cmd, --accept-judge or --accept-intent",
+        ));
+    }
+    if (!result.accept_protect.is_empty() || result.accept_strength.is_some())
+        && result.accept_cmds.is_empty()
+    {
+        result.diagnostics.push(Diagnostic::error(
+            "--accept-protect and --accept-strength require --accept-cmd",
         ));
     }
     if result.accept_intent && result.accept_no_intent {

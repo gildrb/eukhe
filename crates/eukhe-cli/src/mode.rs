@@ -77,15 +77,18 @@ pub struct InitialGoal {
 }
 
 /// The acceptance checks the `--accept-*` flags ask for: each command
-/// must exit 0, each condition goes to the judge with the output of the
-/// `--accept-evidence` commands, and the intent judge joins them unless
-/// `--accept-no-intent`; `None` without a check and `--accept-intent`.
+/// must exit 0 (with the `--accept-protect` files intact, and catching the
+/// `--accept-strength` share of the breaks), each condition goes to the
+/// judge with the output of the `--accept-evidence` commands, and the
+/// intent judge joins them unless `--accept-no-intent`; `None` without a
+/// check and `--accept-intent`.
 fn acceptance_seed(parsed: &Args) -> Option<AcceptanceSeed> {
     let commands = parsed.accept_cmds.iter().map(|command| CheckSpec::Command {
         command: command.clone(),
         expect: 0,
         timeout_ms: None,
-        protect: Vec::new(),
+        protect: parsed.accept_protect.clone(),
+        strength: parsed.accept_strength,
     });
     let conditions = parsed
         .accept_judges
@@ -387,6 +390,7 @@ mod tests {
             expect: 0,
             timeout_ms: None,
             protect: Vec::new(),
+            strength: None,
         };
         assert_eq!(
             seed_of(&["-p", "--accept-cmd", "true", "go"]).map(|seed| seed.specs()),

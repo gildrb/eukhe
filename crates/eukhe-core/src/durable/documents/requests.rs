@@ -666,7 +666,29 @@ pub(super) async fn perform(
         Caller::Tool(api) => (Some(Arc::clone(&api)), Box::new(ProbeWitness::new(api, cx))),
         Caller::Kernel(api) => (api, Box::new(Unwitnessed)),
     };
-    let gate = host.gate(workspace, api.as_deref());
+    let held = match &api {
+        Some(api) => {
+            match crate::durable::acceptance::held_files(
+                &**api,
+                api.conversation_id(),
+                workspace,
+                cx,
+            )
+            .await
+            {
+                Ok(held) => held,
+                Err(error) => {
+                    return Ok(Err(Rejection::new(
+                        function,
+                        "acceptance_unreadable",
+                        &error,
+                    )));
+                }
+            }
+        }
+        None => Vec::new(),
+    };
+    let gate = host.gate(workspace, api.as_deref(), held);
     let url = match function {
         Function::Read => args
             .get("path")
