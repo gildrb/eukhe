@@ -9,13 +9,41 @@
 //! records its result here before its end, so the notice is admitted
 //! before the job reads ended.
 
-use std::sync::PoisonError;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, PoisonError};
 
 use eukhe_bend::rules::wait_any::{self, Delivery, Event, Phase, Target, Wake};
 use eukhe_types::job::{CellStatus, JobSettled};
 
 use super::{Job, JobKind};
 use crate::durable::JobSettledSink;
+
+/// One job's notice on its way into the conversation: from the moment the
+/// job hands it to the session's wake until the wake drops this, after
+/// the notice is queued (or refused). Meanwhile the job reads delivered
+/// and no input reads queued yet, so a `jobs.wait` counts the notices in
+/// admission as queued inputs; dropping it moves the table's pulse.
+pub struct NoticeAdmission {
+    admitting: Arc<AtomicUsize>,
+    pulse: Arc<tokio::sync::watch::Sender<u64>>,
+}
+
+impl NoticeAdmission {
+    fn start(job: &Job) -> Self {
+        job.inner.admitting.fetch_add(1, Ordering::SeqCst);
+        Self {
+            admitting: Arc::clone(&job.inner.admitting),
+            pulse: Arc::clone(&job.inner.pulse),
+        }
+    }
+}
+
+impl Drop for NoticeAdmission {
+    fn drop(&mut self) {
+        self.admitting.fetch_sub(1, Ordering::SeqCst);
+        self.pulse.send_modify(|beat| *beat = beat.wrapping_add(1));
+    }
+}
 
 /// How a detached cell or script ended: its status and whole output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,7 +117,7 @@ impl Job {
     fn notify(&self, delivered: Option<JobResult>, sink: Option<&JobSettledSink>) {
         if let (Some(result), Some(sink)) = (delivered, sink) {
             if let Some(row) = self.row(result) {
-                sink(row);
+                sink(row, NoticeAdmission::start(self));
             }
         }
     }

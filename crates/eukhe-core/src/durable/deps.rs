@@ -224,7 +224,11 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 /// Receives every job of this session that settled after its call stopped
 /// blocking the turn (a detached `python` cell, ADR 0010). The daemon
 /// worker admits it through its one job-settled wake; `None` drops it.
-pub type JobSettledSink = Arc<dyn Fn(eukhe_types::job::JobSettled) + Send + Sync>;
+/// The sink holds the [`NoticeAdmission`](crate::durable::jobs::NoticeAdmission)
+/// until the notice is queued on the conversation (or refused): until
+/// then a `jobs.wait` counts it as a queued input.
+pub type JobSettledSink =
+    Arc<dyn Fn(eukhe_types::job::JobSettled, crate::durable::jobs::NoticeAdmission) + Send + Sync>;
 
 /// Asks the user whether one gated step of a `bash` tool script may run
 /// (G5): the daemon worker asks its attached clients and

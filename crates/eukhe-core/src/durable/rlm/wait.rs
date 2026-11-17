@@ -223,7 +223,10 @@ pub(crate) async fn wait(
             Targets::Any => running_children(runtime, conversation).await,
             Targets::Named => 0,
         };
-        let message = deps.jobs.queued_input(conversation);
+        // A job's notice handed to the wake and not yet queued is an input
+        // on its way: without it a wait polling between the hand-off (the
+        // job reads delivered) and the queueing found nothing pending.
+        let message = deps.jobs.queued_input(conversation) || deps.jobs.notice_in_admission();
         let mut targets: Vec<Target> = local
             .iter()
             .map(|settled| {

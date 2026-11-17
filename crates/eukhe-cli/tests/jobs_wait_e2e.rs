@@ -1,11 +1,17 @@
 //! `jobs.wait`, the agent's one blocking wait (finish drill, REPORT.md
 //! root cause 3 and 4): the real binary in print mode, an isolated HOME,
 //! the scripted faux provider (`EUKHE_FAUX_SCRIPT`), a real kernel and a
-//! 500 ms blocking budget, so a 3 s job outlives the budget six times over
-//! as the drill's 45 s job outlived the 30 s one.
+//! 5 s blocking budget. The long job runs until a gate file opens, so it
+//! outlives the budget whatever the machine's load, as the drill's 45 s
+//! job outlived the 30 s one; every short call (the wait's own cell, the
+//! commit) settles well inside the budget on a loaded machine, where a
+//! cell can wait seconds for the CPU. On a 500 ms budget with a 3 s
+//! sleep, a loaded run detached the wait's cell before it reached its
+//! wait, detached the commit, and let the job end before the next call.
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
@@ -13,7 +19,7 @@ use serde_json::{json, Value};
 mod eukhe;
 use eukhe::eukhe_command;
 
-/// An isolated home whose agent dir runs calls on a 500 ms blocking
+/// An isolated home whose agent dir runs calls on a 5 s blocking
 /// budget, its working tree a fresh git repo (a throwaway repo of the
 /// test, so it carries its own identity).
 fn home_with_short_budget() -> tempfile::TempDir {
@@ -22,7 +28,7 @@ fn home_with_short_budget() -> tempfile::TempDir {
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::write(
         agent.join("settings.json"),
-        json!({ "toolBlockingBudgetMs": 500 }).to_string(),
+        json!({ "toolBlockingBudgetMs": 5_000 }).to_string(),
     )
     .unwrap();
     for args in [
@@ -42,7 +48,16 @@ fn home_with_short_budget() -> tempfile::TempDir {
 
 /// Run `script` in print mode (json stream): the exit code and the events.
 fn run(home: &Path, script: &Value) -> (Option<i32>, Vec<Value>, String) {
-    let output = eukhe_command()
+    run_watching(home, script, |_| {})
+}
+
+/// [`run`], showing `on_event` each event as the binary prints it.
+fn run_watching(
+    home: &Path,
+    script: &Value,
+    mut on_event: impl FnMut(&Value),
+) -> (Option<i32>, Vec<Value>, String) {
+    let mut child = eukhe_command()
         .args(["--mode", "json", "-p", "Run the build, then commit it."])
         .env("HOME", home)
         .env("EUKHE_CODING_AGENT_DIR", home.join("agent"))
@@ -53,18 +68,26 @@ fn run(home: &Path, script: &Value) -> (Option<i32>, Vec<Value>, String) {
         .env_remove("EUKHE_CODING_AGENT_SESSION_DIR")
         .env_remove("RLM_DEPTH")
         .current_dir(home)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("binary present");
-    let events = String::from_utf8_lossy(&output.stdout)
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let stderr = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        stderr.read_to_end(&mut text).expect("read stderr");
+        String::from_utf8_lossy(&text).into_owned()
+    });
+    let events = BufReader::new(child.stdout.take().expect("piped stdout"))
         .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<Vec<Value>, _>>()
-        .unwrap();
-    (
-        output.status.code(),
-        events,
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    )
+        .map(|line| {
+            let event: Value = serde_json::from_str(&line.expect("read stdout")).unwrap();
+            on_event(&event);
+            event
+        })
+        .collect::<Vec<Value>>();
+    let status = child.wait().expect("the binary ends");
+    (status.code(), events, stderr.join().expect("stderr reader"))
 }
 
 fn call(id: &str, name: &str, arguments: &Value) -> Value {
@@ -110,18 +133,18 @@ fn job_settled_notices(events: &[Value]) -> Vec<String> {
 /// (a `bash` tool job was no target), clamped every wait to the budget,
 /// and the model's only way to the result was to end its turn.
 ///
-/// Whether the build settles before the wait opens is the scheduler's:
-/// the wait's cell first starts the kernel, which takes seconds on a
-/// loaded machine. A wait open when the build settles takes its result
-/// (no notice); a build that settled first left its result to its notice,
-/// so the wait ends on that queued notice, which follows it in the same
-/// run. Either way the result reaches the turn once, before the commit.
+/// The build runs until the wait's cell opens its gate, right before it
+/// waits; whether the build settles before the wait opens is the
+/// scheduler's. A wait open when the build settles takes its result (no
+/// notice); a build that settled first left its result to its notice, so
+/// the wait ends on that queued notice, which follows it in the same run.
+/// Either way the result reaches the turn once, before the commit.
 #[test]
 fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     let home = home_with_short_budget();
     let script = json!({ "responses": [
-        call("call-1", "bash", &json!({ "script": "sleep 3; echo built > out.txt; echo BUILD-OK" })),
-        call("call-2", "python", &json!({ "code": "job = await jobs.wait()\nprint(job.kind, job.state, job.output.splitlines()[-1])" })),
+        call("call-1", "bash", &json!({ "script": "while [ ! -f gate ]; do sleep 0.05; done; echo built > out.txt; echo BUILD-OK" })),
+        call("call-2", "python", &json!({ "code": "open('gate', 'w').close()\njob = await jobs.wait()\nprint(job.kind, job.state, 'BUILD-OK' in job.output)" })),
         call("call-3", "bash", &json!({ "script": "git add out.txt && git commit -q -m build && git log --oneline | wc -l" })),
         answer("Built and committed."),
     ] });
@@ -131,12 +154,12 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
     assert_eq!(results.len(), 3, "{results:?}");
     let notices = job_settled_notices(&events);
     match results[1].as_str() {
-        "shell ok BUILD-OK\n" => assert_eq!(
+        "shell ok True\n" => assert_eq!(
             notices,
             Vec::<String>::new(),
             "the result the wait returned is not delivered again"
         ),
-        "message ok A message arrived and ended this wait; it follows this result. Answer or act on it before waiting again: the jobs keep running and their results arrive on their own.\n" => assert!(
+        "message ok False\n" => assert!(
             notices.len() == 1 && notices[0].contains("BUILD-OK"),
             "the build's notice follows the wait: {notices:?}"
         ),
@@ -170,15 +193,21 @@ fn a_detached_build_is_waited_for_and_committed_in_one_turn() {
 /// A detached cell holds the kernel; a cell that only waits runs without
 /// it and returns the held cell's output. Before, every python call while
 /// a cell was detached answered "Not run: the kernel is still running job".
+/// The held cell runs until the wait's call starts, then 2 s more.
 #[test]
 fn a_wait_runs_while_a_detached_cell_holds_the_kernel() {
     let home = home_with_short_budget();
+    let gate = home.path().join("gate");
     let script = json!({ "responses": [
-        call("call-1", "python", &json!({ "code": "import time\ntime.sleep(3)\nprint('CELL-DONE')" })),
+        call("call-1", "python", &json!({ "code": "import os, time\nwhile not os.path.exists('gate'):\n    time.sleep(0.05)\ntime.sleep(2)\nprint('CELL-DONE')" })),
         call("call-2", "python", &json!({ "code": "await jobs.wait()" })),
         answer("The cell finished."),
     ] });
-    let (code, events, stderr) = run(home.path(), &script);
+    let (code, events, stderr) = run_watching(home.path(), &script, |event| {
+        if event["type"] == "tool_execution_start" && event["toolCallId"] == "call-2" {
+            std::fs::write(&gate, "").expect("open the gate");
+        }
+    });
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let results = texts(&events, "toolResult");
     assert_eq!(results.len(), 2, "{results:?}");

@@ -1035,7 +1035,7 @@ async fn open_with_budget(
     let (settled_tx, settled) = tokio::sync::mpsc::unbounded_channel();
     let session = fixture
         .open_configured(move |config| {
-            config.job_settled = Some(Arc::new(move |job| {
+            config.job_settled = Some(Arc::new(move |job, _admitted| {
                 let _closed_receiver_ends_the_test = settled_tx.send(job);
             }));
         })
@@ -1128,6 +1128,68 @@ async fn a_cell_past_the_blocking_budget_detaches_and_its_end_settles_the_job() 
     assert_eq!(waited["end"], "job", "{waited}");
     assert_eq!(waited["job"]["state"], "ok");
     assert_eq!(waited["job"]["output"], "started\nfinished\n42");
+    session.close(cx()).await.expect("close");
+}
+
+/// A job's notice handed to the session's wake counts as a queued input
+/// until the wake has queued it: a wait polling in between ends on that
+/// message, which follows its result. Before, the job read delivered and
+/// no input read queued yet, so the wait answered "Nothing to wait for"
+/// (`jobs_wait_e2e` under load, where the wake's admission task ran late).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_notice_on_its_way_into_the_conversation_ends_a_wait_as_a_message() {
+    let _kernel = kernel_test_lock().await;
+    let fixture = Fixture::new();
+    let gate = fixture.dir.path().join("gate");
+    fixture.faux.set_responses(vec![
+        python("c1", &gated_cell(&gate, "print('finished')")),
+        text("the cell runs on as a job"),
+    ]);
+    std::fs::write(
+        fixture.dir.path().join("agent").join("settings.json"),
+        json!({ "toolBlockingBudgetMs": TEST_BUDGET_MS }).to_string(),
+    )
+    .expect("settings");
+    // The wake keeps each notice in admission until the test releases it.
+    let (admitting_tx, mut admitting) = tokio::sync::mpsc::unbounded_channel();
+    let session = fixture
+        .open_configured(move |config| {
+            config.job_settled = Some(Arc::new(move |job, admission| {
+                let _closed_receiver_ends_the_test = admitting_tx.send((job, admission));
+            }));
+        })
+        .await;
+    let id = submit(&session, "go").await;
+    settle_within(&session, id, Duration::from_millis(WAIT_MS)).await;
+    std::fs::write(&gate, "").expect("open the gate");
+    let (settled, admission) =
+        tokio::time::timeout(Duration::from_millis(WAIT_MS), admitting.recv())
+            .await
+            .expect("the job settles when its cell ends")
+            .expect("a settled job");
+    assert!(matches!(settled, JobSettled::Cell { .. }), "{settled:?}");
+
+    let waited = job_request(&session, "jobs.wait", json!({})).await;
+    assert_eq!(waited["end"], "message", "{waited}");
+
+    // Admitted (here: dropped), the notice is no longer the wait's.
+    drop(admission);
+    let nothing = session
+        .deps()
+        .host_requests
+        .get("jobs.wait")
+        .expect("the jobs.wait handler")(HostCall {
+        data: json!({}),
+        cell_source_code: None,
+        call: None,
+        signal: None,
+    })
+    .await
+    .expect_err("nothing is pending");
+    assert_eq!(
+        nothing.to_string(),
+        "Nothing to wait for: no job, bash() handle, subagent or message of this session is pending"
+    );
     session.close(cx()).await.expect("close");
 }
 

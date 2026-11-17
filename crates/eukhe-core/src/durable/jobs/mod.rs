@@ -36,6 +36,7 @@ mod tree;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -55,7 +56,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::durable::HarnessCell;
 
-pub use delivery::JobResult;
+pub use delivery::{JobResult, NoticeAdmission};
 use tree::JobEnded;
 pub use tree::{
     install, running_jobs_section, stop_orphans, Orphans, JOB_DOC_KIND,
@@ -324,6 +325,8 @@ struct JobInner {
     slot: Mutex<delivery::Slot>,
     /// The table's pulse, moved by every change a wait may act on.
     pulse: Arc<watch::Sender<u64>>,
+    /// The table's notices in admission ([`NoticeAdmission`]).
+    admitting: Arc<AtomicUsize>,
 }
 
 /// One job; a clone is the same job.
@@ -544,6 +547,9 @@ pub struct JobTable {
     /// transcript (a steer, a peer's message, a report), seen since the
     /// session opened.
     queued: Mutex<HashMap<SubmissionId, ConversationId>>,
+    /// The job notices handed to the session's wake and not yet queued
+    /// ([`NoticeAdmission`]).
+    admitting: Arc<AtomicUsize>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -564,6 +570,7 @@ impl JobTable {
             recorded: Mutex::default(),
             pulse: Arc::new(watch::channel(0).0),
             queued: Mutex::default(),
+            admitting: Arc::default(),
         }
     }
 
@@ -621,6 +628,7 @@ impl JobTable {
                 records: self.records.clone(),
                 slot: Mutex::default(),
                 pulse: Arc::clone(&self.pulse),
+                admitting: Arc::clone(&self.admitting),
             }),
         };
         job.record(JobEvent::Output(written));
@@ -687,6 +695,13 @@ impl JobTable {
         lock(&self.queued)
             .values()
             .any(|queued| *queued == conversation)
+    }
+
+    /// A job's notice is on its way into the session's main conversation
+    /// ([`NoticeAdmission`]): handed to the wake, not yet queued.
+    #[must_use]
+    pub fn notice_in_admission(&self) -> bool {
+        self.admitting.load(Ordering::SeqCst) > 0
     }
 
     /// The pulse a wait watches: it moves on every change the wait acts

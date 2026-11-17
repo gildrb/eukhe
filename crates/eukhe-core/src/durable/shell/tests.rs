@@ -151,7 +151,7 @@ async fn open_detaching(
     let (settled_tx, settled) = tokio::sync::mpsc::unbounded_channel();
     let session = fixture
         .open_configured(move |config| {
-            config.job_settled = Some(Arc::new(move |job| {
+            config.job_settled = Some(Arc::new(move |job, _admitted| {
                 let _closed_receiver_ends_the_test = settled_tx.send(job);
             }));
         })

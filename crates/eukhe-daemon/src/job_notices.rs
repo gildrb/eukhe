@@ -39,6 +39,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use eukhe_bend::rules::job_notice::{self, Notice, Stopper};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::jobs::NoticeAdmission;
 use eukhe_core::durable::messages::create_job_settled_message;
 use eukhe_core::durable::{EukheSession, SessionConfig, SessionStorage};
 use eukhe_durable::harness::types::WhenBusy;
@@ -153,13 +154,14 @@ impl JobNotices {
     /// call (before the job reads ended) until its admission is done.
     fn sink(&self) -> eukhe_core::durable::JobSettledSink {
         let notices = self.clone();
-        Arc::new(move |settled: JobSettled| {
+        Arc::new(move |settled: JobSettled, admission: NoticeAdmission| {
             let admitting = Admitting::start(&notices.in_flight);
             let notices = notices.clone();
             tokio::spawn(async move {
                 if let Err(error) = notices.deliver(settled).await {
                     eprintln!("eukhe settled job not delivered: {error:#}");
                 }
+                drop(admission);
                 drop(admitting);
             });
         })
