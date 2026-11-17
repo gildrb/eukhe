@@ -23,7 +23,7 @@
 //! repair's replacement child serves the follow-up cell.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eukhe_core::kernel::manager::{KernelStartOptions, ReplKernelManager};
 use eukhe_core::kernel::shared::{
@@ -223,27 +223,41 @@ async fn multi_mib_blank_protocol_line_is_read_in_linear_time() {
     // A 31 MiB blank line arrives in pipe reads of at most 64 KiB; rescanning
     // the buffered prefix per read would scan >= 8 GB. Blank lines skip
     // parse_event, so the fixed path pays only the one-pass scan.
+    // The bound is on this process's CPU time, not the wall clock: the
+    // wall time also counts the fixture writing the 31 MiB and every
+    // moment a loaded box deschedules the reader, while a rescan costs
+    // reader CPU (seconds of it) whatever the load.
     let manager = manager(fake_runtime_path());
     manager
         .start(KernelStartOptions::default())
         .await
         .expect("fake kernel must start");
-    let started = Instant::now();
+    let started = process_cpu_time();
     let result = manager
         .execute("big-frame", ExecuteOptions::default())
         .await
         .expect("execute must not fail");
-    let elapsed = started.elapsed();
+    let cpu = process_cpu_time().saturating_sub(started);
     assert_eq!(
         (result.status, result.stdout.as_str()),
         (ExecuteStatus::Ok, "big")
     );
     assert!(
-        elapsed < Duration::from_secs(3),
-        "31 MiB blank line took {elapsed:?}"
+        cpu < Duration::from_secs(3),
+        "31 MiB blank line took {cpu:?} of CPU"
     );
     assert!(manager
         .shutdown(KernelShutdownOptions::default())
         .await
         .is_ok());
+}
+
+/// The user + system CPU this test process (every thread) has used.
+fn process_cpu_time() -> Duration {
+    use nix::sys::resource::{getrusage, UsageWho};
+    let usage = getrusage(UsageWho::RUSAGE_SELF).expect("getrusage(RUSAGE_SELF)");
+    let to_duration = |time: nix::sys::time::TimeVal| {
+        Duration::new(time.tv_sec() as u64, time.tv_usec() as u32 * 1000)
+    };
+    to_duration(usage.user_time()) + to_duration(usage.system_time())
 }
