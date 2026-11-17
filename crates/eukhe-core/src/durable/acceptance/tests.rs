@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_ai::models::{create_models, CreateModelsOptions, Models};
 use eukhe_ai::providers::faux::{
-    faux_assistant_message, faux_provider, faux_tool_call, FauxAssistantMessageOptions,
+    faux_assistant_message, faux_provider, faux_text, faux_tool_call, FauxAssistantMessageOptions,
     FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_ai::typebox::{TSchema, Type};
@@ -32,7 +32,9 @@ use eukhe_types::acceptance::{
     CheckResult, CheckSpec, CheckVerdict, ProtectedFile, StrengthMark, Survivor,
 };
 use eukhe_types::input_origin::InputOrigin;
-use eukhe_types::pi_ai::{JsonObject, StopReason, TextContent, UserContent, UserContentBlock};
+use eukhe_types::pi_ai::{
+    AssistantMessage, JsonObject, StopReason, TextContent, UserContent, UserContentBlock,
+};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde_json::{json, Value};
@@ -43,9 +45,9 @@ use super::docs::ACCEPTANCE_DOC;
 use super::evidence::{judge_prompt, ModelJudge};
 use super::strength::{AttackProbe, Measurement, Probe};
 use super::{
-    acceptance_exit_code, acceptance_extension, acceptance_state, set_acceptance, uncertified_line,
-    watch_acceptance_updates, Attacker, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest,
-    Services, ACCEPTANCE_CUSTOM_TYPE,
+    acceptance_exit_code, acceptance_extension, acceptance_state, read_final_answer,
+    set_acceptance, uncertified_line, watch_acceptance_updates, AnswerReading, Attacker, Breaker,
+    Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services, ACCEPTANCE_CUSTOM_TYPE,
 };
 use crate::autonomous::{ChildProcessResult, GateCommandRunner};
 use crate::durable::budget::BudgetGate;
@@ -1425,6 +1427,87 @@ async fn the_product_judge_sends_one_request_with_the_condition_and_the_evidence
     );
     assert!(
         seen[0].contains("<evidence>\\nmake: *** [build] Error 2\\n</evidence>"),
+        "{}",
+        seen[0]
+    );
+    assert!(!seen[0].contains("a private task"), "{}", seen[0]);
+    assert!(!seen[0].contains("the worker talks first"), "{}", seen[0]);
+    harness.close(cx()).await.expect("close");
+}
+
+/// D5: a headless run's final answer is read by one judge request of its
+/// own (`read_final_answer` with the product judge): the final-answer
+/// judge's system prompt, the condition that no work is left and the
+/// answer as evidence, nothing of the conversation; a tool call in the
+/// judge's reply runs nothing and makes no second request, and its FAIL
+/// lines are the work left.
+#[tokio::test]
+async fn the_final_answer_judge_sends_one_request_with_the_answer_only() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .faux
+        .set_responses(vec![answer("the worker talks first")]);
+    run(&harness, &root, "a private task the judge never sees").await;
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let record = |reply: AssistantMessage| {
+        let seen = Arc::clone(&seen);
+        FauxResponseStep::factory(move |context, _, _, _| {
+            seen.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(format!("{context:?}"));
+            Ok(reply.clone())
+        })
+    };
+    setup.faux.set_responses(vec![
+        record(faux_assistant_message(
+            vec![
+                faux_text("FAIL\n- W2 (blocked)"),
+                faux_tool_call("work", JsonObject::new(), Some("judge-call".to_owned())),
+            ],
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        )),
+        record(faux_assistant_message(
+            "PASS",
+            FauxAssistantMessageOptions::default(),
+        )),
+    ]);
+    let judge = ModelJudge {
+        harness: setup.cell.clone(),
+        models: setup.models.clone(),
+    };
+
+    let reading = read_final_answer(
+        &judge,
+        root.id(),
+        "Items done: W1. Items left: W2 (blocked).",
+        cx(),
+    )
+    .await;
+
+    assert_eq!(
+        reading,
+        AnswerReading::Left(vec!["W2 (blocked)".to_owned()])
+    );
+    let seen = seen.lock().expect("seen").clone();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(
+        seen[0].contains("You are an independent judge of a worker's final answer"),
+        "{}",
+        seen[0]
+    );
+    assert!(
+        seen[0].contains(
+            "<condition>\\nThe final answer states no work of the task left.\\n</condition>"
+        ),
+        "{}",
+        seen[0]
+    );
+    assert!(
+        seen[0].contains("<evidence>\\nItems done: W1. Items left: W2 (blocked).\\n</evidence>"),
         "{}",
         seen[0]
     );
