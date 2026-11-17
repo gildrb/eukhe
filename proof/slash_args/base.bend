@@ -929,3 +929,40 @@ def sab.idx8(b1: Bool, b2: Bool, b3: Bool, b4: Bool, b5: Bool, b6: Bool, b7: Boo
 # a name that is no budget flag: the code finds no flag index
 def sab.index_none(+n: String, u: {SlashArgs.sa_known(n) == False{} : Bool}) -> {Sa.index(n, Sa.flags(), 0n) == None{} : Maybe<&2, Nat>}:
   sab.idx8(String.eq(n, "max-continuations"), String.eq(n, "max-turns"), String.eq(n, "max-tokens"), String.eq(n, "timeout-ms"), String.eq(n, "gate"), String.eq(n, "gate-retries"), String.eq(n, "gate-timeout-ms"), String.eq(n, "subagent-keep-alive-ms"), u)
+
+# Digits (R4, R8)
+# ---------------
+
+# the code's digits test is R4's
+def sab.digits(s: String) -> {Sa.all_digits(s) == SlashArgs.sa_digits(s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Sa.all_digits(t), SlashArgs.sa_digits(t), sab.digits(t)) : {Bool.and(Char.is_digit(c), _) == SlashArgs.sa_digits(SCon{c, t}) : Bool}
+      {==}
+
+def sab.lead.at(a: Bool, z: Bool, x: Bool) -> {Bool.and(Bool.not(z), Bool.and(a, x)) == Bool.and(Bool.and(a, Bool.not(z)), x) : Bool}:
+  match a:
+    case True{}:
+      match z:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case False{}:
+      match z:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+# the code's positive test is R4's leading digit test, its conjuncts
+# reordered
+def sab.positive_lead(s: String) -> {Sa.positive(s) == SlashArgs.sa_lead(s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Sa.all_digits(t), SlashArgs.sa_digits(t), sab.digits(t)) : {Bool.and(Bool.not(Char.is_eq(c, '0')), Bool.and(Char.is_digit(c), _)) == SlashArgs.sa_lead(SCon{c, t}) : Bool}
+      sab.lead.at(Char.is_digit(c), Char.is_eq(c, '0'), SlashArgs.sa_digits(t))
