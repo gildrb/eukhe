@@ -278,6 +278,8 @@ pub enum Entry {
     WorkLeft = 470,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
+    /// `bend/ffi_autonomous.bend`: a call.
+    Autonomous = 473,
 }
 
 impl Entry {
@@ -419,6 +421,7 @@ impl Entry {
         Entry::Strength,
         Entry::WorkLeft,
         Entry::Fallback,
+        Entry::Autonomous,
     ];
 
     /// The id `bend/core.bend` dispatches on.

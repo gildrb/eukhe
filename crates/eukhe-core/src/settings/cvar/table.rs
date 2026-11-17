@@ -673,46 +673,6 @@ pub const IMAGE_MODEL: Decl = Decl {
     init: Init::Text(""),
 };
 
-/// `number | "unlimited"`.
-pub const AUTONOMOUS_MAX_CONTINUATIONS: Decl = Decl {
-    id: "autonomous.maxContinuations",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-/// `number | "unlimited"`.
-pub const AUTONOMOUS_MAX_TURNS: Decl = Decl {
-    id: "autonomous.maxTurns",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-/// `number | "unlimited"`.
-pub const AUTONOMOUS_MAX_TOKENS: Decl = Decl {
-    id: "autonomous.maxTokens",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
-/// `number | "unlimited"`.
-pub const AUTONOMOUS_TIMEOUT_MS: Decl = Decl {
-    id: "autonomous.timeoutMs",
-    ty: CvarType::Json,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: false,
-    init: Init::Null,
-};
-
 /// `0` takes the default.
 pub const DIRECTORS_STACK_CAP: Decl = Decl {
     id: "directors.stackCap",
@@ -1514,10 +1474,6 @@ pub const DECLS: &[Decl] = &[
     RETRY_WAIT_MAX_PARKS,
     PROVIDER_BACKUP_MODEL,
     IMAGE_MODEL,
-    AUTONOMOUS_MAX_CONTINUATIONS,
-    AUTONOMOUS_MAX_TURNS,
-    AUTONOMOUS_MAX_TOKENS,
-    AUTONOMOUS_TIMEOUT_MS,
     DIRECTORS_STACK_CAP,
     DIRECTORS_MAX_STEPS,
     DIRECTORS_STALL_STEPS,

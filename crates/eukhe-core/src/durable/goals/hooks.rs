@@ -9,22 +9,19 @@
 //!   conversation settles it.
 //! - `before_request`: also forces the tool of the topmost forced-call
 //!   Director the model did not call yet (`stream.forceTool`).
-//! - `after_response`: every settled response spends the goal's and the
-//!   autonomous run's limits once per generation (the goal: input and
-//!   output tokens; the run: one turn and its input, output and
-//!   cache-write tokens); a goal crossing its token budget turns
-//!   `budget_limited` and steers the run with the budget-limit context,
-//!   so the run goes on and wraps up. The run's own limits are soft:
-//!   `on_yield` checks them between continuations, so the turn that
-//!   crosses one completes.
+//! - `after_response`: every settled response spends the goal's token
+//!   budget once per generation (input and output tokens); a goal
+//!   crossing it turns `budget_limited` and steers the run with the
+//!   budget-limit context, so the run goes on and wraps up.
 //! - `after_response`: also counts the response to a forced request: a
 //!   call of the tool makes the forced call; the miss that fails the
 //!   generation removes the layer and records the failure in a display row.
 //! - `on_yield`: at a final answer the Director stack decides
 //!   (`crate::durable::directors`): an active goal mints one continuation,
 //!   or turns `budget_limited` and yields when the session's budget admits
-//!   no more work; otherwise an enabled autonomous run consults its gates
-//!   and limits (its own and the session's budget); reminders
+//!   no more work; otherwise an autonomous run asks the compiled core
+//!   (`eukhe_bend::rules::autonomous`), from what the checks did with the
+//!   answer and the session's budget; reminders
 //!   lead the continuation, or stay on the stack when no continuation
 //!   comes; a forced call not made yet continues the run forced. Queued
 //!   user input and unsettled RLM children hold the continuation (the
@@ -34,15 +31,15 @@
 //!   limit and that the stop Directors kept as it is (`eukhe.output_limit`:
 //!   the Harness's warning, shown after the answer, never model context).
 //!
-//! The goal and the autonomous run count their own tokens, turns and time
-//! (as v0.10.67 did); a budget the user set (`crate::durable::budget`) is
-//! another, hard limit. Every decision is recorded in `eukhe.goal.loop`
-//! keyed by the generation task, in the same commit as its goal,
-//! autonomous and stack changes, so a rerun after a crash repeats the
-//! decision.
+//! The autonomous run has no limit of its own: a budget the user set
+//! (`crate::durable::budget`) is its only one. Every decision is recorded
+//! in `eukhe.goal.loop` keyed by the generation task, in the same commit
+//! as its goal, autonomous and stack changes, so a rerun after a crash
+//! repeats the decision.
 
 use std::sync::Arc;
 
+use eukhe_bend::rules::autonomous::Checks;
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::hook;
@@ -72,7 +69,8 @@ use super::state::{
     accounted, budget_limited, ended, mint, owns_continuation_wakeup, paused, run_end, served,
     spends_limits, stamp, RunEnd, UsageOutcome,
 };
-use crate::autonomous::{now_millis, AutonomousRuntimeState, SessionBudget};
+use crate::autonomous::{now_millis, SessionBudget};
+use crate::durable::acceptance::checks_at;
 use crate::durable::children::has_unsettled_children;
 use crate::durable::directors::{
     compared, read_work, stall_check, DirectorLimits, DirectorState, End, Last, Layer, LayerKind,
@@ -213,10 +211,10 @@ impl GoalsHost {
             .await
     }
 
-    /// Account one settled response against the goal and the autonomous
-    /// run, once per generation: the goal's input and output tokens (a
-    /// goal crossing its token budget turns `budget_limited` and steers the
-    /// run with the budget-limit context); the run's turn and tokens.
+    /// Account one settled response against the goal, once per
+    /// generation: its input and output tokens (a goal crossing its token
+    /// budget turns `budget_limited` and steers the run with the
+    /// budget-limit context).
     async fn account_response(
         &self,
         message: &AssistantMessage,
@@ -230,10 +228,7 @@ impl GoalsHost {
         let goal_active = read_doc(api, &GOAL_DOC, conversation_id, cx)
             .await?
             .is_some_and(|goal| goal.status == GoalStatus::Active);
-        let autonomous_enabled = read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx)
-            .await?
-            .is_some_and(|state| state.enabled);
-        if !goal_active && !autonomous_enabled {
+        if !goal_active {
             return Ok(());
         }
         let conversation = self.conversation(conversation_id, cx).await?;
@@ -277,12 +272,6 @@ impl GoalsHost {
                             }
                             UsageOutcome::Ignored => {}
                         }
-                    }
-                    if autonomous_enabled {
-                        let (draft, mut state) =
-                            open_doc(&tx, &AUTONOMOUS_DOC, conversation_id).await?;
-                        state.account(&usage);
-                        write_doc(&draft, &state)?;
                     }
                     loop_state.accounted = Some(task_id);
                     write_doc(&loop_draft, &loop_state)?;
@@ -356,89 +345,51 @@ impl GoalsHost {
         // the cache reads the entries it did not read yet.
         let conversation = self.conversation(conversation_id, cx).await?;
         let work = read_work(&self.work, &conversation, cx).await?;
-        // What the session's budget admits now.
+        // What the session's budget admits now, and what the checks did
+        // with this answer (the verifier ran before this hook).
         let budget = SessionBudget::of(budget_report(&self.budget).await?.as_ref());
-        let mut decided = None;
-        loop {
-            let limits = (self.limits)();
-            let seen = Seen {
-                goal: read_doc(api, &GOAL_DOC, conversation_id, cx).await?,
-                autonomous: read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx).await?,
-            };
-            let goal = seen.goal.clone().unwrap_or_default();
-            let autonomous = seen
-                .autonomous
-                .clone()
-                .unwrap_or_else(AutonomousDocState::initial);
-            let mut state = read_doc(api, &DIRECTORS_DOC, conversation_id, cx)
-                .await?
-                .unwrap_or_default();
-            begin(&mut state, input, &goal, &autonomous, limits);
-            if state.stack.is_empty() {
-                // No Director: the loop hands back, and nothing is written.
-                return Ok(None);
-            }
-            if decided.is_none() {
-                // The gates run outside the commit, when the step reaches
-                // the autonomous run.
-                let check = goal_check(
-                    loop_state.progress.as_ref(),
-                    input,
-                    &goal,
-                    work,
-                    limits.stall_steps,
-                );
-                let session = SessionTerms { budget };
-                if let Judged::NeedAutonomous = judge(
-                    &state.stack,
-                    &goal,
-                    &autonomous,
-                    None,
-                    check,
-                    session,
-                    now_millis(),
-                )? {
-                    let mut runtime = autonomous.to_runtime();
-                    let decision = decide(
-                        &mut runtime,
-                        answer.stop_reason,
-                        self.gates.as_ref(),
-                        budget,
-                    )
-                    .await;
-                    decided = Some(AutonomousDecided {
-                        before: autonomous,
-                        runtime,
-                        decision,
-                    });
-                }
-            }
-            match commit_step(
-                &conversation,
-                StepInput {
-                    task_id,
-                    input,
-                    seen,
-                    decided: decided.clone(),
-                    limits,
-                    work,
-                    session: SessionTerms { budget },
-                },
-                cx,
-            )
+        let checks = checks_at(api, conversation_id, task_id, cx).await?;
+        let limits = (self.limits)();
+        let seen = Seen {
+            goal: read_doc(api, &GOAL_DOC, conversation_id, cx).await?,
+            autonomous: read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx).await?,
+        };
+        let goal = seen.goal.clone().unwrap_or_default();
+        let autonomous = seen
+            .autonomous
+            .clone()
+            .unwrap_or_else(AutonomousDocState::initial);
+        let mut state = read_doc(api, &DIRECTORS_DOC, conversation_id, cx)
             .await?
-            {
-                Step::Retry => decided = None,
-                Step::Done {
-                    continuation,
-                    abort,
-                } => {
-                    return match abort {
-                        Some(error) => Err(SessionError::other(error)),
-                        None => Ok(continuation),
-                    };
-                }
-            }
+            .unwrap_or_default();
+        begin(&mut state, input, &goal, &autonomous, limits);
+        if state.stack.is_empty() {
+            // No Director: the loop hands back, and nothing is written.
+            return Ok(None);
+        }
+        let Step {
+            continuation,
+            abort,
+        } = commit_step(
+            &conversation,
+            StepInput {
+                task_id,
+                input,
+                seen,
+                answer: AnswerAt {
+                    stop_reason: answer.stop_reason,
+                    checks,
+                },
+                limits,
+                work,
+                session: SessionTerms { budget },
+            },
+            cx,
+        )
+        .await?;
+        match abort {
+            Some(error) => Err(SessionError::other(error)),
+            None => Ok(continuation),
         }
     }
 
@@ -524,15 +475,6 @@ impl GoalsHost {
     }
 }
 
-/// The autonomous decision of a step on the state `before`, made before
-/// the step's commit (the gates run outside it).
-#[derive(Debug, Clone)]
-struct AutonomousDecided {
-    before: AutonomousDocState,
-    runtime: AutonomousRuntimeState,
-    decision: AutonomousYield,
-}
-
 /// The goal and autonomous documents as the step read them before its
 /// commit (`None`: absent; the commit does not create them).
 #[derive(Debug, Clone)]
@@ -607,17 +549,18 @@ fn goal_check(
     }
 }
 
-/// The judgment of a step.
-#[derive(Debug, PartialEq)]
-enum Judged {
-    Pass(Box<Pass>),
-    /// The step reaches the autonomous run, whose gates did not run yet.
-    NeedAutonomous,
+/// What the step knows of the final answer: how it ended, and what the
+/// checks did with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AnswerAt {
+    stop_reason: StopReason,
+    checks: Checks,
 }
 
 /// Start a new loop when the stored one belongs to another run (its first
-/// input differs) or ended, refreshing the goal and autonomous budgets;
-/// then put the goal and the autonomous run on the stack (the goal above
+/// input differs) or ended, refreshing the goal and autonomous budgets
+/// (the run's continuation steps); then put the goal and the autonomous
+/// run on the stack (the goal above
 /// the autonomous run) when they drive continuations and have no layer
 /// yet. They go below the pushed layers (reminders and forced calls), so
 /// those decide first and a reminder rides on their continuation. They
@@ -630,10 +573,7 @@ fn begin(
     autonomous: &AutonomousDocState,
     limits: DirectorLimits,
 ) {
-    let remaining = autonomous
-        .limits
-        .max_continuations
-        .saturating_sub(autonomous.continuations_used);
+    let remaining = limits.max_steps;
     let fresh = state
         .run
         .as_ref()
@@ -681,7 +621,9 @@ fn begin(
 ///   (the goal pauses); a paused, budget-limited, complete or failed goal
 ///   yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
-///   disabled; else its gates and limits continue (Again) or stop (Yield).
+///   off; else the compiled core decides from the checks' outcome at the
+///   answer and the budget: a continuation (Again), or Yield (the checks'
+///   return continues the run, or the run stopped).
 /// - Reminder: its text leads the continuation (Lead): it leaves with the
 ///   continuation, and stays when the step ends the loop.
 /// - `ForceTool`: leaves once the model called the tool; else Again while
@@ -691,11 +633,11 @@ fn judge(
     stack: &[Layer],
     goal: &GoalState,
     autonomous: &AutonomousDocState,
-    decided: Option<&AutonomousDecided>,
+    answer: AnswerAt,
     check: GoalCheck,
     session: SessionTerms,
     now: u64,
-) -> SessionResult<Judged> {
+) -> SessionResult<Pass> {
     let mut pass = Pass::default();
     for layer in stack.iter().rev() {
         let verdict = match &layer.kind {
@@ -769,33 +711,22 @@ fn judge(
                 } else if !autonomous.enabled {
                     Verdict::Leave
                 } else {
-                    let Some(decided) = decided else {
-                        return Ok(Judged::NeedAutonomous);
-                    };
-                    // An `/autonomous` change while the gates ran wins: the
-                    // run yields.
-                    if decided.before.started_at == autonomous.started_at {
-                        match &decided.decision {
-                            AutonomousYield::Inactive => Verdict::Yield,
-                            AutonomousYield::Continue { text, nudge } => {
-                                pass.continuation =
-                                    Some((text.clone(), InputOrigin::Autonomous { nudge: *nudge }));
-                                pass.autonomous_continued = Some(AutonomousDocState::from_runtime(
-                                    &decided.runtime,
-                                    autonomous.last_stop,
-                                ));
-                                Verdict::Again
-                            }
-                            AutonomousYield::Stop(stop) => {
-                                pass.autonomous_stopped = Some(AutonomousDocState::from_runtime(
-                                    &decided.runtime,
-                                    Some(*stop),
-                                ));
-                                Verdict::Yield
-                            }
+                    match decide(
+                        autonomous,
+                        answer.stop_reason,
+                        answer.checks,
+                        session.budget.rule(),
+                    )? {
+                        AutonomousYield::Inactive => Verdict::Yield,
+                        AutonomousYield::Continue { text, nudge, next } => {
+                            pass.continuation = Some((text, InputOrigin::Autonomous { nudge }));
+                            pass.autonomous_continued = Some(next);
+                            Verdict::Again
                         }
-                    } else {
-                        Verdict::Yield
+                        AutonomousYield::Stop { next, .. } => {
+                            pass.autonomous_stopped = Some(next);
+                            Verdict::Yield
+                        }
                     }
                 }
             }
@@ -832,7 +763,7 @@ fn judge(
             break;
         }
     }
-    Ok(Judged::Pass(Box::new(pass)))
+    Ok(pass)
 }
 
 /// What a step's commit works on.
@@ -841,7 +772,7 @@ struct StepInput {
     task_id: TaskId,
     input: Option<SubmissionId>,
     seen: Seen,
-    decided: Option<AutonomousDecided>,
+    answer: AnswerAt,
     limits: DirectorLimits,
     /// The session's work now (`WorkLedger::count`).
     work: u64,
@@ -849,17 +780,12 @@ struct StepInput {
     session: SessionTerms,
 }
 
-/// What a step's commit did.
+/// What a step's commit did: the continuation, and the forced call that
+/// failed the loop.
 #[derive(Debug)]
-enum Step {
-    /// The step reaches the autonomous run, whose gates must run first.
-    Retry,
-    /// The step's decision: the continuation, and the forced call that
-    /// failed the loop.
-    Done {
-        continuation: Option<(String, InputOrigin)>,
-        abort: Option<ForcedToolError>,
-    },
+struct Step {
+    continuation: Option<(String, InputOrigin)>,
+    abort: Option<ForcedToolError>,
 }
 
 /// One step of the loop in one commit: judge the stack on the committed
@@ -881,7 +807,7 @@ async fn commit_step(
                     task_id,
                     input,
                     seen,
-                    decided,
+                    answer,
                     limits,
                     work,
                     session,
@@ -914,19 +840,15 @@ async fn commit_step(
                     work,
                     limits.stall_steps,
                 );
-                let judged = judge(
+                let pass = judge(
                     &state.stack,
                     &goal_state,
                     &autonomous_state,
-                    decided.as_ref(),
+                    answer,
                     check,
                     session,
                     now,
                 )?;
-                let pass = match judged {
-                    Judged::NeedAutonomous => return Ok(Step::Retry),
-                    Judged::Pass(pass) => *pass,
-                };
                 let left = state.run.as_ref().map_or(limits.max_steps, |run| run.left);
                 let run = Loop {
                     left,
@@ -1002,7 +924,7 @@ async fn commit_step(
                     tx.append_entry(conversation_id, forced_call_failure(error)?)
                         .await?;
                 }
-                Ok(Step::Done {
+                Ok(Step {
                     continuation: match outcome {
                         YieldOutcome::Continue { text, origin } => Some((text, origin)),
                         YieldOutcome::End => None,
@@ -1057,13 +979,21 @@ mod tests {
         }
     }
 
+    /// A settled final answer without checks.
+    fn answer() -> AnswerAt {
+        AnswerAt {
+            stop_reason: StopReason::Stop,
+            checks: Checks::Unchecked,
+        }
+    }
+
     /// `judge` of `stack` with no goal and no autonomous run.
-    fn judged(stack: &[Layer]) -> Judged {
+    fn judged(stack: &[Layer]) -> Pass {
         judge(
             stack,
             &GoalState::default(),
             &AutonomousDocState::initial(),
-            None,
+            answer(),
             check(),
             working(),
             0,
@@ -1090,7 +1020,7 @@ mod tests {
             &stack,
             &goal,
             &AutonomousDocState::initial(),
-            None,
+            answer(),
             check(),
             SessionTerms {
                 budget: SessionBudget::Short(Some(eukhe_types::budget::BudgetDimension::Tokens)),
@@ -1100,7 +1030,7 @@ mod tests {
         .expect("judge");
         assert_eq!(
             judged,
-            Judged::Pass(Box::new(Pass {
+            Pass {
                 verdicts: vec![Verdict::Yield],
                 goal_limited: Some(stamp(
                     GoalState {
@@ -1114,7 +1044,7 @@ mod tests {
                     7
                 )),
                 ..Pass::default()
-            }))
+            }
         );
     }
 
@@ -1122,26 +1052,26 @@ mod tests {
     fn a_forced_call_not_made_continues_while_it_has_budget_then_aborts() {
         assert_eq!(
             judged(&[forced(false, 1, 0)]),
-            Judged::Pass(Box::new(Pass {
+            Pass {
                 verdicts: vec![Verdict::Again],
                 continuation: Some((
                     "[director: forced call to `lookup`]".to_owned(),
                     InputOrigin::Director,
                 )),
                 ..Pass::default()
-            }))
+            }
         );
         // The error counts the forced requests that missed the call.
         assert_eq!(
             judged(&[forced(false, 0, 2)]),
-            Judged::Pass(Box::new(Pass {
+            Pass {
                 verdicts: vec![Verdict::Abort],
                 abort: Some(ForcedToolError::NotCalled {
                     tool: "lookup".to_owned(),
                     attempts: 2,
                 }),
                 ..Pass::default()
-            }))
+            }
         );
     }
 
@@ -1165,7 +1095,7 @@ mod tests {
         ];
         assert_eq!(
             judged(&stack),
-            Judged::Pass(Box::new(Pass {
+            Pass {
                 verdicts: vec![Verdict::Lead, Verdict::Leave, Verdict::Abort],
                 reminders: vec!["Run the tests.".to_owned()],
                 abort: Some(ForcedToolError::NotCalled {
@@ -1173,7 +1103,75 @@ mod tests {
                     attempts: 2,
                 }),
                 ..Pass::default()
-            }))
+            }
+        );
+    }
+
+    /// An autonomous run: without checks it continues with its prompt; a
+    /// claim the checks returned yields to their return, adding nothing;
+    /// a claim that ended stops the run with its label.
+    #[test]
+    fn the_autonomous_layer_follows_the_core() {
+        let run = AutonomousDocState {
+            enabled: true,
+            ..AutonomousDocState::initial()
+        };
+        let stack = [Layer {
+            kind: LayerKind::Autonomous,
+            budget: 3,
+        }];
+        let at = |checks| {
+            judge(
+                &stack,
+                &GoalState::default(),
+                &run,
+                AnswerAt {
+                    stop_reason: StopReason::Stop,
+                    checks,
+                },
+                check(),
+                working(),
+                0,
+            )
+            .expect("judge")
+        };
+        let stop = crate::autonomous::AutonomousStop::Checks(
+            eukhe_types::acceptance::AcceptanceLabel::Failed,
+        );
+        assert_eq!(
+            [
+                at(Checks::Unchecked),
+                at(Checks::Returned),
+                at(Checks::Ended(eukhe_bend::rules::verify::Label::Failed)),
+            ],
+            [
+                Pass {
+                    verdicts: vec![Verdict::Again],
+                    continuation: Some((
+                        crate::autonomous::autonomous_continuation_text(&run.continuation_prompt),
+                        InputOrigin::Autonomous {
+                            nudge: eukhe_types::input_origin::AutonomousNudge::Continuation,
+                        },
+                    )),
+                    autonomous_continued: Some(AutonomousDocState {
+                        continuations_used: 1,
+                        ..run.clone()
+                    }),
+                    ..Pass::default()
+                },
+                Pass {
+                    verdicts: vec![Verdict::Yield],
+                    ..Pass::default()
+                },
+                Pass {
+                    verdicts: vec![Verdict::Yield],
+                    autonomous_stopped: Some(AutonomousDocState {
+                        last_stop: Some(stop),
+                        ..run.clone()
+                    }),
+                    ..Pass::default()
+                },
+            ]
         );
     }
 }

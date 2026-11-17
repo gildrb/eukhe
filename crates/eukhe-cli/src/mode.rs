@@ -76,17 +76,18 @@ pub struct InitialGoal {
     pub token_budget: Option<u32>,
 }
 
-/// The acceptance checks the `--accept-*` flags ask for: each command
-/// must exit 0 (with the `--accept-protect` files intact, and catching the
-/// `--accept-strength` share of the breaks), each condition goes to the
-/// judge with the output of the `--accept-evidence` commands, and the
-/// intent judge joins them unless `--accept-no-intent`; `None` without a
-/// check and `--accept-intent`.
+/// The acceptance checks the `--accept-*` flags ask for (and the removed
+/// `--autonomous-gate*` flags, their aliases): each command must exit 0
+/// (within the removed gate timeout when given, with the `--accept-protect`
+/// files intact, and catching the `--accept-strength` share of the breaks),
+/// each condition goes to the judge with the output of the
+/// `--accept-evidence` commands, and the intent judge joins them unless
+/// `--accept-no-intent`; `None` without a check and `--accept-intent`.
 fn acceptance_seed(parsed: &Args) -> Option<AcceptanceSeed> {
     let commands = parsed.accept_cmds.iter().map(|command| CheckSpec::Command {
         command: command.clone(),
         expect: 0,
-        timeout_ms: None,
+        timeout_ms: parsed.accept_cmd_timeout_ms,
         protect: parsed.accept_protect.clone(),
         strength: parsed.accept_strength,
     });
@@ -101,7 +102,10 @@ fn acceptance_seed(parsed: &Args) -> Option<AcceptanceSeed> {
     let checks: Vec<CheckSpec> = commands.chain(conditions).collect();
     (!checks.is_empty() || parsed.accept_intent).then(|| AcceptanceSeed {
         checks,
-        max_returns: parsed.accept_returns.map(u64::from),
+        max_returns: parsed
+            .accept_returns
+            .or(parsed.autonomous_returns)
+            .map(u64::from),
         intent: !parsed.accept_no_intent,
     })
 }

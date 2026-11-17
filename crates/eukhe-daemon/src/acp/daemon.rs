@@ -1443,11 +1443,7 @@ async fn prompt_turn(
     let quiescence = types::AcpSessionUpdate::SessionInfoUpdate {
         meta: meta::eukhe_meta(&EukheSessionMeta {
             autonomous: autonomous_meta,
-            quiescence: Some(quiescence_meta(
-                autonomous_status.as_ref(),
-                &children,
-                waiting_on,
-            )),
+            quiescence: Some(quiescence_meta(&children, waiting_on)),
             ..Default::default()
         }),
     };
@@ -1512,7 +1508,7 @@ async fn prompt_turn(
             producer.finish_prompt(turn_id).await;
             return cancelled_response(&id);
         }
-        let terminal_quiescence = quiescence_meta(Some(&status), &children, None);
+        let terminal_quiescence = quiescence_meta(&children, None);
         if terminal_quiescence.outstanding_subagents != 0 {
             continue;
         }
@@ -1684,21 +1680,14 @@ fn outstanding_subagents(children: &[Value]) -> u64 {
 /// remaining continuation slots, observed together at one completion
 /// point, with the work still running there (`None` when nothing runs).
 fn quiescence_meta(
-    status: Option<&eukhe_core::autonomous::AgentAutonomousStatus>,
     children: &[Value],
     waiting_on: Option<eukhe_types::daemon::WaitingOn>,
 ) -> meta::EukheQuiescenceMeta {
     meta::EukheQuiescenceMeta {
         outstanding_subagents: outstanding_subagents(children),
-        remaining_autonomous_continuations: status.filter(|status| status.enabled).map_or(
-            0,
-            |status| {
-                status
-                    .limits
-                    .max_continuations
-                    .saturating_sub(status.continuations_used)
-            },
-        ),
+        // The run has no continuation cap: at a settled completion its
+        // continuations are over.
+        remaining_autonomous_continuations: 0,
         waiting_on,
     }
 }

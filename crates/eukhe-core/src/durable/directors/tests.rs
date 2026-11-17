@@ -23,10 +23,11 @@ use super::{
 };
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
+use crate::durable::goals::autonomous_state;
 use crate::durable::goals::tests::{
-    answer, entries, finish_call, open_jsonl, setup, stored_goal, submit, user_origins, user_texts,
+    answer, autonomous_unchecked, entries, finish_call, open_jsonl, setup, stored_goal, submit,
+    user_origins, user_texts,
 };
-use crate::durable::goals::{autonomous_state, set_autonomous, AutonomousChange};
 use crate::goals::{GoalContextKind, GoalStatus};
 
 fn cx() -> &'static Context {
@@ -110,18 +111,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
         stall_steps: DEFAULT_STALL_STEPS,
     };
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    set_autonomous(
-        &harness,
-        &setup.budget,
-        root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
-            max_continuations: Some(3),
-            ..AgentAutonomousConfig::default()
-        }),
-        cx(),
-    )
-    .await
-    .expect("autonomous on");
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
     setup
         .faux
         .set_responses(vec![answer("a"), answer("b"), answer("unused")]);
@@ -129,8 +119,8 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
     submit(&root, "go").await;
     harness.wait_for_idle(cx()).await.expect("idle");
 
-    // The autonomous layer still had budget for the second continuation;
-    // the loop's one step was spent.
+    // The core would continue the run again (no checks, no budget); the
+    // loop's one step was spent.
     assert_eq!(
         user_origins(&entries(&root).await),
         vec![
@@ -149,7 +139,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
         DirectorState {
             stack: vec![Layer {
                 kind: LayerKind::Autonomous,
-                budget: 1,
+                budget: 0,
             }],
             run: Some(RunLoop {
                 input: loop_input(&state),

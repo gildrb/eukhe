@@ -1,0 +1,6 @@
+# the request has no count: its largest tags (the checks ended with the
+# largest label, the short budget, the broken answer), and a 15-digit tag
+# refused
+call T1,2,3,1,
+call F0,1,0,
+refuse T{LONG},0,0,

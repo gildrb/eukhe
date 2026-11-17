@@ -23,7 +23,7 @@ use super::runner::RunGate;
 use super::Autoresearch;
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::goals::{
-    autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState,
+    autonomous_state, set_internal_autonomous, AutonomousChange, AutonomousDocState,
 };
 use crate::durable::rlm::session_env;
 use crate::durable::shell::{auto_set, SinkApprover};
@@ -181,7 +181,7 @@ pub(crate) async fn follow_mode(
         Mode::On | Mode::Off => None,
     };
     if let Some(change) = change {
-        set_autonomous(&harness, &deps.budget, conversation, change, &cx).await?;
+        set_internal_autonomous(&harness, &deps.budget, conversation, change, &cx).await?;
     }
     Ok(())
 }
@@ -192,24 +192,13 @@ pub(crate) fn ours(state: &AutonomousDocState) -> bool {
     state.enabled && state.continuation_prompt == CONTINUATION
 }
 
-/// The largest integer exact JSON holds (`Number.MAX_SAFE_INTEGER`): the
-/// autonomous run's state is a durable JSON document, which refuses
-/// anything larger.
-const UNBOUNDED: u64 = (1 << 53) - 1;
-
 /// The autonomous run of the loop: the Lab's iteration cap and mode end
-/// it, so its own limits are unbounded (its continuations the largest a
-/// durable document holds; it puts no limit on the session's budget).
+/// it; it carries no checks or limits of its own.
 fn continuation() -> AgentAutonomousConfig {
     AgentAutonomousConfig {
         enabled: Some(true),
-        max_continuations: Some(UNBOUNDED),
-        max_turns: Some(UNBOUNDED),
-        max_tokens: Some(UNBOUNDED),
-        timeout_ms: Some(UNBOUNDED),
         continuation_prompt: Some(CONTINUATION.to_owned()),
-        gates: None,
-        subagent_keep_alive_ms: None,
+        ..AgentAutonomousConfig::default()
     }
 }
 

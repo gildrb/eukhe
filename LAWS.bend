@@ -225,3 +225,4 @@ import ./laws/work_list.bend as WorkList
 import ./laws/fallback.bend as Fallback
 import ./laws/strength.bend as Strength
 import ./laws/work_left.bend as WorkLeft
+import ./laws/autonomous.bend as Autonomous

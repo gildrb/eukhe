@@ -501,7 +501,6 @@ def rules() -> List<&2, Rule>:
     Rule{["subagentStallMs"], Proj{Limit{}}},
     Rule{["toolBlockingBudgetMs"], Proj{Limit{}}},
     Rule{["maxToolRounds"], Proj{Limit{}}},
-    Rule{["autonomous"], Proj{Limit{}}},
     Rule{["directors"], Proj{Limit{}}},
     Rule{["thinkingBudgets"], Proj{Limit{}}},
     Rule{["SYSTEM.md"], Proj{Prompt{}}},

@@ -137,3 +137,4 @@
 472 fallback
 465 strength
 470 work_left
+473 autonomous

@@ -6,10 +6,9 @@
 //! and the hooks' bookkeeping `eukhe.goal.loop`); the `pi.generation` hooks
 //! drive continuation; the kernel's `goal.*` host requests and the `/goal`
 //! / `/autonomous` operations mutate the documents through commits. A
-//! goal and an autonomous run count what they spend against their own
-//! limits (the goal's token budget; the run's turns, tokens and time),
-//! and stop too when the session's budget (`crate::durable::budget`)
-//! admits no more work. [`watch_goal_updates`] feeds the `goal_update`
+//! goal counts what it spends against its token budget; a goal and an
+//! autonomous run stop when the session's budget
+//! (`crate::durable::budget`) admits no more work. [`watch_goal_updates`] feeds the `goal_update`
 //! event.
 
 mod autonomous;
@@ -29,9 +28,10 @@ use std::sync::Arc;
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{Extension, HookRegistration};
 
+pub(crate) use autonomous::set_internal_autonomous;
 pub use autonomous::{
-    autonomous_state, configure_autonomous, set_autonomous, AutonomousChange, AutonomousDocState,
-    AutonomousStop, WorktreeSnapshot,
+    autonomous_state, configure_autonomous, set_autonomous, set_run_limits, AutonomousChange,
+    AutonomousDocState,
 };
 pub(crate) use docs::{open_doc, read_doc, write_doc};
 pub use docs::{AUTONOMOUS_DOC, GOAL_DOC};
@@ -50,7 +50,6 @@ use self::host::{register_host_requests, GoalsHost};
 use super::budget::BudgetGate;
 use super::directors::{pending_work_hook, DirectorLimits};
 use super::HostDeps;
-use crate::autonomous::{GateCommandRunner, ShellGateRunner};
 use crate::durable::{HarnessCell, HostRequestRegistry};
 
 /// The extension's name.
@@ -61,7 +60,7 @@ pub const GOALS_EXTENSION: &str = "eukhe.goals";
 /// `PendingWork` fact of the run loop's stop Directors), the `goal.get` /
 /// `goal.create` / `goal.complete` / `directors.push` host requests
 /// registered in `deps.host_requests`, and the run-end failure observer.
-/// Autonomous gates run in the session cwd. The `autoresearch.*` host
+/// The `autoresearch.*` host
 /// requests register here too: their loop is the autonomous run.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
@@ -71,20 +70,18 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     goals_extension(
         deps.harness.clone(),
         Arc::clone(&deps.budget),
-        Arc::new(ShellGateRunner::new(deps.cwd.clone())),
         Arc::new(move || DirectorLimits::of(settings.manager().settings())),
         &deps.host_requests,
         vec![pending_work_hook(deps)],
     )
 }
 
-/// [`extension`] over explicit services (the budget, the gate runner and
-/// the limits are the seams the tests script); `beside` registers after the
+/// [`extension`] over explicit services (the budget and the limits are
+/// the seams the tests script); `beside` registers after the
 /// goal's hooks.
 pub(crate) fn goals_extension(
     harness: HarnessCell,
     budget: Arc<BudgetGate>,
-    gates: Arc<dyn GateCommandRunner>,
     limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
     host_requests: &HostRequestRegistry,
     beside: Vec<HookRegistration>,
@@ -92,7 +89,6 @@ pub(crate) fn goals_extension(
     let host = GoalsHost {
         harness,
         budget,
-        gates,
         limits,
         work: Arc::default(),
     };
