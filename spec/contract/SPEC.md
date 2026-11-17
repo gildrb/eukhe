@@ -18,7 +18,7 @@ right.
 The SDK is one engine with two doors (section 2.1). The same core runs
 either inside the host's process, as a library, or in the daemon; the host
 uses one API for both and picks the door by configuration. Host tools,
-approvals, budgets and cancellation are callbacks in both doors: called
+budgets and cancellation are callbacks in both doors: called
 directly in process, carried over the wire by a host-callback protocol
 through the daemon. The compatibility laws apply to both doors.
 
@@ -56,7 +56,7 @@ through the daemon. The compatibility laws apply to both doors.
   a library in the host's process. **Daemon**: the engine runs in the eukhe
   daemon and the host reaches it over the daemon socket.
 - **host callback**: a function the host gives the SDK and the engine
-  calls: a host tool, an approval, a budget question. A **host call** is
+  calls: a host tool, a budget question. A **host call** is
   one such call; it ends in one **outcome**.
 - **host id**: a name the host chooses for itself, the same across its
   restarts, under which it registers its callbacks with a daemon session.
@@ -94,9 +94,9 @@ configuration. Nothing in this subsection is built.
 |---|---|
 |W14|One API, two doors. The SDK has one API for both doors. The host chooses the door with one connect option: in process with its agent dir, or a daemon socket, given or resolved as the `eukhe` CLI resolves it. Every call, argument, result type and typed error is the same in both doors (W20 names the only answers that differ); a host program changes doors by changing that option and nothing else.|
 |W15|One event stream. Both doors deliver the same events: the wire's session event vocabulary, with the same per-session cursor (generation, sequence), the same start snapshot, the same order and the same gap marks (W10). For one scripted run on a fixed clock, the streams of the two doors are equal. No engine type is part of the API.|
-|W16|Host callbacks in both doors. Host tools, approvals, budget questions and cancellation are given once, as the same callbacks, whichever door is chosen. In process the engine calls them directly; through the daemon the host-callback protocol (W17) carries the same calls. In both doors a callback receives the same arguments, and its answer has the same effect on the session.|
+|W16|Host callbacks in both doors. Host tools, budget questions and cancellation are given once, as the same callbacks, whichever door is chosen. In process the engine calls them directly; through the daemon the host-callback protocol (W17) carries the same calls. In both doors a callback receives the same arguments, and its answer has the same effect on the session. No callback asks the host about an effect: every effect runs unasked (spec/README.md I2).|
 |W17|Host-callback protocol. Through the daemon, a host registers its callbacks for a session under its host id: each tool with its name and parameter schema, and the kinds of question it answers. The daemon sends a call frame with a call id; for a tool the host may send progress, and it answers once with that id. Each call ends in exactly one outcome: the host's answer, a cancellation (sent to the host as a cancel frame for the id), or `host_gone` (W18). An answer for a call that already ended is dropped. A tool name that is an eukhe tool or another host's tool is refused at registration, and the refusal changes nothing. The frames are in the schema (W1) and follow its rules (W5 to W7).|
-|W18|A daemon session outlives its host. When a host detaches, the session keeps running. A call pending to that host stays pending for the grace the host stated when it registered. When the same host id attaches again and registers the callback within the grace, it receives each pending call again with its original id, so it can tell a repeat from a new call. After the grace the call ends `host_gone`: a host tool returns a tool error, an approval is a denial, a budget question adds nothing. With several frontends, a tool call goes to the host that registered the tool; an approval or a budget question goes to every attached frontend that answers that kind, and the first answer wins, as the approvals of G5 do today.|
+|W18|A daemon session outlives its host. When a host detaches, the session keeps running. A call pending to that host stays pending for the grace the host stated when it registered. When the same host id attaches again and registers the callback within the grace, it receives each pending call again with its original id, so it can tell a repeat from a new call. After the grace the call ends `host_gone`: a host tool returns a tool error, a budget question adds nothing. With several frontends, a tool call goes to the host that registered the tool; a budget question goes to every attached frontend that answers it, and the first answer wins.|
 |W19|Cancellation means the same in both doors. Every SDK call takes the host's cancellation token. Cancelling it ends that call: the run a prompt started is aborted as the abort command aborts it, a wait returns cancelled, and work the call did not start is not touched. Closing a connection to a daemon cancels nothing (W18). Closing an in-process session ends its work, since nothing outlives the host's process there.|
 |W20|The door changes lifetime and sharing, not meaning. The daemon door adds what a separate process gives: sessions that survive the host's crash and restart, several frontends on one session, and isolation from the host's process. An operation that needs one of these (attach to a session another process hosts, list resident sessions, messages and scheduling between sessions) answers one typed `needs_daemon` error in process, decided before any effect. `supports(feature)` answers in both doors.|
 |W21|Hand-off at rest. A session started in process can be handed to a daemon, and a daemon session can be taken into a process, when it is idle and its storage is durable. The handing side stops the engine and releases the session's lease; the receiving side opens the same storage under its own lease. The host's handle keeps working: the same session id, the event cursor continuing with no gap and no repeat, the host's callbacks registered again on the new side. A running session is refused with `session_busy`, a session in memory with `not_durable`, a daemon session with another frontend attached with `session_shared`; a refusal changes nothing. A run in flight never moves between processes, and no two processes hold one session's storage at the same moment.|
@@ -159,7 +159,7 @@ Gaps against the requirements:
 |terminal UI|Through the daemon, starting a supervisor when none runs.|`crates/eukhe-cli/src/print_runtime.rs:97-106`|
 |events|In process: the engine's `AgentEvent` batches, one per commit, after a start snapshot, with no sequence number. Through the daemon: `SessionEvent`, which the worker projects from the engine's events once; the TUI, the gateway, ACP and the RPC mode all read this vocabulary.|`crates/eukhe-sdk/src/lib.rs:108-166`, `crates/eukhe-types/src/daemon/session_event.rs:1-24`, `crates/eukhe-daemon/src/worker/durable_host/translator.rs`|
 |host tools|None in either door. A session's extensions are a fixed list and its roster is fixed after them; `SessionConfig` has no field for a host's tools. Through the daemon, the MCP servers an ACP client names are the only way in for outside tools.|`crates/eukhe-core/src/durable/registry.rs:28-94`, `crates/eukhe-daemon/src/acp/mcp.rs:365`|
-|approvals|In process: `SessionConfig::shell_approval`, a callback for the gated steps of `bash` (G5); without it every gated step is denied. Through the daemon: the `shell_approval` event and the `answer_shell_approval` command under the `shell_approval` capability; the first answer of an attached client wins, and with no client attached the question goes to the parent session.|`crates/eukhe-core/src/durable/deps.rs:225-236,308-310`, `crates/eukhe-types/src/daemon/outbound.rs:331-350`, `crates/eukhe-types/src/daemon/command.rs:670`|
+|questions about effects|None in either door: every effect runs unasked (spec/README.md I2); the irreversible ones that ran are listed in the `run_report` event at the end of a run (I6).|`crates/eukhe-types/src/effects.rs`|
 |other host requests|`SessionConfig::extra_host_handlers`: kernel host requests the embedding serves (the daemon's message and observe bridges). In process only.|`crates/eukhe-core/src/durable/deps.rs:295-298`|
 |cancellation|In process: the `Context` every engine call takes. Through the daemon: the abort commands (`abort`, `abort_bash`, `cancel_rlm_child` and others), which act on the session.|`crates/eukhe-sdk/src/lib.rs:44-46`, `crates/eukhe-types/src/daemon/command.rs:566,653,751`|
 |budgets|No host budget callback in either door; the budgets pillar is in work and not landed.|none|
@@ -171,8 +171,8 @@ Gaps against W14 to W23:
    doors is a rewrite (W14).
 9. Two event vocabularies. The in-process stream has no cursor, and the
    projection to `SessionEvent` lives in the daemon worker only (W15).
-10. No host tools in either door. Approvals are a callback in process and
-    frames on the wire, and nothing makes them one API (W16, W17).
+10. No host tools in either door (W16, W17). No door asks a host
+    anything about an effect: every effect runs unasked (spec/README.md I2).
 11. No rule for a host that detaches with a call pending: no host id, no
     grace (W18).
 12. In process the `Context` is the only cancel; through the daemon the
@@ -220,7 +220,7 @@ and the frames each emits.
 |W17|`hostcall_one_outcome`|In the host-call model, over any interleaving of answers, progress, cancels, detaches, attaches and grace expiries, each call id ends with exactly one outcome, and an input for an ended call changes nothing.|A late answer applied after a cancel; a call both cancelled and answered.|
 |W17|`hostcall_name_unique`|Registration refuses a tool name held by an eukhe tool or by another host id, and a refused registration leaves the state unchanged.|A host tool that shadows `bash`; two hosts serving one name.|
 |W18|`hostcall_redeliver_same_id`|A host id that registers again within the grace receives each of its pending calls exactly once more, with the original id; after the grace a call ends `host_gone` and is never sent again.|A reattached host that gets a new id for an old call; a call sent after it ended.|
-|W18|`hostgone_safe_default`|`host_gone` ends a tool call with an error result, an approval with a denial, and a budget question with no addition.|An approval that times out into "allow".|
+|W18|`hostgone_safe_default`|`host_gone` ends a tool call with an error result and a budget question with no addition.|A budget question that times out into an addition.|
 |W19|`cancel_scoped_to_call`|Cancelling one call's token aborts the run that call started and nothing else; a detach aborts nothing.|A host crash that aborts the session's run; a cancel that clears another frontend's queued prompt.|
 |W21|`handoff_at_rest_only`|A hand-off succeeds only from an idle session with durable storage and, out of a daemon, no other frontend attached; otherwise it is refused with its reason and the state is unchanged.|Moving a running turn; a refused hand-off that already released the lease.|
 |W21|`handoff_single_owner`|In the lease model, at every step of a hand-off at most one process holds the session's lease, and after a success the receiving side holds it.|The daemon opening before the process released; a release with no reopen that leaves the host a dead handle and no error.|
@@ -276,7 +276,7 @@ The two doors add `bend/hostcall.bend` and `bend/handoff.bend` (plain
 calls):
 
 ```
-type Kind:     Tool{name} | Approval | Budget
+type Kind:     Tool{name} | Budget
 type Outcome:  Answered{value} | Cancelled | HostGone
 type Input:    Register{host, names, grace} | Answer{id, value} | Progress{id}
              | Cancel{id} | Detach{host} | Attach{host} | Tick{now}
@@ -293,9 +293,8 @@ projection to `SessionEvent` that the daemon worker runs today, moved out
 of `eukhe-daemon` so that both doors call one function. The daemon one
 wraps `eukhe-client`. The host's callbacks are one `Host` value. In process
 it becomes an extension of host tools installed before the roster is
-fixed, the `shell_approval` sink, and the budget gate's question; through
-the daemon the SDK registers it and serves the call frames with the same
-functions.
+fixed, and the budget gate's question; through the daemon the SDK
+registers it and serves the call frames with the same functions.
 
 ## 6. Surface
 
@@ -310,7 +309,7 @@ functions.
 - Two doors, SDK (Rust; names provisional):
   ```
   let eukhe = Eukhe::connect(Connect::InProcess { agent_dir }).await?; // or Connect::Daemon { socket: None }
-  let host = Host::new("my-app").tool(my_tool).approve(my_approval).budget(my_budget);
+  let host = Host::new("my-app").tool(my_tool).budget(my_budget);
   let session = eukhe.open(options, host, cx).await?;
   let mut events = session.watch(cx).await?;
   session.prompt("Summarize README.md", cx).await?;
@@ -323,8 +322,7 @@ functions.
   graceMs}`, `host_call_progress`, `host_call_answer`; events `host_call`,
   `host_call_cancel`, `host_call_ended {id, outcome}`; errors
   `needs_daemon`, `host_tool_name_taken`, `session_busy`, `not_durable`,
-  `session_shared`; capability `host_callbacks`. `answer_shell_approval`
-  stays (W5) and becomes one way to answer an approval call.
+  `session_shared`; capability `host_callbacks`.
 
 ## 7. Tests (with the implementation)
 
@@ -339,7 +337,7 @@ refused and its bytes are unchanged. Real `claude-haiku-5-5` run: the
 previous release's client drives a full turn with a subagent on the new
 daemon.
 
-Two doors: one host program with a host tool, an approval and a budget
+Two doors: one host program with a host tool and a budget
 question runs against both doors on the faux model, and the event streams
 and the calls its callbacks received are compared (W23). The host process
 is killed during a host tool call and restarted under the same host id:
@@ -378,13 +376,11 @@ additions.
    takes the session lease. The engine re-exports go (W14, W15, gap 6).
 2. Host callbacks in process. A `Host` value: host tools installed as an
    extension before the roster is fixed, their names checked against
-   eukhe's tools; approvals through the `shell_approval` sink; cancellation
-   through `Context`; the budget question once the budgets pillar has
-   landed (W16, W19).
+   eukhe's tools; cancellation through `Context`; the budget question once
+   the budgets pillar has landed (W16, W19).
 3. The daemon door. The same API over `eukhe-client`: create and attach,
    `SessionEvent` from the wire, cancellation as the abort of the run the
-   call started, approvals over today's `shell_approval` frames;
-   `needs_daemon` and `supports` (W14, W19, W20).
+   call started; `needs_daemon` and `supports` (W14, W19, W20).
 4. The host-callback protocol. Its Bend model and laws first, then the
    frames, the host id, the grace and the daemon's routing of calls to
    frontends (W17, W18). Host tools and budget questions then work through
@@ -426,5 +422,5 @@ it, so it should land before the contract starts (question 3).
 11. May a frontend that did not start a session register host tools on it
     under its own host id (assumed: yes, if the names do not collide)?
 12. Should a budget question go to every frontend that answers budget
-    questions, first answer wins, as approvals do (assumed), or only to the
-    host that set the limit?
+    questions, first answer wins (assumed), or only to the host that set
+    the limit?
