@@ -307,21 +307,3 @@ def r_task.cause(d: Wr.Dec<Hx.Cause>) -> Wr.Dec<Ht.Facts>:
 # a request at the start of s, read with the wire's decoders
 def r_task(s: String) -> Wr.Dec<Ht.Facts>:
   r_task.cause(r_cause(Wr.get_nat(s)))
-
-def r_task_whole.end(e: Bool, f: Ht.Facts) -> Maybe<&2, Ht.Facts>:
-  match e:
-    case True{}:
-      Some{f}
-    case False{}:
-      None{}
-
-def r_task_whole(d: Wr.Dec<Ht.Facts>) -> Maybe<&2, Ht.Facts>:
-  match d:
-    case Wr.Got{f, +s}:
-      r_task_whole.end(Wr.end(s), f)
-    case Wr.Bad{}:
-      None{}
-
-# the request s spells whole, with nothing after it
-def read_task(s: String) -> Maybe<&2, Ht.Facts>:
-  r_task_whole(r_task(s))
