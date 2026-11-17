@@ -215,28 +215,6 @@ def HeadlessTask.headless_task_unfinished_exits_one(f, h):
                   LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
                 case Ht.RUnjudged{}:
                   LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CCompactionFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-        case Hx.CAutonomousFailed{}:
-          match a:
-            case True{}:
-              match r:
-                case Ht.RUnasked{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnasked{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RDone{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RDone{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RLeft{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RLeft{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RUnjudged{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, True{}, Ht.RUnjudged{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-            case False{}:
-              match r:
-                case Ht.RUnasked{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RUnasked{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RDone{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RDone{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RLeft{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RLeft{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
-                case Ht.RUnjudged{}:
-                  LLogicLogic.absurd({Ht.decide(Ht.Facts{Hx.CAutonomousFailed{}, False{}, Ht.RUnjudged{}}) == Ht.Verdict{1n, Ht.Incomplete{}} : Ht.Verdict}, h)
         case Hx.CBudgetLimited{}:
           match a:
             case True{}:

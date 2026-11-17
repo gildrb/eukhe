@@ -1,7 +1,7 @@
 # the task request has no count: its largest tags (the cause, a run
 # failure's reason, the reading), the acted fact, and a 15-digit tag
 # refused
-call 11,T3,
+call 10,T3,
 call 3,10,T3,
 call 0,T0,
 call 0,F3,

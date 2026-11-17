@@ -58,8 +58,6 @@ def hx.put_cause(c: Hx.Cause, +rest: String) -> {FHx.put_cause(c, rest) == SpW.w
       {==}
     case Hx.CCompactionFailed{}:
       {==}
-    case Hx.CAutonomousFailed{}:
-      {==}
     case Hx.CBudgetLimited{}:
       {==}
     case Hx.CBudgetUnanswered{}:

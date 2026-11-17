@@ -12,8 +12,7 @@
 # withdrawn input are no failure of the run); the terminal transcript
 # entry is a provider error, a budget refusal, an aborted reply, an
 # unfinished reply (a tool use, a pending or deferred turn) or a failed
-# slash command; a compaction failed; an autonomous turn failed. With
-# none, the run answered.
+# slash command; a compaction failed. With none, the run answered.
 #
 # Budget-limited: when the agent's final answer from the budget's reserve
 # was delivered (budget_answered), the facts a used-up budget leaves (the
@@ -74,7 +73,7 @@ type Primary is Data:
 # budget phase is wrap-up or exhausted and its last reply is its final
 # answer from the reserve, delivered
 type Facts is Data:
-  Facts{command_failed: Bool, wait: Wait, run: Run, primary: Primary, compaction_failed: Bool, autonomous_failed: Bool, budget_answered: Bool}
+  Facts{command_failed: Bool, wait: Wait, run: Run, primary: Primary, compaction_failed: Bool, budget_answered: Bool}
 
 # why the run exits as it does
 type Cause is Data:
@@ -87,7 +86,6 @@ type Cause is Data:
   CUnfinished{}
   CSlashFailed{}
   CCompactionFailed{}
-  CAutonomousFailed{}
   CBudgetLimited{}
   CBudgetUnanswered{}
 
@@ -120,8 +118,6 @@ def code(c: Cause) -> Nat:
       1n
     case CCompactionFailed{}:
       1n
-    case CAutonomousFailed{}:
-      1n
     case CBudgetLimited{}:
       0n
     case CBudgetUnanswered{}:
@@ -140,31 +136,26 @@ def excuse(budget_answered: Bool, next: Cause) -> Cause:
     case False{}:
       CBudgetUnanswered{}
 
-# after the transcript: a failed compaction, then a failed autonomous
-# turn; with neither, budget-limited when the final answer was delivered,
-# else answered
-def by_flags(compaction_failed: Bool, autonomous_failed: Bool, budget_answered: Bool) -> Cause:
+# after the transcript: a failed compaction; without one, budget-limited
+# when the final answer was delivered, else answered
+def by_flags(compaction_failed: Bool, budget_answered: Bool) -> Cause:
   match compaction_failed:
     case True{}:
       CCompactionFailed{}
     case False{}:
-      match autonomous_failed:
+      match budget_answered:
         case True{}:
-          CAutonomousFailed{}
+          CBudgetLimited{}
         case False{}:
-          match budget_answered:
-            case True{}:
-              CBudgetLimited{}
-            case False{}:
-              CAnswered{}
+          CAnswered{}
 
 # after the run: the terminal transcript entry
-def by_primary(p: Primary, compaction_failed: Bool, autonomous_failed: Bool, +budget_answered: Bool) -> Cause:
+def by_primary(p: Primary, compaction_failed: Bool, +budget_answered: Bool) -> Cause:
   match p:
     case PNothing{}:
-      by_flags(compaction_failed, autonomous_failed, budget_answered)
+      by_flags(compaction_failed, budget_answered)
     case PAnswer{}:
-      by_flags(compaction_failed, autonomous_failed, budget_answered)
+      by_flags(compaction_failed, budget_answered)
     case PUnfinished{}:
       CUnfinished{}
     case PProviderError{}:
@@ -172,14 +163,14 @@ def by_primary(p: Primary, compaction_failed: Bool, autonomous_failed: Bool, +bu
     case PAborted{}:
       CAborted{}
     case PSlashOk{}:
-      by_flags(compaction_failed, autonomous_failed, budget_answered)
+      by_flags(compaction_failed, budget_answered)
     case PSlashFailed{}:
       CSlashFailed{}
     case PBudgetRefused{}:
-      excuse(budget_answered, by_flags(compaction_failed, autonomous_failed, budget_answered))
+      excuse(budget_answered, by_flags(compaction_failed, budget_answered))
 
 # an unanswered run: its reason, unless the reason is no failure of the run
-def by_reason(r: Reason, p: Primary, compaction_failed: Bool, autonomous_failed: Bool, +budget_answered: Bool) -> Cause:
+def by_reason(r: Reason, p: Primary, compaction_failed: Bool, +budget_answered: Bool) -> Cause:
   match r:
     case ModelError{}:
       CRunFailed{ModelError{}}
@@ -194,45 +185,45 @@ def by_reason(r: Reason, p: Primary, compaction_failed: Bool, autonomous_failed:
     case Aborted{}:
       CRunFailed{Aborted{}}
     case Reset{}:
-      by_primary(p, compaction_failed, autonomous_failed, budget_answered)
+      by_primary(p, compaction_failed, budget_answered)
     case Stale{}:
-      by_primary(p, compaction_failed, autonomous_failed, budget_answered)
+      by_primary(p, compaction_failed, budget_answered)
     case Withdrawn{}:
-      by_primary(p, compaction_failed, autonomous_failed, budget_answered)
+      by_primary(p, compaction_failed, budget_answered)
     case Other{}:
       CRunFailed{Other{}}
     case BudgetRefused{}:
-      excuse(budget_answered, by_primary(p, compaction_failed, autonomous_failed, budget_answered))
+      excuse(budget_answered, by_primary(p, compaction_failed, budget_answered))
 
 # after the wait: the last run's settlement
-def by_run(run: Run, p: Primary, compaction_failed: Bool, autonomous_failed: Bool, budget_answered: Bool) -> Cause:
+def by_run(run: Run, p: Primary, compaction_failed: Bool, budget_answered: Bool) -> Cause:
   match run:
     case NoRun{}:
-      by_primary(p, compaction_failed, autonomous_failed, budget_answered)
+      by_primary(p, compaction_failed, budget_answered)
     case Answered{}:
-      by_primary(p, compaction_failed, autonomous_failed, budget_answered)
+      by_primary(p, compaction_failed, budget_answered)
     case Unanswered{r}:
-      by_reason(r, p, compaction_failed, autonomous_failed, budget_answered)
+      by_reason(r, p, compaction_failed, budget_answered)
 
 # after the command: how the wait ended
-def by_wait(w: Wait, run: Run, p: Primary, compaction_failed: Bool, autonomous_failed: Bool, +budget_answered: Bool) -> Cause:
+def by_wait(w: Wait, run: Run, p: Primary, compaction_failed: Bool, +budget_answered: Bool) -> Cause:
   match w:
     case Quiet{}:
-      by_run(run, p, compaction_failed, autonomous_failed, budget_answered)
+      by_run(run, p, compaction_failed, budget_answered)
     case GaveUp{}:
       CGaveUp{}
     case BudgetDeadline{}:
-      excuse(budget_answered, by_run(run, p, compaction_failed, autonomous_failed, budget_answered))
+      excuse(budget_answered, by_run(run, p, compaction_failed, budget_answered))
 
 # the cause of the exit
 def cause(f: Facts) -> Cause:
   match f:
-    case Facts{command_failed, w, run, p, compaction_failed, autonomous_failed, budget_answered}:
+    case Facts{command_failed, w, run, p, compaction_failed, budget_answered}:
       match command_failed:
         case True{}:
           CCommandFailed{}
         case False{}:
-          by_wait(w, run, p, compaction_failed, autonomous_failed, budget_answered)
+          by_wait(w, run, p, compaction_failed, budget_answered)
 
 # the exit of a finished headless run
 def decide(f: Facts) -> Verdict:

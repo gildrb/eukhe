@@ -57,8 +57,6 @@ def exit_answered(c: Hx.Cause) -> Bool:
       False{}
     case Hx.CCompactionFailed{}:
       False{}
-    case Hx.CAutonomousFailed{}:
-      False{}
     case Hx.CBudgetLimited{}:
       False{}
     case Hx.CBudgetUnanswered{}:
@@ -260,12 +258,10 @@ def r_cause(d: Wr.Dec<Nat>) -> Wr.Dec<Hx.Cause>:
         case 8n:
           Wr.Got{Hx.CCompactionFailed{}, s}
         case 9n:
-          Wr.Got{Hx.CAutonomousFailed{}, s}
-        case 10n:
           Wr.Got{Hx.CBudgetLimited{}, s}
-        case 11n:
+        case 10n:
           Wr.Got{Hx.CBudgetUnanswered{}, s}
-        case 12n+u:
+        case 11n+u:
           Wr.Bad{}
     case Wr.Bad{}:
       Wr.Bad{}

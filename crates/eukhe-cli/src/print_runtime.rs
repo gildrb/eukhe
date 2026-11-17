@@ -16,9 +16,7 @@ use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, read_final_answer,
     seed_acceptance, session_judge, AnswerReading, Judge,
 };
-use eukhe_core::durable::goals::{
-    autonomous_state, budget_report, configure_autonomous, seed_initial_goal,
-};
+use eukhe_core::durable::goals::{configure_autonomous, seed_initial_goal};
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
     classify_session_command, execute_session_command, EukheSession, SessionCommandError,
@@ -36,7 +34,7 @@ use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{ImageContent, UserContent, UserContentBlock};
 use futures::FutureExt;
 
-use crate::headless_autonomous::{autonomous_exit_stderr, autonomous_runtime_config};
+use crate::headless_autonomous::autonomous_runtime_config;
 use crate::headless_session::{
     open_headless_session, sessions_dir, HeadlessSession, HeadlessSessionError, HeadlessTarget,
     Selection,
@@ -543,9 +541,9 @@ async fn run_prompts(
 }
 
 /// The exit of a run whose prompt loop ended as `ended`: gather the facts
-/// (the last run, the terminal result, the compaction outcomes, the
-/// autonomous state), print the result and the failures, the budget line,
-/// and ask the compiled core for the code and its cause (`headless_exit`).
+/// (the last run, the terminal result, the compaction outcomes), print the
+/// result and the failures, the budget line, and ask the compiled core for
+/// the code and its cause (`headless_exit`).
 async fn run_exit(
     opened: &HeadlessSession,
     conversation: &Conversation,
@@ -555,7 +553,6 @@ async fn run_exit(
     cx: &Context,
 ) -> Result<Exit, HeadlessModeError> {
     let session = &opened.session;
-    let harness = session.harness();
     let json_mode = options.app_mode == AppMode::Json;
     let mut facts = ExitFacts {
         command_failed: false,
@@ -563,7 +560,6 @@ async fn run_exit(
         run: RunEnd::NoRun,
         primary: Primary::Nothing,
         compaction_failed: false,
-        autonomous_failed: false,
         budget_answered: false,
     };
     match ended {
@@ -637,14 +633,6 @@ async fn run_exit(
                 eprintln!("{warning}");
             }
         }
-        // The TS print-mode autonomous contract applies to both output
-        // modes; the run's limits are its own and the session budget's.
-        let autonomous = autonomous_state(harness, conversation.id(), cx).await?;
-        let report = budget_report(&session.budget()).await?;
-        if let Some(stderr) = autonomous_exit_stderr(&autonomous.status(report)) {
-            eprintln!("{stderr}");
-            facts.autonomous_failed = true;
-        }
     }
     watch.finish().await;
     // The session's budget as the run leaves it: one stderr line in both
@@ -678,7 +666,6 @@ async fn run_exit(
         | ExitCause::Unfinished
         | ExitCause::SlashFailed
         | ExitCause::CompactionFailed
-        | ExitCause::AutonomousFailed
         | ExitCause::BudgetUnanswered => None,
     };
     let refused = facts.primary == Primary::BudgetRefused
@@ -742,7 +729,6 @@ async fn run_exit(
         | ExitCause::Aborted
         | ExitCause::SlashFailed
         | ExitCause::CompactionFailed
-        | ExitCause::AutonomousFailed
         | ExitCause::BudgetLimited => {}
     }
     Ok(exit)

@@ -82,9 +82,7 @@ def ht.cause(d: Wr.Dec<Nat>) -> {FHt.get_cause(d) == SpT.r_cause(d) : Wr.Dec<Hx.
           {==}
         case 10n:
           {==}
-        case 11n:
-          {==}
-        case 12n+u:
+        case 11n+u:
           {==}
     case Wr.Bad{}:
       {==}
@@ -181,8 +179,6 @@ def ht.cause_rt(c: Hx.Cause, +rest: String) -> {SpT.r_cause(Wr.get_nat(SpW.w_cau
     case Hx.CSlashFailed{}:
       {==}
     case Hx.CCompactionFailed{}:
-      {==}
-    case Hx.CAutonomousFailed{}:
       {==}
     case Hx.CBudgetLimited{}:
       {==}

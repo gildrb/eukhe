@@ -7,5 +7,5 @@ import ../../bend/headless_exit.bend as Hx
 import ../../laws/headless_exit.bend as HeadlessExit
 import ./base.bend as LAHeadlessExit
 
-def HeadlessExit.headless_exit_compaction_failed_fails(cf, w, r, p, a, ba):
-  LAHeadlessExit.hx.facts_fail(cf, w, r, p, True{}, a, ba, LAHeadlessExit.hx.run_fails(r, p, True{}, a, ba, LAHeadlessExit.hx.comp_fails(p, a, ba)))
+def HeadlessExit.headless_exit_compaction_failed_fails(cf, w, r, p, ba):
+  LAHeadlessExit.hx.facts_fail(cf, w, r, p, True{}, ba, LAHeadlessExit.hx.run_fails(r, p, True{}, ba, LAHeadlessExit.hx.comp_fails(p, ba)))
