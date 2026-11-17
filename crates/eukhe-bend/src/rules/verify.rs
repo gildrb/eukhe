@@ -116,7 +116,9 @@ impl Slot {
     }
 }
 
-fn write_slots(request: &mut Writer, slots: &[Slot]) {
+/// The slots as the verify entry spells them; the strength entry reads
+/// them the same way.
+pub(crate) fn write_slots(request: &mut Writer, slots: &[Slot]) {
     request.count(slots.len());
     for slot in slots {
         slot.write(request);
@@ -133,6 +135,17 @@ pub enum Actor {
     Worker,
     /// The harness's verifier.
     Verifier,
+}
+
+impl Actor {
+    /// The tag of the actor on the wire.
+    pub(crate) fn tag(self) -> u32 {
+        match self {
+            Actor::Owner => 0,
+            Actor::Worker => 1,
+            Actor::Verifier => 2,
+        }
+    }
 }
 
 /// An act on an acceptance (`V.Op`).
@@ -293,13 +306,8 @@ pub fn grade_judge(answer: Answer) -> Result<Verdict, Error> {
 ///
 /// A compiled-core failure or a malformed reply (an inconsistent build).
 pub fn act(who: Actor, op: Op, acceptance: &Acceptance) -> Result<(bool, Acceptance), Error> {
-    let who = match who {
-        Actor::Owner => 0,
-        Actor::Worker => 1,
-        Actor::Verifier => 2,
-    };
     let mut request = Writer::new();
-    request.tag(0).tag(who);
+    request.tag(0).tag(who.tag());
     match op {
         Op::Assign { checks } => request.tag(0).nat(checks.min(NAT_MAX)),
         Op::Claim => request.tag(1),

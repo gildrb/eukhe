@@ -113,6 +113,7 @@ import ./ffi_slash_suggest.bend as ffi_slash_suggest
 import ./ffi_staging.bend as ffi_staging
 import ./ffi_stop.bend as ffi_stop
 import ./ffi_stream_failure.bend as ffi_stream_failure
+import ./ffi_strength.bend as ffi_strength
 import ./ffi_submission.bend as ffi_submission
 import ./ffi_supervise.bend as ffi_supervise
 import ./ffi_task_life.bend as ffi_task_life
@@ -385,6 +386,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work_list.ffi(input)
     case 464:
       ffi_headless_task.ffi(input)
+    case 465:
+      ffi_strength.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case _:
