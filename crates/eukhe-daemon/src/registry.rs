@@ -859,7 +859,11 @@ mod tests {
         assert_eq!(record.epoch, 1);
     }
 
-    #[tokio::test]
+    /// On a paused clock: tokio time advances only while every task is
+    /// parked, so the second claim's 10 ms and the first holder's 50 ms
+    /// fire in order — a descheduled test thread can no longer find both
+    /// timers expired and let the holder release before the second claim.
+    #[tokio::test(start_paused = true)]
     async fn adoption_guard_serializes_same_worker() {
         let registry = Arc::new(SessionRegistry::new());
         let first = {
@@ -870,7 +874,7 @@ mod tests {
             })
         };
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let started = std::time::Instant::now();
+        let started = tokio::time::Instant::now();
         let _guard = registry.adoption_guard("w1").await;
         assert!(
             started.elapsed() >= std::time::Duration::from_millis(30),
