@@ -869,6 +869,25 @@ fn spawn_killed_at(point: &str) -> usize {
     );
     let rows = rlm_children_rows(&mut client, "rows", &parent_id);
     assert!(rows.len() <= 1, "at most one tracked child: {rows:?}");
+    // The spawn settles by its own record (the child's identity, which the
+    // host dedupes): never treated as not run, and nothing waits on a
+    // person (spec O13).
+    client.send_command(
+        "ledger",
+        &json!({ "type": "get_unknown_effects", "activeSessionId": parent_id }),
+    );
+    let ledger = client.read_response("ledger");
+    assert_eq!(ledger["success"], true, "get_unknown_effects: {ledger}");
+    let spawns: Vec<&Value> = ledger["data"]["effects"]
+        .as_array()
+        .map(|effects| {
+            effects
+                .iter()
+                .filter(|effect| effect["kind"] == "spawn")
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(spawns.is_empty(), "a spawn left unknown: {ledger}");
     children.len()
 }
 

@@ -1430,8 +1430,8 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native: the session's ledger of effects whose outcome a
-    /// restart could not tell, open and resolved (reply:
+    /// Rust-native: the session's ledger of steps a restart could not tell
+    /// the outcome of and treated as not run, corrected or not (reply:
     /// [`crate::effects::UnknownEffectsReply`]).
     GetUnknownEffects {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1440,8 +1440,9 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native: settle the open unknown effect `effect_id` after
-    /// looking at the world (reply: [`crate::effects::ResolvedEffectReply`]).
+    /// Rust-native: an optional correction of the uncorrected entry
+    /// `effect_id` after looking at the world; nothing waits for one
+    /// (reply: [`crate::effects::ResolvedEffectReply`]).
     ResolveUnknownEffect {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

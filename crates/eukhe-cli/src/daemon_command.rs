@@ -869,7 +869,7 @@ fn only_live_session(client: &mut Daemon) -> Result<String> {
 enum EffectsRequest<'a> {
     /// `effects [<agent>]`: the ledger.
     List { selector: Option<&'a str> },
-    /// `effects resolve <id> <ran|not-run> [<agent>]`: settle one.
+    /// `effects resolve <id> <ran|not-run> [<agent>]`: correct one.
     Resolve {
         effect_id: &'a str,
         resolution: EffectResolution,

@@ -1,10 +1,11 @@
 //! The exactly-once effects surface: `get_unknown_effects` reads the main
-//! conversation's ledger of effects whose outcome a restart could not tell
-//! (the `eukhe.effects` document, `eukhe_durable::harness::effects`), and
-//! `resolve_unknown_effect` settles one open effect in a session commit,
-//! after a client looked at the world. Attached clients follow the ledger
-//! through `unknown_effects_update` (the event bridge's effects watch) and
-//! the attach snapshot's `unknownEffects`.
+//! conversation's ledger of steps a restart could not tell the outcome of
+//! and treated as not run (the `eukhe.effects` document,
+//! `eukhe_durable::harness::effects`), and `resolve_unknown_effect`
+//! records a client's optional correction of one in a session commit.
+//! Nothing waits for one. Attached clients follow the ledger through
+//! `unknown_effects_update` (the event bridge's effects watch) and the
+//! attach snapshot's `unknownEffects`.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_durable::harness::effects::{read_unknown_effects, resolve_unknown};
@@ -16,7 +17,7 @@ use super::{response_failure, response_success, Worker};
 use crate::protocol::DaemonResponse;
 
 impl Worker {
-    /// `get_unknown_effects`: the ledger, oldest first, open and resolved.
+    /// `get_unknown_effects`: the ledger, oldest first, corrected or not.
     #[tracing::instrument(skip(self))]
     pub(crate) async fn handle_get_unknown_effects(&self) -> DaemonResponse {
         const COMMAND: &str = "get_unknown_effects";
