@@ -38,7 +38,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::{Arc, Weak};
 
-use eukhe_bend::rules::strength::{self, Step as StrengthStep, Strength};
+use eukhe_bend::rules::attack;
+use eukhe_bend::rules::strength::{self, Label as StrengthLabel, Step as StrengthStep, Strength};
 use eukhe_bend::rules::verify::{self, Action, Actor, AnswerFacts, Op, Verdict};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::define::hook;
@@ -49,8 +50,8 @@ use eukhe_durable::harness::{Conversation, GENERATION_TASK};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{EntryDraft, TaskId};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, CheckResult, CheckSpec, CheckVerdict,
-    StrengthBar, StrengthMark,
+    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, AttackOutcome, CheckResult, CheckSpec,
+    CheckVerdict, StrengthBar, StrengthMark,
 };
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::UserContent;
@@ -58,9 +59,10 @@ use futures::FutureExt;
 use serde_json::json;
 
 use super::docs::{mark_of, strength_of, AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
-use super::evidence::{Gatherer, DEFAULT_CHECK_TIMEOUT_MS};
+use super::evidence::{Gatherer, DEFAULT_CHECK_TIMEOUT_MS, MAX_USER_MESSAGE_CHARS};
 use super::ops::{core_error, doc_parts, doc_state, label_of};
-use super::strength::{Breaker, Pass, Probe};
+use super::strength::{AttackProbe, Attacker, Breaker, Gauged, Pass, Probe, MAX_ATTACKS};
+use super::workspace::user_messages;
 use super::ACCEPTANCE_CUSTOM_TYPE;
 use crate::autonomous::now_millis;
 use crate::durable::children::has_unsettled_children;
@@ -81,6 +83,10 @@ pub(crate) struct Verifier {
     /// Measures a gauged check's strength: breaks the changed code in a
     /// scratch copy and runs the check on each break.
     pub(crate) breaker: Arc<dyn Breaker>,
+    /// Attacks the checks with wrong code once every check passed and
+    /// every gauged check was measured (blind: it never sees the
+    /// worker's transcript).
+    pub(crate) attacker: Arc<dyn Attacker>,
     /// The session's deps (held weakly: the deps hold the Harness that
     /// holds this hook), for the running work that holds a verdict: jobs
     /// whose end wakes the session. `None` for a Harness without them.
@@ -141,6 +147,12 @@ enum Step {
         revision: u64,
         index: usize,
         probe: Box<Probe>,
+    },
+    /// Every check passed and every gauged one was measured: attack the
+    /// checks, then record the attack for `revision`.
+    Attack {
+        revision: u64,
+        probe: Box<AttackProbe>,
     },
 }
 
@@ -347,8 +359,37 @@ impl Verifier {
                                             probe: Box::new(probe),
                                         });
                                     }
-                                    StrengthStep::End(label) => label_of(label),
+                                    StrengthStep::End(label) => label,
                                 };
+                                // Then blind attacks, while the checks
+                                // passed and none is weak or unshown
+                                // (an attack never lifts those): at most
+                                // MAX_ATTACKS on this state.
+                                let outcomes = doc.outcomes(now);
+                                let passing = matches!(
+                                    label,
+                                    StrengthLabel::Verified
+                                        | StrengthLabel::Passed
+                                        | StrengthLabel::Uncertified
+                                );
+                                if passing && outcomes.len() < MAX_ATTACKS && clear(&doc, now)? {
+                                    let probe = attack_probe_of(
+                                        &doc,
+                                        &cwd,
+                                        now,
+                                        conversation_id,
+                                        outcomes.len() + 1,
+                                    );
+                                    write_doc(&draft, &doc)?;
+                                    return Ok(Step::Attack {
+                                        revision: doc.revision,
+                                        probe: Box::new(probe),
+                                    });
+                                }
+                                let label = label_of(
+                                    attack::label(ended, now, &doc.gauges(), &outcomes)
+                                        .map_err(core_error)?,
+                                );
                                 doc.adopt(&next, None)?;
                                 doc.last_end = Some(AcceptanceEnd {
                                     label,
@@ -388,6 +429,11 @@ impl Verifier {
                     runs += 1;
                     self.measure(conversation, revision, index, *probe, cx)
                         .await?;
+                    continue;
+                }
+                Step::Attack { revision, probe } => {
+                    runs += 1;
+                    self.attack(conversation, revision, *probe, cx).await?;
                     continue;
                 }
                 Step::Run {
@@ -443,6 +489,34 @@ impl Verifier {
                 )
                 .await?;
         }
+    }
+
+    /// Make one blind attack on the checks of `revision` with `probe` (the
+    /// user's messages read here) and record it; a change of the checks
+    /// meanwhile (another revision) drops it.
+    async fn attack(
+        &self,
+        conversation: &Conversation,
+        revision: u64,
+        mut probe: AttackProbe,
+        cx: &Context,
+    ) -> SessionResult<()> {
+        probe.messages = user_messages(conversation, MAX_USER_MESSAGE_CHARS, cx).await?;
+        let mark = self.attacker.attack(probe, cx).await?;
+        let conversation_id = conversation.id();
+        conversation
+            .commit(
+                move |tx| async move {
+                    let (draft, mut doc) = open_doc(&tx, &ACCEPTANCE_DOC, conversation_id).await?;
+                    if doc.revision != revision {
+                        return Ok(());
+                    }
+                    doc.add_attack(mark);
+                    write_doc(&draft, &doc)
+                },
+                cx,
+            )
+            .await
     }
 
     /// Measure the strength of check `index` of `revision` with `probe` and
@@ -584,6 +658,77 @@ fn probe_of(check: &AcceptanceCheck, doc: &AcceptanceDoc, cwd: &Path, at: u64) -
     })
 }
 
+/// No check is weak or unshown on the state `now` (an attack never
+/// certifies past one, so none is made then).
+fn clear(doc: &AcceptanceDoc, now: u64) -> SessionResult<bool> {
+    for check in &doc.checks {
+        if matches!(strength_of(check, now)?, Strength::Weak | Strength::Unshown) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The attack number `number` on `doc`'s checks on the state `at` in its
+/// workspace (`cwd` when the doc names none); the user's messages are read
+/// by the verifier before it attacks.
+fn attack_probe_of(
+    doc: &AcceptanceDoc,
+    cwd: &Path,
+    at: u64,
+    conversation_id: eukhe_durable::types::ConversationId,
+    number: usize,
+) -> AttackProbe {
+    // Every command and until check, waived ones too: the wrong code must
+    // pass them all, as the worker's code did.
+    let gauged = doc
+        .checks
+        .iter()
+        .filter_map(|check| probe_of(check, doc, cwd, at))
+        .map(|probe| Gauged {
+            command: probe.command,
+            pass: probe.pass,
+            timeout_ms: probe.timeout_ms,
+        })
+        .collect();
+    AttackProbe {
+        conversation_id,
+        messages: Vec::new(),
+        checks: doc
+            .checks
+            .iter()
+            .enumerate()
+            .map(|(index, check)| {
+                let protected: Vec<&str> = check
+                    .protected
+                    .iter()
+                    .map(|file| file.path.as_str())
+                    .collect();
+                if protected.is_empty() {
+                    format!("{}. {}", index + 1, describe(&check.spec))
+                } else {
+                    format!(
+                        "{}. {} (its files: {})",
+                        index + 1,
+                        describe(&check.spec),
+                        protected.join(", ")
+                    )
+                }
+            })
+            .collect(),
+        gauged,
+        protected: doc
+            .checks
+            .iter()
+            .flat_map(|check| check.protected.iter().map(|file| file.path.clone()))
+            .collect(),
+        workspace: doc.workspace.clone().unwrap_or_else(|| cwd.to_path_buf()),
+        baseline: doc.baseline.clone(),
+        at,
+        number,
+    }
+}
+
 /// The checks that are not confirmed, each with how it ended.
 fn outcome_line(doc: &AcceptanceDoc) -> String {
     let open: Vec<String> = doc
@@ -663,8 +808,8 @@ pub(crate) fn strength_text(check: &AcceptanceCheck, now: u64) -> SessionResult<
 }
 
 /// How a claim whose checks all passed stands on the state `now`: the
-/// breaks its strong checks caught when done is certified, else what keeps
-/// it from being certified.
+/// breaks its strong checks caught and the blind attacks that ran clean
+/// when done is certified, else what keeps it from being certified.
 fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> {
     let (mut caught, mut ran, mut shown) = (0_u64, 0_u64, false);
     let mut blocks = Vec::new();
@@ -685,12 +830,39 @@ fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> 
             Strength::Free => {}
         }
     }
+    let attacks: Vec<_> = doc
+        .attacks
+        .iter()
+        .filter(|attack| attack.at == now)
+        .collect();
+    blocks.extend(
+        attacks
+            .iter()
+            .enumerate()
+            .filter(|(_, attack)| attack.outcome == AttackOutcome::Survived)
+            .map(|(index, attack)| format!("blind attack {} survived: {}", index + 1, attack.note)),
+    );
+    let clean = attacks
+        .iter()
+        .filter(|attack| attack.outcome == AttackOutcome::Clean)
+        .count();
+    let cleaned = match clean {
+        0 => String::new(),
+        1 => ", 1 blind attack ran clean".to_owned(),
+        n => format!(", {n} blind attacks ran clean"),
+    };
     Ok(match (blocks.is_empty(), shown) {
-        (true, true) => Certification::Shown(format!("caught {caught} of {ran} breaks")),
-        (true, false) => Certification::Blocked(
-            "no check was shown to catch broken code (a judge or a waived check certifies nothing)"
-                .to_owned(),
-        ),
+        (true, true) => Certification::Shown(format!("caught {caught} of {ran} breaks{cleaned}")),
+        (true, false) if clean >= MAX_ATTACKS => {
+            Certification::Shown(format!("{clean} blind attacks ran clean"))
+        }
+        (true, false) => Certification::Blocked(format!(
+            "no check was shown to catch broken code (a judge or a waived check certifies nothing without {MAX_ATTACKS} blind attacks that ran clean{})",
+            match clean {
+                0 => String::new(),
+                n => format!("; {n} did"),
+            }
+        )),
         (false, _) => Certification::Blocked(blocks.join("; ")),
     })
 }

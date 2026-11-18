@@ -3,7 +3,7 @@
 //! the daemon's prompt path).
 //!
 //! ```text
-//! /accept                    the checks, their verdicts, their strength, the label
+//! /accept                    the checks, their verdicts, their strength, the blind attacks, the label
 //! /accept cmd [--expect <code>] [--timeout <seconds>] [--protect <path>]... [--strength <percent>] <command>
 //! /accept judge [--model <provider/id>] <condition>
 //! /accept until [--timeout <seconds>] [--strength <percent>] <command>
@@ -22,7 +22,7 @@
 use std::path::Path;
 
 use eukhe_durable::session::SessionResult;
-use eukhe_types::acceptance::{AcceptanceState, CheckSpec};
+use eukhe_types::acceptance::{AcceptanceState, AttackOutcome, CheckSpec};
 
 use super::verifier::{describe, strength_text};
 
@@ -261,7 +261,8 @@ pub(crate) fn parse_accept_command(args: &str) -> Option<AcceptCommand> {
 }
 
 /// The acceptance as text: the label, then each check with its last
-/// verdict and, for a check with code to break, its strength.
+/// verdict and, for a check with code to break, its strength, then each
+/// blind attack on the checks.
 ///
 /// # Errors
 ///
@@ -303,6 +304,19 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
             index + 1,
             describe(&check.spec)
         ));
+    }
+    for (index, attack) in state.attacks.iter().enumerate() {
+        let outcome = match attack.outcome {
+            AttackOutcome::Survived => "survived",
+            AttackOutcome::Clean => "clean",
+            AttackOutcome::Unrun => "did not run",
+        };
+        let line = if attack.at == state.state {
+            format!("{outcome}: {}", attack.note)
+        } else {
+            format!("stale ({outcome} on an earlier state: {})", attack.note)
+        };
+        lines.push(format!("Blind attack {}: {line}", index + 1));
     }
     Ok(lines.join("\n"))
 }
@@ -384,6 +398,41 @@ mod tests {
                 Some(AcceptCommand::Intent(true)),
                 Some(AcceptCommand::Intent(false)),
             ]
+        );
+    }
+
+    #[test]
+    fn the_status_lists_the_blind_attacks() {
+        let attack = |outcome, at, note: &str| eukhe_types::acceptance::AttackMark {
+            outcome,
+            at,
+            path: "lib.py".to_owned(),
+            witness: "python3 -c 'import lib; print(lib.f(5))'".to_owned(),
+            required: "120".to_owned(),
+            got: "0".to_owned(),
+            note: note.to_owned(),
+            attacked_at: 0,
+        };
+        let state = AcceptanceState {
+            label: eukhe_types::acceptance::AcceptanceLabel::ChecksPassedNotCertified,
+            state: 7,
+            revision: 1,
+            checks: vec![eukhe_types::acceptance::AcceptanceCheck {
+                spec: CheckSpec::intent(),
+                protected: Vec::new(),
+                result: None,
+                strength: None,
+            }],
+            attacks: vec![
+                attack(AttackOutcome::Clean, 7, "check `pytest` caught it (exited with code 1)"),
+                attack(AttackOutcome::Survived, 7, "the checks passed wrong code in lib.py: `python3 -c 'import lib; print(lib.f(5))'` gives `0`, the task requires `120`"),
+                attack(AttackOutcome::Unrun, 3, "the attacker gave no attack: no scripted reply"),
+            ],
+            ..AcceptanceState::default()
+        };
+        assert_eq!(
+            format_acceptance_status(&state).expect("status"),
+            "Acceptance: checks passed, not certified (revision 1, returns 0 of 3).\n1. intent: what the user's messages ask for now holds on the final state: not judged\nBlind attack 1: clean: check `pytest` caught it (exited with code 1)\nBlind attack 2: survived: the checks passed wrong code in lib.py: `python3 -c 'import lib; print(lib.f(5))'` gives `0`, the task requires `120`\nBlind attack 3: stale (did not run on an earlier state: the attacker gave no attack: no scripted reply)"
         );
     }
 

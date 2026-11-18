@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
-use eukhe_bend::rules::strength;
 use eukhe_bend::rules::verify::{self, Actor, Op};
+use eukhe_bend::rules::{attack, strength};
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -64,11 +64,13 @@ pub(crate) async fn doc_parts(
 
 /// `doc` as every surface reads it on the state `now`: its label is the
 /// compiled core's (verify's, not certified while a check was not shown
-/// to catch broken code on `now`).
+/// to catch broken code on `now` or a blind attack on `now` survived).
 pub(crate) fn served(doc: &AcceptanceDoc, now: u64) -> SessionResult<AcceptanceState> {
     let checked = verify::label(now, &doc.slots()).map_err(core_error)?;
+    let label =
+        attack::label(checked, now, &doc.gauges(), &doc.outcomes(now)).map_err(core_error)?;
     Ok(AcceptanceState {
-        label: label_of(strength::label(checked, now, &doc.gauges()).map_err(core_error)?),
+        label: label_of(label),
         state: now,
         revision: doc.revision,
         checks: doc.checks.clone(),
@@ -76,6 +78,7 @@ pub(crate) fn served(doc: &AcceptanceDoc, now: u64) -> SessionResult<AcceptanceS
         tries: doc.tries,
         max_returns: doc.max_returns,
         last_end: doc.last_end.clone(),
+        attacks: doc.attacks.clone(),
     })
 }
 
@@ -151,10 +154,11 @@ pub(crate) async fn held_files(
 }
 
 /// The exit code of a headless run of `conversation_id` whose own code is
-/// `base`: the compiled core's (`strength::exit`): `base` when every
+/// `base`: the compiled core's (`attack::exit`): `base` when every
 /// acceptance check is confirmed on the final state and done is certified
 /// (also with no checks); 3 for a run of code 0 whose checks passed
-/// without being shown to catch broken code; else nonzero.
+/// without being shown to catch broken code, or with a blind attack that
+/// survived; else nonzero.
 ///
 /// # Errors
 ///
@@ -170,7 +174,7 @@ pub async fn acceptance_exit_code(
         .unwrap_or_default();
     let conversation = conversation_of(harness, conversation_id, cx).await?;
     let now = doc_state(&conversation, &doc, cx).await?;
-    strength::exit(base, now, &doc.slots(), &doc.gauges()).map_err(core_error)
+    attack::exit(base, now, &doc.slots(), &doc.gauges(), &doc.outcomes(now)).map_err(core_error)
 }
 
 /// Why a check is no check.
@@ -248,6 +252,8 @@ pub(crate) async fn assign(
                     }));
                 }
                 doc.checks = checks;
+                // An attack was made on the checks it replaces.
+                doc.attacks.clear();
                 doc.adopt(&next, None)?;
                 if let Some(max_returns) = max_returns {
                     doc.max_returns = max_returns;

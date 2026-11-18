@@ -50,10 +50,10 @@ pub use watch::{watch_acceptance_updates, AcceptanceUpdates};
 
 use self::evidence::Gatherer;
 pub(crate) use self::evidence::{read_answer, ModelJudge};
-pub(crate) use self::strength::Breaker;
-use self::strength::MutantBreaker;
 #[cfg(test)]
-pub(crate) use self::strength::{Measurement, Probe};
+pub(crate) use self::strength::{AttackProbe, Measurement, Probe};
+pub(crate) use self::strength::{Attacker, Breaker};
+use self::strength::{ModelAttacker, MutantBreaker};
 use self::verifier::Verifier;
 pub(crate) use self::workspace::workspace_files;
 use super::HostDeps;
@@ -77,16 +77,21 @@ pub const ACCEPTANCE_CUSTOM_TYPE: &str = "eukhe.acceptance";
 /// answer wins, and a refuted claim's evidence goes ahead of the goal's.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
+    let judge: Arc<dyn Judge> = Arc::new(ModelJudge {
+        harness: deps.harness.clone(),
+        models: deps.models.clone(),
+    });
     acceptance_extension(
         deps.harness.clone(),
         Services {
             runner: Arc::new(ShellGateRunner::new(deps.cwd.clone())),
-            judge: Arc::new(ModelJudge {
-                harness: deps.harness.clone(),
-                models: deps.models.clone(),
-            }),
+            judge: Arc::clone(&judge),
             breaker: Arc::new(MutantBreaker {
                 budget: Arc::clone(&deps.budget),
+            }),
+            attacker: Arc::new(ModelAttacker {
+                budget: Arc::clone(&deps.budget),
+                judge,
             }),
         },
         deps.cwd.clone(),
@@ -96,12 +101,13 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
 }
 
 /// What the verifier works with: the runner of the checks' commands, the
-/// judge, and the breaker that measures a check's strength (the seams the
-/// tests script).
+/// judge, the breaker that measures a check's strength and the attacker
+/// that attacks the checks with wrong code (the seams the tests script).
 pub(crate) struct Services {
     pub(crate) runner: Arc<dyn GateCommandRunner>,
     pub(crate) judge: Arc<dyn Judge>,
     pub(crate) breaker: Arc<dyn Breaker>,
+    pub(crate) attacker: Arc<dyn Attacker>,
 }
 
 /// [`extension`] over explicit [`Services`].
@@ -122,6 +128,7 @@ pub(crate) fn acceptance_extension(
             cwd,
         },
         breaker: services.breaker,
+        attacker: services.attacker,
         deps,
     };
     define_extension(Extension {

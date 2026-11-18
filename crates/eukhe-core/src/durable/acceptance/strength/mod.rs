@@ -21,6 +21,7 @@
 //!   program run; when the budget refuses one, the measurement is cut
 //!   short and shows nothing.
 
+mod attack;
 mod changes;
 mod mutants;
 mod scratch;
@@ -36,6 +37,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_types::acceptance::Survivor;
 use futures::future::BoxFuture;
 
+pub(crate) use attack::{AttackProbe, Attacker, Gauged, ModelAttacker, MAX_ATTACKS};
 pub(crate) use changes::baseline;
 use mutants::Mutant;
 use scratch::Scratch;

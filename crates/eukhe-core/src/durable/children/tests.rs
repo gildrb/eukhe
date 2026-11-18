@@ -1974,6 +1974,32 @@ impl crate::durable::acceptance::Breaker for StrongBreaker {
     }
 }
 
+/// An attacker whose every attack could not run: it changes nothing.
+struct UnrunAttacker;
+
+impl crate::durable::acceptance::Attacker for UnrunAttacker {
+    fn attack<'a>(
+        &'a self,
+        probe: crate::durable::acceptance::AttackProbe,
+        _cx: &'a Context,
+    ) -> BoxFuture<'a, eukhe_durable::session::SessionResult<eukhe_types::acceptance::AttackMark>>
+    {
+        async move {
+            Ok(eukhe_types::acceptance::AttackMark {
+                outcome: eukhe_types::acceptance::AttackOutcome::Unrun,
+                at: probe.at,
+                path: String::new(),
+                witness: String::new(),
+                required: String::new(),
+                got: String::new(),
+                note: "no attacker".to_owned(),
+                attacked_at: 0,
+            })
+        }
+        .boxed()
+    }
+}
+
 /// A child tool: `drop_checks` asks `acceptance.set` with no checks (the
 /// worker's attempt to drop its parent's checks) and records the reply;
 /// `work` is an effect.
@@ -2142,6 +2168,7 @@ async fn a_parent_sets_its_childs_checks_and_reads_its_verdict() {
                 runner: Arc::clone(&checks) as Arc<dyn crate::autonomous::GateCommandRunner>,
                 judge: Arc::new(NoJudge),
                 breaker: Arc::new(StrongBreaker),
+                attacker: Arc::new(UnrunAttacker),
             },
             dir.path().to_path_buf(),
             &child_requests,
