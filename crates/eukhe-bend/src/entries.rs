@@ -274,6 +274,8 @@ pub enum Entry {
     HeadlessTask = 464,
     /// `bend/ffi_strength.bend`: a call.
     Strength = 465,
+    /// `bend/ffi_attack.bend`: a call.
+    Attack = 466,
 }
 
 impl Entry {
@@ -413,6 +415,7 @@ impl Entry {
         Entry::WorkList,
         Entry::HeadlessTask,
         Entry::Strength,
+        Entry::Attack,
     ];
 
     /// The id `bend/core.bend` dispatches on.
