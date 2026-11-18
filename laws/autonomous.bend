@@ -5,6 +5,7 @@ import ../bend/verify.bend as V
 import ../bend/autonomous.bend as Au
 import ../bend/ffi_autonomous.bend as FAu
 import ../bend/wire.bend as Wr
+import ./base.bend as LawsBase
 import ../spec/autonomous/autonomous.bend as SpA
 
 # (AU2-AU6) An autonomous run goes on until its checks or its budget end it
@@ -28,8 +29,10 @@ import ../spec/autonomous/autonomous.bend as SpA
 # R5: the run gets nothing exactly when it is not autonomous or its answer
 #     broke.
 # R6: the entry answers each request Rust writes (W1) with the spelling
-#     (W2) of the core's step for it, and any input that is not exactly
-#     one request with exactly `E autonomous: malformed request`.
+#     (W2) of the core's step for it, answers no input but exactly one
+#     request with anything but the error form, and answers any input
+#     that is not exactly one request with exactly
+#     `E autonomous: malformed request`.
 
 # Laws: the step (R1-R5)
 # ----------------------
@@ -104,15 +107,24 @@ law autonomous_entry_answers:
   for +f: Au.Facts
   {FAu.ffi(SpA.w_req(f, "")) == SpA.w_step(Au.decide(f), "") : String}
 
-# LAW autonomous_entry_malformed_exact (R6): every input that is not
-# exactly one request (an unknown answer, checks, label or budget tag, a
-# malformed field, input left over) gets exactly the error form 'E ', then
-# "autonomous: malformed request"
-# EXCLUDES: a step answered for input that is no request, another error
-#   text, a default
-law autonomous_entry_malformed_exact:
+# LAW autonomous_entry_reads_only_requests (R6): every input the entry
+# does not answer with the error form is exactly one spelled request (W1),
+# with nothing before or after it
+# EXCLUDES: a step answered for input that is no request (an unknown
+#   answer, checks, label or budget tag, a malformed Bool, a short request,
+#   input left over, a lenient field reader)
+law autonomous_entry_reads_only_requests:
   for +s: String
-  for no: {SpA.read_req(s) == None{} : Maybe<&2, Au.Facts>}
+  for ok: {LawsBase.wire_opens_err(FAu.ffi(s)) == False{} : Bool}
+  exs f: Au.Facts
+  {s == SpA.w_req(f, "") : String}
+
+# LAW autonomous_entry_refuses (R6): every error the entry answers is
+# exactly `E autonomous: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law autonomous_entry_refuses:
+  for +s: String
+  for bad: {LawsBase.wire_opens_err(FAu.ffi(s)) == True{} : Bool}
   {FAu.ffi(s) == Wr.err("autonomous: malformed request") : String}
 
 # LAW autonomous_entry_left_over (R6): a spelled request (W1) followed by
