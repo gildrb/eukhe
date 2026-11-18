@@ -4765,7 +4765,8 @@ import ./proof/autonomous/autonomous_continues_iff.bend as PAutonomousContinuesI
 import ./proof/autonomous/autonomous_entry_answers.bend as PAutonomousEntryAnswers
 import ./proof/autonomous/autonomous_entry_example.bend as PAutonomousEntryExample
 import ./proof/autonomous/autonomous_entry_left_over.bend as PAutonomousEntryLeftOver
-import ./proof/autonomous/autonomous_entry_malformed_exact.bend as PAutonomousEntryMalformedExact
+import ./proof/autonomous/autonomous_entry_reads_only_requests.bend as PAutonomousEntryReadsOnlyRequests
+import ./proof/autonomous/autonomous_entry_refuses.bend as PAutonomousEntryRefuses
 import ./proof/autonomous/autonomous_example.bend as PAutonomousExample
 import ./proof/autonomous/autonomous_holds_iff.bend as PAutonomousHoldsIff
 import ./proof/autonomous/autonomous_off_iff.bend as PAutonomousOffIff

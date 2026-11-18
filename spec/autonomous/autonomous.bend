@@ -310,21 +310,3 @@ def r_req.on(d: Wr.Dec<Bool>) -> Wr.Dec<Au.Facts>:
 # a request at the start of s, read with the wire's decoders
 def r_req(s: String) -> Wr.Dec<Au.Facts>:
   r_req.on(Wr.get_bool(s))
-
-def r_whole.end(e: Bool, f: Au.Facts) -> Maybe<&2, Au.Facts>:
-  match e:
-    case True{}:
-      Some{f}
-    case False{}:
-      None{}
-
-def r_whole(d: Wr.Dec<Au.Facts>) -> Maybe<&2, Au.Facts>:
-  match d:
-    case Wr.Got{f, +s}:
-      r_whole.end(Wr.end(s), f)
-    case Wr.Bad{}:
-      None{}
-
-# the request s spells whole, with nothing after it
-def read_req(s: String) -> Maybe<&2, Au.Facts>:
-  r_whole(r_req(s))
