@@ -26,6 +26,11 @@
 //! The typed-ahead contract rides the same run: text typed during the
 //! stall plus an Enter queued behind the open must submit once the
 //! session lands — never lost, never errored.
+//!
+//! A daemon still starting (`DaemonLink::Starting`) moves the same
+//! contract in front of the connection: the chrome paints and the echo
+//! lands before the run connects at all, and a daemon that never starts
+//! shows its error in the painted frame until a key ends the run.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -40,12 +45,19 @@ use nix::pty::{openpty, Winsize};
 use serde_json::{json, Value};
 
 use eukhe_tui::interactive::{
-    run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
+    run_interactive_with, DaemonLink, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
 
 /// The child-mode socket: set (with the socket path) only when this very
 /// binary is re-executed as the product-under-test.
 const CHILD_SOCKET_ENV: &str = "EUKHE_INPUT_LIVE_CHILD_SOCKET";
+
+/// The child's daemon start: unset, the daemon is up; `gated:<fifo>`, it
+/// starts once the parent writes the FIFO; `failing`, it never starts.
+const CHILD_START_ENV: &str = "EUKHE_INPUT_LIVE_CHILD_START";
+
+/// The error of the child's start that never succeeds.
+const FAILED_START: &str = "the probe daemon did not start";
 
 /// How long the mock supervisor holds the `attach` response: far past the
 /// echo deadline below, so the open is provably still in flight while the
@@ -64,7 +76,7 @@ const PTY_COLS: usize = 80;
 /// The child half of the e2e: runs the real interactive loop in terminal
 /// mode against the parent's mock supervisor. A plain `cargo test` run
 /// (no `CHILD_SOCKET_ENV`) passes trivially — only the parent test drives
-/// the real path.
+/// the real path. A failing start must end the run with its own error.
 #[test]
 fn input_live_open_child_mode() {
     let Ok(socket) = std::env::var(CHILD_SOCKET_ENV) else {
@@ -75,7 +87,27 @@ fn input_live_open_child_mode() {
         .enable_all()
         .build()
         .expect("tokio runtime");
-    let _ = runtime.block_on(run_interactive(options, UiMode::Terminal));
+    let start = std::env::var(CHILD_START_ENV).ok();
+    let link = match start.as_deref() {
+        None => DaemonLink::Up,
+        Some("failing") => {
+            DaemonLink::Starting(Box::pin(async { Err(anyhow::anyhow!(FAILED_START)) }))
+        }
+        Some(gated) => {
+            let fifo = PathBuf::from(gated.strip_prefix("gated:").expect("a gated start"));
+            DaemonLink::Starting(Box::pin(async move {
+                tokio::task::spawn_blocking(move || std::fs::read(fifo)).await??;
+                Ok(())
+            }))
+        }
+    };
+    let result = runtime.block_on(run_interactive_with(options, UiMode::Terminal, link));
+    if start.as_deref() == Some("failing") {
+        assert_eq!(
+            result.err().map(|error| format!("{error:#}")),
+            Some(FAILED_START.to_string())
+        );
+    }
 }
 
 /// The pty harnesses serialize: each drives a raw pty; concurrent
@@ -87,19 +119,11 @@ static HARNESS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// typed-ahead text plus the queued Enter submit once the open lands.
 #[test]
 fn typing_echoes_while_the_session_open_is_stalled() {
-    if !session_runner() {
+    let Some(_lock) = harness_session() else {
         return;
-    }
-    match nix::unistd::setsid() {
-        Ok(_) => {}
-        Err(error) => panic!("the harness could not start a fresh session: {error}"),
-    }
-    let _lock = match HARNESS_LOCK.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
     };
     let commands = Arc::new(Mutex::new(Vec::new()));
-    let mut harness = InputLiveHarness::start(Arc::clone(&commands));
+    let mut harness = InputLiveHarness::start(Arc::clone(&commands), ChildStart::Up);
 
     // The startup chrome (the new chat's brand splash) paints first: the
     // surface is mounted and in raw mode by then.
@@ -133,20 +157,91 @@ fn typing_echoes_while_the_session_open_is_stalled() {
 
     // The typed-ahead submit was delivered: the mock supervisor saw the
     // prompt carrying the typed text.
+    wait_for_prompt(&commands, "zzq");
+
+    // The harness drops here: the child dies with the test on every path.
+}
+
+/// A daemon still starting: the startup chrome paints and a keystroke
+/// echoes before the run connects at all (the mock has accepted nothing
+/// while the start is gated), and the typed-ahead submit reaches the
+/// daemon once it starts and the open lands.
+#[test]
+fn the_frame_paints_and_echoes_before_the_daemon_starts() {
+    let Some(_lock) = harness_session() else {
+        return;
+    };
+    let commands = Arc::new(Mutex::new(Vec::new()));
+    let mut harness = InputLiveHarness::start(Arc::clone(&commands), ChildStart::Gated);
+
+    harness.wait_from_start("eukhe", "the startup chrome painted");
+    harness.type_text("zzq");
+    harness.wait_from_start("zzq", "the keystroke echoed while the daemon was starting");
+    harness.type_text("\r");
+    assert!(
+        !harness.connected(),
+        "the run connected before its daemon started"
+    );
+
+    harness.open_gate();
+    harness.wait_from_start(
+        "openprobe settled answer",
+        "the attach's content frame painted",
+    );
+    wait_for_prompt(&commands, "zzq");
+}
+
+/// A daemon that never starts: its error shows in the painted frame with
+/// the exit hint, the run never connects, and the next key ends the run
+/// with that error (the child asserts the error it returned).
+#[test]
+fn a_daemon_that_never_starts_shows_its_error_in_the_frame() {
+    let Some(_lock) = harness_session() else {
+        return;
+    };
+    let commands = Arc::new(Mutex::new(Vec::new()));
+    let mut harness = InputLiveHarness::start(Arc::clone(&commands), ChildStart::Failing);
+
+    harness.wait_from_start(
+        &format!("Error: {FAILED_START}"),
+        "the start's error in the frame",
+    );
+    harness.wait_from_start("Press any key to exit.", "the exit hint in the frame");
+    harness.type_text("x");
+    let status = harness.wait_exit();
+    assert_eq!(
+        (status.success(), harness.connected()),
+        (true, false),
+        "the run must end on the key with the start's error, never connected"
+    );
+}
+
+/// The pty harness's session: a fresh session on a runner with a
+/// controlling terminal, holding the harness lock; `None` skips the test.
+fn harness_session() -> Option<std::sync::MutexGuard<'static, ()>> {
+    if !session_runner() {
+        return None;
+    }
+    match nix::unistd::setsid() {
+        Ok(_) => {}
+        Err(error) => panic!("the harness could not start a fresh session: {error}"),
+    }
+    Some(match HARNESS_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    })
+}
+
+/// Wait until the mock supervisor saw a prompt carrying `text`.
+fn wait_for_prompt(commands: &Arc<Mutex<Vec<String>>>, text: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    let submitted = loop {
-        if let Some(found) = find_prompt_with(&commands, "zzq") {
-            break found;
-        }
+    while find_prompt_with(commands, text).is_none() {
         if Instant::now() > deadline {
             let seen = commands.lock().expect("commands").clone();
             panic!("the typed-ahead submit never reached the daemon; commands seen: {seen:?}");
         }
         std::thread::sleep(Duration::from_millis(50));
-    };
-    let _ = submitted;
-
-    // The harness drops here: the child dies with the test on every path.
+    }
 }
 
 /// Whether this runner is attached to a controlling-terminal session (the
@@ -163,6 +258,17 @@ fn session_runner() -> bool {
     true
 }
 
+/// How the child's daemon comes up.
+#[derive(Clone, Copy)]
+enum ChildStart {
+    /// Listening before the run starts.
+    Up,
+    /// Starting until the parent opens the gate.
+    Gated,
+    /// Never starting: the start fails with [`FAILED_START`].
+    Failing,
+}
+
 /// One pty-backed product child plus the mock supervisor it opens against.
 struct InputLiveHarness {
     child: Child,
@@ -171,11 +277,13 @@ struct InputLiveHarness {
     /// only then, so a child that dies before connecting cannot hang the
     /// teardown on the still-accepting listener.
     connected: Arc<std::sync::atomic::AtomicBool>,
+    /// The FIFO a gated start reads: writing it starts the daemon.
+    gate: Option<PathBuf>,
     master: PtyReader,
 }
 
 impl InputLiveHarness {
-    fn start(commands: Arc<Mutex<Vec<String>>>) -> InputLiveHarness {
+    fn start(commands: Arc<Mutex<Vec<String>>>, start: ChildStart) -> InputLiveHarness {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let socket = dir.path().join("tui.sock");
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -185,6 +293,16 @@ impl InputLiveHarness {
             Some(std::thread::spawn(move || {
                 supervisor.serve(&commands, &connected);
             }))
+        };
+        let (gate, start_env) = match start {
+            ChildStart::Up => (None, None),
+            ChildStart::Failing => (None, Some("failing".to_string())),
+            ChildStart::Gated => {
+                let fifo = dir.path().join("start.fifo");
+                nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRWXU).expect("start fifo");
+                let env = format!("gated:{}", fifo.display());
+                (Some(fifo), Some(env))
+            }
         };
         let pty = openpty(
             Some(&Winsize {
@@ -196,7 +314,7 @@ impl InputLiveHarness {
             None,
         )
         .expect("open pty");
-        let child = spawn_child(&socket, &pty.slave);
+        let child = spawn_child(&socket, start_env.as_deref(), &pty.slave);
         // Leak the temp dir's socket path on purpose: the child needs the
         // socket for the lifetime of the test, and the whole tree dies
         // with the child at teardown.
@@ -205,6 +323,7 @@ impl InputLiveHarness {
             child,
             server,
             connected,
+            gate,
             master: PtyReader::new(pty.master),
         }
     }
@@ -220,6 +339,34 @@ impl InputLiveHarness {
     fn wait_from_start(&mut self, needle: &str, what: &str) -> usize {
         self.master
             .wait_for(needle, what, ECHO_DEADLINE_MS * 3 + OPEN_STALL_MS * 2)
+    }
+
+    /// Whether the child has connected to the mock supervisor.
+    fn connected(&self) -> bool {
+        self.connected.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Start the gated daemon: the child's start reads the FIFO to its end.
+    fn open_gate(&self) {
+        let gate = self.gate.as_ref().expect("a gated start");
+        std::fs::write(gate, b"start").expect("open the start gate");
+    }
+
+    /// Wait for the child to exit, draining its output meanwhile.
+    fn wait_exit(&mut self) -> std::process::ExitStatus {
+        let deadline = Instant::now() + Duration::from_millis(ECHO_DEADLINE_MS * 3);
+        loop {
+            self.master.drain();
+            if let Some(status) = self.child.try_wait().expect("child status") {
+                return status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the child did not exit; rendered screen:\n{}",
+                self.master.rendered()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 
@@ -409,6 +556,18 @@ impl PtyReader {
             .join("\n")
     }
 
+    /// Read what the master holds now (non-blocking) into the grid.
+    fn drain(&mut self) {
+        let mut buffer = [0u8; 8192];
+        match self.file.read(&mut buffer) {
+            Ok(0) | Err(_) => {}
+            Ok(n) => {
+                self.output.extend_from_slice(&buffer[..n]);
+                self.feed(&buffer[..n]);
+            }
+        }
+    }
+
     /// Drain the master until the needle appears in the RENDERED grid,
     /// bounded by the given window; returns the raw byte offset at which
     /// the needle first became visible (the ordering oracle's evidence).
@@ -422,14 +581,7 @@ impl PtyReader {
             if let Some(at) = seen_at {
                 return at;
             }
-            let mut buffer = [0u8; 8192];
-            match self.file.read(&mut buffer) {
-                Ok(0) | Err(_) => {}
-                Ok(n) => {
-                    self.output.extend_from_slice(&buffer[..n]);
-                    self.feed(&buffer[..n]);
-                }
-            }
+            self.drain();
             if Instant::now() > deadline {
                 let screen = self.rendered();
                 let stream = String::from_utf8_lossy(&self.output);
@@ -451,18 +603,23 @@ fn find_prompt_with(commands: &Arc<Mutex<Vec<String>>>, text: &str) -> Option<St
 }
 
 /// A child process group of this very binary, re-executed in child mode
-/// with the pty slave as its terminal and no tmux.
-fn spawn_child(socket: &std::path::Path, slave: &OwnedFd) -> Child {
+/// with the pty slave as its terminal and no tmux; `start` is its
+/// [`CHILD_START_ENV`] (none: the daemon is up).
+fn spawn_child(socket: &std::path::Path, start: Option<&str>, slave: &OwnedFd) -> Child {
     let mut command = Command::new(std::env::current_exe().expect("test binary"));
     command
         .arg("--exact")
         .arg("input_live_open_child_mode")
         .env(CHILD_SOCKET_ENV, socket)
+        .env_remove(CHILD_START_ENV)
         .env_remove("TMUX")
         .stdin(slave_as_stdio(slave))
         .stdout(slave_as_stdio(slave))
         .stderr(slave_as_stdio(slave))
         .process_group(0);
+    if let Some(start) = start {
+        command.env(CHILD_START_ENV, start);
+    }
     command.spawn().expect("spawn child")
 }
 

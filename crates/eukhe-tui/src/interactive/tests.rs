@@ -39,6 +39,44 @@ async fn headless_error_returns_never_touch_the_terminal() {
     );
 }
 
+/// A daemon that never starts ends the run with the start's own error,
+/// and the run never connects to the socket: the start future is the
+/// only gate in front of the connect. A headless run never owned the
+/// terminal, so the error return attempts no restore.
+#[tokio::test]
+async fn a_failed_daemon_start_ends_the_run_with_its_error() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let socket = dir.path().join("daemon.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind probe socket");
+    listener
+        .set_nonblocking(true)
+        .expect("non-blocking probe socket");
+    let mut opts = options(ModelSelection::default());
+    opts.socket_path = socket;
+    let _state = crate::exit_restore::TEST_STATE_LOCK.lock();
+    let before = crate::exit_restore::RESTORE_ATTEMPTS.load(std::sync::atomic::Ordering::SeqCst);
+    let result = run_interactive_with(
+        opts,
+        UiMode::Headless(HeadlessPlan {
+            steps: Vec::new(),
+            width: 80,
+            height: 24,
+        }),
+        DaemonLink::Starting(Box::pin(async {
+            Err(anyhow::anyhow!("the daemon did not start"))
+        })),
+    )
+    .await;
+    let error = result.err().map(|error| format!("{error:#}"));
+    let connected = listener.accept().is_ok();
+    let restores =
+        crate::exit_restore::RESTORE_ATTEMPTS.load(std::sync::atomic::Ordering::SeqCst) - before;
+    assert_eq!(
+        (error, connected, restores),
+        (Some("the daemon did not start".to_string()), false, 0)
+    );
+}
+
 /// TS #2458's shutdown recovery constants: the announced non-update
 /// closing waits the TS reconnect timeout (60s) on the TS fixed poll
 /// (100ms, never doubling) -- not the hiccup loop's window or the
