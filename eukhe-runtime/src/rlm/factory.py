@@ -4741,8 +4741,8 @@ bind.
   1,000,000) is the run's global budget of total admissions over its
   life — foreach expansions and retry re-spawns included (neither
   `max_parallel` nor `max_transitions` bounds children); reaching it
-  pauses the run once, and `resume` continues past it as an explicit
-  operator decision. `run.max_transitions` (default 10 per state, capped
+  pauses the run once, and `resume` continues past it as the calling
+  agent's decision. `run.max_transitions` (default 10 per state, capped
   at 10,000) pauses the run once at the boundary, mid-settle; `resume`
   continues after the transitions that already fired without re-firing
   them. `run.budget_ms` pauses the run once when exceeded (in-flight
@@ -4751,8 +4751,8 @@ bind.
   exceeding it fails the attempt without a retry), and `failure_policy` —
   `fail_fast` (cancel every child, run failed), `continue` (entry stays
   errored; the run finishes and reports failed if any state errored), or
-  `escalate` (the default: pause the run; resuming is the operator's
-  decision).
+  `escalate` (the default: pause the run; the calling agent reads its
+  status and resumes, reruns or stops it, never the user).
 - **Dead configurations fail loudly, never wedge**: a pending entry whose
   input source never settled, a `max_parallel` cap held entirely by
   never-settling residents with work queued, or nothing in flight and

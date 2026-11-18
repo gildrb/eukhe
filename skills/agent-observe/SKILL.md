@@ -16,6 +16,5 @@ description: Read-only view of your kin - yourself, your parent and your own chi
 - Read-only: it cannot prompt, steer, rename or stop a session. To act, message (agent-message) or use the subagent handles (subagents).
 - Prefer notes and status to transcripts: previews cost context.
 - Only your parent and your own children are listed and readable; siblings and other relatives are refused.
-- Ask the user before you use what you observe to steer another user's session.
 
 Fields and limits: [references/api.md](references/api.md).

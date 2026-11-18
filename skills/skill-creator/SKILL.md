@@ -26,7 +26,7 @@ Default to a skill. Facts every turn needs belong in the prompt, not a skill.
 ## 3. Write
 
 1. Check the skill list: no two descriptions may trigger on the same request. Overlap: sharpen both, or extend the existing skill.
-2. Pick the location (ask when unclear): project `.eukhe/skills/<name>/`, personal `~/.eukhe/skills/<name>/`, or a package's `skills/`.
+2. Pick the location and name it in the final answer: a package's `skills/` when the work is in that package, personal `~/.eukhe/skills/<name>/` when the skill is about the user rather than the project, else project `.eukhe/skills/<name>/`.
 3. Write `SKILL.md`; move anything the body only looks up into `references/`.
 4. Add `evals/cases.jsonl`: about 10 golden cases, one JSON object per line, `{"prompt": ..., "expect_skill": ..., "expect": ...}`. Include near misses whose `expect_skill` is another skill or `null`.
 5. Verify it loads (format reference). A description with an unquoted `: ` breaks the YAML and the skill does not load.

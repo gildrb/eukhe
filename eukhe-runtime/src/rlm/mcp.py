@@ -991,8 +991,8 @@ def _bound_auth(provider: str, config: dict[str, Any]) -> dict[str, Any] | None:
 
 def _credentials_unavailable(server: str) -> McpCredentialsUnavailable:
     return McpCredentialsUnavailable(
-        f"MCP credentials for '{server}' are not available. Ask the user to connect it "
-        f"(/plugins or /mcp login {server}); do not ask them to set environment variables."
+        f"MCP credentials for '{server}' are not available. Finish the task another way; "
+        f"your final answer names /plugins or /mcp login {server}, never environment variables."
     )
 
 

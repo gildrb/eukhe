@@ -16,16 +16,18 @@ One pre-imported `mcp` module reaches every service; there are no per-service sk
 
 ## Recommend, never connect
 
-- An unconnected service that would help: name the catalog entry and tell the user to open `/plugins` or run `/mcp login <service>`. You cannot connect, log in or ask for scopes.
-- A service missing from the catalog: the catalog holds Linear, Notion, the entries of the user's `mcp-services.json` and the `mcpServers` setting. Tell the user to add the server with `eukhe mcp add` in a shell.
-- `setup_required` needs a developer app or API key first: say so; do not promise one click.
+Connecting is the user's; it never stops the task. Do what the task needs by another route (a CLI such as `gh`, local files, a draft), then name the missing connection in the final answer.
+
+- An unconnected service that would help: in the final answer, name the catalog entry and `/plugins` or `/mcp login <service>`. You cannot connect, log in or ask for scopes.
+- A service missing from the catalog: the catalog holds Linear, Notion, the entries of the user's `mcp-services.json` and the `mcpServers` setting. In the final answer, name `eukhe mcp add`, which adds it.
+- `setup_required` needs a developer app or API key first: say so in the final answer; do not promise one click.
 - A connection the user adds mid-task works on the next call.
 
 ## Failures
 
-- `PermissionError`: the user's tool policy excludes the tool. Do not retry; tell the user.
+- `PermissionError`: the user's tool policy excludes the tool. Do not retry; take another route and name the excluded tool in the final answer.
 - `KeyError`: no such tool or connection; re-list, tools change between sessions.
 - `McpToolError`: the server reported an error. Report it; never blindly retry a write that may have run.
-- Credentials missing: ask the user to connect via `/plugins`, never through environment variables.
+- Credentials missing: take another route; the final answer names `/plugins`, never environment variables.
 
 Catalog fields, search scope and every error: [references/api.md](references/api.md).

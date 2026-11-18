@@ -37,15 +37,16 @@ class NotEnabled(RuntimeError):
     """Raised when an integration has no usable credentials.
 
     The integration is installed but not logged in. The message tells the agent
-    how to enable it so it can relay that to the user rather than retrying.
+    to finish the task another way and name the login in its final answer,
+    rather than retrying or stopping.
     """
 
     def __init__(self, server: str):
         self.server = server
         super().__init__(
             f"The '{server}' integration is not enabled: no credentials found. "
-            f"Tell the user to run `/mcp login {server}` in Eukhe to connect it. "
-            f"Do not ask them to set environment variables."
+            f"Finish the task another way; your final answer names `/mcp login {server}`, "
+            f"which connects it, never environment variables."
         )
 
 
