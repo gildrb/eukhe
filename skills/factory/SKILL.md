@@ -20,12 +20,12 @@ A factory entry is a validated machine: states, each backed by a subagent spec, 
 1. Read the guide first: `print(rlm.factory.help())`. It covers states, ports, guards, joins, foreach, residents, budgets and the run calls, with examples. It answers even while the factory is off.
 2. Reuse before you write: the library holds bundled machines (`builder`, `pr-manager`, `review-sweep`) and the user's own; `eukhe factory list` shows them.
 3. Store the spec: `rlm.harness.create_factory(...)` with exactly one of a machine form or `dag` sugar. An invalid spec is refused with the reason and never stored; fix it and retry.
-4. Start: `await rlm.factory.run("<spec_id>")` returns at once with the run id. Tell the user the run started; the run goes on after your turn.
-5. Check with `rlm.factory.status(run_id)` or `rlm.factory.watch(run_id, timeout)`; `stop` and `resume` act on one run.
+4. Start: `await rlm.factory.run("<spec_id>")` returns at once with the run id; the run goes on in the background.
+5. Follow it to its end: do other work, then `rlm.factory.watch(run_id, timeout)` or `rlm.factory.status(run_id)`. A paused run (a failed state under `escalate`, a run budget) waits on you, not the user: read its status, then `resume`, change the spec and rerun, or `stop`; report the outcome in your final answer.
 
 ## Refusals
 
-- `the factory is disabled; run /factory on to enable it`: tell the user to run `/factory on` and restart the client. Do not work around it.
+- `the factory is disabled; run /factory on to enable it`: `/factory on` is the user's setting. Do the same work with the `workflow` tool or the subagents skill, and name `/factory on` in your final answer.
 - `/factory off` is refused while runs are live, so a running factory keeps its stop path.
 
 Library, TUI page and settings: [references/guide.md](references/guide.md).

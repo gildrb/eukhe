@@ -249,7 +249,8 @@ async def run(*paths: str) -> str:
         model_id = info.get("id") or "the current model"
         raise RuntimeError(
             f"{model_id} does not support vision. "
-            "Tell the user to switch to a vision-capable model to load images into context."
+            "Work from what tools can read (text in the file, metadata, pixels through PIL) "
+            "and state in your final answer that a vision-capable model can read the image itself."
         )
 
     limits = _Limits(info)
