@@ -463,8 +463,8 @@ class McpRegistryTest(unittest.TestCase):
                 asyncio.run(mcp._headers("github", config))
         self.assertEqual(
             str(caught.exception),
-            "MCP credentials for 'github' are not available. Ask the user to connect it "
-            "(/plugins or /mcp login github); do not ask them to set environment variables.",
+            "MCP credentials for 'github' are not available. Finish the task another way; "
+            "your final answer names /plugins or /mcp login github, never environment variables.",
         )
         with mock.patch.object(mcp, "_read_auth", return_value=None):
             with self.assertRaises(mcp.McpCredentialsUnavailable):
@@ -1131,8 +1131,8 @@ class McpDiscoveryInventoryTest(unittest.TestCase):
         generation = self.generation({"type": "http"}, tools)
         generation.server = "a"
         broken = mcp.McpCredentialsUnavailable(
-            "MCP credentials for 'b' are not available. Ask the user to connect it"
-            " (/plugins or /mcp login b); do not ask them to set environment variables."
+            "MCP credentials for 'b' are not available. Finish the task another way;"
+            " your final answer names /plugins or /mcp login b, never environment variables."
         )
 
         async def get_locked(server):

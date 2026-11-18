@@ -19,10 +19,10 @@ Live tool metadata is cached per connection.
 
 | Error | Meaning | Do |
 |---|---|---|
-| `PermissionError` | the user's `enabledTools`/`disabledTools` policy excludes the tool | tell the user; no retry |
+| `PermissionError` | the user's `enabledTools`/`disabledTools` policy excludes the tool | no retry; take another route, name the tool in the final answer |
 | `KeyError` | the tool or connection does not exist | re-check with `list_tools`/`list_connections` |
-| `McpDiscoveryError` | the server's tool listing could not complete (broken pagination); nothing partial is published | re-run; if it persists, ask the user to reconnect |
-| `RuntimeError` (`McpCredentialsUnavailable`) | no credentials | ask the user to connect via `/plugins` or `/mcp login <service>` |
+| `McpDiscoveryError` | the server's tool listing could not complete (broken pagination); nothing partial is published | re-run; if it persists, take another route and name the reconnect in the final answer |
+| `RuntimeError` (`McpCredentialsUnavailable`) | no credentials | take another route; the final answer names `/plugins` or `/mcp login <service>` |
 | `RuntimeError` (other) | a token refresh failed or the host bridge is unavailable | report it |
 | `McpToolError` | the server flagged the call as an error | report the message; do not blindly retry a write |
 
