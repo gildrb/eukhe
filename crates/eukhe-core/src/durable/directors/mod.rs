@@ -34,10 +34,10 @@ use serde::{Deserialize, Serialize};
 pub(crate) use pending::pending_work_hook;
 pub(crate) use progress::{compared, stall_check, Last, Stall};
 pub use stack::{End, Layer, LayerKind, Loop, Verdict};
-pub(crate) use work_left::read_work;
 pub use work_left::{
     extension as work_left_extension, tool_acted, WorkLeftOutcome, WorkLeftRecord,
 };
+pub(crate) use work_left::{judge_answer, left_continuation, left_notice, read_work};
 
 use super::goals::{conversation_of, open_doc, read_doc, write_doc};
 use crate::settings::Settings;

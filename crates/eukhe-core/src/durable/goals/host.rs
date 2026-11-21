@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use super::ops::{conversation_of, goal_state, update_goal};
 use super::state::{completed, new_goal, with_remaining};
-use crate::durable::acceptance::{claim, Claimed};
+use crate::durable::acceptance::{claim, Claimed, Judge};
 use crate::durable::budget::BudgetGate;
 use crate::durable::children::WorkLedger;
 use crate::durable::directors::{push_director, DirectorLimits, Layer};
@@ -24,14 +24,17 @@ use crate::goals::{goal_host_response, validate_goal_budget, GoalStatus, GoalTok
 /// The services of the goal extension: the session's Harness and budget
 /// gate (what the session's budget admits at a step and at a resume),
 /// the Director stack's limits
-/// (read at each step: the settings can change), and the work of each
-/// conversation the goal's progress check counts (a cache of what the
-/// transcript shows: a new process reads the transcript again).
+/// (read at each step: the settings can change), the final-answer judge
+/// (whether the answer of an autonomous run's passing claim states work
+/// left), and the work of each conversation the goal's progress check
+/// counts (a cache of what the transcript shows: a new process reads the
+/// transcript again).
 #[derive(Clone)]
 pub(crate) struct GoalsHost {
     pub(crate) harness: HarnessCell,
     pub(crate) budget: Arc<BudgetGate>,
     pub(crate) limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
+    pub(crate) judge: Arc<dyn Judge>,
     pub(crate) work: Arc<Mutex<HashMap<ConversationId, WorkLedger>>>,
 }
 

@@ -47,6 +47,7 @@ pub use state::{
 pub use watch::{watch_goal_updates, GoalUpdates};
 
 use self::host::{register_host_requests, GoalsHost};
+use super::acceptance::{answer_judge, Judge};
 use super::budget::BudgetGate;
 use super::directors::{pending_work_hook, DirectorLimits};
 use super::HostDeps;
@@ -56,11 +57,11 @@ use crate::durable::{HarnessCell, HostRequestRegistry};
 pub const GOALS_EXTENSION: &str = "eukhe.goals";
 
 /// The goal extension of one session: the `pi.generation` hooks (with the
-/// Director stack's step, its limits from the `directors` settings, and the
-/// `PendingWork` fact of the run loop's stop Directors), the `goal.get` /
-/// `goal.create` / `goal.complete` / `directors.push` host requests
-/// registered in `deps.host_requests`, and the run-end failure observer.
-/// The `autoresearch.*` host
+/// Director stack's step, its limits from the `directors` settings, the
+/// final-answer judge, and the `PendingWork` fact of the run loop's stop
+/// Directors), the `goal.get` / `goal.create` / `goal.complete` /
+/// `directors.push` host requests registered in `deps.host_requests`, and
+/// the run-end failure observer. The `autoresearch.*` host
 /// requests register here too: their loop is the autonomous run.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
@@ -71,18 +72,20 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         deps.harness.clone(),
         Arc::clone(&deps.budget),
         Arc::new(move || DirectorLimits::of(settings.manager().settings())),
+        answer_judge(deps.harness.clone(), deps.models.clone()),
         &deps.host_requests,
         vec![pending_work_hook(deps)],
     )
 }
 
-/// [`extension`] over explicit services (the budget and the limits are
-/// the seams the tests script); `beside` registers after the
-/// goal's hooks.
+/// [`extension`] over explicit services (the budget, the limits and the
+/// final-answer judge are the seams the tests script); `beside` registers
+/// after the goal's hooks.
 pub(crate) fn goals_extension(
     harness: HarnessCell,
     budget: Arc<BudgetGate>,
     limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
+    judge: Arc<dyn Judge>,
     host_requests: &HostRequestRegistry,
     beside: Vec<HookRegistration>,
 ) -> Arc<Extension> {
@@ -90,6 +93,7 @@ pub(crate) fn goals_extension(
         harness,
         budget,
         limits,
+        judge,
         work: Arc::default(),
     };
     register_host_requests(&host, host_requests);

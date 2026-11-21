@@ -24,6 +24,10 @@ def aur.put_ok(t: Au.Step) -> {LawsBase.wire_opens_err(FAu.put_step(t, "")) == F
       Wire.wire_nat_not_err(2n, "")
     case Au.Stop{c}:
       Wire.wire_nat_not_err(3n, FAu.put_cause(c, ""))
+    case Au.Ask{}:
+      Wire.wire_nat_not_err(4n, "")
+    case Au.Finish{}:
+      Wire.wire_nat_not_err(5n, "")
 
 def aur.done(+f: Au.Facts, e: Bool, bad: {LawsBase.wire_opens_err(FAu.ffi.done(f, e)) == True{} : Bool}) -> {FAu.ffi.done(f, e) == Wr.err("autonomous: malformed request") : String}:
   match e:

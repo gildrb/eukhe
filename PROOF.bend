@@ -4641,6 +4641,8 @@ import ./proof/autonomous/autonomous_example.bend as PAutonomousExample
 import ./proof/autonomous/autonomous_holds_iff.bend as PAutonomousHoldsIff
 import ./proof/autonomous/autonomous_off_iff.bend as PAutonomousOffIff
 import ./proof/autonomous/autonomous_short_stops.bend as PAutonomousShortStops
+import ./proof/autonomous/autonomous_asks_iff.bend as PAutonomousAsksIff
+import ./proof/autonomous/autonomous_finishes_iff.bend as PAutonomousFinishesIff
 import ./proof/work_left/base.bend as LAWorkLeft
 import ./proof/work_left/work_left_continues_iff_left.bend as PWorkLeftContinuesIffLeft
 import ./proof/work_left/work_left_asks_iff_unread.bend as PWorkLeftAsksIffUnread

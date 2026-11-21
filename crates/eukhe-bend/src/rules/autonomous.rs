@@ -1,9 +1,12 @@
 //! What an autonomous run does at a final answer: the compiled core's rule
 //! (`bend/autonomous.bend`, entry `bend/ffi_autonomous.bend`, laws
 //! `laws/autonomous.bend`). The run goes on until its checks end the claim
-//! or its budget admits no more work; it has no limit of its own.
+//! or its budget admits no more work; it has no limit of its own. A claim
+//! that passed does not end a run whose final answer states work left (the
+//! final-answer judge's [`Reading`]).
 
 use crate::rules::verify::Label;
+use crate::rules::work_left::Reading;
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, Entry, Error};
 
@@ -52,6 +55,8 @@ pub struct Facts {
     pub answer: Answer,
     pub checks: Checks,
     pub budget: Budget,
+    /// The final-answer judge's reading of the answer.
+    pub reading: Reading,
 }
 
 /// Why an autonomous run stopped.
@@ -74,6 +79,12 @@ pub enum Step {
     Continue,
     /// Stop the run.
     Stop(Cause),
+    /// The claim passed and the budget admits work: ask the final-answer
+    /// judge for its reading, then decide again with it.
+    Ask,
+    /// The claim passed but the answer states work left: go on with the
+    /// work the answer left.
+    Finish,
 }
 
 fn label_tag(label: Label) -> u32 {
@@ -116,10 +127,12 @@ fn write_facts(facts: Facts, request: &mut Writer) {
             request.tag(2).tag(label_tag(label));
         }
     }
-    request.tag(match facts.budget {
-        Budget::Working => 0,
-        Budget::Short => 1,
-    });
+    request
+        .tag(match facts.budget {
+            Budget::Working => 0,
+            Budget::Short => 1,
+        })
+        .tag(facts.reading.tag());
 }
 
 /// The step of an autonomous run at a final answer with `facts`.
@@ -132,16 +145,18 @@ pub fn step(facts: Facts) -> Result<Step, Error> {
     write_facts(facts, &mut request);
     let reply = call(Entry::Autonomous, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
-    let step = match reader.tag_of(4, "a step")? {
+    let step = match reader.tag_of(6, "a step")? {
         0 => Step::Off,
         1 => Step::Hold,
         2 => Step::Continue,
-        // `tag_of` answers a tag below 4: this is 3.
-        _ => Step::Stop(match reader.tag_of(2, "a stop cause")? {
+        3 => Step::Stop(match reader.tag_of(2, "a stop cause")? {
             0 => Cause::Checks(read_label(&mut reader)?),
             // `tag_of` answers a tag below 2: this is 1.
             _ => Cause::Budget,
         }),
+        4 => Step::Ask,
+        // `tag_of` answers a tag below 6: this is 5.
+        _ => Step::Finish,
     };
     reader.end()?;
     Ok(step)
@@ -151,12 +166,13 @@ pub fn step(facts: Facts) -> Result<Step, Error> {
 mod tests {
     use super::*;
 
-    fn facts(checks: Checks, budget: Budget) -> Facts {
+    fn facts(checks: Checks, budget: Budget, reading: Reading) -> Facts {
         Facts {
             mode: Mode::Autonomous,
             answer: Answer::Settled,
             checks,
             budget,
+            reading,
         }
     }
 
@@ -164,33 +180,71 @@ mod tests {
     #[test]
     fn the_core_answers_each_step() {
         let cases = [
-            (facts(Checks::Unchecked, Budget::Working), Step::Continue),
-            (facts(Checks::Returned, Budget::Working), Step::Hold),
             (
-                facts(Checks::Ended(Label::Passed), Budget::Short),
+                facts(Checks::Unchecked, Budget::Working, Reading::Unread),
+                Step::Continue,
+            ),
+            (
+                facts(Checks::Returned, Budget::Working, Reading::Unread),
+                Step::Hold,
+            ),
+            (
+                facts(Checks::Ended(Label::Passed), Budget::Short, Reading::Left),
                 Step::Stop(Cause::Checks(Label::Passed)),
             ),
             (
-                facts(Checks::Ended(Label::Failed), Budget::Working),
+                facts(Checks::Ended(Label::Failed), Budget::Working, Reading::Left),
                 Step::Stop(Cause::Checks(Label::Failed)),
             ),
             (
-                facts(Checks::Unchecked, Budget::Short),
+                facts(Checks::Unchecked, Budget::Short, Reading::Unread),
                 Step::Stop(Cause::Budget),
             ),
             (
                 Facts {
                     answer: Answer::Broken,
-                    ..facts(Checks::Unchecked, Budget::Working)
+                    ..facts(Checks::Unchecked, Budget::Working, Reading::Unread)
                 },
                 Step::Off,
             ),
             (
                 Facts {
                     mode: Mode::Attended,
-                    ..facts(Checks::Unchecked, Budget::Working)
+                    ..facts(Checks::Unchecked, Budget::Working, Reading::Unread)
                 },
                 Step::Off,
+            ),
+            (
+                facts(
+                    Checks::Ended(Label::Passed),
+                    Budget::Working,
+                    Reading::Unread,
+                ),
+                Step::Ask,
+            ),
+            (
+                facts(
+                    Checks::Ended(Label::Verified),
+                    Budget::Working,
+                    Reading::Left,
+                ),
+                Step::Finish,
+            ),
+            (
+                facts(
+                    Checks::Ended(Label::Passed),
+                    Budget::Working,
+                    Reading::Finished,
+                ),
+                Step::Stop(Cause::Checks(Label::Passed)),
+            ),
+            (
+                facts(
+                    Checks::Ended(Label::Verified),
+                    Budget::Working,
+                    Reading::Unjudged,
+                ),
+                Step::Stop(Cause::Checks(Label::Verified)),
             ),
         ];
         let got: Vec<Step> = cases.iter().map(|(f, _)| step(*f).unwrap()).collect();

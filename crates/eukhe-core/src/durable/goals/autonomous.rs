@@ -1,8 +1,10 @@
 //! Autonomous mode on the Harness: the run state lives in the
 //! `eukhe.autonomous` conversation document, and each final answer asks
 //! the compiled core ([`decide`], `eukhe_bend::rules::autonomous`) what
-//! the run does, from the checks' outcome at that answer and the
-//! session's budget. Turning a run on sets its checks
+//! the run does, from the checks' outcome at that answer, the session's
+//! budget and, for a claim that passed, the final-answer judge's reading
+//! of the answer (a passing check does not end a run whose answer states
+//! work left). Turning a run on sets its checks
 //! (`crate::durable::acceptance`): the intent check when it has none, and
 //! the commands of the removed gates; the removed own limits become the
 //! session's budget limits.
@@ -12,6 +14,7 @@ use std::sync::Arc;
 
 use super::ops::{budget_report, conversation_of};
 use eukhe_bend::rules::autonomous::{self, Answer, Budget, Cause, Checks, Facts, Mode, Step};
+use eukhe_bend::rules::work_left::Reading;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -125,6 +128,12 @@ pub(crate) enum AutonomousYield {
         stop: AutonomousStop,
         next: AutonomousDocState,
     },
+    /// The claim passed and the budget admits work: the final-answer
+    /// judge's reading decides; [`decide`] again with it.
+    Ask,
+    /// The claim passed but the final answer states work left: continue
+    /// the run with the work the answer left.
+    Finish { next: AutonomousDocState },
 }
 
 /// How a final answer ended, for the rule; `None` for the reasons a
@@ -145,8 +154,9 @@ fn acceptance_label(
 }
 
 /// The step of `state` at a final answer that ended with `stop_reason`,
-/// with the checks' outcome `checks` and the session's `budget`: the
-/// compiled core's decision.
+/// with the checks' outcome `checks`, the session's `budget` and the
+/// final-answer judge's `reading` of the answer: the compiled core's
+/// decision.
 ///
 /// # Errors
 ///
@@ -156,6 +166,7 @@ pub(crate) fn decide(
     stop_reason: StopReason,
     checks: Checks,
     budget: Budget,
+    reading: Reading,
 ) -> SessionResult<AutonomousYield> {
     let Some(answer) = answer_of(stop_reason) else {
         return Ok(AutonomousYield::Inactive);
@@ -169,6 +180,11 @@ pub(crate) fn decide(
         answer,
         checks,
         budget,
+        reading,
+    };
+    let continued = || AutonomousDocState {
+        continuations_used: state.continuations_used.saturating_add(1),
+        ..state.clone()
     };
     Ok(
         match autonomous::step(facts).map_err(SessionError::other)? {
@@ -176,10 +192,7 @@ pub(crate) fn decide(
             Step::Continue => AutonomousYield::Continue {
                 text: autonomous_continuation_text(&state.continuation_prompt),
                 nudge: AutonomousNudge::Continuation,
-                next: AutonomousDocState {
-                    continuations_used: state.continuations_used.saturating_add(1),
-                    ..state.clone()
-                },
+                next: continued(),
             },
             Step::Stop(cause) => {
                 let stop = match cause {
@@ -194,6 +207,8 @@ pub(crate) fn decide(
                     },
                 }
             }
+            Step::Ask => AutonomousYield::Ask,
+            Step::Finish => AutonomousYield::Finish { next: continued() },
         },
     )
 }
@@ -412,26 +427,70 @@ mod tests {
     }
 
     /// The core's step reaches the run: a continuation counts, a stop is
-    /// recorded with its cause, a return or a broken answer adds nothing.
+    /// recorded with its cause, a return or a broken answer adds nothing; a
+    /// passing claim asks for the final-answer judge's reading, goes on
+    /// (counted) when the answer states work left and stops when it states
+    /// none.
     #[test]
     fn the_core_decides_each_final_answer() {
         let run = on();
+        let passed = Checks::Ended(Label::Passed);
         let got = [
-            decide(&run, StopReason::Stop, Checks::Unchecked, Budget::Working),
-            decide(&run, StopReason::Stop, Checks::Returned, Budget::Working),
             decide(
                 &run,
                 StopReason::Stop,
-                Checks::Ended(Label::Passed),
+                Checks::Unchecked,
                 Budget::Working,
+                Reading::Unread,
             ),
-            decide(&run, StopReason::ToolUse, Checks::Unchecked, Budget::Short),
-            decide(&run, StopReason::Error, Checks::Unchecked, Budget::Working),
+            decide(
+                &run,
+                StopReason::Stop,
+                Checks::Returned,
+                Budget::Working,
+                Reading::Unread,
+            ),
+            decide(
+                &run,
+                StopReason::Stop,
+                passed,
+                Budget::Working,
+                Reading::Finished,
+            ),
+            decide(
+                &run,
+                StopReason::ToolUse,
+                Checks::Unchecked,
+                Budget::Short,
+                Reading::Unread,
+            ),
+            decide(
+                &run,
+                StopReason::Error,
+                Checks::Unchecked,
+                Budget::Working,
+                Reading::Unread,
+            ),
             decide(
                 &AutonomousDocState::initial(),
                 StopReason::Stop,
                 Checks::Unchecked,
                 Budget::Working,
+                Reading::Unread,
+            ),
+            decide(
+                &run,
+                StopReason::Stop,
+                passed,
+                Budget::Working,
+                Reading::Unread,
+            ),
+            decide(
+                &run,
+                StopReason::Stop,
+                passed,
+                Budget::Working,
+                Reading::Left,
             ),
         ]
         .map(Result::unwrap);
@@ -442,16 +501,17 @@ mod tests {
                 ..run.clone()
             },
         };
+        let counted = AutonomousDocState {
+            continuations_used: 1,
+            ..run.clone()
+        };
         assert_eq!(
             got,
             [
                 AutonomousYield::Continue {
                     text: autonomous_continuation_text(DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT),
                     nudge: AutonomousNudge::Continuation,
-                    next: AutonomousDocState {
-                        continuations_used: 1,
-                        ..run.clone()
-                    },
+                    next: counted.clone(),
                 },
                 AutonomousYield::Inactive,
                 stopped(AutonomousStop::Checks(
@@ -460,6 +520,8 @@ mod tests {
                 stopped(AutonomousStop::Budget),
                 AutonomousYield::Inactive,
                 AutonomousYield::Inactive,
+                AutonomousYield::Ask,
+                AutonomousYield::Finish { next: counted },
             ]
         );
     }
