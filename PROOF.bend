@@ -2779,6 +2779,8 @@ import ./proof/command/command_ffi_out_exact.bend as PCommandFfiOutExact
 import ./proof/command/command_ffi_cut_reply_example.bend as PCommandFfiCutReplyExample
 import ./proof/command/command_ffi_reply_example.bend as PCommandFfiReplyExample
 import ./proof/command/command_ffi_long_reply_example.bend as PCommandFfiLongReplyExample
+import ./proof/command/command_ffi_req_exact.bend as PCommandFfiReqExact
+import ./proof/command/command_ffi_req_example.bend as PCommandFfiReqExample
 import ./proof/command/base/space.bend as LACommandSpace
 import ./proof/command/base/named.bend as LACommandNamed
 import ./proof/command/command_named_example.bend as PCommandNamedExample

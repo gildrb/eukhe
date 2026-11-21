@@ -855,6 +855,8 @@
     "laws/command/entry.bend::command_ffi_premises_witness": "ff20d9fb74ac0a3bc8820944f0d3a08b9881cb961f2757bff26b00d921749878",
     "laws/command/entry.bend::command_ffi_reads_only_requests": "7bff9fd8b67a2e23d9c604c9e65edf0b2ec52d7c5382c044c23587e51615ca6b",
     "laws/command/entry.bend::command_ffi_reply_example": "f8831b48325db5361cc83f4e1466ddd55c6ab4676950cd90e2955427ea55084a",
+    "laws/command/entry.bend::command_ffi_req_exact": "c5a2be576d3bc8f95053788c3c34e355826f32a53cfb18bdd292aef3d67fa078",
+    "laws/command/entry.bend::command_ffi_req_example": "d35ac4b79475391d0355188124cbd1599ad29d8c61680c41b8f2630cb03cab5b",
     "laws/command/entry.bend::command_ffi_res_exact": "f844d1a4b831b43387aad2fb7eced16a2984190f08a7dd3905ad1989ad071e11",
     "laws/command/entry.bend::command_ffi_res_reads_spelled": "3373a05236d11b54f0be7fc19bdf70d799a00e2f726a14714037734ef8e1f5a3",
     "laws/command/entry.bend::command_ffi_res_round_trip": "77e40526d8e77ad0b4a121e53c8b63f6c9059155862b8a9b7de55805bf9a1d40",
