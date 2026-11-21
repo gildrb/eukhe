@@ -134,6 +134,23 @@ law rec_repeat_redirects_then_fails:
   {helps(1n+RnRecovery.RCfg.redirect(rc), rc, RnDecision.Repeats{before}, RnRecovery.Loops{}, RnDecision.decide.recover(rc, RnDecision.Repeats{before}, k, row)) == notes_then_quit(RnRecovery.RCfg.redirect(rc), 0n) : List<&2, RnDecision.Help>} &
   {RnDecision.decide.recover(rc, RnDecision.Repeats{before}, RnRecovery.Loops{}, Nat.add(RnRecovery.RCfg.redirect(rc), x)) == RnDecision.Quits{} : RnDecision.Help}
 
+# LAW rec_row_zero_is_no_note (H4.8; R4, R7 of laws/stop.bend): a note's
+# row counts the notes of its recovery in a row, so a row of 0 counts
+# none: under any caps, any stuck reply (a length stop with any window's
+# facts, leaked calls, calls after any rounds in a row, an empty reply),
+# after a note of any recovery with row 0 (its own recovery's too), gets
+# the help it gets after no note (the first note of its row, whatever the
+# other recoveries' caps; laws/stop/recover.bend and the laws above pin
+# that help)
+# EXCLUDES: a row 0 of the reply's own recovery read as a row at or past
+#   its cap (the run failed at the first empty stop, leak, redirect or
+#   length stop), as a row other than none, or by another recovery's cap
+law rec_row_zero_is_no_note:
+  for +rc: RnRecovery.RCfg
+  for +s: RnDecision.Stuck
+  for +k: RnRecovery.Rk
+  {RnDecision.decide.recover(rc, s, k, 0n) == RnDecision.decide.recover(rc, s, RnRecovery.Free{}, 0n) : RnDecision.Help}
+
 # LAW rec_redo_retries_with_a_note (H4.7, H4.8): in the recoveries' model,
 # the reply a Redo makes (Act.reply, whatever the reply was) is, under any
 # limits and from any counts, a noted reply to decide.reply: retried with

@@ -844,6 +844,7 @@ import ./proof/run/base/recover.bend as LARunRecover
 import ./proof/run/rec_leak_notes_then_fails.bend as PRecLeakNotesThenFails
 import ./proof/run/rec_repeat_runs_below_cap.bend as PRecRepeatRunsBelowCap
 import ./proof/run/rec_repeat_redirects_then_fails.bend as PRecRepeatRedirectsThenFails
+import ./proof/run/rec_row_zero_is_no_note.bend as PRecRowZeroIsNoNote
 import ./proof/run/rec_redo_retries_with_a_note.bend as PRecRedoRetriesWithANote
 import ./proof/run/rec_user_message_lets_calls_run.bend as PRecUserMessageLetsCallsRun
 import ./proof/run/run_ffi_ask_round_trip.bend as PRunFfiAskRoundTrip
