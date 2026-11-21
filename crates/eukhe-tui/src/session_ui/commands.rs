@@ -1025,9 +1025,9 @@ impl SessionUi {
                 }
                 self.open_heartbeats_view(view);
             }
-            // `/effects [ran|not-run <id>]`: the session's interrupted
-            // effects whose outcome is unknown, and settling one after
-            // looking at the world.
+            // `/effects [ran|not-run <id>]`: the session's steps a crash
+            // left unknown and Eukhe treated as not run, and an optional
+            // correction of one.
             "effects" => {
                 self.handle_effects_command(sub, &resolved.args, view).await;
             }

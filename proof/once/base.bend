@@ -5,8 +5,10 @@
 # (ob.go_ran, ob.go_lost, ob.go_void); from a pending or a running effect
 # the fold tells the spec's life (ob.go_pending, ob.go_run); the fold
 # runs through an append (ob.go_append). The restart: a keyed effect is
-# sent again exactly while fewer than cap (ob.keyed), and its verdict is
-# a launch or an interrupt (ob.keyed_cases, ob.dedup_cases).
+# sent again exactly while fewer than cap (ob.keyed, ob.keyed_launch,
+# ob.keyed_stop), its verdict is a launch or an interrupt
+# (ob.keyed_cases, ob.dedup_cases), and the model's verdict is the
+# spec's table (ob.recover_spec).
 
 import Base
 import ../../bend/once.bend as O
@@ -82,17 +84,6 @@ def ob.MD(-A: Data, m: Maybe<&2, A>, G: Type) -> Type:
 def ob.none_some(-A: Data, -G: Type, -r: A, h: {None{} == Some{r} : Maybe<&2, A>}) -> G:
   %h : ob.MD(A, _, G)
   Unit{}
-
-def ob.get(-A: Data, m: Maybe<&2, A>, d: A) -> A:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
-
-# Some is injective
-def ob.some_inj(-A: Data, +a: A, +b: A, h: {Some{a} == Some{b} : Maybe<&2, A>}) -> {a == b : A}:
-  Equal.cong(Maybe<&2, A>, A, m => ob.get(A, m, a), Some{a}, Some{b}, h)
 
 # x or true
 def ob.or_true(x: Bool) -> {Bool.or(x, True{}) == True{} : Bool}:
@@ -251,6 +242,119 @@ def ob.keyed(cap: Nat, again: Nat) -> {O.keyed(cap, again) == S.more_spec(Nat.is
           {==}
         case 1n+a:
           ob.keyed(c, a)
+
+# a keyed effect sent again fewer than cap times is sent again
+def ob.keyed_launch(cap: Nat, again: Nat, h: {Nat.is_lt(again, cap) == True{} : Bool}) -> {O.keyed(cap, again) == O.Launch{} : O.Verdict}:
+  match cap:
+    case 0n:
+      match again:
+        case 0n:
+          ob.false_true({O.keyed(0n, 0n) == O.Launch{} : O.Verdict}, h)
+        case 1n+a:
+          ob.false_true({O.keyed(0n, 1n+a) == O.Launch{} : O.Verdict}, h)
+    case 1n+c:
+      match again:
+        case 0n:
+          {==}
+        case 1n+a:
+          ob.keyed_launch(c, a, h)
+
+# a keyed effect sent again cap times or more is journaled unknown
+def ob.keyed_stop(cap: Nat, again: Nat, h: {Nat.is_lt(again, cap) == False{} : Bool}) -> {O.keyed(cap, again) == O.Interrupt{} : O.Verdict}:
+  match cap:
+    case 0n:
+      match again:
+        case 0n:
+          {==}
+        case 1n+a:
+          {==}
+    case 1n+c:
+      match again:
+        case 0n:
+          ob.true_false({O.keyed(1n+c, 0n) == O.Interrupt{} : O.Verdict}, h)
+        case 1n+a:
+          ob.keyed_stop(c, a, h)
+
+# the model's verdict is the spec's table, for every life, answer of the
+# world, mode and policy: every case computes on both sides; a keyed
+# effect's target declaration decides first, then its count against its
+# cap is ob.keyed
+def ob.recover_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> {O.recover(l, s, m, p) == S.verdict_spec(l, s, m, p) : O.Verdict}:
+  match l:
+    case O.Absent{}:
+      {==}
+    case O.Pending{}:
+      match m:
+        case O.Resume{}:
+          {==}
+        case O.Stop{}:
+          {==}
+    case O.Running{again}:
+      match s:
+        case O.Dark{}:
+          match m:
+            case O.Resume{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  match d:
+                    case O.Undeclared{}:
+                      {==}
+                    case O.Lasting{}:
+                      ob.keyed(cap, again)
+            case O.Stop{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  {==}
+        case O.Landed{}:
+          match m:
+            case O.Resume{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  {==}
+            case O.Stop{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  {==}
+        case O.Clean{}:
+          match m:
+            case O.Resume{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  {==}
+            case O.Stop{}:
+              match p:
+                case O.Never{}:
+                  {==}
+                case O.Safe{}:
+                  {==}
+                case O.Keyed{d, cap}:
+                  {==}
+    case O.Ran{}:
+      {==}
+    case O.Unsure{}:
+      {==}
+    case O.Void{}:
+      {==}
 
 # what holds of a launch and of an interrupt holds of a keyed effect's
 # verdict

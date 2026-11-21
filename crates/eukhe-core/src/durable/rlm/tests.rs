@@ -46,6 +46,7 @@ pub(crate) const WAIT_MS: u64 = 90_000;
 
 use super::kernel_test_lock;
 
+mod factory_report;
 mod query;
 
 /// Directories, models, and the faux provider of one session that survive a

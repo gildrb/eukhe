@@ -1,0 +1,409 @@
+#!/usr/bin/env python3
+"""Assemble the eukhe release artifact (kernel packaging).
+
+The local packaging dry-run (`make package`); the published per-target
+tarballs come from .github/scripts/release/assemble_artifacts.py in
+.github/workflows/eukhe-release.yml. Output:
+
+  <out-dir>/eukhe-<version>-<platform>/     staged exe-adjacent layout
+  <out-dir>/eukhe-<version>-<platform>.tar.gz
+  <out-dir>/binaries.json                          release manifest (version pin)
+  <out-dir>/SHA256SUMS                             integrity sums for the artifacts
+
+The staged layout is the exe-adjacent packaging the binary resolves at
+runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
+
+  eukhe                  the binary (mode 755)
+  package.json           version manifest ({"version": <version>})
+  README.md
+  LICENSE
+  models.bundled.json    bundled model catalog (spec §3.2 layer 2), staged
+                         beside the executable
+  rlm/                   the kernel runtime sidecar (dev caches excluded)
+  skills/                built-in skills
+
+Run it as the packaging dry-run: it builds (or takes) the binary, stages,
+validates, version-pins, hashes, and tars the artifact locally. On Linux the
+native default splits the Cargo ELF into a separate shipped image and decoder;
+an explicit --binary requires its paired --decoder. The decoder stays outside
+the tarball and binaries.json. No network publishing happens here.
+
+`--catalog-assets <dir>` supplies the generated bundled catalog asset
+(.github/scripts/release/bundle_catalog.py generates it); the packer hard-fails
+without a VALIDATED asset (version gate + >= 20 transport tuples).
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# The bundled-catalog validation gate lives in .github/scripts/release/ (the same
+# code the assemble_artifacts.py pipeline packs with).
+sys.path.insert(0, str(ROOT / ".github" / "scripts" / "release"))
+from bundle_catalog import BUNDLED_CATALOG_FILES, validate_bundled_catalog_dir  # noqa: E402
+# The shipped-content policy (runtime dev-only files, user-facing docs) lives
+# with the CI payload producer so the local dry-run and the published
+# tarball carry identical content; this packer imports it instead of
+# redefining it. verify_release.py already imports from the same module.
+# The Linux fail-closed decoder gates (strict binary+decoder pairing, DWARF
+# rejection, decoder leak guards) come from the same module too.
+from assemble_artifacts import (  # noqa: E402
+    RUNTIME_EXCLUDED_NAMES,
+    RUNTIME_EXCLUDED_SUFFIXES,
+    debug_sections,
+    decoder_facts,
+    fail_if_decoder_in_archive,
+    fail_if_decoder_in_tree,
+    pack_tarball,
+)
+# `--root` re-anchors asset discovery (workspace version, rlm,
+# skills, README, LICENSE) so integration tests can package synthetic trees.
+
+
+# The TS copy-binary-assets exclusion set: development caches never ship and
+# the staging walk rejects them (a stale .venv must not ride the artifact).
+EXCLUDED_NAMES = {
+    "node_modules",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".git",
+    ".DS_Store",
+}
+EXCLUDED_SUFFIXES = (".pyc", ".egg-info")
+
+# Required assets after staging (TS validateBinaryAssets + the bundled
+# catalog assets the catalog spec §3.2 layer 2 requires): the kernel sidecar
+# must carry its manifest and the REPL entry point, and the bundled catalog
+# assets must sit beside the executable.
+REQUIRED_FILES = (
+    "eukhe",
+    "package.json",
+    "README.md",
+    "LICENSE",
+    "models.bundled.json",
+    "rlm/pyproject.toml",
+    # Eukhe's package lock: what a kernel installs on demand, with hashes.
+    "rlm/requirements-kernel.txt",
+    "rlm/src/rlm/repl.py",
+)
+REQUIRED_DIRS = ("rlm/src/rlm", "skills")
+
+# Tree assets copied with the exclusion filter; everything else is a single file.
+TREE_ASSETS = ("rlm", "skills")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--version", help="release version (default: the local build's, <workspace version>-dev)")
+    parser.add_argument("--binary", type=Path, help="stage this binary instead of building")
+    parser.add_argument("--decoder", type=Path, help="separate Linux decoder for --binary")
+    parser.add_argument("--skip-build", action="store_true",
+                        help="reuse target/dist/eukhe (the dist profile's) without building")
+    parser.add_argument("--out-dir", type=Path, help="output directory (default: target/release-package)")
+    parser.add_argument("--platform", help="platform tag (default: derived from this machine)")
+    parser.add_argument("--root", type=Path, default=ROOT,
+                        help="package assets from this tree (default: the repo root)")
+    parser.add_argument("--catalog-assets", type=Path, default=None,
+                        help="directory with models.bundled.json (see "
+                             ".github/scripts/release/bundle_catalog.py)")
+    args = parser.parse_args(argv)
+    return args
+
+
+def local_version(root):
+    """The version a local build reports: the [workspace.package] version
+    from Cargo.toml plus `-dev` (eukhe-build-info: only a release build,
+    given EUKHE_RELEASE_VERSION, names a release)."""
+    in_workspace = False
+    for line in (root / "Cargo.toml").read_text().splitlines():
+        if line.startswith("["):
+            in_workspace = line.strip() == "[workspace.package]"
+            continue
+        if in_workspace and line.strip().startswith("version"):
+            return line.split("=", 1)[1].strip().strip('"') + "-dev"
+    raise SystemExit("error: could not read the workspace version from Cargo.toml")
+
+
+def release_platform():
+    machine = platform.machine().lower()
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+    system = platform.system().lower()
+    tag = f"{system}-{arch}"
+    if tag not in ("linux-x64", "linux-arm64", "darwin-arm64"):
+        raise SystemExit(f"error: unsupported release platform: {tag}")
+    return tag
+
+
+def include_path(relative, extra_excluded_names=frozenset(), extra_excluded_suffixes=()):
+    parts = Path(relative).parts
+    return not any(
+        part in EXCLUDED_NAMES
+        or part in extra_excluded_names
+        or part.endswith(EXCLUDED_SUFFIXES)
+        or part.endswith(extra_excluded_suffixes)
+        for part in parts
+    )
+
+
+def copy_tree(source, target, extra_excluded_names=frozenset(),
+              extra_excluded_suffixes=()):
+    """Copy an asset tree, rejecting symlinks and excluded entries (the TS
+    `includeBinaryAsset` filter: a stale `.venv` or cache never ships, and an
+    unexpected symlink fails the packaging instead of riding the artifact).
+
+    `extra_excluded_*` widen the exclusion set for one asset (the runtime's
+    dev-only files).
+    """
+    if not source.is_dir():
+        raise SystemExit(f"error: missing packaging asset directory: {source}")
+
+    def walk(source_dir, relative):
+        for entry in sorted(source_dir.iterdir(), key=lambda item: item.name):
+            entry_relative = relative / entry.name
+            if not include_path(entry_relative, extra_excluded_names, extra_excluded_suffixes):
+                continue
+            if entry.is_symlink():
+                raise SystemExit(f"error: unexpected symlink in binary assets: {entry}")
+            destination = target / entry_relative
+            if entry.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                walk(entry, entry_relative)
+            elif entry.is_file():
+                shutil.copy2(entry, destination)
+
+    target.mkdir(parents=True, exist_ok=True)
+    walk(source, Path("."))
+
+
+def resolve_catalog_assets(args):
+    """The bundled catalog asset (spec §3.2 layer 2): the packer hard-fails
+    without a validated asset — generate it first via
+    .github/scripts/release/bundle_catalog.py."""
+    if args.catalog_assets is None:
+        raise SystemExit(
+            "error: missing bundled catalog assets: run "
+            "`python3 .github/scripts/release/bundle_catalog.py generate --out <dir>` "
+            "and pass --catalog-assets <dir>"
+        )
+    validate_bundled_catalog_dir(args.catalog_assets)
+    return args.catalog_assets
+
+
+def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
+    stage_dir.mkdir(parents=True)
+    staged_binary = stage_dir / binary_name
+    shutil.copy2(binary, staged_binary)
+    staged_binary.chmod(0o755)
+    # The bundled catalog assets ride beside the executable (the runtime's
+    # <packageDir>/models.bundled.json resolution).
+    for name in BUNDLED_CATALOG_FILES:
+        shutil.copy2(catalog_assets / name, stage_dir / name)
+    for name in TREE_ASSETS:
+        if name == "rlm":
+            copy_tree(root / name, stage_dir / name,
+                      extra_excluded_names=RUNTIME_EXCLUDED_NAMES,
+                      extra_excluded_suffixes=RUNTIME_EXCLUDED_SUFFIXES)
+        else:
+            copy_tree(root / name, stage_dir / name)
+    shutil.copy2(root / "README.md", stage_dir / "README.md")
+    # The license ships with the binary (TS binaryAssets keeps LICENSE beside
+    # it; the release pipeline packages it the same way).
+    shutil.copy2(root / "LICENSE", stage_dir / "LICENSE")
+    # The version manifest: the binary reads the exe-adjacent package.json
+    # for `--version` (cargo embeds the same version, so the manifest
+    # records the pin and the staged binary must agree with it).
+    (stage_dir / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "eukhe",
+                "version": version,
+                "description": "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass",
+                "bin": {"eukhe": binary_name},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def validate(stage_dir, version, binary_name):
+    for name in REQUIRED_DIRS:
+        if not (stage_dir / name).is_dir():
+            raise SystemExit(f"error: missing binary asset directory: {name}")
+    for name in REQUIRED_FILES:
+        path = stage_dir / (binary_name if name == "eukhe" else name)
+        if not path.is_file():
+            raise SystemExit(f"error: missing binary asset: {path.name}")
+    if not os.access(stage_dir / binary_name, os.X_OK):
+        raise SystemExit(f"error: staged {binary_name} is not executable")
+    for path in sorted(stage_dir.rglob("*")):
+        if path.is_symlink():
+            raise SystemExit(f"error: unexpected symlink in binary assets: {path}")
+        if not include_path(path.relative_to(stage_dir)):
+            raise SystemExit(f"error: unexpected binary asset: {path}")
+
+
+def pin_version(binary, stage_dir, version, binary_name):
+    """Two-sided version pin: the compiled-in version (probed with the
+    manifest resolution pointed at an empty dir) and the staged manifest must
+    both equal the requested release version."""
+    with tempfile.TemporaryDirectory() as empty:
+        probe = subprocess.run(
+            [str(binary), "--version"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "EUKHE_PACKAGE_DIR": empty},
+        )
+    if probe.returncode != 0:
+        raise SystemExit(f"error: eukhe --version failed: {probe.stderr.strip()}")
+    compiled = probe.stdout.strip()
+    if compiled != version:
+        raise SystemExit(
+            f"error: version pin mismatch: binary reports {compiled!r}, release "
+            f"version is {version!r}; rebuild the binary or pass --version {compiled}"
+        )
+    # The staged copy resolves the packaged manifest (exe-adjacent
+    # package.json): it must report the same pinned version.
+    probe = subprocess.run(
+        [str(stage_dir / binary_name), "--version"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "EUKHE_PACKAGE_DIR": str(stage_dir)},
+    )
+    if probe.returncode != 0:
+        raise SystemExit(f"error: staged {binary_name} --version failed: {probe.stderr.strip()}")
+    staged = probe.stdout.strip()
+    if staged != version:
+        raise SystemExit(
+            f"error: staged manifest version mismatch: {staged!r} != {version!r}"
+        )
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_tar(stage_dir, output):
+    # The release assembler's deterministic packer: sorted members, fixed
+    # owner/mtime/modes, gzip mtime 0, link entries refused.
+    pack_tarball(stage_dir, output, [path.name for path in stage_dir.iterdir()])
+    with tarfile.open(output) as tar:
+        listed = sorted(name for name in tar.getnames() if name.strip())
+    expected = sorted(
+        str(path.relative_to(stage_dir))
+        for path in stage_dir.rglob("*")
+        if path.is_file() or path.is_dir()
+    )
+    if listed != expected:
+        missing = set(expected) - set(listed)
+        extra = set(listed) - set(expected)
+        raise SystemExit(
+            f"error: archive listing mismatch (missing {sorted(missing)}, unexpected {sorted(extra)})"
+        )
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    root = args.root.resolve()
+    version = args.version or local_version(root)
+    tag = args.platform or release_platform()
+    binary_name = "eukhe"
+    out_dir = (args.out_dir or root / "target" / "release-package").resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir = out_dir / f"eukhe-{version}-{tag}"
+
+    if args.binary:
+        binary = args.binary.resolve()
+        if not binary.is_file():
+            raise SystemExit(f"error: binary not found: {binary}")
+    elif args.skip_build:
+        binary = root / "target" / "dist" / binary_name
+        if not binary.is_file():
+            raise SystemExit(f"error: no prebuilt binary at {binary}; drop --skip-build")
+    else:
+        print("building the release binary (cargo build --profile dist --locked -p eukhe-cli)…")
+        subprocess.run(["cargo", "build", "--profile", "dist", "--locked", "-p", "eukhe-cli"], cwd=ROOT, check=True)
+        binary = root / "target" / "dist" / binary_name
+
+    if tag.startswith("linux-"):
+        if tag != release_platform():
+            raise SystemExit("error: Linux packager target must match the native host")
+        targets = {"linux-x64": "x86_64-unknown-linux-gnu",
+                   "linux-arm64": "aarch64-unknown-linux-gnu"}
+        if tag not in targets:
+            raise SystemExit(f"error: unsupported Linux platform: {tag}")
+        if not args.binary:
+            shipped_dir = root / "target" / "package"
+            shipped = shipped_dir / "eukhe"
+            target = targets[tag]
+            subprocess.run([sys.executable, str(ROOT / ".github/scripts/release/split_debug.py"),
+                            "--binary", str(binary), "--shipped", str(shipped),
+                            "--out", str(shipped_dir), "--version", version,
+                            "--target", target], cwd=ROOT, check=True)
+            binary = shipped
+            args.decoder = shipped_dir / f"eukhe-{version}-{tag}.debug.gz"
+        if args.decoder is None:
+            raise SystemExit("error: Linux --binary requires --decoder from split_debug.py")
+        if debug_sections(binary):
+            raise SystemExit(f"error: Linux shipped binary still has DWARF: {binary}")
+        decoder_facts(argparse.Namespace(target=targets[tag], version=version,
+                                        decoder=args.decoder, binary=binary))
+    elif args.decoder is not None:
+        raise SystemExit("error: decoder is only supported for Linux")
+
+    if stage_dir.exists():
+        shutil.rmtree(stage_dir)
+    catalog_assets = resolve_catalog_assets(args)
+    stage(root, binary, version, stage_dir, catalog_assets, binary_name)
+    validate(stage_dir, version, binary_name)
+    fail_if_decoder_in_tree(stage_dir)
+    pin_version(binary, stage_dir, version, binary_name)
+
+    archive = out_dir / f"{stage_dir.name}.tar.gz"
+    if archive.exists():
+        archive.unlink()
+    write_tar(stage_dir, archive)
+    fail_if_decoder_in_archive(archive)
+
+    archive_sha = sha256_file(archive)
+    executable_sha = sha256_file(stage_dir / binary_name)
+    manifest = {
+        "version": f"v{version}",
+        "binaries": [
+            {
+                "platform": tag,
+                "file": archive.name,
+                "sha256": archive_sha,
+                "executableSha256": executable_sha,
+            }
+        ],
+    }
+    (out_dir / "binaries.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (out_dir / "SHA256SUMS").write_text(f"{archive_sha}  {archive.name}\n")
+
+    print(f"Created {archive}")
+    print(f"Created {out_dir / 'binaries.json'}")
+    print(f"Created {out_dir / 'SHA256SUMS'}")
+    print(f"Staged layout at {stage_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

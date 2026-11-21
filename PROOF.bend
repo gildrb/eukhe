@@ -1717,6 +1717,8 @@ import ./proof/wire/wire_list_exact.bend as PWireListExact
 import ./proof/wire/wire_list_example.bend as PWireListExample
 import ./proof/wire/wire_err_example.bend as PWireErrExample
 import ./proof/wire/wire_err_never_value.bend as PWireErrNeverValue
+import ./proof/wire/wire_end_exact.bend as PWireEndExact
+import ./proof/wire/wire_end_example.bend as PWireEndExample
 import ./proof/facts/base.bend as LAFacts
 import ./proof/facts/core_facts_round_trip.bend as PCoreFactsRoundTrip
 import ./proof/facts/core_facts_level.bend as PCoreFactsLevel
@@ -4312,7 +4314,13 @@ import ./proof/once/base/world_void.bend as LAOnceWorldVoid
 import ./proof/once/base/world_ends.bend as LAOnceWorldEnds
 import ./proof/once/base/world_late.bend as LAOnceWorldLate
 import ./proof/once/once_life_is_spec.bend as POnceLifeIsSpec
-import ./proof/once/once_recover_is_spec.bend as POnceRecoverIsSpec
+import ./proof/once/once_recover_absent_skips.bend as POnceRecoverAbsentSkips
+import ./proof/once/once_recover_pending_unrun.bend as POnceRecoverPendingUnrun
+import ./proof/once/once_recover_evidence_first.bend as POnceRecoverEvidenceFirst
+import ./proof/once/once_recover_dark_stop_unknown.bend as POnceRecoverDarkStopUnknown
+import ./proof/once/once_recover_dark_repeats_safe.bend as POnceRecoverDarkRepeatsSafe
+import ./proof/once/once_recover_dark_unsafe_unknown.bend as POnceRecoverDarkUnsafeUnknown
+import ./proof/once/once_recover_ended_settled.bend as POnceRecoverEndedSettled
 import ./proof/once/once_ended_stays.bend as POnceEndedStays
 import ./proof/once/once_life_step_is_spec.bend as POnceLifeStepIsSpec
 import ./proof/once/once_step_is_spec.bend as POnceStepIsSpec
@@ -4327,11 +4335,12 @@ import ./proof/once/once_ended_never_launches.bend as POnceEndedNeverLaunches
 import ./proof/once/once_unrun_resumes.bend as POnceUnrunResumes
 import ./proof/once/once_unknown_is_said.bend as POnceUnknownIsSaid
 import ./proof/once/once_stop_settles.bend as POnceStopSettles
+import ./proof/once/once_unknown_moves_on.bend as POnceUnknownMovesOn
+import ./proof/once/once_unknown_told_once.bend as POnceUnknownToldOnce
 import ./proof/once/once_tool_gate_agrees.bend as POnceToolGateAgrees
 import ./proof/once/once_key_distinct.bend as POnceKeyDistinct
 import ./proof/once/once_key_never_err.bend as POnceKeyNeverErr
 import ./proof/once/once_key_reads_back.bend as POnceKeyReadsBack
-import ./proof/once/once_key_reads.bend as POnceKeyReads
 import ./proof/once/once_key_malformed_exact.bend as POnceKeyMalformedExact
 import ./proof/once/once_entry_reads.bend as POnceEntryReads
 import ./proof/once/once_entry_malformed_exact.bend as POnceEntryMalformedExact

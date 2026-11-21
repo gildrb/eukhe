@@ -1,5 +1,5 @@
 //! Spawns: every child is a node of the agent tree
-//! (`docs/internals/agent-tree.md`).
+//! (requirements T1-T16 of `spec/README.md`).
 //!
 //! - `rlm.split` admits a split of this session's crown and spawns both
 //!   children, each in its own copy-on-write workspace over its scope.

@@ -1,6 +1,6 @@
 # Factory: library, TUI and settings
 
-The authoring reference and API guide is `rlm.factory.help()` in the kernel (`FACTORY_HELP` in `eukhe-runtime/src/rlm/factory.py`). This file covers what lives outside the kernel.
+The authoring reference and API guide is `rlm.factory.help()` in the kernel (`FACTORY_HELP` in `rlm/src/rlm/factory.py`). This file covers what lives outside the kernel.
 
 ## The opt-in gate
 

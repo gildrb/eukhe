@@ -29,7 +29,7 @@ use eukhe_types::budget::dollars;
 use super::{
     end_failed_run, failed, live_generation, queue_modes, GenerationCheckpoint, Next, Runtime,
 };
-use crate::harness::effects::{note_unknown, EffectKind, UnknownEffect};
+use crate::harness::effects::{note_unknown, EffectKind, UnknownCause, UnknownEffect};
 use crate::harness::inbox::prepare_boundary;
 use crate::harness::live::run::convert_partial;
 use crate::harness::live::LIVE_DOC;
@@ -151,6 +151,12 @@ fn unknown(
         kind: EffectKind::Request,
         what,
         at: runtime.now()?,
+        cause: Some(match cut {
+            Cut::Undeclared => UnknownCause::NoDedup,
+            Cut::Capped => UnknownCause::ResendsSpent,
+            Cut::Stopped => UnknownCause::RunStopped,
+        }),
+        settled_run: None,
         resolution: None,
     })
 }
@@ -222,7 +228,7 @@ pub(super) async fn fail_interrupted(
 ) -> SessionResult<()> {
     let text = format!(
         "The model request to {model} was cut by a restart {attempt} times in a row and was \
-         not sent again: its reply is unknown. Send your message again to continue."
+         not sent again (retry.maxRetries): its reply is unknown, and the run ended."
     );
     let effect = unknown(runtime, attempt, model, key, cut)?;
     let conversation_id = runtime.conversation_id();

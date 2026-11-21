@@ -180,7 +180,8 @@ fn cached_prefix_is_stable_across_sessions() {
 /// `jobs.wait` in flight that one of its `bash()` handles settled. The
 /// workflow tool's agents read and lend the session's tree facts
 /// (`rlm.tree_*`); a factory's writing states admit and end their batches
-/// through `tree.batch*`.
+/// through `tree.batch*`, and its executor reports each run's end to the
+/// agent through `factory.report`.
 const INTERNAL_HOST_REQUESTS: &[&str] = &[
     "model.info",
     "mcp.config",
@@ -194,6 +195,7 @@ const INTERNAL_HOST_REQUESTS: &[&str] = &[
     "tree.batch",
     "tree.batch_end",
     "tree.batch_drop",
+    "factory.report",
 ];
 
 /// Map one registered host-request type to the prompt token that documents

@@ -25,7 +25,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use tokio::sync::mpsc;
 
-use super::tree::{commit_start, settle_stale, write_records, JobEnded, JOB_DOC};
+use super::tree::{commit_exits, commit_start, settle_stale, write_records, JobEnded, JOB_DOC};
 use super::{
     lock, wait_until, Job, JobEnd, JobEvent, JobKind, JobSpec, JobState, JobTable, Wait,
     JOB_DOC_KIND,
@@ -176,6 +176,8 @@ async fn a_capped_job_keeps_the_cap_counts_the_rest_and_reports_one_end() {
         ends,
         vec![JobEnded {
             id: id("bash-1"),
+            kind: JobKind::UserBash,
+            label: "sleep 1".to_owned(),
             end: JobEnd::Exited(3),
         }]
     );
@@ -385,6 +387,86 @@ async fn a_stale_job_is_reported_interrupted_once() {
                 "make test".to_owned(),
                 None
             )],
+            true
+        )
+    );
+    harness.close(cx).await.expect("close");
+}
+
+/// A job of an earlier process whose exit is on its node ran to its end:
+/// it is reported once with its exit code (status `error` for a code other
+/// than 0; its output lost), and the ledger notes nothing.
+#[tokio::test]
+async fn a_stale_job_whose_exit_is_recorded_is_reported_ran_once() {
+    let cx = &BACKGROUND_CONTEXT;
+    let (_table, harness, root) = table_on(Arc::new(MemoryStorage::new())).await;
+    let closing = SessionClosing::default();
+    let done = id("shell-done");
+    let exited = JobEnded {
+        id: done.clone(),
+        kind: JobKind::Shell,
+        label: "make test".to_owned(),
+        end: JobEnd::Exited(3),
+    };
+    commit_start(&harness, &done, JobKind::Shell, "make test")
+        .await
+        .expect("the start records");
+    commit_exits(&harness, std::slice::from_ref(&exited))
+        .await
+        .expect("the exit records");
+    let node = harness
+        .snapshot(&JOB_DOC, "shell-done", cx)
+        .await
+        .expect("a read")
+        .map(|value| {
+            from_json::<serde_json::Value>(&JsonValue::Object(value)).expect("a job document")
+        });
+    settle_stale(&harness, &root, &closing, &done, Mode::Resume)
+        .await
+        .expect("the first open settles it");
+    // The retire did not commit: the next open finds the node again.
+    commit_exits(&harness, std::slice::from_ref(&exited))
+        .await
+        .expect("the node again");
+    settle_stale(&harness, &root, &closing, &done, Mode::Stop)
+        .await
+        .expect("the next open settles it");
+
+    let notices: Vec<bool> = root
+        .entries(ConversationEntryQuery::default(), 100, None, cx)
+        .await
+        .expect("the entries")
+        .items
+        .iter()
+        .filter(|entry| entry.kind == "eukhe.custom")
+        .map(|entry| format!("{:?}", entry.model))
+        .filter(|model| model.contains("[job-settled job:shell-done"))
+        .map(|model| {
+            model.contains("status:error]")
+                && model.contains(
+                    "The background shell job shell-done (\\\"make test\\\") ran to its end with \
+                     exit code 3 before a crash or restart; its output is lost. It was not run again.",
+                )
+        })
+        .collect();
+    let ledger = harness
+        .snapshot(&EFFECTS_DOC, root.id(), cx)
+        .await
+        .expect("the ledger reads")
+        .map(|value| from_json::<EffectsState>(&JsonValue::Object(value)).expect("a ledger"))
+        .unwrap_or_default()
+        .unknown;
+    let gone = harness
+        .snapshot(&JOB_DOC, "shell-done", cx)
+        .await
+        .expect("a read")
+        .is_none();
+    assert_eq!(
+        (node, notices, ledger, gone),
+        (
+            Some(serde_json::json!({ "kind": "shell", "label": "make test", "exit": 3 })),
+            vec![true],
+            Vec::new(),
             true
         )
     );
@@ -699,6 +781,8 @@ async fn a_failed_batch_commits_its_ends_one_at_a_time_and_notes_the_one_that_fa
         records
             .send(JobEnded {
                 id: id(job),
+                kind: JobKind::UserBash,
+                label: "sleep 1".to_owned(),
                 end: JobEnd::Killed,
             })
             .expect("the queue is open");

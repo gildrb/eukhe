@@ -34,5 +34,6 @@ mod run;
 mod shown;
 
 pub use effect::GIT_UNTRUSTED_REPO_ARGS;
+pub use parse::literal_command;
 pub use run::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, StepRun, Stream};
 pub use shown::visible;

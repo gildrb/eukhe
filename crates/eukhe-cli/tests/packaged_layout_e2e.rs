@@ -22,7 +22,7 @@
 //! release artifact.
 //!
 //! The staged layout is the release tarball's: the binary plus
-//! `package.json` (the version manifest), the `eukhe-runtime/` sidecar, and
+//! `package.json` (the version manifest), the `rlm/` sidecar, and
 //! `skills/` beside it, all resolved at runtime from the executable's
 //! directory.
 
@@ -35,7 +35,7 @@ mod kernel_runtime;
 use kernel_runtime::kernel_python;
 
 /// The repo root (crates/eukhe-cli -> crates -> root): the vendored
-/// eukhe-runtime sidecar and skills live there.
+/// rlm sidecar and skills live there.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -74,7 +74,7 @@ const PACKAGED_BINARY_NAME: &str = "eukhe";
 
 /// Stage the packaged layout into `dir`: the binary, the version manifest,
 /// and the shipped assets. `with_runtime` controls whether the
-/// eukhe-runtime sidecar is present (the failure-UX scenario removes
+/// rlm sidecar is present (the failure-UX scenario removes
 /// it).
 fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
     std::fs::create_dir_all(dir).expect("stage dir");
@@ -99,10 +99,7 @@ fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
         }
     }
     if with_runtime {
-        copy_dir(
-            &repo_root().join("eukhe-runtime"),
-            &dir.join("eukhe-runtime"),
-        );
+        copy_dir(&repo_root().join("rlm"), &dir.join("rlm"));
     }
 }
 
@@ -309,7 +306,7 @@ fn packaged_binary_reports_manifest_version() {
 }
 
 /// Regression (Local Studio, whose app bundle ships the binary without the
-/// sidecar): a packaged session with no `eukhe-runtime/` offered the
+/// sidecar): a packaged session with no `rlm/` offered the
 /// python tool, and the model's first call was a cell that could only
 /// fail. Now the session offers no python tool (the request's prompt says
 /// there is no Python REPL). The notice naming the runtime directory is a
@@ -361,7 +358,7 @@ fn stored_text(dir: &Path) -> String {
 }
 
 /// A missing sidecar (broken install) surfaces the actionable failure: the
-/// missing eukhe-runtime hint naming the executable's directory, before
+/// missing rlm hint naming the executable's directory, before
 /// anything is fetched.
 #[test]
 fn missing_sidecar_reports_actionable_bootstrap_error() {
@@ -379,7 +376,7 @@ fn missing_sidecar_reports_actionable_bootstrap_error() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.starts_with("Error: the eukhe-runtime kernel runtime directory was not found"),
+        stderr.starts_with("Error: the rlm kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
@@ -499,7 +496,7 @@ fn hostile_child_assertions(staged: &Path) {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.starts_with("Error: the eukhe-runtime kernel runtime directory was not found"),
+        stderr.starts_with("Error: the rlm kernel runtime directory was not found"),
         "missing-sidecar hint missing: {stderr}"
     );
     assert!(
@@ -578,7 +575,7 @@ fn packaged_layout_stays_hermetic_under_hostile_host_env() {
 }
 
 /// A tiny real ELF split into the paired shipped image + decoder that the
-/// fail-closed Linux packer/assembler require (`scripts/release/`
+/// fail-closed Linux packer/assembler require (`.github/scripts/release/`
 /// `test_catalog_assets.py` stages the same fixture shape). The directory
 /// must outlive the invocation; the caller keeps it.
 struct PairedFixture {
@@ -633,6 +630,7 @@ fn split_paired_fixture(
     let split = Command::new(python)
         .arg(
             repo_root()
+                .join(".github")
                 .join("scripts")
                 .join("release")
                 .join("split_debug.py"),
@@ -678,7 +676,7 @@ fn packaging_dry_run_produces_artifact() {
     // A synthetic tree: the packaging must ship the sidecar without its
     // .venv or bytecode caches.
     let tree = tempfile::TempDir::new().expect("packaging tree");
-    let runtime = tree.path().join("eukhe-runtime");
+    let runtime = tree.path().join("rlm");
     std::fs::create_dir_all(runtime.join("src").join("rlm")).expect("runtime tree");
     std::fs::write(runtime.join("pyproject.toml"), "[project]\nname = \"x\"\n").unwrap();
     // The hash-locked kernel requirements every shipped runtime carries.
@@ -735,6 +733,7 @@ fn packaging_dry_run_produces_artifact() {
     let bundle = Command::new(python)
         .arg(
             repo_root()
+                .join(".github")
                 .join("scripts")
                 .join("release")
                 .join("bundle_catalog.py"),
@@ -787,7 +786,12 @@ fn packaging_dry_run_produces_artifact() {
     };
     let mut command = Command::new(python);
     command
-        .arg(repo_root().join("scripts").join("package_release.py"))
+        .arg(
+            repo_root()
+                .join(".github")
+                .join("scripts")
+                .join("package_release.py"),
+        )
         .arg("--root")
         .arg(tree.path())
         .arg("--binary")
@@ -819,19 +823,16 @@ fn packaging_dry_run_produces_artifact() {
     .expect("manifest json");
     assert_eq!(manifest["version"], version, "version pin: {manifest}");
     assert!(
-        stage.join("eukhe-runtime").join("pyproject.toml").is_file(),
+        stage.join("rlm").join("pyproject.toml").is_file(),
         "sidecar manifest missing"
     );
     assert!(
-        stage
-            .join("eukhe-runtime")
-            .join("requirements-kernel.txt")
-            .is_file(),
+        stage.join("rlm").join("requirements-kernel.txt").is_file(),
         "sidecar hash lock missing"
     );
     assert!(
         stage
-            .join("eukhe-runtime")
+            .join("rlm")
             .join("src")
             .join("rlm")
             .join("repl.py")
@@ -855,12 +856,12 @@ fn packaging_dry_run_produces_artifact() {
     );
     // .venv handling (the TS installer exclusion set): dev caches never ship.
     assert!(
-        !stage.join("eukhe-runtime").join(".venv").exists(),
+        !stage.join("rlm").join(".venv").exists(),
         ".venv rode the artifact"
     );
     assert!(
         !stage
-            .join("eukhe-runtime")
+            .join("rlm")
             .join("src")
             .join("rlm")
             .join("__pycache__")
@@ -1056,10 +1057,10 @@ fn sha256(data: &[u8]) -> [u8; 32] {
 // The pinned kernel, through the packaged binary
 // ---------------------------------------------------------------------------
 
-/// The Python version `eukhe-runtime/kernel-toolchain.json` pins.
+/// The Python version `rlm/kernel-toolchain.json` pins.
 fn pinned_python() -> String {
     let pin: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(repo_root().join("eukhe-runtime/kernel-toolchain.json"))
+        &std::fs::read_to_string(repo_root().join("rlm/kernel-toolchain.json"))
             .expect("read the pin file"),
     )
     .expect("the pin file parses");
@@ -1071,7 +1072,7 @@ fn pinned_python() -> String {
 
 /// The version Eukhe's lock pins for `distribution`.
 fn locked_version(distribution: &str) -> String {
-    let lock = std::fs::read_to_string(repo_root().join("eukhe-runtime/requirements-kernel.txt"))
+    let lock = std::fs::read_to_string(repo_root().join("rlm/requirements-kernel.txt"))
         .expect("read Eukhe's lock");
     lock.lines()
         .find_map(|line| line.strip_prefix(&format!("{distribution}==")))

@@ -22,8 +22,10 @@
 //! the session state tree holds one node per running job ([`tree`]). The
 //! start is durable before the job starts ([`JobTable::record_start`]
 //! answers the [`StartRecord`] that [`JobTable::start`] takes): a job is
-//! never launched, nor its detach reported, without it; and a job a crash
-//! cut is reported interrupted at the next open, never run again. A
+//! never launched, nor its detach reported, without it. A job's exit is
+//! durable before its end retires the node: a job a crash cut after its
+//! exit is reported ran with its exit code at the next open; one cut
+//! before is treated as not run; neither is run again. A
 //! rewind of the session sends the kill to every running job that started
 //! after its target entry ([`stop_orphans`]), in the order of the entry
 //! commits the table sees; the system prompt shows the running jobs of the
@@ -398,6 +400,8 @@ impl Job {
             // durable, so the next open reports the job interrupted.
             let _ = self.inner.records.send(JobEnded {
                 id: self.inner.id.clone(),
+                kind: self.inner.kind,
+                label: self.inner.label.clone(),
                 end,
             });
             self.pulse();

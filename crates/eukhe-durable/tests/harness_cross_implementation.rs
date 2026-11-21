@@ -31,9 +31,9 @@
 //!   jobs) before you run it again.", LAWS.bend H7), edited in the
 //!   same way, with the token counts of the answer that follows it; TS's
 //!   text ends at "may have partially run".
-//! - In both `-resumed` fixtures, the restart that settles the interrupted
-//!   call also lists it in the conversation's `eukhe.effects` ledger
-//!   (document 13, an effect whose outcome is unknown: spec O9), so every
+//! - In both `-resumed` fixtures, the restart that treats the interrupted
+//!   call as not run also lists it in the conversation's `eukhe.effects`
+//!   ledger (document 13, with its cause and run: spec O4, O9), so every
 //!   later id is one higher than TS's; and the second generation's
 //!   `request` checkpoint records its send (`sends`, the exactly-once
 //!   request) as its stream starts. Both are edited in like the above; a

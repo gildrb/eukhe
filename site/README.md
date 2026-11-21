@@ -10,7 +10,7 @@ It lives in `site/` of Eukhe's repository (until November 2026 it was gildrb/euk
 npm ci  # dependencies (npm, any version)
 ```
 
-The site's Bend (`vim/vim.bend`) builds with the Bend release Eukhe pins (`../scripts/toolchain.env`, found by `../scripts/pinned_bend.sh`).
+The site's Bend (`vim/vim.bend`) builds with the Bend release Eukhe pins (`../.github/scripts/toolchain.env`, found by `../.github/scripts/pinned_bend.py`).
 
 ## Use
 

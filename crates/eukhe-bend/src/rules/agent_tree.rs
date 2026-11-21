@@ -1,6 +1,6 @@
 //! The agent tree (`bend/agent_tree.bend`, entry `bend/ffi_agent_tree.bend`;
-//! laws `laws/agent_tree.bend`, spec `spec/agents/agent_tree.bend`, design
-//! `docs/internals/agent-tree.md`): every agent is a node that works alone
+//! laws `laws/agent_tree.bend`, spec `spec/agents/agent_tree.bend`,
+//! requirements T1-T16 of `spec/README.md`): every agent is a node that works alone
 //! or splits into exactly two children with disjoint scopes. The core
 //! decides each event (`step`), integrates a child's patch (`overlay`),
 //! names a node's next action (`next`) and what it may still spend

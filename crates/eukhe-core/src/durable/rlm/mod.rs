@@ -1,7 +1,8 @@
 //! The `eukhe.rlm` extension: the `python` tool backed by one Python kernel
 //! per conversation, and the kernel host requests the session answers
 //! (`rlm_heartbeat.*`, `mcp.*`, `model.info`, `compact.*`, `refine.*`,
-//! `rlm.query_batch`, `history.*`, `chat.*`, plus the embedding's extra
+//! `rlm.query_batch`, `history.*`, `chat.*`, `factory.report`, plus the
+//! embedding's extra
 //! handlers). `rlm.*` (children) and `goal.*` (goals) register from their
 //! own extensions into the same
 //! [`HostRequestRegistry`](super::HostRequestRegistry).
@@ -12,6 +13,7 @@
 mod activity;
 mod boundary;
 pub mod factory;
+mod factory_report;
 mod history;
 mod host;
 mod jobs;
@@ -189,6 +191,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     remote::register(&runtime);
     query::register(&runtime);
     history::register(&runtime);
+    factory_report::register(&runtime);
     let refine_allowed = boundary::register(&runtime);
     let service_runtime = Arc::clone(&runtime);
     // A kernel that cannot start (its Python could not be fetched) is

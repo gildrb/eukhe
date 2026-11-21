@@ -11,7 +11,9 @@
 //! attach/submit/stream/render path without a TTY.
 
 use std::collections::VecDeque;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -60,11 +62,22 @@ use reconnect::{DAEMON_SHUTDOWN_RECONNECT_WINDOW, SHUTDOWN_RECONNECT_RETRY};
 // re-exports keep the composition root's entry paths stable.
 mod run;
 
-// The startup open's failure routes (the agents-view fallback or the
-// fatal return).
+// The startup open's failure routes (the agents-view fallback, the
+// failed daemon start shown in the frame, or the fatal return).
 mod open_failure;
 
-pub use run::run_interactive;
+pub use run::{run_interactive, run_interactive_with};
+
+/// The daemon an interactive run attaches to.
+pub enum DaemonLink {
+    /// Listening: the run connects before its surface mounts, so a connect
+    /// failure leaves the caller's terminal as it was.
+    Up,
+    /// Still starting: the surface paints and takes typing at once, and the
+    /// open connects once this resolves. Its error, or the connect's, shows
+    /// in the painted frame and ends the run.
+    Starting(Pin<Box<dyn Future<Output = Result<()>> + Send>>),
+}
 
 use crossterm::event::KeyEvent;
 use crossterm::terminal;

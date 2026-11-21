@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""nix/merge-settings.sh, the Home Manager activation of
+"""nix/merge_settings.py, the Home Manager activation of
 `programs.eukhe.settings`: the declared settings merge into
 ~/.eukhe/settings.json and never drop what eukhe wrote there (the saved
-model choice). Needs bash and jq on PATH (the module puts jq there)."""
+model choice)."""
 import json
 import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / "merge-settings.sh"
+SCRIPT = Path(__file__).resolve().parent / "merge_settings.py"
 
 
 def merge(target: Path, declared: dict) -> subprocess.CompletedProcess:
     source = target.parent.parent / "declared.json"
     source.write_text(json.dumps(declared, sort_keys=True))
     return subprocess.run(
-        ["bash", str(SCRIPT), str(target), str(source)],
+        [sys.executable, str(SCRIPT), str(target), str(source)],
         capture_output=True,
         text=True,
         check=False,
@@ -29,8 +30,6 @@ def merge(target: Path, declared: dict) -> subprocess.CompletedProcess:
 
 class MergeSettingsTest(unittest.TestCase):
     def setUp(self) -> None:
-        if shutil.which("jq") is None:
-            self.fail("jq is not installed (the Home Manager module provides it)")
         self.dir = Path(tempfile.mkdtemp())
         self.target = self.dir / ".eukhe" / "settings.json"
 

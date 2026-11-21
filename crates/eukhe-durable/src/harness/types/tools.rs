@@ -11,6 +11,7 @@ use eukhe_ai::models::Models;
 use eukhe_bend::rules::once::Seen;
 use eukhe_chord::context::Context;
 use eukhe_chord::json::{to_json, JsonValue};
+use eukhe_types::effects::EffectKind;
 use eukhe_types::pi_ai::{
     JsonObject as PiJsonObject, JsonValue as PiJsonValue, Tool, ToolConstrainedSampling,
     ToolSchema, Usage, UserContentBlock,
@@ -431,7 +432,19 @@ pub type PrepareArguments = Arc<dyn Fn(PiJsonValue) -> SessionResult<PiJsonValue
 /// [`Seen::Landed`] only when the whole change is there, [`Seen::Clean`]
 /// only when none of it is and none of it can come, and [`Seen::Dark`]
 /// when it cannot tell.
-pub type ToolProbe = Arc<dyn Fn(JsonValue) -> BoxFuture<'static, Seen> + Send + Sync>;
+pub type ToolLook = Arc<dyn Fn(JsonValue) -> BoxFuture<'static, Seen> + Send + Sync>;
+
+/// The evidence a tool's calls declare for a restart: the effect a call
+/// is, and how a restart looks at what it changed ([`ToolLook`]).
+#[derive(Clone)]
+pub struct ToolProbe {
+    /// The effect a recorded call is, as its kill points and its effects
+    /// ledger id spell it: [`EffectKind::Write`] (a file write, which
+    /// starts once its record is durable), else [`EffectKind::Tool`] (a
+    /// call that records only for some steps, a git command's refs).
+    pub effect: EffectKind,
+    pub look: ToolLook,
+}
 
 /// Executable tool registered in a registry (TS `ToolRegistration`). Only
 /// the pi-ai `Tool` fields enter the transcript.
@@ -449,10 +462,11 @@ pub struct ToolRegistration {
     /// Whether an interrupted execution may rerun on recovery. Default
     /// `Unsafe`.
     pub replay: Option<ToolReplay>,
-    /// Looks at what a call interrupted by a restart changed (a file
-    /// write: the effects ledger names it `write:<call id>`), so the call is
-    /// adopted, run again, or reported interrupted as the world shows,
-    /// whatever `replay` says; `None`: `replay` alone decides.
+    /// The evidence of a call interrupted by a restart (a file write: the
+    /// effects ledger names it `write:<call id>`; a git command's refs), so
+    /// the call is adopted or run again as the world shows before `replay`
+    /// decides; `None`, or a call that recorded nothing: `replay` alone
+    /// decides.
     pub probe: Option<ToolProbe>,
     /// Default: the settings' `tool_execution`. One sequential call makes its
     /// whole round sequential.

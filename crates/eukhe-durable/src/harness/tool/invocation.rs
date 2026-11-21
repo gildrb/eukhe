@@ -25,10 +25,10 @@ use super::nested::{
 use super::result::{bound_content, tool_diagnostic, truncated, ToolEnding};
 use super::{
     effect_of, settle, Repair, Runtime, ToolTaskCheckpoint, ToolTaskInput, ToolTaskResult,
-    EFFECT_TOOL, EFFECT_WRITE,
 };
 use crate::documents::{AnyDocDefinition, ResolvedAddress};
 use crate::env::{ExecutionEnv, ShellOutputSkip, ShellOutputWindow};
+use crate::harness::effects::EffectKind;
 use crate::harness::live::SlotProgress;
 use crate::harness::output::{
     OutputBuffer, OutputLimits, Progress, Truncation, PROGRESS_BYTES_PER_SECOND,
@@ -154,6 +154,8 @@ struct ToolInvocation {
     /// tasks after a restart; any other caller never resumes, so they are
     /// abandoned (`TaskOptions.abandon_on_restart`).
     resumes: bool,
+    /// The effect the call is ([`effect_of`]): its probe's kill point.
+    effect: EffectKind,
 }
 
 impl DocumentReader for ToolInvocation {
@@ -324,7 +326,8 @@ impl ToolExecutionApi for ToolInvocation {
 
     /// The record replaces the probe of the call's intent checkpoint, so
     /// the recovery of this attempt reads it; a write starts only once it
-    /// is durable (the `write` kill point `started`).
+    /// is durable (the `write` kill point `started`), any other recorded
+    /// step once it is (the kill point `probed`).
     fn probe(&self, record: JsonValue, cx: &Context) -> BoxFuture<'static, SessionResult<()>> {
         if let Err(error) = self.reporting.report(|| ()) {
             return futures::future::ready(Err(error)).boxed();
@@ -353,9 +356,15 @@ impl ToolExecutionApi for ToolInvocation {
             },
             cx,
         );
+        let point = if starts_at_probe(self.effect) {
+            "started"
+        } else {
+            "probed"
+        };
+        let effect = self.effect.name();
         async move {
             committed.await?;
-            kill_point(EFFECT_WRITE, "started");
+            kill_point(effect, point);
             Ok(())
         }
         .boxed()
@@ -485,6 +494,20 @@ impl ToolExecutionApi for ToolInvocation {
     }
 }
 
+/// A call of effect `effect` starts once its probe's record is durable (a
+/// file write); any other starts as it executes.
+fn starts_at_probe(effect: EffectKind) -> bool {
+    match effect {
+        EffectKind::Write => true,
+        EffectKind::Tool
+        | EffectKind::Request
+        | EffectKind::Job
+        | EffectKind::Spawn
+        | EffectKind::Fire
+        | EffectKind::Message => false,
+    }
+}
+
 /// The invocation's reporting state for `tool`, with its truncation
 /// resolved, and the output window a shell may skip outside of: the one
 /// place a call's limits are resolved.
@@ -563,16 +586,17 @@ pub(super) async fn run(
     // Built for this call, so a rerun after recovery gets the conversation's environment at that time.
     let executed = match runtime.env(cx).await {
         Ok(env) => {
+            let effect = effect_of(tool);
             let api = Arc::new(ToolInvocation {
                 runtime: runtime.clone(),
                 reporting: Arc::clone(&reporting),
                 output_window,
                 env,
                 resumes: tool.replay == Some(ToolReplay::Safe),
+                effect,
             });
-            if tool.probe.is_none() {
-                // A probed call starts once its probe is durable (`probe`).
-                kill_point(EFFECT_TOOL, "started");
+            if !starts_at_probe(effect) {
+                kill_point(effect.name(), "started");
             }
             let started = Instant::now();
             let executed = (tool.execute)(PiJsonValue::Object(args), api, cx.clone()).await;
@@ -651,7 +675,7 @@ pub(super) async fn run(
     }
     .await;
     if settled.is_ok() {
-        kill_point(effect_of(tool).1, "finished");
+        kill_point(effect_of(tool).name(), "finished");
     }
     for waiter in pending {
         let _gone = waiter.send(settled.clone());

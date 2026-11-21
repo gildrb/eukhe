@@ -1,6 +1,6 @@
 //! Real-pty e2e for slash-command completion: the product's terminal
 //! renderer runs on a pty over a mock supervisor whose session holds one
-//! interrupted effect. Typing `/bud` shows `/budget` with its
+//! step treated as not run after a crash. Typing `/bud` shows `/budget` with its
 //! description, Tab completes it and lists its words, `set ` lists the
 //! budget keys, `ti` + Tab completes `time=` with the ghost hint of its
 //! value, and `/effects ran ` lists the session's real effect id.
@@ -22,7 +22,7 @@ use eukhe_tui::interactive::{
 
 const CHILD_SOCKET_ENV: &str = "EUKHE_SLASH_COMPLETION_CHILD_SOCKET";
 
-/// The interrupted effect the session's ledger holds.
+/// The step treated as not run that the session's ledger holds.
 const EFFECT_ID: &str = "toolu_01AbC";
 const EFFECT_WHAT: &str = "bash: make deploy";
 
