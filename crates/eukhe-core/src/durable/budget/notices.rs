@@ -24,9 +24,12 @@ use eukhe_durable::harness::types::{
     Extension, GenerationHooks, HookApi, PlaceQueued, SubmissionDraft, WriteSubmissionDraft,
 };
 use eukhe_durable::harness::GENERATION_TASK;
-use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, PlanShare};
+use eukhe_types::budget::{
+    BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, LimitSource, PlanShare,
+};
 use futures::FutureExt as _;
 
+use super::runs::BelowFloor;
 use super::BudgetGate;
 use crate::durable::deps::{HarnessCell, SessionClosing};
 use crate::durable::main_conversation::{main_conversation, main_conversation_id};
@@ -44,7 +47,7 @@ pub const BUDGET_STATUS_CUSTOM_TYPE: &str = "eukhe.budget.status";
 
 /// The error of a request the gate stopped at its granted time.
 pub(super) const REQUEST_STOPPED: &str =
-    "Budget exhausted (time): the request was stopped. Add budget to continue.";
+    "Budget exhausted (time): the request was stopped at its granted time.";
 
 /// The tool error of a call the gate stopped at its granted time.
 pub(super) const TOOL_STOPPED: &str = "Budget exhausted (time): the tool call was stopped.";
@@ -293,7 +296,7 @@ pub(super) fn low_text(report: &BudgetReport, keep: BudgetAmounts) -> String {
 /// tokens: the `short` budget is used up.
 pub(super) fn wrap_up_text(short: &str, report: &BudgetReport, cap: u64) -> String {
     format!(
-        "[budget] The {short} budget of this task is used up for work: {} left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens.",
+        "[budget] The {short} budget of this task is used up for work: {} left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is left, and that the {short} limit ended the work. At most {cap} output tokens.",
         remaining(report)
     )
 }
@@ -310,7 +313,7 @@ pub(super) fn short_label(refusal: Refusal, report: &BudgetReport) -> &'static s
 /// The error of a model request that was not sent: the `short` budget is
 /// used up.
 pub(super) fn request_refused(short: &str) -> String {
-    format!("Budget exhausted ({short}): the request was not sent. Add budget to continue.")
+    format!("Budget exhausted ({short}): the request was not sent.")
 }
 
 /// The tool error of a call that did not run: the `short` budget is used
@@ -349,12 +352,34 @@ pub(super) fn floor_text(
     keep: BudgetAmounts,
 ) -> String {
     format!(
-        "Budget too small for the run's first request: {} limit {}; the request needs {} and the final answer keeps {}. Nothing was sent. /budget set raises the limit.",
+        "Budget too small for the run's first request: {} limit {}; the request needs {} and the final answer keeps {}. Nothing was sent: the run ended before its first request.",
         short.label(),
         floor_amount(short, limits.get(short).unwrap_or_default()),
         floor_amount(short, first.get(short)),
         floor_amount(short, keep.get(short)),
     )
+}
+
+/// The refusal of limits below the floor of one request, said when they
+/// are set: the short dimension, its limit and who set it, and the least
+/// the run's first request and its final answer ask in it.
+impl std::fmt::Display for BelowFloor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let from = match &self.source {
+            LimitSource::UntilFinished | LimitSource::Set => String::new(),
+            LimitSource::LimitsProfile => " (limits profile)".to_owned(),
+            LimitSource::Profile => " (budget.profile)".to_owned(),
+            LimitSource::Preset(name) => format!(" (/b {name})"),
+        };
+        write!(
+            f,
+            "Below the floor of one request: {} limit {}{from}; the run's first request needs at least {} and the final answer keeps {}. The budget is as it was.",
+            self.dimension.label(),
+            floor_amount(self.dimension, self.limit),
+            floor_amount(self.dimension, self.request),
+            floor_amount(self.dimension, self.keep),
+        )
+    }
 }
 
 /// The notice that ends a final-answer request of at most `cap` output
@@ -364,7 +389,7 @@ pub(super) fn plan_wrap_text(plan: &PlanShare, cap: u64) -> String {
         (window.label.as_str(), window.used_permille / 10)
     });
     format!(
-        "[budget] Plan usage of the {label} window is at {used} % (limits on keep {} % of the window for the user): this run ends here. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most {cap} output tokens.",
+        "[budget] Plan usage of the {label} window is at {used} % (limits on keep {} % of the window for the user): this run ends here. Tools are no longer available. Give your final answer now: what is done, what is left, and that the plan's {label} window ended the work. At most {cap} output tokens.",
         plan.reserve_percent
     )
 }

@@ -307,14 +307,16 @@ async fn the_wait_for_background_work_ends_at_the_time_budgets_deadline() {
             ..
         }
     ));
+    // A time limit below the floor of one request (B17): `limit` writes it
+    // as a run whose time is nearly spent.
     opened
         .session
         .budget()
-        .set(eukhe_types::budget::BudgetLimits {
+        .limit(eukhe_types::budget::BudgetLimits {
             time_ms: Some(1_000),
             ..eukhe_types::budget::BudgetLimits::default()
         })
-        .expect("set the budget");
+        .expect("limit the time");
     let settled = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         wait_quiescent(&opened, &watch, std::time::Duration::from_secs(3_600), cx),

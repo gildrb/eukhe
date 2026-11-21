@@ -23,12 +23,13 @@ use eukhe_ai::quota::{PlanQuota, QuotaBoard};
 use eukhe_bend::rules::limits as core;
 use eukhe_budget::{LedgerError, RunRecord, REQUEST_MIN_MS};
 use eukhe_types::budget::{
-    AuthClass, BudgetAmounts, BudgetDimension, BudgetReport, BudgetSources, LimitSource,
-    LimitValue, NextRun, PlanNotice, PlanShare, RunKind, RunLimits,
+    AuthClass, BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport, BudgetSources,
+    LimitSource, LimitValue, NextRun, PlanNotice, PlanShare, RunKind, RunLimits,
 };
 use serde_json::{Map, Value};
 use tokio::sync::broadcast;
 
+use super::gate::least_first;
 use super::BudgetGate;
 use crate::settings::BudgetLimitsMode;
 
@@ -147,6 +148,22 @@ pub enum RunError {
     /// A `/b` preset that is neither shipped nor in `budget.presets`.
     #[error("no budget preset named `{0}` (shipped: quick, deep; others: budget.presets)")]
     Preset(String),
+    /// Limits below the floor of one request (B17).
+    #[error("{0}")]
+    Floor(BelowFloor),
+}
+
+/// Limits that cannot hold the least first request of a run beside its
+/// final answer (B17), refused when they are set: the first short
+/// dimension, its limit and who set it, and what the request and the
+/// final answer's reserve ask in it at the least.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BelowFloor {
+    pub dimension: BudgetDimension,
+    pub limit: u64,
+    pub source: LimitSource,
+    pub request: u64,
+    pub keep: u64,
 }
 
 /// What the checks before an agent's work request decided.
@@ -392,7 +409,8 @@ impl BudgetGate {
     ///
     /// # Errors
     ///
-    /// A profile or preset that is no limit, an unknown preset, and the
+    /// A profile or preset that is no limit, an unknown preset, limits
+    /// below the floor of one request ([`RunError::Floor`], B17), and the
     /// ledger's or the compiled core's failures: the budget is as it was.
     pub fn start_run(&self, start: RunStart) -> Result<Option<BudgetReport>, RunError> {
         let _serial = self
@@ -450,9 +468,11 @@ impl BudgetGate {
     ///
     /// # Errors
     ///
-    /// [`LedgerError::NotRoot`] for a session that draws from another
-    /// account, and the ledger's failures.
-    pub fn set_next(&self, limits: RunLimits) -> Result<BudgetReport, LedgerError> {
+    /// The failures of [`Self::start_run`] for the next run as it would
+    /// start now (limits below the floor of one request: [`RunError::Floor`],
+    /// B17), [`LedgerError::NotRoot`] for a session that draws from another
+    /// account, and the ledger's failures: the next run is as it was.
+    pub fn set_next(&self, limits: RunLimits) -> Result<BudgetReport, RunError> {
         self.change_next(|next| NextRun {
             limits: limits.over(next.limits),
             added: next.added,
@@ -467,7 +487,7 @@ impl BudgetGate {
     /// # Errors
     ///
     /// As [`Self::set_next`].
-    pub fn add_next(&self, amounts: BudgetAmounts) -> Result<BudgetReport, LedgerError> {
+    pub fn add_next(&self, amounts: BudgetAmounts) -> Result<BudgetReport, RunError> {
         self.change_next(|next| NextRun {
             limits: next.limits,
             added: BudgetDimension::ALL
@@ -482,19 +502,55 @@ impl BudgetGate {
     }
 
     /// Change what the next run starts with while no run starts; the
-    /// report that shows it, published.
-    fn change_next(
-        &self,
-        change: impl FnOnce(&NextRun) -> NextRun,
-    ) -> Result<BudgetReport, LedgerError> {
+    /// report that shows it, published. A change the next run would not
+    /// start with now is refused.
+    fn change_next(&self, change: impl Fn(&NextRun) -> NextRun) -> Result<BudgetReport, RunError> {
         let _serial = self
             .runs
             .starting
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        let current = self.ledger.run()?;
+        let kind = current
+            .as_ref()
+            .map(|run| run.kind)
+            .or_else(|| self.run_kind())
+            .unwrap_or_default();
+        // The next run as it would fill now: limits it would refuse are
+        // refused here, when they are set.
+        self.fill_run(
+            RunStart {
+                kind,
+                ..RunStart::default()
+            },
+            Begin::New,
+            current.as_ref(),
+            &change(&self.ledger.next_run()?),
+        )?;
         let report = self.ledger.change_next_run(change)?;
         self.publish(&report);
         Ok(report)
+    }
+
+    /// The first dimension of `limits` that cannot hold the least first
+    /// request of a run beside its final answer ([`least_first`]), if
+    /// any; `source` names who set each limit.
+    fn below_floor(
+        &self,
+        limits: &BudgetLimits,
+        source: impl Fn(BudgetDimension) -> LimitSource,
+    ) -> Result<Option<BelowFloor>, RunError> {
+        let (first, keep) = least_first(limits, self.longest_request_ms());
+        let first = clipped(first, limits, keep);
+        Ok(
+            eukhe_budget::floor(limits, first, keep)?.map(|dimension| BelowFloor {
+                dimension,
+                limit: limits.get(dimension).unwrap_or_default(),
+                source: source(dimension),
+                request: first.get(dimension),
+                keep: keep.get(dimension),
+            }),
+        )
     }
 
     fn set_current(
@@ -529,12 +585,7 @@ impl BudgetGate {
     /// [`Self::start_run`] or [`Self::set`] while this gate starts no
     /// other run.
     fn begin(&self, start: RunStart, begin: Begin) -> Result<Option<BudgetReport>, RunError> {
-        let facts = self.facts();
         let current = self.ledger.run()?;
-        let standing = start
-            .standing
-            .or_else(|| current.as_ref().map(|run| run.standing))
-            .unwrap_or_default();
         // A new run starts with what the principal set or added while the
         // session was idle (its message's `/b` pairs over it); the ledger
         // record that starts it uses them up.
@@ -542,7 +593,42 @@ impl BudgetGate {
             Begin::New => self.ledger.next_run()?,
             Begin::Current => NextRun::default(),
         };
-        let (mut asked, names) = match (begin, &current) {
+        let (limits, run) = self.fill_run(start, begin, current.as_ref(), &next)?;
+        let started = match begin {
+            Begin::New => self.ledger.start_run(limits, run),
+            Begin::Current => self.ledger.set_run(limits, run),
+        };
+        match started {
+            Ok(report) => {
+                if begin == Begin::New || current.is_none() {
+                    self.runs.fresh.store(true, Ordering::Relaxed);
+                }
+                self.changed(&report);
+                Ok(Some(report))
+            }
+            // A child runs in its parent's account.
+            Err(LedgerError::NotRoot(_)) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The limits and the record of the run `start` begins (`begin`) over
+    /// the session's `current` run, with `next` set or added for it while
+    /// the session was idle. Limits below the floor of one request are
+    /// refused ([`RunError::Floor`]).
+    fn fill_run(
+        &self,
+        start: RunStart,
+        begin: Begin,
+        current: Option<&RunRecord>,
+        next: &NextRun,
+    ) -> Result<(BudgetLimits, RunRecord), RunError> {
+        let facts = self.facts();
+        let standing = start
+            .standing
+            .or_else(|| current.map(|run| run.standing))
+            .unwrap_or_default();
+        let (mut asked, names) = match (begin, current) {
             (Begin::Current, Some(run)) => (
                 start.set.over(run.asked),
                 run.presets.iter().cloned().chain(start.presets).collect(),
@@ -612,7 +698,6 @@ impl BudgetGate {
             tool_calls: source(filled.srcs.calls),
             requests: source(filled.srcs.reqs),
         };
-        let first = current.is_none();
         let run = RunRecord {
             kind: start.kind,
             sources,
@@ -630,22 +715,12 @@ impl BudgetGate {
                 (None, _) | (Some(_), Some(_)) => limits,
             },
         );
-        let started = match begin {
-            Begin::New => self.ledger.start_run(limits, run),
-            Begin::Current => self.ledger.set_run(limits, run),
-        };
-        match started {
-            Ok(report) => {
-                if begin == Begin::New || first {
-                    self.runs.fresh.store(true, Ordering::Relaxed);
-                }
-                self.changed(&report);
-                Ok(Some(report))
-            }
-            // A child runs in its parent's account.
-            Err(LedgerError::NotRoot(_)) => Ok(None),
-            Err(error) => Err(error.into()),
+        if let Some(below) =
+            self.below_floor(&limits, |dimension| run.sources.get(dimension).clone())?
+        {
+            return Err(RunError::Floor(below));
         }
+        Ok((limits, run))
     }
 
     /// The first effect of a session that fills its runs and has no run
@@ -686,10 +761,15 @@ impl BudgetGate {
         first: BudgetAmounts,
         keep: BudgetAmounts,
     ) -> Result<Checked, RunError> {
-        self.ensure_run()?;
+        match self.ensure_run() {
+            // Limits a setting gave below the floor, found at the run's
+            // start: the request is refused with them.
+            Err(RunError::Floor(below)) => return Ok(Checked::Floor(below.to_string())),
+            started => started?,
+        }
         if self.runs.fresh.swap(false, Ordering::Relaxed) {
             if let Some(report) = self.read()? {
-                let first = clipped(first, &report, keep);
+                let first = clipped(first, &report.limits, keep);
                 if let Some(short) = eukhe_budget::floor(&report.limits, first, keep)? {
                     return Ok(Checked::Floor(super::notices::floor_text(
                         short,
@@ -781,12 +861,12 @@ impl BudgetGate {
     }
 }
 
-/// `first` as the ledger reserves it on an account holding exactly the
-/// limits of `report` (B2, B17): with a time limit, its duration cut to
-/// the time the final-answer reserve `keep` leaves, never below the
-/// request's floor (an ask below the floor keeps its own).
-fn clipped(first: BudgetAmounts, report: &BudgetReport, keep: BudgetAmounts) -> BudgetAmounts {
-    match report.limits.time_ms {
+/// `first` as the ledger reserves it on an account holding exactly
+/// `limits` (B2, B17): with a time limit, its duration cut to the time the
+/// final-answer reserve `keep` leaves, never below the request's floor (an
+/// ask below the floor keeps its own).
+fn clipped(first: BudgetAmounts, limits: &BudgetLimits, keep: BudgetAmounts) -> BudgetAmounts {
+    match limits.time_ms {
         Some(limit) if first.time_ms > REQUEST_MIN_MS => BudgetAmounts {
             time_ms: first
                 .time_ms

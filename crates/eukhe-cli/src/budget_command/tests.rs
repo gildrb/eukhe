@@ -118,7 +118,7 @@ fn the_daemon_account_is_set_reset_added_to_shown_and_audited_on_its_ledger() {
     };
     let before = run(Verb::Show, BudgetLimits::default());
     let set = run(Verb::Set, tokens(100_000));
-    let again = run(Verb::Set, tokens(5));
+    let again = run(Verb::Set, tokens(9_000));
     let added = run(Verb::Add, tokens(25_000));
     let shown = run(Verb::Show, BudgetLimits::default());
     let audit = run(Verb::Audit, BudgetLimits::default());
@@ -143,9 +143,9 @@ fn the_daemon_account_is_set_reset_added_to_shown_and_audited_on_its_ledger() {
         (
             Ok(Answer::Report(None)),
             Ok(Answer::Report(Some(report(100_000)))),
-            Ok(Answer::Report(Some(report(5)))),
-            Ok(Answer::Report(Some(report(25_005)))),
-            Ok(Answer::Report(Some(report(25_005)))),
+            Ok(Answer::Report(Some(report(9_000)))),
+            Ok(Answer::Report(Some(report(34_000)))),
+            Ok(Answer::Report(Some(report(34_000)))),
             Ok(Answer::Audit(BudgetAudit {
                 records: 3,
                 settled: BudgetAmounts::default(),

@@ -46,7 +46,7 @@ use eukhe_budget::{
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_durable::harness::generation::IDEMPOTENCY_KEY_HEADER;
 use eukhe_tokens::Tokenizer;
-use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetReport};
+use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
     DeferredHandle, DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost, Partial,
@@ -144,6 +144,29 @@ impl CostFacts<'_> {
             self.final_ms,
         )
     }
+}
+
+/// The least a run's first work request and its final-answer reserve ask
+/// under `limits` on any model (B17: the floor limits are refused below
+/// when set): the smallest output cap over an empty context, at no price
+/// (money is the model's, read at the run's first request), the final
+/// answer's time as the time limit and the agent's longest model request
+/// `longest_ms` keep it.
+pub(super) fn least_first(
+    limits: &BudgetLimits,
+    longest_ms: Option<u64>,
+) -> (BudgetAmounts, BudgetAmounts) {
+    let facts = CostFacts {
+        cost: &ModelCost::default(),
+        price_multiplier: 1.0,
+        output_extra: 0,
+        max_output: u64::MAX,
+        final_ms: final_time_ms(limits.time_ms, longest_ms),
+    };
+    (
+        facts.amount(0, MIN_CAP, DEFAULT_DEADLINE_MS),
+        facts.final_need(0, MIN_CAP),
+    )
 }
 
 /// The input tokens of a request over `messages` as the budget bounds

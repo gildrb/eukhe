@@ -433,7 +433,7 @@ mod tests {
                       "totalTokens": 0,
                       "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } },
                     "stopReason": "error",
-                    "errorMessage": "Budget exhausted (requests): the request was not sent. Add budget to continue.",
+                    "errorMessage": "Budget exhausted (requests): the request was not sent.",
                     "diagnostics": diagnostics, "timestamp": 2 }],
             }))
             .expect("an entry record");

@@ -8,13 +8,13 @@ use std::sync::Arc;
 
 use eukhe_ai::quota::{CredentialId, PlanQuota, QuotaBoard, QuotaSource, QuotaWindow};
 use eukhe_types::budget::{
-    AuthClass, BudgetAmounts, BudgetLimits, BudgetPhase, BudgetSources, LimitSource, LimitValue,
-    RunKind, RunLimits,
+    AuthClass, BudgetAmounts, BudgetDimension, BudgetLimits, BudgetPhase, BudgetSources,
+    LimitSource, LimitValue, RunKind, RunLimits,
 };
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use super::{BudgetGate, Checked, RunFacts, RunStart, SeenModel};
+use super::{BelowFloor, BudgetGate, Checked, RunError, RunFacts, RunStart, SeenModel};
 use crate::settings::BudgetLimitsMode;
 
 const HOUR: u64 = 3_600_000;
@@ -43,7 +43,7 @@ fn gate_at(
             limits,
             plan_reserve: 20,
             profile: profile.clone(),
-            presets: json!({ "tight": { "requests": 7 } }),
+            presets: json!({ "tight": { "requests": 7 }, "starved": { "time": 40 } }),
         }),
     );
     gate
@@ -284,7 +284,7 @@ fn limits_set_while_idle_apply_to_the_next_run_only() {
             ..RunLimits::default()
         })
         .unwrap();
-    gate.add_next(one_request()).unwrap();
+    gate.add_next(two_requests()).unwrap();
     let next = start(
         &gate,
         RunKind::Interactive,
@@ -309,7 +309,7 @@ fn limits_set_while_idle_apply_to_the_next_run_only() {
             BudgetLimits {
                 cost_micros: Some(5_000_000),
                 tool_calls: Some(4),
-                requests: Some(1),
+                requests: Some(2),
                 ..BudgetLimits::default()
             },
             None,
@@ -339,7 +339,7 @@ fn limits_set_while_idle_survive_a_reopen() {
         ..RunLimits::default()
     })
     .unwrap();
-    set.add_next(one_request()).unwrap();
+    set.add_next(two_requests()).unwrap();
     drop(set);
     let reopened = open();
     let shown = reopened.report().and_then(|report| report.next);
@@ -355,10 +355,10 @@ fn limits_set_while_idle_survive_a_reopen() {
             after.next,
         ),
         (
-            Some((Some(LimitValue::At(9)), 1)),
+            Some((Some(LimitValue::At(9)), 2)),
             BudgetLimits {
                 tool_calls: Some(9),
-                requests: Some(1),
+                requests: Some(2),
                 ..BudgetLimits::default()
             },
             (LimitSource::Set, LimitSource::Set),
@@ -374,16 +374,187 @@ fn one_request() -> BudgetAmounts {
     }
 }
 
-/// Limits that cannot hold the run's first request beside its final
-/// answer: nothing is sent and the text states the arithmetic.
+fn two_requests() -> BudgetAmounts {
+    BudgetAmounts {
+        requests: 2,
+        ..BudgetAmounts::default()
+    }
+}
+
+/// The floor a setting was refused below, if it was.
+fn below<T>(result: Result<T, RunError>) -> Option<BelowFloor> {
+    match result {
+        Err(RunError::Floor(below)) => Some(below),
+        Ok(_)
+        | Err(
+            RunError::Ledger(_)
+            | RunError::Core(_)
+            | RunError::Settings { .. }
+            | RunError::Preset(_),
+        ) => None,
+    }
+}
+
+fn floor(
+    dimension: BudgetDimension,
+    limit: u64,
+    source: LimitSource,
+    request: u64,
+    keep: u64,
+) -> BelowFloor {
+    BelowFloor {
+        dimension,
+        limit,
+        source,
+        request,
+        keep,
+    }
+}
+
+/// B17: limits below the floor of one request (8,192 tokens, 2 model
+/// requests, 50 s) are refused when they are set, by every setter, naming
+/// the short dimension, its limit and source, and what the request and
+/// the final answer ask in it; the budget stays as it was. Limits at the
+/// floor are taken.
 #[test]
-fn a_run_below_its_floor_sends_nothing() {
+fn limits_below_the_floor_of_one_request_are_refused_when_set() {
+    let (_dir, gate) = gate(BudgetLimitsMode::Off, AuthClass::ApiKey, Value::Null);
+    let before = start(&gate, RunKind::Interactive, RunLimits::default(), &[]);
+    let only = |dimension, limit| RunLimits::default().with(dimension, Some(LimitValue::At(limit)));
+    let refused = [
+        below(gate.set(only(BudgetDimension::Tokens, 8_191))),
+        below(gate.set_standing(only(BudgetDimension::Requests, 1))),
+        below(gate.set_next(only(BudgetDimension::Time, 49_999))),
+        below(gate.add_next(one_request())),
+        below(gate.start_run(RunStart {
+            set: only(BudgetDimension::Tokens, 50),
+            ..RunStart::default()
+        })),
+        below(gate.start_run(RunStart {
+            presets: vec!["starved".to_owned()],
+            ..RunStart::default()
+        })),
+    ];
+    let kept = gate.report().map(|report| (report.limits, report.next));
+    let at_floor = gate
+        .set(RunLimits {
+            tokens: Some(LimitValue::At(8_192)),
+            time_ms: Some(LimitValue::At(50_000)),
+            requests: Some(LimitValue::At(2)),
+            ..RunLimits::default()
+        })
+        .map(|report| report.limits)
+        .map_err(|error| error.to_string());
+    assert_eq!(
+        (refused, kept, at_floor),
+        (
+            [
+                Some(floor(
+                    BudgetDimension::Tokens,
+                    8_191,
+                    LimitSource::Set,
+                    1_024,
+                    7_168
+                )),
+                Some(floor(BudgetDimension::Requests, 1, LimitSource::Set, 1, 1)),
+                Some(floor(
+                    BudgetDimension::Time,
+                    49_999,
+                    LimitSource::Set,
+                    30_000,
+                    20_000
+                )),
+                Some(floor(BudgetDimension::Requests, 1, LimitSource::Set, 1, 1)),
+                Some(floor(
+                    BudgetDimension::Tokens,
+                    50,
+                    LimitSource::Set,
+                    1_024,
+                    7_168
+                )),
+                Some(floor(
+                    BudgetDimension::Time,
+                    40_000,
+                    LimitSource::Preset("starved".to_owned()),
+                    30_000,
+                    20_000
+                )),
+            ],
+            Some((before.limits, before.next)),
+            Ok(BudgetLimits {
+                tokens: Some(8_192),
+                time_ms: Some(50_000),
+                requests: Some(2),
+                ..BudgetLimits::default()
+            }),
+        )
+    );
+}
+
+/// B17: the refusal is a report of the limit, its source and the floor.
+#[test]
+fn the_floor_refusal_names_the_limit_its_source_and_the_floor() {
+    assert_eq!(
+        [
+            floor(BudgetDimension::Time, 40_000, LimitSource::Set, 30_000, 20_000).to_string(),
+            floor(BudgetDimension::Tokens, 50, LimitSource::Profile, 1_024, 7_168).to_string(),
+        ],
+        [
+            "Below the floor of one request: time limit 40s; the run's first request needs at least 30s and the final answer keeps 20s. The budget is as it was.",
+            "Below the floor of one request: tokens limit 50 (budget.profile); the run's first request needs at least 1024 and the final answer keeps 7168. The budget is as it was.",
+        ]
+    );
+}
+
+/// B17: a `budget.profile` below the floor of one request is refused at
+/// the start of the run it fills, naming it; the session's first effect,
+/// which starts such a run, sends nothing and reports the same.
+#[test]
+fn a_profile_below_the_floor_is_refused_where_it_fills() {
+    let (_dir, gate) = gate(
+        BudgetLimitsMode::On,
+        AuthClass::ApiKey,
+        json!({ "interactive": { "tokens": 50 } }),
+    );
+    let model = SeenModel {
+        provider: "test-floor-profile".to_owned(),
+        priced: true,
+    };
+    let first_effect = match gate
+        .check_work(&model, one_request(), one_request())
+        .unwrap()
+    {
+        Checked::Floor(text) => Some(text),
+        Checked::Go | Checked::Plan(_) => None,
+    };
+    let expected = floor(
+        BudgetDimension::Tokens,
+        50,
+        LimitSource::Profile,
+        1_024,
+        7_168,
+    );
+    assert_eq!(
+        (
+            below(gate.start_run(RunStart::default())),
+            first_effect,
+            gate.report()
+        ),
+        (Some(expected.clone()), Some(expected.to_string()), None)
+    );
+}
+
+/// B17: limits above the floor of one request that cannot hold the run's
+/// first request as its model and context ask it send nothing; the
+/// report states the arithmetic and that the run ended there.
+#[test]
+fn a_run_whose_first_request_does_not_fit_sends_nothing() {
     let (_dir, gate) = gate(BudgetLimitsMode::Off, AuthClass::ApiKey, Value::Null);
     start(
         &gate,
         RunKind::Interactive,
         RunLimits {
-            requests: Some(LimitValue::At(1)),
+            tokens: Some(LimitValue::At(10_000)),
             ..RunLimits::default()
         },
         &[],
@@ -392,13 +563,15 @@ fn a_run_below_its_floor_sends_nothing() {
         provider: "test-floor".to_owned(),
         priced: true,
     };
-    match gate
-        .check_work(&model, one_request(), one_request())
-        .unwrap()
-    {
-        Checked::Floor(text) => assert!(
-            text.contains("requests limit 1") && text.contains("Nothing was sent"),
-            "{text}"
+    let ask = |tokens| BudgetAmounts {
+        tokens,
+        requests: 1,
+        ..BudgetAmounts::default()
+    };
+    match gate.check_work(&model, ask(4_000), ask(7_000)).unwrap() {
+        Checked::Floor(text) => assert_eq!(
+            text,
+            "Budget too small for the run's first request: tokens limit 10000; the request needs 4000 and the final answer keeps 7000. Nothing was sent: the run ended before its first request."
         ),
         Checked::Go | Checked::Plan(_) => panic!("the run started below its floor"),
     }

@@ -268,29 +268,64 @@ fn the_first_request_carries_the_limits_notice_only_with_limits_on() {
     }
 }
 
-/// B17, B1: limits that cannot hold the run's first request beside its
-/// final answer's reserve send nothing: no answer, exit 1, nothing spent
-/// or held, and the error names the short dimension and its limit.
+/// B17, B1: limits above the floor of one request that cannot hold the
+/// run's first request (its real context) beside its final answer's
+/// reserve send nothing: no answer, exit 1, nothing spent or held, and the
+/// error names the short dimension and its limit and that the run ended.
 #[test]
 fn a_first_request_past_the_budget_is_never_sent() {
     let home = tempfile::TempDir::new().unwrap();
     let script = json!({ "responses": ["this must never be said"] });
     let (stdout, stderr, code) = run(
         home.path(),
-        &["--budget-tokens", "50", "-p", "hello"],
+        &["--budget-tokens", "8192", "-p", "hello"],
         &script,
     );
     assert_eq!(code, 1, "stdout: {stdout}\nstderr: {stderr}");
     assert!(!stdout.contains("this must never be said"), "{stdout}");
     assert!(
-        stderr.contains("Budget too small for the run's first request: tokens limit 50;")
-            && stderr.contains("Nothing was sent."),
+        stderr.contains("Budget too small for the run's first request: tokens limit 8192;")
+            && stderr.contains("Nothing was sent: the run ended before its first request."),
         "{stderr}"
     );
     let (_, state) = ledger_state(&budgets(home.path())).expect("a ledger");
     assert_eq!(amount(&state, "spent", "tokens"), 0, "{state:#}");
-    assert_eq!(amount(&state, "free", "tokens"), 50, "{state:#}");
+    assert_eq!(amount(&state, "free", "tokens"), 8_192, "{state:#}");
     assert_eq!(state["account"]["holds"], json!([]), "{state:#}");
+}
+
+/// B17, B14: `--budget-*` limits below the floor of one request (tokens
+/// 50; a `--budget-time` of 40 s, below the first request's 30 s and the
+/// final answer's 20 s) are refused when they are set: no answer, exit 1,
+/// nothing reserved, and the error names the short dimension, its limit
+/// and the floor.
+#[test]
+fn a_budget_below_the_floor_of_one_request_is_refused_when_set() {
+    for (flag, value, refusal) in [
+        (
+            "--budget-tokens",
+            "50",
+            "Below the floor of one request: tokens limit 50; the run's first request needs at least 1024 and the final answer keeps 7168. The budget is as it was.",
+        ),
+        (
+            "--budget-time",
+            "40s",
+            "Below the floor of one request: time limit 40s; the run's first request needs at least 30s and the final answer keeps 20s. The budget is as it was.",
+        ),
+    ] {
+        let home = tempfile::TempDir::new().unwrap();
+        let script = json!({ "responses": ["this must never be said"] });
+        let (stdout, stderr, code) = run(home.path(), &[flag, value, "-p", "hello"], &script);
+        assert_eq!(code, 1, "stdout: {stdout}\nstderr: {stderr}");
+        assert!(!stdout.contains("this must never be said"), "{stdout}");
+        assert!(stderr.contains(refusal), "{stderr}");
+        let reserved = ledger(&budgets(home.path())).map(|(_, records)| {
+            records
+                .iter()
+                .any(|record| record["op"]["kind"] == "reserve")
+        });
+        assert_ne!(reserved, Some(true), "nothing was reserved");
+    }
 }
 
 /// B3, B9: what the ledger reports as spent is the sum of what the
@@ -335,47 +370,6 @@ fn the_ledgers_total_is_the_sum_of_the_providers_usage() {
     for dimension in ["tokens", "toolCalls", "requests"] {
         assert_balanced(&state, dimension);
     }
-}
-
-/// B17, B14: a `--budget-time` (40 s) shorter than the first request's
-/// floor (30 s) and the final answer's reserve (20 s) together sends
-/// nothing: no answer, exit 1, nothing reserved, the deadline 40 s after
-/// the run started, and the error names time, its limit and the reserve.
-#[test]
-fn a_deadline_below_the_first_request_and_its_reserve_sends_nothing() {
-    let home = tempfile::TempDir::new().unwrap();
-    let script = json!({ "responses": ["this must never be said"] });
-    let (stdout, stderr, code) = run(
-        home.path(),
-        &["--budget-time", "40s", "--mode", "json", "-p", "work on it"],
-        &script,
-    );
-    assert_eq!(code, 1, "stdout: {stdout}\nstderr: {stderr}");
-    assert!(!stdout.contains("this must never be said"), "{stdout}");
-    assert!(
-        stderr.contains("Budget too small for the run's first request: time limit 40s;")
-            && stderr.contains("the final answer keeps 20s. Nothing was sent."),
-        "{stderr}"
-    );
-    let (_, records) = ledger(&budgets(home.path())).expect("a ledger");
-    let open = &records[0];
-    assert_eq!(
-        open["op"]["deadlineMs"].as_u64(),
-        open["atMs"].as_u64().map(|at| at + 40_000),
-        "the deadline is 40 seconds after the budget was set: {open:#}"
-    );
-    assert!(
-        records
-            .iter()
-            .all(|record| record["op"]["kind"] != "reserve"),
-        "nothing was reserved: {records:#?}"
-    );
-    let state = &records.last().expect("a record")["state"];
-    assert_eq!(state["account"]["holds"], json!([]), "{state:#}");
-    assert!(
-        stderr.contains("deadline "),
-        "the run's budget line names the deadline: {stderr}"
-    );
 }
 
 /// B14, B1: a `--budget-time` (60 s) that holds the first request (its

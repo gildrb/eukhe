@@ -133,7 +133,7 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
         .expect("the set budget reaches the watch")
         .unwrap();
     let watched = changes.borrow_and_update().clone();
-    let again = set_budget(&session, limits(7), BudgetScope::Standing, cx)
+    let again = set_budget(&session, limits(9_000), BudgetScope::Standing, cx)
         .await
         .unwrap();
     let added = add_budget(&session, amounts(25_000)).await.unwrap();
@@ -159,9 +159,9 @@ async fn a_host_sets_watches_adds_to_reads_and_audits_a_sessions_budget() {
             None,
             report(100_000),
             Some(report(100_000)),
-            report(7),
-            report(25_007),
-            Some(report(25_007)),
+            report(9_000),
+            report(34_000),
+            Some(report(34_000)),
             BudgetAudit {
                 records: 3,
                 settled: BudgetAmounts::default(),

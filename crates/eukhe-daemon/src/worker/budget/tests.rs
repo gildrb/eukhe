@@ -193,13 +193,18 @@ async fn a_second_set_budget_while_idle_goes_over_the_first() {
         &json!({ "limits": { "tokens": 100_000, "requests": 9 } }),
     )
     .await;
-    let again = data(&worker, "set_budget", &json!({ "limits": { "tokens": 7 } })).await;
+    let again = data(
+        &worker,
+        "set_budget",
+        &json!({ "limits": { "tokens": 9_000 } }),
+    )
+    .await;
     assert_eq!(
         (unnamed, again),
         (
             (false, None, "limits is required".to_string()),
             json!({
-                "budget": next_only(&id, &json!({ "limits": { "tokens": 7, "requests": 9 } })),
+                "budget": next_only(&id, &json!({ "limits": { "tokens": 9_000, "requests": 9 } })),
             }),
         )
     );
