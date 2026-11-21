@@ -177,6 +177,15 @@ fn gateway_config(
         .as_deref()
         .map_or_else(|| home.clone(), crate::config::expand_tilde_path);
     let session_dir = eukhe_core::settings::resolve_session_dir(None, &settings, &agent_dir)?.path;
+    let mut create_config = serde_json::Map::new();
+    // Verification seam: sessions run this scripted faux model. The
+    // product never sets it.
+    if let Some(script) = std::env::var_os("EUKHE_FAUX_SCRIPT") {
+        create_config.insert(
+            "script".to_string(),
+            serde_json::Value::String(script.to_string_lossy().to_string()),
+        );
+    }
     Ok(eukhe_gateway::GatewayConfig {
         socket_path: eukhe_client::paths::resolve_daemon_socket_path(
             daemon_socket.map(std::path::Path::new),
@@ -189,6 +198,7 @@ fn gateway_config(
             allow: signal.allow.unwrap_or_default(),
         },
         root_heartbeat: settings.get_gateway_root_heartbeat(),
+        create_config,
     })
 }
 
