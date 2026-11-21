@@ -363,6 +363,15 @@ pub struct BudgetSettings {
     pub presets: Option<serde_json::Value>,
 }
 
+/// `undo`: the workspace snapshots of `/undo` and `/diff`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoSettings {
+    /// Days a session's snapshots are kept after its last turn (default
+    /// 14; `0` reads as 1).
+    pub keep_days: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageSettings {
@@ -551,6 +560,8 @@ pub struct Settings {
     /// sessions (newest by mtime win); `0 | "off" | "none"` disables. Raw JSON
     /// validated at access time.
     pub session_archive_max_sessions: Option<serde_json::Value>,
+    /// The workspace snapshots of `/undo` and `/diff` (`undo.*`).
+    pub undo: Option<UndoSettings>,
     pub transport: Option<TransportSetting>,
     pub steering_mode: Option<QueueModeSetting>,
     pub follow_up_mode: Option<QueueModeSetting>,

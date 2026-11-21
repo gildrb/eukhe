@@ -22,6 +22,9 @@ pub enum DaemonCommandPlane {
 /// defines has an entry; all other commands, known or unknown, are control
 /// (never forwarded on a peer link).
 #[must_use]
+// One line per session-plane command: the table is the wire contract,
+// so it grows with the commands rather than splitting.
+#[allow(clippy::too_many_lines)]
 pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
     use DaemonCommandPlane::{Control, Session};
     match command_type {
@@ -61,6 +64,8 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "set_budget_limits"
         | "add_budget"
         | "audit_budget"
+        | "undo_turn"
+        | "get_turn_diff"
         | "get_context_tree"
         | "get_commands"
         | "get_resource_snapshot"
@@ -153,6 +158,8 @@ mod tests {
             "set_budget_limits",
             "add_budget",
             "audit_budget",
+            "undo_turn",
+            "get_turn_diff",
         ] {
             assert!(is_session_plane_daemon_command(session), "{session}");
         }

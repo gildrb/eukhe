@@ -274,6 +274,17 @@ pub const IDLE_EVICTION_MINUTES: Decl = Decl {
     init: Init::Nat(90),
 };
 
+/// Days a session's workspace snapshots (`/undo`, `/diff`) are kept after
+/// its last turn; `0` reads as 1.
+pub const UNDO_KEEP_DAYS: Decl = Decl {
+    id: "undo.keepDays",
+    ty: CvarType::Nat,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Nat(14),
+};
+
 /// A whole number of days, or `off`/`none`; the load names any other
 /// value.
 pub const SESSION_ARCHIVE_MAX_AGE_DAYS: Decl = Decl {
@@ -1454,6 +1465,7 @@ pub const DECLS: &[Decl] = &[
     IDLE_EVICTION_MINUTES,
     SESSION_ARCHIVE_MAX_AGE_DAYS,
     SESSION_ARCHIVE_MAX_SESSIONS,
+    UNDO_KEEP_DAYS,
     TRANSPORT,
     STEERING_MODE,
     FOLLOW_UP_MODE,

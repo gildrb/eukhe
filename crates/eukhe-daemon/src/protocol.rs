@@ -171,6 +171,8 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "set_budget_limits",
     "add_budget",
     "audit_budget",
+    "undo_turn",
+    "get_turn_diff",
     "set_acceptance",
     "get_acceptance",
     "refresh_models",
@@ -755,6 +757,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::AuditBudget {
             active_session_id, ..
         }
+        | DaemonCommand::UndoTurn {
+            active_session_id, ..
+        }
+        | DaemonCommand::GetTurnDiff {
+            active_session_id, ..
+        }
         | DaemonCommand::GetContextTree {
             active_session_id, ..
         }
@@ -1097,6 +1105,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
+        DaemonCommand::UndoTurn { .. } => "undo_turn",
+        DaemonCommand::GetTurnDiff { .. } => "get_turn_diff",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",
         DaemonCommand::GetCommands { .. } => "get_commands",
         DaemonCommand::GetResourceSnapshot { .. } => "get_resource_snapshot",

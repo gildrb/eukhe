@@ -87,6 +87,12 @@ pub enum DaemonErrorInfo {
     /// answer: a client reports its message (ACP's internal error), never
     /// the stop reason of the run before.
     PrefixRefused,
+    /// `undo_turn` found no snapshot left to restore: nothing changed.
+    NothingToUndo,
+    /// `get_turn_diff` found no snapshot to compare with: no turn ran yet.
+    NothingToDiff,
+    /// `undo_turn` came while a run is going: nothing changed.
+    RunInProgress,
     /// A `code` this build does not know (a newer daemon's typed
     /// refusal): forwards-compatibility — the unknown code must degrade
     /// to the plain refusal message that rides the same response instead

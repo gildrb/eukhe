@@ -53,5 +53,6 @@ pub mod slash_command_args;
 pub mod state_list;
 pub mod theme_rules;
 pub mod tiny;
+pub mod undo;
 pub mod workspace_snapshot;
 pub use kernel::ReplKernelManager;
