@@ -385,7 +385,7 @@ mod tests {
                 table.resolve("memory"),
                 table.resolve("memory x"),
                 table.resolve("workflows size large"),
-                table.resolve("goal memory  model"),
+                table.resolve("auto memory  model"),
                 table.resolve("nothing"),
             ],
             [
@@ -406,7 +406,7 @@ mod tests {
                     args: String::new()
                 },
                 Resolution::Runs {
-                    path: path(&["goal"]),
+                    path: path(&["auto"]),
                     args: "memory  model".to_string()
                 },
                 Resolution::NoCommand,

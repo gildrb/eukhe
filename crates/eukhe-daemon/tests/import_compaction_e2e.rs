@@ -20,8 +20,7 @@
 //! durable compaction row records the same cut (one-store id parity).
 //!
 //! Regression scope: the #259 import wire e2es (`protocol_breadth_b6_b9`
-//! wave b9) and the #243 recovery walk (`goal_recovery_e2e`) stay green in
-//! the same suites.
+//! wave b9) stay green in the same suites.
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for
 // the full rationale).
 // Stack-resident futures by design on the daemon's hot paths; boxing the
