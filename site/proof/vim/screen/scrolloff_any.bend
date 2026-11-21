@@ -33,6 +33,11 @@ def Any.of(+fs: List<&2, T.Buf>, +s: T.St, +fin: Fi.Final(s), hf: {S.St.files(s)
           L.Or.l(Bool.not(p), Laws.Spec.scrolled(fs, s0, rows), L.Not.of(p, L.Nat.le_not_lt(Nat.sub(rows, 1n), Nat.sub(rows, 2n), L.Nat.sub_anti(rows, 1n, 2n, {==}))))
         case T.Picking{+kind, +q, +its, +n, +sel, +top, +pv, +levels}:
           {==}
+        case T.Visual{+vk, +vs}:
+          +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
+          +f = Vim.Vim.frame(s0)
+          +p = Bool.and(Laws.Spec.is_none(Laws.F.float(f)), Nat.is_lt(Laws.F.row(f), Nat.sub(rows, 2n)))
+          L.Or.r(Bool.not(p), Laws.Spec.scrolled(fs, s0, rows), Sc.Screen.scrolled(fs, s0, fin, hf, {==}))
 
 def Any.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {Laws.Spec.scrolled_any(fs, Laws.Spec.run(fs, rows, cols, evs), Laws.Spec.rows(rows, evs)) == True{} : Bool}:
   +s = Laws.Spec.run(fs, rows, cols, evs)

@@ -17,6 +17,7 @@ import ../../../vim/core.bend as C
 import ../../../vim/ex.bend as E
 import ../../../vim/pick.bend as P
 import ../../../vim/keys.bend as K
+import ../../../vim/visual.bend as Vi
 import ../../../vim/vim.bend as Vim
 import ../../../laws/vim/base.bend as Laws
 import ../../base.bend as L
@@ -123,19 +124,83 @@ def Gx.good(+fs: List<&2, T.Buf>, x: T.St, hf: {S.St.files(x) == B.Files.some(fs
               +t = E.Link.target(E.Link.big(C.St.text(x0), C.St.col(x0)))
               Gx.act(fs, t, E.Link.gf(x0), x0, E.Link.is_url(t), {==}, ne => Gx.in(fs, files, i, S.Pos.line(cur), S.Pos.col(cur), hf, ne))
 
-# yy
-# --
+# Copies: yy, Y, y in visual mode
+# --------------------------------
 
-def Yank.good(+fs: List<&2, T.Buf>, -s: T.St, b: Bool)
-  -> Good(fs, Laws.Spec.act(T.Step{s, Bool.pick(T.Act, b, T.CopyText{E.Vim.install()}, T.Nothing{})})):
-  match b:
-    case True{}:
+# the first n characters of s, then the rest: s
+def Take.drop(s: String, +n: Nat) -> {String.append(Vi.Vis.take(s, n), X.Text.drop(s, n)) == s : String}:
+  match s n:
+    case SNil{} _:
       {==}
-    case False{}:
+    case SCon{h, t} 0n:
       {==}
+    case SCon{+h, t} 1n+p:
+      Equal.cong(String, String, x => SCon{h, x}, String.append(Vi.Vis.take(t, p), X.Text.drop(t, p)), t, Take.drop(t, p))
 
-def Yank.of(+fs: List<&2, T.Buf>, +x: T.St) -> Good(fs, Laws.Spec.act(K.Key.yank(x))):
-  Yank.good(fs, x, X.Text.prefix(E.Vim.install(), C.St.text(x)))
+def Take.sub(+s: String, +n: Nat) -> H.Sub(Vi.Vis.take(s, n), s):
+  H.Sub.cast_r(Vi.Vis.take(s, n), String.append(Vi.Vis.take(s, n), X.Text.drop(s, n)), s, Take.drop(s, n), H.Sub.pre(Vi.Vis.take(s, n), X.Text.drop(s, n)))
+
+def Drop.sub(s: String, +n: Nat) -> H.Sub(X.Text.drop(s, n), s):
+  match s n:
+    case SNil{} _:
+      H.Sub.nil(SNil{})
+    case SCon{+h, +t} 0n:
+      H.Sub.refl(SCon{h, t})
+    case SCon{h, t} 1n+p:
+      H.Sub.cons(h, X.Text.drop(t, p), t, Drop.sub(t, p))
+
+# a cut of a text is a run of it
+def Cut.sub(+text: String, ft: (Nat & Nat)) -> H.Sub(Vi.Vis.cut(text, ft), text):
+  match ft:
+    case (+from, +to):
+      +d = X.Text.drop(text, from)
+      H.Sub.trans(Vi.Vis.take(d, Nat.sub(to, from)), d, text, Take.sub(d, Nat.sub(to, from)), Drop.sub(text, from))
+
+# the editor's text of lines is the spec's
+def Join.spec(ls: List<&2, String>) -> {Vi.Vis.join(ls) == Laws.Spec.text(ls) : String}:
+  match ls:
+    case Nil{}:
+      {==}
+    case Con{+h, t}:
+      Equal.cong(String, String, x => String.append(h, String.append("\n", x)), Vi.Vis.join(t), Laws.Spec.text(t), Join.spec(t))
+
+# a run of the text of file i is in fs's text (past the last file, the
+# window's one empty line)
+def In.text_file(+u: String, fs: List<&2, T.Buf>, i: Nat, hl: {Laws.Spec.within(u, Laws.Spec.text(Laws.Spec.file(fs, i))) == True{} : Bool}) -> {Laws.Spec.in_text(u, fs) == True{} : Bool}:
+  match fs i:
+    case Nil{} _:
+      hl
+    case Con{T.Buf{+path, +lines}, +t} 0n:
+      L.Or.l(Laws.Spec.within(u, Laws.Spec.text(Laws.Spec.some(lines))), Laws.Spec.in_text(u, t), hl)
+    case Con{T.Buf{+path, +lines}, +t} 1n+p:
+      L.Or.r(Laws.Spec.within(u, Laws.Spec.text(Laws.Spec.some(lines))), Laws.Spec.in_text(u, t), In.text_file(u, t, p, hl))
+
+# what a selection of file i holds is in fs's text
+def Sel.in(+fs: List<&2, T.Buf>, +files: List<&2, T.Buf>, +i: Nat, +k: T.Vis, +a: T.Pos, +b: T.Pos, hf: {files == B.Files.some(fs, Nil{}) : List<&2, T.Buf>})
+  -> {Laws.Spec.in_text(Vi.Vis.text(k, B.Lines.some(B.Buf.lines(B.Files.at(files, i))), a, b), fs) == True{} : Bool}:
+  +ls = B.Lines.some(B.Buf.lines(B.Files.at(files, i)))
+  +t = Vi.Vis.text(k, ls, a, b)
+  +w = H.Sub.within(t, Vi.Vis.join(ls), Cut.sub(Vi.Vis.join(ls), Vi.Vis.ends(k, ls, Vi.Vis.lo(a, b), Vi.Vis.hi(a, b))))
+  +w2 = Equal.trans(Bool, Laws.Spec.within(t, Laws.Spec.text(ls)), Laws.Spec.within(t, Vi.Vis.join(ls)), True{}, Equal.cong(String, Bool, x => Laws.Spec.within(t, x), Laws.Spec.text(ls), Vi.Vis.join(ls), Equal.sym(String, Vi.Vis.join(ls), Laws.Spec.text(ls), Join.spec(ls))), w)
+  +w3 = Equal.trans(Bool, Laws.Spec.within(t, Laws.Spec.text(Laws.Spec.file(fs, i))), Laws.Spec.within(t, Laws.Spec.text(ls)), True{}, Equal.cong(List<&2, String>, Bool, x => Laws.Spec.within(t, Laws.Spec.text(x)), Laws.Spec.file(fs, i), ls, Sc.Files.spec(fs, files, i, hf)), w2)
+  In.text_file(t, fs, i, w3)
+
+# the clipboard gets only what a selection of a file holds
+def Copy.good(+fs: List<&2, T.Buf>, x: T.St, +k: T.Vis, +a: T.Pos, +b: T.Pos, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, K.Key.copy(x, k, a, b)):
+  match x:
+    case T.St{+files, +folded, +dirs, +win, +marks, +spots, +opened, +bufs, +back, +fwd, +mode, +count, +pend, +find, +hl, +opts, +rows, +cols, +msg, +stat}:
+      match win:
+        case T.Win{tgt, +cur, +want, +top, +left}:
+          match tgt:
+            case T.Dir{+d}:
+              {==}
+            case T.File{+i}:
+              +t = Vi.Vis.text(k, B.Lines.some(B.Buf.lines(B.Files.at(files, i))), a, b)
+              L.And.intro(Laws.Spec.in_text(t, fs), Laws.Spec.url_ok(fs, T.CopyText{t}), Sel.in(fs, files, i, k, a, b, hf), {==})
+
+def Yank.of(+fs: List<&2, T.Buf>, +x: T.St, +n: Nat, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.yank(x, n))):
+  +l = C.St.line(x)
+  Copy.good(fs, x, T.VLines{}, T.Pos{l, 0n}, T.Pos{Nat.add(Nat.sub(n, 1n), l), 0n}, hf)
 
 # Keys
 # ----
@@ -200,10 +265,14 @@ def Hi.good(+fs: List<&2, T.Buf>, +x: T.St, k: Nat, +n: Nat) -> Good(fs, Laws.Sp
       {==}
     case 28n:
       {==}
-    case 29n+p:
+    case 29n:
+      {==}
+    case 30n:
+      {==}
+    case 31n+p:
       {==}
 
-def Normal.good(+fs: List<&2, T.Buf>, +x: T.St, k: Nat, +n: Nat, +n0: Nat) -> Good(fs, Laws.Spec.act(K.Key.normal.at(x, k, n, n0))):
+def Normal.good(+fs: List<&2, T.Buf>, +x: T.St, k: Nat, +n: Nat, +n0: Nat, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.normal.at(x, k, n, n0))):
   match k:
     case 0n:
       {==}
@@ -316,7 +385,7 @@ def Normal.good(+fs: List<&2, T.Buf>, +x: T.St, k: Nat, +n: Nat, +n0: Nat) -> Go
     case 54n:
       {==}
     case 55n:
-      Yank.of(fs, x)
+      Yank.of(fs, x, n, hf)
     case 56n+p:
       Hi.good(fs, x, p, n)
 
@@ -351,7 +420,7 @@ def Reset.files(x: T.St) -> {S.St.files(S.St.set_count(S.St.set_pend(x, T.NoPend
 def Pend.good(+fs: List<&2, T.Buf>, +x: T.St, p: T.Pend, +key: String, +n0: Nat, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.pend(x, p, key, n0))):
   match p:
     case T.NoPend{}:
-      Normal.good(fs, x, E.Ex.find(K.Key.names(), key, 0n), Nat.max(n0, 1n), n0)
+      Normal.good(fs, x, E.Ex.find(K.Key.names(), key, 0n), Nat.max(n0, 1n), n0, hf)
     case T.PendG{}:
       G.good(fs, x, E.Ex.find(["g", "x", "f", "j", "k", "0", "^", "$", "_"], key, 0n), n0, hf)
     case T.PendZ{}:
@@ -361,7 +430,7 @@ def Pend.good(+fs: List<&2, T.Buf>, +x: T.St, p: T.Pend, +key: String, +n0: Nat,
     case T.PendLeadF{}:
       {==}
     case T.PendY{}:
-      H.Pick.both(T.Step, r => Good(fs, Laws.Spec.act(r)), String.eq(key, "y"), K.Key.yank(x), K.Key.ok(x), Yank.of(fs, x), {==})
+      H.Pick.both(T.Step, r => Good(fs, Laws.Spec.act(r)), String.eq(key, "y"), K.Key.yank(x, Nat.max(n0, 1n)), K.Key.ok(x), Yank.of(fs, x, Nat.max(n0, 1n), hf), {==})
 
 def In.normal(+fs: List<&2, T.Buf>, +x: T.St, +key: String, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.in_normal(x, key))):
   +n0 = S.St.count(x)
@@ -390,6 +459,41 @@ def Typing.good(+fs: List<&2, T.Buf>, +x: T.St, +kind: T.Line, +text: String, +k
   +k = E.Ex.find(["<BS>", "<CR>", "<Esc>", "<C-c>"], key, 0n)
   H.When.both(T.Step, r => Good(fs, Laws.Spec.act(r)), P.Pick.char(ch), u => K.Key.special(x, kind, text, k), u => K.Key.ok(S.St.set_mode(x, T.Typing{kind, String.append(text, ch)})), Special.good(fs, x, kind, text, k), {==})
 
+# Visual mode
+# -----------
+
+def Revisual.act(r: T.Step, -k: T.Vis, -start: T.Pos, -tgt: T.Tgt) -> {Laws.Spec.act(K.Key.revisual.step(r, k, start, tgt)) == Laws.Spec.act(r) : T.Act}:
+  match r:
+    case T.Step{st, a}:
+      {==}
+
+def Mode.files(x: T.St, -m: T.Mode) -> {S.St.files(S.St.set_mode(x, m)) == S.St.files(x) : List<&2, T.Buf>}:
+  match x:
+    case T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, mode, count, pend, find, hl, opts, rows, cols, msg, stat}:
+      {==}
+
+def Visual.at(+fs: List<&2, T.Buf>, +x: T.St, +k: T.Vis, +start: T.Pos, +key: String, i: Nat, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.visual.at(x, k, start, key, i))):
+  match i:
+    case 0n:
+      {==}
+    case 1n:
+      {==}
+    case 2n:
+      {==}
+    case 3n:
+      {==}
+    case 4n:
+      Copy.good(fs, x, k, start, S.Win.cur(S.St.win(x)), hf)
+    case 5n:
+      Copy.good(fs, x, T.VLines{}, start, S.Win.cur(S.St.win(x)), hf)
+    case 6n:
+      {==}
+    case 7n+p:
+      +x2 = S.St.set_mode(x, T.Normal{})
+      +r = K.Key.in_normal(x2, key)
+      %Equal.sym(T.Act, Laws.Spec.act(K.Key.revisual.step(r, k, start, S.Win.tgt(S.St.win(x)))), Laws.Spec.act(r), Revisual.act(r, k, start, S.Win.tgt(S.St.win(x)))) : Good(fs, _)
+      In.normal(fs, x2, key, Equal.trans(List<&2, T.Buf>, S.St.files(x2), S.St.files(x), B.Files.some(fs, Nil{}), Mode.files(x, T.Normal{}), hf))
+
 def In.good(+fs: List<&2, T.Buf>, +x: T.St, m: T.Mode, +key: String, hf: {S.St.files(x) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}) -> Good(fs, Laws.Spec.act(K.Key.in(x, m, key))):
   match m:
     case T.Normal{}:
@@ -398,6 +502,8 @@ def In.good(+fs: List<&2, T.Buf>, +x: T.St, m: T.Mode, +key: String, hf: {S.St.f
       Typing.good(fs, x, kind, text, key)
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       {==}
+    case T.Visual{+k, +start}:
+      Visual.at(fs, x, k, start, key, E.Ex.find(["<Esc>", "<C-c>", "v", "V", "y", "Y", "o"], key, 0n), hf)
 
 # Steps
 # -----
@@ -415,6 +521,8 @@ def Step.good(+fs: List<&2, T.Buf>, +s: T.St, e: T.Ev, hf: {S.St.files(s) == B.F
       %Equal.sym(T.Act, Laws.Spec.act(Vim.Vim.done(s, r)), Laws.Spec.act(r), Done.act(s, r)) : Good(fs, _)
       In.good(fs, s, S.St.mode(s), name, hf)
     case T.EvClick{row, col}:
+      {==}
+    case T.EvDrag{row, col}:
       {==}
     case T.EvWheel{down, notches}:
       {==}

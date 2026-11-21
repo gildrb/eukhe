@@ -154,6 +154,7 @@ export function textRows(
   h: number,
 ): { htmls: string[]; copyAt: CopyAt[] } {
   const hits = list(frame.hits);
+  const sel = list(frame.sel);
   const g = frame.gutter;
   const left = frame.left;
   const copyAt: CopyAt[] = [];
@@ -189,7 +190,8 @@ export function textRows(
       }
     }
     const mine = hits.filter((hit) => hit.row === r);
-    const hitEnd = Math.max(0, ...mine.map((hit) => hit.col - g + hit.len));
+    const picked = sel.filter((span) => span.row === r);
+    const hitEnd = Math.max(0, ...[...mine, ...picked].map((hit) => hit.col - g + hit.len));
     if (hitEnd > row.chars.length) {
       const wider = blankRow(hitEnd);
       row.chars.forEach((ch, c) => {
@@ -199,6 +201,7 @@ export function textRows(
       row = wider;
     }
     for (const hit of mine) addClass(row, hit.col - g, hit.col - g + hit.len, "hit");
+    for (const span of picked) addClass(row, span.col - g, span.col - g + span.len, "vis");
     htmls.push(rowHtml(row));
   }
   return { htmls, copyAt };

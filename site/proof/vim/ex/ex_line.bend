@@ -204,6 +204,8 @@ def Colon.kst(+s: T.St, hm: {S.St.mode(s) == T.Normal{} : T.Mode}, hp: {S.St.pen
           Sc.Mode.typing(Colon.G(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Typing{kind, text}, count, pend, find, hl, opts, rows, cols, msg, stat}), kind, text, hm)
         case T.Picking{k, q, its, n, sel, top, pv, levels}:
           Sc.Mode.picking(Colon.G(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}), k, q, its, n, sel, top, pv, levels, hm)
+        case T.Visual{+vk, +vs}:
+          Sc.Mode.visual(Colon.G(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}), vk, vs, hm)
 
 def Colon.amode(+s: T.St) -> {S.St.mode(Colon.after(s)) == T.Typing{T.Colon{}, ""} : T.Mode}:
   match s:
@@ -346,6 +348,8 @@ def ExLine.at_line(+s: T.St, fin: Fi.Final(s), hm: {S.St.mode(s) == T.Normal{} :
           Sc.Mode.typing({Laws.Spec.at_line(Vim.Vim.frame(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Typing{kind, text}, count, pend, find, hl, opts, rows, cols, msg, stat})) == C.St.line(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Typing{kind, text}, count, pend, find, hl, opts, rows, cols, msg, stat}) : Nat}, kind, text, hm)
         case T.Picking{k, q, its, n, sel, top, pv, levels}:
           Sc.Mode.picking({Laws.Spec.at_line(Vim.Vim.frame(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat})) == C.St.line(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}) : Nat}, k, q, its, n, sel, top, pv, levels, hm)
+        case T.Visual{+vk, +vs}:
+          Sc.Mode.visual({Laws.Spec.at_line(Vim.Vim.frame(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat})) == C.St.line(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}) : Nat}, vk, vs, hm)
 
 # p shows n's target, settled in normal mode on line min(4, last)
 def ExLine.claim(+fs: List<&2, T.Buf>, +n: T.St, +p: T.St, hf: {S.St.files(n) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, st: {S.Win.tgt(S.St.win(p)) == S.Win.tgt(S.St.win(n)) : T.Tgt},

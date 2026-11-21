@@ -70,16 +70,23 @@ type Line is Data:
   Slash{}
   Quest{}
 
-# the mode: normal, typing on the command line, or a picker with its
+# what visual mode selects: characters (v) or whole lines (V)
+type Vis is Data:
+  VChars{}
+  VLines{}
+
+# the mode: normal, typing on the command line, a picker with its
 # query, its items (the ones listed, at most a page for fff's live grep),
 # how many it lists, the selected item, the first item on screen, the
 # preview's scroll (lines) and what each query from the query back to the
 # empty one found (a typed character narrows the first, Backspace drops
-# it)
+# it), or visual mode with what it selects and where the selection started
+# (the cursor is its other end)
 type Mode is Data:
   Normal{}
   Typing{kind: Line, text: String}
   Picking{kind: Pick, query: String, items: List<&2, Item>, n: Nat, sel: Nat, top: Nat, pv: Nat, levels: List<&2, Level>}
+  Visual{vis: Vis, start: Pos}
 
 # a key that waits for the next one: g, z, the leader (Space), leader f,
 # y
@@ -121,12 +128,14 @@ type St is Data:
 
 # what happens: a key in Vim's notation ("j", "G", "<Space>", "<Esc>",
 # "<CR>", "<BS>", "<C-d>"), a click on screen cell (row, col), notches of
-# the wheel, a new screen size in cells
+# the wheel, a new screen size in cells, the mouse moved to screen cell
+# (row, col) with its button down (a drag selects, as with 'mouse' a)
 type Ev is Data:
   EvKey{name: String}
   EvClick{row: Nat, col: Nat}
   EvWheel{down: Bool, notches: Nat}
   EvSize{rows: Nat, cols: Nat}
+  EvDrag{row: Nat, col: Nat}
 
 # what the host does after a step: nothing, open a URL, copy text
 type Act is Data:
@@ -173,6 +182,6 @@ type Float is Data:
 # each text row, the cursor's cell and the character under it, the
 # command line, the search hits on screen, the scrollbar (first row and
 # rows; 0 rows: none), whether the cursor's row shows the cursorline, the
-# statusline (cols cells), the float
+# statusline (cols cells), the float, the visual selection's runs on screen
 type Frame is Data:
-  Frame{tgt: Tgt, top: Nat, left: Nat, gutter: Nat, nums: List<&2, String>, cur: Cell, char: String, cmd: String, hits: List<&2, Span>, bar: Span, cl: Bool, status: String, float: Maybe<&2, Float>}
+  Frame{tgt: Tgt, top: Nat, left: Nat, gutter: Nat, nums: List<&2, String>, cur: Cell, char: String, cmd: String, hits: List<&2, Span>, bar: Span, cl: Bool, status: String, float: Maybe<&2, Float>, sel: List<&2, Span>}

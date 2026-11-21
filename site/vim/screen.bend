@@ -15,6 +15,7 @@ import ./core.bend as C
 import ./pick.bend as P
 import ./fff.bend as FF
 import ./fzf.bend as Z
+import ./visual.bend as Vi
 
 # the statusline's ruler: the line and the byte column ('%l:%c'; 0 on an
 # empty line); Oil's lines hold a hidden "/001 " before each name
@@ -39,6 +40,8 @@ def Scr.status_of(+s: T.St, m: T.Mode) -> String:
     case T.Normal{}:
       Scr.status(B.Tgt.name(S.St.files(s), S.Win.tgt(S.St.win(s))), "", Scr.ruler(s), S.St.cols(s))
     case T.Typing{kind, text}:
+      Scr.status(B.Tgt.name(S.St.files(s), S.Win.tgt(S.St.win(s))), "", Scr.ruler(s), S.St.cols(s))
+    case T.Visual{k, start}:
       Scr.status(B.Tgt.name(S.St.files(s), S.Win.tgt(S.St.win(s))), "", Scr.ruler(s), S.St.cols(s))
 
 # the character under the cursor; " " on an empty line
@@ -83,6 +86,8 @@ def Scr.lit(+s: T.St, m: T.Mode) -> Maybe<&2, T.Find>:
       Bool.pick(Maybe<&2, T.Find>, Bool.and(S.St.hl(s), Scr.hls(S.St.opts(s))), S.St.find(s), None{})
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       Bool.pick(Maybe<&2, T.Find>, Bool.and(S.St.hl(s), Scr.hls(S.St.opts(s))), S.St.find(s), None{})
+    case T.Visual{k, start}:
+      Bool.pick(Maybe<&2, T.Find>, Bool.and(S.St.hl(s), Scr.hls(S.St.opts(s))), S.St.find(s), None{})
 
 def Scr.hits(+s: T.St, m: Maybe<&2, T.Find>) -> List<&2, T.Span>:
   match m:
@@ -125,6 +130,9 @@ def Scr.cell(+s: T.St, m: T.Mode) -> T.Cell:
       +r = S.St.rows(s)
       +c = S.St.cols(s)
       X.Bool.when(T.Cell, P.Pick.is_fff(kind), u => Scr.caret(Scr.fzf_row(Z.Fzf.geo(r, c)), Nat.add(3n, X.Text.cells(q))), u => Scr.caret(Scr.fff_row(FF.Fff.geo(r, c)), Nat.add(4n, X.Text.cells(q))))
+    case T.Visual{k, start}:
+      +w = S.St.win(s)
+      T.Cell{Nat.sub(C.St.line(s), S.Win.top(w)), Nat.add(C.St.g(s), Nat.sub(C.St.col(s), S.Win.left(w)))}
 
 # the command line: what is typed, else the message with the search count
 # right of it, ending where 'showcmd' starts (11 columns from the edge);
@@ -141,11 +149,15 @@ def Scr.cmd(+s: T.St, m: T.Mode) -> String:
       X.Text.cut(Scr.msg(s), S.St.cols(s))
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       X.Text.cut(Scr.msg(s), S.St.cols(s))
+    case T.Visual{k, start}:
+      X.Text.cut(Vi.Vis.label(k), S.St.cols(s))
 
 
 def Scr.under(+s: T.St, m: T.Mode) -> String:
   match m:
     case T.Normal{}:
+      Scr.char(X.Text.at(C.St.text(s), C.St.col(s)))
+    case T.Visual{k, start}:
       Scr.char(X.Text.at(C.St.text(s), C.St.col(s)))
     case T.Typing{kind, text}:
       " "
@@ -160,6 +172,8 @@ def Scr.float(+s: T.St, m: T.Mode) -> Maybe<&2, T.Float>:
       None{}
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       Some{P.Pick.float(s, kind, q, its, n, sel, pv)}
+    case T.Visual{k, start}:
+      None{}
 
 def Scr.cl(m: T.Mode) -> Bool:
   match m:
@@ -169,6 +183,21 @@ def Scr.cl(m: T.Mode) -> Bool:
       True{}
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       False{}
+    case T.Visual{k, start}:
+      True{}
+
+# the visual selection's runs on screen; none outside visual mode
+def Scr.sel(+s: T.St, m: T.Mode) -> List<&2, T.Span>:
+  match m:
+    case T.Normal{}:
+      Nil{}
+    case T.Typing{kind, text}:
+      Nil{}
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      Nil{}
+    case T.Visual{+k, +start}:
+      +w = S.St.win(s)
+      Vi.Vis.spans(k, C.St.lines(s), start, S.Win.cur(w), S.Win.top(w), C.St.h(s), S.Win.left(w), C.St.w(s), C.St.g(s))
 
 # the cursor's cell kept inside the float, when one is open (a float cut
 # to a small screen may leave the prompt's caret past its edges)
@@ -189,4 +218,4 @@ def Scr.frame(+s: T.St) -> T.Frame:
   +numw = V.View.numw(S.St.opts(s), n)
   +nums = V.View.nums(h, S.St.opts(s), S.Win.top(w), C.St.line(s), Nat.sub(n, 1n), numw, C.St.on_file(s), C.St.g(s))
   +fl = Scr.float(s, m)
-  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, Scr.inside(Scr.cell(s, m), fl), Scr.under(s, m), Scr.cmd(s, m), Scr.hits(s, Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), Scr.cl(m), Scr.status_of(s, m), fl}
+  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, Scr.inside(Scr.cell(s, m), fl), Scr.under(s, m), Scr.cmd(s, m), Scr.hits(s, Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), Scr.cl(m), Scr.status_of(s, m), fl, Scr.sel(s, m)}

@@ -1,4 +1,13 @@
 {
+  "version": 2,
+  "classify": {
+    "code": [],
+    "spec": []
+  },
+  "freeze": {
+    "files": {},
+    "globs": []
+  },
   "laws": {
     "laws/vim/buffers.bend::real_buffer": "76a43970562fa8e2ff63f74808159e28dd62d75a57a493e44a0183048453f3b7",
     "laws/vim/buffers.bend::start_file": "b7906194d70ed58f1ac3f0565915faee48bb92ef1221375a84d3a6044510a35f",
@@ -36,20 +45,9 @@
     "laws/vim/screen.bend::edges": "d6c48b74b34ce6775766c5d0f1831ac1565d2299284c47e0b450ebc7538e50f7",
     "laws/vim/screen.bend::fits": "06e59018ea1873251b9f7a0f9261a11422f291299fbf2ac3e69aa9e73ee7dc77",
     "laws/vim/screen.bend::scrolloff": "3d2b4640ac2ab19211f8b70beecb08206e5800073dc67e80115c689f04984662",
-    "laws/vim/screen.bend::scrolloff_any": "1c7a975f05a07f7d55913fa6a92006275ec1437ce71f82ab2e9dd2e1476cd6bd"
+    "laws/vim/screen.bend::scrolloff_any": "1c7a975f05a07f7d55913fa6a92006275ec1437ce71f82ab2e9dd2e1476cd6bd",
+    "laws/vim/visual.bend::yank_char": "0e50777b47e9cd3422db8eeeb23c3b1ad2090c91657f6a12572e9fd0f412ba6c",
+    "laws/vim/visual.bend::yank_line": "a586645b3a554a57161cd3777afb382a6abf91a7e6a28f876d4276a4dddeb46d"
   },
-  "spec": {
-    "LAWS.bend": "3af0edd682e7b6137bcb65a596c2da5800853b0a980eae4471191db66561a487",
-    "laws/vim/base.bend": "a0bc26f5c6f06424dbfe7272bc9d01b0992bb8e8605f61904f39b463cc774b45",
-    "laws/vim/buffers.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/esc.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/ex.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/example.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/host.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/motion.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/mouse.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/oil.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35",
-    "laws/vim/screen.bend": "1dac9eec965e643bb03e9c53733298a940a4540d2a8dcb0591b48b674dedfb35"
-  },
-  "spec_files": {}
+  "spec": {}
 }

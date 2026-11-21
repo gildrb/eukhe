@@ -230,6 +230,20 @@ def Esc.win(s: T.St) -> {S.St.win(s) == S.St.win(Laws.Spec.after(K.Key.in(s, S.S
           {==}
         case T.Picking{kind, q, its, n, sel, top, pv, levels}:
           {==}
+        case T.Visual{+vk, +vs}:
+          match pend:
+            case T.NoPend{}:
+              {==}
+            case T.PendG{}:
+              {==}
+            case T.PendZ{}:
+              {==}
+            case T.PendLead{}:
+              {==}
+            case T.PendLeadF{}:
+              {==}
+            case T.PendY{}:
+              {==}
 
 # the editor after any events shows a real buffer
 def Esc.real_run(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {B.Tgt.real(S.St.files(Laws.Spec.run(fs, rows, cols, evs)), S.Win.tgt(S.St.win(Laws.Spec.run(fs, rows, cols, evs)))) == True{} : Bool}:

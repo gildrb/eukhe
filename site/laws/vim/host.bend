@@ -11,8 +11,8 @@ import ./base.bend as Laws
 # Laws
 # ----
 
-# LAW honest: after any events, the next one makes the host copy only the
-# install command and open only a URL written in a file.
+# LAW honest: after any events, the next one makes the host copy only a run
+# of a file's text and open only a URL written in a file.
 law honest:
   for fs: List<&2, T.Buf>
   for +rows: Nat

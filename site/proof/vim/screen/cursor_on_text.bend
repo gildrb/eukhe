@@ -18,7 +18,7 @@ def OnText.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev
   +evs2 = Laws.Spec.snoc(evs, Laws.Spec.key("<Esc>"))
   %Re.Reach.rows_normal(fs, rows, cols, evs) : {Laws.Spec.on_text(fs, n, _, Laws.Spec.cols(cols, evs)) == True{} : Bool}
   %Re.Reach.cols_normal(fs, rows, cols, evs) : {Laws.Spec.on_text(fs, n, S.St.rows(n), _) == True{} : Bool}
-  Sc.Screen.on_text(fs, n, Re.Reach.final(fs, rows, cols, evs2), Re.Reach.files_run(fs, rows, cols, evs2), Re.Reach.normal_mode(fs, rows, cols, evs))
+  Sc.Screen.on_text(fs, n, Re.Reach.final(fs, rows, cols, evs2), Re.Reach.files_run(fs, rows, cols, evs2), Sc.Mode.text_normal(S.St.mode(n), Re.Reach.normal_mode(fs, rows, cols, evs)))
 
 def ScreenLaws.cursor_on_text(fs, rows, cols, evs):
   OnText.law(fs, rows, cols, evs)

@@ -435,6 +435,13 @@ function listen() {
   // Until the first input reads it; a failure is reported then.
   filesText.catch(() => undefined);
   document.addEventListener("keydown", (event) => {
+    // Cmd-C or Ctrl-C with text selected copies it, as anywhere else (y in visual mode).
+    const selected = shown !== null && shown.sel.$ === "Con";
+    if ((event.metaKey || event.ctrlKey) && event.key === "c" && selected) {
+      event.preventDefault();
+      ready(() => step({ $: "EvKey", name: "y" }));
+      return;
+    }
     const name = keyName(event);
     if (name === null) return;
     event.preventDefault();
@@ -448,17 +455,31 @@ function listen() {
       else step({ $: "EvKey", name });
     });
   });
+  // A press puts the cursor there; dragging with the button down selects from it (visual mode).
+  let pressed: { row: number; col: number } | null = null;
   term.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
     const { row, col } = cellAt(event);
+    pressed = { row, col };
     ready(() => tap(row, col, false));
+  });
+  window.addEventListener("mouseup", () => {
+    pressed = null;
   });
   term.addEventListener("mouseleave", () => {
     mouse = null;
   });
   term.addEventListener("mousemove", (event) => {
     const { row, col } = cellAt(event);
+    if (
+      pressed !== null &&
+      (event.buttons & 1) === 1 &&
+      (row !== pressed.row || col !== pressed.col)
+    ) {
+      pressed = { row, col };
+      ready(() => step({ $: "EvDrag", row, col }));
+    }
     mouse = { row, col };
     const over = linkAt(row, col) !== null || copyUnder(row, col) !== undefined;
     term.style.cursor = over ? "pointer" : "";

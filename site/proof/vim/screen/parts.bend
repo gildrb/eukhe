@@ -325,8 +325,8 @@ def Clamp(+r: Nat, +row: Nat, +h: Nat, +h1: L.LE(1n, h)) -> {Bool.and(Nat.is_le(
   L.And.intro(Nat.is_le(row, x), Nat.is_lt(x, Nat.add(row, h)), L.Nat.le_min(row, Nat.max(r, row), e, L.Nat.le_max_r(r, row), hre), lt)
 
 # the cursor kept inside a picker's float (Scr.inside) is inside it
-def CursorIn.pick(fs: List<&2, T.Buf>, +s: T.St, -tgt: T.Tgt, -top: Nat, -left: Nat, -g: Nat, -nums: List<&2, String>, c: T.Cell, -ch: String, -cmd: String, -hits: List<&2, T.Span>, -bar: T.Span, -cl: Bool, -st: String, D: T.Float, +rows: Nat, +cols: Nat, hR: L.LE(1n, rows), hC: L.LE(1n, cols))
-  -> {Laws.Spec.cursor_in(fs, s, T.Frame{tgt, top, left, g, nums, R.Scr.inside(c, Some{Bx.Float.fit(D, rows, cols)}), ch, cmd, hits, bar, cl, st, Some{Bx.Float.fit(D, rows, cols)}}, rows, cols, Some{Bx.Float.fit(D, rows, cols)}) == True{} : Bool}:
+def CursorIn.pick(fs: List<&2, T.Buf>, +s: T.St, -tgt: T.Tgt, -top: Nat, -left: Nat, -g: Nat, -nums: List<&2, String>, c: T.Cell, -ch: String, -cmd: String, -hits: List<&2, T.Span>, -bar: T.Span, -cl: Bool, -st: String, -sel: List<&2, T.Span>, D: T.Float, +rows: Nat, +cols: Nat, hR: L.LE(1n, rows), hC: L.LE(1n, cols))
+  -> {Laws.Spec.cursor_in(fs, s, T.Frame{tgt, top, left, g, nums, R.Scr.inside(c, Some{Bx.Float.fit(D, rows, cols)}), ch, cmd, hits, bar, cl, st, Some{Bx.Float.fit(D, rows, cols)}, sel}, rows, cols, Some{Bx.Float.fit(D, rows, cols)}) == True{} : Bool}:
   match c D:
     case T.Cell{+r, +k} T.Float{+row, +col, +width, height, +lines, marks}:
       +w = Nat.max(1n, Nat.min(width, cols))

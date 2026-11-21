@@ -8,6 +8,7 @@
 
 import Base
 import ../../../vim/types.bend as T
+import ../../../vim/visual.bend as Vi
 import ../../../vim/text.bend as X
 import ../../../vim/buf.bend as B
 import ../../../vim/view.bend as V
@@ -62,6 +63,9 @@ def Status.ok(+s: T.St) -> {Nat.is_eq(Laws.Spec.cells(Laws.F.status(Vim.Vim.fram
           +fff = P.Pick.is_fff(kind)
           +bytes = X.Text.bytes(q, X.Text.len(q))
           Pa.Eq.of(Laws.Spec.cells(Laws.F.status(Vim.Vim.frame(s0))), cols, Pa.Status.cells(Bool.pick(String, fff, "fffile search", "term:////1:/bin/sh"), Bool.pick(String, fff, "", "[-]"), "1:" ++ Nat.show(Nat.add(Bool.pick(Nat, fff, 6n, 3n), bytes)), cols))
+        case T.Visual{+vk, +vs}:
+          +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
+          Pa.Eq.of(Laws.Spec.cells(Laws.F.status(Vim.Vim.frame(s0))), cols, Pa.Status.cells(B.Tgt.name(files, S.Win.tgt(win)), "", R.Scr.ruler(s0), cols))
 
 # the float: none, or a picker's, fitted to the screen
 def Float.ok(+s: T.St, +fin: Fi.Final(s)) -> {Laws.Spec.float_ok(Laws.F.float(Vim.Vim.frame(s)), S.St.rows(s), S.St.cols(s)) == True{} : Bool}:
@@ -75,6 +79,8 @@ def Float.ok(+s: T.St, +fin: Fi.Final(s)) -> {Laws.Spec.float_ok(Laws.F.float(Vi
         case T.Picking{+kind, +q, +its, +n, +sel, +top, +pv, +levels}:
           +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{kind, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
           Pa.FloatFit.ok(P.Pick.draw(s0, kind, q, its, n, sel, pv), rows, cols, Fr.rows1(s0, fin), Fr.cols1(s0, fin))
+        case T.Visual{vk, vs}:
+          {==}
 
 # the command line: within the screen
 def Cmd.ok(+s: T.St, fin: Fi.Final(s)) -> {Nat.is_le(Laws.Spec.cells(Laws.F.cmd(Vim.Vim.frame(s))), S.St.cols(s)) == True{} : Bool}:
@@ -90,6 +96,8 @@ def Cmd.ok(+s: T.St, fin: Fi.Final(s)) -> {Nat.is_le(Laws.Spec.cells(Laws.F.cmd(
         case T.Picking{+kind, +q, +its, +n, +sel, +top, +pv, +levels}:
           +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{kind, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
           Tx.Cut.cells(R.Scr.msg(s0), cols)
+        case T.Visual{+vk, +vs}:
+          Tx.Cut.cells(Vi.Vis.label(vk), cols)
 
 # the cursorline: shown exactly when no float is open
 def Line.ok(+s: T.St) -> {Bool.not(Bool.xor(Laws.F.cl(Vim.Vim.frame(s)), Laws.Spec.is_none(Laws.F.float(Vim.Vim.frame(s))))) == True{} : Bool}:
@@ -101,4 +109,6 @@ def Line.ok(+s: T.St) -> {Bool.not(Bool.xor(Laws.F.cl(Vim.Vim.frame(s)), Laws.Sp
         case T.Typing{+kind, +text}:
           {==}
         case T.Picking{+kind, +q, +its, +n, +sel, +top, +pv, +levels}:
+          {==}
+        case T.Visual{vk, vs}:
           {==}

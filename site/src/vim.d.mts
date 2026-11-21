@@ -58,12 +58,15 @@ export type Frame = {
   /** The whole statusline row, exactly `cols` cells. */
   status: string;
   float: Maybe<Float>;
+  /** The visual selection's runs on the text rows, in screen columns; none outside visual mode. */
+  sel: BendList<Span>;
 };
 export type Ev =
   | { $: "EvKey"; name: string }
   | { $: "EvClick"; row: number; col: number }
   | { $: "EvWheel"; down: boolean; notches: number }
-  | { $: "EvSize"; rows: number; cols: number };
+  | { $: "EvSize"; rows: number; cols: number }
+  | { $: "EvDrag"; row: number; col: number };
 export type Act =
   | { $: "Nothing" }
   | { $: "OpenUrl"; url: string }

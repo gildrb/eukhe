@@ -130,7 +130,8 @@ def EscIdle.of(+s: T.St, fin: Fi.Final(s), hr: {B.Tgt.real(S.St.files(s), S.Win.
                   EscIdle.typing(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, pend, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left}, kind, text, hm)
                 case T.Picking{kind, q, its, n, sel, ptop, pv, levels}:
                   EscIdle.picking(files, folded, dirs, marks, spots, opened, bufs, back, fwd, count, pend, find, hl, opts, rows, cols, msg, stat, T.Win{tgt, T.Pos{line, col}, want, top, left}, kind, q, its, n, sel, ptop, pv, levels, hm)
-
+                case T.Visual{+vk, +vs}:
+                  Sb.Mode.visual({Laws.Claim.esc_idle(T.St{files, folded, dirs, T.Win{tgt, T.Pos{line, col}, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}) == True{} : Bool}, vk, vs, hm)
 def EscIdle.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {Laws.Claim.esc_idle(Laws.Spec.normal(fs, rows, cols, evs)) == True{} : Bool}:
   +evs2 = Laws.Spec.snoc(evs, Laws.Spec.key("<Esc>"))
   EscIdle.of(Laws.Spec.normal(fs, rows, cols, evs), Re.Reach.final(fs, rows, cols, evs2), Eb.Esc.real_run(fs, rows, cols, evs2), Re.Reach.normal_mode(fs, rows, cols, evs))

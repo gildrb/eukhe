@@ -27,19 +27,41 @@ import ./screen.bend as R
 # The mouse
 # ---------
 
-# a click on screen cell (row, col): in the text, the cursor goes there; a
-# picker closes
+# a click on text cell (row, col): the cursor goes there; below the text,
+# nothing moves
+def Vim.click.go(+s: T.St, +row: Nat, +col: Nat) -> T.St:
+  +g = C.St.g(s)
+  +w = S.St.win(s)
+  +s2 = S.St.set_count(S.St.set_pend(s, T.NoPend{}), 0n)
+  X.Bool.when(T.St, Nat.is_lt(row, C.St.h(s)), u => s2, u => C.Win.go(s2, T.Pos{Nat.add(S.Win.top(w), row), Nat.add(S.Win.left(w), Nat.sub(col, g))}, False{}))
+
+# a click on screen cell (row, col): in the text, the cursor goes there
+# (a click ends visual mode); a picker closes
 def Vim.click(+s: T.St, m: T.Mode, +row: Nat, +col: Nat) -> T.St:
   match m:
     case T.Normal{}:
-      +g = C.St.g(s)
-      +w = S.St.win(s)
-      +s2 = S.St.set_count(S.St.set_pend(s, T.NoPend{}), 0n)
-      X.Bool.when(T.St, Nat.is_lt(row, C.St.h(s)), u => s2, u => C.Win.go(s2, T.Pos{Nat.add(S.Win.top(w), row), Nat.add(S.Win.left(w), Nat.sub(col, g))}, False{}))
+      Vim.click.go(s, row, col)
     case T.Typing{kind, text}:
       s
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       S.St.set_mode(s, T.Normal{})
+    case T.Visual{k, start}:
+      Vim.click.go(S.St.set_mode(s, T.Normal{}), row, col)
+
+# the mouse dragged to screen cell (row, col): from normal mode on a file,
+# visual mode by characters from the cursor (where the button went down);
+# in visual mode, the cursor follows, so the selection grows
+def Vim.drag(+s: T.St, m: T.Mode, +row: Nat, +col: Nat) -> T.St:
+  match m:
+    case T.Normal{}:
+      +s2 = Bool.pick(T.St, C.St.on_file(s), S.St.set_mode(s, T.Visual{T.VChars{}, S.Win.cur(S.St.win(s))}), s)
+      Bool.pick(T.St, C.St.on_file(s), Vim.click.go(s2, row, col), s)
+    case T.Typing{kind, text}:
+      s
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      s
+    case T.Visual{k, start}:
+      Vim.click.go(s, row, col)
 
 # notches of the wheel: three lines each, the cursor dragged on screen; in
 # a picker, the selection moves
@@ -51,6 +73,8 @@ def Vim.wheel(+s: T.St, m: T.Mode, +down: Bool, +notches: Nat) -> T.St:
       s
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       P.Pick.key(s, kind, q, its, n, sel, pv, levels, Bool.pick(String, down, "<Down>", "<Up>"))
+    case T.Visual{k, start}:
+      K.Key.scroll_by(s, down, Nat.mul(notches, V.View.notch()), False{})
 
 # The editor
 # ----------
@@ -72,10 +96,12 @@ def Vim.real(+fs: List<&2, T.Buf>, w: T.Win) -> T.Win:
 def Vim.fit(+s: T.St) -> T.St:
   C.Win.settle(S.St.set_cols(S.St.set_rows(s, Nat.max(S.St.rows(s), V.View.min_rows())), Nat.max(S.St.cols(s), V.View.min_cols())))
 
-# outside normal mode no key waits and no count is typed
+# outside normal and visual mode no key waits and no count is typed
 def Vim.pend(m: T.Mode, p: T.Pend) -> T.Pend:
   match m:
     case T.Normal{}:
+      p
+    case T.Visual{k, start}:
       p
     case T.Typing{kind, text}:
       T.NoPend{}
@@ -85,6 +111,8 @@ def Vim.pend(m: T.Mode, p: T.Pend) -> T.Pend:
 def Vim.count(m: T.Mode, c: Nat) -> Nat:
   match m:
     case T.Normal{}:
+      c
+    case T.Visual{k, start}:
       c
     case T.Typing{kind, text}:
       0n
@@ -183,6 +211,8 @@ def Vim.step(+s: T.St, e: T.Ev) -> T.Step:
     case T.EvSize{rows, cols}:
       +s2 = Vim.size(s, rows, cols)
       Vim.done(s2, K.Key.ok(s2))
+    case T.EvDrag{row, col}:
+      Vim.done(s, K.Key.ok(Vim.drag(s, S.St.mode(s), row, col)))
 
 # what the screen shows
 def Vim.frame(+s: T.St) -> T.Frame:

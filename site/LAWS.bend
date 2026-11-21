@@ -17,7 +17,8 @@
 # R4 The screen fits: rows x cols cells from the last size event (at least 3 x 12); the number column one entry per text row, each exactly the gutter wide; the statusline exactly cols cells; search hits and the scrollbar inside the text rows; a float inside the screen, each of its rows exactly its width.
 # R5 A click on a text cell puts the cursor on that line (the last line when below the text) and on that column (the line's last character when past its end).
 # R6 Oil never traps: every listing starts with "../"; "-" goes to the parent folder (at the root it stays); Ctrl-c in a listing (normal mode) returns to a file; "-" from a file opens its folder with the cursor on the file's entry.
-# R7 The host never does anything the files did not ask for: the only text ever copied is the install command, and every URL opened appears in a file.
+# R7 The host never does anything the files did not ask for: the only text ever copied is a run of the text of a file (what a yank selected: characters, a line or lines, with their line breaks), and every URL opened appears in a file.
+# R9 A yank copies exactly what it took: yy and Y the cursor's line (and the count's lines after it) with their line breaks; y in visual mode the characters from where the selection started to the cursor, both included, or with V the lines between them, whole.
 # A1 Every character of a file takes one cell (the site's font is monospace, every glyph checked at build); files hold no wide characters.
 # A2 A file with no lines shows one empty line, as Neovim does; past the last file, the window shows one empty line.
 # A3 The motion laws (R2, R5) hold from normal mode: after an Esc, which closes a picker, cancels a command line and drops a count or a waiting key.
@@ -36,3 +37,4 @@ import ./laws/vim/buffers.bend as BuffersLaws
 import ./laws/vim/esc.bend as EscLaws
 import ./laws/vim/ex.bend as ExLaws
 import ./laws/vim/example.bend as ExampleLaws
+import ./laws/vim/visual.bend as VisualLaws

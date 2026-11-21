@@ -44,10 +44,32 @@ def Mode.If(m: T.Mode, G: Type) -> Type:
       G
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       G
+    case T.Visual{k, start}:
+      G
+
+# a mode that shows the cursor in the text: normal and visual mode
+def Mode.text(m: T.Mode) -> Bool:
+  match m:
+    case T.Normal{}:
+      True{}
+    case T.Typing{kind, text}:
+      False{}
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      False{}
+    case T.Visual{k, start}:
+      True{}
+
+def Mode.text_normal(m: T.Mode, e: {m == T.Normal{} : T.Mode}) -> {Mode.text(m) == True{} : Bool}:
+  %Equal.sym(T.Mode, m, T.Normal{}, e) : {Mode.text(_) == True{} : Bool}
+  {==}
 
 # a mode that is not normal mode is not: anything follows
 def Mode.typing(-G: Type, -k: T.Line, -t: String, e: {T.Typing{k, t} == T.Normal{} : T.Mode}) -> G:
   %Equal.sym(T.Mode, T.Typing{k, t}, T.Normal{}, e) : Mode.If(_, G)
+  Unit{}
+
+def Mode.visual(-G: Type, -k: T.Vis, -p: T.Pos, e: {T.Visual{k, p} == T.Normal{} : T.Mode}) -> G:
+  %Equal.sym(T.Mode, T.Visual{k, p}, T.Normal{}, e) : Mode.If(_, G)
   Unit{}
 
 def Mode.picking(-G: Type, -k: T.Pick, -q: String, -its: List<&2, T.Item>, -n: Nat, -sel: Nat, -top: Nat, -pv: Nat, -levels: List<&2, T.Level>, e: {T.Picking{k, q, its, n, sel, top, pv, levels} == T.Normal{} : T.Mode}) -> G:
@@ -205,7 +227,7 @@ def OnText.G(fs: List<&2, T.Buf>, +s: T.St) -> Type:
   {Laws.Spec.on_text(fs, s, S.St.rows(s), S.St.cols(s)) == True{} : Bool}
 
 def OnText.at(m: T.Mode, tgt: T.Tgt, cur: T.Pos, +fs: List<&2, T.Buf>, +files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, +dirs: List<&2, T.Listing>, +want: T.Want, +top: Nat, +left: Nat, +marks: List<&2, T.Pos>, +spots: List<&2, T.Spot>, +opened: List<&2, Nat>, +bufs: List<&2, Nat>, +back: List<&2, T.Win>, +fwd: List<&2, T.Win>, +count: Nat, +pend: T.Pend, +find: Maybe<&2, T.Find>, +hl: Bool, +opts: T.Opts, +rows: Nat, +cols: Nat, +msg: String, +stat: String,
-  fin: Fi.Final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}), hf: {files == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {m == T.Normal{} : T.Mode})
+  fin: Fi.Final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}), hf: {files == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {Mode.text(m) == True{} : Bool})
   -> OnText.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}):
   match m:
     case T.Normal{}:
@@ -221,13 +243,25 @@ def OnText.at(m: T.Mode, tgt: T.Tgt, cur: T.Pos, +fs: List<&2, T.Buf>, +files: L
               +raw = Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), B.Oil.list(files, path))
               OnText.parts(B.Lines.some(raw), B.Lines.some(raw), rows, cols, opts, False{}, line, col, top, left, {==}, Some.count(raw), fin)
     case T.Typing{+k, +t}:
-      Mode.typing(OnText.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}), k, t, hm)
+      L.Bool.false_true(OnText.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}), hm)
     case T.Picking{+k, +q, +its, +n, +sel, +ptop, +pv, +levels}:
-      Mode.picking(OnText.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}), k, q, its, n, sel, ptop, pv, levels, hm)
+      L.Bool.false_true(OnText.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}), hm)
+    case T.Visual{vk, vs}:
+      match tgt:
+        case T.File{+i}:
+          match cur:
+            case T.Pos{+line, +col}:
+              +raw = B.Buf.lines(B.Files.at(files, i))
+              OnText.parts(B.Lines.some(raw), Laws.Spec.file(fs, i), rows, cols, opts, True{}, line, col, top, left, Files.spec(fs, files, i, hf), Some.count(raw), fin)
+        case T.Dir{+path}:
+          match cur:
+            case T.Pos{+line, +col}:
+              +raw = Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), B.Oil.list(files, path))
+              OnText.parts(B.Lines.some(raw), B.Lines.some(raw), rows, cols, opts, False{}, line, col, top, left, {==}, Some.count(raw), fin)
 
 # a settled editor in normal mode, on the files the start made of fs: the
 # cursor on a character of the window's text (R1)
-def Screen.on_text(fs: List<&2, T.Buf>, +s: T.St, fin: Fi.Final(s), hf: {S.St.files(s) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {S.St.mode(s) == T.Normal{} : T.Mode}) -> OnText.G(fs, s):
+def Screen.on_text(fs: List<&2, T.Buf>, +s: T.St, fin: Fi.Final(s), hf: {S.St.files(s) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {Mode.text(S.St.mode(s)) == True{} : Bool}) -> OnText.G(fs, s):
   match s:
     case T.St{+files, +folded, +dirs, +win, +marks, +spots, +opened, +bufs, +back, +fwd, +mode, +count, +pend, +find, +hl, +opts, +rows, +cols, +msg, +stat}:
       match win:
@@ -310,7 +344,7 @@ def Scrolled.G(fs: List<&2, T.Buf>, +s: T.St) -> Type:
   {Laws.Spec.scrolled(fs, s, S.St.rows(s)) == True{} : Bool}
 
 def Scrolled.at(m: T.Mode, tgt: T.Tgt, cur: T.Pos, +fs: List<&2, T.Buf>, +files: List<&2, T.Buf>, +folded: List<&2, List<&2, String>>, +dirs: List<&2, T.Listing>, +want: T.Want, +top: Nat, +left: Nat, +marks: List<&2, T.Pos>, +spots: List<&2, T.Spot>, +opened: List<&2, Nat>, +bufs: List<&2, Nat>, +back: List<&2, T.Win>, +fwd: List<&2, T.Win>, +count: Nat, +pend: T.Pend, +find: Maybe<&2, T.Find>, +hl: Bool, +opts: T.Opts, +rows: Nat, +cols: Nat, +msg: String, +stat: String,
-  fin: Fi.Final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}), hf: {files == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {m == T.Normal{} : T.Mode})
+  fin: Fi.Final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}), hf: {files == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {Mode.text(m) == True{} : Bool})
   -> Scrolled.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat}):
   match m:
     case T.Normal{}:
@@ -326,13 +360,25 @@ def Scrolled.at(m: T.Mode, tgt: T.Tgt, cur: T.Pos, +fs: List<&2, T.Buf>, +files:
               +raw = Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), B.Oil.list(files, path))
               Scrolled.parts(B.Lines.some(raw), B.Lines.some(raw), rows, cols, opts, False{}, line, col, top, left, {==}, fin)
     case T.Typing{+k, +t}:
-      Mode.typing(Scrolled.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}), k, t, hm)
+      L.Bool.false_true(Scrolled.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}), hm)
     case T.Picking{+k, +q, +its, +n, +sel, +ptop, +pv, +levels}:
-      Mode.picking(Scrolled.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}), k, q, its, n, sel, ptop, pv, levels, hm)
+      L.Bool.false_true(Scrolled.G(fs, T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}), hm)
+    case T.Visual{vk, vs}:
+      match tgt:
+        case T.File{+i}:
+          match cur:
+            case T.Pos{+line, +col}:
+              +raw = B.Buf.lines(B.Files.at(files, i))
+              Scrolled.parts(B.Lines.some(raw), Laws.Spec.file(fs, i), rows, cols, opts, True{}, line, col, top, left, Files.spec(fs, files, i, hf), fin)
+        case T.Dir{+path}:
+          match cur:
+            case T.Pos{+line, +col}:
+              +raw = Maybe.default(&2, List<&2, String>, C.Listing.find(dirs, path), B.Oil.list(files, path))
+              Scrolled.parts(B.Lines.some(raw), B.Lines.some(raw), rows, cols, opts, False{}, line, col, top, left, {==}, fin)
 
 # a settled editor in normal mode, on the files the start made of fs:
 # 'scrolloff' holds (R3)
-def Screen.scrolled(fs: List<&2, T.Buf>, +s: T.St, fin: Fi.Final(s), hf: {S.St.files(s) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {S.St.mode(s) == T.Normal{} : T.Mode}) -> Scrolled.G(fs, s):
+def Screen.scrolled(fs: List<&2, T.Buf>, +s: T.St, fin: Fi.Final(s), hf: {S.St.files(s) == B.Files.some(fs, Nil{}) : List<&2, T.Buf>}, hm: {Mode.text(S.St.mode(s)) == True{} : Bool}) -> Scrolled.G(fs, s):
   match s:
     case T.St{+files, +folded, +dirs, +win, +marks, +spots, +opened, +bufs, +back, +fwd, +mode, +count, +pend, +find, +hl, +opts, +rows, +cols, +msg, +stat}:
       match win:

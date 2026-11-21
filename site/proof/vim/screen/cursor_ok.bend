@@ -41,7 +41,11 @@ def CursorOk.of(+fs: List<&2, T.Buf>, +s: T.St, +fin: Fi.Final(s), hf: {S.St.fil
           +m = {T.Picking{kind, q, its, n, sel, top, pv, levels} : T.Mode}
           +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, m, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
           +f = Vim.Vim.frame(s0)
-          Pa.CursorIn.pick(fs, s0, Laws.F.tgt(f), Laws.F.top(f), Laws.F.left(f), Laws.F.gutter(f), Laws.F.nums(f), R.Scr.cell(s0, m), Laws.F.char(f), Laws.F.cmd(f), Laws.F.hits(f), Laws.F.bar(f), Laws.F.cl(f), Laws.F.status(f), P.Pick.draw(s0, kind, q, its, n, sel, pv), rows, cols, Fr.Fr.rows1(s0, fin), Fr.Fr.cols1(s0, fin))
+          Pa.CursorIn.pick(fs, s0, Laws.F.tgt(f), Laws.F.top(f), Laws.F.left(f), Laws.F.gutter(f), Laws.F.nums(f), R.Scr.cell(s0, m), Laws.F.char(f), Laws.F.cmd(f), Laws.F.hits(f), Laws.F.bar(f), Laws.F.cl(f), Laws.F.status(f), Laws.F.sel(f), P.Pick.draw(s0, kind, q, its, n, sel, pv), rows, cols, Fr.Fr.rows1(s0, fin), Fr.Fr.cols1(s0, fin))
+        case T.Visual{+vk, +vs}:
+          +s0 = {T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat} : T.St}
+          +f = Vim.Vim.frame(s0)
+          L.Or.r(Bool.and(Nat.is_eq(Laws.F.row(f), Nat.sub(rows, 1n)), Nat.is_lt(Laws.F.col(f), cols)), Laws.Spec.on_text(fs, s0, rows, cols), Sc.Screen.on_text(fs, s0, fin, hf, {==}))
 
 def CursorOk.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {Laws.Spec.cursor_ok(fs, Laws.Spec.run(fs, rows, cols, evs), Laws.Spec.rows(rows, evs), Laws.Spec.cols(cols, evs)) == True{} : Bool}:
   +s = Laws.Spec.run(fs, rows, cols, evs)

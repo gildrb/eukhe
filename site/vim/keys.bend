@@ -16,6 +16,7 @@ import ./st.bend as S
 import ./core.bend as C
 import ./ex.bend as E
 import ./pick.bend as P
+import ./visual.bend as Vi
 
 # the largest count: a bound on the work of one key
 def Key.max_count() -> Nat:
@@ -30,7 +31,7 @@ def Key.names() -> List<&2, String>:
    "-", "g", "z", "<Space>", "y", "Y", "i", "a", "o", "O",
    "I", "A", "x", "X", "d", "D", "c", "C", "s", "S",
    "r", "R", "p", "P", "J", "~", ".", "<Del>", ">", "<",
-   "u", "<C-r>", "<C-^>", "<C-c>", "_"]
+   "u", "<C-r>", "<C-^>", "<C-c>", "_", "v", "V"]
 
 # one motion: 0 w, 1 W, 2 b, 3 B, 4 e, 5 E, 6 }, 7 {
 def Rep.one(+ls: List<&2, String>, which: Nat, +p: T.Pos) -> T.Pos:
@@ -151,11 +152,21 @@ def Key.back.to(+s: T.St, +fwd: Bool, ws: List<&2, T.Win>) -> T.St:
 def Key.back(+s: T.St, +fwd: Bool) -> T.St:
   Key.back.to(s, fwd, Bool.pick(List<&2, T.Win>, fwd, S.St.fwd(s), S.St.back(s)))
 
-# yy: only the install command copies, on a line that starts with it (the
-# README's install line goes on with a `# comment`)
-def Key.yank(+s: T.St) -> T.Step:
-  +install = E.Vim.install()
-  T.Step{s, Bool.pick(T.Act, X.Text.prefix(install, C.St.text(s)), T.CopyText{install}, T.Nothing{})}
+# the clipboard gets what a selection of kind k from a to b holds of the
+# window's lines, on a file's window (an Oil listing is not a file's text:
+# nothing is copied there)
+def Key.copy(+s: T.St, +k: T.Vis, +a: T.Pos, +b: T.Pos) -> T.Act:
+  Bool.pick(T.Act, C.St.on_file(s), T.CopyText{Vi.Vis.text(k, C.St.lines(s), a, b)}, T.Nothing{})
+
+# yy, Y: the cursor's line and the n - 1 after it, whole
+def Key.yank(+s: T.St, +n: Nat) -> T.Step:
+  +l = C.St.line(s)
+  T.Step{s, Key.copy(s, T.VLines{}, T.Pos{l, 0n}, T.Pos{Nat.add(Nat.sub(n, 1n), l), 0n})}
+
+# v, V: visual mode, the selection starting at the cursor (on a file's
+# window only)
+def Key.visual.start(+s: T.St, +k: T.Vis) -> T.St:
+  Bool.pick(T.St, C.St.on_file(s), S.St.set_mode(s, T.Visual{k, S.Win.cur(S.St.win(s))}), s)
 
 def Key.ok(s: T.St) -> T.Step:
   T.Step{s, T.Nothing{}}
@@ -196,7 +207,11 @@ def Key.normal.hi(+s: T.St, k: Nat, +n: Nat) -> T.Step:
       Key.ok(Bool.pick(T.St, C.St.on_file(s), s, C.Win.alt(s)))
     case 28n:
       Key.ok(X.Bool.when(T.St, C.St.on_file(s), u => C.Oil.root(s), u => Key.first(s, Nat.add(C.St.line(s), Nat.sub(n, 1n)))))
-    case 29n+p:
+    case 29n:
+      Key.ok(Key.visual.start(s, T.VChars{}))
+    case 30n:
+      Key.ok(Key.visual.start(s, T.VLines{}))
+    case 31n+p:
       Key.ok(s)
     case _:
       Key.ok(E.Msg.say(s, E.Msg.e21()))
@@ -312,9 +327,9 @@ def Key.normal.at(+s: T.St, k: Nat, +n: Nat, +n0: Nat) -> T.Step:
     case 53n:
       Key.ok(S.St.set_pend(s, T.PendLead{}))
     case 54n:
-      Key.ok(S.St.set_pend(s, T.PendY{}))
+      Key.ok(S.St.set_count(S.St.set_pend(s, T.PendY{}), n0))
     case 55n:
-      Key.yank(s)
+      Key.yank(s, n)
     case 56n+p:
       Key.normal.hi(s, p, n)
 
@@ -432,7 +447,7 @@ def Key.pend(+s: T.St, p: T.Pend, +key: String, +n0: Nat) -> T.Step:
     case T.PendLeadF{}:
       Key.ok(Key.leadf(s, key))
     case T.PendY{}:
-      Bool.pick(T.Step, String.eq(key, "y"), Key.yank(s), Key.ok(s))
+      Bool.pick(T.Step, String.eq(key, "y"), Key.yank(s, Nat.max(n0, 1n)), Key.ok(s))
 
 # a key in normal mode: a count's digit, the key after a waiting one, or a
 # key of its own; the command line keeps its message (as Neovim does)
@@ -461,6 +476,69 @@ def Key.typing(+s: T.St, +kind: T.Line, +text: String, +key: String) -> T.Step:
   +ch = Bool.pick(String, String.eq(key, "<Space>"), " ", key)
   X.Bool.when(T.Step, P.Pick.char(ch), u => Key.special(s, kind, text, E.Ex.find(["<BS>", "<CR>", "<Esc>", "<C-c>"], key, 0n)), u => Key.ok(S.St.set_mode(s, T.Typing{kind, String.append(text, ch)})))
 
+# Visual mode
+# -----------
+
+# normal mode again: no key waiting, no count
+def Key.leave(+s: T.St) -> T.St:
+  S.St.set_count(S.St.set_pend(S.St.set_mode(s, T.Normal{}), T.NoPend{}), 0n)
+
+# y in visual mode: the selection copied, the cursor on its first end,
+# normal mode again
+def Key.visual.yank(+s: T.St, +k: T.Vis, +start: T.Pos) -> T.Step:
+  +cur = S.Win.cur(S.St.win(s))
+  T.Step{C.Win.go(Key.leave(s), Vi.Vis.lo(start, cur), False{}), Key.copy(s, k, start, cur)}
+
+# after a key normal mode ran for visual mode: still visual mode while it
+# stays in normal mode on the same buffer; else what the key made of it
+def Key.revisual(+st: T.St, m: T.Mode, +k: T.Vis, +start: T.Pos, +tgt: T.Tgt) -> T.St:
+  match m:
+    case T.Normal{}:
+      Bool.pick(T.St, Vi.Vis.same_tgt(tgt, S.Win.tgt(S.St.win(st))), S.St.set_mode(st, T.Visual{k, start}), st)
+    case T.Typing{kind, text}:
+      st
+    case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      st
+    case T.Visual{k2, start2}:
+      st
+
+def Key.revisual.step(r: T.Step, +k: T.Vis, +start: T.Pos, +tgt: T.Tgt) -> T.Step:
+  match r:
+    case T.Step{+st, act}:
+      T.Step{Key.revisual(st, S.St.mode(st), k, start, tgt), act}
+
+# v in visual mode by characters, V by lines: back to normal mode; the
+# other one changes what the selection takes
+def Key.visual.toggle(+s: T.St, +k: T.Vis, +start: T.Pos, +to: T.Vis) -> T.St:
+  Bool.pick(T.St, Vi.Vis.same(k, to), Key.leave(s), S.St.set_mode(s, T.Visual{to, start}))
+
+def Key.visual.at(+s: T.St, +k: T.Vis, +start: T.Pos, +key: String, i: Nat) -> T.Step:
+  match i:
+    case 0n:
+      Key.ok(Key.leave(s))
+    case 1n:
+      Key.ok(Key.leave(s))
+    case 2n:
+      Key.ok(Key.visual.toggle(s, k, start, T.VChars{}))
+    case 3n:
+      Key.ok(Key.visual.toggle(s, k, start, T.VLines{}))
+    case 4n:
+      Key.visual.yank(s, k, start)
+    case 5n:
+      Key.visual.yank(s, T.VLines{}, start)
+    case 6n:
+      +cur = S.Win.cur(S.St.win(s))
+      Key.ok(C.Win.go(S.St.set_mode(s, T.Visual{k, cur}), start, False{}))
+    case 7n+p:
+      +tgt = S.Win.tgt(S.St.win(s))
+      Key.revisual.step(Key.in_normal(S.St.set_mode(s, T.Normal{}), key), k, start, tgt)
+
+# a key in visual mode: Esc and Ctrl-c leave it, v and V switch or leave,
+# y and Y copy, o goes to the other end; any other key does what it does
+# in normal mode (a motion moves the cursor, so the selection grows)
+def Key.visual(+s: T.St, +k: T.Vis, +start: T.Pos, +key: String) -> T.Step:
+  Key.visual.at(s, k, start, key, E.Ex.find(["<Esc>", "<C-c>", "v", "V", "y", "Y", "o"], key, 0n))
+
 def Key.in(+s: T.St, m: T.Mode, +key: String) -> T.Step:
   match m:
     case T.Normal{}:
@@ -469,3 +547,5 @@ def Key.in(+s: T.St, m: T.Mode, +key: String) -> T.Step:
       Key.typing(s, kind, text, key)
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       Key.ok(P.Pick.key(s, kind, q, its, n, sel, pv, levels, key))
+    case T.Visual{+k, +start}:
+      Key.visual(s, k, start, key)

@@ -29,6 +29,8 @@ def Reach.env(+s: T.St, e: T.Ev) -> T.St:
       s
     case T.EvClick{row, col}:
       s
+    case T.EvDrag{row, col}:
+      s
     case T.EvWheel{down, notches}:
       s
     case T.EvSize{rows, cols}:
@@ -40,6 +42,8 @@ def Reach.raw(+s: T.St, e: T.Ev) -> T.Step:
       K.Key.in(s, S.St.mode(s), name)
     case T.EvClick{row, col}:
       K.Key.ok(Vim.Vim.click(s, S.St.mode(s), row, col))
+    case T.EvDrag{row, col}:
+      K.Key.ok(Vim.Vim.drag(s, S.St.mode(s), row, col))
     case T.EvWheel{down, notches}:
       K.Key.ok(Vim.Vim.wheel(s, S.St.mode(s), down, notches))
     case T.EvSize{rows, cols}:
@@ -60,6 +64,8 @@ def Reach.step(+s: T.St, e: T.Ev) -> {Laws.Spec.after(Vim.Vim.step(s, e)) == Vim
       Reach.done(s, K.Key.in(s, S.St.mode(s), name))
     case T.EvClick{+row, +col}:
       Reach.done(s, K.Key.ok(Vim.Vim.click(s, S.St.mode(s), row, col)))
+    case T.EvDrag{+row, +col}:
+      Reach.done(s, K.Key.ok(Vim.Vim.drag(s, S.St.mode(s), row, col)))
     case T.EvWheel{+down, +notches}:
       Reach.done(s, K.Key.ok(Vim.Vim.wheel(s, S.St.mode(s), down, notches)))
     case T.EvSize{+rows, +cols}:
@@ -161,6 +167,8 @@ def Env.files(+s: T.St, e: T.Ev) -> {S.St.files(Reach.env(s, e)) == S.St.files(s
       {==}
     case T.EvClick{row, col}:
       {==}
+    case T.EvDrag{row, col}:
+      {==}
     case T.EvWheel{down, notches}:
       {==}
     case T.EvSize{+rows, +cols}:
@@ -229,6 +237,8 @@ def RowsGo.max(t: List<&2, T.Ev>, +a: Nat) -> {Nat.max(Laws.Spec.rows.go(t, Nat.
       RowsGo.max(u, a)
     case Con{T.EvClick{row, col}, u}:
       RowsGo.max(u, a)
+    case Con{T.EvDrag{row, col}, u}:
+      RowsGo.max(u, a)
     case Con{T.EvWheel{down, notches}, u}:
       RowsGo.max(u, a)
 
@@ -241,6 +251,8 @@ def ColsGo.max(t: List<&2, T.Ev>, +a: Nat) -> {Nat.max(Laws.Spec.cols.go(t, Nat.
     case Con{T.EvKey{name}, u}:
       ColsGo.max(u, a)
     case Con{T.EvClick{row, col}, u}:
+      ColsGo.max(u, a)
+    case Con{T.EvDrag{row, col}, u}:
       ColsGo.max(u, a)
     case Con{T.EvWheel{down, notches}, u}:
       ColsGo.max(u, a)
@@ -283,6 +295,8 @@ def Step.rows(+x: T.St, e: T.Ev, +t: List<&2, T.Ev>) -> {Nat.max(Laws.Spec.rows.
       Step.rows_ev(x, T.EvKey{name}, t, {==})
     case T.EvClick{+row, +col}:
       Step.rows_ev(x, T.EvClick{row, col}, t, {==})
+    case T.EvDrag{+row, +col}:
+      Step.rows_ev(x, T.EvDrag{row, col}, t, {==})
     case T.EvWheel{+down, +notches}:
       Step.rows_ev(x, T.EvWheel{down, notches}, t, {==})
     case T.EvSize{+rows, +cols}:
@@ -294,6 +308,8 @@ def Step.cols(+x: T.St, e: T.Ev, +t: List<&2, T.Ev>) -> {Nat.max(Laws.Spec.cols.
       Step.cols_ev(x, T.EvKey{name}, t, {==})
     case T.EvClick{+row, +col}:
       Step.cols_ev(x, T.EvClick{row, col}, t, {==})
+    case T.EvDrag{+row, +col}:
+      Step.cols_ev(x, T.EvDrag{row, col}, t, {==})
     case T.EvWheel{+down, +notches}:
       Step.cols_ev(x, T.EvWheel{down, notches}, t, {==})
     case T.EvSize{+rows, +cols}:
@@ -339,6 +355,8 @@ def RowsGo.snoc(evs: List<&2, T.Ev>, -name: String, +a: Nat) -> {Laws.Spec.rows.
       RowsGo.snoc(u, name, a)
     case Con{T.EvClick{row, col}, u}:
       RowsGo.snoc(u, name, a)
+    case Con{T.EvDrag{row, col}, u}:
+      RowsGo.snoc(u, name, a)
     case Con{T.EvWheel{down, notches}, u}:
       RowsGo.snoc(u, name, a)
 
@@ -351,6 +369,8 @@ def ColsGo.snoc(evs: List<&2, T.Ev>, -name: String, +a: Nat) -> {Laws.Spec.cols.
     case Con{T.EvKey{k}, u}:
       ColsGo.snoc(u, name, a)
     case Con{T.EvClick{row, col}, u}:
+      ColsGo.snoc(u, name, a)
+    case Con{T.EvDrag{row, col}, u}:
       ColsGo.snoc(u, name, a)
     case Con{T.EvWheel{down, notches}, u}:
       ColsGo.snoc(u, name, a)
@@ -387,6 +407,8 @@ def Esc.mode(s: T.St) -> {S.St.mode(Laws.Spec.after(K.Key.in(s, S.St.mode(s), "<
         case T.Typing{kind, text}:
           {==}
         case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+          {==}
+        case T.Visual{k, start}:
           {==}
 
 # the editor in normal mode after evs and an Esc
@@ -463,6 +485,8 @@ def Env.dirs(+s: T.St, e: T.Ev) -> {S.St.dirs(Reach.env(s, e)) == S.St.dirs(s) :
       {==}
     case T.EvClick{row, col}:
       {==}
+    case T.EvDrag{row, col}:
+      {==}
     case T.EvWheel{down, notches}:
       {==}
     case T.EvSize{+rows, +cols}:
@@ -507,6 +531,8 @@ def Esc.pend(y: T.St) -> {S.St.pend(Laws.Spec.after(K.Key.in(Vim.Vim.final(y), S
           {==}
         case T.Picking{kind, q, its, n, sel, top, pv, levels}:
           {==}
+        case T.Visual{k, start}:
+          {==}
 
 def Esc.count(y: T.St) -> {S.St.count(Laws.Spec.after(K.Key.in(Vim.Vim.final(y), S.St.mode(Vim.Vim.final(y)), "<Esc>"))) == 0n : Nat}:
   match y:
@@ -530,6 +556,8 @@ def Esc.count(y: T.St) -> {S.St.count(Laws.Spec.after(K.Key.in(Vim.Vim.final(y),
           {==}
         case T.Picking{kind, q, its, n, sel, top, pv, levels}:
           {==}
+        case T.Visual{k, start}:
+          {==}
 
 # no key waits nor count is typed whatever the mode
 def Pend.none(m: T.Mode) -> {Vim.Vim.pend(m, T.NoPend{}) == T.NoPend{} : T.Pend}:
@@ -540,6 +568,8 @@ def Pend.none(m: T.Mode) -> {Vim.Vim.pend(m, T.NoPend{}) == T.NoPend{} : T.Pend}
       {==}
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
       {==}
+    case T.Visual{k, start}:
+      {==}
 
 def Count.zero(m: T.Mode) -> {Vim.Vim.count(m, 0n) == 0n : Nat}:
   match m:
@@ -548,6 +578,8 @@ def Count.zero(m: T.Mode) -> {Vim.Vim.count(m, 0n) == 0n : Nat}:
     case T.Typing{kind, text}:
       {==}
     case T.Picking{kind, q, its, n, sel, top, pv, levels}:
+      {==}
+    case T.Visual{k, start}:
       {==}
 
 # Esc after evs: no key waits, no count

@@ -136,6 +136,8 @@ def Final.real(+y: T.St, hr: {B.Tgt.real(S.St.files(y), S.Win.tgt(S.St.win(y))) 
               Sb.Mode.typing({Vim.Vim.final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}) == Vim.Vim.fit(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Typing{k, t}, count, pend, find, hl, opts, rows, cols, msg, stat}) : T.St}, k, t, hm)
             case T.Picking{+k, +q, +its, +n, +sel, +ptop, +pv, +levels}:
               Sb.Mode.picking({Vim.Vim.final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}) == Vim.Vim.fit(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, ptop, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}) : T.St}, k, q, its, n, sel, ptop, pv, levels, hm)
+            case T.Visual{+vk, +vs}:
+              Sb.Mode.visual({Vim.Vim.final(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}) == Vim.Vim.fit(T.St{files, folded, dirs, T.Win{tgt, cur, want, top, left}, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}) : T.St}, vk, vs, hm)
 
 # a key press settles: its editor is settled
 def Press.final(+x: T.St, +key: String) -> Fi.Final(Laws.Spec.press(x, key)):

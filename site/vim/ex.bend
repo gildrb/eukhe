@@ -12,10 +12,6 @@ import ./find.bend as F
 import ./st.bend as S
 import ./core.bend as C
 
-# the install command: the one line yy copies
-def Vim.install() -> String:
-  "curl -fsSL https://eukhe.com/install | sh"
-
 # Messages
 # --------
 

@@ -151,6 +151,8 @@ const globalCss = [
   `.hit{background:color-mix(in oklch,${colors.tertiary} 40%,transparent)}`,
   `.sel{background:color-mix(in oklch,${colors.primary} 14%,${colors.bg})}`,
   `.thumb{background:${colors.tertiary}}`,
+  // Visual mode's selection (Neovim's Visual group).
+  `.vis{background:color-mix(in oklch,${colors.primary} 22%,transparent)}`,
   // A character two cells wide (fff's prompt goose): drawn in a box of exactly two cells.
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");

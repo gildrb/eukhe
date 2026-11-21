@@ -170,7 +170,7 @@ def Ck.frame(+s: T.St, +m: T.Mode) -> T.Frame:
   +numw = V.View.numw(S.St.opts(s), n)
   +nums = V.View.nums(h, S.St.opts(s), S.Win.top(w), C.St.line(s), Nat.sub(n, 1n), numw, C.St.on_file(s), C.St.g(s))
   +fl = R.Scr.float(s, m)
-  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, R.Scr.inside(R.Scr.cell(s, m), fl), R.Scr.under(s, m), R.Scr.cmd(s, m), R.Scr.hits(s, R.Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), R.Scr.cl(m), R.Scr.status_of(s, m), fl}
+  T.Frame{S.Win.tgt(w), S.Win.top(w), S.Win.left(w), C.St.g(s), nums, R.Scr.inside(R.Scr.cell(s, m), fl), R.Scr.under(s, m), R.Scr.cmd(s, m), R.Scr.hits(s, R.Scr.lit(s, m)), V.View.bar(n, h, S.Win.top(w), Nat.sub(S.St.cols(s), 1n)), R.Scr.cl(m), R.Scr.status_of(s, m), fl, R.Scr.sel(s, m)}
 
 # a settled editor in normal mode: the frame reads back the cursor's line
 def Ck.frame_line(+y: T.St, fin: Fi.Final(y), hm: {S.St.mode(y) == T.Normal{} : T.Mode}) -> {Laws.Spec.at_line(Vim.Vim.frame(y)) == C.St.line(y) : Nat}:

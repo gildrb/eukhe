@@ -73,6 +73,8 @@ def Colon.of(+s: T.St, fin: Fi.Final(s), hm: {S.St.mode(s) == T.Normal{} : T.Mod
           Sc.Mode.typing({Laws.Claim.colon(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Typing{kind, text}, count, pend, find, hl, opts, rows, cols, msg, stat}, rows) == True{} : Bool}, kind, text, hm)
         case T.Picking{k, q, its, n, sel, top, pv, levels}:
           Sc.Mode.picking({Laws.Claim.colon(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Picking{k, q, its, n, sel, top, pv, levels}, count, pend, find, hl, opts, rows, cols, msg, stat}, rows) == True{} : Bool}, k, q, its, n, sel, top, pv, levels, hm)
+        case T.Visual{+vk, +vs}:
+          Sc.Mode.visual({Laws.Claim.colon(T.St{files, folded, dirs, win, marks, spots, opened, bufs, back, fwd, T.Visual{vk, vs}, count, pend, find, hl, opts, rows, cols, msg, stat}, rows) == True{} : Bool}, vk, vs, hm)
 
 def Colon.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T.Ev>) -> {Laws.Claim.colon(Laws.Spec.normal(fs, rows, cols, evs), Laws.Spec.rows(rows, evs)) == True{} : Bool}:
   +n = Laws.Spec.normal(fs, rows, cols, evs)

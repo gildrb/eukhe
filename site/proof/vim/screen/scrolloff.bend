@@ -18,7 +18,7 @@ def Scrolloff.law(+fs: List<&2, T.Buf>, +rows: Nat, +cols: Nat, +evs: List<&2, T
   +n = Laws.Spec.normal(fs, rows, cols, evs)
   +evs2 = Laws.Spec.snoc(evs, Laws.Spec.key("<Esc>"))
   %Re.Reach.rows_normal(fs, rows, cols, evs) : {Laws.Spec.scrolled(fs, n, _) == True{} : Bool}
-  Sc.Screen.scrolled(fs, n, Re.Reach.final(fs, rows, cols, evs2), Re.Reach.files_run(fs, rows, cols, evs2), Re.Reach.normal_mode(fs, rows, cols, evs))
+  Sc.Screen.scrolled(fs, n, Re.Reach.final(fs, rows, cols, evs2), Re.Reach.files_run(fs, rows, cols, evs2), Sc.Mode.text_normal(S.St.mode(n), Re.Reach.normal_mode(fs, rows, cols, evs)))
 
 def ScreenLaws.scrolloff(fs, rows, cols, evs):
   Scrolloff.law(fs, rows, cols, evs)
