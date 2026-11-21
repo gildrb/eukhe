@@ -272,8 +272,12 @@ pub enum Entry {
     WorkList = 463,
     /// `bend/ffi_headless_task.bend`: a call.
     HeadlessTask = 464,
-    /// `bend/ffi_restart_turn.bend`: a call.
-    RestartTurn = 468,
+    /// `bend/ffi_strength.bend`: a call.
+    Strength = 465,
+    /// `bend/ffi_work_left.bend`: a call.
+    WorkLeft = 470,
+    /// `bend/ffi_fallback.bend`: a call.
+    Fallback = 472,
 }
 
 impl Entry {
@@ -412,7 +416,9 @@ impl Entry {
         Entry::Limits,
         Entry::WorkList,
         Entry::HeadlessTask,
-        Entry::RestartTurn,
+        Entry::Strength,
+        Entry::WorkLeft,
+        Entry::Fallback,
     ];
 
     /// The id `bend/core.bend` dispatches on.

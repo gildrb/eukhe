@@ -103,6 +103,19 @@ pub(crate) struct Setup {
 }
 
 pub(crate) fn setup() -> Setup {
+    setup_with(|_| Vec::new())
+}
+
+/// What a test installs after the goal extension sees: the session's
+/// Harness cell, budget and the Director stack's limits.
+pub(crate) struct Beside<'a> {
+    pub(crate) cell: &'a HarnessCell,
+    pub(crate) budget: &'a Arc<BudgetGate>,
+    pub(crate) limits: Arc<dyn Fn() -> DirectorLimits + Send + Sync>,
+}
+
+/// [`setup`] with `beside`'s extensions installed after the goal's.
+pub(crate) fn setup_with(beside: impl FnOnce(Beside<'_>) -> Vec<Arc<Extension>>) -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
     models.set_provider(faux.provider.clone());
@@ -115,16 +128,28 @@ pub(crate) fn setup() -> Setup {
     let gates = Arc::new(ScriptedGates::default());
     let limits = Arc::new(Mutex::new(DirectorLimits::default()));
     let read = Arc::clone(&limits);
+    let limits_of: Arc<dyn Fn() -> DirectorLimits + Send + Sync> =
+        Arc::new(move || *read.lock().unwrap_or_else(PoisonError::into_inner));
+    let extensions = beside(Beside {
+        cell: &cell,
+        budget: &budget,
+        limits: Arc::clone(&limits_of),
+    });
     registry
         .install(goals_extension(
             cell.clone(),
             Arc::clone(&budget),
             Arc::clone(&gates) as Arc<dyn GateCommandRunner>,
-            Arc::new(move || *read.lock().unwrap_or_else(PoisonError::into_inner)),
+            limits_of,
             &requests,
             Vec::new(),
         ))
         .expect("the goal extension installs");
+    for extension in extensions {
+        registry
+            .install(extension)
+            .expect("the test extension installs");
+    }
     registry
         .install(finish_extension(requests.clone()))
         .expect("the test tool installs");
