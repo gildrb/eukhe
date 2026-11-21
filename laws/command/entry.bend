@@ -28,9 +28,16 @@
 #        crates/eukhe-bend/tests/max_magnitude/command.txt (lines 5-6 are
 #        its resolve and menu requests) and the entry's replies to them
 #                                     command_ffi_example
-#   R14f a reply tag the reply grammar does not name reads as no reply
-#        (one spelling per answer)    command_ffi_unknown_res,
-#                                     command_ffi_unknown_menu
+#   R14f a reply tag the reply grammar does not name reads as no reply,
+#        and whatever a reply reader accepts is exactly the grammar's
+#        spelling of the reply it reads, then the rest (one spelling per
+#        answer; a cut or malformed reply is no reply)
+#                                     command_ffi_unknown_res,
+#                                     command_ffi_unknown_menu,
+#                                     command_ffi_res_exact,
+#                                     command_ffi_menu_exact,
+#                                     command_ffi_out_exact,
+#                                     command_ffi_cut_reply_example
 #   R14g the reply readers read every reply the reply grammar spells
 #        (the resolve reply's grammar spelling is the entry's own put_res)
 #                                     command_ffi_res_round_trip,
@@ -45,7 +52,8 @@
 #                                     command_ffi_out_round_trip
 # The requests and replies of R14a-R14h are spelled with the spec spellers
 # below and those of laws/base.bend, never with the entry's own encoders
-# (R14i reads those encoders back, and R14g's resolve reply is put_res).
+# (R14i reads those encoders back, and the resolve reply of R14f and R14g
+# is put_res).
 
 import Base
 import ../../bend/command.bend as Cmd
@@ -470,6 +478,54 @@ law command_ffi_out_reads_spelled:
   for +rest: String
   for h: {cmd_out_fits(x) == True{} : Bool}
   {FCmd.get_out(cmd_spell_outw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
+
+# LAW command_ffi_res_exact: whatever the resolve reply reader accepts is
+# exactly the entry's spelling of the resolution it reads (put_res), then
+# the rest: any other reply is no reply
+# EXCLUDES: a reply cut before its text, word or path read as an answer
+#   (`0,1,6,memory`, its text missing, read as running /memory with no
+#   text), a default for a malformed reply, a second spelling of one
+#   answer
+law command_ffi_res_exact:
+  for +s: String
+  for +x: FCmd.ResW
+  for +rest: String
+  for h: {FCmd.get_res(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
+  {s == FCmd.put_res(x, rest) : String}
+
+# LAW command_ffi_menu_exact: whatever the menu reply reader accepts is
+# exactly the reply grammar's spelling of the menu it reads, then the
+# rest: any other reply is no reply
+# EXCLUDES: a children reply cut before its places or path read as a
+#   menu, a default for a malformed reply, a second spelling of one menu
+law command_ffi_menu_exact:
+  for +s: String
+  for +x: FCmd.MenuW
+  for +rest: String
+  for h: {FCmd.get_menu(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
+  {s == cmd_spell_menuw(x, rest) : String}
+
+# LAW command_ffi_out_exact: whatever the key reply reader accepts is
+# exactly the reply grammar's spelling of the key reply it reads (the
+# line, then open, then submit), then the rest: any other reply is no
+# reply
+# EXCLUDES: a key reply cut before its submit or open flag read with a
+#   default flag, a short line accepted, a second spelling of one reply
+law command_ffi_out_exact:
+  for +s: String
+  for +x: FCmd.OutW
+  for +rest: String
+  for h: {FCmd.get_out(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
+  {s == cmd_spell_outw(x, rest) : String}
+
+# LAW command_ffi_cut_reply_example: anchor: replies cut short are no
+# reply: a resolve run of /memory with its text missing, a children menu
+# of /memory with its places missing, a key reply with its submit flag
+# missing
+# EXCLUDES: a cut reply read as `0,1,6,memory0,`, `1,1,6,memory0,` or
+#   `7,memory TF` (a default for what is missing)
+law command_ffi_cut_reply_example:
+  {(FCmd.get_res("0,1,6,memory"), (FCmd.get_menu("1,1,6,memory"), FCmd.get_out("7,memory T"))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
 
 # LAW command_ffi_example: anchor: in the spelling of the example table of
 # crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are
