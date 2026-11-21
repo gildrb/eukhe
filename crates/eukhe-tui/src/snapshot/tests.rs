@@ -76,7 +76,7 @@ fn user_text(message: &AgentMessage) -> Option<String> {
 
 fn test_view() -> crate::view::AgentView {
     crate::view::AgentView::new(crate::theme::Theme::builtin(
-        "eukhe",
+        "forge",
         crate::theme::ColorMode::TrueColor,
     ))
 }
@@ -2042,7 +2042,7 @@ fn elided_image_tool_results_render_their_marker_metadata() {
         card,
         0,
         crate::chat::Detail::All,
-        &crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
+        &crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor),
         100,
         true,
     );

@@ -148,7 +148,7 @@ mod tests {
     }
 
     fn theme() -> Theme {
-        Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+        Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
     }
 
     fn messages() -> Vec<UserMessageItem> {

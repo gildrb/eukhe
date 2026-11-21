@@ -10,7 +10,7 @@ import ./base.bend as LA
 # every shipped ramp is wider than the longest ladder
 def pu.shipped_wide(s: TBundled.Shipped) -> {Nat.is_le(TC.ladder.max(), TC.span(TC.shipped.lo(s), TC.shipped.hi(s))) == True{} : Bool}:
   match s:
-    case TBundled.Eukhe{}:
+    case TBundled.Forge{}:
       {==}
     case TBundled.Dark{}:
       {==}

@@ -24,7 +24,7 @@ def pb.res(+ls: List<&2, TChoice.Ld>, n: String, +k: Nat, no: {ThemePick.th.none
       +no2 = Equal.trans(Bool, LA.pk.none(ls, s, False{}), ThemePick.th.none.reg(ls, s), True{}, Equal.sym(Bool, ThemePick.th.none.reg(ls, s), LA.pk.none(ls, s, False{}), LA.pk.none_reg(ls, s)), no)
       +h0 = LA.pk.nonempty(src, s, {==})
       +h1 = LA.pk.skip(ls, False{}, 0n, r, s, no2)
-      +h2 = LA.pk.bi(String.eq("eukhe", s), String.eq("dark", s), String.eq("light", s), cc, s, k, b)
+      +h2 = LA.pk.bi(String.eq("eukhe", s), String.eq("forge", s), String.eq("dark", s), String.eq("light", s), cc, s, k, b)
       Equal.trans(TName.Res, ThemePick.th.res(TChoice.pick(ls, s)), TChoice.pick.res(ls, s), want, LA.pk.res_pick(ls, s), Equal.trans(TName.Res, TChoice.pick.res(ls, s), TName.find(src, s), want, h0, Equal.trans(TName.Res, TName.find(src, s), TName.find(r, s), want, h1, h2)))
 
 def ThemePick.theme_pick_builtin(ls, n, k, no, b):

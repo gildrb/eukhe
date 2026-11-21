@@ -417,7 +417,7 @@ fn python_fence_renders_the_ts_token_colors() {
     // cli-highlight (the same highlight.js pass the expanded ipython
     // cell uses); the fence line's spans carry the syntax palette
     // colors, the indent stays outside them.
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let style = MarkdownStyle::from_theme(&theme);
     let keyword = theme.fg_style(crate::theme::ThemeColor::SyntaxKeyword);
     let number = theme.fg_style(crate::theme::ThemeColor::SyntaxNumber);
@@ -494,7 +494,7 @@ fn streaming_frames_cache_only_settled_blocks() {
 /// each cached render compared against the uncached one.
 #[test]
 fn block_cache_key_covers_every_render_input() {
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let style = MarkdownStyle::from_theme(&theme);
     let mut cache = MarkdownBlockCache::default();
     for doc in [
@@ -518,7 +518,7 @@ fn block_cache_key_covers_every_render_input() {
 fn python_fence_multiline_string_carries_across_rows() {
     // One highlight.js pass over the whole block: a triple-quoted
     // string keeps the string color on every row it spans.
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let style = MarkdownStyle::from_theme(&theme);
     let string = theme.fg_style(crate::theme::ThemeColor::SyntaxString);
     let lines = render_markdown("```python\ns = '''a\nb'''\n```", 40, &style);

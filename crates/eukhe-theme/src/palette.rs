@@ -13,7 +13,7 @@ use crate::rules::{RawTheme, RawValue, ThemeLoadError, ThemeRules};
 use crate::token::Token;
 
 /// The theme an empty name and every failed lookup resolve to.
-pub const DEFAULT_THEME_NAME: &str = "eukhe";
+pub const DEFAULT_THEME_NAME: &str = "forge";
 
 /// The builtin theme of the light mode.
 pub const LIGHT_THEME_NAME: &str = "light";
@@ -24,7 +24,7 @@ pub const BUILTIN_THEME_NAMES: [&str; 3] = [DEFAULT_THEME_NAME, "dark", LIGHT_TH
 /// The bundled theme file of `name`.
 fn builtin_json(name: &str) -> Option<&'static str> {
     match name {
-        DEFAULT_THEME_NAME => Some(include_str!("../themes/eukhe.json")),
+        DEFAULT_THEME_NAME => Some(include_str!("../themes/forge.json")),
         "dark" => Some(include_str!("../themes/dark.json")),
         LIGHT_THEME_NAME => Some(include_str!("../themes/light.json")),
         _ => None,

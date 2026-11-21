@@ -359,7 +359,7 @@ fn should_trigger_file_completion_skips_slash_names() {
 }
 
 fn theme() -> crate::theme::Theme {
-    crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+    crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
 }
 
 #[test]

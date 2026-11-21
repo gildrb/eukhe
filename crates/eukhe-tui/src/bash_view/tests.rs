@@ -12,7 +12,7 @@ fn kb() -> KeybindingsManager {
 }
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn activities() -> Vec<BashActivity> {

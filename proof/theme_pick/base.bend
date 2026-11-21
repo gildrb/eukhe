@@ -188,39 +188,52 @@ def pk.res_at(+a: Nat, +k: Nat, h: {Some{a} == Some{k} : Maybe<&2, Nat>}) -> {TN
 def pk.some_none(-A: Data, -a: A, -G: Type, h: {Some{a} == None{} : Maybe<&2, A>}) -> G:
   LA.pt.none_some(A, a, G, Equal.sym(Maybe<&2, A>, Some{a}, None{}, h))
 
-# a name of a builtin finds it, by its index
-def pk.bi(b1: Bool, b2: Bool, b3: Bool, -r: List<&2, TName.Cand>, +n: String, +k: Nat, h: {ThemePick.th.index.if(b1, 0n, ThemePick.th.index.if(b2, 1n, ThemePick.th.index.if(b3, 2n, None{}))) == Some{k} : Maybe<&2, Nat>})
-  -> {TName.find.pick(b1, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n)))) == TName.Res{U32.from_nat(k), False{}} : TName.Res}:
-  match b1:
+# a name of a builtin finds it, by its index (eukhe, the old name, finds
+# forge's)
+def pk.bi(be: Bool, bf: Bool, b2: Bool, b3: Bool, -r: List<&2, TName.Cand>, +n: String, +k: Nat, h: {ThemePick.th.index.if(be, 0n, ThemePick.th.index.if(bf, 0n, ThemePick.th.index.if(b2, 1n, ThemePick.th.index.if(b3, 2n, None{})))) == Some{k} : Maybe<&2, Nat>})
+  -> {TName.find.pick(bf, 0, TName.find.pick(be, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n))))) == TName.Res{U32.from_nat(k), False{}} : TName.Res}:
+  match be:
     case True{}:
-      pk.res_at(0n, k, h)
-    case False{}:
-      match b2:
+      match bf:
         case True{}:
-          pk.res_at(1n, k, h)
+          pk.res_at(0n, k, h)
         case False{}:
-          match b3:
+          pk.res_at(0n, k, h)
+    case False{}:
+      match bf:
+        case True{}:
+          pk.res_at(0n, k, h)
+        case False{}:
+          match b2:
             case True{}:
-              pk.res_at(2n, k, h)
+              pk.res_at(1n, k, h)
             case False{}:
-              LA.pt.none_some(Nat, k, {TName.find.pick(False{}, 0, TName.find.pick(False{}, 1, TName.find.pick(False{}, 2, TName.find(r, n)))) == TName.Res{U32.from_nat(k), False{}} : TName.Res}, h)
+              match b3:
+                case True{}:
+                  pk.res_at(2n, k, h)
+                case False{}:
+                  LA.pt.none_some(Nat, k, {TName.find.pick(False{}, 0, TName.find.pick(False{}, 0, TName.find.pick(False{}, 1, TName.find.pick(False{}, 2, TName.find(r, n))))) == TName.Res{U32.from_nat(k), False{}} : TName.Res}, h)
 
 # a name of no builtin passes the builtins over
-def pk.bn(b1: Bool, b2: Bool, b3: Bool, -r: List<&2, TName.Cand>, +n: String, h: {ThemePick.th.index.if(b1, 0n, ThemePick.th.index.if(b2, 1n, ThemePick.th.index.if(b3, 2n, None{}))) == None{} : Maybe<&2, Nat>})
-  -> {TName.find.pick(b1, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n)))) == TName.find(r, n) : TName.Res}:
-  match b1:
+def pk.bn(be: Bool, bf: Bool, b2: Bool, b3: Bool, -r: List<&2, TName.Cand>, +n: String, h: {ThemePick.th.index.if(be, 0n, ThemePick.th.index.if(bf, 0n, ThemePick.th.index.if(b2, 1n, ThemePick.th.index.if(b3, 2n, None{})))) == None{} : Maybe<&2, Nat>})
+  -> {TName.find.pick(bf, 0, TName.find.pick(be, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n))))) == TName.find(r, n) : TName.Res}:
+  match be:
     case True{}:
-      pk.some_none(Nat, 0n, {TName.find.pick(True{}, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n)))) == TName.find(r, n) : TName.Res}, h)
+      pk.some_none(Nat, 0n, {TName.find.pick(bf, 0, TName.find.pick(True{}, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n))))) == TName.find(r, n) : TName.Res}, h)
     case False{}:
-      match b2:
+      match bf:
         case True{}:
-          pk.some_none(Nat, 1n, {TName.find.pick(False{}, 0, TName.find.pick(True{}, 1, TName.find.pick(b3, 2, TName.find(r, n)))) == TName.find(r, n) : TName.Res}, h)
+          pk.some_none(Nat, 0n, {TName.find.pick(True{}, 0, TName.find.pick(False{}, 0, TName.find.pick(b2, 1, TName.find.pick(b3, 2, TName.find(r, n))))) == TName.find(r, n) : TName.Res}, h)
         case False{}:
-          match b3:
+          match b2:
             case True{}:
-              pk.some_none(Nat, 2n, {TName.find.pick(False{}, 0, TName.find.pick(False{}, 1, TName.find.pick(True{}, 2, TName.find(r, n)))) == TName.find(r, n) : TName.Res}, h)
+              pk.some_none(Nat, 1n, {TName.find.pick(False{}, 0, TName.find.pick(False{}, 0, TName.find.pick(True{}, 1, TName.find.pick(b3, 2, TName.find(r, n))))) == TName.find(r, n) : TName.Res}, h)
             case False{}:
-              {==}
+              match b3:
+                case True{}:
+                  pk.some_none(Nat, 2n, {TName.find.pick(False{}, 0, TName.find.pick(False{}, 0, TName.find.pick(False{}, 1, TName.find.pick(True{}, 2, TName.find(r, n))))) == TName.find(r, n) : TName.Res}, h)
+                case False{}:
+                  {==}
 
 # The cause
 # ---------

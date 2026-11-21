@@ -585,7 +585,7 @@ fn build_tui_options(
         initial_message: options.initial_message.clone(),
         show_images,
         screen_mode,
-        // TS startup reads the settings theme (`getTheme() || "eukhe"`).
+        // An unset theme setting is the empty name: the default theme.
         theme: settings.get_theme().unwrap_or_default(),
         // The client-settings seam the interactive commands persist
         // through (`/settings`); themes register from the resource system

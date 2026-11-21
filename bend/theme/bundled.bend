@@ -11,7 +11,7 @@ import ./palette.bend as TPalette
 # crates/eukhe-theme/themes/*.json paint these.
 
 type Shipped is Data:
-  Eukhe{}
+  Forge{}
   Dark{}
   Light{}
 
@@ -19,23 +19,23 @@ def table.dark() -> List<&2, Co.Rgb>:
   [Co.Rgb{138, 190, 183}, Co.Rgb{95, 135, 255}, Co.Rgb{0, 215, 255}, Co.Rgb{101, 101, 101},
   Co.Rgb{181, 189, 104}, Co.Rgb{204, 102, 102}, Co.Rgb{255, 255, 0}, Co.Rgb{150, 150, 150},
   Co.Rgb{129, 129, 129}, Co.Rgb{229, 229, 231}, Co.Rgb{134, 134, 134}, Co.Rgb{229, 229, 231},
-  Co.Rgb{229, 229, 231}, Co.Rgb{149, 117, 205}, Co.Rgb{149, 117, 205}, Co.Rgb{183, 161, 214},
-  Co.Rgb{229, 229, 231}, Co.Rgb{150, 150, 150}, Co.Rgb{196, 196, 196}, Co.Rgb{178, 148, 187},
+  Co.Rgb{229, 229, 231}, Co.Rgb{212, 175, 93}, Co.Rgb{212, 175, 93}, Co.Rgb{169, 160, 152},
+  Co.Rgb{229, 229, 231}, Co.Rgb{150, 150, 150}, Co.Rgb{196, 196, 196}, Co.Rgb{212, 175, 93},
   Co.Rgb{129, 162, 190}, Co.Rgb{129, 129, 129}, Co.Rgb{138, 190, 183}, Co.Rgb{181, 189, 104},
   Co.Rgb{150, 150, 150}, Co.Rgb{150, 150, 150}, Co.Rgb{150, 150, 150}, Co.Rgb{150, 150, 150},
   Co.Rgb{138, 190, 183}, Co.Rgb{63, 185, 80}, Co.Rgb{248, 81, 73}, Co.Rgb{154, 160, 166},
   Co.Rgb{150, 150, 150}, Co.Rgb{106, 153, 85}, Co.Rgb{86, 156, 214}, Co.Rgb{220, 220, 170},
   Co.Rgb{156, 220, 254}, Co.Rgb{206, 145, 120}, Co.Rgb{181, 206, 168}, Co.Rgb{78, 201, 176},
-  Co.Rgb{212, 212, 212}, Co.Rgb{212, 212, 212}, Co.Rgb{178, 148, 187}, Co.Rgb{209, 131, 232},
-  Co.Rgb{178, 148, 187}, Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, Co.Rgb{181, 189, 104},
-  Co.Rgb{58, 58, 74}, Co.Rgb{52, 53, 65}, Co.Rgb{45, 40, 56}, Co.Rgb{40, 40, 50},
+  Co.Rgb{212, 212, 212}, Co.Rgb{212, 212, 212}, Co.Rgb{169, 160, 152}, Co.Rgb{212, 175, 93},
+  Co.Rgb{212, 175, 93}, Co.Rgb{255, 255, 255}, Co.Rgb{0, 0, 0}, Co.Rgb{181, 189, 104},
+  Co.Rgb{58, 58, 74}, Co.Rgb{52, 53, 65}, Co.Rgb{43, 36, 31}, Co.Rgb{40, 40, 50},
   Co.Rgb{40, 50, 40}, Co.Rgb{60, 40, 40}, Co.Rgb{1, 95, 0}, Co.Rgb{94, 0, 0},
   Co.Rgb{38, 38, 48}, Co.Rgb{24, 24, 30}, Co.Rgb{229, 229, 231}]
 
 def table(s: Shipped) -> List<&2, Co.Rgb>:
   match s:
-    case Eukhe{}:
-      TPalette.table.eukhe()
+    case Forge{}:
+      TPalette.table.forge()
     case Dark{}:
       table.dark()
     case Light{}:

@@ -310,7 +310,7 @@ mod tests {
 
     fn theme() -> crate::theme::Theme {
         use crate::theme::{ColorMode, Theme};
-        Theme::builtin("eukhe", ColorMode::TrueColor)
+        Theme::builtin("forge", ColorMode::TrueColor)
     }
 
     fn text_of(line: &Line) -> String {

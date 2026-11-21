@@ -43,7 +43,7 @@ fn tiny_png_base64() -> String {
 fn frame_text(session: &str, width: u16, height: u16, show_images: bool) -> Vec<String> {
     let entries = parse_jsonl(session).expect("session parses");
     let mut stream = JsonlSessionStream::from_entries(entries);
-    let mut view = AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor));
+    let mut view = AgentView::new(Theme::builtin("forge", ColorMode::TrueColor));
     view.show_images = show_images;
     while let eukhe_tui::session::SessionEvent::Item(item) = stream.poll().expect("poll") {
         view.push(item);

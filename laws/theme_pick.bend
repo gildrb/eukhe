@@ -10,10 +10,11 @@
 # directory):
 # R5 a name picks, among the files that load: the first registered file
 #    that advertises it (theme_pick_registered), else the builtin of that
-#    name, eukhe 0, dark 1, light 2 (palette.rs BUILTIN_THEME_NAMES;
-#    theme_pick_builtin), else the first custom file that advertises it
-#    (theme_pick_custom), else the default theme eukhe with a warning; the
-#    empty name picks eukhe quietly (theme_pick_default). A name that picks
+#    name, forge 0, dark 1, light 2 (palette.rs BUILTIN_THEME_NAMES), or
+#    forge for eukhe, the default theme's old name (theme_pick_builtin),
+#    else the first custom file that advertises it (theme_pick_custom),
+#    else the default theme forge with a warning; the empty name picks
+#    forge quietly (theme_pick_default). A name that picks
 #    no theme warns with the first file that did not load and advertises
 #    it (or, no theme object, is named after it), else "no theme"
 #    (theme_pick_cause_first, theme_pick_cause_none); every other file
@@ -22,7 +23,8 @@
 #    (theme_pick_clashes_first). The resolver over candidates:
 #    theme_resolve_first, theme_resolve_missing, with hit pinned by
 #    theme_hit_found and theme_hit_witness. Anchors: theme_pick_example,
-#    theme_prefix_example, theme_builtin_before_custom_example.
+#    theme_prefix_example, theme_builtin_before_custom_example,
+#    theme_old_name_example.
 
 import Base
 import ../bend/theme/choice.bend as TChoice
@@ -137,10 +139,10 @@ def th.none.custom(ls: List<&2, TChoice.Ld>, +n: String) -> Bool:
       Bool.and(Bool.not(th.offers.custom(l, n)), th.none.custom(rest, n))
 
 # the builtin themes, in the order of crates/eukhe-theme palette.rs
-# BUILTIN_THEME_NAMES (their ids 0, 1, 2): eukhe (the default theme: the
+# BUILTIN_THEME_NAMES (their ids 0, 1, 2): forge (the default theme: the
 # one an empty name and every failed lookup resolve to), dark, light
 def th.builtin.names() -> List<&2, String>:
-  ["eukhe", "dark", "light"]
+  ["forge", "dark", "light"]
 
 def th.index.if(hit: Bool, at: Nat, other: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match hit:
@@ -156,9 +158,10 @@ def th.index(xs: List<&2, String>, +n: String, +at: Nat) -> Maybe<&2, Nat>:
     case Con{x, rest}:
       th.index.if(String.eq(x, n), at, th.index(rest, n, 1n+at))
 
-# the id of the builtin named n
+# the id of the builtin named n: its place among the builtin names, and
+# for eukhe (the default theme's old name) the default theme's, 0
 def th.builtin(+n: String) -> Maybe<&2, Nat>:
-  th.index(th.builtin.names(), n, 0n)
+  th.index.if(String.eq("eukhe", n), 0n, th.index(th.builtin.names(), n, 0n))
 
 # a file that did not load blames name n: it advertises n, or it is no
 # theme object and its stem is n
@@ -337,7 +340,7 @@ def th.clash.rising(cs: List<&2, TChoice.Clash>) -> Bool:
 # Picking a theme
 # Each law below is about TChoice.pick(ls, n): the files ls the sources
 # reach (registered and custom, in order), the file at index i the
-# candidate 3 + i (the builtins are 0 eukhe, 1 dark, 2 light).
+# candidate 3 + i (the builtins are 0 forge, 1 dark, 2 light).
 
 # LAW theme_pick_registered (R5): a name picks the first registered file that loaded and
 # advertises it (3 + its index), with no warning: before every builtin
@@ -383,9 +386,9 @@ law theme_pick_custom:
   for same: {String.eq(nm, n) == True{} : Bool}
   {th.res(TChoice.pick(List.append(&2, TChoice.Ld, pre, TChoice.Fine{nm, True{}} <> post), n)) == TName.Res{U32.from_nat(Nat.add(3n, List.length(&2, TChoice.Ld, pre))), False{}} : TName.Res}
 
-# LAW theme_pick_default (R5): the empty name picks the default theme eukhe (0) with no warning
+# LAW theme_pick_default (R5): the empty name picks the default theme forge (0) with no warning
 # and no cause, whatever the files; a name that no file offers (registered
-# or custom) and no builtin has picks eukhe with a warning
+# or custom) and no builtin has picks forge with a warning
 # EXCLUDES: another default theme, a quiet miss, a warned or failed empty
 #   name
 law theme_pick_default:
@@ -463,4 +466,12 @@ law theme_prefix_example:
 # EXCLUDES: custom files resolved before the builtins
 law theme_builtin_before_custom_example:
   {[TChoice.pick([TChoice.Fine{"light", True{}}], "light"), TChoice.pick([TChoice.Fine{"light", False{}}], "light")] == [TChoice.Pick{TName.Res{2, False{}}, None{}, [], []}, TChoice.Pick{TName.Res{3, False{}}, None{}, [], []}] : List<&2, TChoice.Pick>}
+
+# LAW theme_old_name_example (R5): anchor: eukhe, the default theme's old name, picks forge (0)
+# with no warning, also over a custom file advertising it; a registered one
+# wins (id 3)
+# EXCLUDES: the old name warned, shadowed by a custom file, or naming
+#   another theme
+law theme_old_name_example:
+  {[TChoice.pick([], "eukhe"), TChoice.pick([TChoice.Fine{"eukhe", True{}}], "eukhe"), TChoice.pick([TChoice.Fine{"eukhe", False{}}], "eukhe")] == [TChoice.Pick{TName.Res{0, False{}}, None{}, [], []}, TChoice.Pick{TName.Res{0, False{}}, None{}, [], []}, TChoice.Pick{TName.Res{3, False{}}, None{}, [], []}] : List<&2, TChoice.Pick>}
 

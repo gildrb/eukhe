@@ -7,7 +7,7 @@ import ../../laws/tui_color.bend as TuiColor
 
 def tui_roles_shipped(s: TBundled.Shipped) -> {TC.paints(TBundled.table(s), TC.roles()) == True{} : Bool}:
   match s:
-    case TBundled.Eukhe{}:
+    case TBundled.Forge{}:
       {==}
     case TBundled.Dark{}:
       {==}

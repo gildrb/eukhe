@@ -197,7 +197,7 @@ mod tests {
     use crate::theme::{ColorMode, Theme};
 
     fn text(element: &Element, width: usize) -> Vec<String> {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         element::render(element, &theme, width, Tick(0))
             .iter()
             .map(|row| row.iter().map(|s| s.content.as_str()).collect::<String>())

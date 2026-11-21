@@ -17,7 +17,7 @@
 #    table is its k-th color (theme_at_index); the palette fills, completes
 #    and reads its tokens one by one, in order (theme_fill_map_each,
 #    theme_complete_each, theme_vals_each).
-# R5 the default theme is the builtin eukhe (theme_dflt_eukhe).
+# R5 the default theme is the builtin forge (theme_dflt_forge).
 
 import Base
 import ../bend/color.bend as Co
@@ -113,10 +113,10 @@ law theme_complete_each:
   for v: TFile.Val
   {TPalette.complete(List.append(&2, Maybe<&2, TFile.Val>, xs, ys)) == Bool.and(TPalette.complete(xs), TPalette.complete(ys)) : Bool} & {[TPalette.complete([Some{v}]), TPalette.complete([None{}])] == [True{}, False{}] : List<&2, Bool>}
 
-# LAW theme_dflt_eukhe (R5): the default theme is the builtin named eukhe: its id names the valid builtin "eukhe" among the builtins
+# LAW theme_dflt_forge (R5): the default theme is the builtin named forge: its id names the valid builtin "forge" among the builtins
 # EXCLUDES: another default theme, a default id no builtin carries
-law theme_dflt_eukhe:
-  {List.get(&2, TName.Cand, TName.builtins(), U32.to_nat(TName.dflt())) == Some{TName.Cand{"eukhe", True{}, TName.dflt()}} : Maybe<&2, TName.Cand>}
+law theme_dflt_forge:
+  {List.get(&2, TName.Cand, TName.builtins(), U32.to_nat(TName.dflt())) == Some{TName.Cand{"forge", True{}, TName.dflt()}} : Maybe<&2, TName.Cand>}
 
 # LAW theme_valid_missing (R3): a file is valid exactly when the reader finds no required token missing from its colors (TReader.missing, laws/theme.bend theme_read_missing), whatever its name and export backgrounds; mdBody's fallback to text then always holds, text being required
 # EXCLUDES: a validity test that always fails or always holds, or that
@@ -175,12 +175,12 @@ law theme_at_spec:
   for k: Nat
   {TPalette.at(xs, k) == Ts.get(xs, k) : Co.Rgb}
 
-# LAW theme_tables_spec (R4): the colors every token of the shipped themes eukhe, dark and
+# LAW theme_tables_spec (R4): the colors every token of the shipped themes forge, dark and
 # light paint
 # EXCLUDES: a shipped color changed (a Rust test checks the bundled files
 #   paint these)
 law theme_tables_spec:
-  {[TBundled.table(TBundled.Eukhe{}), TBundled.table(TBundled.Dark{}), TBundled.table(TBundled.Light{})] == [Tm.eukhe(), Tm.dark(), Tm.light()] : List<&2, List<&2, Co.Rgb>>}
+  {[TBundled.table(TBundled.Forge{}), TBundled.table(TBundled.Dark{}), TBundled.table(TBundled.Light{})] == [Tm.forge(), Tm.dark(), Tm.light()] : List<&2, List<&2, Co.Rgb>>}
 
 # LAW theme_load_spec (R3): a file loads exactly when it reads, to what it reads
 # EXCLUDES: a load that never answers (theme_load_valid made vacuous), a

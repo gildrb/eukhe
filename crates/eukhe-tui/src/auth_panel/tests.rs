@@ -15,7 +15,7 @@ fn sink() -> crate::clipboard::OscSink {
 }
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+    Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
 }
 
 /// A screen tall enough for every panel the tests mount.

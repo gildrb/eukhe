@@ -5,7 +5,7 @@ use crate::chat::Detail;
 use crate::theme::ColorMode;
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn text(rows: &[Line]) -> Vec<String> {

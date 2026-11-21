@@ -15,7 +15,7 @@ fn json(text: &str) -> Value {
 /// wraps tighter at a narrow terminal instead of truncating content.
 #[test]
 fn client_text_rows_wrap_and_pad_to_the_width() {
-    let theme = Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let rows = vec![
         vec![],
         vec![raw_span("  ")],
@@ -873,7 +873,7 @@ fn context_tree_collapse_can_fold_the_root_into_the_summary() {
 
 #[test]
 fn client_text_renders_spacer_then_margined_rows() {
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let rows = render_client_text(
         &[
             vec![raw_span("one"), dim(" two")],
@@ -894,7 +894,7 @@ fn client_text_renders_spacer_then_margined_rows() {
 
 #[test]
 fn client_text_wraps_long_rows_at_the_content_width() {
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let rows = render_client_text(&[vec![raw_span("aaaa bb cc")]], &theme, 8);
     let text: Vec<String> = rows
         .iter()

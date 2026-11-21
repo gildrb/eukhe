@@ -8,12 +8,12 @@ use crate::width::str_width;
 use crate::Line;
 
 fn view() -> AgentView {
-    AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor))
+    AgentView::new(Theme::builtin("forge", ColorMode::TrueColor))
 }
 
 fn view_with(entries: Vec<ChatEntry>) -> AgentView {
     let mut view = AgentView::new(crate::theme::Theme::builtin(
-        "eukhe",
+        "forge",
         crate::theme::ColorMode::Color256,
     ));
     for entry in entries {
@@ -818,7 +818,7 @@ fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
 /// rendering.
 #[test]
 fn a_turn_renders_dense_thinking_and_flush_blocks() {
-    let theme = Theme::builtin("eukhe", ColorMode::Color256);
+    let theme = Theme::builtin("forge", ColorMode::Color256);
     // The thinking style: the theme's `thinkingText` colour, italic.
     let thinking = theme
         .fg_style(ThemeColor::ThinkingText)
@@ -1118,7 +1118,7 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
         rows.iter().any(|row| row.contains("Copied to clipboard")),
         "the toast renders"
     );
-    // The pill reads as a toast chip: the brand-purple Accent color
+    // The pill reads as a toast chip: the theme's Accent color
     // flipped onto the pill's background (REVERSED), not a bare dim
     // line.
     let frame = composed_rows(&mut view, 60, 24);
@@ -1132,14 +1132,13 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
         "the pill carries the reversed-chip style: {:?}",
         pill.style
     );
-    // Regression (the operator's brand-purple directive): the pill's
-    // color is the theme's Accent token -- the brand purple the brand
-    // visuals carry -- never the completed-action Success green it
-    // replaced.
+    // Regression (the operator's accent-pill directive): the pill's
+    // color is the theme's Accent token, never the completed-action
+    // Success green it replaced.
     assert_eq!(
         pill.style.fg,
         view.theme.fg_style(ThemeColor::Accent).fg,
-        "the pill carries the brand-purple Accent style: {:?}",
+        "the pill carries the Accent style: {:?}",
         pill.style
     );
     assert_ne!(

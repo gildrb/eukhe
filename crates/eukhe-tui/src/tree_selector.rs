@@ -488,7 +488,7 @@ mod tests {
     /// stale default behind.
     #[test]
     fn tree_hint_renders_the_effective_bindings() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let kb = KeybindingsManager::new();
         let text = frame_text(&selector().render(&theme, 200, &kb));
         assert!(
@@ -518,7 +518,7 @@ mod tests {
     /// hint never shows a blank slot or an unlabelled action.
     #[test]
     fn tree_hint_drops_unbound_keys_and_segments() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         // One emptied filter drops its key from the key run.
         let mut cfg = crate::keybindings::KeybindingsConfig::new();
         cfg.insert("app.tree.filter.noTools".to_string(), Vec::new());
@@ -572,7 +572,7 @@ mod tests {
     /// segment instead of advertising the default key.
     #[test]
     fn inner_pane_hints_render_the_effective_bindings() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let kb = KeybindingsManager::new();
         let mut sel = selector();
         sel.handle_key(&kb, "enter");
@@ -602,7 +602,7 @@ mod tests {
     /// draft.
     #[test]
     fn label_input_edits_through_the_full_key_grammar() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let kb = KeybindingsManager::new();
         let mut sel = selector();
         sel.handle_key(&kb, "shift+l");
@@ -648,7 +648,7 @@ mod tests {
     /// every non-intercepted key to the full editor grammar.
     #[test]
     fn custom_prompt_edits_through_the_full_key_grammar() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let kb = KeybindingsManager::new();
         let mut sel = selector();
         // Enter opens the summarize choice; its third option opens the
@@ -738,7 +738,7 @@ mod tests {
     /// reversed cell): two lefts after "abc" put it on the "b".
     #[test]
     fn label_input_draws_the_caret_at_the_cursor() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let kb = KeybindingsManager::new();
         let mut sel = selector();
         sel.handle_key(&kb, "shift+l");
@@ -859,7 +859,7 @@ mod tests {
         let selector =
             TreeSelector::new(&data, 24, false, FilterMode::Default).expect("deep chain opens");
         assert_eq!(selector.current_leaf_id(), Some("n29999"));
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let text = rows_text(&selector, &theme, 80);
         assert!(
             text.iter().any(|row| row.contains("(30000/30000)")),
@@ -877,7 +877,7 @@ mod tests {
         let selector =
             TreeSelector::new(&data, 24, false, FilterMode::Default).expect("single node opens");
         assert_eq!(selector.current_leaf_id(), Some("n0"));
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let text = rows_text(&selector, &theme, 40);
         assert!(text.iter().any(|row| row.contains("user: m0")), "{text:?}");
         assert!(text.iter().any(|row| row.contains("(1/1)")), "{text:?}");
@@ -890,7 +890,7 @@ mod tests {
         let data = wire_chain(2);
         let selector = TreeSelector::new(&data, 0, false, FilterMode::Default)
             .expect("selector opens at zero terminal rows");
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let rows = selector.render(&theme, 0, &KeybindingsManager::new());
         assert!(!rows.is_empty());
         let rows = selector.render(&theme, 1, &KeybindingsManager::new());
@@ -923,7 +923,7 @@ mod tests {
             "leafId": "a",
         });
         assert!(TreeSelector::new(&cycle_only, 24, false, FilterMode::Default).is_none());
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         for leaf in ["c", "a"] {
             let selector = TreeSelector::new(&wire_parents(leaf), 24, false, FilterMode::Default)
                 .expect("clean root survives a sibling cycle");

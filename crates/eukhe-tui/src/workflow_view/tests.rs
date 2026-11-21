@@ -57,7 +57,7 @@ fn run() -> WorkflowRunSnapshot {
 }
 
 fn text(view: &WorkflowView) -> Vec<String> {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     view.render(&theme, 100, &kb())
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())

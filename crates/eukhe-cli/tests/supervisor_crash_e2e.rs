@@ -304,7 +304,7 @@ async fn a_killed_supervisor_is_relaunched_and_the_run_finishes() {
         initial_message: Some("go".to_string()),
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,

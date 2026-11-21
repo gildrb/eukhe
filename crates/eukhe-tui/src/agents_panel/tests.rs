@@ -158,7 +158,7 @@ fn the_worker_row_shows_running_paused_or_idle() {
         name: "worker".to_string(),
         state,
     };
-    let theme = crate::theme::Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", ColorMode::TrueColor);
     let title = |workers: &[SessionWorker]| {
         let panel = AgentsPanel::build(
             &roster(),
@@ -540,7 +540,7 @@ fn texts_from(
     expand_reach: ExpandReach<'_>,
     anchor: Instant,
 ) -> Vec<String> {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     render_agents_panel(
         panel,
         &PanelView {

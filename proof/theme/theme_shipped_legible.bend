@@ -9,7 +9,7 @@ import ../../laws/theme.bend as Theme
 
 def theme_shipped_legible(s: TBundled.Shipped) -> {TBundled.legible(TBundled.table(s)) == True{} : Bool}:
   match s:
-    case TBundled.Eukhe{}:
+    case TBundled.Forge{}:
       {==}
     case TBundled.Dark{}:
       {==}

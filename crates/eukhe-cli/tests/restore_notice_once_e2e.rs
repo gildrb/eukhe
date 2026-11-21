@@ -310,7 +310,7 @@ async fn each_restore_notice_shows_once_across_reconnects() {
         initial_message: None,
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,

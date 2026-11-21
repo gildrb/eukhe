@@ -22,7 +22,7 @@
 		},
 		"colors": {
 			"type": "object",
-			"description": "Theme color definitions. Optional: mdBody (defaults to text); background (defaults to export.pageBg, then userMessageBg, then the default theme's background); foreground, refinementHeader and refinementSummary (default to the builtin theme of the same mode: eukhe when the background is dark, light when it is light)",
+			"description": "Theme color definitions. Optional: mdBody (defaults to text); background (defaults to export.pageBg, then userMessageBg, then the default theme's background); foreground, refinementHeader and refinementSummary (default to the builtin theme of the same mode: forge when the background is dark, light when it is light)",
 			"required": [
 				"accent",
 				"border",

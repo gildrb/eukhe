@@ -156,7 +156,7 @@ async fn tui_export_surface() {
         show_images: false,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
@@ -205,7 +205,7 @@ async fn tui_export_surface() {
     );
     let html = std::fs::read_to_string(&html_out).expect("exported html");
     assert!(html.contains("Session Export"), "template scaffold");
-    assert!(html.contains("--accent: #7c6faf;"), "theme vars embedded");
+    assert!(html.contains("--accent: #d4af5d;"), "theme vars embedded");
     let marker = "session-data\" type=\"application/json\">";
     let start = html.find(marker).expect("session data element");
     let blob = &html[start + marker.len()..];

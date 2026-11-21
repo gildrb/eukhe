@@ -810,49 +810,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn eukhe_theme_resolves() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    fn forge_theme_resolves() {
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         assert_eq!(
             [
                 theme.fg_style(ThemeColor::Accent).fg,
-                theme.bg_style(ThemeBg::ToolPanelBg).bg,
+                theme.bg_style(ThemeBg::ToolPendingBg).bg,
             ],
             [
-                Some(Color(Paint::Rgb(0x7c, 0x6f, 0xaf))),
-                Some(Color(Paint::Rgb(0x0d, 0x0d, 0x10))),
+                Some(Color(Paint::Rgb(0xd4, 0xaf, 0x5d))),
+                Some(Color(Paint::Rgb(0x1e, 0x17, 0x11))),
             ]
         );
     }
 
     #[test]
     fn var_reference_resolves() {
-        let theme = Theme::builtin("eukhe", ColorMode::Color256);
+        let theme = Theme::builtin("forge", ColorMode::Color256);
         let accent = theme.fg_style(ThemeColor::Accent);
         assert!(matches!(accent.fg, Some(Color(Paint::Indexed(_)))));
     }
 
     /// The effort ramp comes from the theme and the ladder's length: the
     /// light theme's three rungs run from one step above its `effortLow`
-    /// (#875f87) to its `effortHigh` (#8b008b), not a fixed violet.
+    /// (#9e8773) to its `effortHigh` (#7a5a1e), not a fixed color.
     #[test]
     fn the_effort_ramp_follows_the_theme_and_the_ladder() {
         let light = Theme::builtin("light", ColorMode::TrueColor);
         assert_eq!(
             light.effort_ramp(3).collect::<Vec<Style>>(),
-            [(136, 63, 136), (137, 31, 137), (139, 0, 139)]
+            [(146, 120, 86), (134, 105, 58), (122, 90, 30)]
                 .map(|(r, g, b)| Style::default().fg(Color(Paint::Rgb(r, g, b))))
         );
-        let eukhe = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let forge = Theme::builtin("forge", ColorMode::TrueColor);
         assert_eq!(
-            eukhe.effort_ramp(1).collect::<Vec<Style>>(),
-            [Style::default().fg(Color(Paint::Rgb(0xa7, 0x8b, 0xfa)))]
+            forge.effort_ramp(1).collect::<Vec<Style>>(),
+            [Style::default().fg(Color(Paint::Rgb(0xd4, 0xaf, 0x5d)))]
         );
     }
 
     /// The wash lifts the theme's background toward its lift end: the
     /// `liftLight` end on a dark background, the `liftDark` end on a
-    /// light one. The builtin themes lift their own background (eukhe:
-    /// #050506), never a canvas written in code.
+    /// light one. The builtin themes lift their own background (forge:
+    /// #1e1711), never a canvas written in code.
     #[test]
     fn the_wash_lifts_the_canvas_toward_the_lift_end() {
         let wash = |colors: serde_json::Value, mode: ColorMode| {
@@ -865,13 +865,13 @@ mod tests {
                 wash(tinted.clone(), ColorMode::TrueColor),
                 wash(tinted, ColorMode::Color256),
                 wash(light, ColorMode::TrueColor),
-                Theme::builtin("eukhe", ColorMode::TrueColor).highlight_wash(),
+                Theme::builtin("forge", ColorMode::TrueColor).highlight_wash(),
             ],
             [
                 Color(Paint::Rgb(25, 5, 6)),
                 Color(Paint::Indexed(eukhe_bend::rules::color::to256([25, 5, 6]))),
                 Color(Paint::Rgb(221, 221, 221)),
-                Color(Paint::Rgb(25, 25, 26)),
+                Color(Paint::Rgb(46, 38, 31)),
             ]
         );
     }
@@ -911,7 +911,7 @@ mod tests {
     /// the selection without a band).
     #[test]
     fn the_selection_style_is_the_soft_wash_never_the_accent() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         assert_eq!(
             theme.selection_row_style(),
             theme.soft_selection_style(),
@@ -952,7 +952,7 @@ mod tests {
     /// evaluates the palette slots it actually paints.
     #[test]
     fn soft_selection_reads_off_the_editor_surface() {
-        for name in ["eukhe", "dark", "light"] {
+        for name in ["forge", "dark", "light"] {
             for mode in [ColorMode::TrueColor, ColorMode::Color256] {
                 let theme = Theme::builtin(name, mode);
                 let wash = theme
@@ -982,15 +982,15 @@ mod tests {
     /// 256-color palette keeps a slot the surface's slot separates from.
     #[test]
     fn soft_selection_pins_the_contrast_ladder_values() {
-        let eukhe = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let forge = Theme::builtin("forge", ColorMode::TrueColor);
         assert_eq!(
-            eukhe.soft_selection_style().bg,
-            Some(Color(Paint::Rgb(54, 54, 58)))
+            forge.soft_selection_style().bg,
+            Some(Color(Paint::Rgb(58, 51, 45)))
         );
-        let eukhe256 = Theme::builtin("eukhe", ColorMode::Color256);
+        let forge256 = Theme::builtin("forge", ColorMode::Color256);
         assert_eq!(
-            eukhe256.soft_selection_style().bg,
-            Some(Color(Paint::Indexed(237)))
+            forge256.soft_selection_style().bg,
+            Some(Color(Paint::Indexed(234)))
         );
         let dark = Theme::builtin("dark", ColorMode::TrueColor);
         assert_eq!(
@@ -1034,7 +1034,7 @@ mod tests {
     /// own), and reads off its surface.
     #[test]
     fn the_selection_band_is_the_wash_and_reads_off_its_surface() {
-        for name in ["eukhe", "dark", "light"] {
+        for name in ["forge", "dark", "light"] {
             for mode in [ColorMode::TrueColor, ColorMode::Color256] {
                 let theme = Theme::builtin(name, mode);
                 let selection = theme.selection_row_style();

@@ -140,7 +140,7 @@ fn keys_edit_the_scope() {
 /// edit marks the count unsaved.
 #[test]
 fn renders_rows_and_hint() {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     let mut selector = ScopedModelsSelector::new(
         catalog(),
         only(&["openai-codex/gpt-6-sol", "x/gone"]),

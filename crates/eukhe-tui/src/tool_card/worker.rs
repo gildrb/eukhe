@@ -91,7 +91,7 @@ mod tests {
     use crate::tool_card::{ToolCallCard, ToolResultView};
 
     fn text(card: &ToolCallCard) -> Vec<String> {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         render(card, 0, &theme, 70)
             .iter()
             .map(|row| {

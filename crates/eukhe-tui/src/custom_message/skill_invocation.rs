@@ -95,7 +95,7 @@ mod tests {
     use crate::theme::ColorMode;
 
     fn theme() -> Theme {
-        Theme::builtin("eukhe", ColorMode::TrueColor)
+        Theme::builtin("forge", ColorMode::TrueColor)
     }
 
     fn flat(row: &Line) -> String {

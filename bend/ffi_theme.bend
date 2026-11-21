@@ -449,7 +449,7 @@ def get_resolve(r: W.Dec<String>) -> W.Dec<Req>:
 def get_shipped.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
-      W.Got{Shipped{TBundled.Eukhe{}}, s}
+      W.Got{Shipped{TBundled.Forge{}}, s}
     case 1n:
       W.Got{Shipped{TBundled.Dark{}}, s}
     case 2n:

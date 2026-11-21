@@ -72,7 +72,7 @@ mod tests {
                 "muted": "#d9d0c6",
                 "dim": "#9b9690",
                 "text": "#e9e4de",
-                "refinementHeader": "#9575cd",
+                "refinementHeader": "#d4af5d",
             }),
             MODE,
         );
@@ -98,7 +98,7 @@ mod tests {
             ResolvedTheme {
                 theme: Theme::builtin(eukhe_theme::DEFAULT_THEME_NAME, MODE),
                 warnings: vec![
-                    "Theme \"dusk-apple\" unavailable, using \"eukhe\": Theme not found: \
+                    "Theme \"dusk-apple\" unavailable, using \"forge\": Theme not found: \
                      dusk-apple"
                         .to_string()
                 ],

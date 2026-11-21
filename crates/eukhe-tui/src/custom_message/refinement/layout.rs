@@ -354,7 +354,7 @@ mod tests {
     use super::*;
     #[test]
     fn change_rows_render_full_context_diff() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let mut out = Output(Vec::new());
         rich_change_rows(
             &["alpha".to_string(), "beta".to_string()],
@@ -407,7 +407,7 @@ mod tests {
     /// columns: every painted row stays inside the width.
     #[test]
     fn change_rows_never_overflow_tiny_viewports() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         for width in 0..=8 {
             let mut out = Output(Vec::new());
             rich_change_rows(

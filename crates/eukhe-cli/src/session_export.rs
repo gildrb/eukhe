@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(
             [
                 html.contains("--accent: #8abeb7;"),
-                html.contains("--accent: #7c6faf;")
+                html.contains("--accent: #d4af5d;")
             ],
             [true, false]
         );

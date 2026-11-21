@@ -426,7 +426,7 @@ mod tests {
 
     /// The core is reached: a file whose key names no token is rejected
     /// with that key; a name no file advertises is the default theme with
-    /// a warning; the shipped eukhe theme paints 59 colors.
+    /// a warning; the shipped forge theme paints 59 colors.
     #[test]
     fn the_core_answers() {
         let file = ThemeFile {

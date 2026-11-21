@@ -6,7 +6,7 @@ use crate::chat::{AssistantMessage, MessageBlock};
 use crate::theme::{ColorMode, Theme};
 
 fn view_with(entries: Vec<ChatEntry>) -> AgentView {
-    let mut view = AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor));
+    let mut view = AgentView::new(Theme::builtin("forge", ColorMode::TrueColor));
     view.splash_suppressed = true;
     for entry in entries {
         view.push_entry(entry);

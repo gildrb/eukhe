@@ -280,7 +280,7 @@ pub(crate) mod tests {
         assert_eq!(returned, out.to_string_lossy());
         let html = std::fs::read_to_string(&out).expect("read export");
         assert!(html.contains("Session Export"));
-        assert!(html.contains("--accent: #7c6faf;"));
+        assert!(html.contains("--accent: #d4af5d;"));
         assert!(html.contains("marked.min.js") || html.contains("marked"));
         // The embedded session data decodes to the session's rows.
         let data = embedded_data(&html);

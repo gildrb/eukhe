@@ -1034,7 +1034,7 @@ mod tests {
     fn expandable_bodies_hang_on_one_gutter() {
         use crate::chat::Detail;
         use crate::compaction_row::render_compaction_summary;
-        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+        let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
         let gutter = Span::styled(
             crate::branch::BRANCH_GUTTER.to_string(),
             theme.fg_style(ThemeColor::Dim),
