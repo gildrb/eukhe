@@ -238,8 +238,19 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
     switch (block.$) {
       case "Blank":
         return <span {...stylex.props(styles.row)}> </span>;
-      case "Para":
-        return <span {...stylex.props(styles.row)}>{inline(block.text)}</span>;
+      case "Para": {
+        // A paragraph that shows an image (`<img src="media/x.gif">`) shows it under its source.
+        const src = /<img\b[^>]*\bsrc="([^":]+)"/.exec(block.text)?.[1];
+        const alt = /<img\b[^>]*\balt="([^"]*)"/.exec(block.text)?.[1] ?? "";
+        return (
+          <span {...stylex.props(styles.row)}>
+            {inline(block.text)}
+            {src === undefined ? null : (
+              <img src={`/${src}`} alt={alt} loading="lazy" {...stylex.props(styles.image)} />
+            )}
+          </span>
+        );
+      }
       case "Item":
         return (
           <span
@@ -462,6 +473,8 @@ const styles = stylex.create({
     animationIterationCount: "infinite",
   },
   muted: { color: colors.tertiary },
+  /** An image under its source line, as wide as the README shows it and no wider than the page. */
+  image: { display: "block", width: "640px", maxWidth: "100%", height: "auto" },
   /** A row of the page: one block, wrapping at the screen's width; an empty one keeps its line. */
   row: { display: "block", minHeight: type.leading },
   /** A list item, a quote or a code line: wrapped lines start under the text, not the marker. */

@@ -52,6 +52,33 @@ function reach(blobs: Set<string>, file: string, link: string): string[] {
   return files;
 }
 
+/** An image the README shows (`<img src="media/x.gif">`): its repository path and its bytes. */
+export type Image = { path: string; bytes: Buffer };
+
+/** The repository paths of the README's `<img src>` attributes, in the README's order. */
+export function imagePaths(markdown: string): string[] {
+  return [...markdown.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)].flatMap(([, url]) => {
+    if (url === undefined || /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(url)) return [];
+    const resolved = path.posix.normalize(url);
+    if (resolved.startsWith("../") || resolved === "..")
+      throw new Error(`README.md: image ${url} leaves the repository`);
+    return [resolved];
+  });
+}
+
+/** The images the README shows, read from the repository; one it does not track fails the build. */
+export async function images(root: string): Promise<Image[]> {
+  const repository = path.resolve(root, "..");
+  const blobs = tracked(repository);
+  const readme = await readFile(path.join(repository, "README.md"), "utf8");
+  const paths = [...new Set(imagePaths(readme))];
+  const missing = paths.filter((name) => !blobs.has(name));
+  if (missing.length > 0) throw new Error(`README.md: images not tracked: ${missing.join(", ")}`);
+  return Promise.all(
+    paths.map(async (name) => ({ path: name, bytes: await readFile(path.join(repository, name)) })),
+  );
+}
+
 /** The README's reach but the README itself, in path order; `root` is the site's directory. */
 export async function gather(root: string): Promise<SourceFile[]> {
   const repository = path.resolve(root, "..");

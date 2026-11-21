@@ -297,6 +297,7 @@ function Page({
           <div data-cmd="" {...stylex.props(styles.cmd)} />
           <div data-bar="" {...stylex.props(styles.bar)} />
           <div data-float="" hidden {...stylex.props(styles.float)} />
+          <img data-image="" hidden alt="" {...stylex.props(styles.image)} />
           <div
             data-cursor=""
             dangerouslySetInnerHTML={{ __html: screen?.char ?? "" }}
@@ -572,6 +573,16 @@ const styles = stylex.create({
     left: "calc(var(--ox) + var(--fcol) * var(--cw))",
     width: "calc(var(--fw) * var(--cw))",
     backgroundColor: colors.bg,
+  },
+  /** The image of the cursor's line (client.ts places it): a window over the cells, its edge a rule. */
+  image: {
+    position: "absolute",
+    height: "auto",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: colors.tertiary,
+    backgroundColor: colors.bg,
+    pointerEvents: "none",
   },
   /** vim's block cursor: the character under it in the page color. */
   cursor: {
