@@ -54,10 +54,6 @@ At the end, one report gives the agent's final answer and the result of each che
 
 **Target:** `/undo` puts the files back to their state before a prompt and names the irreversible effects that it cannot undo. **Status:** being built.
 
-## Components
-
-`eukhe` is the terminal app and command line.
-
 ## Limitations
 
 There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break, for example a hard-coded answer. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
