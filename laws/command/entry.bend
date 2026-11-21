@@ -17,7 +17,11 @@
 #   R14b input left over after a spelled request is refused
 #                                      command_ffi_spelled_left_over
 #   R14c every answer that is not the error form answers exactly the one
-#        request the input spells      command_ffi_reads_only_requests
+#        request the input spells, and whatever the request reader
+#        accepts is exactly a spelled request that fits, then the rest
+#                                     command_ffi_reads_only_requests,
+#                                     command_ffi_req_exact,
+#                                     command_ffi_req_example
 #   R14h every answer but the malformed error comes from an input that
 #        begins with a spelled request   command_ffi_malformed_unless_request
 #   R14d a query, row or key tag the grammar does not name is malformed
@@ -553,6 +557,27 @@ law command_ffi_out_exact:
   for +rest: String
   for h: {FCmd.get_out(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
   {(s, cmd_out_fits(x)) == (cmd_spell_outw(x, rest), True{}) : String & Bool}
+
+# LAW command_ffi_req_exact: whatever the request reader accepts is
+# exactly the grammar's spelling of the request it reads, then the rest,
+# and that request fits the wire: any other input is no request
+# EXCLUDES: a request reader that accepts leading zeros or no digit in a
+#   count, a short string, an unknown tag or a missing field (a reader
+#   apart from the one the entry answers by), a count or place past the
+#   wire's 14 digits
+law command_ffi_req_exact:
+  for +s: String
+  for +r: FCmd.Req
+  for +rest: String
+  for h: {FCmd.get_req(s) == Wr.Got{r, rest} : Wr.Dec<FCmd.Req>}
+  {(s, cmd_req_fits(r)) == (cmd_spell_req(r, rest), True{}) : String & Bool}
+
+# LAW command_ffi_req_example: anchor: the request reader reads the
+# empty table and a resolve of the empty line, and refuses it with a
+# leading zero, or no digit, in the table count
+# EXCLUDES: a request reader whose count loop accepts `00,` or `,` as 0
+law command_ffi_req_example:
+  {(FCmd.get_req("0,0,0,"), (FCmd.get_req("00,0,0,"), FCmd.get_req(",0,0,"))) == (Wr.Got{FCmd.Req{[], FCmd.QResolve{""}}, ""}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.Req> & (Wr.Dec<FCmd.Req> & Wr.Dec<FCmd.Req>)}
 
 # LAW command_ffi_cut_reply_example: anchor: replies cut short are no
 # reply: a resolve run of /memory with its text missing, a children menu
