@@ -1036,7 +1036,11 @@ async fn open_with_budget(
     let (settled_tx, settled) = tokio::sync::mpsc::unbounded_channel();
     let session = fixture
         .open_configured(move |config| {
-            config.job_settled = Some(Arc::new(move |job, _admitted| {
+            config.job_settled = Some(Arc::new(move |job, admitted| {
+                // Admitted (here: dropped) before the test sees the job:
+                // held past the send, a wait the test runs at once could
+                // find the notice still on its way and end as a message.
+                drop(admitted);
                 let _closed_receiver_ends_the_test = settled_tx.send(job);
             }));
         })
