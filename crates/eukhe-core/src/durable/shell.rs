@@ -71,19 +71,39 @@ fn names_git(script: &str) -> bool {
         .any(|word| word.rsplit('/').next() == Some("git"))
 }
 
-/// What one `bash` call does around each step (spec I4, I12): the
-/// editor's say before an irreversible step (each question's id is the
-/// call's id and the step), and the ledger record of each irreversible
-/// step at its own end, before the next step starts (a crash later in
-/// the script keeps it recorded).
-struct CallSteps {
+/// What one script does around each step (spec I4, I12): the editor's
+/// say before an irreversible step (each question's id is the script's
+/// name and the step), and the ledger record of each irreversible step at
+/// its own end, before the next step starts (a crash later in the script
+/// keeps it recorded). A `bash` call and an autoresearch benchmark run
+/// both run their steps through it.
+pub(crate) struct CallSteps {
     deps: Arc<HostDeps>,
     conversation: ConversationId,
+    /// Unique within the session: each step's question id and ledger key
+    /// is `<call>:<step>`.
     call: String,
+    /// The tool call that runs the script, named to the editor.
+    tool_call: Option<String>,
     recorded: Mutex<Vec<RanEffect>>,
 }
 
 impl CallSteps {
+    pub(crate) fn new(
+        deps: Arc<HostDeps>,
+        conversation: ConversationId,
+        call: String,
+        tool_call: Option<String>,
+    ) -> Self {
+        Self {
+            deps,
+            conversation,
+            call,
+            tool_call,
+            recorded: Mutex::new(Vec::new()),
+        }
+    }
+
     /// The effects recorded so far, in step order (what the call's notes
     /// list).
     fn recorded(&self) -> Vec<RanEffect> {
@@ -104,7 +124,7 @@ impl Steps for CallSteps {
         editor_permission::allows(
             self.deps.editor_permission.clone(),
             format!("{}:{step}", self.call),
-            Some(self.call.clone()),
+            self.tool_call.clone(),
             command.to_owned(),
             EffectClass::of_shell(effects),
         )
@@ -327,12 +347,12 @@ async fn execute(
     }
     let workspace = cwd.clone();
     let paths = super::path_policy::call_policy(deps, Some(api.conversation_id()), &cwd, cx).await;
-    let call_steps = Arc::new(CallSteps {
-        deps: Arc::clone(deps),
-        conversation: api.conversation_id(),
-        call: api.call_id().to_owned(),
-        recorded: Mutex::new(Vec::new()),
-    });
+    let call_steps = Arc::new(CallSteps::new(
+        Arc::clone(deps),
+        api.conversation_id(),
+        api.call_id().to_owned(),
+        Some(api.call_id().to_owned()),
+    ));
     let mut running = {
         let env = local_env(&session_env(deps));
         let (script, transcript, call_steps) = (

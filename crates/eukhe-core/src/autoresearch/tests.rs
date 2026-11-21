@@ -1,15 +1,19 @@
 //! The autoresearch loop end to end on a real temporary git repository:
 //! the branch, the harness commit, a baseline, a kept improvement and its
 //! commit, a worse keep the Lab refuses, a discard that resets the tree, a
-//! crash, the iteration cap, and the replay of the log after a reopen.
+//! crash, the iteration cap, and the replay of the log after a reopen;
+//! and a run's steps through the caller's hooks.
 
+use std::future::Future;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use eukhe_bend::rules::autoresearch::{Direction, Mode, Status};
+use eukhe_shell::{StepRun, Steps, Unasked};
 use eukhe_types::path_policy::PathPolicy;
+use eukhe_types::shell::ShellEffects;
 use serde_json::{json, Value};
 
 use super::git::{Branch, Workspace};
@@ -70,7 +74,47 @@ fn log(status: Status, description: &str) -> LogArgs {
 }
 
 async fn run(lab: &Autoresearch) -> Value {
-    lab.run(Duration::from_secs(60)).await.unwrap().value
+    lab.run(Duration::from_secs(60), Arc::new(Unasked))
+        .await
+        .unwrap()
+        .value
+}
+
+/// Hooks that answer `allow` before each step and keep what they saw.
+struct Hooks {
+    allow: bool,
+    asked: Mutex<Vec<String>>,
+    ran: Mutex<Vec<(String, i32)>>,
+}
+
+impl Hooks {
+    fn new(allow: bool) -> Arc<Self> {
+        Arc::new(Self {
+            allow,
+            asked: Mutex::default(),
+            ran: Mutex::default(),
+        })
+    }
+}
+
+impl Steps for Hooks {
+    fn allows(
+        &self,
+        _step: u64,
+        command: &str,
+        _effects: ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        self.asked.lock().unwrap().push(command.to_owned());
+        std::future::ready(self.allow)
+    }
+
+    fn ran(&self, ran: &StepRun) -> impl Future<Output = ()> + Send {
+        self.ran
+            .lock()
+            .unwrap()
+            .push((ran.command.clone(), ran.status));
+        std::future::ready(())
+    }
 }
 
 /// The `autoresearch` system prompt section for the Lab's current view.
@@ -251,6 +295,63 @@ tokenizer, and keep every existing test passing while you iterate on the benchma
     let resumed = lab.begin("a different goal altogether").await.unwrap();
     assert_eq!(resumed, Branch::Kept(second.clone()));
     assert_eq!(git(&repo, &["branch", "--show-current"]), second);
+}
+
+/// Each step of a run goes to the caller's hooks, as a `bash` call's do
+/// (spec I4, I12): asked before it runs, handed over once it ran; a step
+/// the hooks refuse does not run, and the reply says why.
+#[tokio::test]
+async fn a_runs_steps_go_through_the_callers_hooks() {
+    let home = tempfile::tempdir().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let repo = repo_dir.path().canonicalize().unwrap();
+    repository(&repo);
+    let lab = lab(home.path(), &repo);
+    lab.begin("Speed up the parser").await.unwrap();
+    std::fs::write(repo.join("autoresearch.sh"), HARNESS).unwrap();
+    lab.init(InitArgs {
+        name: "parser".to_owned(),
+        metric: "time_ms".to_owned(),
+        goal: None,
+        unit: "ms".to_owned(),
+        direction: Direction::Lower,
+        secondary: Vec::new(),
+        scope: vec!["value.txt".to_owned()],
+        off_limits: Vec::new(),
+        constraints: Vec::new(),
+        max_iterations: None,
+        new_segment: false,
+    })
+    .await
+    .unwrap();
+
+    let refusing = Hooks::new(false);
+    let refused = lab
+        .run(Duration::from_secs(60), Arc::clone(&refusing))
+        .await
+        .unwrap()
+        .value;
+    assert_eq!(
+        refused["refused"],
+        json!("`bash autoresearch.sh` did not run: the editor refused it.")
+    );
+    assert_eq!(refused["exit_code"], Value::Null);
+    assert_eq!(*refusing.asked.lock().unwrap(), ["bash autoresearch.sh"]);
+    assert!(refusing.ran.lock().unwrap().is_empty());
+
+    let allowing = Hooks::new(true);
+    let ran = lab
+        .run(Duration::from_secs(60), Arc::clone(&allowing))
+        .await
+        .unwrap()
+        .value;
+    assert_eq!(ran["exit_code"], json!(0));
+    assert_eq!(ran["run"]["metric"], json!("10"));
+    assert_eq!(*allowing.asked.lock().unwrap(), ["bash autoresearch.sh"]);
+    assert_eq!(
+        *allowing.ran.lock().unwrap(),
+        [("bash autoresearch.sh".to_owned(), 0)]
+    );
 }
 
 /// The `autoresearch.init` host request of a real session, from a clean
