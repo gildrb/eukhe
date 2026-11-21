@@ -136,6 +136,14 @@ def cmd_out_fits(o: FCmd.OutW) -> Bool:
     case FCmd.OutW{l, a, b}:
       LawsBase.wire_fits(String.length(l))
 
+# the menu reader's answer is a menu, not Bad
+def cmd_menu_got(d: Wr.Dec<FCmd.MenuW>) -> Bool:
+  match d:
+    case Wr.Got{x, r}:
+      True{}
+    case Wr.Bad{}:
+      False{}
+
 # LAW command_ffi_round_trip: every request that fits the wire reads back
 # as itself, and its reading consumes exactly its encoding
 # EXCLUDES: a name, flag, line, row or key lost, swapped or misread on
@@ -566,15 +574,18 @@ law command_ffi_cut_reply_example:
 law command_ffi_reply_example:
   {(FCmd.get_res("0,2,6,memory5,model0,"), (FCmd.get_menu("1,1,6,memory2,1,2,"), FCmd.get_out("7,memory TF"))) == (Wr.Got{FCmd.RunsW{["memory", "model"], ""}, ""}, (Wr.Got{FCmd.KidsW{["memory"], [1n, 2n]}, ""}, Wr.Got{FCmd.OutW{"memory ", True{}, False{}}, ""})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
 
-# LAW command_ffi_long_reply_example: anchor: replies with a count, place
-# or length of 15 digits are no reply: a resolve run whose path count has
-# 15 digits, a children menu whose place has 15 digits, a key reply whose
-# line length has 15 digits
-# EXCLUDES: a reply reader that reads a Nat past the wire's 14 digits
+# LAW command_ffi_long_reply_example: anchor: the menu reader takes a
+# place of 14 digits and refuses one of 15 (a children menu at place
+# 10^14 - 1, then one at 10^14). The place is the one Nat of a reply that
+# is a value: every other Nat is a tag, a count or a length, which a
+# reply of 15 digits cannot carry (command_ffi_res_exact and
+# command_ffi_out_exact cover those readers)
+# EXCLUDES: a menu reader that reads a place past the wire's 14 digits
 #   (`1,0,1,100000000000000,` read as a menu at place 10^14; a 15-digit
-#   place past 2^48-1 aborts the runtime)
+#   place past 2^48-1 aborts the runtime), or one that refuses a place of
+#   14 digits
 law command_ffi_long_reply_example:
-  {(FCmd.get_res("0,100000000000000,"), (FCmd.get_menu("1,0,1,100000000000000,"), FCmd.get_out("100000000000000,"))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
+  {(cmd_menu_got(FCmd.get_menu("1,0,1,99999999999999,")), FCmd.get_menu("1,0,1,100000000000000,")) == (True{}, Wr.Bad{}) : Bool & Wr.Dec<FCmd.MenuW>}
 
 # LAW command_ffi_example: anchor: in the spelling of the example table of
 # crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are
