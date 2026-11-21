@@ -133,7 +133,7 @@ for a node that comes back, restore for a node that changes.",
         "After a crash, Eukhe settles each step of unknown outcome itself (a tool call, a file \
 write, a model request, a job, a spawn, a scheduled fire, a message delivery): it checks the \
 evidence (the file, the git ref, the job's exit record), runs again a step safe to repeat, and \
-otherwise treats the step as not run, lists it in the run's end-of-run report, and goes on. Each \
+otherwise treats the step as not run, lists it here under the run it was settled in, and goes on. Each \
 line shows the step id, its kind, its state (treated-not-run, or a correction: ran, not-run), and \
 what it is. Without <agent>, the only active agent.",
     )
