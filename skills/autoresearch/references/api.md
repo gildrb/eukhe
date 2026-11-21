@@ -17,7 +17,7 @@ The first init needs `autoresearch.sh` in the repository root. Off an `autoresea
 
 ## `await autoresearch.run(timeout_s=600)`
 
-Runs `bash autoresearch.sh` once in the repository root, through the same approval gate as `bash`. A run before the last one was logged is abandoned. Returns `run` (id), `passed` (exit 0, no timeout), `exit_code`, `timed_out`, `refused` (the gate's reason when it did not run), `metric` (`{name: value}`), `metrics` (secondary), `vs_baseline`, `vs_best` (percent), `baseline`, `best`, `tail` (last 10 lines, 4 KB), `log` (full output file).
+Runs `bash autoresearch.sh` once in the repository root, as a `bash` step runs. A run before the last one was logged is abandoned. Returns `run` (id), `passed` (exit 0, no timeout), `exit_code`, `timed_out`, `refused` (why it did not run: a step writes eukhe's own files), `metric` (`{name: value}`), `metrics` (secondary), `vs_baseline`, `vs_best` (percent), `baseline`, `best`, `tail` (last 10 lines, 4 KB), `log` (full output file).
 
 ## `await autoresearch.log(status, description, *, justification=None, flag_runs=())`
 

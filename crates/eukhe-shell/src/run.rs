@@ -1,6 +1,6 @@
-//! The interpreter: runs a script step by step through the approval gate
-//! (the model's `exec`, bend/tools.bend part 4, decided by the compiled
-//! core: `eukhe_bend::rules::shell`).
+//! The interpreter: runs a script step by step; every step runs unasked
+//! but one that writes an own path (the model's `verdict`, bend/tools.bend
+//! part 4, decided by the compiled core: `eukhe_bend::rules::shell`).
 //!
 //! A pipeline's commands run together, joined by OS pipes (bounded by the
 //! kernel's pipe buffer): an external command is a child process in its
@@ -12,15 +12,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::future::Future;
 use std::io::{Read, Write as _};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use eukhe_bend::rules::shell::{self as gate, Answered, Gate, Part, Said};
-use eukhe_types::path_policy::{resolve, PathClass, PathPolicy};
-use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
+use eukhe_bend::rules::shell::{self as gate, StepPart, Verdict};
+use eukhe_types::path_policy::{resolve, OwnWrite, PathClass, PathPolicy};
+use eukhe_types::shell::{ShellEffect, ShellEffects};
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -30,40 +29,6 @@ use crate::effect::{classify, reads_cwd, shallow_list};
 use crate::expand::Scope;
 use crate::parse::{self, Command, Link, Pipeline, RedirectOp};
 use crate::shown::quote;
-
-/// The question about one gated step.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ask {
-    /// The step's place in the script, from 0, in the order steps run.
-    pub step: u64,
-    /// The step exactly as it will run, after expansion, every hidden
-    /// character escaped.
-    pub command: String,
-    /// Every effect of the step.
-    pub effects: ShellEffects,
-}
-
-/// The user's answer to one [`Ask`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Answer {
-    Approve,
-    Deny,
-    /// No one answered: a denial.
-    Unanswered,
-    /// The session runs only from the phone gateway, and the step writes
-    /// a protected path: refused unasked.
-    GatewayRefused,
-}
-
-/// Asks the user whether a gated step may run.
-///
-/// Implementations ask whoever can answer (the attached client) and
-/// resolve when the answer arrives; with no one to ask they resolve
-/// [`Answer::Unanswered`] at once. The shell asks once per gated step, in
-/// step order, and waits for each answer before it runs anything else.
-pub trait Approver: Sync {
-    fn approve(&self, ask: Ask) -> impl Future<Output = Answer> + Send;
-}
 
 /// Which of the script's streams a chunk of output went to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,16 +48,6 @@ pub trait Sink: Sync {
     fn end(&self, step: u64, status: i32);
 }
 
-/// Why a step ran.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Approval {
-    /// Its effects are within the auto set.
-    Auto,
-    /// The user approved it, or the session runs only from the phone
-    /// gateway, which runs a step that is not guarded unasked.
-    Approved,
-}
-
 /// One step that ran and its exit status (its output went to the
 /// [`Sink`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,17 +55,7 @@ pub struct StepRun {
     pub step: u64,
     pub command: String,
     pub effects: ShellEffects,
-    pub approval: Approval,
     pub status: i32,
-}
-
-/// Why a gated step did not run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Refusal {
-    Denied,
-    Unanswered,
-    /// [`Answer::GatewayRefused`].
-    GatewayRefused,
 }
 
 /// How a script ended.
@@ -120,13 +65,14 @@ pub enum End {
     Finished { status: i32 },
     /// A step ran `exit`.
     Exited { status: i32 },
-    /// The user did not approve this step: it, every later step, and the
-    /// other steps of its pipeline did not run.
+    /// A part of this step writes an own path (eukhe's own config and
+    /// credentials, the session record, a protected file of a check): it,
+    /// every later step, and the other steps of its pipeline did not run.
     Refused {
         step: u64,
         command: String,
         effects: ShellEffects,
-        refusal: Refusal,
+        own: OwnWrite,
     },
 }
 
@@ -154,7 +100,8 @@ struct Planned {
     /// The step as it will run, for people.
     command: String,
     effects: ShellEffects,
-    gate: Gate,
+    /// The first own path the step writes: the step is refused.
+    own: Option<OwnWrite>,
 }
 
 /// Where a command's fd 1 or fd 2 goes.
@@ -306,20 +253,11 @@ impl Shell {
         &self.cwd
     }
 
-    /// Run `script`: each step whose effects are all in `auto` runs,
-    /// every other step runs only when `approver` approves it; the first
-    /// step it does not approve ends the script. `paths` classes the
-    /// paths a step names (each effect gates the same way: the user's
-    /// auto set decides). The output streams to `sink`.
+    /// Run `script`: every step runs unasked but one that writes an own
+    /// path, which ends the script. `paths` classes the paths a step
+    /// names. The output streams to `sink`.
     #[tracing::instrument(level = "debug", skip_all, fields(cwd = %self.cwd.display()))]
-    pub async fn run(
-        &mut self,
-        script: &str,
-        auto: AutoSet,
-        paths: &PathPolicy,
-        approver: &impl Approver,
-        sink: &impl Sink,
-    ) -> Ran {
+    pub async fn run(&mut self, script: &str, paths: &PathPolicy, sink: &impl Sink) -> Ran {
         let mut steps = Vec::new();
         let list = match parse::parse(script) {
             Ok(list) => list,
@@ -327,15 +265,19 @@ impl Shell {
                 tracing::debug!(why = unsupported.0, "the script runs in the external shell");
                 // One step: the external shell runs every command the
                 // script holds, so the step has each one's parts.
-                let mut parts = vec![Part {
+                let mut parts = vec![StepPart {
                     own: ShellEffects::of(&[ShellEffect::Exec]),
                     names_secret: false,
+                    writes_own: false,
                 }];
+                let mut own = None;
                 for part in parse::parts(script) {
                     let (assigns, mut argv, redirects) = self.expand(&part);
-                    parts.extend(self.parts(&assigns, &mut argv, &redirects, paths));
+                    let (more, written) = self.parts(&assigns, &mut argv, &redirects, paths);
+                    parts.extend(more);
+                    own = own.or(written);
                 }
-                let (effects, gate) = gate::step(auto, &parts);
+                let (effects, verdict) = gate::verdict(&parts);
                 let argv = vec![
                     self.external.display().to_string(),
                     "-c".to_string(),
@@ -353,9 +295,9 @@ impl Shell {
                     redirects: Vec::new(),
                     command,
                     effects,
-                    gate,
+                    own: refused(verdict, own),
                 };
-                let end = self.pipeline(vec![whole], approver, sink, &mut steps).await;
+                let end = self.pipeline(vec![whole], sink, &mut steps).await;
                 return Ran {
                     steps,
                     end: end.unwrap_or(End::Finished {
@@ -365,8 +307,8 @@ impl Shell {
             }
         };
         for chain in &list {
-            let planned = self.plan(&chain.first, steps.len() as u64, auto, paths);
-            if let Some(end) = self.pipeline(planned, approver, sink, &mut steps).await {
+            let planned = self.plan(&chain.first, steps.len() as u64, paths);
+            if let Some(end) = self.pipeline(planned, sink, &mut steps).await {
                 return Ran { steps, end };
             }
             for (link, pipeline) in &chain.rest {
@@ -375,8 +317,8 @@ impl Shell {
                     Link::Or => self.status != 0,
                 };
                 if runs {
-                    let planned = self.plan(pipeline, steps.len() as u64, auto, paths);
-                    if let Some(end) = self.pipeline(planned, approver, sink, &mut steps).await {
+                    let planned = self.plan(pipeline, steps.len() as u64, paths);
+                    if let Some(end) = self.pipeline(planned, sink, &mut steps).await {
                         return Ran { steps, end };
                     }
                 }
@@ -428,41 +370,51 @@ impl Shell {
         (assigns, argv, redirects)
     }
 
-    /// The parts of one expanded command (bend/tools.bend `Part`; the
-    /// compiled core joins their effects): the command's own effects
-    /// ([`classify`], which also makes a `git` step that is not `Exec` run
-    /// with the untrusted-repository arguments), each redirection's (a
-    /// write to, a read of the target's class: a secret target names a
-    /// secret), and the paths it names: a word that is a secret or holds
-    /// one names a secret, and so does the working directory when the
-    /// command reads it because it names no path ([`reads_cwd`]); for a
-    /// command that writes, a word outside the workspace is `Outside`, a
-    /// protected one `Protected`, a secret one names a secret.
+    /// The parts of one expanded command (bend/tools.bend `Piece`; the
+    /// compiled core joins their effects) and the first own path it
+    /// writes: the command's own effects ([`classify`], which also makes a
+    /// `git` step that is not `Exec` run with the untrusted-repository
+    /// arguments), each redirection's (a write to, a read of the target's
+    /// class: a secret target names a secret; a write to an own path
+    /// writes own), and the paths it names: a word that is a secret or
+    /// holds one names a secret, and so does the working directory when
+    /// the command reads it because it names no path ([`reads_cwd`]); for
+    /// a command that writes, a word outside the workspace is `Outside`, a
+    /// protected one `Protected`, a secret one names a secret, an own one
+    /// writes own.
     fn parts(
         &self,
         assigns: &[(String, String)],
         argv: &mut Vec<String>,
         redirects: &[(u32, RedirectOp, String)],
         paths: &PathPolicy,
-    ) -> Vec<Part> {
+    ) -> (Vec<StepPart>, Option<OwnWrite>) {
         let cwd_read = reads_cwd(argv);
-        let mut parts = vec![Part {
+        let mut own_written = None;
+        let mut parts = vec![StepPart {
             own: classify(assigns, argv),
             names_secret: false,
+            writes_own: false,
         }];
         for (_, op, target) in redirects {
-            let own = match op {
-                RedirectOp::Read(_) => ShellEffects::read_of,
+            let (own, writes): (fn(PathClass) -> ShellEffects, bool) = match op {
+                RedirectOp::Read(_) => (ShellEffects::read_of, false),
                 RedirectOp::Write(_) | RedirectOp::Append(_) if target != "/dev/null" => {
-                    ShellEffects::write_to
+                    (ShellEffects::write_to, true)
                 }
                 RedirectOp::Write(_) | RedirectOp::Append(_) | RedirectOp::Dup(_) => continue,
             };
-            let class = crate::paths::judge_path(paths, &self.cwd.join(target)).class;
-            parts.push(Part {
+            let real = resolve(&self.cwd.join(target));
+            let class = crate::paths::judge(paths, &real).class;
+            let written = writes
+                .then(|| crate::paths::own_write(paths, &real))
+                .flatten();
+            parts.push(StepPart {
                 own: own(class),
                 names_secret: class == PathClass::Secret,
+                writes_own: written.is_some(),
             });
+            own_written = own_written.or(written);
         }
         let writes = parts
             .iter()
@@ -482,9 +434,9 @@ impl Shell {
                 Some(_) | None => (!word.starts_with('-')).then_some(word.as_str()),
             });
         for word in named {
-            let target = self.cwd.join(word);
-            let judged = crate::paths::judge_path(paths, &target);
-            let above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&target));
+            let real = resolve(&self.cwd.join(word));
+            let judged = crate::paths::judge(paths, &real);
+            let above = shallow && paths.ancestor_of_secret_of_resolved(&real);
             let (own, written_secret) = match (writes, judged.class) {
                 (false, _) | (true, PathClass::Inside) => (ShellEffects::NONE, false),
                 (true, PathClass::Outside) => (ShellEffects::of(&[ShellEffect::Outside]), false),
@@ -493,35 +445,34 @@ impl Shell {
                 }
                 (true, PathClass::Secret) => (ShellEffects::NONE, true),
             };
-            parts.push(Part {
+            let written = writes
+                .then(|| crate::paths::own_write(paths, &real))
+                .flatten();
+            parts.push(StepPart {
                 own,
                 names_secret: (judged.holds_secret && !above) || written_secret,
+                writes_own: written.is_some(),
             });
+            own_written = own_written.or(written);
         }
         if cwd_read {
             let cwd_above = shallow && paths.ancestor_of_secret_of_resolved(&resolve(&self.cwd));
-            parts.push(Part {
+            parts.push(StepPart {
                 own: ShellEffects::NONE,
                 names_secret: crate::paths::judge_path(paths, &self.cwd).holds_secret && !cwd_above,
+                writes_own: false,
             });
         }
-        parts
+        (parts, own_written)
     }
 
-    /// Expand and classify a pipeline's commands, numbered from `first`,
-    /// each gated under `auto`.
-    fn plan(
-        &self,
-        pipeline: &Pipeline,
-        first: u64,
-        auto: AutoSet,
-        paths: &PathPolicy,
-    ) -> Vec<Planned> {
+    /// Expand and classify a pipeline's commands, numbered from `first`.
+    fn plan(&self, pipeline: &Pipeline, first: u64, paths: &PathPolicy) -> Vec<Planned> {
         let mut planned = Vec::with_capacity(pipeline.commands.len());
         for (step, command) in (first..).zip(&pipeline.commands) {
             let (assigns, mut argv, redirects) = self.expand(command);
-            let (effects, gate) =
-                gate::step(auto, &self.parts(&assigns, &mut argv, &redirects, paths));
+            let (parts, own) = self.parts(&assigns, &mut argv, &redirects, paths);
+            let (effects, verdict) = gate::verdict(&parts);
             let mut words: Vec<String> = assigns
                 .iter()
                 .map(|(name, value)| format!("{name}={}", quote(value)))
@@ -554,55 +505,31 @@ impl Shell {
                 redirects,
                 command: words.join(" "),
                 effects,
-                gate,
+                own: refused(verdict, own),
             });
         }
         planned
     }
 
-    /// Gate a pipeline's commands in order, then run them together; `Some`
+    /// Run a pipeline's commands together unless one is refused; `Some`
     /// when the script ends here. A refused command runs no command of
     /// its pipeline.
     async fn pipeline(
         &mut self,
         planned: Vec<Planned>,
-        approver: &impl Approver,
         sink: &impl Sink,
         steps: &mut Vec<StepRun>,
     ) -> Option<End> {
-        let mut approvals = Vec::with_capacity(planned.len());
-        for stage in &planned {
-            let approval = match stage.gate {
-                Gate::Unasked => Approval::Auto,
-                Gate::Asks => {
-                    let ask = Ask {
-                        step: stage.step,
-                        command: stage.command.clone(),
-                        effects: stage.effects,
-                    };
-                    let answer = approver.approve(ask).await;
-                    let said = match answer {
-                        Answer::Approve => Said::Yes,
-                        Answer::Deny | Answer::Unanswered | Answer::GatewayRefused => Said::No,
-                    };
-                    match gate::answered(stage.step, said) {
-                        Answered::Runs => Approval::Approved,
-                        Answered::Stops { step } => {
-                            return Some(End::Refused {
-                                step,
-                                command: stage.command.clone(),
-                                effects: stage.effects,
-                                refusal: match answer {
-                                    Answer::Unanswered => Refusal::Unanswered,
-                                    Answer::GatewayRefused => Refusal::GatewayRefused,
-                                    Answer::Approve | Answer::Deny => Refusal::Denied,
-                                },
-                            });
-                        }
-                    }
-                }
-            };
-            approvals.push(approval);
+        if let Some((stage, own)) = planned
+            .iter()
+            .find_map(|stage| stage.own.clone().map(|own| (stage, own)))
+        {
+            return Some(End::Refused {
+                step: stage.step,
+                command: stage.command.clone(),
+                effects: stage.effects,
+                own,
+            });
         }
         let place = if planned.len() == 1 {
             Place::Alone
@@ -613,7 +540,7 @@ impl Shell {
             sink.begin(stage.step, &stage.command);
         }
         let statuses = self.launch(&planned, place, sink).await;
-        for ((stage, approval), status) in planned.into_iter().zip(approvals).zip(statuses) {
+        for (stage, status) in planned.into_iter().zip(statuses) {
             sink.end(stage.step, status);
             self.status = status;
             let exits = place == Place::Alone && stage.argv.first().is_some_and(|n| n == "exit");
@@ -621,7 +548,6 @@ impl Shell {
                 step: stage.step,
                 command: stage.command,
                 effects: stage.effects,
-                approval,
                 status,
             });
             if exits {
@@ -960,6 +886,15 @@ fn exit_status(status: std::process::ExitStatus) -> i32 {
     #[cfg(not(unix))]
     {
         status.code().unwrap_or(1)
+    }
+}
+
+/// The own path of a refused step: the core's verdict decides, the path
+/// names it (a refused verdict always comes with the path that made it).
+fn refused(verdict: Verdict, own: Option<OwnWrite>) -> Option<OwnWrite> {
+    match verdict {
+        Verdict::Runs => None,
+        Verdict::Refused => own,
     }
 }
 

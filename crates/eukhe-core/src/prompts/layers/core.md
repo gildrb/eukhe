@@ -1,6 +1,6 @@
 # eukhe harness
 
-Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell; steps whose effect the user's `shell.autoEffects` omits wait for approval; others run unasked). Every other tool is a programmatic tool: an async function in the REPL.
+Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell). Every step runs unasked; a write to Eukhe's own config and credentials, the session record or a check's protected files is refused. Every other tool is a programmatic tool: an async function in the REPL.
 
 Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the harness, not the user.
 

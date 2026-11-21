@@ -1280,29 +1280,6 @@ pub const KERNEL_TRANSPORT: Decl = Decl {
     init: Init::Null,
 };
 
-pub(crate) const SHELL_EFFECTS: &[&str] = &[
-    "read",
-    "write",
-    "exec",
-    "net",
-    "outside",
-    "protected",
-    "secret",
-];
-
-/// The effects a shell command may have without asking; by default all
-/// seven effects (law `default_auto_is_grantable`): every effect is
-/// grantable, and a read or write of a secret never asks. An execution
-/// gate: an untrusted project may not set it and an agent never saves it.
-pub const SHELL_AUTO_EFFECTS: Decl = Decl {
-    id: "shell.autoEffects",
-    ty: CvarType::ChoiceList(SHELL_EFFECTS),
-    scope: CvarScope::Local,
-    persist: false,
-    replicate: false,
-    init: Init::List(SHELL_EFFECTS),
-};
-
 /// The hosts an `ssh://` read may reach : new
 /// outbound traffic, so a project may not set it and an agent never
 /// saves it. Empty: every `ssh://` read is rejected.
@@ -1573,7 +1550,6 @@ pub const DECLS: &[Decl] = &[
     GATEWAY_SIGNAL_MODEL,
     GATEWAY_ROOT_HEARTBEAT,
     KERNEL_TRANSPORT,
-    SHELL_AUTO_EFFECTS,
     SSH_HOSTS,
     MODEL_ROLE_ALL,
     MODEL_ROLE_TINY,

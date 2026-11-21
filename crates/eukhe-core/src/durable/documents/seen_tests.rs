@@ -30,18 +30,12 @@ fn host(dir: &Path) -> Arc<DocumentsHost> {
         resources: Arc::new(LoadedResources::default()),
         memory: None,
         deps: std::sync::Weak::new(),
-        // The gate is not these tests' subject: the user approves every
-        // access that asks.
         gate: super::GateInputs {
             agent_dir: dir.join("agent"),
             settings: Arc::new(crate::durable::EukheSettings::new(
                 dir.to_path_buf(),
                 dir.join("agent"),
             )),
-            sink: Some(Arc::new(|_| {
-                Box::pin(async { eukhe_types::shell::ShellAnswer::Approve })
-                    as futures::future::BoxFuture<'static, _>
-            })),
         },
     })
 }

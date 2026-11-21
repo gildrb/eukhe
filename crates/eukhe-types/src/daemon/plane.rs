@@ -45,7 +45,6 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "list_kernel_bash"
         | "tail_kernel_bash"
         | "kill_kernel_bash"
-        | "answer_shell_approval"
         | "answer_editor_permission"
         | "cancel_rlm_child"
         | "delete_rlm_subagent"
@@ -147,7 +146,6 @@ mod tests {
             "get_state",
             "get_last_assistant_text",
             "start_side_question",
-            "answer_shell_approval",
             "answer_editor_permission",
             "get_ran_effects",
             "get_budget",

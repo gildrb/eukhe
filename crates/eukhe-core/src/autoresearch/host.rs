@@ -26,7 +26,6 @@ use crate::durable::goals::{
     autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState,
 };
 use crate::durable::rlm::session_env;
-use crate::durable::shell::{auto_set, SinkApprover};
 use crate::durable::{HostCall, HostDeps};
 use crate::kernel::manager::local_env;
 
@@ -54,43 +53,32 @@ enum Request {
 }
 
 /// The autoresearch host of a session: its stores under
-/// `<agent_dir>/autoresearch`, its cwd, and the gate of the `bash` tool
-/// (the `shell.autoEffects` auto set read at each run, the session's
-/// path policy and approval sink).
+/// `<agent_dir>/autoresearch`, its cwd, and what a run of the `bash` tool
+/// needs (the session's environment and path policy).
 pub(crate) fn of(deps: &Arc<HostDeps>) -> Autoresearch {
     let weak = Arc::downgrade(deps);
     Autoresearch::new(
         &deps.agent_dir,
         deps.cwd.clone(),
-        Arc::new(move |request: &str| gate(&weak, request)),
+        Arc::new(move || gate(&weak)),
     )
 }
 
-fn gate(deps: &Weak<HostDeps>, request: &str) -> RunGate {
-    let call = format!("autoresearch:{request}");
+fn gate(deps: &Weak<HostDeps>) -> RunGate {
     match deps.upgrade() {
         Some(deps) => RunGate {
             env: local_env(&session_env(&deps)),
-            auto: auto_set(&deps.settings),
-            // The experiment runs are judged by their metric, not by
-            // acceptance checks: no held files.
             paths: crate::durable::path_policy::session_policy(
                 &deps.agent_dir,
                 &deps.settings,
                 &deps.cwd,
                 &[],
             ),
-            approver: SinkApprover {
-                sink: deps.shell_approval.clone(),
-                call,
-            },
         },
-        // The session closed: nothing runs unasked, nobody answers.
+        // The session closed: no environment, no workspace.
         None => RunGate {
             env: std::collections::HashMap::new(),
-            auto: eukhe_types::shell::AutoSet::default(),
             paths: eukhe_types::path_policy::PathPolicy::new(Vec::new(), Vec::new(), Vec::new()),
-            approver: SinkApprover { sink: None, call },
         },
     }
 }
@@ -137,11 +125,7 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
                     .map(Duration::from_secs_f64)
                     .context("autoresearch.run timeout_s must be a positive number")?,
             };
-            let id = call
-                .call
-                .as_ref()
-                .map_or_else(|| "run".to_owned(), |api| api.task_id().to_string());
-            lab.run(timeout, &id).await?
+            lab.run(timeout).await?
         }
         Request::Log => lab.log(log_args(data)?).await?,
         Request::Flag => {

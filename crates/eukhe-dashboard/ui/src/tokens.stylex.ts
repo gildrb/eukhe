@@ -186,9 +186,7 @@ export const weight = stylex.defineConsts({
 });
 
 export const opacity = stylex.defineConsts({
-  /** An approval's effect line, under its command. */
-  quiet: 0.75,
-  /** A message not sent yet, a tooltip's keys, a disabled approval button. */
+  /** A message not sent yet, a tooltip's keys. */
   dim: 0.6,
   /** A disabled button. */
   disabled: 0.5,

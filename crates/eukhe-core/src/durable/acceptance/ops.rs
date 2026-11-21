@@ -3,7 +3,7 @@
 //! change is one commit that asks the compiled core
 //! (`eukhe_bend::rules::verify::act`) whether the actor may make it.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eukhe_bend::rules::strength;
 use eukhe_bend::rules::verify::{self, Actor, Op};
@@ -108,45 +108,28 @@ pub(crate) async fn stored(
     read_doc(reader, &ACCEPTANCE_DOC, conversation_id, cx).await
 }
 
-/// A file an acceptance check protects: its real path, the path its owner
-/// named, and the check (from 1).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HeldFile {
-    pub(crate) real: std::path::PathBuf,
-    pub(crate) named: String,
-    pub(crate) check: usize,
-}
-
-/// The files the checks of `conversation_id` protect, in the workspace
-/// they judge (`cwd` when the doc names none): the worker's writes to them
-/// are refused (the documents tools refuse them outright; `bash` asks the
-/// user as for any protected path).
+/// The files the checks of `conversation_id` protect (spec I3: no agent
+/// writes one while its check is set), each under the workspace the checks
+/// judge (`cwd` when the document names none); none without checks.
 ///
 /// # Errors
 ///
 /// Read failures.
-pub(crate) async fn held_files(
+pub(crate) async fn protected_files(
     reader: &(impl DocumentReader + ?Sized),
     conversation_id: ConversationId,
     cwd: &Path,
     cx: &Context,
-) -> SessionResult<Vec<HeldFile>> {
+) -> SessionResult<Vec<PathBuf>> {
     let Some(doc) = stored(reader, conversation_id, cx).await? else {
         return Ok(Vec::new());
     };
-    let workspace = doc.workspace.clone().unwrap_or_else(|| cwd.to_path_buf());
+    let workspace = doc.workspace.as_deref().unwrap_or(cwd);
     Ok(doc
         .checks
         .iter()
-        .enumerate()
-        .flat_map(|(index, check)| {
-            let workspace = &workspace;
-            check.protected.iter().map(move |file| HeldFile {
-                real: eukhe_types::path_policy::real_path(&workspace.join(&file.path)),
-                named: file.path.clone(),
-                check: index + 1,
-            })
-        })
+        .flat_map(|check| &check.protected)
+        .map(|file| workspace.join(&file.path))
         .collect())
 }
 

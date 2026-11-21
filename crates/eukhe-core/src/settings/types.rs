@@ -446,16 +446,6 @@ pub struct FactorySettings {
     pub enabled: Option<bool>,
 }
 
-/// `shell`: the shell tool's execution gate. An untrusted project may not
-/// set it (see `settings::trust`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellSettings {
-    /// The effects (`read`, `write`, `exec`, `net`) a shell command may
-    /// have without asking; unset is `read` only.
-    pub auto_effects: Option<Vec<String>>,
-}
-
 /// `ssh`: the `ssh://` reads of the `read` tool. Global-only: a read
 /// reaches a remote host, new outbound traffic, so no project scope may
 /// set it (see `settings::trust`).
@@ -634,8 +624,6 @@ pub struct Settings {
     /// local child process. Parsed by
     /// `kernel::transport::KernelTransportSettings`.
     pub kernel_transport: Option<serde_json::Value>,
-    /// `shell`: the shell tool's execution gate.
-    pub shell: Option<ShellSettings>,
     /// Global-only: the hosts `ssh://` reads may reach. A project-scope
     /// value is never read (see `settings::trust`).
     pub ssh: Option<SshSettings>,

@@ -715,14 +715,6 @@ impl SettingsManager {
         Some(self.cvars().value(&table::KERNEL_TRANSPORT)).filter(|value| !value.is_null())
     }
 
-    /// `shell.autoEffects`: the effects (`read`, `write`, `exec`, `net`,
-    /// `outside`, `protected`) a shell command may have without asking; by
-    /// default all six.
-    #[must_use]
-    pub fn get_shell_auto_effects(&self) -> Vec<String> {
-        self.cvars().list(&table::SHELL_AUTO_EFFECTS)
-    }
-
     /// `privacy.anonymizeRemote`: scrub outbound request text of a remote
     /// provider (opt-in, default false).
     #[must_use]

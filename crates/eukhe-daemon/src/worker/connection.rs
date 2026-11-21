@@ -50,27 +50,6 @@ impl OutboundFrame {
         }
     }
 
-    /// `shell_approval`: one `bash` step's approval question, for the
-    /// supervisor to route to the session's attached clients.
-    pub(crate) fn shell_approval(payload: Vec<u8>) -> Self {
-        OutboundFrame {
-            payload,
-            outbound_type: crate::shell_approval::SHELL_APPROVAL_FRAME,
-            seq: 0,
-        }
-    }
-
-    /// `shell_approval_settled`: a `bash` step's question is no longer
-    /// pending, for the supervisor to route to the session's attached
-    /// clients.
-    pub(crate) fn shell_approval_settled(payload: Vec<u8>) -> Self {
-        OutboundFrame {
-            payload,
-            outbound_type: crate::shell_approval::SHELL_APPROVAL_SETTLED_FRAME,
-            seq: 0,
-        }
-    }
-
     /// `state_tree_update`: new state tree records, for the supervisor to
     /// route to the subscribed client connections.
     pub(crate) fn state_tree_update(payload: Vec<u8>) -> Self {
@@ -1035,18 +1014,13 @@ impl Worker {
         if retained {
             // A client is back: the session is no longer left.
             core.left_at_ms = None;
-            core.gateway_client_ids.retain(|id| id != &client_id);
             match client_kind {
                 // A watch shows the session only: it is not an attached
-                // client for the approval questions (they relay as if no
-                // client were here) nor for the kernel release.
+                // client for the kernel release.
                 DaemonClientKind::Watch => core.attached_client_ids.retain(|id| id != &client_id),
                 DaemonClientKind::Gateway | DaemonClientKind::Interactive => {
                     if !core.attached_client_ids.iter().any(|id| id == &client_id) {
                         core.attached_client_ids.push(client_id.clone());
-                    }
-                    if client_kind == DaemonClientKind::Gateway {
-                        core.gateway_client_ids.push(client_id.clone());
                     }
                 }
             }
@@ -1258,10 +1232,8 @@ impl Worker {
                 .any(|other| other.iter().any(|entry| entry == id));
             if !held_elsewhere {
                 core.attached_client_ids.retain(|entry| entry != id);
-                core.gateway_client_ids.retain(|entry| entry != id);
             }
         }
-        self.shell_approvals.detached(&core);
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1295,7 +1267,6 @@ impl Worker {
             .any(|other| other.iter().any(|entry| entry == &client_id));
         if !held_elsewhere {
             core.attached_client_ids.retain(|id| id != &client_id);
-            core.gateway_client_ids.retain(|id| id != &client_id);
         }
         // The last client left the session for another one: the idle
         // window shrinks to the left grace (the park re-arms it now).
@@ -1307,7 +1278,6 @@ impl Worker {
         if left {
             core.left_at_ms = Some(crate::util::now_ms());
         }
-        self.shell_approvals.detached(&core);
         drop(core);
         if left {
             self.park_notify.notify_one();

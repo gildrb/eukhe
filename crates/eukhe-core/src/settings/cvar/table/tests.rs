@@ -8,7 +8,7 @@ use crate::settings::types::{
     GatewaySettings, ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode,
     ModelRolesSettings, PrivacySettings, ProviderRetrySettings, ProviderWaitSettings,
     ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
-    Settings, ShellSettings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
+    Settings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
     TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
     TransportSetting, TtsSettings, UpdateSettings, WarningSettings,
 };
@@ -193,9 +193,6 @@ fn populated() -> Settings {
             root_heartbeat: Some("every 30 minutes".into()),
         }),
         kernel_transport: Some(Value::from(1)),
-        shell: Some(ShellSettings {
-            auto_effects: Some(vec![]),
-        }),
         ssh: Some(SshSettings {
             hosts: Some(vec![]),
         }),

@@ -129,7 +129,7 @@ First paint and every frame the user waits on never block on disk sync or backgr
 |`eukhe-models`|Built-in model catalog (bundled snapshot ∪ compiled catalog), transport pinning|`eukhe-types`, `eukhe-bend`, `eukhe-ai`|
 |`eukhe-docs`|Documents: file tag, edit store, read projection, locked writes, hashline edits, grep, glob (port of omp edit)|`eukhe-types`, `eukhe-bend`|
 |`eukhe-budget`|Budgets as hard guarantees: the durable ledger of a task's budget (money, tokens, work time, tool calls), one file per session shared by the session tree under a file lock; reserve before spending, settle after, carve for a child, charge in full what a crash left open; every decision from the compiled core (`rules::budget`)|`eukhe-types`, `eukhe-bend`|
-|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes and approval gate|`eukhe-types`, `eukhe-bend`|
+|`eukhe-shell`|In-process bash of the `bash` tool: script interpreter, own coreutils (`grep` on ripgrep's engine), per-step effect classes, own-path refusal|`eukhe-types`, `eukhe-bend`|
 |`eukhe-tiny`|Local tiny models: pinned catalog, `eukhe tiny-models download`, shared worker per model and its election, worker client, role-based model selection|`eukhe-bend`, `eukhe-build-info`|
 |`eukhe-tiny-onnx`|Tiny-model worker's ONNX engine (ONNX Runtime loaded at run time): text generation, Whisper speech to text, Kokoro text to speech|`eukhe-tiny`|
 |`eukhe-core`|Durable session runtime, tools, skills, kernel, settings, chat memory, tiny-model roles (titles, local judgments)|`eukhe-types`, `eukhe-bend`, `eukhe-theme`, `eukhe-chord`, `eukhe-tokens`, `eukhe-ai`, `eukhe-durable`, `eukhe-models`, `eukhe-docs`, `eukhe-shell`, `eukhe-tiny`|
