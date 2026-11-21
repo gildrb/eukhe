@@ -140,6 +140,9 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "kill_kernel_bash",
     "answer_shell_approval",
     "relay_shell_approval",
+    "answer_editor_permission",
+    "relay_editor_permission",
+    "relay_ran_effect",
     "worker_register",
     "worker_roster_delta",
     "provider_admission_acquire",
@@ -163,6 +166,7 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "register_headless_parent",
     "headless_parent_receipt",
     "get_unknown_effects",
+    "get_ran_effects",
     "resolve_unknown_effect",
     "get_budget",
     "set_budget",
@@ -694,6 +698,15 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::RelayShellApproval {
             active_session_id, ..
         }
+        | DaemonCommand::AnswerEditorPermission {
+            active_session_id, ..
+        }
+        | DaemonCommand::RelayEditorPermission {
+            active_session_id, ..
+        }
+        | DaemonCommand::RelayRanEffect {
+            active_session_id, ..
+        }
         | DaemonCommand::CancelRlmChild {
             active_session_id, ..
         }
@@ -919,6 +932,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetUnknownEffects {
             active_session_id, ..
         }
+        | DaemonCommand::GetRanEffects {
+            active_session_id, ..
+        }
         | DaemonCommand::ResolveUnknownEffect {
             active_session_id, ..
         }
@@ -1068,6 +1084,9 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::KillKernelBash { .. } => "kill_kernel_bash",
         DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
         DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
+        DaemonCommand::AnswerEditorPermission { .. } => "answer_editor_permission",
+        DaemonCommand::RelayEditorPermission { .. } => "relay_editor_permission",
+        DaemonCommand::RelayRanEffect { .. } => "relay_ran_effect",
         DaemonCommand::CancelRlmChild { .. } => "cancel_rlm_child",
         DaemonCommand::FactoryActivity { .. } => "factory_activity",
         DaemonCommand::WorkflowActivity { .. } => "workflow_activity",
@@ -1148,6 +1167,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetLastAssistantText { .. } => "get_last_assistant_text",
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
         DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
+        DaemonCommand::GetRanEffects { .. } => "get_ran_effects",
         DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
         DaemonCommand::SetAcceptance { .. } => "set_acceptance",
         DaemonCommand::GetAcceptance { .. } => "get_acceptance",

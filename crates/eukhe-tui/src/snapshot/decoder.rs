@@ -380,6 +380,10 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::UnknownEffectsUpdate { effects } => {
             TurnUpdate::UnknownEffectsUpdate(effects.clone())
         }
+        // The ledger view and the end-of-run message: not shown yet.
+        SessionEvent::RanEffectsUpdate { .. } | SessionEvent::RunReport { .. } => {
+            TurnUpdate::StatusUpdate
+        }
         SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
         SessionEvent::BudgetUpdate { budget } => {
             TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))

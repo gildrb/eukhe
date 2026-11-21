@@ -359,6 +359,18 @@ pub enum DaemonOutbound {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native, sent only to clients that attached with the
+    /// `editor_permission` capability (an ACP editor): may one
+    /// irreversible effect run? The first `answer_editor_permission` for
+    /// its request id decides; with no such client, or when it detaches
+    /// unanswered, the effect runs. Unsequenced, like
+    /// `side_question_event`.
+    EditorPermission {
+        active_session_id: String,
+        request: crate::effects::EditorPermissionRequest,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     /// Rust-native, advertised by the `state_tree` capability: the new
     /// records of the session state tree, sent only to the connections
     /// that sent `subscribe_state_tree` for the session. It carries no

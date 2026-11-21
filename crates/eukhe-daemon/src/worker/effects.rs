@@ -2,14 +2,18 @@
 //! conversation's ledger of steps a restart could not tell the outcome of
 //! and treated as not run (the `eukhe.effects` document,
 //! `eukhe_durable::harness::effects`), and `resolve_unknown_effect`
-//! records a client's optional correction of one in a session commit.
+//! records a client's optional correction of one in a session commit;
+//! `get_ran_effects` reads its ledger of irreversible effects that ran.
 //! Nothing waits for one. Attached clients follow the ledger through
-//! `unknown_effects_update` (the event bridge's effects watch) and the
-//! attach snapshot's `unknownEffects`.
+//! `unknown_effects_update` and `ran_effects_update` (the event bridge's
+//! effects watch) and the attach snapshot's `unknownEffects` and
+//! `ranEffects`.
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_durable::harness::effects::{read_unknown_effects, resolve_unknown};
-use eukhe_types::effects::{EffectResolution, ResolvedEffectReply, UnknownEffectsReply};
+use eukhe_durable::harness::effects::{read_ran_effects, read_unknown_effects, resolve_unknown};
+use eukhe_types::effects::{
+    EffectResolution, RanEffectsReply, ResolvedEffectReply, UnknownEffectsReply,
+};
 use serde::Deserialize as _;
 use serde_json::Value;
 
@@ -34,6 +38,29 @@ impl Worker {
                 None,
                 COMMAND,
                 Some(serde_json::to_value(UnknownEffectsReply { effects }).unwrap_or(Value::Null)),
+            ),
+            Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
+        }
+    }
+
+    /// `get_ran_effects`: the session's ledger of irreversible effects
+    /// that ran, by id (a root session's: its subagents' too).
+    #[tracing::instrument(skip(self))]
+    pub(crate) async fn handle_get_ran_effects(&self) -> DaemonResponse {
+        const COMMAND: &str = "get_ran_effects";
+        let hosted = match self.hosted(COMMAND) {
+            Ok(hosted) => hosted,
+            Err(response) => return response,
+        };
+        let read = async {
+            let main = hosted.main()?;
+            read_ran_effects(hosted.harness(), main.id(), &BACKGROUND_CONTEXT).await
+        };
+        match read.await {
+            Ok(effects) => response_success(
+                None,
+                COMMAND,
+                Some(serde_json::to_value(RanEffectsReply { effects }).unwrap_or(Value::Null)),
             ),
             Err(error) => response_failure(None, COMMAND, &error.to_string(), None),
         }
