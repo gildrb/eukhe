@@ -330,6 +330,26 @@ async fn call(
         let failed = |error: &dyn std::fmt::Display, details| {
             text_result(format!("{name} failed: {error}"), details, Outcome::Failed)
         };
+        // An MCP tool's effect is unknown, so irreversible: the editor
+        // attached through ACP has its say first (spec I12).
+        let allowed = super::editor_permission::allows(
+            deps.editor_permission.clone(),
+            format!("{}:mcp", api.call_id()),
+            Some(api.call_id().to_owned()),
+            name.to_owned(),
+            vec![eukhe_types::effects::EffectClass::Unknown],
+        )
+        .await;
+        if !allowed {
+            return Ok(text_result(
+                format!(
+                    "{name} did not run: {}.",
+                    super::editor_permission::EDITOR_REFUSED
+                ),
+                details,
+                Outcome::Failed,
+            ));
+        }
         return Ok(match kernel_manager(&deps, &*api, &cx).await {
             Err(error) => failed(&error, details),
             Ok(manager) => match manager

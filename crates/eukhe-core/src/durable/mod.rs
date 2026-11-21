@@ -18,6 +18,7 @@ mod deps;
 pub mod directors;
 mod discovery;
 pub mod documents;
+pub(crate) mod editor_permission;
 mod entries;
 mod env;
 mod export;
@@ -50,9 +51,9 @@ pub mod workflow;
 
 pub use admission_gate::AdmissionStateSink;
 pub use deps::{
-    HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry, JobSettledSink,
-    LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink, PromptConfig,
-    ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
+    EditorPermissionSink, HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry,
+    JobSettledSink, LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink,
+    PromptConfig, ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
     SessionStorage, StoredWork, SummaryDeltaSink,
 };
 pub use discovery::{

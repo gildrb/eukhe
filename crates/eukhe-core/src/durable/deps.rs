@@ -230,6 +230,21 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink =
     Arc<dyn Fn(eukhe_types::job::JobSettled, crate::durable::jobs::NoticeAdmission) + Send + Sync>;
 
+/// Asks the editor attached through ACP whether one irreversible effect
+/// may run (spec I12; `editor_permission`): the daemon worker sends the
+/// question to its editor clients (a subagent's goes to its root's) and
+/// answers the editor's verdict. With no editor attached, or when it
+/// detaches unanswered, the answer is [`EditorVerdict::Allow`].
+///
+/// [`EditorVerdict::Allow`]: eukhe_types::effects::EditorVerdict::Allow
+pub type EditorPermissionSink = Arc<
+    dyn Fn(
+            eukhe_types::effects::EditorPermissionRequest,
+        ) -> BoxFuture<'static, eukhe_types::effects::EditorVerdict>
+        + Send
+        + Sync,
+>;
+
 /// An MCP login surface: the UI the OAuth flow drives and its HTTP client
 /// (see [`crate::mcp::wire_begin_login`]).
 #[derive(Clone)]
@@ -300,6 +315,10 @@ pub struct SessionConfig {
     /// Settled detached jobs (the daemon's job-settled wake); `None` drops
     /// them.
     pub job_settled: Option<JobSettledSink>,
+    /// Asked before an irreversible effect runs (a `bash` step, a
+    /// document access, an MCP call); `None`: nothing asks, every effect
+    /// runs.
+    pub editor_permission: Option<EditorPermissionSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -352,6 +371,7 @@ impl SessionConfig {
             late_agent_message: None,
             progress_note: None,
             job_settled: None,
+            editor_permission: None,
             prewarm_kernel: false,
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
@@ -546,6 +566,8 @@ pub struct HostDeps {
     pub late_agent_message: Option<LateAgentMessageSink>,
     pub progress_note: Option<ProgressNoteSink>,
     pub job_settled: Option<JobSettledSink>,
+    /// [`SessionConfig::editor_permission`].
+    pub editor_permission: Option<EditorPermissionSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
@@ -649,6 +671,7 @@ impl HostDeps {
             late_agent_message: config.late_agent_message.clone(),
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
+            editor_permission: config.editor_permission.clone(),
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),

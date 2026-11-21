@@ -2,8 +2,9 @@
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
 //! directory. Every step runs unasked but one that writes an own path
 //! (eukhe's own config and credentials, the session record, a protected
-//! file of a check under acceptance): that step and the steps after it do
-//! not run, and the model reads the path and why.
+//! file of a check under acceptance), or an irreversible step the editor
+//! attached through ACP rejects ([`HostDeps::editor_permission`]): that
+//! step and the steps after it do not run, and the model reads why.
 //!
 //! The tool obeys the S2 limits. Its output streams through one
 //! [`BoundedOutput`] under the call's [`Truncation`](eukhe_durable::harness::Truncation):
@@ -31,6 +32,7 @@ mod git_evidence;
 mod tests;
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
@@ -45,16 +47,18 @@ use eukhe_durable::harness::types::{
     ToolExecutionResult, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_shell::{End, Ran, Shell, Sink, Stream};
+use eukhe_shell::{Before, End, Ran, Shell, Sink, Stream};
+use eukhe_types::effects::EffectClass;
 use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::platform::kill_point::kill_point;
 use eukhe_types::shell::ShellEffect;
 
 use super::bounded_output::BoundedOutput;
+use super::editor_permission::{self, EDITOR_REFUSED};
 use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
-use super::HostDeps;
+use super::{EditorPermissionSink, HostDeps};
 use crate::child_workspace::{ChildWorkspace, TreeStamp};
 use crate::kernel::manager::local_env;
 
@@ -64,6 +68,30 @@ fn names_git(script: &str) -> bool {
     script
         .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/')))
         .any(|word| word.rsplit('/').next() == Some("git"))
+}
+
+/// The editor's say on each irreversible step of one `bash` call (spec
+/// I12): each question's id is the call's id and the step.
+struct EditorBefore {
+    sink: Option<EditorPermissionSink>,
+    call: String,
+}
+
+impl Before for EditorBefore {
+    fn allows(
+        &self,
+        step: u64,
+        command: &str,
+        effects: eukhe_types::shell::ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        editor_permission::allows(
+            self.sink.clone(),
+            format!("{}:{step}", self.call),
+            Some(self.call.clone()),
+            command.to_owned(),
+            EffectClass::of_shell(effects),
+        )
+    }
 }
 
 /// The extension's name.
@@ -261,9 +289,13 @@ async fn execute(
     let mut running = {
         let env = local_env(&session_env(deps));
         let (script, transcript) = (script.to_owned(), Arc::clone(&transcript));
+        let before = EditorBefore {
+            sink: deps.editor_permission.clone(),
+            call: api.call_id().to_owned(),
+        };
         tokio::spawn(async move {
             Shell::new(cwd, env, "bash")
-                .run(&script, &paths, &*transcript)
+                .run(&script, &paths, &before, &*transcript)
                 .await
         })
     };
@@ -349,7 +381,7 @@ async fn execute(
     };
     // The script ran; its result is not durable yet.
     kill_point(EffectKind::Tool.name(), "ran");
-    let refused = matches!(ran.end, End::Refused { .. });
+    let refused = matches!(ran.end, End::Refused { .. } | End::Rejected { .. });
     settle(&ran, &transcript);
     let (text, bounded) = transcript.projection();
     let steps: Vec<serde_json::Value> = ran
@@ -378,6 +410,16 @@ async fn execute(
             "command": command,
             "effects": effects,
             "own": own.path,
+        }),
+        End::Rejected {
+            step,
+            command,
+            effects,
+        } => serde_json::json!({
+            "kind": "rejected",
+            "step": step,
+            "command": command,
+            "effects": effects,
         }),
     };
     let details = serde_json::json!({ "version": VERSION, "steps": steps, "end": end });
@@ -411,6 +453,20 @@ fn settle(ran: &Ran, transcript: &Transcript) -> (CellStatus, i32) {
             transcript.push(
                 &format!(
                     "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {own}.]\n",
+                    effects.names(),
+                ),
+                true,
+            );
+            (CellStatus::Error, 1)
+        }
+        End::Rejected {
+            step,
+            command,
+            effects,
+        } => {
+            transcript.push(
+                &format!(
+                    "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {EDITOR_REFUSED}.]\n",
                     effects.names(),
                 ),
                 true,

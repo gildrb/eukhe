@@ -411,6 +411,7 @@ impl Supervisor {
         // entries go first — no session event may be enqueued for a
         // connection whose loop has exited — then the worker-side detach
         // routes run as before.
+        attached.detach_all(&self.editor_subscribers);
         attached.detach_all(&self.session_subscribers);
         tree_subscriptions.detach_all(&self.state_tree_subscribers);
         let attached_sessions = attached.session_ids();

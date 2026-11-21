@@ -135,6 +135,9 @@ pub struct Worker {
     recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
     /// Live side-question runs (registry, guards, event frames).
     side_questions: crate::side_question::SideQuestionManager,
+    /// The session's open questions to its editors (`editor_permission`,
+    /// `answer_editor_permission`).
+    pub(crate) editor_permissions: crate::editor_permission::EditorPermissions,
     /// Single-use peer-transport grants (worker memory only).
     pub(crate) peer_grants: PeerGrantStore,
     /// Compaction commands.
@@ -278,6 +281,26 @@ impl Worker {
             events.clone(),
             config.active_session_id.clone(),
         );
+        // A subagent's question to the editor goes up to its parent session
+        // over the supervisor link; the editor may take as long as a turn.
+        let relay_link = Arc::clone(&roster_link);
+        let editor_permissions = crate::editor_permission::EditorPermissions::new(
+            Arc::clone(&core),
+            events.clone(),
+            config.active_session_id.clone(),
+            Arc::new(move |command| {
+                let link = Arc::clone(&relay_link);
+                Box::pin(async move {
+                    link.request(
+                        command,
+                        std::time::Duration::from_millis(
+                            crate::supervisor::WORKER_REQUEST_TIMEOUT_MS,
+                        ),
+                    )
+                    .await
+                })
+            }),
+        );
         let compaction = crate::compaction::CompactionManager::new(
             session.clone(),
             events.clone(),
@@ -311,6 +334,7 @@ impl Worker {
             events,
             recovery,
             side_questions,
+            editor_permissions,
             peer_grants: PeerGrantStore::new(),
             compaction,
             tree_navigation,

@@ -171,6 +171,21 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
     }
 }
 
+/// Whether an attach (or reattach) is an editor's: it asked for the
+/// `editor_permission` capability (an ACP attach), so its connection gets
+/// the session's `editor_permission` frames.
+fn attaches_an_editor(command: &DaemonCommand) -> bool {
+    match command {
+        DaemonCommand::Attach { capabilities, .. }
+        | DaemonCommand::Reattach { capabilities, .. } => {
+            attach_client_capabilities(capabilities.as_deref())
+                .iter()
+                .any(|cap| cap == crate::editor_permission::EDITOR_PERMISSION_CAPABILITY)
+        }
+        _ => false,
+    }
+}
+
 /// The routed attach's response lines: the snapshot reply re-chunked into
 /// the streamed attach records, or the attach failure when the snapshot
 /// cannot be identified.
@@ -568,6 +583,7 @@ impl Supervisor {
                     // supervisor retires the stale address
                     // itself and answers the detach.
                     if matches!(command, DaemonCommand::Detach { .. }) {
+                        attached.unsubscribe(&self.editor_subscribers, &selector);
                         attached.detach(&self.session_subscribers, &selector);
                         return (
                             vec![response_line(&response_success(
@@ -950,6 +966,11 @@ impl Supervisor {
                     session_file.as_deref(),
                 );
                 attached.attach(&self.session_subscribers, &active_id);
+                if attaches_an_editor(command) {
+                    attached.subscribe(&self.editor_subscribers, &active_id);
+                } else {
+                    attached.unsubscribe(&self.editor_subscribers, &active_id);
+                }
             }
             let line = spliced_client_line(&command_id, payload);
             if let Some(raw_out) = raw_out {
@@ -1002,6 +1023,11 @@ impl Supervisor {
                                 session_file.as_deref(),
                             );
                             attached.attach(&self.session_subscribers, &active_id);
+                            if attaches_an_editor(command) {
+                                attached.subscribe(&self.editor_subscribers, &active_id);
+                            } else {
+                                attached.unsubscribe(&self.editor_subscribers, &active_id);
+                            }
                             // The client's own capability set, not the
                             // supervisor's worker-facing one, is echoed in
                             // the attach result.
@@ -1032,6 +1058,7 @@ impl Supervisor {
                         // rebind seam retires its superseded address itself.
                         // The registry entry goes first: delivery stops at
                         // the detach instant (TS send-time semantics).
+                        attached.unsubscribe(&self.editor_subscribers, &resident.worker_id);
                         attached.detach(&self.session_subscribers, &resident.worker_id);
                     }
                 }
