@@ -45,6 +45,12 @@ import ./base.bend as LawsBase
 #     auto set, answer or setting enters the verdict; its effects are
 #     those of R3. R4 and R5 are the approval gate's, kept until its last
 #     caller goes.
+# R8 (spec/README.md I3): a script runs its steps in order up to the first
+#     step that writes an own path; that step and every later one do not
+#     run, and the script ends stopped at that step's id; a script with no
+#     such step runs every step. A step planned from its parts carries the
+#     parts' effects (R3) and writes an own path exactly when its verdict
+#     (R7) refuses it.
 # Every input is free: any auto set, any parts, any effects, any step id,
 # any answer, any text.
 
@@ -272,6 +278,62 @@ law shell_verdict_concat:
 law shell_verdict_effects:
   for +ps: List<&2, Tl.Piece>
   {Tl.pieces.effs(ps) == Tl.join(Tl.parts.effs(pieces_parts(ps))) : List<&2, Nat>}
+
+# Laws: a script (R8)
+# -------------------
+
+# R8: the steps of a planned script as they run: each step's id and
+# effects
+def sh_steps(ss: List<&2, Tl.Planned>) -> List<&2, Tl.Step>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      match s:
+        case Tl.Planned{i, e, m}:
+          Tl.Step{i, e} <> sh_steps(rest)
+
+# R8: no step of ss writes an own path
+def sh_none_own(ss: List<&2, Tl.Planned>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case s <> rest:
+      match s:
+        case Tl.Planned{i, e, m}:
+          Bool.and(Bool.not(m), sh_none_own(rest))
+
+# LAW shell_plan (R3, R7, R8): the step planned with id i from parts ps
+# has id i, the parts' effects, and writes an own path exactly when its
+# verdict refuses it
+# EXCLUDES: a planned step that runs although its verdict refuses it, one
+#   stopped though it runs, its effects or id lost
+law shell_plan:
+  for +i: Nat
+  for +ps: List<&2, Tl.Piece>
+  {Tl.plan(i, ps) == Tl.Planned{i, Tl.pieces.effs(ps), refused(Tl.verdict(ps))} : Tl.Planned}
+
+# LAW shell_script_runs_all (R8): a script none of whose steps writes an
+# own path runs every step, in order, and ends with every step run
+# EXCLUDES: a step dropped, repeated or reordered; a script stopped early
+#   (a net, secret or outside step taken as a stop)
+law shell_script_runs_all:
+  for +ss: List<&2, Tl.Planned>
+  for free: {sh_none_own(ss) == True{} : Bool}
+  {Tl.script(ss) == Tl.Did{sh_steps(ss), Tl.AllRan{}} : Tl.Did}
+
+# LAW shell_script_stops (R8): steps that write no own path, then step i
+# that writes one: the steps before it run, in order; it and every later
+# step do not, and the script ends stopped at i
+# EXCLUDES: the refused step run, a later step run, the steps before it
+#   dropped, a stop named by another id
+law shell_script_stops:
+  for +pre: List<&2, Tl.Planned>
+  for +i: Nat
+  for +e: List<&2, Nat>
+  for +post: List<&2, Tl.Planned>
+  for free: {sh_none_own(pre) == True{} : Bool}
+  {Tl.script(List.append(&2, Tl.Planned, pre, Tl.Planned{i, e, True{}} <> post)) == Tl.Did{sh_steps(pre), Tl.StoppedAt{i}} : Tl.Did}
 
 # Laws: a step's effects (R3)
 # ---------------------------

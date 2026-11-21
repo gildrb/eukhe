@@ -85,6 +85,7 @@ import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_package_source.bend as ffi_package_source
+import ./ffi_path_own.bend as ffi_path_own
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_privacy.bend as ffi_privacy
 import ./ffi_progress.bend as ffi_progress
@@ -393,6 +394,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_irreversible.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
+    case 473:
+      ffi_path_own.ffi(input)
     case _:
       W.err("unknown entry")
 

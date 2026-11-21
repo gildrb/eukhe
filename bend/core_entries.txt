@@ -138,4 +138,5 @@
 465 strength
 466 attack
 471 gateway_report
+473 path_own
 469 irreversible
