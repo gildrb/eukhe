@@ -193,7 +193,7 @@ pub struct Args {
     pub autonomous_max_tokens: Option<u64>,
     pub autonomous_timeout_ms: Option<u64>,
     /// `--wait-limit-ms`: how long print/json mode waits on background
-    /// jobs and subagents after a turn ends.
+    /// jobs, subagents and a usage-limit reset after a turn ends.
     pub wait_limit_ms: Option<u64>,
     pub goal: Option<String>,
     pub goal_token_budget: Option<u32>,

@@ -7,13 +7,18 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 use eukhe_ai::models::registry_thinking_levels;
+use eukhe_core::durable::fallback;
 use eukhe_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
 use eukhe_core::models::roles::role_model;
+use eukhe_types::ai::Model;
 use eukhe_types::ai::ModelThinkingLevel;
 use eukhe_types::model_roles::ModelRole;
 
 /// Close matches listed in model-resolution errors (TS suggestion limit).
 const MODEL_ERROR_SUGGESTION_LIMIT: usize = 3;
+/// The report of a spawn that found no model: no reference, no parent
+/// model, and no configured model whose provider has credentials.
+const NO_CHILD_MODEL: &str = "No model for the child: no model was named, the parent has none, and no configured model has a provider with credentials.";
 /// Cap on the answer preview handed to the parent model (TS `compactRlmText`).
 pub const ANSWER_PREVIEW_MAX_CHARS: usize = 160;
 const ELLIPSIS: &str = "...";
@@ -77,8 +82,9 @@ pub enum UnpinnedChildModel {
 /// the `allowedModels` gate, and for [`UnpinnedChildModel::SubagentDefault`]
 /// the subagent role's reference (`subagentDefaultModel`, else
 /// `modelRoles.all`) a spawn without `model` resolves, else the parent's
-/// model. The settings read is a synchronous file read (callers on an
-/// async path run it on the blocking pool).
+/// model, else, with no parent model, the first configured model
+/// ([`first_configured_model`]). The settings read is a synchronous file
+/// read (callers on an async path run it on the blocking pool).
 ///
 /// # Errors
 ///
@@ -95,12 +101,18 @@ pub fn resolve_child_model_from_settings(
 ) -> Result<String> {
     let settings = eukhe_core::settings::SettingsManager::create(cwd, agent_dir);
     let allowlist = crate::model_allowlist::from_settings(&settings);
-    let reference = reference.map(str::to_string).or_else(|| match unpinned {
-        UnpinnedChildModel::SubagentDefault => {
-            role_model(settings.cvars(), ModelRole::Subagent).selector
-        }
-        UnpinnedChildModel::Parent => None,
-    });
+    let reference = reference
+        .map(str::to_string)
+        .or_else(|| match unpinned {
+            UnpinnedChildModel::SubagentDefault => {
+                role_model(settings.cvars(), ModelRole::Subagent).selector
+            }
+            UnpinnedChildModel::Parent => None,
+        })
+        .or_else(|| match parent_model {
+            Some(_) => None,
+            None => first_configured_model(agent_dir, &settings, &allowlist),
+        });
     resolve_child_model(
         agent_dir,
         reference.as_deref(),
@@ -108,6 +120,26 @@ pub fn resolve_child_model_from_settings(
         target,
         &allowlist,
     )
+}
+
+/// The model a child with no reference and no parent model runs on: the
+/// first model the user configured ([`fallback::configured_references`]:
+/// the `enabledModels` scope, then the chat roles' models) whose provider
+/// has credentials and that the allowlist allows.
+fn first_configured_model(
+    agent_dir: &Path,
+    settings: &eukhe_core::settings::SettingsManager,
+    allowlist: &crate::model_allowlist::DaemonAllowlist,
+) -> Option<String> {
+    let registry = crate::state_getters::worker_model_registry(agent_dir);
+    let available: Vec<Model> = registry
+        .get_rlm_searchable_models()
+        .into_iter()
+        .cloned()
+        .collect();
+    fallback::configured_references(settings, &available)
+        .into_iter()
+        .find(|selector| crate::model_allowlist::assert_allowed(allowlist, selector).is_ok())
 }
 
 /// The TS `_resolveRlmSubagentModel` resolution before the allowlist gate.
@@ -123,7 +155,7 @@ fn resolve_child_model_unchecked(
     let Some(reference) = reference else {
         return parent_model
             .map(str::to_string)
-            .ok_or_else(|| anyhow!("No model selected. Use /model to pick one."));
+            .ok_or_else(|| anyhow!("{NO_CHILD_MODEL}"));
     };
     let reference = reference.trim();
     let normalized = reference.to_lowercase();
@@ -324,7 +356,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, "test-provider/glm-5.3-turbo");
-        // No reference and no parent model: the TS no-model error.
+        // No reference and no parent model: the report of it.
         let error = resolve_child_model(
             dir.path(),
             None,
@@ -333,10 +365,7 @@ mod tests {
             &DaemonAllowlist::Unrestricted,
         )
         .unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "No model selected. Use /model to pick one."
-        );
+        assert_eq!(error.to_string(), NO_CHILD_MODEL);
     }
 
     #[test]
@@ -487,6 +516,46 @@ mod tests {
                 "test-provider/glm-5.3-turbo".to_string(),
                 "test-provider/glm-5.3".to_string(),
                 "test-provider/glm-5.3".to_string(),
+            ]
+        );
+    }
+
+    /// A child with no reference and no parent model runs on the first
+    /// configured model whose provider has credentials; with none, the
+    /// spawn ends with the report of it.
+    #[test]
+    fn a_spawn_with_no_model_anywhere_takes_the_first_configured_model() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_catalog(dir.path());
+        let cwd = dir.path().join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let resolve = || {
+            resolve_child_model_from_settings(
+                &cwd,
+                dir.path(),
+                None,
+                None,
+                "subagent",
+                UnpinnedChildModel::Parent,
+            )
+            .map_err(|error| error.to_string())
+        };
+        let unset = resolve();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            json!({
+                "enabledModels": ["absent/model", "test-provider/glm-5.3-turbo"],
+                "defaultProvider": "test-provider",
+                "defaultModel": "glm-5.3",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            [unset, resolve()],
+            [
+                Err(NO_CHILD_MODEL.to_owned()),
+                Ok("test-provider/glm-5.3-turbo".to_owned())
             ]
         );
     }

@@ -486,13 +486,13 @@ pub fn render_assistant(
             theme,
             width,
         ));
-        // A failed (not aborted) answer always names the user's next
-        // step under its error, in every detail mode: the turn ended
-        // without an answer, and the row must say what to do about it.
+        // A failed (not aborted) answer always reports how its turn ended
+        // under its error, in every detail mode: the turn ended without an
+        // answer, and the row says so.
         if !message.aborted {
-            if let Some(step) = crate::error_summary::failure_next_step(error, None) {
+            if let Some(report) = crate::error_summary::failure_report(error, None) {
                 out.extend(crate::error_summary::render_collapsible_error(
-                    &step,
+                    &report,
                     None,
                     true,
                     ThemeColor::Warning,

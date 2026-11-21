@@ -193,7 +193,7 @@ pub fn custom_message_entries(
             // The ONE line a retry episode leaves in the chat: the row text
             // the daemon carried (the live rows use the same text), the
             // tone from the structured verdict. A failed episode ended its
-            // turn without an answer, so its row names the next step.
+            // turn without an answer, so its row reports how.
             if details.get("success").and_then(Value::as_bool) == Some(true) {
                 vec![ChatEntry::Status {
                     text,
@@ -201,8 +201,8 @@ pub fn custom_message_entries(
                 }]
             } else {
                 let provider = details.get("provider").and_then(Value::as_str);
-                let text = match crate::error_summary::failure_next_step(&text, provider) {
-                    Some(step) => format!("{text}{}{step}", crate::glyphs::SEP),
+                let text = match crate::error_summary::failure_report(&text, provider) {
+                    Some(report) => format!("{text}{}{report}", crate::glyphs::SEP),
                     None => text,
                 };
                 vec![ChatEntry::Status {

@@ -149,6 +149,7 @@ impl Worker {
         );
         summary.worker_instance_id = (!self.config.worker_instance_id.is_empty())
             .then(|| self.config.worker_instance_id.clone());
+        summary.model_fallback_message = model_moves(&self.session);
         summary
     }
 
@@ -388,6 +389,21 @@ fn quota_park(session: &SessionSlot) -> Option<QuotaPark> {
     })
 }
 
+/// The report of the session's model moves (the provider runtime's
+/// [`eukhe_core::durable::ModelMove`]s, one line each, oldest first);
+/// `None` when its requests stayed on their models or no session is
+/// hosted.
+fn model_moves(session: &SessionSlot) -> Option<String> {
+    let moves = session.get()?.deps().provider_runtime.get()?.model_moves();
+    (!moves.is_empty()).then(|| {
+        moves
+            .iter()
+            .map(eukhe_core::durable::ModelMove::text)
+            .collect::<Vec<String>>()
+            .join("\n")
+    })
+}
+
 /// What the session waits on now, as the summary carries it: the running
 /// work of the one rule of what a turn's end leaves running
 /// ([`pending_work`]); `None` when none runs or no session is hosted (a
@@ -471,6 +487,7 @@ pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
             context.user_bash.is_running(),
             quota_park(&context.session),
         );
+        summary.model_fallback_message = model_moves(&context.session);
         // The embedded counter is the pre-stamp value: every sequence
         // stamped before the snapshot is at or below it.
         summary.roster_delta_sequence = Some(

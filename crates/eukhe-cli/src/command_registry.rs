@@ -823,7 +823,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         options: &[
             (
                 "--wait-limit-ms <n>",
-                "Wait at most this long in ms for background jobs and subagents after a turn (default: 3600000)",
+                "Wait at most this long in ms for background jobs, subagents and a usage-limit reset after a turn (default: 3600000)",
             ),
         ],
     },

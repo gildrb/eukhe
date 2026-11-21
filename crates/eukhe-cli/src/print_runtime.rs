@@ -89,11 +89,14 @@ enum HeadlessModeError {
     #[error("the run's budget could not be set: {0}")]
     RunStart(#[source] eukhe_core::durable::budget::MessageError),
     /// The session resolved no model: a run with prompts must fail loudly.
-    #[error(
-        "No model is available for this run.\n\nLog in to a provider in an interactive session (run `eukhe`, then `/login`), or pass --provider and --model."
-    )]
+    #[error("{NO_MODEL_REPORT}")]
     NoModel,
 }
+
+/// The report of a run with prompts and no model: no model was named and
+/// no configured model has a provider with credentials.
+const NO_MODEL_REPORT: &str =
+    "No model is available for this run: no model was named (--provider, --model) and no configured model has a provider with credentials.";
 
 /// The runtime: print/json, rpc, acp, daemon, and interactive dispatch.
 pub struct PrintRuntime;
@@ -491,11 +494,7 @@ async fn run_prompts(
             .map_err(HeadlessModeError::Durable)?;
         if agent.model.is_none() {
             if json_mode {
-                crate::json_out::print_json_error(
-                    "error",
-                    "login_required",
-                    "No model is available for this run.",
-                );
+                crate::json_out::print_json_error("error", "login_required", NO_MODEL_REPORT);
                 return Ok(1);
             }
             return Err(HeadlessModeError::NoModel);
@@ -696,6 +695,13 @@ async fn run_exit(
                 }
                 (Some(_), Err(error)) => eprintln!("a session event does not serialize: {error}"),
             }
+        }
+    }
+    // Each model move of the run: the request went on with another model
+    // the user configured, and why.
+    if let Some(runtime) = session.deps().provider_runtime.get() {
+        for model_move in runtime.model_moves() {
+            eprintln!("eukhe: {}", model_move.text());
         }
     }
     match exit.cause {
@@ -929,9 +935,10 @@ fn run_stop(opened: &HeadlessSession, now_ms: u64) -> RunStop {
 }
 
 /// The stderr line of a run that ended without an answer: the park first
-/// when its session parked, then the recorded reason (`detail`, the park's
-/// own text saying how the session continues; `None` when the failed
-/// primary already printed it).
+/// when its session parked past the run's wait (a reset within it the
+/// wait waited for), then the recorded reason (`detail`, the park's own
+/// text saying how the session continues; `None` when the failed primary
+/// already printed it).
 fn unanswered_line(stop: &RunStop, detail: Option<&str>) -> Option<String> {
     let reason = detail
         .map(|detail| format!(": {detail}"))
@@ -939,7 +946,7 @@ fn unanswered_line(stop: &RunStop, detail: Option<&str>) -> Option<String> {
     match stop {
         RunStop::Ended => detail.map(|_| format!("eukhe: the run ended without an answer{reason}")),
         RunStop::Parked { until_ms } => Some(format!(
-            "eukhe: the provider's usage limit parked the session until {}{reason}",
+            "eukhe: the provider's usage limit holds until {}, past the run's wait limit, and parked the session{reason}",
             eukhe_daemon::util::iso_from_unix_ms(*until_ms)
         )),
     }

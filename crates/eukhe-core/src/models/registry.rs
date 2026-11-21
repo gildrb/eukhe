@@ -24,6 +24,11 @@ use super::custom::{ModelsConfig, ModelsJsonError, ModelsJsonLoad, ProviderConfi
 /// while the process runs, so one resolution serves every registry.
 static BUILT_IN_CATALOG: LazyLock<ModelCatalog> = LazyLock::new(ModelCatalog::new);
 
+/// The report a request on an expired login ends with: the stored login's
+/// refresh failed, and eukhe signs in to a provider only when the user
+/// asks it to (`/login`).
+pub(crate) const LOGIN_EXPIRED_REPORT: &str = "The stored login expired and its refresh failed.";
+
 /// The result of `getApiKeyAndHeaders`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolvedRequestAuth {
@@ -317,12 +322,11 @@ impl ModelRegistry {
             .api_key
             .or_else(|| config.and_then(ProviderConfig::configured_api_key));
         // An expired OAuth credential whose refresh failed resolves no key:
-        // the request fails with the refresh's reason and the TS login hint
-        // (`LOGIN_RECOVERY_MESSAGE`), never the provider's bare "No API key".
+        // the request fails with the refresh's reason and the report of the
+        // expired login (`LOGIN_EXPIRED_REPORT`), never the provider's bare
+        // "No API key".
         if let (None, Some(refresh_error)) = (&api_key, stored.refresh_error) {
-            return failure(format!(
-                "{refresh_error}\n\nRun /login to update credentials."
-            ));
+            return failure(format!("{refresh_error}\n\n{LOGIN_EXPIRED_REPORT}"));
         }
         let mut headers: BTreeMap<String, String> = BTreeMap::new();
         if let Some(config) = config {

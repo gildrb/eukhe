@@ -1,7 +1,7 @@
 //! The row a turn that ended without an answer leaves, live and rebuilt
 //! alike (`LAWS.bend` section `turn_visibility` R4, R5, R7): a failure the chat does
 //! not show yet gets its failure row, and a turn with no reply at all says
-//! so. Both rows name the user's next step. The live event pump pushes them
+//! so. Both rows report how the turn ended. The live event pump pushes them
 //! at the turn's end; the transcript rebuild folds the same rows from the
 //! stored messages ([`TurnFold`]).
 
@@ -11,7 +11,7 @@ use crate::glyphs::{SEP, WARN};
 
 /// The failure row of a turn whose failure the chat does not show yet:
 /// the failed-attempt row shape (an error-only assistant entry), so it
-/// renders the failure's next step and a retry episode's outcome row
+/// renders the failure's report and a retry episode's outcome row
 /// replaces it like any failed attempt.
 pub(crate) fn failure_row(error: &str) -> ChatEntry {
     ChatEntry::Assistant(Box::new(AssistantMessage {
@@ -27,9 +27,9 @@ pub(crate) fn failure_row(error: &str) -> ChatEntry {
 /// blank answer, a turn the engine reported nothing for, or a run that
 /// ended before its turn answered.
 pub(crate) fn no_reply_row() -> ChatEntry {
-    let step = crate::error_summary::failure_next_step("", None).unwrap_or_default();
+    let report = crate::error_summary::failure_report("", None).unwrap_or_default();
     ChatEntry::Status {
-        text: format!("{WARN} The turn ended without a reply{SEP}{step}"),
+        text: format!("{WARN} The turn ended without a reply{SEP}{report}"),
         kind: StatusKind::Warning,
     }
 }

@@ -147,8 +147,10 @@ pub struct SessionSummary {
     pub worker_instance_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Value>,
-    /// TS `modelFallbackMessage`: why a revived session's saved model fell
-    /// back (the restore missed after the catalog-readiness window). A
+    /// TS `modelFallbackMessage`: why the session runs on another model
+    /// than it asked for: a revived session's saved model fell back (the
+    /// restore missed after the catalog-readiness window), or its requests
+    /// moved to another model the user configured (one line per move). A
     /// model fallback is never silent — the summary publishes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_fallback_message: Option<String>,

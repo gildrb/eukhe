@@ -78,6 +78,7 @@ mod catalog;
 mod chat_role_tests;
 mod compose;
 pub(crate) mod failover;
+pub mod fallback;
 pub(crate) mod image_route;
 pub(crate) mod park;
 pub(crate) mod provider;

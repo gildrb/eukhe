@@ -1,0 +1,15 @@
+# the failure's numbers at their largest: kept within the retries
+call 6,0,{MAX},{MAX},1,{MAX},{MAX},
+# past the retries: the candidates at their largest, the first tried
+call 7,0,{MAX},99999999999998,2,{MAX},99999999999998,{MAX},
+# every candidate tried: a login ends, a usage limit holds to its reset
+call 4,1,1,{MAX},{MAX},
+call 5,2,{MAX},1,{MAX},{MAX},
+# none tried: the first candidate
+call 4,2,{MAX},1,{MAX},
+call 3,3,1,{MAX},
+# a candidate count past the list, a failure kind past the four, a number
+# past the wire: refused
+refuse 3,1,{MAX},{MAX},
+refuse 2,{MAX},0,
+refuse 4,1,1,{LONG},0,

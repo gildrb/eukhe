@@ -48,6 +48,7 @@ import ./ffi_effort.bend as ffi_effort
 import ./ffi_err_text.bend as ffi_err_text
 import ./ffi_error_body.bend as ffi_error_body
 import ./ffi_facts.bend as ffi_facts
+import ./ffi_fallback.bend as ffi_fallback
 import ./ffi_frames.bend as ffi_frames
 import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
@@ -384,6 +385,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work_list.ffi(input)
     case 464:
       ffi_headless_task.ffi(input)
+    case 472:
+      ffi_fallback.ffi(input)
     case _:
       W.err("unknown entry")
 

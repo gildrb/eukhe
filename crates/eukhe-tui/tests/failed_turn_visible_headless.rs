@@ -10,7 +10,8 @@
 //! The run replays the incident's exact wire sequence and checks the two
 //! guarantees: a working indicator is on screen from the Enter on (before
 //! the daemon answered anything), and the turn's end leaves exactly one
-//! visible error row naming the error and the next step, with no loader.
+//! visible error row naming the error and how the turn ended, with no
+//! loader.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -268,7 +269,7 @@ fn options(socket: PathBuf) -> InteractiveOptions {
 }
 
 #[test]
-fn a_failed_turn_shows_the_indicator_then_exactly_one_error_with_its_next_step() {
+fn a_failed_turn_shows_the_indicator_then_exactly_one_error_with_its_report() {
     // The ambient TMUX variable adds a startup notice to the transcript.
     std::env::remove_var("TMUX");
     let dir = tempfile::TempDir::new().expect("temp dir");
@@ -285,7 +286,7 @@ fn a_failed_turn_shows_the_indicator_then_exactly_one_error_with_its_next_step()
             // Inside the admission window: nothing came back yet.
             HeadlessStep::WaitMs(ADMISSION_DELAY_MS / 2),
             HeadlessStep::WaitRender {
-                needle: "Next: sign in".to_string(),
+                needle: "has no credentials".to_string(),
                 timeout_ms: 5000,
             },
             HeadlessStep::WaitMs(200),
@@ -308,7 +309,7 @@ fn a_failed_turn_shows_the_indicator_then_exactly_one_error_with_its_next_step()
         outcome.frames.join("\n=====\n")
     );
 
-    // The end of the failed turn: one error row, its next step, no loader.
+    // The end of the failed turn: one error row, its report, no loader.
     let last = outcome.frames.last().expect("a final frame");
     assert_eq!(
         last.matches(ERROR).count(),
@@ -317,9 +318,9 @@ fn a_failed_turn_shows_the_indicator_then_exactly_one_error_with_its_next_step()
     );
     assert!(
         last.contains(
-            "Next: sign in with /login, set the cloudflare-ai-gateway API key, or pick another model with /model."
+            "cloudflare-ai-gateway has no credentials, and no other configured model took the turn."
         ),
-        "the error row names the next step:\n{last}"
+        "the error row reports how the turn ended:\n{last}"
     );
     for loader in [
         "Sending - ",

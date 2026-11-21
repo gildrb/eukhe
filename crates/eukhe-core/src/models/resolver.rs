@@ -320,12 +320,32 @@ fn glob_matching<'a>(pattern: &str, available_models: &'a [Model]) -> Vec<&'a Mo
 
 /// Resolve model patterns to scoped models: exact/fuzzy for plain patterns,
 /// glob expansion for wildcard patterns; `pattern:level` applies a level.
+/// Each warning ([`scope_matches`]) goes to stderr.
 #[must_use]
 pub fn resolve_model_scope_from_models(
     patterns: &[String],
     available_models: &[Model],
 ) -> Vec<ScopedModel> {
-    let mut scoped: Vec<ScopedModel> = Vec::new();
+    let matched = scope_matches(patterns, available_models);
+    for warning in &matched.warnings {
+        eprintln!("Warning: {warning}");
+    }
+    matched.models
+}
+
+/// The models a scope's patterns name, and what the user is warned of.
+#[derive(Debug, Default)]
+pub struct ScopeMatches {
+    pub models: Vec<ScopedModel>,
+    /// A pattern that matches no model, or names an invalid level.
+    pub warnings: Vec<String>,
+}
+
+/// The scoped models of `patterns` among `available_models`, in pattern
+/// order, each once, with the warnings of the patterns that miss.
+#[must_use]
+pub fn scope_matches(patterns: &[String], available_models: &[Model]) -> ScopeMatches {
+    let mut matched = ScopeMatches::default();
     for pattern in patterns {
         if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
             let (glob_pattern, thinking_level) = match pattern.rfind(':') {
@@ -336,35 +356,43 @@ pub fn resolve_model_scope_from_models(
             };
             let matching = glob_matching(glob_pattern, available_models);
             if matching.is_empty() {
-                eprintln!("Warning: No models match pattern \"{pattern}\"");
+                matched
+                    .warnings
+                    .push(format!("No models match pattern \"{pattern}\""));
                 continue;
             }
             for model in matching {
-                if !scoped.iter().any(|sm| models_equal(&sm.model, model)) {
-                    scoped.push(ScopedModel {
-                        model: model.clone(),
-                        thinking_level,
-                    });
-                }
+                push_scoped(&mut matched.models, model, thinking_level);
             }
             continue;
         }
         let parsed = parse_model_pattern(pattern, available_models, false, None);
-        if let Some(warning) = &parsed.warning {
-            eprintln!("Warning: {warning}");
+        if let Some(warning) = parsed.warning {
+            matched.warnings.push(warning);
         }
         let Some(model) = parsed.model else {
-            eprintln!("Warning: No models match pattern \"{pattern}\"");
+            matched
+                .warnings
+                .push(format!("No models match pattern \"{pattern}\""));
             continue;
         };
-        if !scoped.iter().any(|sm| models_equal(&sm.model, model)) {
-            scoped.push(ScopedModel {
-                model: model.clone(),
-                thinking_level: parsed.thinking_level,
-            });
-        }
+        push_scoped(&mut matched.models, model, parsed.thinking_level);
     }
-    scoped
+    matched
+}
+
+/// `model` at `thinking_level` joins `scoped` unless it is there.
+fn push_scoped(
+    scoped: &mut Vec<ScopedModel>,
+    model: &Model,
+    thinking_level: Option<ModelThinkingLevel>,
+) {
+    if !scoped.iter().any(|sm| models_equal(&sm.model, model)) {
+        scoped.push(ScopedModel {
+            model: model.clone(),
+            thinking_level,
+        });
+    }
 }
 
 fn models_equal(a: &Model, b: &Model) -> bool {

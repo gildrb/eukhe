@@ -77,7 +77,8 @@ pub use import::{import_legacy_session, ImportError, ImportReport};
 pub use main_conversation::{
     main_conversation, main_conversation_id, set_main_conversation, SessionState, SESSION_DOC,
 };
-pub use models::provider::{ProviderRuntime, ProviderWireEvent};
+pub use models::fallback;
+pub use models::provider::{ModelMove, ProviderRuntime, ProviderWireEvent};
 pub use models::{
     compose_models_json, create_models, join_refreshed_models, resolve_session_model, ModelsError,
     ResolvedModel, SavedSetting, SessionModels, Substitution, ThinkingRequest,

@@ -168,7 +168,9 @@ impl RunWatch {
 /// no queued input, no running job, kernel command, subagent or workflow
 /// run, and no settle notice being admitted; or until `limit` or the
 /// deadline of the session's time budget elapses, whichever comes first.
-/// Every woken turn runs inside the wait.
+/// Every woken turn runs inside the wait, and so does a usage-limit park
+/// that resets before then: at its reset the park wakes and the
+/// interrupted task continues ([`park_reset`]).
 ///
 /// The facts are read in the order that never misses a wake: the pending
 /// work, then the notices in flight, then the conversation's idleness (a
@@ -242,7 +244,19 @@ pub(crate) async fn wait_quiescent(
             limit_hit,
         })?;
         match decision {
-            Settle::Done => return Ok(Settled::Quiescent),
+            Settle::Done => {
+                let Some((reset, until_ms)) = park_reset(opened, deadline) else {
+                    return Ok(Settled::Quiescent);
+                };
+                eprintln!(
+                    "eukhe: the provider's usage limit parked the session until {}; the run continues at the reset",
+                    eukhe_daemon::util::iso_from_unix_ms(until_ms)
+                );
+                tokio::time::sleep_until(reset).await;
+                if let Some(runtime) = deps.provider_runtime.get() {
+                    runtime.wake_park().await;
+                }
+            }
             Settle::GiveUp => return Ok(Settled::GaveUp { work, limit: ends }),
             Settle::Wait if busy => {}
             Settle::Wait => {
@@ -258,6 +272,20 @@ pub(crate) async fn wait_quiescent(
             }
         }
     }
+}
+
+/// The instant the session's usage-limit park resets and its epoch ms,
+/// when that is by `deadline`; `None` unparked or past it.
+fn park_reset(
+    opened: &HeadlessSession,
+    deadline: tokio::time::Instant,
+) -> Option<(tokio::time::Instant, u64)> {
+    let park = opened.session.deps().provider_runtime.get()?.quota_park()?;
+    let wait = park
+        .resume_at_ms
+        .saturating_sub(eukhe_tui::budget_text::now_ms());
+    let reset = tokio::time::Instant::now() + Duration::from_millis(wait);
+    (reset <= deadline).then_some((reset, park.resume_at_ms))
 }
 
 /// What a give-up still waited on, for the stderr line.

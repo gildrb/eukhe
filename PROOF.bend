@@ -4632,3 +4632,14 @@ import ./proof/work_list/work_list_entry_reads.bend as PWorkListEntryReads
 import ./proof/work_list/work_list_entry_exact.bend as PWorkListEntryExact
 import ./proof/work_list/work_list_entry_refuses.bend as PWorkListEntryRefuses
 import ./proof/work_list/work_list_entry_example.bend as PWorkListEntryExample
+import ./proof/fallback/base.bend as LAFallback
+import ./proof/fallback/fallback_keeps_within_retries.bend as PFallbackKeepsWithinRetries
+import ./proof/fallback/fallback_switches_first_untried.bend as PFallbackSwitchesFirstUntried
+import ./proof/fallback/fallback_quota_holds_when_none_left.bend as PFallbackQuotaHoldsWhenNoneLeft
+import ./proof/fallback/fallback_ends_when_none_left.bend as PFallbackEndsWhenNoneLeft
+import ./proof/fallback/fallback_example.bend as PFallbackExample
+import ./proof/fallback/fallback_entry_parses.bend as PFallbackEntryParses
+import ./proof/fallback/fallback_entry_is_model.bend as PFallbackEntryIsModel
+import ./proof/fallback/fallback_entry_exact.bend as PFallbackEntryExact
+import ./proof/fallback/fallback_entry_refuses.bend as PFallbackEntryRefuses
+import ./proof/fallback/fallback_entry_example.bend as PFallbackEntryExample

@@ -391,6 +391,167 @@ async fn a_provider_outage_without_candidates_surfaces_the_failure() {
     assert_eq!(fixture.runtime.quota_park(), None);
 }
 
+/// The settings of a user who configured `faux-a/shared-1` and
+/// `faux-b/solo-1` (no failover sibling of each other) and turned the
+/// run's own retries off: the first failure of a model ends its turn on
+/// it.
+fn two_configured_models() -> serde_json::Value {
+    serde_json::json!({
+        "enabledModels": ["faux-a/shared-1", "faux-b/solo-1"],
+        "retry": { "maxRetries": 0 },
+    })
+}
+
+/// Owner decision 2026-11-17: a model that cannot go on hands the run to
+/// another model the user configured, and the switch is reported: on the
+/// wire as a backup switch, and in the session's model moves.
+#[tokio::test]
+async fn a_failed_model_hands_the_request_to_the_next_configured_model() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    let model = fixture.faux_a.get_model();
+    fixture
+        .faux_a
+        .set_responses(vec![error_step("503 Service Unavailable")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("second answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    let mut events = fixture.runtime.subscribe();
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            message.stop_reason,
+            answer_text(&message)
+        ),
+        ("faux-b", StopReason::Stop, "second answer".to_owned())
+    );
+    assert_eq!(switches(&mut events), vec![("faux-b/solo-1".to_owned(), 0)]);
+    assert_eq!(
+        fixture.runtime.model_moves(),
+        vec![ModelMove {
+            from: "faux-a/shared-1".to_owned(),
+            to: "faux-b/solo-1".to_owned(),
+            reason: "faux-a/shared-1 failed 1 time in a row (503 Service Unavailable)".to_owned(),
+        }]
+    );
+}
+
+/// A provider whose login expired and could not be refreshed gets no
+/// send on the stale login: the request goes to a configured model whose
+/// provider is signed in, and the move says why.
+#[tokio::test]
+async fn an_expired_login_hands_the_request_to_a_signed_in_model() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("second answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    fixture
+        .runtime
+        .inner
+        .logins
+        .lock()
+        .unwrap_or_else(poisoned)
+        .insert(
+            "faux-a".to_owned(),
+            "OAuth refresh failed for faux-a: invalid_grant".to_owned(),
+        );
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            answer_text(&message),
+            fixture.faux_a.get_pending_response_count(),
+            fixture.runtime.model_moves(),
+        ),
+        (
+            "faux-b",
+            "second answer".to_owned(),
+            1,
+            vec![ModelMove {
+                from: "faux-a/shared-1".to_owned(),
+                to: "faux-b/solo-1".to_owned(),
+                reason:
+                    "faux-a has no usable login (OAuth refresh failed for faux-a: invalid_grant)"
+                        .to_owned(),
+            }]
+        )
+    );
+}
+
+/// With no other configured model the failure ends the request as it
+/// is: no switch, no move, and the stale login still sends nothing.
+#[tokio::test]
+async fn without_another_configured_model_the_failure_stands() {
+    let fixture = fixture_set(
+        /*text_only*/ false,
+        "solo-1",
+        &serde_json::json!({
+            "enabledModels": ["faux-a/shared-1"],
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("second answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    fixture
+        .runtime
+        .inner
+        .logins
+        .lock()
+        .unwrap_or_else(poisoned)
+        .insert(
+            "faux-a".to_owned(),
+            "OAuth refresh failed for faux-a: invalid_grant".to_owned(),
+        );
+    let mut events = fixture.runtime.subscribe();
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            message.stop_reason,
+            message.error_message.as_deref(),
+            switches(&mut events),
+            fixture.runtime.model_moves(),
+            fixture.faux_a.get_pending_response_count(),
+            fixture.faux_b.get_pending_response_count(),
+        ),
+        (
+            "faux-a",
+            StopReason::Error,
+            Some("OAuth refresh failed for faux-a: invalid_grant"),
+            Vec::new(),
+            Vec::new(),
+            1,
+            1,
+        )
+    );
+}
+
 /// Declares api-key auth and resolves no credential: a built-in
 /// provider the user never configured (`cloudflare-ai-gateway` without
 /// `CLOUDFLARE_API_KEY`).

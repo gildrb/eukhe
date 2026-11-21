@@ -6,7 +6,7 @@
 //! (the client re-attaches and rebuilds the chat from the snapshot) -- and
 //! checks the rendered frames: the working indicator is up exactly while
 //! work runs, and a turn that ends without an answer leaves exactly one
-//! row that says so and names the next step.
+//! row that says so and reports how it ended.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -27,8 +27,9 @@ const PROMPT: &str = "say hi";
 const ANSWER: &str = "hello there";
 /// The row a turn that ended with no reply leaves.
 const NO_REPLY: &str = "The turn ended without a reply";
-/// The next step of a failure or a turn with no reply.
-const RESEND: &str = "Next: send the message again, or pick another model with /model.";
+/// The report of a failure or a turn with no reply: no other configured
+/// model took the turn.
+const NO_OTHER_MODEL: &str = "No other configured model took the turn.";
 /// The client's own wait for a prompt ack (`UI_REQUEST_TIMEOUT_MS`) and a
 /// margin: a lost ack surfaces after it.
 const LOST_ACK_MS: u64 = 11_000;
@@ -404,7 +405,7 @@ fn assert_ended_with_one_row(frames: &[String], row: &str, next: &str) {
     );
     let text = flat(last);
     assert_eq!(text.matches(row).count(), 1, "exactly one end row:\n{last}");
-    assert!(text.contains(next), "the row names the next step:\n{last}");
+    assert!(text.contains(next), "the row reports how it ended:\n{last}");
 }
 
 /// Every frame from the Enter's loader until the first frame showing
@@ -562,7 +563,7 @@ fn f2_a_run_that_ends_before_the_ack_leaves_its_row_and_no_indicator() {
         ],
         vec![wait_for(NO_REPLY), HeadlessStep::WaitMs(800)],
     );
-    assert_ended_with_one_row(&frames, NO_REPLY, RESEND);
+    assert_ended_with_one_row(&frames, NO_REPLY, NO_OTHER_MODEL);
 }
 
 /// F3: an ack after the session closed re-arms no indicator.
@@ -597,7 +598,7 @@ fn f4_a_run_that_ends_before_any_request_says_so() {
         vec![Act::Prompt, Act::Admit, run_start(), run_end()],
         vec![wait_for(NO_REPLY), HeadlessStep::WaitMs(300)],
     );
-    assert_ended_with_one_row(&frames, NO_REPLY, RESEND);
+    assert_ended_with_one_row(&frames, NO_REPLY, NO_OTHER_MODEL);
 }
 
 /// F4: a run that ends after a tool round with no answering turn (an abort
@@ -622,7 +623,7 @@ fn f4_a_run_that_ends_after_a_tool_round_says_so() {
         script,
         vec![wait_for(NO_REPLY), HeadlessStep::WaitMs(300)],
     );
-    assert_ended_with_one_row(&frames, NO_REPLY, RESEND);
+    assert_ended_with_one_row(&frames, NO_REPLY, NO_OTHER_MODEL);
 }
 
 /// F5: a `turn_end` with neither an answer nor an error says the turn
@@ -638,7 +639,7 @@ fn f5_an_unreported_turn_end_says_so() {
         script,
         vec![wait_for(NO_REPLY), HeadlessStep::WaitMs(300)],
     );
-    assert_ended_with_one_row(&frames, NO_REPLY, RESEND);
+    assert_ended_with_one_row(&frames, NO_REPLY, NO_OTHER_MODEL);
 }
 
 /// F6: a rebuild after a refused prompt keeps the refusal row.
@@ -963,7 +964,7 @@ fn f15_failed_reply_with_outcome_row(timing: OutcomeRow) {
         last.contains("Here is the pl"),
         "the reply keeps its text:\n{last}"
     );
-    assert_ended_with_one_row(&frames, "529 overloaded", RESEND);
+    assert_ended_with_one_row(&frames, "529 overloaded", NO_OTHER_MODEL);
 }
 
 #[test]
@@ -1005,7 +1006,7 @@ fn f16_a_closure_in_a_retry_wait_keeps_the_failed_attempt() {
             HeadlessStep::WaitMs(300),
         ],
     );
-    assert_ended_with_one_row(&frames, "Error: 529 overloaded", RESEND);
+    assert_ended_with_one_row(&frames, "Error: 529 overloaded", NO_OTHER_MODEL);
 }
 
 /// A worker restarted mid-turn (killed while its tool ran): the client

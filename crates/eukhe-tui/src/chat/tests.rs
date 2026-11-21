@@ -523,8 +523,8 @@ fn assistant_error_row_and_spacers() {
 }
 
 /// TS `createErrorComponent` + `formatInlineLoginRecoveryMessage`: an
-/// error whose text ends with the login-recovery suffix renders as ONE
-/// merged inline line (`{base} - Run /login to update credentials.`),
+/// error whose text ends with the expired-login report renders as ONE
+/// merged inline line (`{base} - The stored login expired and its refresh failed.`),
 /// error-colored and one-space indented like every other error row, and
 /// identical across detail modes (a plain row, never the collapsible
 /// component).
@@ -536,7 +536,7 @@ fn login_recovery_error_renders_one_merged_inline_line() {
         blocks: Vec::new(),
         has_tool_calls: false,
         streaming: false,
-        error: Some("Auth failed. \n\nRun /login to update credentials.".into()),
+        error: Some("Auth failed. \n\nThe stored login expired and its refresh failed.".into()),
         aborted: false,
     };
     for detail in [Detail::Overview, Detail::Details, Detail::All] {
@@ -545,7 +545,7 @@ fn login_recovery_error_renders_one_merged_inline_line() {
             detail,
             &theme,
             "  ",
-            60,
+            80,
             AssistantLead::Spaced,
             &mut crate::markdown::MarkdownBlockCache::default(),
         );
@@ -557,10 +557,10 @@ fn login_recovery_error_renders_one_merged_inline_line() {
                     Span::raw(crate::osc133::ZONE_END_PREFIX),
                     Span::raw(" "),
                     Span::styled(
-                        "Auth failed. - Run /login to update credentials.",
+                        "Auth failed. - The stored login expired and its refresh failed.",
                         error_style
                     ),
-                    Span::raw(" ".repeat(11)),
+                    Span::raw(" ".repeat(16)),
                 ],
             ]
         );
@@ -580,18 +580,18 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         has_tool_calls: false,
         streaming: false,
         error: Some(
-            "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable.\n\nRun /login to update credentials."
+            "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable.\n\nThe stored login expired and its refresh failed."
                 .into(),
         ),
         aborted: false,
     };
-    let merged = "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials.";
+    let merged = "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable. - The stored login expired and its refresh failed.";
     let rows = render_assistant(
         &message,
         Detail::Overview,
         &theme,
         "  ",
-        140,
+        160,
         AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
@@ -603,7 +603,7 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
                 Span::raw(crate::osc133::ZONE_END_PREFIX),
                 Span::raw(" "),
                 Span::styled(merged, error_style),
-                Span::raw(" ".repeat(3)),
+                Span::raw(" ".repeat(8)),
             ],
         ]
     );
@@ -635,8 +635,11 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
                 " Authentication failed for \"local-inference\". Credentials{}",
                 " ".repeat(3)
             ),
-            " may have expired or network is unavailable. - Run /login to".to_string(),
-            format!(" update credentials.{}", " ".repeat(40)),
+            format!(
+                " may have expired or network is unavailable. - The stored{}",
+                " ".repeat(3)
+            ),
+            format!(" login expired and its refresh failed.{}", " ".repeat(22)),
         ]
     );
 }
@@ -665,7 +668,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
         )
     };
     // No suffix: the raw single-line error row is unchanged (fence); the
-    // failure's next step follows it and closes the zone.
+    // failure's report follows it and closes the zone.
     let rows = render("Auth failed.", Detail::Overview);
     assert_eq!(
         rows[1],
@@ -681,17 +684,11 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
         .collect();
     assert_eq!(
         next,
-        vec![
-            format!(
-                " Next: send the message again, or pick another model with{}",
-                " ".repeat(3)
-            ),
-            format!(
-                "{} /model.{}",
-                crate::osc133::ZONE_END_PREFIX,
-                " ".repeat(52)
-            ),
-        ]
+        vec![format!(
+            "{} No other configured model took the turn.{}",
+            crate::osc133::ZONE_END_PREFIX,
+            " ".repeat(19)
+        )]
     );
     assert!(rows[2..]
         .iter()
@@ -701,7 +698,7 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
     // Multi-line base: the collapsible path applies to the full error --
     // the summary row while collapsed, the suffix as its own block while
     // expanded.
-    let multi = "Auth failed\nfor provider.\n\nRun /login to update credentials.";
+    let multi = "Auth failed\nfor provider.\n\nThe stored login expired and its refresh failed.";
     assert_eq!(
         render(multi, Detail::Overview)[1],
         vec![
@@ -732,11 +729,15 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             // then pad to width); `render_collapsible_error` matches
             // that -- never a truly blank row inside the error body.
             " ".repeat(60),
-            format!(" Run /login to update credentials.{}", " ".repeat(26)),
+            format!(
+                " The stored login expired and its refresh failed.{}",
+                " ".repeat(11)
+            ),
         ]
     );
     // Suffix not at the end: no merge, the collapsed summary stands.
-    let trailing = "Auth failed.\n\nRun /login to update credentials.\nProvider degraded.";
+    let trailing =
+        "Auth failed.\n\nThe stored login expired and its refresh failed.\nProvider degraded.";
     assert_eq!(
         render(trailing, Detail::Overview)[1],
         vec![

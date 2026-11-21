@@ -16,6 +16,12 @@
 //!   wire vocabulary (`auto_retry_start` with `reason: "backup"` and
 //!   `backupModel`; a successful switch reports the restored primary as
 //!   `restoredModel` in `auto_retry_end`) on [`ProviderRuntime::subscribe`].
+//! - Model fallback ([`super::fallback`]): a request whose model cannot go
+//!   on (the run's retries ran out, its provider's login expired and the
+//!   refresh failed, its usage limit holds past the bounded wait) moves to
+//!   the next model the user configured whose provider has credentials
+//!   (`laws/fallback.bend`); every move is on the wire as a backup switch
+//!   and in [`ProviderRuntime::model_moves`] for the run's report.
 //! - Quota park ([`super::park`]): a quota failure whose provider-reported
 //!   reset exceeds the bounded wait parks the session — the durable
 //!   `eukhe.quota_park` document on the root conversation, the park/resume
@@ -34,11 +40,15 @@
 use crate::cron::JobSource;
 use eukhe_ai::api::lazy::lazy_stream;
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
-use eukhe_ai::auth::{AuthOperationOptions, AuthResolutionOverrides};
+use eukhe_ai::auth::{
+    AuthOperationOptions, AuthResolutionOverrides, LoginOptions, ModelAuth, OAuthAuth,
+    OAuthCredential, ProviderAuthInteraction,
+};
 use eukhe_ai::models::Models;
 use eukhe_ai::types::{
     ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
 };
+use eukhe_ai::utils::diagnostics::Thrown;
 use eukhe_ai::utils::event_stream::{
     create_assistant_message_event_stream, AssistantMessageEventStream,
 };
@@ -57,18 +67,21 @@ use eukhe_durable::types::{ConversationId, TypedEntryDraft};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
     AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DoneReason, ErrorReason,
-    Message, Model, PromptProgress, StopReason, TranscriptContext, Usage, UserContent,
+    Message, Modality, Model, PromptProgress, StopReason, TranscriptContext, Usage, UserContent,
     UserContentBlock,
 };
+use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
+use eukhe_bend::rules::fallback::Why;
 use eukhe_bend::rules::retry::{Switch, Tried};
 
 use super::failover::{failover_candidates, model_reference, next_switch, ProviderFailoverPolicy};
+use super::fallback::{self, Step};
 use super::image_route::{self, ImageRoute};
 use super::park::{
     is_quota_block_failure, park_entry_data, provider_park_decision,
@@ -182,6 +195,35 @@ struct Inner {
     /// The session's privacy token map (`privacy.anonymizeRemote`): it
     /// opens empty with the session and goes with it.
     privacy: eukhe_ai::privacy::TokenMap,
+    /// The retryable failures in a row of each model a request asked for
+    /// ("provider/model-id"); an answer of the model clears its count.
+    failures: Mutex<HashMap<String, u64>>,
+    /// The providers whose stored login expired and could not be
+    /// refreshed, with the refresh's error ([`LoginWatch`]): the next
+    /// request to one fails without leaving and goes to another model.
+    logins: Arc<Mutex<HashMap<String, String>>>,
+    /// The session's model moves, one per pair of models, oldest first.
+    moves: Mutex<Vec<ModelMove>>,
+}
+
+/// One move of the session's requests from the model they asked for to
+/// another model the user configured, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelMove {
+    /// The model the requests asked for ("provider/model-id").
+    pub from: String,
+    /// The model that took them.
+    pub to: String,
+    /// Why the first model could not go on, the latest time it moved.
+    pub reason: String,
+}
+
+impl ModelMove {
+    /// The report line of the move.
+    #[must_use]
+    pub fn text(&self) -> String {
+        format!("moved from {} to {}: {}", self.from, self.to, self.reason)
+    }
 }
 
 impl ProviderRuntime {
@@ -200,6 +242,9 @@ impl ProviderRuntime {
                 timing: Arc::new(timing::RequestTimingWiring::new(&deps.agent_dir)),
                 originals: Mutex::new(HashMap::new()),
                 privacy: eukhe_ai::privacy::TokenMap::default(),
+                failures: Mutex::new(HashMap::new()),
+                logins: Arc::new(Mutex::new(HashMap::new())),
+                moves: Mutex::new(Vec::new()),
             }),
         });
         for provider in models.get_providers() {
@@ -267,6 +312,13 @@ impl ProviderRuntime {
                     true,
                 )
             });
+            if let Some(oauth) = provider.auth.oauth.take() {
+                provider.auth.oauth = Some(Arc::new(LoginWatch {
+                    oauth,
+                    provider: provider.id.clone(),
+                    logins: Arc::clone(&runtime.inner.logins),
+                }));
+            }
             models.set_provider(provider);
         }
         let _first_install_wins = deps.provider_runtime.set(Arc::clone(&runtime));
@@ -297,6 +349,121 @@ impl ProviderRuntime {
     pub fn quota_park(&self) -> Option<ParkDocState> {
         self.inner.park.lock().unwrap_or_else(poisoned).clone()
     }
+
+    /// The session's model moves, oldest first, one per pair of models:
+    /// the end of a run reports each.
+    #[must_use]
+    pub fn model_moves(&self) -> Vec<ModelMove> {
+        self.inner.moves.lock().unwrap_or_else(poisoned).clone()
+    }
+
+    /// Wake the live park as its scheduled wake does, for an embedding
+    /// that runs no scheduler and waited for the reset itself (a headless
+    /// run): the park clears and the resume marker continues the
+    /// interrupted task. Nothing when no park is live.
+    pub async fn wake_park(&self) {
+        if self.inner.park.lock().unwrap_or_else(poisoned).is_none() {
+            return;
+        }
+        clear_park(&self.inner, "wake").await;
+        submit_resume_marker(&self.inner).await;
+    }
+}
+
+/// A provider's OAuth whose failed refresh the provider runtime takes over:
+/// the refresh's error is recorded for the provider and the stored
+/// credential stands, so the request reaches the runtime, which fails it
+/// there without sending it ([`take_login_failure`]) and moves it to
+/// another model the user configured. A refresh that succeeds clears the
+/// record; an aborted refresh fails as before.
+struct LoginWatch {
+    oauth: Arc<dyn OAuthAuth>,
+    provider: String,
+    logins: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl OAuthAuth for LoginWatch {
+    fn name(&self) -> &str {
+        self.oauth.name()
+    }
+
+    fn is_subscription(&self) -> Option<bool> {
+        self.oauth.is_subscription()
+    }
+
+    fn login_label(&self) -> Option<&str> {
+        self.oauth.login_label()
+    }
+
+    fn login(
+        &self,
+        interaction: ProviderAuthInteraction,
+        options: Option<LoginOptions>,
+    ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+        self.oauth.login(interaction, options)
+    }
+
+    fn refresh(
+        &self,
+        credential: OAuthCredential,
+        signal: AbortSignal,
+    ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+        Box::pin(async move {
+            match self.oauth.refresh(credential.clone(), signal.clone()).await {
+                Ok(refreshed) => {
+                    self.logins
+                        .lock()
+                        .unwrap_or_else(poisoned)
+                        .remove(&self.provider);
+                    Ok(refreshed)
+                }
+                Err(error) if signal.aborted() => Err(error),
+                Err(error) => {
+                    self.logins.lock().unwrap_or_else(poisoned).insert(
+                        self.provider.clone(),
+                        format!("OAuth refresh failed for {}: {error}", self.provider),
+                    );
+                    Ok(credential)
+                }
+            }
+        })
+    }
+
+    fn to_auth<'a>(
+        &'a self,
+        credential: &'a OAuthCredential,
+    ) -> BoxFuture<'a, Result<ModelAuth, Thrown>> {
+        self.oauth.to_auth(credential)
+    }
+}
+
+/// The recorded failed refresh of `provider`'s login, taken: the request
+/// about to go out on that login fails instead.
+fn take_login_failure(logins: &Mutex<HashMap<String, String>>, provider: &str) -> Option<String> {
+    logins.lock().unwrap_or_else(poisoned).remove(provider)
+}
+
+/// The diagnostic kind of a request that failed at the provider runtime
+/// because its provider's login expired and its refresh failed.
+const LOGIN_EXPIRED_DIAGNOSTIC: &str = "login_expired";
+
+/// The stream of a request whose provider's login expired: its one event
+/// is the failure, with the refresh's `error` and the login diagnostic.
+fn login_failed_stream(model: &Model, error: &str) -> AssistantMessageEventStream {
+    let mut message = refuted_message(model, error);
+    message.diagnostics = Some(vec![AssistantMessageDiagnostic {
+        kind: LOGIN_EXPIRED_DIAGNOSTIC.to_owned(),
+        timestamp: now_millis(),
+        error: None,
+        details: None,
+    }]);
+    let out = create_assistant_message_event_stream();
+    out.push(AssistantMessageEvent::Error {
+        reason: ErrorReason::Error,
+        error: message,
+    });
+    out.end(None);
+    out
 }
 
 fn poisoned<T>(error: std::sync::PoisonError<T>) -> T {
@@ -391,10 +558,19 @@ async fn run_request(
     // line naming each backup tried and that backup's latest error.
     let mut primary_failure: Option<AssistantMessage> = None;
     let mut backup_failures: Vec<(String, String)> = Vec::new();
+    // The configured models the request moved to after its own model could
+    // not go on, in order (`laws/fallback.bend`); after the first move the
+    // sibling walk is over.
+    let mut moved: Vec<Model> = Vec::new();
     loop {
         // Each attempt opens with its own `start`, which drops the failed
-        // attempt's partial downstream (the event protocol).
-        let mut events = dispatch(&serving, &context).events();
+        // attempt's partial downstream (the event protocol). A provider
+        // whose login refresh just failed gets no send on the stale login.
+        let mut events = match take_login_failure(&inner.logins, &serving.provider) {
+            Some(error) => login_failed_stream(&serving, &error),
+            None => dispatch(&serving, &context),
+        }
+        .events();
         let mut terminal: Option<AssistantMessage> = None;
         while let Some(event) = events.next().await {
             if let Some(clock) = timing_clock.as_mut() {
@@ -435,7 +611,7 @@ async fn run_request(
         // failure (`finish_failure`): a backup's records one as tried.
         let failed = matches!(message.stop_reason, StopReason::Error | StopReason::Pending);
         if failed {
-            if serving.provider == primary.provider {
+            if model_reference(&serving) == model_reference(&primary) {
                 primary_failure = Some(message.clone());
             } else {
                 let reference = model_reference(&serving);
@@ -451,7 +627,7 @@ async fn run_request(
         }
         let retryable =
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
-        let next = if retryable && failover.enabled {
+        let next = if retryable && failover.enabled && moved.is_empty() {
             if chain.is_empty() {
                 chain = failover_chain(&inner, &primary, &settings, &carried).await;
             }
@@ -482,6 +658,37 @@ async fn run_request(
                 });
             }
             if failed {
+                // The model cannot go on: the request moves to another model
+                // the user configured, unless its provider keeps every send
+                // (failover off). A wait or an end surfaces the failure; the
+                // park of a usage limit is `finish_failure`'s.
+                if failover.enabled {
+                    let (failing, failure) = match (&primary_failure, moved.is_empty()) {
+                        (Some(primary_failure), true) => (&primary, primary_failure),
+                        (Some(_) | None, _) => (&serving, &message),
+                    };
+                    let request = MoveRequest {
+                        primary: &primary,
+                        moved: &moved,
+                        images: context_has_images(&context),
+                    };
+                    if let Some((model, reason)) =
+                        model_move(&inner, &settings, &carried, &request, failing, failure).await
+                    {
+                        switches += 1;
+                        let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
+                            attempt: switches,
+                            max_attempts: failover.max_switches,
+                            delay_ms: 0,
+                            error_message: reason,
+                            backup_model: model_reference(&model),
+                        });
+                        dispatch = original_dispatch(&inner, &model, carried.clone(), simple);
+                        serving = model.clone();
+                        moved.push(model);
+                        continue;
+                    }
+                }
                 // A failure after a backup failed surfaces the primary's
                 // latest failure, as the primary's, with the backups named;
                 // a failure that never left the primary surfaces as it is.
@@ -506,6 +713,15 @@ async fn run_request(
             }
             if let Some(clock) = timing_clock.as_mut() {
                 clock.done(&message);
+            }
+            // The model the request asked for answered (or its sibling for
+            // it): its failures in a row are over.
+            if moved.is_empty() {
+                inner
+                    .failures
+                    .lock()
+                    .unwrap_or_else(poisoned)
+                    .remove(&model_reference(&primary));
             }
             resume_if_parked(&inner).await;
             out.push(AssistantMessageEvent::Done {
@@ -561,8 +777,9 @@ async fn run_request(
     }
 }
 
-/// The original stream function of `model`'s provider with the sibling's
-/// own auth: a failover re-dispatch resolves the candidate provider's
+/// The original stream function of `model`'s provider with that provider's
+/// own auth (a sibling's, or a configured model's the request moved to): a
+/// re-dispatch resolves the candidate provider's
 /// credentials through the collection (the primary's request options carry
 /// the primary's key, and the original bypasses the collection's auth
 /// merge) and otherwise builds fresh options per provider contract (the
@@ -584,6 +801,7 @@ fn original_dispatch(
     let models = inner.models.clone();
     let settings = Arc::clone(&inner.deps.settings);
     let privacy = inner.privacy.clone();
+    let logins = Arc::clone(&inner.logins);
     Arc::new(move |model: &Model, context: &TranscriptContext| {
         let Some((stream, stream_simple)) = original.clone() else {
             return create_assistant_message_event_stream();
@@ -592,6 +810,7 @@ fn original_dispatch(
         let carried = carried.clone();
         let settings = Arc::clone(&settings);
         let privacy = privacy.clone();
+        let logins = Arc::clone(&logins);
         let (mut request_model, context) = (model.clone(), context.clone());
         lazy_stream(model, async move {
             let mut request = ProviderRequestOptions {
@@ -611,6 +830,10 @@ fn original_dispatch(
                 request.api_key = resolution.auth.api_key;
                 request.headers = resolution.auth.headers;
                 request.env = resolution.env;
+            }
+            // A login whose refresh just failed sends nothing.
+            if let Some(error) = take_login_failure(&logins, &request_model.provider) {
+                return Ok(login_failed_stream(&request_model, &error));
             }
             let options = StreamOptions {
                 request,
@@ -824,7 +1047,25 @@ async fn failover_chain(
     settings: &SettingsManager,
     carried: &CarriedOptions,
 ) -> Vec<Model> {
-    let available = match inner
+    let available = credentialed_models(inner, carried, primary).await;
+    std::iter::once(primary.clone())
+        .chain(
+            failover_candidates(primary, &available)
+                .into_iter()
+                .filter(|candidate| allowlist_allows(settings, candidate)),
+        )
+        .collect()
+}
+
+/// The models whose providers have credentials
+/// ([`Models::get_available`]); none when the credential check fails, so
+/// the request stays on `serving`.
+async fn credentialed_models(
+    inner: &Inner,
+    carried: &CarriedOptions,
+    serving: &Model,
+) -> Vec<Model> {
+    match inner
         .models
         .get_available(
             None,
@@ -838,19 +1079,138 @@ async fn failover_chain(
         Err(error) => {
             tracing::warn!(
                 %error,
-                "failover credential check failed; the request stays on {}",
-                model_reference(primary)
+                "credential check failed; the request stays on {}",
+                model_reference(serving)
             );
             Vec::new()
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Model fallback
+// ---------------------------------------------------------------------------
+
+/// The request a model move is for.
+struct MoveRequest<'a> {
+    /// The model the request asked for.
+    primary: &'a Model,
+    /// The configured models it already moved to, in order.
+    moved: &'a [Model],
+    /// It attaches images: only a model that takes images can serve it.
+    images: bool,
+}
+
+/// The configured model a request moves to after `failing` failed with
+/// `failure` ([`fallback::step`], `laws/fallback.bend`), with why `failing`
+/// could not go on; the move is recorded for the run's report. `None` when
+/// the request stays: the run's own retries go on, a usage limit waits
+/// (`finish_failure` parks it), no candidate is left, or no other model
+/// cures the failure.
+async fn model_move(
+    inner: &Inner,
+    settings: &SettingsManager,
+    carried: &CarriedOptions,
+    request: &MoveRequest<'_>,
+    failing: &Model,
+    failure: &AssistantMessage,
+) -> Option<(Model, String)> {
+    let why = failure_why(inner, settings, request, failure)?;
+    let available = credentialed_models(inner, carried, failing).await;
+    let mut candidates: Vec<Model> = fallback::configured_models(settings, &available)
+        .into_iter()
+        .filter(|model| allowlist_allows(settings, model))
+        .filter(|model| !request.images || model.input.contains(&Modality::Image))
+        .collect();
+    let tried: Vec<Model> = std::iter::once(request.primary.clone())
+        .chain(request.moved.iter().cloned())
+        .collect();
+    match fallback::step(why, &candidates, &tried) {
+        Step::Switch(at) => {
+            let model = candidates.swap_remove(at);
+            let reason = fallback::reason(why, failing, &final_error_of(failure));
+            record_move(inner, request.primary, &model, &reason);
+            Some((model, reason))
+        }
+        Step::Keep | Step::Hold { .. } | Step::End => None,
+    }
+}
+
+/// How a provider's request without a key fails (every API's wording).
+const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
+
+/// Why `failure` keeps its model from going on, `None` for a failure no
+/// other model cures: a provider without a usable login (its login
+/// expired and the refresh failed, or it has no key); a usage limit whose
+/// reset is past the bounded wait; else a retryable failure, the
+/// request's model's failures in a row counted against the run's retries
+/// (a request that already moved has none left).
+fn failure_why(
+    inner: &Inner,
+    settings: &SettingsManager,
+    request: &MoveRequest<'_>,
+    failure: &AssistantMessage,
+) -> Option<Why> {
+    let no_login = failure
+        .diagnostics
+        .iter()
+        .flatten()
+        .any(|diagnostic| diagnostic.kind == LOGIN_EXPIRED_DIAGNOSTIC)
+        || failure.error_message.as_deref().is_some_and(|error| {
+            error.starts_with(MISSING_KEY_PREFIX)
+                || error.contains(crate::models::registry::LOGIN_EXPIRED_REPORT)
+        });
+    if no_login {
+        return Some(Why::Login);
+    }
+    if is_quota_block_failure(failure) {
+        if let Some(reset_ms) =
+            quota_failure_reset_ms(failure).filter(|reset_ms| *reset_ms > wait_cap_ms(settings))
+        {
+            return Some(Why::Quota {
+                until_ms: now_millis().saturating_add(reset_ms),
+            });
+        }
+    }
+    if !(failure.stop_reason == StopReason::Error && is_retryable_assistant_error(failure)) {
+        return None;
+    }
+    if !request.moved.is_empty() {
+        return Some(Why::Failed {
+            failures: 1,
+            retries: 0,
+        });
+    }
+    let failures = {
+        let mut counts = inner.failures.lock().unwrap_or_else(poisoned);
+        let count = counts.entry(model_reference(request.primary)).or_insert(0);
+        *count = count.saturating_add(1);
+        *count
     };
-    std::iter::once(primary.clone())
-        .chain(
-            failover_candidates(primary, &available)
-                .into_iter()
-                .filter(|candidate| allowlist_allows(settings, candidate)),
-        )
-        .collect()
+    let retries = if settings.get_retry_enabled() {
+        settings.get_retry_max_retries()
+    } else {
+        0
+    };
+    Some(Why::Failed { failures, retries })
+}
+
+/// Record that requests to `from` went to `to` because of `reason`: one
+/// record per pair, with its latest reason.
+fn record_move(inner: &Inner, from: &Model, to: &Model, reason: &str) {
+    let (from, to) = (model_reference(from), model_reference(to));
+    let mut moves = inner.moves.lock().unwrap_or_else(poisoned);
+    match moves
+        .iter_mut()
+        .find(|recorded| recorded.from == from && recorded.to == to)
+    {
+        Some(recorded) => reason.clone_into(&mut recorded.reason),
+        None => moves.push(ModelMove {
+            from,
+            to,
+            reason: reason.to_owned(),
+        }),
+    }
 }
 
 /// The daemon `allowedModels` gate over one candidate (fail closed on an
@@ -1128,6 +1488,12 @@ async fn resume_if_parked(inner: &Arc<Inner>) {
         return;
     }
     // Early resume: the marker continues the interrupted task now.
+    submit_resume_marker(inner).await;
+}
+
+/// Queue the resume marker on the root conversation: the interrupted task
+/// continues.
+async fn submit_resume_marker(inner: &Inner) {
     if let Some(root) = inner.deps.harness.root() {
         let submitted = root
             .submit(
@@ -1139,7 +1505,7 @@ async fn resume_if_parked(inner: &Arc<Inner>) {
             )
             .await;
         if let Err(error) = submitted {
-            tracing::warn!(%error, "quota early-resume marker submission failed");
+            tracing::warn!(%error, "quota resume marker submission failed");
         }
     }
 }

@@ -552,7 +552,7 @@ async fn a_parked_run_exits_one_and_says_until_when() {
                 code: 1,
                 cause: ExitCause::RunFailed(Unanswered::ModelError)
             },
-            Some(format!("eukhe: the provider's usage limit parked the session until {until}: Provider requested a 5 d 5 h wait (450144s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until {until} (1 d: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds) and stays parked: no scheduler runs here to wake it; `eukhe --resume {session_id}` continues it after then (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"))
+            Some(format!("eukhe: the provider's usage limit holds until {until}, past the run's wait limit, and parked the session: Provider requested a 5 d 5 h wait (450144s) before retrying, above retry.provider.maxRetryDelayMs=60000ms. Session parked until {until} (1 d: retry.provider.waitForUsage.maxPauseMs caps one park; at the wake the session retries and parks again while the limit holds) and stays parked: no scheduler runs here to wake it; `eukhe --resume {session_id}` continues it after then (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit"))
         )
     );
     drop(conversation);

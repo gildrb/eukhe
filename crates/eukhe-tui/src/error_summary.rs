@@ -28,25 +28,25 @@ pub fn should_collapse_error_details(text: &str) -> bool {
     normalize_error_details(text).contains('\n')
 }
 
-/// `LOGIN_RECOVERY_MESSAGE` (TS core/auth-guidance.ts): the login hint the
-/// daemon appends to authentication-failure errors.
-const LOGIN_RECOVERY_MESSAGE: &str = "Run /login to update credentials.";
+/// The report the daemon appends to a request that ended on an expired
+/// login (eukhe-core `models::registry`).
+const LOGIN_EXPIRED_REPORT: &str = "The stored login expired and its refresh failed.";
 
 /// `formatInlineLoginRecoveryMessage` (TS assistant-message.ts): an error
-/// whose normalized text ends with `\n\n` + the login-recovery hint renders
-/// as one inline line -- `{base} * {hint}` with `base` the suffix-stripped,
+/// whose normalized text ends with `\n\n` + the expired-login report renders
+/// as one inline line -- `{base} - {report}` with `base` the suffix-stripped,
 /// end-trimmed remainder. `None` keeps the normal error paths: no suffix,
 /// an empty base, or a base that would itself collapse (multi-line).
 #[must_use]
 pub fn format_inline_login_recovery_message(text: &str) -> Option<String> {
     let normalized = normalize_error_details(text);
     let base = normalized
-        .strip_suffix(&format!("\n\n{LOGIN_RECOVERY_MESSAGE}"))?
+        .strip_suffix(&format!("\n\n{LOGIN_EXPIRED_REPORT}"))?
         .trim_end();
     if base.is_empty() || should_collapse_error_details(base) {
         return None;
     }
-    Some(format!("{base} - {LOGIN_RECOVERY_MESSAGE}"))
+    Some(format!("{base} - {LOGIN_EXPIRED_REPORT}"))
 }
 
 /// The provider a missing-credentials failure names: the pi-ai wording
@@ -71,25 +71,22 @@ fn is_login_check_fault(normalized: &str) -> bool {
             .any(|digits| digits.len() == 3 && digits.starts_with('5'))
 }
 
-/// The next step a failed turn's error row names, so a turn that ends
-/// without an answer always tells the user what to do. A missing key names
-/// its provider and the three ways out (sign in, set the key, switch
-/// models); a quota park says the turn resumes on its own; a provider
-/// that failed to check the login (`provider`: its name, when the row
-/// knows it) says whose fault it is and when to sign in again; every other
-/// failure offers the resend or a model switch. An error that already
-/// carries the login-recovery hint has its next step, so it gets none.
+/// What a failed turn's error row reports after the failure: how the turn
+/// ended, never a step for the user to take (a run falls over to another
+/// configured model by itself; a row that remains is the run's end). A
+/// quota park says the turn goes on by itself at the reset; a provider that
+/// failed to check the login (`provider`: its name, when the row knows it)
+/// says whose fault it is; a missing key names its provider; every other
+/// failure says no other configured model took the turn. An error that
+/// already carries the expired-login report gets none.
 #[must_use]
-pub fn failure_next_step(error: &str, provider: Option<&str>) -> Option<String> {
+pub fn failure_report(error: &str, provider: Option<&str>) -> Option<String> {
     let normalized = normalize_error_details(error);
-    if normalized.contains(LOGIN_RECOVERY_MESSAGE) {
+    if normalized.contains(LOGIN_EXPIRED_REPORT) {
         return None;
     }
     if normalized.contains(PARKED_MARKER) {
-        return Some(
-            "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
-                .to_string(),
-        );
+        return Some("The turn goes on by itself at the reset.".to_string());
     }
     if is_login_check_fault(&normalized) {
         let provider = provider
@@ -97,7 +94,7 @@ pub fn failure_next_step(error: &str, provider: Option<&str>) -> Option<String> 
             .filter(|provider| !provider.is_empty())
             .unwrap_or("The provider");
         return Some(format!(
-            "Next: {provider} could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
+            "{provider} could not check the login: a fault on its side."
         ));
     }
     let provider = normalized
@@ -106,10 +103,10 @@ pub fn failure_next_step(error: &str, provider: Option<&str>) -> Option<String> 
         .map(|provider| provider.trim_end_matches(['.', ',', ';', '"', '\'']))
         .filter(|provider| !provider.is_empty());
     Some(match provider {
-        Some(provider) => format!(
-            "Next: sign in with /login, set the {provider} API key, or pick another model with /model."
-        ),
-        None => "Next: send the message again, or pick another model with /model.".to_string(),
+        Some(provider) => {
+            format!("{provider} has no credentials, and no other configured model took the turn.")
+        }
+        None => "No other configured model took the turn.".to_string(),
     })
 }
 
@@ -226,21 +223,21 @@ mod tests {
         // The exact daemon wording.
         assert_eq!(
             format_inline_login_recovery_message(
-                "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable.\n\nRun /login to update credentials."
+                "OAuth token refresh failed for \"local-inference\": invalid_grant\n\nThe stored login expired and its refresh failed."
             )
             .as_deref(),
             Some(
-                "Authentication failed for \"local-inference\". Credentials may have expired or network is unavailable. - Run /login to update credentials."
+                "OAuth token refresh failed for \"local-inference\": invalid_grant - The stored login expired and its refresh failed."
             )
         );
         // The base is suffix-stripped and end-trimmed; ANSI and CRLF
         // normalize away first (`normalizeErrorDetails`).
         assert_eq!(
             format_inline_login_recovery_message(
-                "Auth failed. \r\n\r\nRun /login to update credentials.\u{1b}[0m"
+                "Auth failed. \r\n\r\nThe stored login expired and its refresh failed.\u{1b}[0m"
             )
             .as_deref(),
-            Some("Auth failed. - Run /login to update credentials.")
+            Some("Auth failed. - The stored login expired and its refresh failed.")
         );
     }
 
@@ -254,92 +251,82 @@ mod tests {
         // Suffix not at the end.
         assert_eq!(
             format_inline_login_recovery_message(
-                "Auth failed.\n\nRun /login to update credentials.\nProvider degraded."
+                "Auth failed.\n\nThe stored login expired and its refresh failed.\nProvider degraded."
             ),
             None
         );
-        // Bare hint without the blank-line separator.
+        // Bare report without the blank-line separator.
         assert_eq!(
-            format_inline_login_recovery_message("Run /login to update credentials."),
+            format_inline_login_recovery_message(
+                "The stored login expired and its refresh failed."
+            ),
             None
         );
-        // Empty base: the hint alone stays collapsible.
+        // Empty base: the report alone stays collapsible.
         assert_eq!(
-            format_inline_login_recovery_message("\n\nRun /login to update credentials."),
+            format_inline_login_recovery_message(
+                "\n\nThe stored login expired and its refresh failed."
+            ),
             None
         );
         // Multi-line base falls back to the collapsible path.
         assert_eq!(
             format_inline_login_recovery_message(
-                "Auth failed\nfor provider.\n\nRun /login to update credentials."
+                "Auth failed\nfor provider.\n\nThe stored login expired and its refresh failed."
             ),
             None
         );
     }
 
-    /// A missing key names its provider and every way out; a provider that
-    /// failed to check the login says so and when to sign in again; any
-    /// other failure offers the resend or a model switch; an error
-    /// carrying the login-recovery hint already has its next step.
+    /// The row reports how the turn ended and never asks the user for a
+    /// step: a missing key names its provider; a provider that failed to
+    /// check the login says whose fault it is; a park goes on by itself;
+    /// any other failure had no configured model to take the turn; an
+    /// error carrying the expired-login report gets none.
     #[test]
-    fn failure_next_step_names_the_way_out() {
-        assert_eq!(
-            failure_next_step("Error: No API key for provider: cloudflare-ai-gateway", None),
-            Some(
-                "Next: sign in with /login, set the cloudflare-ai-gateway API key, or pick another model with /model."
-                    .to_string()
-            )
-        );
-        assert_eq!(
-            failure_next_step(
+    fn failure_report_says_how_the_turn_ended() {
+        let reports = [
+            failure_report("Error: No API key for provider: cloudflare-ai-gateway", None),
+            failure_report(
                 "! Error: Retry failed after 2 attempts: No API key for provider: anthropic.",
-                None
+                None,
             ),
-            Some(
-                "Next: sign in with /login, set the anthropic API key, or pick another model with /model."
-                    .to_string()
-            )
-        );
-        assert_eq!(
-            failure_next_step("Error: 529 overloaded", None),
-            Some("Next: send the message again, or pick another model with /model.".to_string())
-        );
-        // The owner's row: the provider's login check failed on its side.
-        assert_eq!(
-            failure_next_step(
+            failure_report("Error: 529 overloaded", None),
+            // The owner's row: the provider's login check failed on its side.
+            failure_report(
                 "! Error: Retry failed after 3 attempts: 503 credential validation failed",
-                Some("Anthropic")
+                Some("Anthropic"),
             ),
-            Some(
-                "Next: Anthropic could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
-                    .to_string()
-            )
-        );
-        assert_eq!(
-            failure_next_step("Error: 503 credential validation failed", None),
-            Some(
-                "Next: The provider could not check the login (a fault on its side). Send the message again in a minute; if it keeps failing, sign in again with /login."
-                    .to_string()
-            )
-        );
-        // A 4xx that names credentials is no fault of the provider.
-        assert_eq!(
-            failure_next_step("Error: 401 credential validation failed", Some("Anthropic")),
-            Some("Next: send the message again, or pick another model with /model.".to_string())
-        );
-        assert_eq!(
-            failure_next_step(
+            failure_report("Error: 503 credential validation failed", None),
+            // A 4xx that names credentials is no fault of the provider.
+            failure_report("Error: 401 credential validation failed", Some("Anthropic")),
+            failure_report(
                 "Provider requested a 172800s wait before retrying (above retry.provider.maxRetryDelayMs=15000ms). Session parked until 2026-10-23T14:05:00.000Z and will resume automatically (retry.provider.waitForUsage.pauseUntilReset): 429 rate limit",
-                None
+                None,
             ),
-            Some(
-                "Next: the turn resumes on its own at the reset, or pick another model with /model to go on now."
-                    .to_string()
-            )
-        );
+            failure_report(
+                "Auth failed.\n\nThe stored login expired and its refresh failed.",
+                None,
+            ),
+        ];
         assert_eq!(
-            failure_next_step("Auth failed.\n\nRun /login to update credentials.", None),
-            None
+            reports,
+            [
+                Some(
+                    "cloudflare-ai-gateway has no credentials, and no other configured model took the turn."
+                        .to_string()
+                ),
+                Some(
+                    "anthropic has no credentials, and no other configured model took the turn."
+                        .to_string()
+                ),
+                Some("No other configured model took the turn.".to_string()),
+                Some("Anthropic could not check the login: a fault on its side.".to_string()),
+                Some("The provider could not check the login: a fault on its side.".to_string()),
+                Some("No other configured model took the turn.".to_string()),
+                Some("The turn goes on by itself at the reset.".to_string()),
+                None,
+            ]
         );
     }
 }
