@@ -70,6 +70,7 @@ pub(crate) mod styling;
 pub(crate) mod subscription_login;
 pub(crate) mod tiny_command;
 pub(crate) mod tiny_models_command;
+pub(crate) mod undo_command;
 pub(crate) mod update_command;
 pub(crate) mod usage_command;
 

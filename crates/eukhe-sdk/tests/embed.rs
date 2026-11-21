@@ -1,10 +1,13 @@
 //! A host embeds the engine through the facade alone: it lists the models,
 //! opens a session on the scripted faux provider, prompts it and reads the
 //! answer from the conversation's event stream; it sets, watches, adds to,
-//! reads and audits a session's budget.
+//! reads and audits a session's budget; its `undo_turn` is refused while a
+//! run is going.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_ai::providers::faux::FauxResponseStep;
 use eukhe_ai::providers::faux_script::{create_faux_script_models, parse_faux_script};
 use eukhe_sdk::budget::{
     BudgetAmounts, BudgetLimits, BudgetReport, BudgetSources, LimitSource, LimitValue, RunKind,
@@ -12,9 +15,10 @@ use eukhe_sdk::budget::{
 use eukhe_sdk::context::BACKGROUND_CONTEXT;
 use eukhe_sdk::{
     add_budget, audit_budget, available_models, budget_report, new_session_id, open_session,
-    prompt, set_budget, watch, watch_budget, AgentEvent, BudgetAudit, BudgetScope, ModelRequest,
-    SessionConfig, SessionStorage,
+    prompt, set_budget, turn_diff, undo_turn, watch, watch_budget, AgentEvent, BudgetAudit,
+    BudgetScope, DiffScope, ModelRequest, SessionConfig, SessionStorage,
 };
+use futures::FutureExt;
 
 #[tokio::test]
 async fn a_host_opens_a_session_prompts_it_and_reads_its_events() {
@@ -241,6 +245,89 @@ async fn a_run_budget_set_while_idle_caps_the_next_prompt_and_a_standing_one_eve
                 (Some(30), LimitSource::Set, false),
                 (Some(30), LimitSource::Set, false),
             ],
+        )
+    );
+}
+
+/// The SDK's `undo_turn` is refused while a run is going, with the refusal
+/// of every surface, and changes nothing; `turn_diff` still answers. Idle
+/// before any turn it is not that refusal: nothing is left to undo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn undo_turn_is_refused_while_a_run_is_going() {
+    let cx = &*BACKGROUND_CONTEXT;
+    let dir = tempfile::TempDir::new().unwrap();
+    let workspace = dir.path().join("ws");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::write(workspace.join("a.txt"), "one\n").unwrap();
+    let script =
+        parse_faux_script(&serde_json::json!({ "responses": ["unused"] }).to_string()).unwrap();
+    let model_id = script.model.id.clone();
+    let (models, provider) = create_faux_script_models(script);
+    // A model request that only a cancel ends: the run stays going.
+    let (reached, mut reached_rx) = tokio::sync::watch::channel(false);
+    provider.set_responses(vec![FauxResponseStep::Factory(Arc::new(
+        move |_, options, _, _| {
+            reached.send_replace(true);
+            let signal = options.and_then(|options| options.stream.request.signal.clone());
+            async move {
+                match signal {
+                    Some(signal) => Err(signal.cancelled().await),
+                    None => futures::future::pending().await,
+                }
+            }
+            .boxed()
+        },
+    ))]);
+    let session_id = new_session_id();
+    let mut config = SessionConfig::new(
+        dir.path().join("agent"),
+        &workspace,
+        session_id.clone(),
+        SessionStorage::Jsonl {
+            dir: dir.path().join("sessions").join(&session_id),
+            fsync: false,
+        },
+    );
+    config.models = Some(models);
+    config.model = Some(ModelRequest {
+        provider: Some("faux".to_owned()),
+        pattern: model_id,
+    });
+    let session = Arc::new(open_session(config, cx).await.unwrap());
+    let idle = undo_turn(&session, cx)
+        .await
+        .map_err(|error| error.to_string());
+    let run = tokio::spawn({
+        let session = Arc::clone(&session);
+        async move {
+            let main = session.main();
+            prompt(&session, &main, "edit", &BACKGROUND_CONTEXT).await
+        }
+    });
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        reached_rx.wait_for(|reached| *reached),
+    )
+    .await
+    .expect("the run starts")
+    .unwrap();
+    let refused = undo_turn(&session, cx)
+        .await
+        .map_err(|error| error.to_string());
+    let diff = turn_diff(&session, DiffScope::Turn)
+        .await
+        .map(|reply| reply.paths)
+        .map_err(|error| error.to_string());
+    let after = std::fs::read_to_string(workspace.join("a.txt")).unwrap();
+    session.close(cx).await.unwrap();
+    drop(run.await);
+    assert_eq!(
+        (idle.map(drop), refused.map(drop), diff, after),
+        (
+            Err("Nothing to undo".to_owned()),
+            Err("A run is going: /undo is refused until it ends".to_owned()),
+            Ok(Vec::new()),
+            "one\n".to_owned(),
         )
     );
 }

@@ -406,6 +406,39 @@ of each plan window, and time, tool calls and requests per kind of run. Prints t
         "Turn limits off: runs go until finished",
     )
     .description("The default. A limit set for a run (flags, /budget set, /b) still applies."),
+    CommandSpec::new(
+        &["undo"],
+        "undo [<session>] [--json]",
+        "Restore the workspace to the start of the last prompt",
+    )
+    .description(
+        "Every prompt of a session starts with a snapshot of its workspace. Restores each file to \
+its state at the start of the newest prompt not undone; run again to go further back, to the \
+session's first prompt. Files the workspace's .gitignore ignores, files over 16 MiB and nested \
+repositories are left as they are. Irreversible effects of the undone prompt's run (a push, a \
+write outside the workspace, ...) stay; the undo lists them under \"Not undone (irreversible):\". \
+Refused while a run is going. Without <session>: the live session of the current directory.",
+    )
+    .options(&[
+        "--json                   Print JSON",
+        "--daemon-socket <PATH>   The daemon the session runs in",
+    ]),
+    CommandSpec::new(
+        &["diff"],
+        "diff [<session>] [--all] [--json]",
+        "Show what changed in the workspace since the last prompt started",
+    )
+    .description(
+        "A unified diff from the snapshot at the start of the newest prompt not undone to the \
+workspace now; --all compares with the start of the session's first prompt. Lists the paths it \
+did not compare (ignored, over 16 MiB, nested repositories). Without <session>: the live session \
+of the current directory.",
+    )
+    .options(&[
+        "--all                    Compare with the start of the session's first prompt",
+        "--json                   Print JSON",
+        "--daemon-socket <PATH>   The daemon the session runs in",
+    ]),
     CommandSpec::new(&["usage"], "usage [--json]", "Show the plan quota of each login")
         .description(
             "Reads each stored login's plan usage from its provider (Anthropic, ChatGPT, GitHub \
