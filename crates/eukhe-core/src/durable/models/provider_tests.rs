@@ -36,12 +36,29 @@ fn fixture_with(text_only: bool, second_model_id: &str) -> Fixture {
 
 /// [`fixture_with`] whose global `settings.json` holds `settings`.
 fn fixture_set(text_only: bool, second_model_id: &str, settings: &serde_json::Value) -> Fixture {
-    fixture_wired(text_only, second_model_id, settings, None)
+    fixture_wired(text_only, "faux-b", second_model_id, settings, None)
 }
 
-/// [`fixture_set`] whose session carries the embedding's `cron` wiring.
+/// [`fixture_set`] whose second provider (`faux_b`) is `second_provider`.
+fn fixture_second(
+    second_provider: &str,
+    second_model_id: &str,
+    settings: &serde_json::Value,
+) -> Fixture {
+    fixture_wired(
+        /*text_only*/ false,
+        second_provider,
+        second_model_id,
+        settings,
+        None,
+    )
+}
+
+/// [`fixture_set`] whose second provider is `second_provider` and whose
+/// session carries the embedding's `cron` wiring.
 fn fixture_wired(
     text_only: bool,
+    second_provider: &str,
     second_model_id: &str,
     settings: &serde_json::Value,
     cron: Option<crate::cron::rlm_heartbeat::KernelCronWiring>,
@@ -62,7 +79,7 @@ fn fixture_wired(
         ..RegisterFauxProviderOptions::default()
     });
     let faux_b = faux_provider(RegisterFauxProviderOptions {
-        provider: Some("faux-b".to_owned()),
+        provider: Some(second_provider.to_owned()),
         models: Some(vec![FauxModelDefinition::new(second_model_id)]),
         ..RegisterFauxProviderOptions::default()
     });
@@ -494,25 +511,14 @@ async fn an_expired_login_hands_the_request_to_a_signed_in_model() {
     );
 }
 
-/// With no other configured model the failure ends the request as it
-/// is: no switch, no move, and the stale login still sends nothing.
-#[tokio::test]
-async fn without_another_configured_model_the_failure_stands() {
-    let fixture = fixture_set(
-        /*text_only*/ false,
-        "solo-1",
-        &serde_json::json!({
-            "enabledModels": ["faux-a/shared-1"],
-            "retry": { "maxRetries": 0 },
-        }),
-    );
-    let model = fixture.faux_a.get_model();
-    fixture.faux_a.set_responses(vec![error_step("never sent")]);
-    fixture
-        .faux_b
-        .set_responses(vec![FauxResponseStep::Message(Box::new(
-            faux_assistant_message("second answer", FauxAssistantMessageOptions::default()),
-        ))]);
+/// The default model of the second provider, `openai-codex`: a provider
+/// with a default in the shipped table.
+fn codex_default() -> &'static str {
+    eukhe_ai::quirks::provider_default_model("openai-codex").expect("openai-codex default")
+}
+
+/// The expired login of `faux-a`, its refresh failed.
+fn expire_faux_a(fixture: &Fixture) {
     fixture
         .runtime
         .inner
@@ -523,6 +529,88 @@ async fn without_another_configured_model_the_failure_stands() {
             "faux-a".to_owned(),
             "OAuth refresh failed for faux-a: invalid_grant".to_owned(),
         );
+}
+
+/// Regression (`AttentionMeasure`, expired login with no second model
+/// configured: every run ended at once on the raw refresh failure): with
+/// no configured model left, the run goes on with the default model of
+/// another provider the user is signed in to, and the move names it.
+#[tokio::test]
+async fn an_expired_login_goes_on_with_a_signed_in_providers_default() {
+    let codex = format!("openai-codex/{}", codex_default());
+    let fixture = fixture_second(
+        "openai-codex",
+        codex_default(),
+        &serde_json::json!({
+            "allowedModels": ["faux-a/shared-1", codex],
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("default answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    expire_faux_a(&fixture);
+    let mut events = fixture.runtime.subscribe();
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            message.stop_reason,
+            answer_text(&message),
+            switches(&mut events),
+            fixture.runtime.model_moves(),
+            fixture.faux_a.get_pending_response_count(),
+        ),
+        (
+            "openai-codex",
+            StopReason::Stop,
+            "default answer".to_owned(),
+            vec![(codex.clone(), 0)],
+            vec![ModelMove {
+                from: "faux-a/shared-1".to_owned(),
+                to: codex,
+                reason:
+                    "faux-a has no usable login (OAuth refresh failed for faux-a: invalid_grant)"
+                        .to_owned(),
+            }],
+            1,
+        )
+    );
+}
+
+/// Regression (`AttentionMeasure`, expired login with no second model
+/// configured: the run printed only the raw refresh failure): with no
+/// model left (the signed-in provider's default is outside
+/// `allowedModels`), the request ends with the report that names the
+/// cause and the one command that fixes it, in place of the raw login
+/// failure: no switch, no move, and the stale login sends nothing.
+#[tokio::test]
+async fn an_expired_login_with_no_model_left_ends_with_the_login_report() {
+    let fixture = fixture_second(
+        "openai-codex",
+        codex_default(),
+        &serde_json::json!({
+            "allowedModels": ["faux-a/shared-1"],
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("default answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    expire_faux_a(&fixture);
     let mut events = fixture.runtime.subscribe();
     let message = drive(
         &fixture.models,
@@ -543,11 +631,50 @@ async fn without_another_configured_model_the_failure_stands() {
         (
             "faux-a",
             StopReason::Error,
-            Some("OAuth refresh failed for faux-a: invalid_grant"),
+            Some(
+                "The run ended: faux-a has no usable login (OAuth refresh failed for faux-a: invalid_grant), and no other signed-in provider can take the run. Fix: run eukhe and type /login faux-a"
+            ),
             Vec::new(),
             Vec::new(),
             1,
             1,
+        )
+    );
+}
+
+/// The signed-in provider's default takes the request and fails too: the
+/// request ends on the reason it left its own model, reported with its
+/// fix and the failed default, never the raw login failure.
+#[tokio::test]
+async fn an_expired_login_whose_default_fails_ends_with_the_login_report() {
+    let codex = format!("openai-codex/{}", codex_default());
+    let fixture = fixture_second(
+        "openai-codex",
+        codex_default(),
+        &serde_json::json!({
+            "allowedModels": ["faux-a/shared-1", codex],
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![error_step("model not supported")]);
+    expire_faux_a(&fixture);
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (message.stop_reason, message.error_message),
+        (
+            StopReason::Error,
+            Some(format!(
+                "The run ended: faux-a has no usable login (OAuth refresh failed for faux-a: invalid_grant), and no other signed-in provider can take the run. Fix: run eukhe and type /login faux-a (failover to {codex} failed too: model not supported)"
+            )),
         )
     );
 }
@@ -937,7 +1064,13 @@ async fn a_park_a_scheduler_wakes_will_resume_automatically() {
         binding: None,
         mutation_hook: Some(hook),
     };
-    let fixture = fixture_wired(false, "other-1", &serde_json::json!({}), Some(cron));
+    let fixture = fixture_wired(
+        false,
+        "faux-b",
+        "other-1",
+        &serde_json::json!({}),
+        Some(cron),
+    );
     let model = fixture.faux_a.get_model();
     fixture.faux_a.set_responses(vec![quota_step(3_600_000)]);
     let message = drive(

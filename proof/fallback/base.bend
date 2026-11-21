@@ -1,7 +1,8 @@
 # eukhe: lemmas shared by the proofs of area fallback: the model's
 # membership and keep are the spec's; the first untried candidate of a
-# list whose head is tried; no untried candidate; a request's Nats cut
-# back into its candidates and tried models
+# list whose head is tried; no untried candidate; a tried head skipped; a
+# request's Nats cut back into its candidates, signed-in defaults and
+# tried models
 
 import Base
 import ../../bend/fallback.bend as Fb
@@ -51,11 +52,45 @@ def fbb.not_kept(k: Fb.Why, hk: {Fallback.fb_keeps(k) == False{} : Bool}) -> {Fb
     case Fb.Unset{}:
       {==}
 
-# the run past a keep: the next step (turned around: rewrites the choice
-# into it)
-def fbb.past_keep(+k: Fb.Why, +cands: List<&2, Nat>, +tried: List<&2, Nat>, hk: {Fallback.fb_keeps(k) == False{} : Bool}) -> {Fb.next(cands, tried, k) == Fb.choose(Fb.In{k, cands, tried}) : Fb.Choice}:
-  %Equal.sym(Bool, Fb.kept(k), False{}, fbb.not_kept(k, hk)) : {Fb.next(cands, tried, k) == Fb.choose.if(k, cands, tried, _) : Fb.Choice}
+# the run past a keep: the next step over the candidates, then the
+# defaults (turned around: rewrites the choice into it)
+def fbb.past_keep(+k: Fb.Why, +cands: List<&2, Nat>, +defaults: List<&2, Nat>, +tried: List<&2, Nat>, hk: {Fallback.fb_keeps(k) == False{} : Bool}) -> {Fb.next(List.append(&2, Nat, cands, defaults), tried, k) == Fb.choose(Fb.In{k, cands, defaults, tried}) : Fb.Choice}:
+  %Equal.sym(Bool, Fb.kept(k), False{}, fbb.not_kept(k, hk)) : {Fb.next(List.append(&2, Nat, cands, defaults), tried, k) == Fb.choose.if(k, List.append(&2, Nat, cands, defaults), tried, _) : Fb.Choice}
   {==}
+
+# two lists whose every model was tried: so is every model of the two
+# joined
+def fbb.all_in_app(a: List<&2, Nat>, +b: List<&2, Nat>, +tried: List<&2, Nat>, +ha: {Fallback.fb_all_in(a, tried) == True{} : Bool}, hb: {Fallback.fb_all_in(b, tried) == True{} : Bool}) -> {Fallback.fb_all_in(List.append(&2, Nat, a, b), tried) == True{} : Bool}:
+  match a:
+    case Nil{}:
+      hb
+    case +x <> +t:
+      +hx = LLogicBool.wr_and_l(Fallback.fb_in(x, tried), Fallback.fb_all_in(t, tried), ha)
+      +ht = LLogicBool.wr_and_r(Fallback.fb_in(x, tried), Fallback.fb_all_in(t, tried), ha)
+      %Equal.sym(Bool, Fallback.fb_in(x, tried), True{}, hx) : {Bool.and(_, Fallback.fb_all_in(List.append(&2, Nat, t, b), tried)) == True{} : Bool}
+      fbb.all_in_app(t, b, tried, ht, hb)
+
+# the candidates p, then c and rest, then more: c and rest then more
+# after p
+def fbb.app_cons(p: List<&2, Nat>, +c: Nat, +rest: List<&2, Nat>, +more: List<&2, Nat>) -> {List.append(&2, Nat, List.append(&2, Nat, p, c <> rest), more) == List.append(&2, Nat, p, c <> List.append(&2, Nat, rest, more)) : List<&2, Nat>}:
+  match p:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, z => x <> z, List.append(&2, Nat, List.append(&2, Nat, t, c <> rest), more), List.append(&2, Nat, t, c <> List.append(&2, Nat, rest, more)), fbb.app_cons(t, c, rest, more))
+
+# a head whose every model was tried: the first untried model is the
+# first untried one after it
+def fbb.first_skip(cands: List<&2, Nat>, +ys: List<&2, Nat>, +tried: List<&2, Nat>, +h: {Fallback.fb_all_in(cands, tried) == True{} : Bool}) -> {Fb.first(List.append(&2, Nat, cands, ys), tried) == Fb.first(ys, tried) : Maybe<&2, Nat>}:
+  match cands:
+    case Nil{}:
+      {==}
+    case +c <> +t:
+      +hc = LLogicBool.wr_and_l(Fallback.fb_in(c, tried), Fallback.fb_all_in(t, tried), h)
+      +ht = LLogicBool.wr_and_r(Fallback.fb_in(c, tried), Fallback.fb_all_in(t, tried), h)
+      %fbb.in_has(c, tried) : {Fb.pick(c, _, Fb.first(List.append(&2, Nat, t, ys), tried)) == Fb.first(ys, tried) : Maybe<&2, Nat>}
+      %Equal.sym(Bool, Fallback.fb_in(c, tried), True{}, hc) : {Fb.pick(c, _, Fb.first(List.append(&2, Nat, t, ys), tried)) == Fb.first(ys, tried) : Maybe<&2, Nat>}
+      fbb.first_skip(t, ys, tried, ht)
 
 # with every candidate tried there is no first untried one
 def fbb.first_none(cands: List<&2, Nat>, +tried: List<&2, Nat>, +h: {Fallback.fb_all_in(cands, tried) == True{} : Bool}) -> {Fb.first(cands, tried) == None{} : Maybe<&2, Nat>}:
@@ -83,15 +118,15 @@ def fbb.first_after(p: List<&2, Nat>, +c: Nat, +rest: List<&2, Nat>, +tried: Lis
       %Equal.sym(Bool, Fallback.fb_in(x, tried), True{}, hx) : {Fb.pick(x, _, Fb.first(List.append(&2, Nat, t, c <> rest), tried)) == Some{c} : Maybe<&2, Nat>}
       fbb.first_after(t, c, rest, tried, ht, hc)
 
-# with no candidate left, every failure but a usage limit ends
-def fbb.none_ends(k: Fb.Why, hq: {Fallback.fb_quota(k) == False{} : Bool}) -> {Fb.none_left(k) == Fb.End{} : Fb.Choice}:
+# with no candidate left, every failure but a usage limit ends with it
+def fbb.none_ends(k: Fb.Why, hq: {Fallback.fb_quota(k) == False{} : Bool}) -> {Fb.none_left(k) == Fb.End{k} : Fb.Choice}:
   match k:
     case Fb.Failed{n, retries}:
       {==}
     case Fb.Login{}:
       {==}
     case Fb.Quota{until}:
-      LStg.stg.absurd({Fb.Hold{until} == Fb.End{} : Fb.Choice}, hq)
+      LStg.stg.absurd({Fb.Hold{until} == Fb.End{Fb.Quota{until}} : Fb.Choice}, hq)
     case Fb.Unset{}:
       {==}
 
@@ -107,8 +142,16 @@ def fbb.reply(c: Fb.Choice) -> {FFb.put_choice(c) == Fallback.fb_reply(c) : Stri
       {==}
     case Fb.Hold{until}:
       {==}
-    case Fb.End{}:
-      {==}
+    case Fb.End{k}:
+      match k:
+        case Fb.Failed{n, retries}:
+          {==}
+        case Fb.Login{}:
+          {==}
+        case Fb.Quota{until}:
+          {==}
+        case Fb.Unset{}:
+          {==}
 
 # a list cut after its first count items reads back as the two parts
 def fbb.split_app(c: List<&2, Nat>, +t: List<&2, Nat>) -> {FFb.split(List.length(&2, Nat, c), List.append(&2, Nat, c, t)) == Some{FFb.Parts{c, t}} : Maybe<&2, FFb.Parts>}:
@@ -166,6 +209,23 @@ def fbb.PX(+xs: List<&2, Nat>, r: Maybe<&2, Fb.In>) -> Type:
     case Some{x}:
       {xs == Fallback.fb_nats(x) : List<&2, Nat>}
 
+def fbb.cut_defaults_px(+w: Fb.Why, +cands: List<&2, Nat>, +m: Nat, +u: List<&2, Nat>, r: Maybe<&2, FFb.Parts>, v: fbb.SP(m, u, r)) -> fbb.PX(Fallback.fb_why_nats(w, List.length(&2, Nat, cands) <> List.append(&2, Nat, cands, m <> u)), FFb.parse.cut_defaults(w, cands, r)):
+  match r:
+    case None{}:
+      Unit{}
+    case Some{q}:
+      match q:
+        case FFb.Parts{+a, +b}:
+          Equal.cong(List<&2, Nat>, List<&2, Nat>, z => Fallback.fb_why_nats(w, List.length(&2, Nat, cands) <> List.append(&2, Nat, cands, z)), m <> u, List.length(&2, Nat, a) <> List.append(&2, Nat, a, b), v)
+
+# the signed-in defaults and the tried models parse back exactly
+def fbb.defaults_px(+w: Fb.Why, +cands: List<&2, Nat>, ys: List<&2, Nat>) -> fbb.PX(Fallback.fb_why_nats(w, List.length(&2, Nat, cands) <> List.append(&2, Nat, cands, ys)), FFb.parse.defaults(w, cands, ys)):
+  match ys:
+    case Nil{}:
+      Unit{}
+    case +m <> +u:
+      fbb.cut_defaults_px(w, cands, m, u, FFb.split(m, u), fbb.split_sp(m, u))
+
 def fbb.cut_px(+w: Fb.Why, +n: Nat, +u: List<&2, Nat>, r: Maybe<&2, FFb.Parts>, v: fbb.SP(n, u, r)) -> fbb.PX(Fallback.fb_why_nats(w, n <> u), FFb.parse.cut(w, r)):
   match r:
     case None{}:
@@ -173,7 +233,8 @@ def fbb.cut_px(+w: Fb.Why, +n: Nat, +u: List<&2, Nat>, r: Maybe<&2, FFb.Parts>, 
     case Some{q}:
       match q:
         case FFb.Parts{+a, +b}:
-          Equal.cong(List<&2, Nat>, List<&2, Nat>, z => Fallback.fb_why_nats(w, z), n <> u, List.length(&2, Nat, a) <> List.append(&2, Nat, a, b), v)
+          %Equal.sym(List<&2, Nat>, n <> u, List.length(&2, Nat, a) <> List.append(&2, Nat, a, b), v) : fbb.PX(Fallback.fb_why_nats(w, _), FFb.parse.defaults(w, a, b))
+          fbb.defaults_px(w, a, b)
 
 # the candidates and the tried models parse back exactly
 def fbb.lists_px(+w: Fb.Why, t: List<&2, Nat>) -> fbb.PX(Fallback.fb_why_nats(w, t), FFb.parse.lists(w, t)):

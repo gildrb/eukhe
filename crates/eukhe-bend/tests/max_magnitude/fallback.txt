@@ -1,15 +1,20 @@
 # the failure's numbers at their largest: kept within the retries
-call 6,0,{MAX},{MAX},1,{MAX},{MAX},
+call 8,0,{MAX},{MAX},1,{MAX},1,{MAX},{MAX},
 # past the retries: the candidates at their largest, the first tried
-call 7,0,{MAX},99999999999998,2,{MAX},99999999999998,{MAX},
-# every candidate tried: a login ends, a usage limit holds to its reset
-call 4,1,1,{MAX},{MAX},
-call 5,2,{MAX},1,{MAX},{MAX},
+call 9,0,{MAX},99999999999998,2,{MAX},99999999999998,1,{MAX},{MAX},
+# every candidate and default tried: a login ends, a usage limit holds to
+# its reset, failures in a row end carrying their numbers
+call 6,1,1,{MAX},1,{MAX},{MAX},
+call 6,2,{MAX},1,{MAX},0,{MAX},
+call 6,0,{MAX},1,0,0,{MAX},
+# every candidate tried: the first untried default
+call 7,1,1,{MAX},2,{MAX},99999999999998,{MAX},
 # none tried: the first candidate
-call 4,2,{MAX},1,{MAX},
-call 3,3,1,{MAX},
-# a candidate count past the list, a failure kind past the four, a number
-# past the wire: refused
+call 5,2,{MAX},1,{MAX},0,
+call 4,3,1,{MAX},0,
+# a candidate or default count past the list, a failure kind past the
+# four, a number past the wire: refused
 refuse 3,1,{MAX},{MAX},
+refuse 4,1,0,{MAX},0,
 refuse 2,{MAX},0,
-refuse 4,1,1,{LONG},0,
+refuse 5,1,1,{LONG},0,0,

@@ -43,7 +43,9 @@ mod tests {
             "amazon-bedrock" => "us.anthropic.claude-opus-4-6-v1",
             "anthropic" => "claude-opus-4-7",
             "openai" | "azure-openai-responses" | "github-copilot" => "gpt-5.4",
-            "openai-codex" => "gpt-5.5",
+            // The ChatGPT subscription refuses gpt-5.5; gpt-6-luna is the
+            // newest model it offers.
+            "openai-codex" => "gpt-6-luna",
             "deepseek" => "deepseek-v4-pro",
             "google" | "google-vertex" => "gemini-3.1-pro-preview",
             "openrouter" => "moonshotai/kimi-k2.6",

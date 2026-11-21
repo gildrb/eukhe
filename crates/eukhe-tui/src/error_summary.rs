@@ -32,6 +32,10 @@ pub fn should_collapse_error_details(text: &str) -> bool {
 /// login (eukhe-core `models::registry`).
 const LOGIN_EXPIRED_REPORT: &str = "The stored login expired and its refresh failed.";
 
+/// The fix that the end report of a run with no usable login and no other
+/// signed-in provider names (eukhe-core `durable::fallback::end_report`).
+const LOGIN_FIX: &str = "Fix: run eukhe and type /login";
+
 /// `formatInlineLoginRecoveryMessage` (TS assistant-message.ts): an error
 /// whose normalized text ends with `\n\n` + the expired-login report renders
 /// as one inline line -- `{base} - {report}` with `base` the suffix-stripped,
@@ -78,11 +82,12 @@ fn is_login_check_fault(normalized: &str) -> bool {
 /// failed to check the login (`provider`: its name, when the row knows it)
 /// says whose fault it is; a missing key names its provider; every other
 /// failure says no other configured model took the turn. An error that
-/// already carries the expired-login report gets none.
+/// already carries the expired-login report or the end report of a run
+/// with no usable login gets none.
 #[must_use]
 pub fn failure_report(error: &str, provider: Option<&str>) -> Option<String> {
     let normalized = normalize_error_details(error);
-    if normalized.contains(LOGIN_EXPIRED_REPORT) {
+    if normalized.contains(LOGIN_EXPIRED_REPORT) || normalized.contains(LOGIN_FIX) {
         return None;
     }
     if normalized.contains(PARKED_MARKER) {
@@ -282,7 +287,8 @@ mod tests {
     /// step: a missing key names its provider; a provider that failed to
     /// check the login says whose fault it is; a park goes on by itself;
     /// any other failure had no configured model to take the turn; an
-    /// error carrying the expired-login report gets none.
+    /// error carrying the expired-login report or the end report of a run
+    /// with no usable login gets none.
     #[test]
     fn failure_report_says_how_the_turn_ended() {
         let reports = [
@@ -308,6 +314,10 @@ mod tests {
                 "Auth failed.\n\nThe stored login expired and its refresh failed.",
                 None,
             ),
+            failure_report(
+                "The run ended: anthropic has no usable login (OAuth refresh failed for anthropic: 400), and no other signed-in provider can take the run. Fix: run eukhe and type /login anthropic",
+                None,
+            ),
         ];
         assert_eq!(
             reports,
@@ -325,6 +335,7 @@ mod tests {
                 Some("The provider could not check the login: a fault on its side.".to_string()),
                 Some("No other configured model took the turn.".to_string()),
                 Some("The turn goes on by itself at the reset.".to_string()),
+                None,
                 None,
             ]
         );

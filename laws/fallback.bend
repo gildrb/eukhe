@@ -6,43 +6,52 @@ import ../bend/ffi_fallback.bend as FFb
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 
-# (A1) A failed model hands the run to another configured model
-# -------------------------------------------------------------
+# (A1) A failed model hands the run to another model the user is signed in to
+# ---------------------------------------------------------------------------
 # Owner decision of 2026-11-17: a run that stops to ask hands work back to
 # a person; when its model cannot go on (its retries ran out, its login
 # expired, its usage limit holds, or no model was chosen) it goes on with
 # another model the user configured and is signed in to, and the end of
-# the run reports the switch. bend/fallback.bend: the choice. It runs as
-# the compiled core by bend/ffi_fallback.bend (eukhe-bend
-# rules/fallback.rs), asked by eukhe-core durable/models/provider.rs when a
-# request gives up and by eukhe-daemon rlm_child_model.rs for a child
-# spawned with no model. Every input is free: any failure, any candidates
-# in any order, any tried models.
+# the run reports the switch. Owner decision of 2026-11-21: attention is
+# the one scarce input; past the configured models the run goes on with
+# the default model of every other provider the user is signed in to, and
+# a run with no model left ends with a report that names the cause.
+# bend/fallback.bend: the choice. It runs as the compiled core by
+# bend/ffi_fallback.bend (eukhe-bend rules/fallback.rs), asked by
+# eukhe-core durable/models/provider.rs when a request gives up. Every
+# input is free: any failure, any configured candidates and signed-in
+# defaults in any order, any tried models.
 #
 # R1: a retryable failure keeps the run on its model while the run's
 #     retries remain (the n-th failure in a row with n <= retries), with
 #     any candidates.
-# R2: past that, the run switches to the first candidate in order that it
-#     has not tried; never to a tried model, never past an untried one.
-# R3: with every candidate tried, a usage limit holds until its reset;
-#     every other failure ends.
+# R2: past that, the run switches to the first configured candidate in
+#     order that it has not tried, whatever the signed-in defaults; never
+#     to a tried model, never past an untried one.
+# R5: with every configured candidate tried, the run switches to the
+#     first signed-in default in order that it has not tried.
+# R3: with every candidate and every default tried, a usage limit holds
+#     until its reset; every other failure ends, and the end carries that
+#     failure: the cause the run's end report names.
 # R4: the entry answers each request Rust writes (every number within the
 #     wire) with the model's choice, reads exactly the request and nothing
 #     after it, and answers any other input with the exact error form
 #     `E fallback: malformed request`.
 #
 # Not pinned here, the Rust tests pin it:
-# - which models Rust offers as candidates: the configured models whose
-#   provider has credentials, in the order of the header of
-#   bend/fallback.bend (eukhe-core durable/models/fallback.rs
-#   `candidates_are_the_configured_models_with_credentials`; eukhe-daemon
-#   rlm_child_model.rs
-#   `a_spawn_with_no_model_anywhere_takes_the_first_configured_model`);
-# - what it does with the choice and the report of a switch (eukhe-core
-#   durable/models/provider_tests.rs
+# - which models Rust offers: the configured models whose provider has
+#   credentials, then the default model of each other provider with
+#   credentials the allowlist permits (eukhe-core durable/models/fallback.rs
+#   `candidates_are_the_configured_models_with_credentials`,
+#   `defaults_are_the_signed_in_providers_default_models`);
+# - what it does with the choice and the report of a switch or an end
+#   (eukhe-core durable/models/provider_tests.rs
 #   `a_failed_model_hands_the_request_to_the_next_configured_model`,
 #   `an_expired_login_hands_the_request_to_a_signed_in_model`,
-#   `without_another_configured_model_the_failure_stands`).
+#   `an_expired_login_goes_on_with_a_signed_in_providers_default`,
+#   `an_expired_login_with_no_model_left_ends_with_the_login_report`; the
+#   report itself: durable/models/fallback.rs
+#   `an_end_on_a_login_names_the_login_command`).
 
 # Spec helpers
 # ------------
@@ -101,11 +110,12 @@ def fb_why_nats(k: Fb.Why, rest: List<&2, Nat>) -> List<&2, Nat>:
       3n <> rest
 
 # R4: the Nats of a request: the failure, the count of candidates, the
-# candidates, the tried models
+# candidates, the count of signed-in defaults, the defaults, the tried
+# models
 def fb_nats(x: Fb.In) -> List<&2, Nat>:
   match x:
-    case Fb.In{k, +cands, tried}:
-      fb_why_nats(k, List.length(&2, Nat, cands) <> List.append(&2, Nat, cands, tried))
+    case Fb.In{k, +cands, +defaults, tried}:
+      fb_why_nats(k, List.length(&2, Nat, cands) <> List.append(&2, Nat, cands, List.length(&2, Nat, defaults) <> List.append(&2, Nat, defaults, tried)))
 
 # R4: the spelling of a request: its Nats as one list, then rest
 def fb_req(x: Fb.In, rest: String) -> String:
@@ -115,7 +125,16 @@ def fb_req(x: Fb.In, rest: String) -> String:
 def fb_fits(+x: Fb.In) -> Bool:
   Bool.and(LawsBase.wire_fits(List.length(&2, Nat, fb_nats(x))), LawsBase.wire_nats_fit(fb_nats(x)))
 
-# R4: the spelling of a reply: 0 | 1, m | 2, until | 3
+# R4: Nats spelled one after another, then rest
+def fb_spell(xs: List<&2, Nat>, rest: String) -> String:
+  match xs:
+    case Nil{}:
+      rest
+    case x <> t:
+      Wr.put_nat(x, fb_spell(t, rest))
+
+# R4: the spelling of a reply: 0 | 1, m | 2, until | 3, then the Nats of
+# the failure the end carries
 def fb_reply(c: Fb.Choice) -> String:
   match c:
     case Fb.Keep{}:
@@ -124,15 +143,15 @@ def fb_reply(c: Fb.Choice) -> String:
       Wr.put_nat(1n, Wr.put_nat(m, ""))
     case Fb.Hold{until}:
       Wr.put_nat(2n, Wr.put_nat(until, ""))
-    case Fb.End{}:
-      Wr.put_nat(3n, "")
+    case Fb.End{k}:
+      Wr.put_nat(3n, fb_spell(fb_why_nats(k, []), ""))
 
-# Laws: the choice (R1-R3)
-# ------------------------
+# Laws: the choice (R1-R3, R5)
+# ----------------------------
 
 # LAW fallback_keeps_within_retries (R1): the n-th retryable failure in a
 # row with n <= retries keeps the run on its model, whatever the
-# candidates and the tried models
+# candidates, the signed-in defaults and the tried models
 # EXCLUDES: a switch while the run's own retries remain (one blip moves
 #   the run), retries counted one short (n < retries); a keep past them
 #   is fallback_switches_first_untried's and fallback_ends_when_none_left's
@@ -140,16 +159,18 @@ law fallback_keeps_within_retries:
   for +n: Nat
   for +retries: Nat
   for +cands: List<&2, Nat>
+  for +defaults: List<&2, Nat>
   for +tried: List<&2, Nat>
   for h: {Nat.is_le(n, retries) == True{} : Bool}
-  {Fb.choose(Fb.In{Fb.Failed{n, retries}, cands, tried}) == Fb.Keep{} : Fb.Choice}
+  {Fb.choose(Fb.In{Fb.Failed{n, retries}, cands, defaults, tried}) == Fb.Keep{} : Fb.Choice}
 
 # LAW fallback_switches_first_untried (R2): past a keep, with candidates
 # p, then c, then any more, where every model of p was tried and c was
-# not, the run switches to c
+# not, the run switches to c, whatever the signed-in defaults
 # EXCLUDES: a switch to a tried model (back to the model that failed), a
 #   switch past the first untried candidate (the user's order ignored), a
-#   switch to a model outside the candidates, an end or a hold while a
+#   switch to a model outside the candidates, a signed-in default taken
+#   before an untried configured model, an end or a hold while a
 #   candidate is untried
 law fallback_switches_first_untried:
   for +k: Fb.Why
@@ -157,50 +178,83 @@ law fallback_switches_first_untried:
   for +p: List<&2, Nat>
   for +c: Nat
   for +rest: List<&2, Nat>
+  for +defaults: List<&2, Nat>
   for +tried: List<&2, Nat>
   for hp: {fb_all_in(p, tried) == True{} : Bool}
   for hc: {fb_in(c, tried) == False{} : Bool}
-  {Fb.choose(Fb.In{k, List.append(&2, Nat, p, c <> rest), tried}) == Fb.Switch{c} : Fb.Choice}
+  {Fb.choose(Fb.In{k, List.append(&2, Nat, p, c <> rest), defaults, tried}) == Fb.Switch{c} : Fb.Choice}
+
+# LAW fallback_switches_first_untried_default (R5): past a keep, with
+# every configured candidate tried and signed-in defaults p, then d, then
+# any more, where every model of p was tried and d was not, the run
+# switches to d
+# EXCLUDES: an end or a hold while a signed-in default is untried (a
+#   signed-in provider left unused, the run handed to a person), a switch
+#   to a tried default, a switch past the first untried default, a switch
+#   to a model outside the defaults
+law fallback_switches_first_untried_default:
+  for +k: Fb.Why
+  for hk: {fb_keeps(k) == False{} : Bool}
+  for +cands: List<&2, Nat>
+  for +p: List<&2, Nat>
+  for +d: Nat
+  for +rest: List<&2, Nat>
+  for +tried: List<&2, Nat>
+  for hcs: {fb_all_in(cands, tried) == True{} : Bool}
+  for hp: {fb_all_in(p, tried) == True{} : Bool}
+  for hd: {fb_in(d, tried) == False{} : Bool}
+  {Fb.choose(Fb.In{k, cands, List.append(&2, Nat, p, d <> rest), tried}) == Fb.Switch{d} : Fb.Choice}
 
 # LAW fallback_quota_holds_when_none_left (R3): a usage limit with every
-# candidate tried holds the run until the reset
+# candidate and every signed-in default tried holds the run until the
+# reset
 # EXCLUDES: a usage limit that ends the run when it could wait, a hold to
 #   another time than the reset
 law fallback_quota_holds_when_none_left:
   for +until: Nat
   for +cands: List<&2, Nat>
+  for +defaults: List<&2, Nat>
   for +tried: List<&2, Nat>
   for h: {fb_all_in(cands, tried) == True{} : Bool}
-  {Fb.choose(Fb.In{Fb.Quota{until}, cands, tried}) == Fb.Hold{until} : Fb.Choice}
+  for hd: {fb_all_in(defaults, tried) == True{} : Bool}
+  {Fb.choose(Fb.In{Fb.Quota{until}, cands, defaults, tried}) == Fb.Hold{until} : Fb.Choice}
 
 # LAW fallback_ends_when_none_left (R3): any other failure past a keep,
-# with every candidate tried, ends
+# with every candidate and every signed-in default tried, ends, and the
+# end carries that failure (the cause the end report names)
 # EXCLUDES: a hold with no reset to wait for, a switch back to a tried
-#   model, a keep past the run's retries
+#   model, a keep past the run's retries, an end that names another cause
+#   (an expired login reported as a failing model, or as no model chosen)
 law fallback_ends_when_none_left:
   for +k: Fb.Why
   for hk: {fb_keeps(k) == False{} : Bool}
   for hq: {fb_quota(k) == False{} : Bool}
   for +cands: List<&2, Nat>
+  for +defaults: List<&2, Nat>
   for +tried: List<&2, Nat>
   for h: {fb_all_in(cands, tried) == True{} : Bool}
-  {Fb.choose(Fb.In{k, cands, tried}) == Fb.End{} : Fb.Choice}
+  for hd: {fb_all_in(defaults, tried) == True{} : Bool}
+  {Fb.choose(Fb.In{k, cands, defaults, tried}) == Fb.End{k} : Fb.Choice}
 
-# LAW fallback_example (R1-R3): anchor: a second failure of two retries
-# keeps; a third switches past the tried model 4 to 7; an expired login
-# with no candidate ends; a usage limit with its one candidate tried holds
-# until 99; no model chosen switches to the first candidate
-# EXCLUDES: candidates read from the end, a keep at n = retries + 1
+# LAW fallback_example (R1-R3, R5): anchor: a second failure of two
+# retries keeps; a third switches past the tried model 4 to 7 before the
+# default 9; an expired login with no candidate ends with the login; a
+# usage limit with its one candidate tried holds until 99; no model chosen
+# switches to the first candidate; an expired login with its configured
+# model tried skips that model among the defaults and takes 6; a third
+# failure with nothing left ends with that failure
+# EXCLUDES: candidates read from the end, a keep at n = retries + 1, a
+#   default before a configured model
 law fallback_example:
-  {[Fb.choose(Fb.In{Fb.Failed{2n, 2n}, [4n, 7n], [0n]}), Fb.choose(Fb.In{Fb.Failed{3n, 2n}, [4n, 7n], [0n, 4n]}), Fb.choose(Fb.In{Fb.Login{}, [], [0n]}), Fb.choose(Fb.In{Fb.Quota{99n}, [5n], [0n, 5n]}), Fb.choose(Fb.In{Fb.Unset{}, [3n, 1n], []})] == [Fb.Keep{}, Fb.Switch{7n}, Fb.End{}, Fb.Hold{99n}, Fb.Switch{3n}] : List<&2, Fb.Choice>}
+  {[Fb.choose(Fb.In{Fb.Failed{2n, 2n}, [4n, 7n], [], [0n]}), Fb.choose(Fb.In{Fb.Failed{3n, 2n}, [4n, 7n], [9n], [0n, 4n]}), Fb.choose(Fb.In{Fb.Login{}, [], [], [0n]}), Fb.choose(Fb.In{Fb.Quota{99n}, [5n], [], [0n, 5n]}), Fb.choose(Fb.In{Fb.Unset{}, [3n, 1n], [], []}), Fb.choose(Fb.In{Fb.Login{}, [4n], [4n, 6n], [0n, 4n]}), Fb.choose(Fb.In{Fb.Failed{3n, 2n}, [], [], [0n]})] == [Fb.Keep{}, Fb.Switch{7n}, Fb.End{Fb.Login{}}, Fb.Hold{99n}, Fb.Switch{3n}, Fb.Switch{6n}, Fb.End{Fb.Failed{3n, 2n}}] : List<&2, Fb.Choice>}
 
 # Laws: the entry (R4)
 # --------------------
 
 # LAW fallback_entry_parses (R4): the Nats of every request parse back to
 # that request
-# EXCLUDES: a field lost, swapped or defaulted on the way in, candidates
-#   and tried models cut at the wrong place
+# EXCLUDES: a field lost, swapped or defaulted on the way in, candidates,
+#   signed-in defaults and tried models cut at the wrong place
 law fallback_entry_parses:
   for +x: Fb.In
   {FFb.parse(fb_nats(x)) == Some{x} : Maybe<&2, Fb.In>}
@@ -233,8 +287,11 @@ law fallback_entry_refuses:
   {FFb.ffi(s) == Wr.err("fallback: malformed request") : String}
 
 # LAW fallback_entry_example (R4): anchor: the wire strings Rust sends and
-# the replies it reads (keep; switch; hold; end; no model chosen); an
-# unknown failure tag, a count past the items, input left over
+# the replies it reads (keep; switch; hold; an end that carries the
+# expired login; no model chosen; a switch to a signed-in default; an end
+# that carries the failures in a row); an unknown failure tag, a
+# candidate count past the items, a default count past the items, input
+# left over
 # EXCLUDES: another request or reply spelling
 law fallback_entry_example:
-  {[FFb.ffi("5,0,1,1,1,0,"), FFb.ffi("6,0,3,1,2,7,0,"), FFb.ffi("5,2,99,1,5,5,"), FFb.ffi("3,1,0,0,"), FFb.ffi("3,3,1,7,"), FFb.ffi("2,4,0,"), FFb.ffi("3,1,5,0,"), FFb.ffi("3,1,0,0,x")] == ["0,", "1,7,", "2,99,", "3,", "1,7,", Wr.err("fallback: malformed request"), Wr.err("fallback: malformed request"), Wr.err("fallback: malformed request")] : List<&2, String>}
+  {[FFb.ffi("6,0,1,1,1,0,0,"), FFb.ffi("7,0,3,1,2,7,0,0,"), FFb.ffi("6,2,99,1,5,0,5,"), FFb.ffi("4,1,0,0,0,"), FFb.ffi("4,3,1,7,0,"), FFb.ffi("5,1,0,1,4,0,"), FFb.ffi("6,0,2,1,0,0,0,"), FFb.ffi("2,4,0,"), FFb.ffi("3,1,5,0,"), FFb.ffi("4,1,0,5,0,"), FFb.ffi("4,1,0,0,0,x")] == ["0,", "1,7,", "2,99,", "3,1,", "1,7,", "1,4,", "3,0,2,1,", Wr.err("fallback: malformed request"), Wr.err("fallback: malformed request"), Wr.err("fallback: malformed request"), Wr.err("fallback: malformed request")] : List<&2, String>}
