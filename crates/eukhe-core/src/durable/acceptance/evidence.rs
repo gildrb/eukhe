@@ -2,12 +2,13 @@
 //! the check's command run in the session cwd, the protected files hashed
 //! again, the judge asked in a request of its own. The worker's words (its
 //! final answer, its claim) never enter: a judge reads the condition its
-//! owner wrote and what the harness observed, nothing else. The verdict of
-//! each piece of evidence is the compiled core's
-//! (`eukhe_bend::rules::verify`). The same judge decides a loop's stated
-//! condition (`JudgeQuestion::Stated`, asked by `eukhe.loop`): there the
-//! evidence also holds the turn's final answer, read as the worker's own
-//! account.
+//! owner wrote and what the harness observed, nothing else; the intent
+//! judge also reads the commands the worker ran with their exit statuses,
+//! as the harness recorded them. The verdict of each piece of evidence is
+//! the compiled core's (`eukhe_bend::rules::verify`). The same judge
+//! decides a loop's stated condition (`JudgeQuestion::Stated`, asked by
+//! `eukhe.loop`): there the evidence also holds the turn's final answer,
+//! read as the worker's own account.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use futures::FutureExt;
 use sha2::{Digest, Sha256};
 
 use super::docs::verdict_of;
+use super::ran::ran_commands;
 use super::workspace::{committed_work, user_messages, workspace_files};
 use crate::autonomous::{now_millis, ChildProcessResult, GateCommandRunner};
 use crate::durable::children::children_verdicts;
@@ -56,7 +58,7 @@ const JUDGE_SYSTEM_PROMPT: &str = "You are an acceptance judge: a request separa
 /// The judge's system prompt for the task's intent: it reads the user's
 /// own messages, decides what they ask for now, and decides from the
 /// evidence alone whether the final state meets it.
-const INTENT_SYSTEM_PROMPT: &str = "You are an acceptance judge: a request separate from the worker, with no tools and no transcript. The USER MESSAGES are everything the user wrote in this conversation, oldest first. First decide what the conversation asks for now: a later message that adds a requirement extends the task; a later message that drops or changes a requirement removes or replaces it; a side question (a message that asks for information or an explanation and changes nothing in the task) adds no requirement and does not end the task; a request that is only for an answer in chat is met by the reply, which you do not see, so it puts no requirement on the final state. Then decide from the EVIDENCE alone whether the final state meets every current requirement. The harness gathered the evidence itself; the worker did not write it. If the evidence does not show a current requirement met, the answer is FAIL. Reply with the single word PASS or FAIL on the first line, then list the current requirements, each with the evidence that decided it.";
+const INTENT_SYSTEM_PROMPT: &str = "You are an acceptance judge: a request separate from the worker, with no tools and no transcript. The USER MESSAGES are everything the user wrote in this conversation, oldest first. First decide what the conversation asks for now: a later message that adds a requirement extends the task; a later message that drops or changes a requirement removes or replaces it; a side question (a message that asks for information or an explanation and changes nothing in the task) adds no requirement and does not end the task; a request that is only for an answer in chat is met by the reply, which you do not see, so it puts no requirement on the final state. Then decide from the EVIDENCE alone whether the final state meets every current requirement. The harness gathered the evidence itself; the worker did not write it. Its record of the commands the worker ran shows which commands ran and how each ended: a requirement to run something (the tests, a build) is met when that record shows the command ran and ended as required. If the evidence does not show a current requirement met, the answer is FAIL. Reply with the single word PASS or FAIL on the first line, then list the current requirements, each with the evidence that decided it.";
 
 /// The judge's system prompt for a loop's stated condition: it decides
 /// from the turn's final answer and the workspace changes, and reads the
@@ -451,7 +453,7 @@ impl Gatherer {
                 model,
             } => {
                 let observed = self
-                    .observe(conversation_id, evidence, round, false, cx)
+                    .observe(conversation_id, evidence, round, None, cx)
                     .await?;
                 self.ask(
                     JudgeRequest {
@@ -466,7 +468,9 @@ impl Gatherer {
             }
             CheckSpec::Intent { model } => {
                 let messages = user_messages(conversation, MAX_USER_MESSAGE_CHARS, cx).await?;
-                let observed = self.observe(conversation_id, &[], round, true, cx).await?;
+                let observed = self
+                    .observe(conversation_id, &[], round, Some(conversation), cx)
+                    .await?;
                 self.ask(
                     JudgeRequest {
                         conversation_id,
@@ -536,17 +540,19 @@ impl Gatherer {
 
     /// What a judge reads: the results the round's other checks got on its
     /// state, the output of its own evidence commands, and with neither
-    /// (always for the intent judge, `workspace`) the workspace: git status
+    /// (always for the intent judge of `intent`) the workspace: git status
     /// and diff, the commits made since the checks were set with their
     /// diff, and the files git does not track yet (every file outside git).
-    /// The verdicts of the conversation's children that carry checks, as
-    /// their harness recorded them, come first.
+    /// The intent judge also reads the commands `intent` ran, as the
+    /// harness recorded them, before the workspace. The verdicts of the
+    /// conversation's children that carry checks, as their harness recorded
+    /// them, come first.
     async fn observe(
         &self,
         conversation_id: ConversationId,
         commands: &[String],
         round: &Round,
-        workspace: bool,
+        intent: Option<&Conversation>,
         cx: &Context,
     ) -> SessionResult<String> {
         let mut parts = Vec::new();
@@ -578,7 +584,12 @@ impl Gatherer {
             let ran = self.run(command, None, cx).await?;
             parts.push(format!("`{command}`: {}\n{}", ran.summary, ran.output));
         }
-        if workspace || parts.len() == observed_before {
+        if let Some(conversation) = intent {
+            if let Some(ran) = ran_commands(conversation, cx).await? {
+                parts.push(ran);
+            }
+        }
+        if intent.is_some() || parts.len() == observed_before {
             let snapshot = self.runner.capture_snapshot().await;
             if let Some(snapshot) = &snapshot {
                 parts.push(format!(

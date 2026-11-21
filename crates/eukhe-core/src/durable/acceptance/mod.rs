@@ -25,6 +25,7 @@ mod docs;
 mod evidence;
 mod host;
 mod ops;
+mod ran;
 mod report;
 mod strength;
 mod verifier;
