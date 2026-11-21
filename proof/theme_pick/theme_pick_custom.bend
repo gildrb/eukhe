@@ -21,7 +21,7 @@ def pc.res(+pre: List<&2, TChoice.Ld>, +nm: String, +post: List<&2, TChoice.Ld>,
   +noc2 = Equal.trans(Bool, LA.pk.none(pre, n, True{}), ThemePick.th.none.custom(pre, n), True{}, Equal.sym(Bool, ThemePick.th.none.custom(pre, n), LA.pk.none(pre, n, True{}), LA.pk.none_custom(pre, n)), noc)
   +h0 = LA.pk.nonempty(src, n, ne)
   +h1 = LA.pk.skip(l, False{}, 0n, r, n, no2)
-  +h2 = LA.pk.bn(String.eq("eukhe", n), String.eq("dark", n), String.eq("light", n), cc, n, nb)
+  +h2 = LA.pk.bn(String.eq("eukhe", n), String.eq("forge", n), String.eq("dark", n), String.eq("light", n), cc, n, nb)
   +h3 = Equal.cong(List<&2, TName.Cand>, TName.Res, xs => TName.find(xs, n), cc, List.append(&2, TName.Cand, cc, Nil{}), LA.pk.app_nil(cc))
   +h4 = LA.pk.found(pre, nm, post, True{}, 0n, Nil{}, n, noc2, same)
   +h5 = Equal.cong(Nat, TName.Res, k => TName.Res{U32.from_nat(Nat.add(3n, k)), False{}}, Nat.add(len, 0n), len, Equal.sym(Nat, len, Nat.add(len, 0n), LA.pk.add0(len)))

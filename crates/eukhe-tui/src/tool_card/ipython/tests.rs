@@ -3,7 +3,7 @@ use crate::theme::{ColorMode, Theme};
 use serde_json::json;
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn cell_card(code: &str, details: Value, is_error: bool, partial: bool) -> ToolCallCard {

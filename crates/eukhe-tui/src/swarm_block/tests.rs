@@ -16,7 +16,7 @@ fn plain(rows: &[Line]) -> Vec<String> {
 }
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn summary(id: &str, name: &str, parent: &str) -> Value {

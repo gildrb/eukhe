@@ -611,7 +611,7 @@ mod tests {
     }
 
     fn theme() -> Theme {
-        crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+        crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
     }
 
     fn anthropic() -> ProviderRow {

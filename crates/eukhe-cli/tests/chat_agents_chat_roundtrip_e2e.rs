@@ -114,7 +114,7 @@ fn chat_options(socket: PathBuf, cwd: PathBuf) -> InteractiveOptions {
         initial_message: None,
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
@@ -193,7 +193,7 @@ async fn the_roundtrip_reentry_renders_the_same_transcript() {
         socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
-        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
+        theme: eukhe_tui::theme::Theme::builtin("forge", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())
@@ -338,7 +338,7 @@ async fn a_post_turn_reentry_renders_the_turn_rows() {
         socket_path: supervisor.0.socket.clone(),
         cwd: dir.path().to_path_buf(),
         session_dir: Some(session_dir.clone()),
-        theme: eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::ColorMode::TrueColor),
+        theme: eukhe_tui::theme::Theme::builtin("forge", eukhe_tui::theme::ColorMode::TrueColor),
         version: "0.0.0".to_string(),
         anchor_session_id: (!first_outcome.session_id.is_empty())
             .then(|| first_outcome.session_id.clone())

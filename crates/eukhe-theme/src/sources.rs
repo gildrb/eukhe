@@ -459,7 +459,7 @@ mod tests {
         assert_eq!(
             result.warnings,
             vec![
-                "Theme \"ghost\" unavailable, using \"eukhe\": Theme not found: ghost".into(),
+                "Theme \"ghost\" unavailable, using \"forge\": Theme not found: ghost".into(),
                 "registered diagnostic".into(),
                 format!("Theme path does not exist: {}", missing.display()),
                 format!(

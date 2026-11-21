@@ -43,7 +43,7 @@ async fn tui_attaches_prompts_streams_lists_and_switches() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -216,7 +216,7 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: Some("boot".to_string()),
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -315,7 +315,7 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -518,7 +518,7 @@ async fn tui_model_picker_applies_and_effort_reports() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -678,7 +678,7 @@ async fn tui_effort_applies_on_a_map_addressable_model_without_the_reasoning_fla
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
@@ -768,7 +768,7 @@ async fn tui_compact_on_a_short_session_warns_nothing_to_compact() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -907,7 +907,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
 
         tree_filter_mode: String::new(),
@@ -1479,7 +1479,7 @@ async fn tui_session_tree_navigates_forks_and_clones() {
         no_session: false,
         session: eukhe_tui::interactive::SessionSelection::New,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         // The default tree filter keeps every message row visible, and the
         // branch-summary prompt is skipped so navigation needs no

@@ -4,7 +4,7 @@ use crate::git_placement::LinkedWorktree;
 use crate::theme::ColorMode;
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn text(line: &Line) -> String {

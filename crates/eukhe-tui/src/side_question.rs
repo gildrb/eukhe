@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn a_pane_bash_run_renders_header_output_and_status() {
-        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::Color256);
+        let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::Color256);
         let mut pane = SideQuestionPane::default();
         pane.upsert(turn("a", "complete", "the answer"));
         let mut bash = PaneBash::new_running("echo hi", true);
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn render_places_the_btw_header_then_answer_then_hint() {
-        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::Color256);
+        let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::Color256);
         let mut pane = SideQuestionPane::default();
         pane.upsert(turn("a", "complete", "the answer"));
         let rows = pane.render(&theme, 0, false, "Esc/Ctrl+C", 80);

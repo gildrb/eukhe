@@ -334,9 +334,9 @@ impl SessionUi {
                 .unwrap_or_default(),
             ..Default::default()
         };
-        // The settings-seam reads (TS `settingsManager` getters; the theme
-        // default matches TS `getTheme() || "eukhe"`). A missing seam keeps
-        // the TS defaults.
+        // The settings-seam reads (TS `settingsManager` getters; an unset
+        // theme is the default theme). A missing seam keeps the TS
+        // defaults.
         if let Some(settings) = &settings {
             values.show_images = settings.show_images();
             values.auto_resize_images = settings.image_auto_resize();
@@ -354,7 +354,9 @@ impl SessionUi {
             values.quiet_startup = settings.quiet_startup();
             values.tree_filter_mode = settings.tree_filter_mode();
             values.warnings_anthropic_extra_usage = settings.warnings_anthropic_extra_usage();
-            values.theme = settings.theme().unwrap_or_else(|| "eukhe".to_string());
+            values.theme = settings
+                .theme()
+                .unwrap_or_else(|| eukhe_theme::DEFAULT_THEME_NAME.to_string());
             // TS reads the persisted default tier through the settings
             // manager (`getDefaultServiceTier`): the tier row preselects
             // the saved value instead of the struct default.
@@ -369,7 +371,7 @@ impl SessionUi {
             values.workflow_size = "medium".to_string();
             values.tree_filter_mode = "user-only".to_string();
             values.warnings_anthropic_extra_usage = true;
-            values.theme = "eukhe".to_string();
+            values.theme = eukhe_theme::DEFAULT_THEME_NAME.to_string();
             // No settings seam: the tier row reads the TS default tier
             // (getDefaultServiceTier's "default"), never a blank value.
             values.default_service_tier = "default".to_string();

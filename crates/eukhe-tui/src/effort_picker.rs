@@ -174,7 +174,7 @@ mod tests {
     }
 
     fn theme() -> Theme {
-        Theme::builtin("eukhe", ColorMode::TrueColor)
+        Theme::builtin("forge", ColorMode::TrueColor)
     }
 
     fn levels() -> Vec<String> {

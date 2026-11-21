@@ -62,9 +62,9 @@ mod tests {
         Palette::parse(raw, crate::theme_rules::THEME_RULES).expect("a valid theme")
     }
 
-    /// The bundled eukhe theme: `--accent` through the `primary` variable,
-    /// the terminal-default text as the theme's foreground, and the export
-    /// section's `bg`/`surface`/`panel` references.
+    /// The bundled forge theme: `--accent` through the `accent` variable,
+    /// its `paper` text, and, its export section empty, the backgrounds
+    /// derived from its user-message surface.
     #[test]
     fn the_default_theme_exports_its_variables_and_backgrounds() {
         let theme = export_theme(&Palette::default_theme(crate::theme_rules::THEME_RULES));
@@ -72,18 +72,18 @@ mod tests {
         assert_eq!(lines.len(), Token::ALL.len());
         assert_eq!(
             [
-                lines.contains(&"--accent: #7c6faf;"),
-                lines.contains(&"--text: #e5e5e7;"),
-                lines.contains(&"--background: #050506;"),
+                lines.contains(&"--accent: #d4af5d;"),
+                lines.contains(&"--text: #e0d6c6;"),
+                lines.contains(&"--background: #1e1711;"),
             ],
             [true, true, true]
         );
         assert_eq!(
             (theme.body_bg, theme.container_bg, theme.info_bg),
             (
-                Rgb::new(0x05, 0x05, 0x06),
-                Rgb::new(0x0d, 0x0d, 0x10),
-                Rgb::new(0x15, 0x15, 0x18)
+                Rgb::new(21, 16, 12),
+                Rgb::new(26, 20, 14),
+                Rgb::new(50, 38, 17)
             )
         );
     }
@@ -126,8 +126,12 @@ mod tests {
                     Rgb::new(248, 243, 218)
                 ),
                 // dusk-apple's surface is the terminal default: the default
-                // theme's background, #050506.
-                (Rgb::new(4, 4, 4), Rgb::new(4, 4, 5), Rgb::new(25, 20, 6)),
+                // theme's background, #1e1711.
+                (
+                    Rgb::new(21, 16, 12),
+                    Rgb::new(26, 20, 14),
+                    Rgb::new(50, 38, 17)
+                ),
             ]
         );
     }

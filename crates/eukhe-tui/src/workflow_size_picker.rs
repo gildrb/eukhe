@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn the_frame_lists_the_sizes_and_their_limits() {
         let picker = WorkflowSizePicker::new(None);
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let text: Vec<String> = picker
             .render(&theme, 70, &kb())
             .iter()

@@ -176,7 +176,7 @@ fn headless_options(socket: &Path, dir: &Path) -> eukhe_tui::interactive::Intera
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
         client_settings: None,
         initial_message: None,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,

@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn the_message_lines_render() {
-        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+        let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
         let panel = ConfirmPanel::yes_no(
             "Session cwd not found",
             "cwd from session file does not exist\n/old/path\n\ncontinue in current cwd\n/new/path",

@@ -56,7 +56,7 @@ fn main() {
         .read_to_string(&mut fixture)
         .expect("read fixture");
     let data: serde_json::Value = serde_json::from_str(&fixture).expect("fixture json");
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     let kb = KeybindingsManager::new();
     let mut view = McpView::from_response(&data, viewport_rows);
     for key in keys {

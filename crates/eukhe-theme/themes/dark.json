@@ -18,7 +18,7 @@
 		"toolErrorBg": "#3c2828",
 		"toolDiffAddedBg": "#015f00",
 		"toolDiffRemovedBg": "#5e0000",
-		"customMsgBg": "#2d2838"
+		"customMsgBg": "#2b241f"
 	},
 	"colors": {
 		"accent": "accent",
@@ -39,9 +39,9 @@
 		"userMessageText": "",
 		"customMessageBg": "customMsgBg",
 		"customMessageText": "",
-		"customMessageLabel": "#9575cd",
-		"refinementHeader": "#9575cd",
-		"refinementSummary": "#b7a1d6",
+		"customMessageLabel": "#d4af5d",
+		"refinementHeader": "#d4af5d",
+		"refinementSummary": "#a9a098",
 		"toolPendingBg": "toolPendingBg",
 		"toolSuccessBg": "toolSuccessBg",
 		"toolErrorBg": "toolErrorBg",
@@ -52,7 +52,7 @@
 		"toolOutput": "gray",
 
 		"mdBody": "#c4c4c4",
-		"mdHeading": "#b294bb",
+		"mdHeading": "#d4af5d",
 		"mdLink": "#81a2be",
 		"mdLinkUrl": "dimGray",
 		"mdCode": "accent",
@@ -78,9 +78,9 @@
 		"syntaxOperator": "#D4D4D4",
 		"syntaxPunctuation": "#D4D4D4",
 
-		"effortLow": "#b294bb",
-		"effortHigh": "#d183e8",
-		"contextHigh": "#b294bb",
+		"effortLow": "#a9a098",
+		"effortHigh": "#d4af5d",
+		"contextHigh": "#d4af5d",
 		"liftLight": "#ffffff",
 		"liftDark": "#000000",
 

@@ -7,7 +7,8 @@ import Base
 # The candidates in lookup order: the registered files, the builtins, the
 # custom directory's files. A candidate is a theme file (or a builtin) by
 # the name it advertises; an invalid file never resolves. id tells the
-# candidates apart (the builtins are 0 eukhe, 1 dark, 2 light).
+# candidates apart (the builtins are 0 forge, 1 dark, 2 light; eukhe, the
+# default theme's old name, is forge too).
 
 type Cand is Data:
   Cand{name: String, valid: Bool, id: U32}
@@ -16,7 +17,7 @@ type Res is Data:
   Res{id: U32, warned: Bool}
 
 def builtins() -> List<&2, Cand>:
-  [Cand{"eukhe", True{}, 0}, Cand{"dark", True{}, 1}, Cand{"light", True{}, 2}]
+  [Cand{"forge", True{}, 0}, Cand{"eukhe", True{}, 0}, Cand{"dark", True{}, 1}, Cand{"light", True{}, 2}]
 
 def sources(reg: List<&2, Cand>, custom: List<&2, Cand>) -> List<&2, Cand>:
   List.append(&2, Cand, reg, List.append(&2, Cand, builtins(), custom))

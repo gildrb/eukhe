@@ -155,13 +155,13 @@ def pp.at_hexs(m: Maybe<&2, Co.Rgb>, h: {Maybe.is_some(&2, Co.Rgb, m) == True{} 
 
 # token k of the builtin the code fills a mode from is the laws' builtin
 # of that mode (the tables have token k)
-def pp.mode(b: Bool, +k: Nat, hl: {Maybe.is_some(&2, Co.Rgb, List.get(&2, Co.Rgb, TPalette.table.light(), k)) == True{} : Bool}, he: {Maybe.is_some(&2, Co.Rgb, List.get(&2, Co.Rgb, TPalette.table.eukhe(), k)) == True{} : Bool})
+def pp.mode(b: Bool, +k: Nat, hl: {Maybe.is_some(&2, Co.Rgb, List.get(&2, Co.Rgb, TPalette.table.light(), k)) == True{} : Bool}, he: {Maybe.is_some(&2, Co.Rgb, List.get(&2, Co.Rgb, TPalette.table.forge(), k)) == True{} : Bool})
   -> {Some{TFile.Hex{TPalette.at(TPalette.defaults(b), k)}} == Theme.th.builtin.val(b, k) : Maybe<&2, TFile.Val>}:
   match b:
     case True{}:
       pp.at_hexs(List.get(&2, Co.Rgb, TPalette.table.light(), k), hl)
     case False{}:
-      pp.at_hexs(List.get(&2, Co.Rgb, TPalette.table.eukhe(), k), he)
+      pp.at_hexs(List.get(&2, Co.Rgb, TPalette.table.forge(), k), he)
 
 # The background's fallbacks
 # --------------------------
@@ -184,22 +184,22 @@ def pp.conc(+m: Maybe<&2, TFile.Val>, -r: Maybe<&2, Co.Rgb>, h: {Theme.th.paints
   Equal.sym(Maybe<&2, Co.Rgb>, TPalette.concrete.of(m), r, Equal.trans(Maybe<&2, Co.Rgb>, TPalette.concrete.of(m), Theme.th.paints(m), r, pp.paints(m), h))
 
 def pp.bg_own(+cols: List<&2, TFile.Ent>, +pg: Maybe<&2, Co.Rgb>, +c: Co.Rgb, h: {Theme.th.paints(TToken.get(cols, 57)) == Some{c} : Maybe<&2, Co.Rgb>}) -> {TPalette.background(cols, pg) == c : Co.Rgb}:
-  %pp.conc(TToken.get(cols, 57), Some{c}, h) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
+  %pp.conc(TToken.get(cols, 57), Some{c}, h) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
   {==}
 
 def pp.bg_page(+cols: List<&2, TFile.Ent>, +pg: Maybe<&2, Co.Rgb>, +c: Co.Rgb, h1: {Theme.th.paints(TToken.get(cols, 57)) == None{} : Maybe<&2, Co.Rgb>}, h2: {pg == Some{c} : Maybe<&2, Co.Rgb>}) -> {TPalette.background(cols, pg) == c : Co.Rgb}:
-  %pp.conc(TToken.get(cols, 57), None{}, h1) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
-  %Equal.sym(Maybe<&2, Co.Rgb>, pg, Some{c}, h2) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
+  %pp.conc(TToken.get(cols, 57), None{}, h1) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
+  %Equal.sym(Maybe<&2, Co.Rgb>, pg, Some{c}, h2) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
   {==}
 
 def pp.bg_user(+cols: List<&2, TFile.Ent>, +pg: Maybe<&2, Co.Rgb>, +c: Co.Rgb, h1: {Theme.th.paints(TToken.get(cols, 57)) == None{} : Maybe<&2, Co.Rgb>}, h2: {pg == None{} : Maybe<&2, Co.Rgb>}, h3: {Theme.th.paints(TToken.get(cols, 49)) == Some{c} : Maybe<&2, Co.Rgb>}) -> {TPalette.background(cols, pg) == c : Co.Rgb}:
-  %pp.conc(TToken.get(cols, 57), None{}, h1) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
-  %Equal.sym(Maybe<&2, Co.Rgb>, pg, None{}, h2) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
-  %pp.conc(TToken.get(cols, 49), Some{c}, h3) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, None{}, _)), TPalette.at(TPalette.table.eukhe(), 57n)) == c : Co.Rgb}
+  %pp.conc(TToken.get(cols, 57), None{}, h1) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
+  %Equal.sym(Maybe<&2, Co.Rgb>, pg, None{}, h2) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
+  %pp.conc(TToken.get(cols, 49), Some{c}, h3) : {TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, None{}, _)), TPalette.at(TPalette.table.forge(), 57n)) == c : Co.Rgb}
   {==}
 
 def pp.bg_dflt(+cols: List<&2, TFile.Ent>, +pg: Maybe<&2, Co.Rgb>, h1: {Theme.th.paints(TToken.get(cols, 57)) == None{} : Maybe<&2, Co.Rgb>}, h2: {pg == None{} : Maybe<&2, Co.Rgb>}, h3: {Theme.th.paints(TToken.get(cols, 49)) == None{} : Maybe<&2, Co.Rgb>}) -> {Some{TFile.Hex{TPalette.background(cols, pg)}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}:
-  %pp.conc(TToken.get(cols, 57), None{}, h1) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
-  %Equal.sym(Maybe<&2, Co.Rgb>, pg, None{}, h2) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.eukhe(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
-  %pp.conc(TToken.get(cols, 49), None{}, h3) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, None{}, _)), TPalette.at(TPalette.table.eukhe(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
+  %pp.conc(TToken.get(cols, 57), None{}, h1) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, _, TPalette.or(Co.Rgb, pg, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
+  %Equal.sym(Maybe<&2, Co.Rgb>, pg, None{}, h2) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, _, TPalette.concrete.of(TToken.get(cols, 49)))), TPalette.at(TPalette.table.forge(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
+  %pp.conc(TToken.get(cols, 49), None{}, h3) : {Some{TFile.Hex{TPalette.or_else(Co.Rgb, TPalette.or(Co.Rgb, None{}, TPalette.or(Co.Rgb, None{}, _)), TPalette.at(TPalette.table.forge(), 57n))}} == Theme.th.builtin.val(False{}, 57n) : Maybe<&2, TFile.Val>}
   {==}

@@ -108,7 +108,7 @@ fn distinct_actions_stack_and_a_repeat_coalesces_into_its_own_toast() {
 /// toast style; an overlong pill truncates to the width.
 #[test]
 fn toasts_render_as_right_aligned_pill_rows() {
-    let style = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+    let style = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
         .fg_style(crate::theme::ThemeColor::Accent);
     let rows = render_toasts(&["Copied".to_string(), "x".repeat(30)], 12, style);
     assert_eq!(

@@ -109,7 +109,7 @@ mod tests {
     /// line (no markdown: `|` never becomes a table).
     #[test]
     fn the_block_expands_to_the_raw_view_text() {
-        let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
         let view = snapshot("<chat>\n0+2|user: hi | bot: hello\n2+1|plan\n</chat>", 3);
         let collapsed = render_chat_view(&view, Detail::Details, &theme, 80, false);
         assert_eq!(

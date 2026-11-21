@@ -187,7 +187,7 @@ fn an_unadvertised_factory_lane_mounts_no_factory_group() {
 /// with the readout, truncated with no ellipsis when it overflows.
 #[test]
 fn speed_footer_is_one_dim_row_truncated_to_width() {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     let row = render_speed_footer("188 tok/s - avg 200", &theme, 100);
     let text = row
         .iter()
@@ -209,7 +209,7 @@ use crate::theme::{ColorMode, Theme};
 use serde_json::json;
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 #[test]

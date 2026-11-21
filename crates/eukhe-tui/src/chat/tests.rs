@@ -5,7 +5,7 @@ use crate::osc133::RowMarkers;
 use crate::theme::{ColorMode, Theme, ThemeColor};
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 #[test]

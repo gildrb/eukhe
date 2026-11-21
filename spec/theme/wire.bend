@@ -110,7 +110,7 @@ def srcs.items(ss: List<&2, TResolve.Src>, rest: String) -> String:
 
 def shipped(s: TBundled.Shipped, rest: String) -> String:
   match s:
-    case TBundled.Eukhe{}:
+    case TBundled.Forge{}:
       Wr.put_nat(0n, rest)
     case TBundled.Dark{}:
       Wr.put_nat(1n, rest)

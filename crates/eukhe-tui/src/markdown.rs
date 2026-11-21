@@ -47,7 +47,7 @@ pub struct MarkdownStyle {
 impl Default for MarkdownStyle {
     fn default() -> Self {
         Self::from_theme(&crate::theme::Theme::builtin(
-            "eukhe",
+            eukhe_theme::DEFAULT_THEME_NAME,
             crate::theme::ColorMode::TrueColor,
         ))
     }

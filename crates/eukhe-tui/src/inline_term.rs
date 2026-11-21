@@ -1747,7 +1747,7 @@ mod tests {
         let _global = live_area_lock();
         let mut term = InlineTerminal::new(120, 50);
         let mut sink = Vec::new();
-        let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+        let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
         let history: Vec<Line> = (0..5_000).map(|n| styled_row(&theme, n)).collect();
         let live_at = |frame: usize| -> Vec<Line> {
             let mut live: Vec<Line> = (0..37).map(|n| styled_row(&theme, 10_000 + n)).collect();
@@ -1843,7 +1843,7 @@ mod tests {
         use crate::soft_wrap::{content, row_wrap, RowWrap};
         use crate::testing::Rng;
         let _global = live_area_lock();
-        let bg = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor)
+        let bg = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor)
             .bg_style(crate::theme::ThemeBg::UserMessageBg);
         let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
         for case in 0..200 {

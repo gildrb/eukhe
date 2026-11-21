@@ -2,7 +2,7 @@ use super::*;
 use crate::theme::ColorMode;
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 #[test]

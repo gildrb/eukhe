@@ -29,7 +29,7 @@ def pd.missing(+ls: List<&2, TChoice.Ld>, +n: String, ne: {String.is_empty(n) ==
   +noc2 = Equal.trans(Bool, LA.pk.none(ls, n, True{}), ThemePick.th.none.custom(ls, n), True{}, Equal.sym(Bool, ThemePick.th.none.custom(ls, n), LA.pk.none(ls, n, True{}), LA.pk.none_custom(ls, n)), noc)
   +h0 = LA.pk.nonempty(src, n, ne)
   +h1 = LA.pk.skip(ls, False{}, 0n, r, n, no2)
-  +h2 = LA.pk.bn(String.eq("eukhe", n), String.eq("dark", n), String.eq("light", n), cc, n, nb)
+  +h2 = LA.pk.bn(String.eq("eukhe", n), String.eq("forge", n), String.eq("dark", n), String.eq("light", n), cc, n, nb)
   +h3 = Equal.cong(List<&2, TName.Cand>, TName.Res, xs => TName.find(xs, n), cc, List.append(&2, TName.Cand, cc, Nil{}), LA.pk.app_nil(cc))
   +h4 = LA.pk.skip(ls, True{}, 0n, Nil{}, n, noc2)
   +c4 = Equal.trans(TName.Res, TName.find(cc, n), TName.find(List.append(&2, TName.Cand, cc, Nil{}), n), want, h3, h4)

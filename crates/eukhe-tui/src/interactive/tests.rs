@@ -155,7 +155,7 @@ fn options(selection: ModelSelection) -> InteractiveOptions {
         initial_message: None,
         show_images: true,
         screen_mode: crate::screen_mode::ScreenMode::Inline,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,
@@ -238,11 +238,11 @@ fn create_config_carries_the_budget_of_a_root_session_only() {
     );
 }
 
-/// The hint is one line in the theme's dim color (eukhe: #76767f), not a
+/// The hint is one line in the theme's dim color (forge: #a9a098), not a
 /// raw SGR attribute written by the composition root.
 #[test]
 fn resume_hint_names_a_flushed_session() {
-    let theme = crate::theme::Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor);
+    let theme = crate::theme::Theme::builtin("forge", crate::theme::ColorMode::TrueColor);
     let dir = std::env::temp_dir().join("eukhe-tui-resume-hint-test");
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("session.jsonl");
@@ -255,7 +255,7 @@ fn resume_hint_names_a_flushed_session() {
     assert_eq!(
         crate::session_ui::resume_hint_from_stats(&stats, &theme),
         Some(
-            "\x1b[38;2;118;118;127mResume this session with: eukhe --resume s1\x1b[0m".to_string()
+            "\x1b[38;2;169;160;152mResume this session with: eukhe --resume s1\x1b[0m".to_string()
         )
     );
     // An unflushed empty session and a missing session file are both
@@ -387,7 +387,7 @@ fn the_headless_settle_names_every_stuck_member() {
 #[test]
 fn the_startup_placeholder_is_the_prompt_and_the_status_line() {
     let mut view = AgentView::new(crate::theme::Theme::builtin(
-        "eukhe",
+        "forge",
         crate::theme::ColorMode::TrueColor,
     ));
     apply_startup_chrome(&mut view, &options(ModelSelection::default()));
@@ -409,7 +409,7 @@ fn a_fullscreen_exit_prints_the_transcript_after_leaving_the_alternate_screen() 
     // terminal-state lock while this test moves it.
     let _state = crate::exit_restore::TEST_STATE_LOCK.lock();
     let mut view = AgentView::new(crate::theme::Theme::builtin(
-        "eukhe",
+        "forge",
         crate::theme::ColorMode::TrueColor,
     ));
     view.screen_mode = crate::screen_mode::ScreenMode::Fullscreen;

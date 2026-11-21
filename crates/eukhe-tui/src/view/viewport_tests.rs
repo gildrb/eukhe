@@ -6,7 +6,7 @@ const WIDTH: usize = 60;
 const HEIGHT: usize = 20;
 
 fn view_with_messages(count: usize) -> AgentView {
-    let mut view = AgentView::new(Theme::builtin("eukhe", ColorMode::TrueColor));
+    let mut view = AgentView::new(Theme::builtin("forge", ColorMode::TrueColor));
     view.screen_mode = crate::screen_mode::ScreenMode::Fullscreen;
     for index in 0..count {
         push_message(&mut view, index);

@@ -45,8 +45,8 @@ use eukhe_tui::view::AgentView;
 struct Args {
     /// Path to the session JSONL file (defaults to the newest session).
     session: Option<String>,
-    /// Theme: eukhe | dark | light.
-    #[arg(long, default_value = "eukhe")]
+    /// Theme: forge | dark | light.
+    #[arg(long, default_value = eukhe_theme::DEFAULT_THEME_NAME)]
     theme: String,
     /// Headless single-frame dump at this size, e.g. 80x24.
     #[arg(long)]

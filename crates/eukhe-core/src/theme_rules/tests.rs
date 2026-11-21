@@ -65,7 +65,7 @@ fn builtins_load_with_their_modes() {
     assert_eq!(
         modes,
         [
-            ("eukhe".to_string(), Mode::Dark, Rgb::new(0x05, 0x05, 0x06)),
+            ("forge".to_string(), Mode::Dark, Rgb::new(0x1e, 0x17, 0x11)),
             ("dark".to_string(), Mode::Dark, Rgb::new(0x18, 0x18, 0x1e)),
             ("light".to_string(), Mode::Light, Rgb::new(0xf8, 0xf8, 0xf8)),
         ]
@@ -112,6 +112,17 @@ fn a_custom_theme_resolves_by_its_json_name() {
     );
 }
 
+/// A saved `eukhe`, the default theme's old name, resolves to the default
+/// theme without a warning.
+#[test]
+fn the_old_default_name_resolves_quietly_to_the_default() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    assert_eq!(
+        custom_dir_sources(dir.path()).resolve("eukhe", THEME_RULES),
+        default_with(Vec::new())
+    );
+}
+
 #[test]
 fn an_invalid_theme_warns_and_falls_back_to_the_default() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -123,7 +134,7 @@ fn an_invalid_theme_warns_and_falls_back_to_the_default() {
     assert_eq!(
         custom_dir_sources(dir.path()).resolve("dusk-apple", THEME_RULES),
         default_with(vec![format!(
-            "Theme \"dusk-apple\" unavailable, using \"eukhe\": Invalid theme {}: color \
+            "Theme \"dusk-apple\" unavailable, using \"forge\": Invalid theme {}: color \
              \"accent\": Variable reference not found: nope",
             path.display()
         )])
@@ -163,7 +174,7 @@ fn registered_files_resolve_by_their_json_name() {
     );
     assert_eq!(
         sources.available_names(THEME_RULES),
-        ["dark", "dusk-apple", "eukhe", "light"]
+        ["dark", "dusk-apple", "forge", "light"]
     );
 }
 
@@ -230,7 +241,7 @@ fn a_name_never_reaches_outside_the_sources() {
     assert_eq!(
         custom_dir_sources(&themes).resolve("../escaped", THEME_RULES),
         default_with(vec![
-            "Theme \"../escaped\" unavailable, using \"eukhe\": Theme not found: ../escaped"
+            "Theme \"../escaped\" unavailable, using \"forge\": Theme not found: ../escaped"
                 .to_string()
         ])
     );

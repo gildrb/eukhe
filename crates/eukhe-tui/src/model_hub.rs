@@ -644,7 +644,7 @@ mod tests {
         let mut hub = ModelHub::new(rows(), 30);
         let text: Vec<String> = hub
             .render(
-                &Theme::builtin("eukhe", crate::theme::ColorMode::TrueColor),
+                &Theme::builtin("forge", crate::theme::ColorMode::TrueColor),
                 100,
                 &kb(),
             )

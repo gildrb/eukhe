@@ -54,7 +54,7 @@ fn child_exited(text: &str) -> QueuedItem {
 }
 
 fn theme() -> Theme {
-    Theme::builtin("eukhe", ColorMode::TrueColor)
+    Theme::builtin("forge", ColorMode::TrueColor)
 }
 
 fn queue() -> QueuedMessages {

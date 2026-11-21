@@ -37,7 +37,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     cwd: options.cwd.clone(),
                     session_dir: options.session_dir.clone(),
                     theme: eukhe_tui::theme::Theme::builtin(
-                        "eukhe",
+                        "forge",
                         eukhe_tui::theme::ColorMode::TrueColor,
                     ),
                     version: options.version.clone(),
@@ -79,7 +79,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
                     cwd: options.cwd.clone(),
                     session_dir: options.session_dir.clone(),
                     theme: eukhe_tui::theme::Theme::builtin(
-                        "eukhe",
+                        "forge",
                         eukhe_tui::theme::ColorMode::TrueColor,
                     ),
                     version: options.version.clone(),
@@ -130,7 +130,7 @@ pub(super) fn child_run(route: &str, socket: PathBuf) {
             ];
             let selector = eukhe_tui::config_selector::ConfigSelector::new(rows);
             let theme =
-                eukhe_tui::theme::Theme::builtin("eukhe", eukhe_tui::theme::detect_color_mode());
+                eukhe_tui::theme::Theme::builtin("forge", eukhe_tui::theme::detect_color_mode());
             let options = eukhe_tui::config_selector::ConfigSelectorOptions {
                 theme,
                 keybindings: eukhe_tui::keybindings::KeybindingsManager::new(),
@@ -216,7 +216,7 @@ fn child_options(socket: PathBuf) -> InteractiveOptions {
         initial_message: None,
         show_images: true,
         screen_mode: eukhe_tui::screen_mode::ScreenMode::Inline,
-        theme: "eukhe".to_string(),
+        theme: "forge".to_string(),
         code_block_indent: "  ".to_string(),
         tree_filter_mode: String::new(),
         branch_summary_skip_prompt: false,

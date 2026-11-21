@@ -246,8 +246,8 @@ impl AgentView {
         if toasts.is_empty() {
             return Vec::new();
         }
-        // The action ack renders as the brand-purple pill: the theme's
-        // Accent token flipped onto the pill's background.
+        // The action ack renders as the accent pill: the theme's Accent
+        // token flipped onto the pill's background.
         let style = self
             .theme
             .fg_style(crate::theme::ThemeColor::Accent)

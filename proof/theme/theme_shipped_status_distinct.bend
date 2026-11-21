@@ -6,7 +6,7 @@ import ../../laws/theme.bend as Theme
 
 def theme_shipped_status_distinct(s: TBundled.Shipped) -> {TBundled.status_distinct(TBundled.table(s)) == True{} : Bool}:
   match s:
-    case TBundled.Eukhe{}:
+    case TBundled.Forge{}:
       {==}
     case TBundled.Dark{}:
       {==}

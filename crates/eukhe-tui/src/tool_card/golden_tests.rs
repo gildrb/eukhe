@@ -359,7 +359,7 @@ fn generic_cases() -> Vec<(&'static str, ToolCallCard)> {
 /// variant that renders exactly like an earlier one of the same case and
 /// width names that variant instead of repeating its rows.
 fn render_matrix() -> String {
-    let theme = Theme::builtin("eukhe", ColorMode::TrueColor);
+    let theme = Theme::builtin("forge", ColorMode::TrueColor);
     let mut out = String::new();
     let cases = python_cases()
         .into_iter()

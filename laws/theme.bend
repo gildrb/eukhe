@@ -35,10 +35,11 @@
 #    theme_legible_sound, theme_pairs_cover, theme_shipped_status_distinct,
 #    theme_status_sound.
 # R5 a name picks, among the files that load: the first registered file
-#    that advertises it, else the builtin of that name (eukhe, dark, light:
-#    crates/eukhe-theme palette.rs BUILTIN_THEME_NAMES), else the first
-#    custom file that advertises it, else the default theme eukhe with a
-#    warning; the empty name picks eukhe quietly. A name that picks no
+#    that advertises it, else the builtin of that name (forge, dark, light:
+#    crates/eukhe-theme palette.rs BUILTIN_THEME_NAMES; eukhe, the default
+#    theme's old name, names forge), else the first custom file that
+#    advertises it, else the default theme forge with a warning; the empty
+#    name picks forge quietly. A name that picks no
 #    theme warns with the first file that did not load and advertises it
 #    (or, no theme object, is named after it); every other file that did
 #    not load warns once; a valid file whose name an earlier valid file has
@@ -432,14 +433,14 @@ def th.exports(p: TPalette.Parsed) -> List<&2, Maybe<&2, Co.Rgb>>:
       [pg, cd, io]
 
 # the builtin a mode's optional tokens come from: light for a light
-# background, the default theme eukhe for a dark one (crates/eukhe-theme
+# background, the default theme forge for a dark one (crates/eukhe-theme
 # palette.rs DEFAULT_THEME_NAME, LIGHT_THEME_NAME)
 def th.builtin.of(light: Bool) -> TBundled.Shipped:
   match light:
     case True{}:
       TBundled.Light{}
     case False{}:
-      TBundled.Eukhe{}
+      TBundled.Forge{}
 
 def th.hexs(m: Maybe<&2, Co.Rgb>) -> Maybe<&2, TFile.Val>:
   match m:
@@ -1063,7 +1064,7 @@ law theme_palette_tokens:
 # dark background, light for a light one
 # EXCLUDES: fallbacks from the wrong builtin
 law theme_defaults_shipped:
-  {[TPalette.defaults(False{}), TPalette.defaults(True{})] == [TBundled.table(TBundled.Eukhe{}), TBundled.table(TBundled.Light{})] : List<&2, List<&2, Co.Rgb>>}
+  {[TPalette.defaults(False{}), TPalette.defaults(True{})] == [TBundled.table(TBundled.Forge{}), TBundled.table(TBundled.Light{})] : List<&2, List<&2, Co.Rgb>>}
 
 # LAW theme_light_spec (R4): a file is light when its background is (Co.light), and its
 # background is the completed one

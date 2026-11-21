@@ -2930,6 +2930,7 @@ import ./proof/theme/theme_light_example.bend as PThemeLightExample
 import ./proof/theme/theme_legible_spec.bend as PThemeLegibleSpec
 import ./proof/theme/theme_status_distinct_spec.bend as PThemeStatusDistinctSpec
 import ./proof/theme_pick/theme_builtin_before_custom_example.bend as PThemeBuiltinBeforeCustomExample
+import ./proof/theme_pick/theme_old_name_example.bend as PThemeOldNameExample
 import ./proof/theme/theme_ffi_answers.bend as PThemeFfiAnswers
 import ./proof/theme/theme_ffi_left_over.bend as PThemeFfiLeftOver
 import ./proof/theme/theme_ffi_unknown_tag.bend as PThemeFfiUnknownTag
@@ -2946,7 +2947,7 @@ import ./proof/theme_model/theme_at_index.bend as PThemeAtIndex
 import ./proof/theme_model/theme_fill_map_each.bend as PThemeFillMapEach
 import ./proof/theme_model/theme_vals_each.bend as PThemeValsEach
 import ./proof/theme_model/theme_complete_each.bend as PThemeCompleteEach
-import ./proof/theme_model/theme_dflt_eukhe.bend as PThemeDfltEukhe
+import ./proof/theme_model/theme_dflt_forge.bend as PThemeDfltForge
 import ./proof/theme_model/theme_valid_missing.bend as PThemeValidMissing
 import ./proof/theme_model/theme_vals_example.bend as PThemeValsExample
 import ./proof/theme_model/theme_load_spec.bend as PThemeLoadSpec

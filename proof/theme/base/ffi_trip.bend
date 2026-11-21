@@ -260,7 +260,7 @@ def tt.req(r: FTh.Req, +rest: String, +h: {Tw.fits(r) == True{} : Bool}) -> {Wr.
       {==}
     case FTh.Shipped{s}:
       match s:
-        case TBundled.Eukhe{}:
+        case TBundled.Forge{}:
           {==}
         case TBundled.Dark{}:
           {==}
