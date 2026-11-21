@@ -39,10 +39,10 @@
 #                                     command_ffi_out_exact,
 #                                     command_ffi_cut_reply_example
 #   R14g the reply readers read every reply the reply grammar spells
-#        (the resolve reply's grammar spelling is the entry's own put_res)
-#                                     command_ffi_res_round_trip,
+#                                     command_ffi_res_reads_spelled,
 #                                     command_ffi_menu_reads_spelled,
-#                                     command_ffi_out_reads_spelled
+#                                     command_ffi_out_reads_spelled,
+#                                     command_ffi_reply_example
 #   R14i every request and reply the entry's own encoders write reads
 #        back whole, the rest untouched; a request with input after it is
 #        refused                      command_ffi_round_trip,
@@ -52,8 +52,7 @@
 #                                     command_ffi_out_round_trip
 # The requests and replies of R14a-R14h are spelled with the spec spellers
 # below and those of laws/base.bend, never with the entry's own encoders
-# (R14i reads those encoders back, and the resolve reply of R14f and R14g
-# is put_res).
+# (R14i reads those encoders back).
 
 import Base
 import ../../bend/command.bend as Cmd
@@ -319,8 +318,20 @@ def cmd_spell_out(o: Cmd.Out) -> String:
     case Cmd.Out{l, a, b}:
       Wr.put_str(cmd_text(l), Wr.put_bool(a, Wr.put_bool(b, "")))
 
-# the replies as the reply grammar spells them: a menu, tag 0 the command
-# names, 1 the children (path, places), 2 none
+# the replies as the reply grammar spells them: a resolution, tag 0 runs
+# (path, text), 1 opens (path), 2 unknown (path, word), 3 no command
+def cmd_spell_resw(r: FCmd.ResW, rest: String) -> String:
+  match r:
+    case FCmd.RunsW{p, a}:
+      Wr.put_nat(0n, LawsBase.wire_spell_strs(p, Wr.put_str(a, rest)))
+    case FCmd.OpensW{p}:
+      Wr.put_nat(1n, LawsBase.wire_spell_strs(p, rest))
+    case FCmd.UnknownW{p, w}:
+      Wr.put_nat(2n, LawsBase.wire_spell_strs(p, Wr.put_str(w, rest)))
+    case FCmd.NoCmdW{}:
+      Wr.put_nat(3n, rest)
+
+# a menu, tag 0 the command names, 1 the children (path, places), 2 none
 def cmd_spell_menuw(m: FCmd.MenuW, rest: String) -> String:
   match m:
     case FCmd.NamesW{}:
@@ -459,6 +470,18 @@ law command_ffi_unknown_menu:
   for +rest: String
   {FCmd.get_menu(Wr.put_nat(3n+n, rest)) == Wr.Bad{} : Wr.Dec<FCmd.MenuW>}
 
+# LAW command_ffi_res_reads_spelled: the resolve reply reader reads every
+# reply the reply grammar spells back as itself, the rest untouched
+# EXCLUDES: a reader and writer that agree on another grammar (the runs
+#   and unknown tags swapped: the entry's reply `0,2,6,memory5,model0,`,
+#   run /memory model, read as an unknown word), a reader that swaps the
+#   path and the text
+law command_ffi_res_reads_spelled:
+  for +x: FCmd.ResW
+  for +rest: String
+  for h: {cmd_res_fits(x) == True{} : Bool}
+  {FCmd.get_res(cmd_spell_resw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
+
 # LAW command_ffi_menu_reads_spelled: the menu reply reader reads every
 # reply the reply grammar spells back as itself, the rest untouched
 # EXCLUDES: a reader that swaps the menu tags, the path and the places
@@ -480,18 +503,18 @@ law command_ffi_out_reads_spelled:
   {FCmd.get_out(cmd_spell_outw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
 
 # LAW command_ffi_res_exact: whatever the resolve reply reader accepts is
-# exactly the entry's spelling of the resolution it reads (put_res), then
+# exactly the reply grammar's spelling of the resolution it reads, then
 # the rest: any other reply is no reply
 # EXCLUDES: a reply cut before its text, word or path read as an answer
 #   (`0,1,6,memory`, its text missing, read as running /memory with no
 #   text), a default for a malformed reply, a second spelling of one
-#   answer
+#   answer, a reader of another grammar
 law command_ffi_res_exact:
   for +s: String
   for +x: FCmd.ResW
   for +rest: String
   for h: {FCmd.get_res(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
-  {s == FCmd.put_res(x, rest) : String}
+  {s == cmd_spell_resw(x, rest) : String}
 
 # LAW command_ffi_menu_exact: whatever the menu reply reader accepts is
 # exactly the reply grammar's spelling of the menu it reads, then the
@@ -526,6 +549,17 @@ law command_ffi_out_exact:
 #   `7,memory TF` (a default for what is missing)
 law command_ffi_cut_reply_example:
   {(FCmd.get_res("0,1,6,memory"), (FCmd.get_menu("1,1,6,memory"), FCmd.get_out("7,memory T"))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
+
+# LAW command_ffi_reply_example: anchor: the entry's replies of
+# command_ffi_example read back as what they say: `memory model` runs
+# /memory model with no text, the menu of `memory ` lists places 1 and 2
+# below /memory, Tab gives the line `memory ` with its menu open and no
+# submit
+# EXCLUDES: a resolve reader that reads tag 0 as an unknown word (a reader
+#   and writer that agree on swapped tags), a menu or key reader of
+#   another order
+law command_ffi_reply_example:
+  {(FCmd.get_res("0,2,6,memory5,model0,"), (FCmd.get_menu("1,1,6,memory2,1,2,"), FCmd.get_out("7,memory TF"))) == (Wr.Got{FCmd.RunsW{["memory", "model"], ""}, ""}, (Wr.Got{FCmd.KidsW{["memory"], [1n, 2n]}, ""}, Wr.Got{FCmd.OutW{"memory ", True{}, False{}}, ""})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
 
 # LAW command_ffi_example: anchor: in the spelling of the example table of
 # crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are
