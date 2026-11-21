@@ -144,7 +144,7 @@ const globalCss = [
   `[data-images]>img{position:absolute;height:auto}`,
   `.bold{font-weight:${type.bold};color:${colors.primary}}`,
   `.italic{font-style:italic}`,
-  `.code{color:${colors.primary};background:color-mix(in oklch,${colors.primary} 7%,transparent)}`,
+  `.code{color:${colors.primary}}`,
   `.copy{cursor:pointer}`,
   `.cl{background:color-mix(in oklch,${colors.primary} 6%,transparent)}`,
   `.hit{background:color-mix(in oklch,${colors.tertiary} 40%,transparent)}`,
@@ -445,7 +445,7 @@ export function render(
 ): Record<string, string> {
   // The editor's files: the home page (rendered), the other pages, then eukhe's files.
   const editor = [
-    pageFile("index.md", source, sizes, install, textWidth, desktop),
+    pageFile("index.md", source, sizes, textWidth, desktop),
     ...[
       ...docs.map((doc) => ({
         path: `${doc.path.slice(1)}.md`,

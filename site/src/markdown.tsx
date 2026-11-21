@@ -231,7 +231,7 @@ function greek(text: string): Readonly<Record<string, string>> {
 
 /**
  * The page: one block per row group, each wrapping at the screen's width; list items and quotes
- * hang their marker. Only the fence the install command opens gets a copy button (`source.ts`).
+ * hang their marker. Each fence that opens commands gets a copy button for them.
  */
 function body(entries: readonly Entry[]): ComponentChildren[] {
   const fenced = fences(entries);
@@ -275,17 +275,20 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         const header = entry.line.$ === "Header";
         const code = entry.line.$ === "Code" || entry.line.$ === "Table" || entry.line.$ === "Raw";
         const text = "text" in entry.line ? entry.line.text : "";
+        const commands = (fenced.get(entry.n) ?? []).filter((c) => c !== "").join("\n");
         return (
           <span
             {...greek(text)}
             {...stylex.props(styles.row, header && styles.header, code && styles.hang)}
           >
             {content(entry.line)}
-            {fenced.get(entry.n)?.[0] === install ? (
+            {commands !== "" ? (
               <button
                 type="button"
-                data-copy={install}
-                aria-label="Copy the install command"
+                data-copy={commands}
+                aria-label={
+                  commands.startsWith(install) ? "Copy the install command" : "Copy the commands"
+                }
                 {...stylex.props(styles.copy)}
               >
                 [copy]
@@ -310,17 +313,17 @@ export type Hl = "title" | "muted" | "heading" | "link" | "bold" | "italic" | "c
 export type Run = { from: number; to: number; hl: Hl; href?: string };
 
 /**
- * A file as the editor holds it: its lines, each line's highlights, and the line of the install
- * command's opening fence (`[copy]` follows it), if the file holds one.
+ * A file as the editor holds it: its lines, each line's highlights, and its code blocks' `[copy]`:
+ * the line it follows (the block's opening line) and the commands it copies.
  */
 export type EditorFile = {
   path: string;
   lines: string[];
   runs: Run[][];
-  copy: number | null;
+  copies: Copy[];
   images: Placement[];
   /** The home page: its Markdown and its images' sizes, to render again at a narrower width. */
-  page: { source: string; sizes: Sizes; width: number; install: string } | null;
+  page: { source: string; sizes: Sizes; width: number } | null;
 };
 
 /** Code points in a string: the editor's columns. */
@@ -400,10 +403,14 @@ function lineRuns(item: Line): Run[] {
   }
 }
 
-/** The 0-based line of the opening fence of the block the install command starts. */
-function copyFence(entries: readonly Entry[]): number | null {
-  for (const [n, code] of fences(entries)) if (code[0] === install) return n - 1;
-  return null;
+/** A code block's `[copy]`: after its opening line (0-based), its commands, one a line. */
+export type Copy = { line: number; text: string };
+
+/** Each code block that holds a command: its `[copy]`. */
+function copyFences(entries: readonly Entry[]): Copy[] {
+  return [...fences(entries)]
+    .map(([n, code]) => ({ line: n - 1, text: code.filter((c) => c !== "").join("\n") }))
+    .filter((copy) => copy.text !== "");
 }
 
 /** A file for the editor: Markdown gets the page's highlights. */
@@ -419,7 +426,7 @@ export function editorFile(
     path,
     lines: text.split("\n"),
     runs: entries.map((entry) => lineRuns(entry.line)),
-    copy: plain ? null : copyFence(entries),
+    copies: plain ? [] : copyFences(entries),
     images: [],
     page: null,
   };

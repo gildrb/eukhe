@@ -145,18 +145,18 @@ export type CopyAt = { row: number; from: number; to: number; text: string };
 
 /**
  * The h text rows: the window's lines from `left`, with highlights, search hits and virtual text
- * (`[copy]` after the install fence). `dir` holds an Oil listing's lines.
+ * (`[copy]` after each code block's opening line). `dir` holds an Oil listing's lines.
  */
 export function textRows(
   frame: Frame,
   file: EditorFile | undefined,
   dir: readonly string[],
   h: number,
-): { htmls: string[]; copyAt: CopyAt | null } {
+): { htmls: string[]; copyAt: CopyAt[] } {
   const hits = list(frame.hits);
   const g = frame.gutter;
   const left = frame.left;
-  let copyAt: CopyAt | null = null;
+  const copyAt: CopyAt[] = [];
   const htmls: string[] = [];
   for (let r = 0; r < h; r += 1) {
     const l = frame.top + r;
@@ -165,22 +165,19 @@ export function textRows(
       const line = file.lines[l];
       if (line !== undefined) {
         const cps = cells(line);
-        const command = file.lines[l + 1];
-        const copy = file.copy === l && command !== undefined;
-        row = blankRow(Math.max(0, cps.length + (copy ? 8 : 0) - left));
+        const copy = file.copies.find((c) => c.line === l);
+        row = blankRow(Math.max(0, cps.length + (copy !== undefined ? 8 : 0) - left));
         for (let c = 0; c < row.chars.length; c += 1) {
           const ch = cps[left + c];
           if (ch === undefined) break;
           row.chars[c] = ch;
         }
         for (const run of file.runs[l] ?? []) addClass(row, run.from - left, run.to - left, run.hl);
-        if (copy) {
+        if (copy !== undefined) {
           const at = cps.length + 2 - left;
           if (at >= 0) {
             put(row, at, "[copy]", "copy");
-            // The command alone, its trailing `# comment` dropped.
-            const text = command.replace(/(^|\s)#\s.*$/, "").trimEnd();
-            copyAt = { row: r, from: g + at, to: g + at + 6, text };
+            copyAt.push({ row: r, from: g + at, to: g + at + 6, text: copy.text });
           }
         }
       }

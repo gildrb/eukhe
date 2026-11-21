@@ -45,7 +45,19 @@ function isEditorFile(value: unknown): value is EditorFile {
   if (!value.runs.every((row: unknown) => Array.isArray(row) && row.every(isRun))) return false;
   if (!("images" in value) || !Array.isArray(value.images)) return false;
   if (!("page" in value) || (value.page !== null && typeof value.page !== "object")) return false;
-  return "copy" in value && (value.copy === null || typeof value.copy === "number");
+  return (
+    "copies" in value &&
+    Array.isArray(value.copies) &&
+    value.copies.every(
+      (copy: unknown) =>
+        typeof copy === "object" &&
+        copy !== null &&
+        "line" in copy &&
+        typeof copy.line === "number" &&
+        "text" in copy &&
+        typeof copy.text === "string",
+    )
+  );
 }
 
 async function loadFiles(text: Promise<string>): Promise<EditorFile[]> {
@@ -124,8 +136,8 @@ function keyName(event: KeyboardEvent): string | null {
 let state: St | null = null;
 let files: EditorFile[] = [];
 
-/** Virtual text on screen this frame (`[copy]`), for clicks. */
-let copyAt: CopyAt | null = null;
+/** Virtual text on screen this frame (each `[copy]`), for clicks. */
+let copyAt: CopyAt[] = [];
 
 /**
  * Rows of cells in an element, one <div> each: a row is written only when its HTML changed, so a
@@ -288,6 +300,11 @@ function step(event: Ev) {
   paint(Vim["Vim.frame"](state));
 }
 
+/** The `[copy]` at screen cell (row, col), if one is there. */
+function copyUnder(row: number, col: number): CopyAt | undefined {
+  return copyAt.find((copy) => row === copy.row && col >= copy.from && col < copy.to);
+}
+
 /** Where the window is: a file or an Oil folder. A tap that changes it is a step in history. */
 function place(frame: Frame | null): string {
   if (frame === null) return "";
@@ -308,8 +325,9 @@ let depth = 0;
  * the statusline it opens the folder above (-).
  */
 function tap(row: number, col: number, finger: boolean) {
-  if (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to) {
-    void navigator.clipboard.writeText(copyAt.text);
+  const copy = copyUnder(row, col);
+  if (copy !== undefined) {
+    void navigator.clipboard.writeText(copy.text);
     return;
   }
   const from = place(shown);
@@ -372,7 +390,7 @@ async function start() {
     const w = Math.min(textWidth, cols - pageGutter);
     return w === home.width && cw === desktop.cw && lh === desktop.lh
       ? file
-      : pageFile(file.path, home.source, home.sizes, home.install, w, { cw, lh });
+      : pageFile(file.path, home.source, home.sizes, w, { cw, lh });
   });
   const bufs = cons(
     files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),
@@ -442,9 +460,7 @@ function listen() {
   term.addEventListener("mousemove", (event) => {
     const { row, col } = cellAt(event);
     mouse = { row, col };
-    const over =
-      linkAt(row, col) !== null ||
-      (copyAt !== null && row === copyAt.row && col >= copyAt.from && col < copyAt.to);
+    const over = linkAt(row, col) !== null || copyUnder(row, col) !== undefined;
     term.style.cursor = over ? "pointer" : "";
   });
   // A notch is about 100px of wheel; a trackpad sends many small moves, summed until they make one.

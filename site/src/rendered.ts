@@ -6,14 +6,14 @@
  * (`index.md`); this is the buffer the editor shows. Pure: the build paints it at the desktop width,
  * the browser again at its own when that is narrower.
  */
-import type { EditorFile, Hl, Run } from "./markdown.tsx";
+import type { Copy, EditorFile, Hl, Run } from "./markdown.tsx";
 import { escape } from "./paint.ts";
 
 /** An image in the buffer: the rows it covers from `line`, its file and its alt text. */
 export type Placement = { line: number; rows: number; src: string; alt: string; width: number };
 
-/** The rendered buffer: its lines, each line's highlights, the install fence's line, its images. */
-export type Rendered = { lines: string[]; runs: Run[][]; copy: number | null; images: Placement[] };
+/** The rendered buffer: its lines, each line's highlights, its code blocks' `[copy]`, its images. */
+export type Rendered = { lines: string[]; runs: Run[][]; copies: Copy[]; images: Placement[] };
 
 /** The widest the text runs, in cells ('textwidth'). */
 export const textWidth = 80;
@@ -171,13 +171,12 @@ function joined(runs: readonly Run[]): Run[] {
 export function render(
   source: string,
   w: number,
-  install: string,
   rowsOf: (img: { src: string; width: number }) => number,
 ): Rendered {
   const lines: string[] = [];
   const runs: Run[][] = [];
   const images: Placement[] = [];
-  let copy: number | null = null;
+  const copies: Copy[] = [];
   const add = (b: Built) => {
     lines.push(b.text);
     runs.push(b.runs);
@@ -193,33 +192,36 @@ export function render(
       continue;
     }
     if (line.startsWith("```")) {
-      // The block: its language as its label, its lines as they are, the fences hidden; its
-      // background the width of its longest line, as render-markdown.nvim shades a block.
+      // The block: its language as its label (`[copy]` after it), its lines as they are, the
+      // fences hidden.
       const lang = line.slice(3).trim();
       const at = lines.length;
       add({
         text: lang,
         runs: lang === "" ? [] : [{ from: 0, to: Array.from(lang).length, hl: "muted" }],
       });
-      const block: string[] = [];
-      for (i += 1; i < md.length && !(md[i] ?? "").startsWith("```"); i += 1)
-        block.push(md[i] ?? "");
-      const wide = Math.max(0, ...block.map((code) => Array.from(code).length)) + 1;
-      for (const code of block) {
+      const commands: string[] = [];
+      for (i += 1; i < md.length && !(md[i] ?? "").startsWith("```"); i += 1) {
+        const code = md[i] ?? "";
         const comment = /(^|\s)#\s.*$/.exec(code);
         const cut = comment === null ? null : comment.index + (comment[1]?.length ?? 0);
-        const n = Array.from(code).length;
         add({
-          text: code + " ".repeat(wide - n),
-          runs: [
-            { from: 0, to: wide, hl: "code" },
-            ...(cut === null
+          text: code,
+          runs:
+            cut === null
               ? []
-              : [{ from: Array.from(code.slice(0, cut)).length, to: n, hl: "muted" as const }]),
-          ],
+              : [
+                  {
+                    from: Array.from(code.slice(0, cut)).length,
+                    to: Array.from(code).length,
+                    hl: "muted",
+                  },
+                ],
         });
-        if (code.replace(/(^|\s)#\s.*$/, "").trimEnd() === install) copy = at;
+        const command = code.replace(/(^|\s)#\s.*$/, "").trimEnd();
+        if (command !== "") commands.push(command);
       }
+      if (commands.length > 0) copies.push({ line: at, text: commands.join("\n") });
       continue;
     }
     const heading = /^(#{1,6}) (.*)$/.exec(line);
@@ -269,7 +271,7 @@ export function render(
     }
     flush();
   }
-  return { lines, runs, copy, images };
+  return { lines, runs, copies, images };
 }
 
 function texts(ps: readonly Part[]): Piece[] {
@@ -318,17 +320,16 @@ export function pageFile(
   path: string,
   source: string,
   sizes: Sizes,
-  install: string,
   w: number,
   cell: Cell,
 ): EditorFile {
-  const r = render(source, w, install, (img) => imageRows(img, w, cell, sizes));
+  const r = render(source, w, (img) => imageRows(img, w, cell, sizes));
   return {
     path,
     lines: r.lines,
     runs: r.runs,
-    copy: r.copy,
+    copies: r.copies,
     images: r.images,
-    page: { source, sizes, width: w, install },
+    page: { source, sizes, width: w },
   };
 }
