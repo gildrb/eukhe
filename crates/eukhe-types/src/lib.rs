@@ -40,6 +40,7 @@ pub mod shell;
 pub mod skill_blocks;
 pub mod slash_arguments;
 pub mod slash_commands;
+pub mod undo;
 pub mod usage;
 pub mod workflow;
 

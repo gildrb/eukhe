@@ -130,6 +130,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_undo.bend as ffi_undo
 import ./ffi_verify.bend as ffi_verify
 import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
@@ -389,6 +390,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_strength.ffi(input)
     case 466:
       ffi_irreversible.ffi(input)
+    case 467:
+      ffi_undo.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case 473:

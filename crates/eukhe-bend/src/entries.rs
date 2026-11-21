@@ -274,6 +274,8 @@ pub enum Entry {
     Strength = 465,
     /// `bend/ffi_irreversible.bend`: a call.
     Irreversible = 466,
+    /// `bend/ffi_undo.bend`: a call.
+    Undo = 467,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
     /// `bend/ffi_path_own.bend`: a call.
@@ -417,6 +419,7 @@ impl Entry {
         Entry::HeadlessTask,
         Entry::Strength,
         Entry::Irreversible,
+        Entry::Undo,
         Entry::Fallback,
         Entry::PathOwn,
     ];
