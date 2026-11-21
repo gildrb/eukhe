@@ -20,6 +20,11 @@
 //! commands: `get_connection_state` for the live model/level,
 //! `get_available_models` for discovery, `set_model` /
 //! `set_thinking_level` for the applied selection.
+//!
+//! The attach advertises `editor_permission`: before an irreversible
+//! effect runs the daemon sends an `editor_permission` frame, which
+//! `permission.rs` turns into the editor's `session/request_permission`
+//! (spec I12).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -36,6 +41,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::jsonrpc::{self, Incoming};
 use super::meta::{self, EukheEventPhase, EukheOutcome, EukheSessionMeta};
+use super::permission::{self, EditorRequests};
 use super::producer::{self, UpdateProducer};
 use super::types;
 use super::wire_config::{
@@ -64,6 +70,9 @@ enum LinkFrame {
     /// The daemon-global heartbeat-catalog broadcast the supervisor
     /// re-broadcasts to every client (`heartbeats_changed`).
     HeartbeatsChanged,
+    /// The daemon asks the editor before an irreversible effect runs
+    /// (`editor_permission`, unsequenced).
+    EditorPermission(Value),
 }
 
 /// A client connection to the supervisor socket: JSONL command envelopes
@@ -151,6 +160,9 @@ impl DaemonLink {
                     }
                     "heartbeats_changed" => {
                         let _ = frame_tx.send(LinkFrame::HeartbeatsChanged);
+                    }
+                    permission::FRAME => {
+                        let _ = frame_tx.send(LinkFrame::EditorPermission(value));
                     }
                     _ => {}
                 }
@@ -310,6 +322,9 @@ pub(crate) struct HostedSession {
     /// The event mapping state lives and dies with the session, like TS.
     mapping: WireMappingState,
     observed_children: std::collections::HashSet<String>,
+    /// The editor answered `session/request_permission` as an unknown
+    /// method: it is not asked again in this session.
+    pub(crate) editor_unsupported: bool,
 }
 
 struct ActiveTurn {
@@ -369,6 +384,7 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
 
     let link = Arc::new(DaemonLink::connect(&options.socket_path).await?);
     let state = Arc::new(Mutex::new(DaemonAcpState::default()));
+    let editor_requests = Arc::new(EditorRequests::default());
 
     // Session events and responses share one socket, so one consumer owns
     // the ordering: events publish at the active turn before the response
@@ -377,6 +393,10 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
     {
         let link = Arc::clone(&link);
         let state = Arc::clone(&state);
+        let editor_requests = Arc::clone(&editor_requests);
+        // Weak: the consumer lives as long as the daemon link, and must
+        // not keep the stdout writer open past EOF.
+        let sink = tx.downgrade();
         tokio::spawn(async move {
             let mut frames = link.frames.lock().await;
             while let Some(frame) = frames.recv().await {
@@ -474,6 +494,34 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
                                 .await;
                         }
                     }
+                    LinkFrame::EditorPermission(frame) => {
+                        let Ok(frame) =
+                            serde_json::from_value::<permission::PermissionFrame>(frame)
+                        else {
+                            continue;
+                        };
+                        let asked = state
+                            .lock()
+                            .await
+                            .session
+                            .as_ref()
+                            .filter(|hosted| !hosted.editor_unsupported)
+                            .map(|hosted| permission::Asked {
+                                acp_session_id: hosted.acp_session_id.clone(),
+                                params: permission::request_params(
+                                    &hosted.acp_session_id,
+                                    &frame.request,
+                                ),
+                            });
+                        tokio::spawn(permission::answer(
+                            Arc::clone(&link),
+                            Arc::clone(&state),
+                            Arc::clone(&editor_requests),
+                            sink.clone(),
+                            frame,
+                            asked,
+                        ));
+                    }
                 }
             }
             // The reader hit the socket close and every frame it read
@@ -505,6 +553,10 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
             continue;
         }
         let incoming = match jsonrpc::parse_line(&input_line) {
+            Ok(Incoming::Response { id, reply }) => {
+                editor_requests.settle(&id, reply);
+                continue;
+            }
             Ok(incoming) => incoming,
             Err(error_response) => {
                 let _ = tx.send(error_response);
@@ -591,6 +643,9 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
         while handlers.try_join_next().is_some() {}
     }
 
+    // The editor left: its open questions end unanswered (the daemon runs
+    // them once this client detaches).
+    editor_requests.close();
     handlers.shutdown().await;
     // A close frame is reserved synchronously but its stop runs detached.
     // Let it finish before EOF teardown takes the hosted session away.
@@ -639,7 +694,12 @@ async fn bind_daemon_session(
             active_session_id: binding.active_session_id.clone(),
             client_id: None,
             client_kind: None,
-            capabilities: None,
+            capabilities: Some(
+                crate::protocol::default_client_capabilities()
+                    .into_iter()
+                    .chain([permission::CAPABILITY.to_string()])
+                    .collect(),
+            ),
             resume_cursor: None,
             recovery_config: None,
             env: None,
@@ -965,6 +1025,7 @@ async fn handle_session_new(
         assistant_stop_reason: None,
         mapping: WireMappingState::default(),
         observed_children: std::collections::HashSet::new(),
+        editor_unsupported: false,
     };
     // The ACP MCP servers ride the wire command, not a local manager.
     let replace_skipped = resolved.is_empty() && state.lock().await.mcp_server_names.is_empty();
@@ -1728,6 +1789,7 @@ mod tests {
             assistant_stop_reason: None,
             mapping: WireMappingState::default(),
             observed_children: std::collections::HashSet::new(),
+            editor_unsupported: false,
         }
     }
 
