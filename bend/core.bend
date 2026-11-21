@@ -53,6 +53,7 @@ import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
 import ./ffi_gateway_commands.bend as ffi_gateway_commands
+import ./ffi_gateway_report.bend as ffi_gateway_report
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
@@ -384,6 +385,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work_list.ffi(input)
     case 464:
       ffi_headless_task.ffi(input)
+    case 471:
+      ffi_gateway_report.ffi(input)
     case _:
       W.err("unknown entry")
 

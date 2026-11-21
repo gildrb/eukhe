@@ -1,5 +1,6 @@
-//! What a settled session event tells the Signal peer that holds the
-//! floor: the agent's text, a failure, or a stop. The compiled Bend core
+//! What a settled session event answers for the Signal peer that holds
+//! the floor: the agent's text, a failure, or a stop (`crate::report`
+//! decides when the peer hears it). The compiled Bend core
 //! decides (`bend/gateway_answer.bend`, entry
 //! `bend/ffi_gateway_answer.bend`, laws `laws/gateway_answer.bend`); this
 //! file writes what the event holds and reads the answer.

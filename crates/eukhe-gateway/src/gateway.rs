@@ -1,5 +1,6 @@
 //! The gateway's event loop: Signal messages go into the routed daemon
-//! session; the agent's replies go back while Signal holds the floor.
+//! session; each run's end-of-run report goes back while Signal holds the
+//! floor.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
@@ -16,6 +17,7 @@ use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
     WaitingOn,
 };
+use eukhe_types::goal::GoalState;
 use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
@@ -24,6 +26,7 @@ use tokio::sync::{mpsc, watch};
 use crate::answer::{answer, Answer};
 use crate::commands::{Parsed, PhoneCommand};
 use crate::link::{reconnect_delay, Binding, Link, Opened, Reconnect};
+use crate::report::{self, End, Work};
 use crate::sessions::{
     home_route, root_session, Route, SavedSession, SessionRef, LISTED_SESSIONS, ROOT_SESSION_NAME,
 };
@@ -46,7 +49,8 @@ const SENT_PROMPTS_KEPT: usize = 16;
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 /// The instruction of the root session's heartbeat (`gateway.rootHeartbeat`).
-const ROOT_HEARTBEAT_PROMPT: &str = "Heartbeat: check on your children and the work you wait on, and act on what is due. Stay quiet when nothing needs the user.";
+/// The phone hears what the heartbeat's run answers, as the run's report.
+const ROOT_HEARTBEAT_PROMPT: &str = "Heartbeat: check on your children and the work you wait on, and act on what is due. Decide and act; never ask the user. Answer only with work that finished or a failure that ended it; with neither, answer nothing.";
 
 /// The typing indicator the gateway shows.
 struct TypingShown {
@@ -104,9 +108,12 @@ pub(crate) struct Gateway<L> {
     daemon: DaemonState,
     route: Route,
     binding: Option<Binding>,
-    /// The Signal peer that gets the agent's replies; `None` while the CLI
+    /// The Signal peer that gets each run's report; `None` while the CLI
     /// holds the floor.
     floor: Option<Peer>,
+    /// The last answer of the run the floor waits on: the report it hears
+    /// when the run ends ([`report::step`]).
+    held: Option<Answer>,
     /// Whether the bound session runs a turn.
     running: bool,
     typing: Option<TypingShown>,
@@ -177,6 +184,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             route,
             binding: None,
             floor: None,
+            held: None,
             running: false,
             typing: None,
             stop_pending: None,
@@ -242,6 +250,8 @@ impl<L: DaemonLauncher> Gateway<L> {
                         self.stop_typing().await;
                         if self.running {
                             self.running = false;
+                            // The failure that ends the run is its report.
+                            self.held = None;
                             if let Some(peer) = self.floor.clone() {
                                 self.reply(
                                     &peer,
@@ -369,7 +379,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 let error = format!("{error:#}");
                 tracing::warn!(%error, "re-attach after reconnect failed");
                 self.stop_typing().await;
-                if let Some(peer) = self.floor.take() {
+                if let Some(peer) = self.leave_floor() {
                     self.reply(&peer, format!("Error: lost the session: {error}"))
                         .await;
                 }
@@ -1111,8 +1121,8 @@ impl<L: DaemonLauncher> Gateway<L> {
                 if let Err(error) = self.link.detach(&previous.active_session_id).await {
                     tracing::warn!(error = %format!("{error:#}"), "detach from the previous session failed");
                 }
-                // The new session's turns answer nobody on Signal yet.
-                self.floor = None;
+                // The new session's runs report to nobody on Signal yet.
+                self.leave_floor();
                 self.stop_pending = None;
                 self.stop_typing().await;
             }
@@ -1156,7 +1166,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.binding = None;
                     self.running = false;
                     self.stop_typing().await;
-                    if let Some(peer) = self.floor.take() {
+                    if let Some(peer) = self.leave_floor() {
                         self.reply(&peer, format!("Error: the session closed ({reason}). The next message opens a session."))
                             .await;
                     }
@@ -1208,7 +1218,8 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// Apply one session event of the bound session: run state, the floor,
-    /// and the replies Signal gets while it holds the floor.
+    /// and the one report Signal gets when a run it holds the floor of
+    /// ends.
     #[tracing::instrument(skip_all)]
     async fn relay(&mut self, event: &SessionEvent) {
         match event {
@@ -1223,6 +1234,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 self.stop_typing().await;
                 if let Some(peer) = self.stop_pending.take() {
                     // A stopped run answers `Stopped.` only.
+                    self.held = None;
                     self.reply(&peer, "Stopped.".to_string()).await;
                     return;
                 }
@@ -1234,7 +1246,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                 let text = user_text(&user.content);
                 if let Some(index) = self.sent_prompts.iter().position(|sent| *sent == text) {
                     self.sent_prompts.remove(index);
-                } else if self.floor.take().is_some() {
+                } else if self.leave_floor().is_some() {
                     tracing::info!("the CLI took the floor");
                     self.stop_typing().await;
                 }
@@ -1271,29 +1283,55 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::RefineFailed { .. }
             | SessionEvent::PythonSentAgentMessage { .. } => {}
         }
-        if let Some(answer) = answer(event) {
-            self.relay_answer(answer).await;
+        if self.floor.is_none() {
+            return;
         }
-        // A turn that ended while work it started still runs is waiting,
-        // not done: the peer holding the floor hears what it waits on.
-        if let (SessionEvent::AgentEnd { .. }, Some(peer), Some(binding)) =
-            (event, self.floor.clone(), self.binding.as_ref())
+        let end = if let SessionEvent::AgentEnd { .. } = event {
+            self.run_end().await
+        } else {
+            End::No
+        };
+        let step = report::step(self.held.as_ref(), answer(event).as_ref(), &end);
+        self.held = step.held;
+        if let Some(send) = step.send {
+            self.relay_answer(send).await;
+        }
+    }
+
+    /// The floor passes from Signal: the peer that held it; the report it
+    /// waited on goes with it.
+    fn leave_floor(&mut self) -> Option<Peer> {
+        self.held = None;
+        self.floor.take()
+    }
+
+    /// The end of a run of the bound session, as its state tells it: whether
+    /// work the run started still runs, and what the agent reported is left
+    /// of its goal. A state that cannot be read ends the run with nothing
+    /// running and nothing left, so the report still goes.
+    #[tracing::instrument(skip_all)]
+    async fn run_end(&self) -> End {
+        let settled = End::Run {
+            work: Work::Settled,
+            left: None,
+        };
+        let Some(binding) = &self.binding else {
+            return settled;
+        };
+        match self
+            .connection_state(&binding.active_session_id)
+            .await
+            .and_then(|state| run_end(&state))
         {
-            let waiting = self
-                .connection_state(&binding.active_session_id)
-                .await
-                .and_then(|state| waiting_on(&state));
-            match waiting {
-                Ok(Some(waiting)) => self.reply(&peer, waiting.to_string()).await,
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(error = %format!("{error:#}"), "the turn end's state read failed");
-                }
+            Ok(end) => end,
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "the run end's state read failed");
+                settled
             }
         }
     }
 
-    /// Relay one answer to the peer holding the floor.
+    /// Send one report to the peer holding the floor.
     async fn relay_answer(&mut self, answer: Answer) {
         let Some(peer) = self.floor.clone() else {
             return;
@@ -1448,6 +1486,29 @@ fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
         .context("the session state has a malformed waitingOn")
 }
 
+/// The run end the session state (`get_state`) tells: work still runs
+/// while it has a `waitingOn`; what is left is its goal's `remaining`.
+///
+/// # Errors
+///
+/// The state carries a malformed `waitingOn` or `goal`.
+fn run_end(state: &Value) -> anyhow::Result<End> {
+    let work = match waiting_on(state)? {
+        Some(_) => Work::Running,
+        None => Work::Settled,
+    };
+    let goal = state
+        .get("goal")
+        .cloned()
+        .map(serde_json::from_value::<GoalState>)
+        .transpose()
+        .context("the session state has a malformed goal")?;
+    Ok(End::Run {
+        work,
+        left: goal.and_then(|goal| goal.remaining),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1524,8 +1585,8 @@ mod tests {
         );
     }
 
-    /// A turn end and `/status` name what the session waits on, in the
-    /// agreed wording; a session with nothing running waits on nothing.
+    /// `/status` names what the session waits on, in the agreed wording; a
+    /// session with nothing running waits on nothing.
     #[test]
     fn the_session_state_names_what_the_session_waits_on() {
         let state = json!({
@@ -1544,6 +1605,39 @@ mod tests {
         assert_eq!(
             waiting_on(&json!({ "isStreaming": false })).expect("a well-formed state"),
             None
+        );
+    }
+
+    /// A run end reads whether work still runs and what is left of the
+    /// goal from the session state.
+    #[test]
+    fn the_session_state_tells_the_run_end() {
+        let waiting = json!({
+            "isStreaming": false,
+            "waitingOn": { "jobs": [{ "id": "j1", "label": "sleep 45" }] },
+            "goal": { "status": "active", "remaining": "the release notes" },
+        });
+        let settled = json!({ "isStreaming": false, "goal": { "status": "complete" } });
+        assert_eq!(
+            [
+                run_end(&waiting).expect("a well-formed state"),
+                run_end(&settled).expect("a well-formed state"),
+                run_end(&json!({ "isStreaming": false })).expect("a well-formed state"),
+            ],
+            [
+                End::Run {
+                    work: Work::Running,
+                    left: Some("the release notes".to_string()),
+                },
+                End::Run {
+                    work: Work::Settled,
+                    left: None,
+                },
+                End::Run {
+                    work: Work::Settled,
+                    left: None,
+                },
+            ]
         );
     }
 }

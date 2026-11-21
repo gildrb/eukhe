@@ -105,6 +105,7 @@ import ./laws/dash_conn.bend as DashConn
 import ./laws/dash_policy.bend as DashPolicy
 import ./laws/dash_access.bend as DashAccess
 import ./laws/gateway_answer.bend as GatewayAnswer
+import ./laws/gateway_report.bend as GatewayReport
 import ./laws/gateway_backoff.bend as GatewayBackoff
 import ./laws/slash_suggest.bend as SlashSuggest
 import ./laws/gateway_commands.bend as GatewayCommands
