@@ -347,10 +347,7 @@ def pq.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
 # puts the tool in front of `dyn`; a quit drops every copy (`pl.drop_go`, with the head
 # test as a parameter). `build` adds the intent parameter only when it is
 # missing, and lifts the version to at least 1. A walk keeps its depth
-# equal to the names it holds (`pl.esc`, `pl.ins`). The gate lemmas speak
-# of `exec.go` at any head test: what ran is a prefix, a gated step that
-# ran used one approval, a denial stops at the denied step, and a script
-# that finished ran every step.
+# equal to the names it holds (`pl.esc`, `pl.ins`).
 
 # Logic
 # -----
@@ -607,25 +604,6 @@ def path_policy.pp.BD(b: Bool, t: Type, f: Type) -> Type:
 
 def pp.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
   %e : path_policy.pp.BD(_, Unit, A)
-  Unit{}
-
-# ---- approvals ----
-
-# proof_approvals: the lemmas PROOF.bend proves the (G5) laws with
-# (LAWS.bend section approvals), about the model in bend/approvals.bend.
-
-# Logic
-# -----
-
-def approvals.pa.BD(b: Bool, t: Type, f: Type) -> Type:
-  match b:
-    case True{}:
-      t
-    case False{}:
-      f
-
-def approvals.pa.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
-  %e : approvals.pa.BD(_, A, Unit)
   Unit{}
 
 # ---- retry_policy ----

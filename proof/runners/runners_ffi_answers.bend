@@ -9,6 +9,6 @@ import ../../bend/wire.bend as Wr
 import ../../laws/runners.bend as Runners
 import ./base/entry.bend as LARn
 
-def Runners.runners_ffi_answers(q, fits):
-  %Equal.sym(Wr.Dec<FRu.Req>, FRu.get_req(Runners.spell_req(q, "")), Wr.Got{q, ""}, LARn.rn.rt(q, "", fits)) : {FRu.run(_) == Runners.spell_answer(q) : String}
+def Runners.runners_ffi_answers(q):
+  %Equal.sym(Wr.Dec<FRu.Req>, FRu.get_req(Runners.spell_req(q, "")), Wr.Got{q, ""}, LARn.rn.rt(q, "")) : {FRu.run(_) == Runners.spell_answer(q) : String}
   LARn.rn.reply(q)

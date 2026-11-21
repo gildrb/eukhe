@@ -84,9 +84,6 @@ import ./laws/path_policy/gate.bend as PathPolicyGate
 import ./laws/path_policy/spec.bend as PathPolicySpec
 import ./laws/child_env.bend as ChildEnv
 import ./laws/runners.bend as Runners
-import ./laws/approvals/route.bend as Approvals
-import ./laws/approvals/entry.bend as ApprovalsEntry
-import ./laws/approvals/desk.bend as ApprovalsDesk
 import ./laws/wire.bend as Wire
 import ./laws/echo.bend as Echo
 import ./laws/wire_ffi.bend as WireFfi

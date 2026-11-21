@@ -1,6 +1,6 @@
 # path_policy: the model of the path policy (LAWS
 # (G1), crates/eukhe-types/src/path_policy.rs and the document tools'
-# gate, crates/eukhe-core/src/durable/path_policy.rs). It extends the
+# accesses, crates/eukhe-core/src/durable/path_policy.rs). It extends the
 # path of bend/tools.bend §3 (segments under a root) to real filesystem
 # paths with symlinks.
 #
@@ -13,12 +13,10 @@
 #    entry), Protected (a rule covers it, or it is an ancestor of a rule's
 #    entry or of a secret), Inside (under a workspace root), Outside. A
 #    path that loops is never Inside.
-# 3. The gate. An access's effects (codes: read 0, write 1, exec 2, net
-#    3, outside 4, protected 5, secret 6) run without a question only when
-#    the auto set holds each of them; else only the user's yes runs them.
-# 4. The store. An agent's writes through any paths, each judged by the
-#    gate on its real path, with answers that are never yes, leave every
-#    secret location as it was.
+# 3. The effects of an access (codes: read 0, write 1, exec 2, net 3,
+#    outside 4, protected 5, secret 6), by its kind and the class of its
+#    path: the secret effect only for an access to a path that is or holds
+#    a secret.
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters).
@@ -344,8 +342,8 @@ def Judged.holds(j: Judged) -> Bool:
 def judge(+pol: Pol, +r: Res) -> Judged:
   Judged{class_res(pol, r), holds_at(pol, Res.at(r))}
 
-# 3. The gate
-# -----------
+# 3. The effects of an access
+# ---------------------------
 
 # What a document tool does: read a file, list a directory, search a
 # directory (holds: it holds a secret), write
@@ -354,12 +352,6 @@ type Acc is Data:
   Ls{}
   Sr{holds: Bool}
   Wr{}
-
-# The user's answer to a question; Gone: no client answered
-type Ans is Data:
-  Yes{}
-  No{}
-  Gone{}
 
 def read_of(c: Cls) -> List<&2, Nat>:
   match c:
@@ -402,31 +394,6 @@ def effs(c: Cls, a: Acc) -> List<&2, Nat>:
     case Wr{}:
       write_of(c)
 
-# the user may put effect e in the auto set: every effect
-def grantable(e: Nat) -> Bool:
-  Nat.is_lt(e, 7n)
-
-# every effect is in the auto set and grantable
-def allows(+auto: List<&2, Nat>, es: List<&2, Nat>) -> Bool:
-  match es:
-    case Nil{}:
-      True{}
-    case +e <> rest:
-      Bool.and(grantable(e), Bool.and(allows(auto, rest), Tl.elem(auto, e)))
-
-def Ans.yes(a: Ans) -> Bool:
-  match a:
-    case Yes{}:
-      True{}
-    case No{}:
-      False{}
-    case Gone{}:
-      False{}
-
-# the access runs: the auto set allows it, or the user said yes
-def runs(c: Cls, a: Acc, +auto: List<&2, Nat>, ans: Ans) -> Bool:
-  Bool.or(allows(auto, effs(c, a)), Ans.yes(ans))
-
 def Cls.inside(c: Cls) -> Bool:
   match c:
     case Inside{}:
@@ -460,56 +427,3 @@ def Cls.secret(c: Cls) -> Bool:
       False{}
     case Secret{}:
       True{}
-
-# 4. The store
-# ------------
-
-# one file's content at its real location
-type Cell is Data:
-  Cell{at: List<&2, Nat>, val: Nat}
-
-def Cell.at(c: Cell) -> List<&2, Nat>:
-  match c:
-    case Cell{a, v}:
-      a
-
-# the cell c, or v at `at` in its place; rest follows the new cell, done
-# (rest with the write) follows c
-def set.pick(hit: Bool, c: Cell, +at: List<&2, Nat>, +v: Nat, rest: List<&2, Cell>, done: List<&2, Cell>) -> List<&2, Cell>:
-  match hit:
-    case True{}:
-      Cell{at, v} <> rest
-    case False{}:
-      c <> done
-
-# write v at `at`: in place of the first cell there, else at the end
-def set(cs: List<&2, Cell>, +at: List<&2, Nat>, +v: Nat) -> List<&2, Cell>:
-  match cs:
-    case Nil{}:
-      [Cell{at, v}]
-    case +c <> +rest:
-      set.pick(Tl.ids.eq(Cell.at(c), at), c, at, v, rest, set(rest, at, v))
-
-# An agent's write of v through segs, and the user's answer if asked
-type Put is Data:
-  Put{segs: List<&2, Tl.Seg>, v: Nat, ans: Ans}
-
-def put.pick(go: Bool, cs: List<&2, Cell>, +at: List<&2, Nat>, +v: Nat) -> List<&2, Cell>:
-  match go:
-    case True{}:
-      set(cs, at, v)
-    case False{}:
-      cs
-
-# one write: the gate judges it on its real path; it lands there
-def step(+pol: Pol, +ls: List<&2, Link>, +auto: List<&2, Nat>, cs: List<&2, Cell>, p: Put) -> List<&2, Cell>:
-  match p:
-    case Put{+segs, v, ans}:
-      put.pick(runs(class(pol, ls, segs), Wr{}, auto, ans), cs, Res.at(real(ls, segs)), v)
-
-def run(es: List<&2, Put>, +pol: Pol, +ls: List<&2, Link>, +auto: List<&2, Nat>, cs: List<&2, Cell>) -> List<&2, Cell>:
-  match es:
-    case Nil{}:
-      cs
-    case e <> rest:
-      run(rest, pol, ls, auto, step(pol, ls, auto, cs, e))

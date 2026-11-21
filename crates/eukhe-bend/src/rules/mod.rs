@@ -4,7 +4,6 @@
 
 pub mod agent_tree;
 pub mod ai_text;
-pub mod approvals;
 pub mod arg_repair;
 pub mod autoresearch;
 pub mod aws_text;

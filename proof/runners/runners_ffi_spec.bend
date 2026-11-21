@@ -1,7 +1,6 @@
 # eukhe: the proof of LAW runners_ffi_spec
 # The entry answers the laws' reader and spelled decision (LARunnersEntry.rn.exact);
-# that decision is the spec's (runners_within_spec, runners_cell_spec,
-# runners_registry_spec).
+# that decision is the spec's (runners_registry_spec).
 
 import Base
 import ../../bend/ffi_runners.bend as FRu
@@ -9,18 +8,10 @@ import ../../bend/runners.bend as Ru
 import ../../bend/wire.bend as Wr
 import ../../laws/runners.bend as Runners
 import ./base/entry.bend as LARunnersEntry
-import ./runners_within_spec.bend as PRunnersWithinSpec
-import ./runners_cell_spec.bend as PRunnersCellSpec
 import ./runners_registry_spec.bend as PRunnersRegistrySpec
 
 def ruf.reply(q: FRu.Req) -> {Runners.spell_answer(q) == Runners.ru_reply(q) : String}:
   match q:
-    case FRu.QWithin{+c, +a}:
-      %Runners.runners_within_spec(c, a) : {Runners.spell_answer(FRu.QWithin{c, a}) == Wr.put_bool(_, "") : String}
-      {==}
-    case FRu.QCell{+c, +a, +k}:
-      %Runners.runners_cell_spec(c, a, k) : {Runners.spell_answer(FRu.QCell{c, a, k}) == Runners.spell_out(_) : String}
-      {==}
     case FRu.QRegistry{}:
       %Runners.runners_registry_spec() : {Runners.spell_answer(FRu.QRegistry{}) == Wr.put_list(~Ru.ToolReg, ~Runners.spell_tool, _, "") : String}
       {==}
