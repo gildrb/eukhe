@@ -62,7 +62,8 @@ const EFFECTS_DOC_KIND: &str = "eukhe.effects";
 /// The ledger: the steps treated as not run, oldest first, the run of the
 /// root session in flight and the key of the run that started it, and
 /// the irreversible effects that ran, by id (a ledger written before it
-/// had them reads as none).
+/// had them reads as none; a ledger with none is written as one written
+/// before, so its bytes stay as they were).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectsState {
@@ -75,7 +76,7 @@ pub struct EffectsState {
     /// input); `None` before the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_key: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ran: Vec<RanEffect>,
 }
 
