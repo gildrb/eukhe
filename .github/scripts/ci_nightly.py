@@ -14,8 +14,10 @@ a night.
 Each run appends its result to ~/.eukhe/ci/nightly.log: one line with the
 time, the commit and the result, and for a failure the failed gates and test
 units. The full output of the last run is ~/.eukhe/ci/nightly-last.log. A
-commit that already has an eukhe-v* tag is not run again. One run at a time
-(flock on <git common dir>/eukhe-ci-nightly.lock).
+commit that already has an eukhe-v* tag is not run again. The
+nix/release.json commit a release adds on main is never released itself
+(eukhe-release.yml refuses it): the commit under it is the one run. One run
+at a time (flock on <git common dir>/eukhe-ci-nightly.lock).
 """
 
 from __future__ import annotations
@@ -102,6 +104,8 @@ def run() -> int:
         return 1
     git("fetch", "--quiet", "--tags", "origin")
     sha = git("rev-parse", "origin/main")
+    if git("log", "-1", "--format=%s", sha).startswith("nix: release.json for "):
+        sha = git("rev-parse", f"{sha}^")
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     released = git("tag", "--points-at", sha, "--list", "eukhe-v*")
     if released:
