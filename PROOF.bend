@@ -1717,6 +1717,8 @@ import ./proof/wire/wire_list_exact.bend as PWireListExact
 import ./proof/wire/wire_list_example.bend as PWireListExample
 import ./proof/wire/wire_err_example.bend as PWireErrExample
 import ./proof/wire/wire_err_never_value.bend as PWireErrNeverValue
+import ./proof/wire/wire_end_exact.bend as PWireEndExact
+import ./proof/wire/wire_end_example.bend as PWireEndExample
 import ./proof/facts/base.bend as LAFacts
 import ./proof/facts/core_facts_round_trip.bend as PCoreFactsRoundTrip
 import ./proof/facts/core_facts_level.bend as PCoreFactsLevel

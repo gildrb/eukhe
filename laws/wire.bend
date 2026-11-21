@@ -10,7 +10,9 @@
 #     after it untouched (so values compose: the laws quantify `rest`).
 # R2: a decoder accepts only an encoder's output: any other input is
 #     Bad{}, never a default (leading zeros, a missing ',', a short
-#     string, a wrong count, an unknown char).
+#     string, a wrong count, an unknown char); the end check (Wr.end) an
+#     entry runs after its request holds only on the empty input, so any
+#     char left over is refused (wire_end_exact, wire_end_example).
 # R3: a Nat has at most 14 digits, decided while reading, so no input can
 #     push a Nat past the runtime's 2^48-1 bound; a longer encoding is
 #     refused, never misread.
@@ -374,6 +376,26 @@ law wire_err_example:
 law wire_err_never_value:
   for +text: String
   {(Wr.get_nat(Wr.err(text)), (Wr.get_bool(Wr.err(text)), Wr.get_str(Wr.err(text)))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<Nat> & (Wr.Dec<Bool> & Wr.Dec<String>)}
+
+# Input left over
+# ---------------
+
+# LAW wire_end_exact (R2): the end check every entry runs after its
+# request holds exactly on the empty input: any char left, a line feed or
+# a space included, is input left over
+# EXCLUDES: an end check that skips or ignores a char (`0,1,\nrm -rf /`
+#   read as a whole event, what follows a line feed ignored), or that
+#   refuses the empty input
+law wire_end_exact:
+  for +c: Char
+  for +more: String
+  {(Wr.end(""), Wr.end(SCon{c, more})) == (True{}, False{}) : Bool & Bool}
+
+# LAW wire_end_example (R2): anchor: nothing left is the end; a line feed,
+# a space, a digit or a comma left is not
+# EXCLUDES: trailing whitespace or a stray separator read as the end
+law wire_end_example:
+  {(Wr.end(""), (Wr.end("\nrm -rf /"), (Wr.end(" "), (Wr.end("0"), Wr.end(","))))) == (True{}, (False{}, (False{}, (False{}, False{})))) : Bool & (Bool & (Bool & (Bool & Bool)))}
 
 # Lists of strings, and the spec spellers
 # ---------------------------------------

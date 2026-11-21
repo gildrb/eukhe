@@ -4084,6 +4084,8 @@
     "laws/wire.bend::wire_bool_false_example": "81cced85e42610d70932fabe50b2e703fa0cc11d257635f627a42f43850f1440",
     "laws/wire.bend::wire_bool_not_err": "6479a995e2c052111b9b29281eba7c7648e5836e050c2fab724f038862f91a8c",
     "laws/wire.bend::wire_bool_round_trip": "3c6968bbcadc22849e6692b9b80e0275cf6057fec7bd9fccb81cb132380430a8",
+    "laws/wire.bend::wire_end_exact": "7705153cc3431dc97b63c472e26d86d86c61e79b9a9e162f5c00d0734d1cded2",
+    "laws/wire.bend::wire_end_example": "47a4981dd8e8597f805944258e1577264179e79ccfb1934da09ef8a08c4e8a69",
     "laws/wire.bend::wire_err_example": "5ca8408bcf00a4d526d75dca543c2924a9e29ae9cc664963a0de14a8a5abf5ee",
     "laws/wire.bend::wire_err_example_orig": "286ded1d9ae391894ef3b61aa47af4628d9c1e1e1fb9ce93c856be6807e05712",
     "laws/wire.bend::wire_err_never_value": "333451ecc39e4514f2eb91f66837c13034710d27bfb8c7e4cb4cf325c9aa544d",
