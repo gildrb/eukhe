@@ -36,6 +36,7 @@ pub mod optchat;
 pub(crate) mod path_policy;
 pub mod pending;
 mod prompt;
+pub mod ran_effects;
 mod registry;
 mod retry_outcome;
 pub mod rlm;

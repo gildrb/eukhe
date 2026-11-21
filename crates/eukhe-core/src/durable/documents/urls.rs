@@ -306,6 +306,7 @@ pub(super) async fn read(
     Ok(zoomed.map(|zoomed| Performed {
         done: Done::Read(ReadReply::text(authored, zoomed.text)),
         images: zoomed.images,
+        ran: Vec::new(),
     }))
 }
 
@@ -331,6 +332,7 @@ async fn file(
             .map(|view| Performed {
                 done: Done::Read(read_reply(view)),
                 images: Vec::new(),
+                ran: Vec::new(),
             })
             .map_err(|error| rejection(read_rejection(&error), &error))
     })

@@ -142,13 +142,23 @@ async fn execute(
     .await
     .map_err(|error| SessionError::error(format!("{} worker failed: {error}", function.name())))?;
     match performed {
-        Ok(Performed { done, mut images }) => {
+        Ok(Performed {
+            done,
+            mut images,
+            ran,
+        }) => {
             let output = BoundedOutput::in_session(
                 deps.storage_dir.as_deref(),
                 &api.task_id().to_string(),
                 api.truncation(),
             );
             let (text, bounded) = bounded(&host.documents, &done, output);
+            let notes = crate::durable::ran_effects::tool_notes(&ran);
+            let text = if notes.is_empty() {
+                text
+            } else {
+                format!("{text}\n{notes}")
+            };
             let details = serde_json::to_value(&done).map_err(SessionError::other)?;
             let (text, is_error) = match done.image() {
                 None => (text, false),

@@ -19,10 +19,11 @@
 //! ([`read_unknown_effects`]) and follow it ([`watch_unknown_effects`]);
 //! its vocabulary is the shared wire one (`eukhe_types::effects`).
 //!
-//! A root run's start numbers the run ([`begin_run`]); each irreversible
-//! effect that ran, the root's or a subagent's, is recorded once by its
-//! key under the next id `e<N>` ([`record_ran`]); the end of a run reports
-//! exactly that run's ([`run_report`]). Clients read the whole list
+//! A root run's start numbers the run ([`begin_run`], keyed by the run so
+//! a replayed start numbers nothing new); each irreversible effect that
+//! ran, the root's or a subagent's, is recorded once by its key under the
+//! next id `e<N>` ([`record_ran`]); the end of a run reports exactly that
+//! run's ([`run_report`]). Clients read the whole list
 //! ([`read_ran_effects`]) and follow it ([`watch_ran_effects`]). The
 //! numbering and the run's list come from the compiled core
 //! (`eukhe_bend::rules::irreversible`).
@@ -59,15 +60,21 @@ pub const RESOLVED_KEPT: usize = 64;
 const EFFECTS_DOC_KIND: &str = "eukhe.effects";
 
 /// The ledger: the steps treated as not run, oldest first, the run of the
-/// root session in flight, and the irreversible effects that ran, by id
-/// (a ledger written before it had them reads as none).
+/// root session in flight and the key of the run that started it, and
+/// the irreversible effects that ran, by id (a ledger written before it
+/// had them reads as none).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EffectsState {
     pub unknown: Vec<UnknownEffect>,
     /// The root session's current run (0: none yet): a step noted now is
     /// listed in that run's end-of-run report.
     #[serde(default)]
     pub run: u64,
+    /// The key of the root run [`EffectsState::run`] numbers (its first
+    /// input); `None` before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_key: Option<String>,
     #[serde(default)]
     pub ran: Vec<RanEffect>,
 }
@@ -195,17 +202,23 @@ pub async fn effects_state(
     Ok(from_json(&ledger.value()?)?)
 }
 
-/// Start the root session's next run, in the commit that starts it: its
-/// number (the first is 1).
+/// Start the root session's run `key` (its first input), in the commit
+/// that sees it start: its number (the first is 1). A run is numbered
+/// once: beginning the current run's key again (a replayed start after a
+/// restart) changes nothing and gives its number.
 ///
 /// # Errors
 ///
 /// Document access or draft failures.
-pub async fn begin_run(tx: &Tx, conversation_id: ConversationId) -> SessionResult<u64> {
+pub async fn begin_run(tx: &Tx, conversation_id: ConversationId, key: &str) -> SessionResult<u64> {
     let ledger = tx.doc(&EFFECTS_DOC, conversation_id).await?;
     let state: EffectsState = from_json(&ledger.value()?)?;
+    if state.run_key.as_deref() == Some(key) {
+        return Ok(state.run);
+    }
     let run = state.run + 1;
     ledger.set("run", to_json(&run)?)?;
+    ledger.set("runKey", to_json(&key)?)?;
     Ok(run)
 }
 
@@ -232,7 +245,7 @@ fn core_error(error: &eukhe_bend::Error) -> SessionError {
 }
 
 /// Record that the irreversible effect `draft` ran, in the root session's
-/// current run: the effect as recorded, under the next id `e<N>` (never
+/// run `run`: the effect as recorded, under the next id `e<N>` (never
 /// reused). An effect is recorded once: recording its key again (a replay)
 /// changes nothing and gives the effect as first recorded.
 ///
@@ -243,6 +256,7 @@ pub async fn record_ran(
     tx: &Tx,
     conversation_id: ConversationId,
     draft: RanEffectDraft,
+    run: u64,
 ) -> SessionResult<RanEffect> {
     let ledger = tx.doc(&EFFECTS_DOC, conversation_id).await?;
     let state: EffectsState = from_json(&ledger.value()?)?;
@@ -255,7 +269,7 @@ pub async fn record_ran(
             .find(|effect| ran_number(&effect.id) == Some(number))
             .ok_or_else(|| SessionError::error("the core named a ran effect the ledger lacks")),
         Recorded::New(number) => {
-            let effect = draft.recorded(number, state.run);
+            let effect = draft.recorded(number, run);
             if !ledger.has("ran")? {
                 ledger.set("ran", JsonValue::array())?;
             }

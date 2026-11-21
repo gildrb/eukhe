@@ -22,7 +22,8 @@ use eukhe_types::daemon::{
     DAEMON_PROTOCOL_VERSION,
 };
 use eukhe_types::effects::{
-    EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
+    ledger_text, EffectResolution, RanEffect, RanEffectsReply, ResolvedEffectReply, UnknownEffect,
+    UnknownEffectsReply,
 };
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -911,8 +912,9 @@ fn parse_effects_args(args: &[String]) -> Result<EffectsRequest<'_>> {
 }
 
 /// `effects [<agent>]` and `effects resolve <id> <ran|not-run>
-/// [<agent>]`: the steps of one live agent a restart treated as not run,
-/// and an optional correction of one.
+/// [<agent>]`: the ledger of one live agent (the irreversible effects
+/// that ran, then the steps a restart treated as not run, when there are
+/// any), and an optional correction of one of those steps.
 fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
     let request = parse_effects_args(args)?;
     let selector = match &request {
@@ -922,43 +924,77 @@ fn run_effects(client: &mut Daemon, args: &[String], json: bool) -> Result<()> {
         Some(selector) => resolve_live_session_selector(client, selector)?,
         None => only_live_session(client)?,
     };
-    let command = match request {
-        EffectsRequest::List { .. } => DaemonCommand::GetUnknownEffects {
-            id: None,
-            active_session_id,
-            rest: serde_json::Map::new(),
-        },
-        EffectsRequest::Resolve {
-            effect_id,
-            resolution,
-            ..
-        } => DaemonCommand::ResolveUnknownEffect {
-            id: None,
-            active_session_id,
-            effect_id: effect_id.to_owned(),
-            resolution,
-            rest: serde_json::Map::new(),
-        },
+    let EffectsRequest::Resolve {
+        effect_id,
+        resolution,
+        ..
+    } = request
+    else {
+        return list_effects(client, active_session_id, json);
     };
-    let resolving = matches!(command, DaemonCommand::ResolveUnknownEffect { .. });
+    let command = DaemonCommand::ResolveUnknownEffect {
+        id: None,
+        active_session_id,
+        effect_id: effect_id.to_owned(),
+        resolution,
+        rest: serde_json::Map::new(),
+    };
     let data = require_success(client.request(command)?)?.unwrap_or(Value::Null);
     if json {
         return print_json(&data);
     }
-    if resolving {
-        let reply: ResolvedEffectReply =
-            serde_json::from_value(data).context("malformed resolved effect")?;
-        println!("Corrected {}", crate::sanitize::line(&reply.effect.line()));
-        return Ok(());
-    }
-    let reply: UnknownEffectsReply =
-        serde_json::from_value(data).context("malformed unknown effects")?;
-    println!("{}", effects_lines(&reply.effects).join("\n"));
+    let reply: ResolvedEffectReply =
+        serde_json::from_value(data).context("malformed resolved effect")?;
+    println!("Corrected {}", crate::sanitize::line(&reply.effect.line()));
     Ok(())
 }
 
-/// The ledger as `eukhe effects` prints it: one line per step, oldest
-/// first (`<id> <kind> <treated-not-run|ran|not-run> <what>`).
+/// `effects [<agent>]`: the agent's whole ledger (spec I7). JSON is
+/// `{"ran": [...], "unknown": [...]}`.
+fn list_effects(client: &mut Daemon, active_session_id: String, json: bool) -> Result<()> {
+    let ran = require_success(client.request(DaemonCommand::GetRanEffects {
+        id: None,
+        active_session_id: active_session_id.clone(),
+        rest: serde_json::Map::new(),
+    })?)?
+    .unwrap_or(Value::Null);
+    let unknown = require_success(client.request(DaemonCommand::GetUnknownEffects {
+        id: None,
+        active_session_id,
+        rest: serde_json::Map::new(),
+    })?)?
+    .unwrap_or(Value::Null);
+    let ran: RanEffectsReply = serde_json::from_value(ran).context("malformed ran effects")?;
+    let unknown: UnknownEffectsReply =
+        serde_json::from_value(unknown).context("malformed unknown effects")?;
+    if json {
+        return print_json(&json!({ "ran": ran.effects, "unknown": unknown.effects }));
+    }
+    println!(
+        "{}",
+        ledger_lines(&ran.effects, &unknown.effects).join("\n")
+    );
+    Ok(())
+}
+
+/// The ledger as `eukhe effects` prints it: the irreversible effects that
+/// ran ([`ledger_text`]), then, when there are any, a blank line and the
+/// steps a restart treated as not run ([`effects_lines`]).
+fn ledger_lines(ran: &[RanEffect], unknown: &[UnknownEffect]) -> Vec<String> {
+    let mut lines: Vec<String> = ledger_text(ran)
+        .lines()
+        .map(crate::sanitize::line)
+        .collect();
+    if !unknown.is_empty() {
+        lines.push(String::new());
+        lines.extend(effects_lines(unknown));
+    }
+    lines
+}
+
+/// The steps a restart treated as not run as `eukhe effects` prints them:
+/// one line per step, oldest first (`<id> <kind>
+/// <treated-not-run|ran|not-run> <what>`).
 fn effects_lines(effects: &[UnknownEffect]) -> Vec<String> {
     if effects.is_empty() {
         return vec!["No step was treated as not run after a crash.".to_owned()];
@@ -1452,6 +1488,47 @@ mod tests {
         assert_eq!(
             effects_lines(&[effect]),
             ["tool:c1 tool treated-not-run bash: make deploy"]
+        );
+    }
+
+    /// `eukhe effects` prints the irreversible effects that ran, then the
+    /// steps treated as not run only when there are any.
+    #[test]
+    fn ledger_lines_show_the_ran_effects_then_the_unknown_steps() {
+        let push = RanEffect {
+            id: "e1".to_owned(),
+            key: "s1:c1:0".to_owned(),
+            run: 1,
+            kind: eukhe_types::effects::RanKind::ShellStep,
+            command: "git push origin main".to_owned(),
+            classes: vec![eukhe_types::effects::EffectClass::Net],
+            agent: Some("fix-tests".to_owned()),
+            session_id: "s2".to_owned(),
+            at_ms: 0,
+        };
+        let cut = UnknownEffect {
+            id: "tool:c1".to_owned(),
+            kind: eukhe_types::effects::EffectKind::Tool,
+            what: "bash: make deploy".to_owned(),
+            at: 0.0,
+            cause: Some(eukhe_types::effects::UnknownCause::NotRepeatSafe),
+            settled_run: Some(1),
+            resolution: None,
+        };
+        assert_eq!(
+            (
+                ledger_lines(&[], &[]),
+                ledger_lines(std::slice::from_ref(&push), &[cut])
+            ),
+            (
+                vec!["No irreversible effect ran in this session.".to_owned()],
+                vec![
+                    "Irreversible effects ran in this session:".to_owned(),
+                    "- e1 git push origin main (net; subagent fix-tests)".to_owned(),
+                    String::new(),
+                    "tool:c1 tool treated-not-run bash: make deploy".to_owned(),
+                ]
+            )
         );
     }
 

@@ -750,6 +750,42 @@ impl Worker {
             });
             progress_pushes.push();
         }));
+        // A subagent's irreversible effects go up to its root's ledger; a
+        // root's run end reports on the wire after the run's `agent_end`
+        // (every frame its commits made is out first).
+        if params.parent_session_id.is_some() {
+            config.ran_effect_relay = Some(super::effects::relay(
+                Arc::clone(&self.core),
+                Arc::clone(&self.supervisor_link),
+                self.config.active_session_id.clone(),
+            ));
+        } else {
+            let (report_core, report_events, report_slot) = (
+                Arc::clone(&self.core),
+                Arc::clone(&self.events),
+                self.session.clone(),
+            );
+            config.run_report = Some(Arc::new(move |report: eukhe_types::effects::RunReport| {
+                let (core, events, slot) = (
+                    Arc::clone(&report_core),
+                    Arc::clone(&report_events),
+                    report_slot.clone(),
+                );
+                tokio::spawn(async move {
+                    if let Some(hosted) = slot.get() {
+                        hosted.events_delivered().await;
+                    }
+                    emit_worker_event_with(
+                        &core,
+                        &events,
+                        SessionEvent::RunReport {
+                            ran: report.ran,
+                            unknown: report.unknown,
+                        },
+                    );
+                });
+            }));
+        }
         // The kernel's `mcp.begin_login` host request: the worker runs the
         // OAuth login (browser + local callback) and persists the
         // endpoint-bound credential the shared auth store gates on.

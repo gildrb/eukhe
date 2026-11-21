@@ -8,10 +8,12 @@
 //! `headless_parent_delivery` frame; the client admits the message into
 //! the session's main conversation through the same delivery a worker
 //! runs ([`crate::agent_message_delivery`]) and answers with
-//! `headless_parent_receipt`. The connection's close (any exit of the
-//! client, a crash or a kill included) ends the registration, and the
-//! supervisor closes the parent's resident children like a dead parent
-//! worker's ([`crate::supervisor_parent_death`]).
+//! `headless_parent_receipt`. A child's `relay_ran_effect` reaches it the
+//! same way: the session records the irreversible effect in its ledger
+//! and the receipt is the effect as recorded. The connection's close (any
+//! exit of the client, a crash or a kill included) ends the registration,
+//! and the supervisor closes the parent's resident children like a dead
+//! parent worker's ([`crate::supervisor_parent_death`]).
 //!
 //! The parent is never a wake target: its storage is leased by the client
 //! process, so the supervisor refuses to launch a worker over it while it
@@ -29,6 +31,7 @@ use eukhe_core::durable::EukheSession;
 use eukhe_durable::harness::{InboxState, INBOX_DOC};
 use eukhe_durable::session::SessionError;
 use futures::FutureExt as _;
+use serde::Deserialize as _;
 use serde_json::{json, Value};
 
 use crate::agent_message_delivery::{
@@ -215,7 +218,10 @@ async fn serve(
         };
         let payload = frame.get("delivery").cloned().unwrap_or(Value::Null);
         let answer = match session.upgrade() {
-            Some(session) => deliver(&session, &identity, &payload).await,
+            Some(session) => match payload.get(RAN_EFFECT_DELIVERY) {
+                Some(effect) => record_ran_effect(&session, effect).await,
+                None => deliver(&session, &identity, &payload).await,
+            },
             None => Err(DeliverError::Closed),
         };
         let mut receipt = json!({
@@ -233,11 +239,33 @@ async fn serve(
     }
 }
 
+/// The delivery key of an irreversible effect a child of the session ran
+/// (`relay_ran_effect`), which the session records in its ledger.
+const RAN_EFFECT_DELIVERY: &str = "ranEffect";
+
+/// Record `effect`, an irreversible effect a subagent of `session` ran
+/// (a `RanEffectDraft`), in the session's ledger: the receipt is the
+/// effect as recorded.
+async fn record_ran_effect(session: &EukheSession, effect: &Value) -> Result<Value, DeliverError> {
+    let draft = eukhe_types::effects::RanEffectDraft::deserialize(effect)
+        .map_err(|_invalid| DeliverError::InvalidRanEffect)?;
+    let recorded = eukhe_core::durable::ran_effects::record_on(
+        session.harness(),
+        session.main().id(),
+        draft,
+        &BACKGROUND_CONTEXT,
+    )
+    .await?;
+    Ok(serde_json::to_value(recorded).unwrap_or(Value::Null))
+}
+
 /// Why a delivered message was not admitted; the receipt carries the text.
 #[derive(Debug, thiserror::Error)]
 enum DeliverError {
     #[error("The headless session closed")]
     Closed,
+    #[error("Invalid irreversible effect relay")]
+    InvalidRanEffect,
     #[error(transparent)]
     Refused(#[from] DeliveryRefusal),
     #[error(transparent)]

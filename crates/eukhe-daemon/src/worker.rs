@@ -140,6 +140,9 @@ pub struct Worker {
     pub(crate) editor_permissions: crate::editor_permission::EditorPermissions,
     /// Single-use peer-transport grants (worker memory only).
     pub(crate) peer_grants: PeerGrantStore,
+    /// The worker's supervisor link (roster pushes, a subagent's
+    /// `relay_ran_effect` to its parent).
+    pub(crate) supervisor_link: Arc<crate::supervisor_link::SupervisorLink>,
     /// Compaction commands.
     pub(crate) compaction: crate::compaction::CompactionManager,
     /// Session-tree navigation: `/tree` moves, branch summaries, forks.
@@ -336,6 +339,7 @@ impl Worker {
             side_questions,
             editor_permissions,
             peer_grants: PeerGrantStore::new(),
+            supervisor_link: roster_link,
             compaction,
             tree_navigation,
             context_tree: std::sync::Arc::new(crate::context_tree_cache::ContextTreeCache::new()),
