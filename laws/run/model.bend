@@ -56,7 +56,9 @@
 #     same calls and the same results do not run (the requirement's loop
 #     guard threshold) and get redirect notes 1 to `redirect`,
 #     then the run fails; calls below that run; a user message ends the
-#     row. A recovery's retry is a noted retry (H4.7). An empty reply and a
+#     row. A note's row counts the notes of its recovery in a row, so a
+#     row of 0 is no note: the help after it is the help after no note,
+#     whatever the caps. A recovery's retry is a noted retry (H4.7). An empty reply and a
 #     length stop the stop walk continues (its ladder: length notes 1 to
 #     `long`, the requirement's retry cap of an incomplete reply): R4 and
 #     R7 of laws/stop.bend; a cut reply with text: R10 of laws/stop.bend.
