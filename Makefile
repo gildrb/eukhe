@@ -100,8 +100,9 @@ bend-core-check:
 # list is in crates/eukhe-dashboard/ui/scripts/embedded-js.ts.
 # embedded-js type-checks the sources and regenerates every file;
 # embedded-js-check fails on a type or lint error in a source, when a
-# committed file differs from what its source generates, and when the
-# export template's tests fail (they render the exporters' data,
+# committed file differs from what its source generates or .gitattributes
+# does not mark it linguist-generated, and when the export template's tests
+# fail (they render the exporters' data,
 # crates/eukhe-core/assets/export-html/fixtures.ts, which the eukhe-core
 # test export_html::fixtures keeps current). Run embedded-js after every
 # change to a source (then dashboard-ui for a public/ one).

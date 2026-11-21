@@ -1,0 +1,15 @@
+# Generated JavaScript, never hand-edited: GitHub leaves it out of the language
+# bar, code search and diffs. `make embedded-js-check` fails when one of its
+# TypeScript sources (crates/eukhe-dashboard/ui/scripts/embedded-js.ts) writes a
+# file not marked here.
+crates/eukhe-durable/src/codemode/sandbox/host.js linguist-generated
+crates/eukhe-durable/src/codemode/sandbox/prelude.js linguist-generated
+crates/eukhe-core/src/durable/workflow/prelude.js linguist-generated
+crates/eukhe-core/assets/export-html/template.js linguist-generated
+crates/eukhe-dashboard/ui/public/theme.js linguist-generated
+crates/eukhe-dashboard/ui/public/sw.js linguist-generated
+# The dashboard UI's build output (`make dashboard-ui`).
+crates/eukhe-dashboard/web/** linguist-generated
+# The export template's third-party markdown and syntax-highlight libraries, as
+# shipped (crates/eukhe-core/assets/export-html/NOTICE.md).
+crates/eukhe-core/assets/export-html/vendor/** linguist-vendored

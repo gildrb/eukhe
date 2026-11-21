@@ -246,6 +246,19 @@ function typeCheck(sources: Source[]): void {
   );
 }
 
+/** The outputs of `sources` that .gitattributes does not mark linguist-generated, so GitHub
+ * would count them as JavaScript. */
+function unmarked(sources: Source[]): string[] {
+  const out = execFileSync(
+    "git",
+    ["check-attr", "linguist-generated", "--", ...sources.map((source) => source.js)],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  return sources
+    .map((source) => source.js)
+    .filter((path) => !out.includes(`${path}: linguist-generated: set\n`));
+}
+
 /** `mode` over the sources named in `only` (repository paths), or every source. */
 function main(mode: string | undefined, only: string[]): number {
   const sources =
@@ -259,6 +272,12 @@ function main(mode: string | undefined, only: string[]): number {
     typeCheck(sources);
   } catch {
     console.error("embedded-js: the TypeScript sources do not check (above)");
+    return 1;
+  }
+  const bare = unmarked(sources);
+  if (bare.length > 0) {
+    for (const path of bare)
+      console.error(`embedded-js: .gitattributes does not mark ${path} linguist-generated`);
     return 1;
   }
   const stale: string[] = [];
