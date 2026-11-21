@@ -191,6 +191,34 @@ class McpRegistryTest(unittest.TestCase):
 
         run(scenario())
 
+    def test_a_call_of_a_tool_not_declared_read_only_is_recorded_as_ran(self):
+        tools = [
+            SimpleNamespace(name="write", description="", inputSchema={}),
+            SimpleNamespace(name="look", description="", inputSchema={}, annotations=SimpleNamespace(readOnlyHint=True)),
+        ]
+        generation = self.generation({"type": "http"}, tools)
+        generation.session.result = CallToolResult(content=[TextContent(type="text", text="ok")])
+        note = "[irreversible: e1 mcp svc.write (unknown)]"
+        sent = []
+
+        async def host_request(method, payload):
+            sent.append((method, payload))
+            return {"note": note, "effect": {"id": "e1"}}
+
+        async def scenario():
+            with mock.patch.object(mcp._registry, "_get_locked", mock.AsyncMock(return_value=generation)), mock.patch.object(
+                mcp, "host_request", host_request
+            ):
+                await mcp.call_tool("svc", "look")
+                await mcp.call_tool("svc", "write", {"x": 1})
+
+        printed = io.StringIO()
+        with mock.patch("sys.stdout", printed):
+            run(scenario())
+        self.assertEqual(generation.session.calls, [("look", {}), ("write", {"x": 1})])
+        self.assertEqual(sent, [("effects.ran", {"kind": "mcpCall", "command": "mcp svc.write"})])
+        self.assertEqual(printed.getvalue(), note + "\n")
+
     def test_reuses_generation_and_closes_before_replacement(self):
         configs = [{"type": "http", "url": "a"}, {"type": "http", "url": "a"}, {"type": "http", "url": "b"}]
         opened = []
