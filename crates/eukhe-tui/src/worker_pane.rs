@@ -257,6 +257,7 @@ impl WorkerPane {
             | TurnUpdate::MemoryUpdate(_)
             | TurnUpdate::GoalUpdate(_)
             | TurnUpdate::UnknownEffectsUpdate(_)
+            | TurnUpdate::RunReport(_)
             | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::BudgetUpdate(_)
             | TurnUpdate::PlanUsage(_)

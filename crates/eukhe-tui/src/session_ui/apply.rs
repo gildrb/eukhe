@@ -1061,6 +1061,7 @@ impl SessionUi {
             TurnUpdate::UnknownEffectsUpdate(effects) => {
                 self.apply_unknown_effects(effects, view);
             }
+            TurnUpdate::RunReport(text) => self.push_run_report(&text, view),
             TurnUpdate::LoopUpdate(status) => {
                 self.apply_loop_update(status, view);
             }

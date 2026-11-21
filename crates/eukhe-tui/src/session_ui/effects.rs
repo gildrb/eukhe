@@ -88,6 +88,7 @@ impl SessionUi {
     ) {
         let timeout = Duration::from_millis(UI_REQUEST_TIMEOUT_MS);
         let Some(word) = sub.first() else {
+            self.list_ran_effects(view).await;
             let listed = self
                 .bounded_request(
                     timeout,
