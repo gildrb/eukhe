@@ -308,9 +308,10 @@ pub(crate) enum DocumentsRefusal {
 impl AccessGate for DocumentsGate {
     fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
         if access == Access::Write {
-            if let Some(own) = eukhe_shell::paths::own_write(&self.policy, real) {
+            let judged = eukhe_shell::paths::judge(&self.policy, real).class;
+            if let Some(own) = eukhe_shell::paths::own_write(&self.policy, real, judged) {
                 return Err(AccessRefusal::new(DocumentsRefusal::Own {
-                    effects: effects(&self.policy, access, real),
+                    effects: ShellEffects::write_to(judged),
                     own,
                 }));
             }
