@@ -24,7 +24,7 @@ use std::path::Path;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::acceptance::{AcceptanceState, AttackOutcome, CheckSpec};
 
-use super::verifier::{describe, strength_text};
+use super::verifier::{describe, judges_only, strength_text};
 
 /// What `/accept` asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,6 +323,26 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
         lines.push(format!("Blind attack {}: {line}", index + 1));
     }
     Ok(lines.join("\n"))
+}
+
+/// The end line of a headless run whose checks all passed while done is
+/// not certified (exit 3): the work is done, and why it is not certified
+/// (`done; not certified: only the intent check ran`). A blind attack that
+/// survived on the final state is the reason before any other.
+#[must_use]
+pub fn uncertified_line(state: &AcceptanceState) -> String {
+    let survived = state
+        .attacks
+        .iter()
+        .any(|attack| attack.at == state.state && attack.outcome == AttackOutcome::Survived);
+    format!(
+        "done; not certified: {}",
+        if survived {
+            "the checks also passed wrong code a blind attack wrote"
+        } else {
+            judges_only(&state.checks).unwrap_or("the checks were not shown to catch broken code")
+        }
+    )
 }
 
 #[cfg(test)]
