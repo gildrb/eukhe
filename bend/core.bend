@@ -134,6 +134,7 @@ import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
+import ./ffi_work_left.bend as ffi_work_left
 import ./ffi_work_list.bend as ffi_work_list
 import ./ffi_worker.bend as ffi_worker
 import ./ffi_workflow.bend as ffi_workflow
@@ -388,6 +389,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_task.ffi(input)
     case 465:
       ffi_strength.ffi(input)
+    case 470:
+      ffi_work_left.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case _:

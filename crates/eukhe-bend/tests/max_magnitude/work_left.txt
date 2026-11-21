@@ -1,0 +1,9 @@
+# the largest counts of a work-left request: the progress check's count
+# of stalls and the loop's steps left, each at the wire's largest; a
+# continuation with the most steps left; the largest tags; a 15-digit
+# count refused
+call FFTT0,{MAX},{MAX},2,
+call TTFF1,{MAX},{MAX},3,
+call FFTT0,0,{MAX},0,
+refuse FFTT0,{LONG},3,2,
+refuse FFTT0,0,{LONG},2,

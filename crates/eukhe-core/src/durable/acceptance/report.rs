@@ -1,18 +1,20 @@
-//! The reading of a headless run's final answer: whether it states work
-//! of its task left. The acceptance judge decides it (one model request
-//! with no tools and no transcript, `JudgeQuestion::Report`), on the
-//! answer alone; the headless task rule
-//! (`eukhe_bend::rules::headless::task`) reads the result.
+//! The reading of a run's final answer: whether it states work of its
+//! task left. The acceptance judge decides it (one model request with no
+//! tools and no transcript, `JudgeQuestion::Report`), on the answer alone;
+//! the headless task rule (`eukhe_bend::rules::headless::task`) and the
+//! work-left Director (`eukhe_bend::rules::work_left`) read the result.
 
 use std::sync::Arc;
 
 use eukhe_bend::rules::verify::Answer;
 use eukhe_chord::context::Context;
 use eukhe_durable::types::ConversationId;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 
 use super::evidence::MAX_JUDGE_EVIDENCE_CHARS;
 use super::evidence::{read_answer, Judge, JudgeQuestion, JudgeReply, JudgeRequest, ModelJudge};
-use crate::durable::EukheSession;
+use crate::durable::{EukheSession, HarnessCell};
 
 /// What the judge read in a final answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +38,51 @@ pub fn session_judge(session: &EukheSession) -> Arc<dyn Judge> {
         models: deps.models.clone(),
     })
 }
+
+/// The judge of a final answer inside a session (the work-left Director,
+/// `crate::durable::directors`): one request to the conversation's model.
+/// A faux model (the verification seams; the product never runs one)
+/// serves its script's replies in order from one queue for every request
+/// of the session, so a judge request would take a turn's answer: it takes
+/// none, and the reading is no verdict.
+pub(crate) fn answer_judge(
+    harness: HarnessCell,
+    models: eukhe_ai::models::Models,
+) -> Arc<dyn Judge> {
+    Arc::new(AnswerJudge(ModelJudge { harness, models }))
+}
+
+/// [`ModelJudge`], but for a conversation on a faux model.
+struct AnswerJudge(ModelJudge);
+
+impl Judge for AnswerJudge {
+    fn judge(&self, request: JudgeRequest, cx: &Context) -> BoxFuture<'_, JudgeReply> {
+        let cx = cx.clone();
+        async move {
+            let faux = match self.0.session_model(request.conversation_id, &cx).await {
+                Ok(selector) => selector
+                    .as_deref()
+                    .and_then(|selector| selector.split_once('/'))
+                    .and_then(|(provider, id)| self.0.models.get_model(provider, id))
+                    .is_some_and(|model| model.api.split(':').next() == Some(FAUX_API)),
+                Err(error) => return JudgeReply::Unavailable(error.to_string()),
+            };
+            if faux {
+                return JudgeReply::Unavailable(
+                    "a faux model answers its script in order: it takes no judge request"
+                        .to_owned(),
+                );
+            }
+            self.0.judge(request, &cx).await
+        }
+        .boxed()
+    }
+}
+
+/// The api of the faux provider (`eukhe_ai::providers::faux`): `faux` for
+/// the scripted provider, `faux:<time>:<id>` for one registered without an
+/// api of its own.
+const FAUX_API: &str = "faux";
 
 /// Ask `judge` whether `answer`, the final answer of `conversation_id`,
 /// states work of its task left: one request.
