@@ -4,13 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "In-process bash: the script interpreter, its coreutils, and the per-step approval gate of the bash tool."
+description = "In-process bash: the script interpreter, its coreutils, and the per-step own-path refusal of the bash tool."
 
 [dependencies]
 eukhe-types.workspace = true
 # The path judgment runs as the compiled Bend core (bend/ffi_path_policy.bend).
 eukhe-bend.workspace = true
-# External steps run as child processes; the approval wait is async.
+# External steps run as child processes, their output streamed as it comes.
 tokio = { workspace = true }
 tracing.workspace = true
 # Typed step-wiring errors (pipe and redirection failures).
@@ -26,7 +26,7 @@ grep-searcher = "0.1"
 globset = "0.4"
 
 [dev-dependencies]
-# The test approver's answer queue.
+# The test sink's record.
 parking_lot = "0.12"
 tempfile = "3"
 

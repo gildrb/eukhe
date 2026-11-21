@@ -81,11 +81,6 @@ pub enum DaemonErrorInfo {
     /// or a worker that could not answer: nothing stopped, every session
     /// keeps running.
     DaemonBusy,
-    /// `answer_shell_approval` named a question the session no longer
-    /// holds: a client answered it first, its step ended, or every
-    /// interactive client detached. Nothing to answer; the client drops
-    /// its panel (the `shell_approval_settled` frame usually beat it).
-    ShellApprovalGone,
     /// A prompt's run did not begin: its `/b` prefix does not read, a
     /// profile or preset it names is no limit, or the ledger failed. The
     /// message was not sent and no run stopped, so the refusal is the
@@ -331,31 +326,6 @@ pub enum DaemonOutbound {
     SideQuestionEvent {
         active_session_id: String,
         event: Value,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
-    /// Rust-native, advertised by the `shell_approval` capability: the
-    /// session's `bash` tool asks the attached clients whether one step
-    /// may run. Unsequenced, like `side_question_event`: the first
-    /// `answer_shell_approval` for its request id wins. A subagent's
-    /// question reaches the clients of the nearest session up its chain
-    /// that has one; `agent` then names the subagent that asks.
-    ShellApproval {
-        active_session_id: String,
-        request: crate::shell::ShellApprovalRequest,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        agent: Option<String>,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
-    /// Rust-native, advertised by the `shell_approval` capability: the
-    /// question `request_id` of the session is no longer pending (a
-    /// client answered it, its step ended or was cancelled, or every
-    /// interactive client detached and it went elsewhere): every client
-    /// drops it. Unsequenced, like `shell_approval`.
-    ShellApprovalSettled {
-        active_session_id: String,
-        request_id: String,
         #[serde(flatten)]
         rest: JsonMap,
     },

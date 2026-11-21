@@ -22,27 +22,35 @@
 //! The secret set holds the state list's credentials and the credential
 //! stores other programs keep in the home dir.
 //!
+//! The own set (spec I3) holds what no agent may write: eukhe's own
+//! config and credentials (the agent dir and its direct entries, the
+//! profile dir, every settings file the session reads), the session
+//! record (the sessions dir and `sessions-archive`), and the files a
+//! check under acceptance protects.
+//!
 //! [`DocumentsGate`] is the gate of one document tool call: every access
-//! the user's auto set (`shell.autoEffects`) does not allow asks the user
-//! through the session's approval sink, as a `bash` step does (a secret
-//! access gates like any other).
+//! runs unasked but a write to an own path, which is refused.
 
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::{Path, PathBuf};
 
-use eukhe_bend::rules::shell::Gate;
 use eukhe_docs::{Access, AccessGate, AccessRefusal};
-use eukhe_shell::Refusal;
-use eukhe_types::path_policy::{PathClass, PathPolicy, PathRule, RealPath};
-use eukhe_types::shell::{AutoSet, ShellApprovalRequest, ShellEffects};
+use eukhe_types::path_policy::{
+    OwnKind, OwnPath, OwnRule, OwnWrite, PathClass, PathPolicy, PathRule, RealPath,
+};
+use eukhe_types::shell::ShellEffects;
 
-use super::acceptance::HeldFile;
-use super::deps::ShellApprovalSink;
+use eukhe_chord::context::Context;
+use eukhe_durable::types::ConversationId;
+
+use super::acceptance::protected_files;
 use super::settings::EukheSettings;
-use super::shell::RefusalText;
-use crate::settings::{CONFIG_DIR_NAME, PROFILE_DIR};
+use super::HostDeps;
+use crate::settings::{resolve_session_dir, CONFIG_DIR_NAME, PROFILE_DIR};
 use crate::state_list::{state_list, Install, StateKind, StatePart};
+
+/// The archive of the session record, in the agent dir.
+const SESSIONS_ARCHIVE: &str = "sessions-archive";
 
 /// The credential stores other programs keep in the home dir: ssh keys,
 /// cloud and registry credentials, password stores (the AWS files are
@@ -81,6 +89,8 @@ pub(crate) struct Layout<'a> {
     pub(crate) path: Option<&'a OsStr>,
     /// The value of an environment variable; `None` when unset.
     pub(crate) env: &'a dyn Fn(&str) -> Option<OsString>,
+    /// The files the session's checks under acceptance protect.
+    pub(crate) protect: &'a [PathBuf],
 }
 
 /// The policy of `workspace` (its one root) over `layout`.
@@ -102,7 +112,7 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
     for StatePart { kind, path } in state {
         match kind {
             // The dir and its entries: a write deeper (a session's
-            // artifacts, another run's copy) asks as any write outside.
+            // artifacts, another run's copy) is outside as any other.
             StateKind::AgentDir | StateKind::WorkRoot | StateKind::Executables => {
                 protected.push(PathRule::Dir(path));
             }
@@ -140,31 +150,65 @@ pub(crate) fn policy(layout: &Layout<'_>, workspace: &Path) -> PathPolicy {
             .map(|value| workspace.join(value)),
     );
     // The OS temp dir is scratch: every session writes its probe
-    // scripts and files there, and a write outside the workspace would
-    // ask for each. Its writes run without asking.
+    // scripts and files there, and a write outside the workspace is
+    // irreversible. Its writes are inside.
     let mut roots = vec![workspace.to_path_buf()];
     let temp = std::env::temp_dir();
     if temp != workspace {
         roots.push(temp);
     }
-    PathPolicy::new(roots, protected, secret)
+    PathPolicy::new(roots, protected, secret).with_own(own(layout))
+}
+
+/// The own rules of `layout` (spec I3).
+fn own(layout: &Layout<'_>) -> Vec<OwnRule> {
+    let rule = |path, kind| OwnRule { path, kind };
+    let sessions = resolve_session_dir(None, &layout.settings.manager(), layout.agent_dir)
+        .map_or_else(|_| layout.agent_dir.join("sessions"), |dir| dir.path);
+    let mut own = vec![
+        rule(
+            OwnPath::Dir(layout.agent_dir.to_path_buf()),
+            OwnKind::Config,
+        ),
+        rule(
+            OwnPath::Tree(layout.agent_dir.join(PROFILE_DIR)),
+            OwnKind::Config,
+        ),
+    ];
+    own.extend(
+        layout
+            .settings
+            .watched()
+            .iter()
+            .map(|file| rule(OwnPath::Tree(file.clone()), OwnKind::Config)),
+    );
+    own.push(rule(OwnPath::Tree(sessions), OwnKind::SessionRecord));
+    own.push(rule(
+        OwnPath::Tree(layout.agent_dir.join(SESSIONS_ARCHIVE)),
+        OwnKind::SessionRecord,
+    ));
+    own.extend(
+        layout
+            .protect
+            .iter()
+            .map(|file| rule(OwnPath::Tree(file.clone()), OwnKind::CheckFile)),
+    );
+    own
 }
 
 /// The path policy of a call of a session (its agent dir and settings)
 /// working in `workspace` (the call's agent cwd, never a cwd the model
-/// can change). The files the conversation's acceptance checks protect
-/// (`held`) are protected too: a `bash` step that writes one asks the
-/// user like any protected path.
+/// can change), whose checks protect `protect`.
 pub(crate) fn session_policy(
     agent_dir: &Path,
     settings: &EukheSettings,
     workspace: &Path,
-    held: &[HeldFile],
+    protect: &[PathBuf],
 ) -> PathPolicy {
     let home = eukhe_types::platform::home_dir();
     let executable = std::env::current_exe().ok();
     let path = std::env::var_os("PATH");
-    let base = policy(
+    policy(
         &Layout {
             agent_dir,
             settings,
@@ -172,15 +216,36 @@ pub(crate) fn session_policy(
             executable: executable.as_deref(),
             path: path.as_deref(),
             env: &|name| std::env::var_os(name),
+            protect,
         },
         workspace,
-    );
-    if held.is_empty() {
-        return base;
+    )
+}
+
+/// The path policy of a call of the session `deps` in `conversation_id`
+/// (none for a request outside a conversation) working in `workspace`:
+/// [`session_policy`] with the files the checks of that conversation and
+/// of the session's root protect. A check that cannot be read protects
+/// nothing (logged).
+pub(crate) async fn call_policy(
+    deps: &HostDeps,
+    conversation_id: Option<ConversationId>,
+    workspace: &Path,
+    cx: &Context,
+) -> PathPolicy {
+    let mut protect = Vec::new();
+    if let Some(harness) = deps.harness.get() {
+        let root = deps.harness.root().map(|root| root.id());
+        let mut conversations: Vec<ConversationId> = conversation_id.into_iter().collect();
+        conversations.extend(root.filter(|root| Some(*root) != conversation_id));
+        for conversation in conversations {
+            match protected_files(&harness, conversation, &deps.cwd, cx).await {
+                Ok(files) => protect.extend(files),
+                Err(error) => tracing::warn!(%error, "the protected files of a check are unread"),
+            }
+        }
     }
-    let mut protected = base.protected().to_vec();
-    protected.extend(held.iter().map(|file| PathRule::Tree(file.real.clone())));
-    PathPolicy::new(base.roots().to_vec(), protected, base.secret().to_vec())
+    session_policy(&deps.agent_dir, &deps.settings, workspace, &protect)
 }
 
 /// The effects of `access` to `real` under `policy`, judged on `real` as
@@ -195,78 +260,34 @@ pub(crate) fn effects(policy: &PathPolicy, access: Access, real: &RealPath) -> S
     }
 }
 
-/// The gate of one document tool call (or one kernel `fs.*` request).
+/// The gate of one document tool call (or one kernel `fs.*` request):
+/// every access runs but a write to an own path.
 pub(crate) struct DocumentsGate {
     pub(crate) policy: PathPolicy,
-    pub(crate) auto: AutoSet,
-    /// The session's approval sink; `None`: no client can answer, and
-    /// every access that asks is refused.
-    pub(crate) sink: Option<ShellApprovalSink>,
-    /// The call's id: each question's id is the call id and its number.
-    pub(crate) call: String,
-    pub(crate) asked: AtomicU64,
-    /// The runtime the sink's answer arrives on; the gate runs on a
-    /// blocking thread of it.
-    pub(crate) runtime: tokio::runtime::Handle,
-    /// The files the conversation's acceptance checks protect: a write to
-    /// one is refused whatever the user's auto set (only the task's owner
-    /// changes a check's files).
-    pub(crate) held: Vec<HeldFile>,
 }
 
-/// Why a [`DocumentsGate`] refused an access. The effects open the
-/// refusal, as a `bash` step's stop line names them: the model learns
-/// which effect needs the user's approval.
+/// Why a [`DocumentsGate`] refused an access: the write reaches an own
+/// path. The effects open the refusal, as a `bash` step's stop line names
+/// them.
 #[derive(Debug, thiserror::Error)]
-#[error("({}) {refusal}", effects.names())]
+#[error("({}) refused: {own}", effects.names())]
 pub(crate) struct DocumentsRefusal {
     effects: ShellEffects,
-    refusal: RefusalText,
-}
-
-/// A write to a file an acceptance check protects, refused.
-#[derive(Debug, thiserror::Error)]
-#[error("(write protected) {named} belongs to acceptance check {check}: only the task's owner changes it")]
-pub(crate) struct HeldRefusal {
-    named: String,
-    check: usize,
+    own: OwnWrite,
 }
 
 impl AccessGate for DocumentsGate {
     fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
-        if let Some(file) = self
-            .held
-            .iter()
-            .find(|file| matches!(access, Access::Write) && real.path().starts_with(&file.real))
-        {
-            return Err(AccessRefusal::new(HeldRefusal {
-                named: file.named.clone(),
-                check: file.check,
-            }));
-        }
-        let effects = effects(&self.policy, access, real);
-        if eukhe_bend::rules::shell::allows(self.auto, effects) == Gate::Unasked {
+        if access != Access::Write {
             return Ok(());
         }
-        let refused =
-            |refusal: RefusalText| Err(AccessRefusal::new(DocumentsRefusal { effects, refusal }));
-        let Some(sink) = &self.sink else {
-            return refused(RefusalText::of(Refusal::Unanswered));
-        };
-        let step = self.asked.fetch_add(1, Ordering::Relaxed);
-        let verb = match access {
-            Access::Read => "read",
-            Access::List => "list",
-            Access::Search => "search",
-            Access::Write => "write",
-        };
-        let request = ShellApprovalRequest {
-            request_id: format!("{}:{step}", self.call),
-            step,
-            command: eukhe_shell::visible(&format!("{verb} {}", real.path().display())),
-            effects,
-        };
-        RefusalText::of_answer(self.runtime.block_on(sink(request))).map_or(Ok(()), refused)
+        match eukhe_shell::paths::own_write(&self.policy, real) {
+            None => Ok(()),
+            Some(own) => Err(AccessRefusal::new(DocumentsRefusal {
+                effects: effects(&self.policy, access, real),
+                own,
+            })),
+        }
     }
 }
 

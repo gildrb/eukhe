@@ -36,15 +36,13 @@ fn spawn_job_lane() -> (AcpChild, std::path::PathBuf) {
     });
     std::fs::write(home.path().join("worker-script.json"), script.to_string()).unwrap();
     // The cwd is the home, so its `.eukhe` is both the agent dir and the
-    // project config dir: the short budget and the script's auto `exec`
-    // apply either way.
+    // project config dir: the short budget applies either way.
     let config_dir = home.path().join(".eukhe");
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(
         config_dir.join("settings.json"),
         json!({
             "toolBlockingBudgetMs": BUDGET_MS,
-            "shell": { "autoEffects": ["read", "exec"] },
         })
         .to_string(),
     )

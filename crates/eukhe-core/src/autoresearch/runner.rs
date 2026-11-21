@@ -1,10 +1,9 @@
 //! One benchmark run: `bash autoresearch.sh` in the repository root,
-//! through the approval gate of the `bash` tool (the in-process
-//! [`Shell`] with the session's auto set, path policy and approval sink:
-//! a step that runs a program runs unasked only when `exec` is in
-//! `shell.autoEffects`), bounded by a timeout. Its stdout and stderr go
-//! to the run's `benchmark.log` as they arrive, and each whole line goes
-//! to the caller, which feeds it to the Lab.
+//! through the in-process [`Shell`] of the `bash` tool (the session's path
+//! policy: a step that writes an own path is refused), bounded by a
+//! timeout. Its stdout and stderr go to the run's `benchmark.log` as they
+//! arrive, and each whole line goes to the caller, which feeds it to the
+//! Lab.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,10 +15,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use eukhe_shell::{End, Shell, Sink, Stream};
 use eukhe_types::path_policy::PathPolicy;
-use eukhe_types::shell::AutoSet;
 use tokio::sync::mpsc;
-
-use crate::durable::shell::{RefusalText, SinkApprover};
 
 /// The benchmark entrypoint; the model never chooses the command.
 pub(crate) const SCRIPT: &str = "bash autoresearch.sh";
@@ -30,13 +26,11 @@ pub(crate) const HARNESS: &str = "autoresearch.sh";
 /// The exit code a run that hit its timeout reports (as `timeout(1)`).
 pub(crate) const TIMEOUT_EXIT: i32 = 124;
 
-/// What the approval gate of one run needs: the environment of external
-/// steps, the auto set, the path policy, and who asks the user.
+/// What one run needs: the environment of external steps and the path
+/// policy.
 pub(crate) struct RunGate {
     pub(crate) env: HashMap<String, String>,
-    pub(crate) auto: AutoSet,
     pub(crate) paths: PathPolicy,
-    pub(crate) approver: SinkApprover,
 }
 
 /// How a run ended.
@@ -46,8 +40,8 @@ pub(crate) enum RunEnd {
     Exited(i32),
     /// The timeout killed the script and every process it started.
     TimedOut,
-    /// The gate did not let the script run; the text says why and what
-    /// to do.
+    /// A step writes an own path: the script did not run on from it; the
+    /// text says which and why.
     Refused(String),
 }
 
@@ -124,14 +118,9 @@ pub(crate) async fn run(
     let task = {
         let lines = std::sync::Arc::clone(&lines);
         tokio::spawn(async move {
-            let RunGate {
-                env,
-                auto,
-                paths,
-                approver,
-            } = gate;
+            let RunGate { env, paths } = gate;
             Shell::new(root, env, "bash")
-                .run(SCRIPT, auto, &paths, &approver, &*lines)
+                .run(SCRIPT, &paths, &*lines)
                 .await
         })
     };
@@ -169,12 +158,9 @@ pub(crate) async fn run(
     };
     Ok(match ran.end {
         End::Finished { status } | End::Exited { status } => RunEnd::Exited(status),
-        End::Refused {
-            command, refusal, ..
-        } => RunEnd::Refused(format!(
-            "`{command}` did not run: {}",
-            RefusalText::of(refusal)
-        )),
+        End::Refused { command, own, .. } => {
+            RunEnd::Refused(format!("`{command}` did not run: {own}."))
+        }
     })
 }
 

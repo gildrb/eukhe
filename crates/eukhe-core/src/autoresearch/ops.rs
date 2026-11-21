@@ -145,13 +145,13 @@ impl Autoresearch {
     }
 
     /// Run the benchmark once (`Start`, a `Line` per output line,
-    /// `Finish`). A run the gate refused stays unfinished: the next run
-    /// abandons it.
+    /// `Finish`). A run whose script was refused stays unfinished: the
+    /// next run abandons it.
     ///
     /// # Errors
     ///
     /// [`super::Refused`] (no session yet), a store, run or core failure.
-    pub(crate) async fn run(&self, timeout: Duration, request: &str) -> anyhow::Result<Reply> {
+    pub(crate) async fn run(&self, timeout: Duration) -> anyhow::Result<Reply> {
         let mut session = self.session().await?;
         let started = session.opened()?.lab.snapshot()?.runs.len();
         let run = u32::try_from(started)
@@ -160,7 +160,7 @@ impl Autoresearch {
             .context("too many runs")?;
         session.accept(&Event::Start { run }, Durability::Synced)?;
         let log = session.opened()?.store.run_dir(run)?.join("benchmark.log");
-        let gate = (self.gate)(request);
+        let gate = (self.gate)();
         let root = session.workspace.root.clone();
         let end = runner::run(gate, root, &log, timeout, |text| {
             session

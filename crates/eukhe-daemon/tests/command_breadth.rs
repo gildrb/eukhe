@@ -566,12 +566,16 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_worker_liveness", "activeSessionId": "sess"}"#,
     ),
     (
-        "answer_shell_approval",
-        r#"{"type": "answer_shell_approval", "activeSessionId": "sess", "requestId": "r1", "verdict": "deny"}"#,
+        "answer_editor_permission",
+        r#"{"type": "answer_editor_permission", "activeSessionId": "sess", "requestId": "r1", "verdict": "reject"}"#,
     ),
     (
-        "relay_shell_approval",
-        r#"{"type": "relay_shell_approval", "activeSessionId": "sess", "request": {"requestId": "r1", "step": 0, "command": "touch a", "effects": ["write"]}, "agent": "scout"}"#,
+        "relay_editor_permission",
+        r#"{"type": "relay_editor_permission", "activeSessionId": "sess", "request": {"requestId": "r1", "command": "git push", "classes": ["net"], "agent": "scout"}}"#,
+    ),
+    (
+        "relay_ran_effect",
+        r#"{"type": "relay_ran_effect", "activeSessionId": "sess", "effect": {"key": "s2:c1:0", "kind": "shellStep", "command": "git push", "classes": ["net"], "agent": "scout", "sessionId": "s2", "atMs": 5}}"#,
     ),
     (
         "register_headless_parent",
@@ -588,6 +592,10 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
     (
         "resolve_unknown_effect",
         r#"{"type": "resolve_unknown_effect", "activeSessionId": "sess", "effectId": "tool:c1", "resolution": "ran"}"#,
+    ),
+    (
+        "get_ran_effects",
+        r#"{"type": "get_ran_effects", "activeSessionId": "sess"}"#,
     ),
     (
         "get_budget",
@@ -648,8 +656,9 @@ fn known_command_types_match_the_ts_list() {
                     | "list_kernel_bash"
                     | "tail_kernel_bash"
                     | "kill_kernel_bash"
-                    | "answer_shell_approval"
-                    | "relay_shell_approval"
+                    | "answer_editor_permission"
+                    | "relay_editor_permission"
+                    | "relay_ran_effect"
                     | "mark_anthropic_warning_shown"
                     | "get_chat_view"
                     | "get_memory"
@@ -667,6 +676,7 @@ fn known_command_types_match_the_ts_list() {
                     | "headless_parent_receipt"
                     | "get_unknown_effects"
                     | "resolve_unknown_effect"
+                    | "get_ran_effects"
                     | "get_budget"
                     | "set_budget"
                     | "set_budget_limits"

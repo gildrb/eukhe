@@ -5,9 +5,8 @@
 //! hears `unpaired` and nothing runs), greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
-//! runs daemon commands for the bound session, hears approvals and
-//! resyncs, reads the memory tree, and keeps events flowing while a
-//! request waits.
+//! runs daemon commands for the bound session, hears resyncs, reads the
+//! memory tree, and keeps events flowing while a request waits.
 #![cfg(unix)]
 
 use std::future::Future;
@@ -178,7 +177,7 @@ fn serve_connection(
         &json!({
             "type": "daemon_hello",
             "protocol": { "name": "eukhe.daemon", "version": 7 },
-            "serverCapabilities": ["memory", "memory_tree", "shell_approval"],
+            "serverCapabilities": ["memory", "memory_tree"],
             "clientId": "mock",
         }),
     );
@@ -1177,7 +1176,7 @@ async fn events_and_other_requests_never_wait_behind_a_slow_request() {
 }
 
 #[tokio::test]
-async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
+async fn a_tab_resumes_from_its_cursor() {
     let dir = tempfile::tempdir().expect("tempdir");
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
@@ -1219,24 +1218,6 @@ async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
     assert_eq!(
         attach["resumeCursor"],
         json!({ "generation": "g1", "sequence": 3 })
-    );
-
-    // The bound session's approval question reaches the tab; another
-    // session's does not.
-    let approval = |active_session_id: &str| {
-        json!({
-            "type": "shell_approval", "activeSessionId": active_session_id,
-            "request": { "requestId": active_session_id, "step": 0, "command": "rm -r build", "effects": ["write"] },
-        })
-    };
-    daemon.write(&approval("s2"));
-    daemon.write(&approval("s1"));
-    assert_eq!(
-        next_frame(&mut socket).await,
-        json!({
-            "type": "approval",
-            "request": { "requestId": "s1", "step": 0, "command": "rm -r build", "effects": ["write"] },
-        })
     );
 
     // A cursor the daemon cannot replay from: the whole transcript again.

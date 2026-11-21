@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use eukhe_bend::rules::autoresearch::{Direction, Mode, Status};
 use eukhe_types::path_policy::PathPolicy;
-use eukhe_types::shell::{AutoSet, ShellEffect};
 use serde_json::{json, Value};
 
 use super::git::{Branch, Workspace};
@@ -18,7 +17,6 @@ use super::ops::{InitArgs, LogArgs};
 use super::runner::RunGate;
 use super::store::Store;
 use super::{Autoresearch, Refused};
-use crate::durable::shell::SinkApprover;
 
 const HARNESS: &str = "#!/usr/bin/env bash\nset -e\necho \"warming up\"\necho \"METRIC time_ms=$(cat value.txt)\"\necho \"METRIC size_kb=3\"\nexit \"$(cat exit.txt 2>/dev/null || echo 0)\"\n";
 
@@ -55,19 +53,9 @@ fn lab(home: &Path, cwd: &Path) -> Autoresearch {
     Autoresearch::new(
         home,
         cwd.to_path_buf(),
-        Arc::new(move |request: &str| RunGate {
+        Arc::new(move || RunGate {
             env: std::env::vars().collect(),
-            auto: AutoSet::new(
-                ShellEffect::ALL
-                    .iter()
-                    .copied()
-                    .filter(|effect| !matches!(effect, ShellEffect::Secret)),
-            ),
             paths: PathPolicy::new(vec![root.clone()], Vec::new(), Vec::new()),
-            approver: SinkApprover {
-                sink: None,
-                call: request.to_owned(),
-            },
         }),
     )
 }
@@ -82,10 +70,7 @@ fn log(status: Status, description: &str) -> LogArgs {
 }
 
 async fn run(lab: &Autoresearch) -> Value {
-    lab.run(Duration::from_secs(60), "test")
-        .await
-        .unwrap()
-        .value
+    lab.run(Duration::from_secs(60)).await.unwrap().value
 }
 
 /// The `autoresearch` system prompt section for the Lab's current view.

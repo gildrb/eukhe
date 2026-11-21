@@ -3,7 +3,7 @@
 // read it with `useStore(select)`.
 
 import { useSyncExternalStore } from "react";
-import type { Approval, Session } from "./turn.ts";
+import type { Session } from "./turn.ts";
 import type { SessionRow } from "./types.ts";
 
 export type Theme = "system" | "light" | "dark";
@@ -33,7 +33,6 @@ export type State = {
   };
   sessions: { rows: SessionRow[]; loaded: boolean; loading: boolean; error: string | null };
   session: Session | null;
-  approvals: Approval[];
   /** While (or after failing) binding a session. */
   opening: { id: string | null; error: string | null } | null;
   prefs: Prefs;
@@ -79,7 +78,6 @@ let state: State = {
   },
   sessions: { rows: [], loaded: false, loading: false, error: null },
   session: null,
-  approvals: [],
   opening: null,
   prefs: storedPrefs(),
   frames: [],

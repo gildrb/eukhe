@@ -227,8 +227,6 @@ impl<L: DaemonLauncher> Link<L> {
             id: session_id,
             path: session_file,
         };
-        // The gateway shows no approval question: the daemon answers a
-        // session whose only client is the gateway by the gateway rule.
         let attached = attach(&self.client, &active_session_id, DaemonClientKind::Gateway).await?;
         let streaming = attached
             .pointer("/snapshot/state/isStreaming")

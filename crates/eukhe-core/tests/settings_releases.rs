@@ -48,12 +48,15 @@ fn stored() -> Vec<(String, Value)> {
 }
 
 /// What differs when the current build loads one stored document: its
-/// settings errors, and each setting whose value is not the one the
-/// schema's release gave it.
+/// settings errors, each setting whose value is not the one the schema's
+/// release gave it, and each setting since retired that the document held
+/// and the load does not name retired (`settings/migrate.rs` drops it,
+/// whatever its value, and names it once).
 fn differences(name: &str, index: usize, case: &Value) -> Vec<String> {
     let dir = tempfile::tempdir().expect("tempdir");
     let document = case["settings"].as_object().expect("a settings document");
     let (errors, manager) = generate::load(dir.path(), document);
+    let retired = manager.unnamed_retired();
     let errors = errors
         .into_iter()
         .map(|error| format!("{name} document {index}: settings error: {error}"));
@@ -62,11 +65,38 @@ fn differences(name: &str, index: usize, case: &Value) -> Vec<String> {
         .expect("the effective values")
         .iter()
         .filter_map(|(id, then)| {
-            let now = registry().find(id).map(|decl| manager.cvars().value(decl));
-            (now.as_ref() != Some(then))
-                .then(|| format!("{name} document {index}: `{id}` was {then}, now {now:?}"))
+            let Some(decl) = registry().find(id) else {
+                let named = retired.iter().any(|setting| {
+                    id == setting.id
+                        || id
+                            .strip_prefix(setting.id)
+                            .is_some_and(|rest| rest.starts_with('.'))
+                });
+                return (holds(document, id) && !named).then(|| {
+                    format!("{name} document {index}: `{id}` was {then}, now gone and not named retired")
+                });
+            };
+            let now = manager.cvars().value(decl);
+            (now != *then).then(|| format!("{name} document {index}: `{id}` was {then}, now {now}"))
         });
     errors.chain(effects).collect()
+}
+
+/// Whether `document` sets the dotted `id` (nested sections or a dotted
+/// key).
+fn holds(document: &serde_json::Map<String, Value>, id: &str) -> bool {
+    if document.contains_key(id) {
+        return true;
+    }
+    let mut parts = id.split('.');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    let mut value = document.get(first);
+    for part in parts {
+        value = value.and_then(|value| value.get(part));
+    }
+    value.is_some()
 }
 
 #[test]

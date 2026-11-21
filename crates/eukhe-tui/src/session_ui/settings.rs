@@ -1,12 +1,11 @@
 //! The settings concern: the `/settings` menu and its row-apply/persist
-//! switches, the `/import` confirm flow and the `bash` step questions, and
-//! the fast/rlm-max-depth/reload command surface, plus the parked
-//! `ReloadNote` and `PendingConfirm` types.
+//! switches, the `/import` confirm flow, and the fast/rlm-max-depth/reload
+//! command surface, plus the parked `ReloadNote` and `PendingConfirm`
+//! types.
 use super::{
     key_event_to_id, AgentView, DaemonCommand, Duration, KeyEvent, Map, PathBuf, Result, SessionUi,
     StatusKind, Value, UI_REQUEST_TIMEOUT_MS,
 };
-use eukhe_types::shell::ShellVerdict;
 
 /// The `/reload` task's report: the daemon reloaded the session's live
 /// inputs, or why the reload failed (TS `handleReloadCommand`'s outcome).
@@ -21,12 +20,6 @@ pub(super) enum PendingConfirm {
     /// The import's stored session cwd is gone: `Yes` retries with the
     /// fallback cwd (TS `promptForMissingSessionCwd`).
     ImportCwdFallback { path: String, fallback_cwd: String },
-    /// The `bash` tool's step question: `Yes` approves, `No`, escape, and
-    /// ctrl+c deny (`answer_shell_approval` to the asking session).
-    ShellApproval {
-        active_session_id: String,
-        request_id: String,
-    },
 }
 
 impl SessionUi {
@@ -99,111 +92,11 @@ impl SessionUi {
             Some(PendingConfirm::ImportCwdFallback { path, fallback_cwd }) if yes => {
                 self.run_import(&path, Some(&fallback_cwd), view).await
             }
-            Some(PendingConfirm::ShellApproval {
-                active_session_id,
-                request_id,
-            }) => {
-                let verdict = if yes {
-                    ShellVerdict::Approve
-                } else {
-                    ShellVerdict::Deny
-                };
-                self.answer_shell_approval(active_session_id, request_id, verdict, view)
-                    .await;
-                Ok(())
-            }
             Some(PendingConfirm::Import { .. } | PendingConfirm::ImportCwdFallback { .. })
             | None => Ok(()),
         };
-        // A queued step question opens once no confirm is open (the import
-        // may have opened its cwd fallback).
-        if view.confirm.is_none() {
-            self.open_next_shell_approval(view);
-        }
         self.dirty = true;
         outcome
-    }
-
-    /// Open the oldest queued `shell_approval` question, if any. A
-    /// subagent's question names the subagent first.
-    pub(super) fn open_next_shell_approval(&mut self, view: &mut AgentView) {
-        let Some((active_session_id, request, agent)) = self.shell_approvals.pop_front() else {
-            return;
-        };
-        let question = format!("shell step {} ({})?", request.step, request.effects.names());
-        let title = match agent {
-            Some(agent) => {
-                // The name is the model's text: a character a terminal
-                // hides or moves (the set of eukhe-shell's `shown::hidden`)
-                // shows as its escape.
-                let agent = agent.chars().fold(String::new(), |mut shown, c| {
-                    let hidden = c.is_control()
-                        || matches!(
-                            c,
-                            '\u{00ad}'
-                                | '\u{061c}'
-                                | '\u{180e}'
-                                | '\u{200b}'..='\u{200f}'
-                                | '\u{2028}'..='\u{202e}'
-                                | '\u{2060}'..='\u{2069}'
-                                | '\u{feff}'
-                        );
-                    if hidden {
-                        shown.extend(c.escape_unicode());
-                    } else {
-                        shown.push(c);
-                    }
-                    shown
-                });
-                format!("Subagent {agent} asks: allow {question}")
-            }
-            None => format!("Allow {question}"),
-        };
-        view.confirm = Some(crate::confirm::ConfirmPanel::approval(
-            &title,
-            &request.command,
-        ));
-        self.pending_confirm = Some(PendingConfirm::ShellApproval {
-            active_session_id,
-            request_id: request.request_id,
-        });
-        self.dirty = true;
-    }
-
-    /// Send the user's verdict on one step question. A question the
-    /// session no longer holds (another client answered first, its step
-    /// ended) leaves one muted note; any other failure lands as an error
-    /// row.
-    async fn answer_shell_approval(
-        &mut self,
-        active_session_id: String,
-        request_id: String,
-        verdict: ShellVerdict,
-        view: &mut AgentView,
-    ) {
-        match self
-            .bounded_request(
-                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                DaemonCommand::AnswerShellApproval {
-                    id: None,
-                    active_session_id,
-                    request_id,
-                    verdict,
-                    rest: Map::default(),
-                },
-            )
-            .await
-        {
-            Ok(_) => {}
-            Err(error) if eukhe_client::daemon_client::is_shell_approval_gone(&error) => {
-                view.push_entry(crate::chat::ChatEntry::Status {
-                    text: "That shell step question was already settled.".to_string(),
-                    kind: StatusKind::Info,
-                });
-                self.dirty = true;
-            }
-            Err(error) => self.error_row(&format!("Shell approval not sent: {error:#}"), view),
-        }
     }
 
     /// The import request and its outcomes (TS `handleImportCommand`'s

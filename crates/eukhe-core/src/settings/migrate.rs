@@ -16,6 +16,9 @@ use super::cvar::registry;
 /// that no longer have a meaning: the migration drops each, whatever its
 /// value. A top-level id drops the whole section.
 const RETIRED: &[&str] = &[
+    // Removed after 0.10.78: `shell.autoEffects` (every step runs unasked;
+    // a write to an own path is refused whatever any setting says).
+    "shell",
     // Removed in 0.10.42: the bounded usage wait (a quota failure parks
     // instead: `retry.provider.waitForUsage.pauseUntilReset`).
     "retry.provider.waitForUsage.enabled",

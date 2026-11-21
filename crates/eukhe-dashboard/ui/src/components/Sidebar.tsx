@@ -59,19 +59,11 @@ export function Sidebar({
   const everOpen = useStore((state) => state.link.everOpen);
   const theme = useStore((state) => state.prefs.theme);
   const session = useStore((state) => state.session);
-  const approvals = useStore((state) => state.approvals);
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
 
-  const phase = derivePhase({ session, approvals }, Date.now(), fmt).phase;
-  const statusWord =
-    phase === "approval"
-      ? "Needs you"
-      : phase === "failed"
-        ? "Failed"
-        : session?.turn.running
-          ? "Running"
-          : "";
+  const phase = derivePhase({ session }, Date.now(), fmt).phase;
+  const statusWord = phase === "failed" ? "Failed" : session?.turn.running ? "Running" : "";
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -167,14 +159,7 @@ export function Sidebar({
                         {row.title || "New chat"}
                       </span>
                       {current && statusWord ? (
-                        <span
-                          {...stylex.props(
-                            ui.small,
-                            statusWord === "Needs you" ? styles.needsYou : ui.tertiary,
-                          )}
-                        >
-                          {statusWord}
-                        </span>
+                        <span {...stylex.props(ui.small, ui.tertiary)}>{statusWord}</span>
                       ) : null}
                     </a>
                   </li>
@@ -297,7 +282,6 @@ const styles = stylex.create({
   rows: { listStyle: "none", margin: 0, padding: 0 },
   chat: { color: colors.primary },
   current: { backgroundColor: colors.hover, fontWeight: weight.medium },
-  needsYou: { color: colors.primary, fontWeight: weight.medium },
   foot: {
     display: "flex",
     alignItems: "center",

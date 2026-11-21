@@ -32,18 +32,12 @@ fn registry(dir: &std::path::Path) -> HostRequestRegistry {
         }),
         memory: None,
         deps: std::sync::Weak::new(),
-        // The gate is not these tests' subject: the user approves every
-        // access that asks.
         gate: super::super::GateInputs {
             agent_dir: dir.join("agent"),
             settings: Arc::new(crate::durable::EukheSettings::new(
                 dir.join("ws"),
                 dir.join("agent"),
             )),
-            sink: Some(Arc::new(|_| {
-                Box::pin(async { eukhe_types::shell::ShellAnswer::Approve })
-                    as futures::future::BoxFuture<'static, _>
-            })),
         },
     };
     register(&registry, &Arc::new(host));

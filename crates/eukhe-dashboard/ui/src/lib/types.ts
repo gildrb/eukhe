@@ -232,21 +232,11 @@ export type SessionEvent =
   | { type: "refine_failed"; error: string }
   | { type: "python_sent_agent_message" };
 
-/** `effects`: every effect of the step, by name (read, write, exec, net, outside, protected, secret). */
-export type ApprovalRequest = {
-  requestId: string;
-  step: number;
-  command: string;
-  effects: string[];
-};
-
 export type ServerFrame =
   | { type: "hello"; protocol: number; build: string; ops: string[] }
   | { type: "reply"; id: number; data: unknown }
   | { type: "failure"; id: number; error: string }
   | { type: "event"; event: SessionEvent; cursor?: Cursor }
-  | { type: "approval"; request: ApprovalRequest }
-  | { type: "approval_settled"; requestId: string }
   | { type: "resync"; reason: string }
   | { type: "unavailable"; error: string }
   | { type: "unpaired"; error: string };

@@ -12,6 +12,10 @@
 //!   ancestor of a rule's entry or of a secret; else Inside under a
 //!   workspace root unless its links looped; else Outside.
 //! - It holds a secret: it is under a secret entry, or an ancestor of one.
+//!
+//! A write is refused when it reaches an own path ([`own_write`], spec
+//! I3): eukhe's own config and credentials, the session record, a
+//! protected file of a check under acceptance.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -19,7 +23,9 @@ use std::path::Path;
 
 use eukhe_bend::wire::{Reader, Writer};
 use eukhe_bend::{call, expect_core, Entry, Error};
-use eukhe_types::path_policy::{resolve, PathClass, PathPolicy, PathRule, RealPath};
+use eukhe_types::path_policy::{
+    resolve, OwnPath, OwnWrite, PathClass, PathPolicy, PathRule, RealPath,
+};
 
 /// The judgment of one resolved path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +129,26 @@ fn decide(policy: &PathPolicy, resolved: &RealPath) -> Result<Judged, Error> {
 #[must_use]
 pub fn judge_path(policy: &PathPolicy, absolute: &Path) -> Judged {
     judge(policy, &resolve(absolute))
+}
+
+/// The own path a write to `resolved` reaches, with why it is own; `None`
+/// when no own rule covers it (a Tree rule's path or anything under it, a
+/// Dir rule's directory or an entry directly in it). The first rule that
+/// covers it names it.
+#[must_use]
+pub fn own_write(policy: &PathPolicy, resolved: &RealPath) -> Option<OwnWrite> {
+    let path = resolved.path();
+    policy
+        .own()
+        .iter()
+        .find(|rule| match &rule.path {
+            OwnPath::Tree(root) => path.starts_with(root),
+            OwnPath::Dir(dir) => path == dir || path.parent() == Some(dir.as_path()),
+        })
+        .map(|rule| OwnWrite {
+            path: path.to_path_buf(),
+            kind: rule.kind,
+        })
 }
 
 #[cfg(test)]

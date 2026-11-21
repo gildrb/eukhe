@@ -36,8 +36,8 @@ struct SessionEventHead<'a> {
     reason: Option<&'a serde_json::value::RawValue>,
 }
 
-/// The session address of a worker `side_question_event`, `shell_approval`,
-/// or `state_tree_update` frame.
+/// The session address of a worker `side_question_event` or
+/// `state_tree_update` frame.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionAddress<'a> {
@@ -991,10 +991,7 @@ impl Supervisor {
                                 &super::subscribers::event_line(frame.payload),
                             );
                         }
-                    } else if outbound_type == "side_question_event"
-                        || outbound_type == crate::shell_approval::SHELL_APPROVAL_FRAME
-                        || outbound_type == crate::shell_approval::SHELL_APPROVAL_SETTLED_FRAME
-                    {
+                    } else if outbound_type == "side_question_event" {
                         let Ok(SessionAddress { active_session_id }) =
                             serde_json::from_slice(&frame.payload)
                         else {

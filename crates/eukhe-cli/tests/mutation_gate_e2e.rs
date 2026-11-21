@@ -218,10 +218,13 @@ fn a_write_to_a_law_file_under_accept_bend_is_refused() {
         ],
         &script,
     );
+    let real = dir.path().canonicalize().unwrap();
     for named in ["LAWS.bend", "laws/a.bend"] {
         assert!(
             stdout.contains(&format!(
-                "(write protected) {named} belongs to acceptance check 1: only the task's owner changes it"
+                "(write) refused: {} is part of the protected files of a check under acceptance; \
+no agent may write it",
+                real.join(named).display()
             )),
             "{named}: stdout: {stdout}\nstderr: {stderr}"
         );

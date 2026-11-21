@@ -1,11 +1,10 @@
 //! The `bash` tool under the S2 limits: its output bounded by the call's
 //! truncation (whole under the opt-out), and a script past the blocking
 //! budget detached as a job whose end settles it and whose kill stops it.
-//! The gate's refusal texts, and the default auto set against the
-//! compiled core's (`bend/approvals.bend` `default_auto`). A crash
-//! mid-script never runs it again (`effect_once`).
+//! Every step runs unasked; a step that writes an own path is refused
+//! and stops the script. A crash mid-script never runs it again
+//! (`effect_once`).
 
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +12,6 @@ use std::time::Duration;
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions, FauxResponseStep,
 };
-use eukhe_bend::rules::approvals;
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput};
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::types::SubmissionStatus;
@@ -47,15 +45,6 @@ fn bash(call_id: &str, script: &str) -> FauxResponseStep {
     .into()
 }
 
-/// Answers no gated step (the scripts here have none).
-struct Never;
-
-impl Approver for Never {
-    fn approve(&self, _ask: Ask) -> impl Future<Output = Answer> + Send {
-        std::future::ready(Answer::Unanswered)
-    }
-}
-
 /// The transcript of `script` run under `truncation`.
 async fn transcript_of(script: &str, truncation: Truncation) -> (String, Option<ToolDiagnostic>) {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -71,13 +60,7 @@ async fn transcript_of(script: &str, truncation: Truncation) -> (String, Option<
         Vec::new(),
     );
     let ran = Shell::new(dir.path(), env, "bash")
-        .run(
-            script,
-            AutoSet::new([ShellEffect::Read]),
-            &paths,
-            &Never,
-            &transcript,
-        )
+        .run(script, &paths, &transcript)
         .await;
     assert_eq!(ran.end, End::Finished { status: 0 });
     transcript.projection()
@@ -131,8 +114,7 @@ async fn the_output_obeys_the_calls_truncation_and_its_opt_out() {
 /// The blocking budget of the detach tests.
 const BUDGET_MS: u64 = 400;
 
-/// Open with a short budget, `exec` in the auto set, and every settled
-/// job captured.
+/// Open with a short budget and every settled job captured.
 async fn open_detaching(
     fixture: &Fixture,
 ) -> (
@@ -141,11 +123,7 @@ async fn open_detaching(
 ) {
     std::fs::write(
         fixture.dir.path().join("agent").join("settings.json"),
-        json!({
-            "toolBlockingBudgetMs": BUDGET_MS,
-            "shell": { "autoEffects": ["read", "exec"] },
-        })
-        .to_string(),
+        json!({ "toolBlockingBudgetMs": BUDGET_MS }).to_string(),
     )
     .expect("settings");
     let (settled_tx, settled) = tokio::sync::mpsc::unbounded_channel();
@@ -364,89 +342,31 @@ async fn a_resume_never_runs_a_bash_call_a_crash_interrupted_again() {
     session.close(cx()).await.expect("close");
 }
 
-/// Each answer of the approval sink that is not a yes becomes its
-/// refusal's text, and each text ends with a next step for the model.
-#[test]
-fn every_refusal_text_names_what_failed_and_the_next_step() {
-    let next = [
-        Refusal::Denied,
-        Refusal::Unanswered,
-        Refusal::GatewayRefused,
-    ]
-    .map(|refusal| RefusalText::of(refusal).next.is_empty());
-    let texts = [
-        ShellAnswer::Approve,
-        ShellAnswer::Deny,
-        ShellAnswer::Unanswered,
-        ShellAnswer::GatewayRefused,
-    ]
-    .map(|answer| RefusalText::of_answer(answer).map(|text| text.to_string()));
-    assert_eq!(
-        (next, texts),
-        (
-            [false, false, false],
-            [
-                None,
-                Some(
-                    "the user denied it. Do not try it again unless the user asks for it."
-                        .to_owned()
-                ),
-                Some(
-                    "it needs the user's approval, and no client answered. Ask the user to attach \
-a client, or to allow its effect in shell.autoEffects if that is read, write, exec, net, \
-outside, protected or secret; or use read-only steps."
-                        .to_owned()
-                ),
-                Some(
-                    "the session runs only from the phone gateway, and from there a step that \
-writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) \
-never runs when the user's auto set does not already run it. Ask the user to run it from the \
-eukhe TUI or the dashboard."
-                        .to_owned()
-                ),
-            ]
-        )
-    );
-}
-
-/// The auto set of a session whose user sets no `shell.autoEffects` is
-/// the compiled core's default (`bend/approvals.bend` `default_auto`, law
-/// `default_auto_is_grantable`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_default_auto_set_is_its_model() {
-    let fixture = Fixture::new();
-    let session = fixture.open_configured(|_| {}).await;
-    assert_eq!(
-        auto_set(&session.deps().settings),
-        approvals::default_auto()
-    );
-    session.close(cx()).await.expect("close");
-}
-
-/// Regression: the default auto set held only read, write, exec and net,
-/// so in a session whose user set none, a write outside the workspace
-/// asked, and a subagent writing its notes to /tmp stopped every turn
-/// for a yes. Now every effect runs unasked: with no client
-/// to answer, the whole script runs.
+/// Every step runs unasked, a write outside the workspace too; a step
+/// that writes an own path (here eukhe's settings) is refused, and it and
+/// every step after it do not run. The model is told the path and why.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn with_no_auto_set_a_write_outside_the_workspace_runs_unasked() {
+async fn every_step_runs_unasked_and_an_own_write_stops_the_script() {
     let fixture = Fixture::new();
     fixture.faux.set_responses(vec![
         bash(
             "b1",
-            "echo one > one.txt\nsh -c 'echo two > two.txt'\necho three > ../three.txt\necho four > four.txt",
+            "echo one > one.txt\nsh -c 'echo two > two.txt'\necho three > ../three.txt\necho x > ../agent/settings.json\necho four > four.txt",
         ),
         text("done"),
     ]);
-    let session = fixture
-        .open_configured(|config| config.shell_approval = None)
-        .await;
+    let session = fixture.open_configured(|_| {}).await;
+    let settings = fixture.dir.path().join("agent").join("settings.json");
+    let settings_before = std::fs::read_to_string(&settings).ok();
     let id = submit(&session, "go").await;
     tokio::time::timeout(Duration::from_millis(WAIT_MS), settle(&session, id))
         .await
         .expect("the turn ends");
     let work = fixture.dir.path().join("work");
     let read = |path: PathBuf| std::fs::read_to_string(path).ok();
+    let own = std::fs::canonicalize(fixture.dir.path().join("agent"))
+        .expect("the agent dir")
+        .join("settings.json");
     assert_eq!(
         (
             results(&entries(&session).await)
@@ -456,18 +376,21 @@ async fn with_no_auto_set_a_write_outside_the_workspace_runs_unasked() {
             read(work.join("one.txt")),
             read(work.join("two.txt")),
             read(fixture.dir.path().join("three.txt")),
+            read(settings) == settings_before,
             read(work.join("four.txt")),
         ),
         (
-            vec![
-                "$ echo one >one.txt\n$ sh -c 'echo two > two.txt'\n$ echo three >../three.txt\n$ \
-echo four >four.txt\n"
-                    .to_owned()
-            ],
+            vec![format!(
+                "$ echo one >one.txt\n$ sh -c 'echo two > two.txt'\n$ echo three >../three.txt\n\
+[stopped at step 3 (read+write+protected): `echo x >../agent/settings.json` and the steps after it \
+did not run: {} is part of eukhe's own config and credentials; no agent may write it.]\n",
+                own.display()
+            )],
             Some("one\n".to_owned()),
             Some("two\n".to_owned()),
             Some("three\n".to_owned()),
-            Some("four\n".to_owned()),
+            true,
+            None,
         )
     );
     session.close(cx()).await.expect("close");
