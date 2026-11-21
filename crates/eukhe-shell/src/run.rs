@@ -460,7 +460,7 @@ impl Shell {
             let real = resolve(&self.cwd.join(target));
             let class = crate::paths::judge(paths, &real).class;
             let written = writes
-                .then(|| crate::paths::own_write(paths, &real))
+                .then(|| crate::paths::own_write(paths, &real, class))
                 .flatten();
             parts.push(StepPart {
                 own: own(class),
@@ -499,7 +499,7 @@ impl Shell {
                 (true, PathClass::Secret) => (ShellEffects::NONE, true),
             };
             let written = writes
-                .then(|| crate::paths::own_write(paths, &real))
+                .then(|| crate::paths::own_write(paths, &real, judged.class))
                 .flatten();
             parts.push(StepPart {
                 own,
