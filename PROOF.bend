@@ -2772,11 +2772,13 @@ import ./proof/command/command_ffi_out_reads_spelled.bend as PCommandFfiOutReads
 import ./proof/command/command_ffi_reads_only_requests.bend as PCommandFfiReadsOnlyRequests
 import ./proof/command/command_ffi_malformed_unless_request.bend as PCommandFfiMalformedUnlessRequest
 import ./proof/command/command_ffi_res_reads_spelled.bend as PCommandFfiResReadsSpelled
+import ./proof/command/base/reply.bend as LACommandReply
 import ./proof/command/command_ffi_res_exact.bend as PCommandFfiResExact
 import ./proof/command/command_ffi_menu_exact.bend as PCommandFfiMenuExact
 import ./proof/command/command_ffi_out_exact.bend as PCommandFfiOutExact
 import ./proof/command/command_ffi_cut_reply_example.bend as PCommandFfiCutReplyExample
 import ./proof/command/command_ffi_reply_example.bend as PCommandFfiReplyExample
+import ./proof/command/command_ffi_long_reply_example.bend as PCommandFfiLongReplyExample
 import ./proof/command/base/space.bend as LACommandSpace
 import ./proof/command/base/named.bend as LACommandNamed
 import ./proof/command/command_named_example.bend as PCommandNamedExample
