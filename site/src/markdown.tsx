@@ -323,7 +323,7 @@ export type EditorFile = {
   copies: Copy[];
   images: Placement[];
   /** The home page: its Markdown and its images' sizes, to render again at a narrower width. */
-  page: { source: string; sizes: Sizes; width: number } | null;
+  page: { source: string; sizes: Sizes; width: number; header: boolean } | null;
 };
 
 /** Code points in a string: the editor's columns. */

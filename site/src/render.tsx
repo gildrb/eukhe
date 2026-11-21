@@ -444,17 +444,18 @@ export function render(
   sizes: Sizes,
 ): Record<string, string> {
   // The editor's files: the home page (rendered), the other pages, then eukhe's files.
+  // Markdown shows rendered (rendered.ts): the home page, the site's pages, eukhe's Markdown files;
+  // eukhe's other files show as they are.
   const editor = [
-    pageFile("index.md", source, sizes, textWidth, desktop),
-    ...[
-      ...docs.map((doc) => ({
-        path: `${doc.path.slice(1)}.md`,
-        text: doc.markdown,
-        plain: false,
-        header: true,
-      })),
-      ...files.map((file) => ({ ...file, header: false })),
-    ].map((file) => editorFile(file.path, file.text, file.plain, file.header)),
+    pageFile("index.md", source, sizes, textWidth, desktop, false),
+    ...docs.map((doc) =>
+      pageFile(`${doc.path.slice(1)}.md`, doc.markdown, sizes, textWidth, desktop, true),
+    ),
+    ...files.map((file) =>
+      file.path.endsWith(".md")
+        ? pageFile(file.path, file.text, sizes, textWidth, desktop, false)
+        : editorFile(file.path, file.text, file.plain, false),
+    ),
   ];
   // A page opens the editor on its own file: that file first (client.ts orders them the same way).
   const first = (path: string) => {

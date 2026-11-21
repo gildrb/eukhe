@@ -1,4 +1,5 @@
 import { epigraphs, titleEpigraph } from "./epigraphs.ts";
+import { repository } from "./rendered.ts";
 // The repository's own README (the site lives in site/ of Eukhe's repository).
 import readme from "../../README.md?raw";
 
@@ -47,9 +48,6 @@ function withEpigraphs(markdown: string): string {
     })
     .join("\n");
 }
-
-/** Where eukhe's source lives: the page's last line, after the README. */
-const repository = "https://github.com/gildrb/eukhe";
 
 /**
  * The whole page as Markdown: what the page shows, and what `Accept: text/markdown` gets. Eukhe's

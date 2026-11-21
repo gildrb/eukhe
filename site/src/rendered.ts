@@ -15,6 +15,9 @@ export type Placement = { line: number; rows: number; src: string; alt: string; 
 /** The rendered buffer: its lines, each line's highlights, its code blocks' `[copy]`, its images. */
 export type Rendered = { lines: string[]; runs: Run[][]; copies: Copy[]; images: Placement[] };
 
+/** Where Eukhe's source lives: the title's line and the page's last line link to it. */
+export const repository = "https://github.com/gildrb/eukhe";
+
 /** The widest the text runs, in cells ('textwidth'). */
 export const textWidth = 80;
 
@@ -171,6 +174,7 @@ function joined(runs: readonly Run[]): Run[] {
 export function render(
   source: string,
   w: number,
+  header: boolean,
   rowsOf: (img: { src: string; width: number }) => number,
 ): Rendered {
   const lines: string[] = [];
@@ -185,7 +189,24 @@ export function render(
     if (lines.length > 0 && lines.at(-1) !== "") add({ text: "", runs: [] });
   };
   const md = source.replace(/\n$/, "").split("\n");
-  for (let i = 0; i < md.length; i += 1) {
+  // The site's own pages open with a header, the lines before the first blank one: the first, the
+  // page's name, links home.
+  const top = header ? md.indexOf("") : 0;
+  for (let i = 0; i < top; i += 1) {
+    const text = md[i] ?? "";
+    const n = Array.from(text).length;
+    add({
+      text,
+      runs:
+        i === 0
+          ? [
+              { from: 0, to: n, hl: "title" },
+              { from: 0, to: n, hl: "link", href: "/" },
+            ]
+          : [{ from: 0, to: n, hl: "title" }],
+    });
+  }
+  for (let i = Math.max(0, top); i < md.length; i += 1) {
     const line = md[i] ?? "";
     if (line === "") {
       blank();
@@ -227,11 +248,28 @@ export function render(
     const heading = /^(#{1,6}) (.*)$/.exec(line);
     if (heading?.[2] !== undefined) {
       const text = heading[2];
-      add({ text, runs: [{ from: 0, to: Array.from(text).length, hl: "heading" }] });
+      const n = Array.from(text).length;
+      const own: Run[] = [{ from: 0, to: n, hl: "heading" }];
+      if (lines.length > 0 || heading[1] !== "#") {
+        add({ text, runs: own });
+        continue;
+      }
+      // The page's title, the source's address at the right end of its line: a reader who does
+      // not want the page finds the code at once.
+      const label = repository.replace(/^https:\/\//, "");
+      const at = Math.max(n + 2, w - Array.from(label).length);
+      own.push({ from: at, to: at + Array.from(label).length, hl: "link", href: repository });
+      add({ text: text + " ".repeat(at - n) + label, runs: own });
       continue;
     }
     if (line.startsWith("> ")) {
-      for (const b of wrap(words([{ text: line.slice(2), hl: ["italic"] }]), w, "▍ ", "▍ ", false))
+      // A quote's sentence: its lines up to one that ends it (".", ";" or "·").
+      let said = line.slice(2);
+      while (!/[.;·]$/.test(said) && (md[i + 1] ?? "").startsWith("> ")) {
+        i += 1;
+        said += ` ${(md[i] ?? "").slice(2)}`;
+      }
+      for (const b of wrap(words([{ text: said, hl: ["italic"] }]), w, "▍ ", "▍ ", false))
         add({ text: b.text, runs: [{ from: 0, to: 1, hl: "muted" }, ...b.runs] });
       continue;
     }
@@ -322,14 +360,15 @@ export function pageFile(
   sizes: Sizes,
   w: number,
   cell: Cell,
+  header: boolean,
 ): EditorFile {
-  const r = render(source, w, (img) => imageRows(img, w, cell, sizes));
+  const r = render(source, w, header, (img) => imageRows(img, w, cell, sizes));
   return {
     path,
     lines: r.lines,
     runs: r.runs,
     copies: r.copies,
     images: r.images,
-    page: { source, sizes, width: w },
+    page: { source, sizes, width: w, header },
   };
 }
