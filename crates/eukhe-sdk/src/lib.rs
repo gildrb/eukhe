@@ -72,6 +72,10 @@
 //!   run, [`watch_budget`] follows every change, [`watch_plan_notices`]
 //!   the plan usage notices, and [`audit_budget`] replays the budget's
 //!   ledger.
+//! - [`undo_turn`] restores the workspace to the start of the newest turn
+//!   not undone (refused while a run is going, as on every surface);
+//!   [`turn_diff`] shows what changed since then (or since the first
+//!   turn).
 //! - [`set_acceptance`] sets the acceptance checks of a conversation's
 //!   task as its owner (pass [`owner_checks`] of the explicit
 //!   [`CheckSpec`]s to add the intent check);
@@ -104,6 +108,7 @@ pub use eukhe_core::durable::{
     create_models, EukheSession, ModelRequest, OpenError, SessionConfig, SessionModels,
     SessionStorage,
 };
+pub use eukhe_core::undo::{turn_diff, undo_turn, UndoError};
 pub use eukhe_durable::harness::effects::{
     EffectKind, EffectResolution, RanEffect, RanEffectUpdates, UnknownEffect, UnknownEffectUpdates,
 };
@@ -117,6 +122,7 @@ pub use eukhe_types::budget;
 pub use eukhe_types::daemon::BudgetAudit;
 pub use eukhe_types::effects::{ledger_text, run_report_text, RunReport};
 pub use eukhe_types::pi_ai::Model;
+pub use eukhe_types::undo::{DiffScope, TurnDiffReply, UndoReply};
 
 use budget::{BudgetAmounts, BudgetReport, PlanNotice, RunKind, RunLimits};
 use context::Context;

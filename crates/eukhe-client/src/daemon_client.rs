@@ -34,6 +34,7 @@ mod budget;
 mod errors;
 #[cfg(test)]
 mod tests;
+mod undo;
 
 use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, DirectRequestError};
 pub use errors::{
