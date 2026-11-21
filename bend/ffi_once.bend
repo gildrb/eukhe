@@ -18,8 +18,9 @@
 #   Dedup   0 undeclared, 1 lasting
 #   Seen    0 dark, 1 landed, 2 clean
 #   Life    0 absent | 1 pending | 2 running: again (Nat) | 3 ran
-#           | 4 lost | 5 void
-#   Verdict 0 skip, 1 launch, 2 adopt, 3 interrupt, 4 abandon, 5 settled
+#           | 4 lost (settled unknown: treated as not run) | 5 void
+#   Verdict 0 skip, 1 launch, 2 adopt, 3 interrupt (journal unknown:
+#           treated as not run, reported once), 4 abandon, 5 settled
 #
 #   ffi     scope: String, id: String              reply: the key, as text
 #                                                  (the scope, then the id,

@@ -1,4 +1,4 @@
-# The entry ids of the compiled Bend core (scripts/bend_core.py): one line
+# The entry ids of the compiled Bend core (.github/scripts/bend_core.py): one line
 # `<id> <area>` per bend/ffi_<area>.bend. An id is never reused or changed:
 # a new area takes the next free id.
 0 echo

@@ -42,10 +42,12 @@
 //!   finished unless the principal set limits or turned them on
 //!   (`budget.limits`); its spend is counted either way.
 //! - [`watch`] streams a conversation's committed events.
-//! - [`unknown_effects`] lists a conversation's interrupted effects whose
-//!   outcome a restart could not tell, [`resolve_unknown_effect`] settles
-//!   one after the host checked the world, and [`watch_unknown_effects`]
-//!   follows the ledger (its current state first, then every change).
+//! - [`unknown_effects`] lists the steps of a conversation a restart could
+//!   not tell the outcome of and treated as not run (each in its run's
+//!   end-of-run report), [`resolve_unknown_effect`] corrects one after the
+//!   host checked the world (optional: nothing waits for it), and
+//!   [`watch_unknown_effects`] follows the ledger (its current state first,
+//!   then every change).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
 //! - [`set_budget`] sets the [`budget`] limits of the session's runs (a
@@ -205,8 +207,8 @@ pub async fn watch(
     Ok(Events { stream, batches })
 }
 
-/// The ledger of `conversation`'s interrupted effects whose outcome a
-/// restart could not tell, oldest first, open and resolved.
+/// The ledger of `conversation`'s steps a restart could not tell the
+/// outcome of and treated as not run, oldest first, corrected or not.
 ///
 /// # Errors
 ///
@@ -224,9 +226,9 @@ pub async fn unknown_effects(
     .await?)
 }
 
-/// Settle `conversation`'s open unknown effect `id` as `resolution`: the
-/// effect as resolved, or `None` when the ledger holds no open effect of
-/// that id (never noted, or settled already).
+/// Correct `conversation`'s uncorrected entry `id` as `resolution`: the
+/// entry as corrected, or `None` when the ledger holds no uncorrected
+/// entry of that id (never noted, or corrected already).
 ///
 /// # Errors
 ///

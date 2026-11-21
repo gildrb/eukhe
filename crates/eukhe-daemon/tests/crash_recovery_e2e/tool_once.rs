@@ -7,19 +7,27 @@
 //! says done or interrupted as the restart's verdict says:
 //!
 //! - `write`: the docs `edit` tool appends a line. Cut before its probe,
-//!   nothing on record tells: interrupted, the file unchanged. Cut after
-//!   its probe and before the rename, the file still holds its old bytes
-//!   and its writer is dead: run again, the line appended once. Cut after
-//!   its result: done, the line appended once.
+//!   nothing on record tells and an edit's repeat is not safe: treated as
+//!   not run, the file unchanged. Cut after its probe and before the
+//!   rename, the file still holds its old bytes and its writer is dead:
+//!   run again, the line appended once. Cut after its result: done, the
+//!   line appended once.
+//! - `write` of a known content: the docs `write` tool creates a file.
+//!   Cut before its probe, nothing tells, and its repeat is safe: run
+//!   again (spec O13 step 2); at every point it lands once and is done.
 //! - `tool`: `bash` appends a line (no probe, never replayed). Cut before
-//!   it ran: interrupted, nothing appended. Cut after its result: done, one
-//!   line.
+//!   it ran: treated as not run, nothing appended. Cut after its result:
+//!   done, one line.
+//!
+//! A call treated as not run is listed once in the ledger, under the run
+//! in flight, with its cause.
 
 use super::*;
 
 /// The prompt tags the script answers: a docs `edit` that appends a line
 /// (after a `read` of the file), a `bash` command that appends a line.
 pub(crate) const WRITE_TAG: &str = "[docs-append]";
+pub(crate) const WRITE_FILE_TAG: &str = "[docs-write]";
 pub(crate) const BASH_TAG: &str = "[bash-append]";
 
 /// The file the docs edit appends to, in the session's cwd, and its text
@@ -29,6 +37,10 @@ const NOTES_TEXT: &str = "one\ntwo\n";
 
 /// The file the bash command appends a line to, once per run.
 const APPENDS: &str = "bash-appends";
+
+/// The file the docs write creates, and its content.
+const FRESH: &str = "written.txt";
+const WRITTEN: &str = "one\ntwo\nthree\nfour\n";
 
 /// The script's reply to a turn tagged here (`prompt` its name) until its
 /// call has a result; `None` then (the shared script answers the turn), and
@@ -50,6 +62,13 @@ pub(crate) fn reply(request: &Request, prompt: &str, release: &Path) -> Option<R
             eukhe_docs::file_hash(NOTES_TEXT)
         );
         return Some(Reply::tool_call(call, "edit", json!({ "input": input })));
+    }
+    if request.prompt.contains(WRITE_FILE_TAG) {
+        return Some(Reply::tool_call(
+            call,
+            "write",
+            json!({ "path": FRESH, "content": WRITTEN }),
+        ));
     }
     if request.prompt.contains(BASH_TAG) {
         let appends = release.with_file_name(APPENDS);
@@ -125,27 +144,38 @@ fn cut_at(kind: &str, point: &str, tag: &str, tool: &str) -> (World, Said) {
         );
         Said::Done
     };
-    // The ledger lists exactly the call a restart settled interrupted, under
-    // its kind (`write:<id>` for a probed write, `tool:<id>` otherwise).
+    // The ledger lists exactly the call a restart treated as not run, under
+    // its kind (`write:<id>` for a probed write, `tool:<id>` otherwise), its
+    // cause, and the run in flight.
     let listed = client.request(
         &json!({ "type": "get_unknown_effects", "activeSessionId": session_id }),
         WAIT,
     );
     assert_eq!(listed["success"], true, "get_unknown_effects: {listed}");
-    let ids: Vec<&str> = listed["data"]["effects"]
+    let noted: Vec<(Value, Value, bool)> = listed["data"]["effects"]
         .as_array()
         .map(|effects| {
             effects
                 .iter()
-                .filter_map(|effect| effect["id"].as_str())
+                .map(|effect| {
+                    (
+                        effect["id"].clone(),
+                        effect["cause"].clone(),
+                        effect["settledRun"].is_u64(),
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
     let expected = match said {
-        Said::Interrupted => vec![format!("{kind}:call-t1")],
+        Said::Interrupted => vec![(
+            json!(format!("{kind}:call-t1")),
+            json!("notRepeatSafe"),
+            true,
+        )],
         Said::Done => Vec::new(),
     };
-    assert_eq!(ids, expected, "the unknown effects: {listed}");
+    assert_eq!(noted, expected, "the steps treated as not run: {listed}");
     (world, said)
 }
 
@@ -165,11 +195,43 @@ fn bash_append_cut_at(point: &str) -> (Said, Option<String>) {
     (said, appends)
 }
 
+/// `(what the transcript says, the created file)` after a docs write of a
+/// known content cut at `point`.
+fn docs_write_cut_at(point: &str) -> (Said, String) {
+    let (world, said) = cut_at("write", point, WRITE_FILE_TAG, "write");
+    let written = std::fs::read_to_string(world.dir.path().join(FRESH)).expect("the written file");
+    (said, written)
+}
+
 #[test]
-fn a_docs_append_cut_before_its_probe_is_interrupted_and_never_applied() {
+fn a_docs_append_cut_before_its_probe_is_treated_as_not_run_and_never_applied() {
     assert_eq!(
         docs_append_cut_at("intended"),
         (Said::Interrupted, NOTES_TEXT.to_owned())
+    );
+}
+
+#[test]
+fn a_docs_write_cut_before_its_probe_runs_again_and_lands_once() {
+    assert_eq!(
+        docs_write_cut_at("intended"),
+        (Said::Done, WRITTEN.to_owned())
+    );
+}
+
+#[test]
+fn a_docs_write_cut_before_its_rename_runs_again_and_lands_once() {
+    assert_eq!(
+        docs_write_cut_at("started"),
+        (Said::Done, WRITTEN.to_owned())
+    );
+}
+
+#[test]
+fn a_docs_write_cut_after_its_result_is_done_and_lands_once() {
+    assert_eq!(
+        docs_write_cut_at("finished"),
+        (Said::Done, WRITTEN.to_owned())
     );
 }
 
@@ -190,12 +252,12 @@ fn a_docs_append_cut_after_its_result_is_done_and_lands_once() {
 }
 
 #[test]
-fn a_bash_append_cut_after_its_intent_is_interrupted_and_never_runs() {
+fn a_bash_append_cut_after_its_intent_is_treated_as_not_run_and_never_runs() {
     assert_eq!(bash_append_cut_at("intended"), (Said::Interrupted, None));
 }
 
 #[test]
-fn a_bash_append_cut_before_it_runs_is_interrupted_and_never_runs() {
+fn a_bash_append_cut_before_it_runs_is_treated_as_not_run_and_never_runs() {
     assert_eq!(bash_append_cut_at("started"), (Said::Interrupted, None));
 }
 

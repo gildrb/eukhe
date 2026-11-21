@@ -1,8 +1,7 @@
 # agent_tree (spec): the binary agent tree, stated without the tree's code
 # (bend/agent_tree.bend). The laws of area agent_tree
 # (laws/agent_tree.bend) state T1-T11 of the code with the helpers below.
-# A spec: the shipped code never calls it. docs/internals/agent-tree.md
-# is the design.
+# A spec: the shipped code never calls it.
 #
 # T1:  a node splits only from a running leaf into exactly two children,
 #      admitted exactly when own, left and right split its scope unit by

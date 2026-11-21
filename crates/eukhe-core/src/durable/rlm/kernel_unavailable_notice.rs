@@ -5,7 +5,7 @@
 //! first time it is needed. At open, the probe
 //! ([`crate::kernel::kernel_unavailable`]) finds it on disk (a few
 //! `stat`s, no network) or starts the fetch. Only when the kernel
-//! definitively cannot start (the `eukhe-runtime/` directory is missing,
+//! definitively cannot start (the `rlm/` directory is missing,
 //! or the pinned Python is not on disk and the fetch failed: the machine is
 //! offline) does the session offer no `python` tool, so the model never
 //! spends a call on a cell that can only fail; its system prompt says the
@@ -64,7 +64,7 @@ pub fn notice_text(unavailable: &KernelUnavailable) -> String {
         ),
         KernelUnavailable::RuntimeMissing(reason) => format!(
             "The Python kernel cannot start: {reason}. This session has no `python` tool; the other tools work. \
-             With eukhe-runtime/ in place, open the session again."
+             With rlm/ in place, open the session again."
         ),
     }
 }

@@ -868,9 +868,8 @@ impl SessionUi {
         for row in &self.carried_rows {
             view.push_entry(row.clone());
         }
-        // The interrupted effects nobody settled yet stay in sight on
-        // every rebuilt transcript.
-        self.push_open_effects_notice(view);
+        // A rebuild keeps `/effects ran|not-run` completing the entries a
+        // person may still correct.
         self.sync_effect_completions(view);
         // The rebuild re-registers the live tool cards the way TS
         // `restoreStreamingMessageFromSnapshot` does (the resumed turn's

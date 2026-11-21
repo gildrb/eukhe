@@ -1,0 +1,45 @@
+# Every number at the largest Rust writes (eukhe_bend::rules::strength):
+# the states, the run's code and the index at {MAX}; a share at SHARE_MAX
+# (101: any share above 100 percent is never met, so 101 stands for all of
+# them) and the break counts at COUNT_MAX (999999999999; the verifier runs
+# at most 24 breaks). The core multiplies a share by the breaks run and
+# 100 by the breaks caught, so both products stay below 2^48-1.
+# A gauge: the bar (0 exempt, 1 waived, 2 needs then the share), the mark
+# (0 unmeasured, 1 measured then caught, run, planned and the state).
+# strength: each bar on a whole mark of the state now, a stale mark, a
+# mark cut short and an unmeasured one
+call 4,{MAX},2,101,1,999999999999,999999999999,999999999999,{MAX},
+call 4,{MAX},2,100,1,999999999999,999999999999,999999999999,{MAX},
+call 4,{MAX},2,1,1,0,999999999999,999999999999,{MAX},
+call 4,{MAX},2,101,1,999999999999,999999999999,999999999999,0,
+call 4,{MAX},2,101,1,999999999999,0,999999999999,{MAX},
+call 4,{MAX},2,0,1,0,999999999999,999999999999,{MAX},
+call 4,{MAX},2,101,0,
+call 4,{MAX},1,1,999999999999,999999999999,999999999999,{MAX},
+call 4,{MAX},0,1,999999999999,999999999999,999999999999,{MAX},
+# settle and label: a passed claim with a strong check, a weak one and an
+# unmeasured one (measured first), every verify label
+call 0,3,{MAX},2,2,100,1,999999999999,999999999999,999999999999,{MAX},0,1,999999999999,999999999999,999999999999,{MAX},
+call 0,3,{MAX},2,2,101,1,999999999999,999999999999,999999999999,{MAX},2,101,0,
+call 0,1,{MAX},1,2,101,0,
+call 1,3,{MAX},2,2,100,1,999999999999,999999999999,999999999999,{MAX},2,101,1,999999999999,999999999999,999999999999,{MAX},
+call 1,0,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},
+call 1,2,{MAX},0,
+# exit: the run's own code at {MAX} (kept), then 0 with a confirmed slot
+# judged on the state now and a strong check, then a weak one
+call 2,{MAX},{MAX},1,1,0,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},
+call 2,0,{MAX},1,1,0,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},
+call 2,0,{MAX},1,1,0,{MAX},1,2,101,1,999999999999,999999999999,999999999999,{MAX},
+# record: the verifier on a missing index at {MAX} (refused), on the
+# first check; the worker
+call 3,2,{MAX},1,999999999999,999999999999,999999999999,{MAX},1,2,101,0,
+call 3,2,0,1,999999999999,999999999999,999999999999,{MAX},1,2,101,0,
+call 3,1,0,1,999999999999,999999999999,999999999999,{MAX},1,2,101,0,
+# a number past the wire, an unknown tag, a gauge list shorter than its
+# count, input left over: refused, never a stop
+refuse 4,{LONG},0,0,
+refuse 4,0,2,{LONG},0,
+refuse 4,0,2,101,1,{LONG},0,0,0,
+refuse 5,
+refuse 1,3,0,2,0,0,
+refuse 4,0,0,0,x

@@ -1765,6 +1765,8 @@ fn unknown_effects_update_decodes_the_ledger() {
         kind,
         what: what.to_owned(),
         at,
+        cause: None,
+        settled_run: None,
         resolution,
     };
     assert_eq!(
@@ -1826,6 +1828,8 @@ fn attach_snapshot_carries_the_unknown_effects() {
             kind: eukhe_types::effects::EffectKind::Tool,
             what: "bash: deploy".to_owned(),
             at: 5.0,
+            cause: None,
+            settled_run: None,
             resolution: None,
         }]
     );

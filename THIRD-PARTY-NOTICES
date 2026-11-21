@@ -107,7 +107,7 @@ SOFTWARE.
 models.dev - https://github.com/anomalyco/models.dev
 Data: the bundled model catalog. crates/eukhe-models/catalog/models-dev.json is
 a projection of the models.dev v1 API (api.json) built at the commit pinned in
-crates/eukhe-models/catalog/models-dev.pin.json; scripts/release/models_dev.py
+crates/eukhe-models/catalog/models-dev.pin.json; .github/scripts/release/models_dev.py
 maps it into models.bundled.json, which ships beside the eukhe executable, and
 into crates/eukhe-models/tests/fixtures/catalog.v1.json.
 

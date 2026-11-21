@@ -912,13 +912,16 @@ async fn a_kill_answers_past_a_client_that_stopped_reading() {
     drop(stalled);
 }
 
-/// An open unknown effect of the main conversation's ledger.
+/// An uncorrected entry of the main conversation's ledger, as the note
+/// stamps it (no run began in a fresh session: run 0).
 fn unknown_effect(id: &str) -> eukhe_types::effects::UnknownEffect {
     eukhe_types::effects::UnknownEffect {
         id: id.to_owned(),
         kind: eukhe_types::effects::EffectKind::Tool,
         what: format!("bash: deploy ({id})"),
         at: 1_700_000_000_000.0,
+        cause: Some(eukhe_types::effects::UnknownCause::NotRepeatSafe),
+        settled_run: Some(0),
         resolution: None,
     }
 }

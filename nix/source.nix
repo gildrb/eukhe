@@ -48,12 +48,12 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     payload="$out/libexec/eukhe"
-    mkdir -p "$payload/eukhe-runtime"
+    mkdir -p "$payload/rlm"
     mv "$out/bin/eukhe" "$payload/"
-    cp -R eukhe-runtime/pyproject.toml eukhe-runtime/requirements-kernel.txt eukhe-runtime/src "$payload/eukhe-runtime/"
+    cp -R rlm/pyproject.toml rlm/requirements-kernel.txt rlm/src "$payload/rlm/"
     cp -R skills "$payload/skills"
     cp LICENSE "$payload/"
-    python3 scripts/release/bundle_catalog.py generate --out "$payload"
+    python3 .github/scripts/release/bundle_catalog.py generate --out "$payload"
     # git commits the chat memory after every turn; a user's own git
     # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
     # fetches its own pinned uv and Python. The tiny-model worker loads

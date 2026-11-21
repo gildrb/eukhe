@@ -10,7 +10,8 @@
 # - home-manager: this system's Home Manager generation built with every
 #   option set (a stand-in eukhe and signal-cli, so nothing heavy is
 #   fetched), and the files it makes read back: ~/.eukhe links, the
-#   settings activation, the daemon and gateway units.
+#   settings activation (its merge run on a saved and on a missing settings
+#   file), the daemon and gateway units.
 {
   self,
   nixpkgs,
@@ -141,9 +142,20 @@ in
           files="$gen/home-files"
           set -x
           grep -qx 'Rule one.' "$files/.eukhe/AGENTS.md"
-          grep -q 'eukhe-merge-settings' "$gen/activate"
+          merge="$(grep -o '/nix/store/[^ ]*/bin/eukhe-merge-settings' "$gen/activate")"
           settings="$(grep -o '/nix/store/[^ ]*-eukhe-settings.json' "$gen/activate")"
           jq -e '.memory.thinking == "medium"' "$settings"
+          # The activation's merge as the activation runs it: a saved file
+          # keeps what eukhe wrote there under the declared settings, mode
+          # 0600; a missing one becomes the declared settings.
+          saved="$TMPDIR/saved/settings.json"
+          mkdir -p "$TMPDIR/saved"
+          echo '{"defaultModel": "m", "memory": {"model": "x", "thinking": "low"}}' >"$saved"
+          "$merge" "$saved" "$settings"
+          jq -e '. == {"defaultModel": "m", "memory": {"model": "x", "thinking": "medium"}}' "$saved"
+          test "$(stat -c %a "$saved")" = 600
+          "$merge" "$TMPDIR/missing/settings.json" "$settings"
+          cmp "$TMPDIR/missing/settings.json" "$settings"
         ''
         + (
           if pkgs.stdenv.hostPlatform.isLinux then

@@ -1,13 +1,11 @@
 # Eukhe (εὐχή)
 
-Eukhe (εὐχή: a wish, a prayer) is a harness and embeddable core for agents that work toward a goal, within limits, until the specified checks pass.
+Eukhe (εὐχή: a wish, a prayer) is a harness and embeddable core for agents that work a task through on their own, within limits, until the specified checks pass, and report at the end.
 
-- Goal: the work to be done.
+- Task: the work to be done.
 - Limits: money, time, tokens. Each model request and tool call reserves its worst case first; spend passes a limit only when a provider reports more than the reserve.
 - Checks: commands that decide when the work is done, such as `cargo test` or `bend PROOF.bend --verdict`.
 - Report: the agent's final answer, and each check's verdict with its output.
-
-[Why?](PHILOSOPHY.md)
 
 ## Install
 

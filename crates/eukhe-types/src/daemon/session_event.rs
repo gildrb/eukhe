@@ -148,9 +148,8 @@ pub enum SessionEvent {
     GoalUpdate {
         goal: GoalState,
     },
-    /// The session's ledger of effects whose outcome a restart could not
-    /// tell changed (an effect was noted or resolved): the whole ledger,
-    /// oldest first.
+    /// The session's ledger of steps a restart treated as not run changed
+    /// (a step was noted or corrected): the whole ledger, oldest first.
     UnknownEffectsUpdate {
         effects: Vec<UnknownEffect>,
     },

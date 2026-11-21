@@ -8,9 +8,9 @@ import ../bend/tool_call.bend as Tc
 import ../spec/once/life.bend as S
 import ./base.bend as LawsBase
 
-# (O1-O8) Exactly-once effects
-# ----------------------------
-# spec/README.md O1-O8. bend/once.bend: the life of one effect across
+# (O1-O8, O13) Exactly-once effects
+# ---------------------------------
+# spec/README.md O1-O9, O13. bend/once.bend: the life of one effect across
 # restarts and what a restart does with it. An effect is anything the
 # harness does to the world for a run (a tool call, a subagent spawn, a
 # background job, a cron fire, a heartbeat, the delivery of a queued or
@@ -24,12 +24,16 @@ import ./base.bend as LawsBase
 # effect. Every law holds for every input: any list of records (also one
 # no run writes), any order of events, any policy, any cap.
 #
-# Not pinned here: that Rust writes each record where the spec says
-# (before the launch, after the end) and reads the world truthfully; that
-# a target's declaration is admitted only from the principal or the
-# target's operator and that the target keeps it. The Rust tests kill the process at
-# each point of each effect kind (crates/eukhe-daemon/tests/
-# exactly_once_e2e).
+# Not pinned here, Rust's, with their tests: Rust writes each record where
+# the spec says (before the launch, after the end) and reads the world truthfully
+# (crates/eukhe-daemon/tests/crash_recovery_e2e kills the process at each point of each effect kind);
+# a target's declaration is admitted only from the principal or the target's operator, and the target keeps it
+# (crates/eukhe-core/src/models/custom.rs: request_dedup_is_lasting_or_nothing); /effects ran|not-run
+# only correct an unknown step (crates/eukhe-daemon/src/worker/tests.rs: resolving_an_open_effect_settles_it_once);
+# O11, a cut model request not sent again stays listed and charged and the run goes on with a new
+# request (crash_recovery_e2e::request, generation::resend, eukhe-budget's
+# a_restart_reads_each_lost_requests_hold_by_its_key); O12, one transmission per launch, no transport
+# retry without a declaration (the tests of crates/eukhe-durable/src/harness/generation).
 
 # Spellers: the bytes Rust sends and reads, from the wire's primitives
 # --------------------------------------------------------------------
@@ -314,7 +318,7 @@ def wd_live(w: S.World) -> Bool:
     case S.Wd{l, live, hit, n, k, d, x}:
       live
 
-# the effect is reported interrupted
+# the effect is settled unknown (treated as not run)
 def wd_lost(w: S.World) -> Bool:
   match w:
     case S.Wd{l, live, hit, n, k, d, x}:
@@ -350,6 +354,25 @@ def wd_closed(w: S.World) -> Bool:
           True{}
         case O.Void{}:
           True{}
+
+# how many restarts of the events es, from w, journal the effect unknown:
+# a restart with nothing in flight whose verdict is an interrupt (O4)
+def wd_told(es: List<&2, S.Ev>, +w: S.World, +p: O.Policy) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case e <> rest:
+      match e:
+        case S.Mean{}:
+          wd_told(rest, wd_step(w, S.Mean{}, p), p)
+        case S.Tick{+m, +look}:
+          Nat.add(S.told(wd_live(w), O.recover(S.life(w), S.seen(look, S.lands(w)), m, p)), wd_told(rest, wd_step(w, S.Tick{m, look}, p), p))
+        case S.Land{}:
+          wd_told(rest, wd_step(w, S.Land{}, p), p)
+        case S.End{}:
+          wd_told(rest, wd_step(w, S.End{}, p), p)
+        case S.Crash{}:
+          wd_told(rest, wd_step(w, S.Crash{}, p), p)
 
 # Tools: the once rule beside the tool gate
 # -----------------------------------------
@@ -605,27 +628,96 @@ law once_life_is_spec:
   for +j: List<&2, O.Rec>
   {O.life(j) == S.life_spec(j) : O.Life}
 
-# LAW once_recover_is_spec (O1-O7): for every life, every answer of the
-# world, both modes and every policy, the model's verdict is the spec's
-# EXCLUDES: a started `never` effect launched again when the world says
-# nothing, a launch of an ended effect, a `done` for an effect the world
-# does not show, an abandon of an effect that may have run, a pending
-# effect interrupted or skipped, a safe effect not run again, a keyed
-# effect sent past its cap or refused under it, a keyed effect sent again
-# to a target that does not declare it drops every repeat of the key, a
-# stopped run that launches
-law once_recover_is_spec:
+# LAW once_recover_absent_skips (O1): an effect with no record is no
+# step of the run: a restart does nothing with it, whatever the world
+# shows, the mode and the policy
+# EXCLUDES: an effect never journaled launched, reported unknown or
+# reported done at a restart
+law once_recover_absent_skips:
+  for s: O.Seen
+  for m: O.Mode
+  for p: O.Policy
+  {O.recover(O.Absent{}, s, m, p) == O.Skip{} : O.Verdict}
+
+# LAW once_recover_pending_unrun (O5): an effect intended and never
+# launched certainly never ran: a resume launches it, a stop reports it
+# not started, whatever the world shows and the policy
+# EXCLUDES: a pending effect interrupted, skipped or adopted; a stopped
+# run that launches it; a resume that leaves it unrun
+law once_recover_pending_unrun:
+  for s: O.Seen
+  for p: O.Policy
+  {O.recover(O.Pending{}, s, O.Resume{}, p) == O.Launch{} : O.Verdict} &
+  {O.recover(O.Pending{}, s, O.Stop{}, p) == O.Abandon{} : O.Verdict}
+
+# LAW once_recover_evidence_first (O3, O5, O13 step 1): a started effect the
+# world shows is settled by that evidence, whatever its policy: landed,
+# adopted (it ran); clean, settled as an effect that never ran (pending,
+# any world)
+# EXCLUDES: a safe effect run again though the world shows it landed; a
+# `never` effect left unknown though the world shows it clean; a landed
+# effect abandoned by a stop; a clean one launched by a stop
+law once_recover_evidence_first:
+  for again: Nat
+  for m: O.Mode
+  for p: O.Policy
+  for s: O.Seen
+  for q: O.Policy
+  {O.recover(O.Running{again}, O.Landed{}, m, p) == O.Adopt{} : O.Verdict} &
+  {O.recover(O.Running{again}, O.Clean{}, m, p) == O.recover(O.Pending{}, s, m, q) : O.Verdict}
+
+# LAW once_recover_dark_stop_unknown (O4): a started effect nothing can
+# be asked about, whose run was stopped, is journaled unknown (treated as
+# not run), whatever its policy
+# EXCLUDES: a stopped run that launches a safe or keyed effect again; a
+# dark effect adopted, abandoned or reported done
+law once_recover_dark_stop_unknown:
+  for again: Nat
+  for p: O.Policy
+  {O.recover(O.Running{again}, O.Dark{}, O.Stop{}, p) == O.Interrupt{} : O.Verdict}
+
+# LAW once_recover_dark_repeats_safe (O7, O13 step 2): a resume launches
+# again a started effect nothing can be asked about when its repeat is
+# safe (S.repeat_safe: a safe effect, or a keyed one whose target drops
+# every repeat of its key, sent again fewer than cap times)
+# EXCLUDES: a safe read left unrun after a crash; a keyed effect refused
+# under its cap by a lasting target
+law once_recover_dark_repeats_safe:
+  for again: Nat
+  for p: O.Policy
+  for safe: {S.repeat_safe(p, again) == True{} : Bool}
+  {O.recover(O.Running{again}, O.Dark{}, O.Resume{}, p) == O.Launch{} : O.Verdict}
+
+# LAW once_recover_dark_unsafe_unknown (O4, O7, O13 step 3): a started
+# effect nothing can be asked about whose repeat is not safe is journaled
+# unknown (treated as not run) when its run resumes, never launched again
+# EXCLUDES: a bash command or a curl POST run again after a crash; a
+# keyed effect sent past its cap, or sent again to a target that does not
+# declare it drops every repeat of the key
+law once_recover_dark_unsafe_unknown:
+  for again: Nat
+  for p: O.Policy
+  for unsafe: {S.repeat_safe(p, again) == False{} : Bool}
+  {O.recover(O.Running{again}, O.Dark{}, O.Resume{}, p) == O.Interrupt{} : O.Verdict}
+
+# LAW once_recover_ended_settled (O6): an effect with an end on record
+# (ran, unknown, unstarted) is never run again nor settled again: the
+# restart reports what its journal says
+# EXCLUDES: a launch of an ended effect; a finished effect journaled
+# unknown again at a later restart (listed in every later report)
+law once_recover_ended_settled:
   for l: O.Life
   for s: O.Seen
   for m: O.Mode
   for p: O.Policy
-  {O.recover(l, s, m, p) == S.verdict_spec(l, s, m, p) : O.Verdict}
+  for ended: {S.settled(l) == True{} : Bool}
+  {O.recover(l, s, m, p) == O.Settled{} : O.Verdict}
 
 # LAW once_ended_stays (O6, O8): once the records read tell an end,
 # whatever records follow tell the same life
 # EXCLUDES: an end overwritten by a later record (a finished effect read
-# as interrupted after a stray `unknown`, an interrupted one read as
-# finished), an ended effect started again by a later `started`
+# as unknown after a stray `unknown`, an unknown one read as finished), an
+# ended effect started again by a later `started`
 law once_ended_stays:
   for +j: List<&2, O.Rec>
   for +rest: List<&2, O.Rec>
@@ -730,8 +822,8 @@ law once_unstarted_never_ran:
 
 # LAW once_ends_once (O6): in every history of an effect of any policy,
 # at most one end is journaled
-# EXCLUDES: a second result for one effect (an interrupted answer after a
-# finished one, an adopt after an interrupt, an end journaled by a
+# EXCLUDES: a second result for one effect (an unknown answer after a
+# finished one, an adopt after an unknown one, an end journaled by a
 # restart for an effect that already ended)
 law once_ends_once:
   for +p: O.Policy
@@ -740,9 +832,9 @@ law once_ends_once:
 
 # LAW once_ended_never_launches (O6): in every history of an effect of
 # any policy, no launch is made once its end is journaled
-# EXCLUDES: a safe or keyed effect run again after it finished, an
-# interrupted effect run again by a later restart, a launch of an effect
-# reported not started
+# EXCLUDES: a safe or keyed effect run again after it finished, an unknown
+# effect (treated as not run) run again by a later restart, a launch of an
+# effect reported not started
 law once_ended_never_launches:
   for +p: O.Policy
   for +es: List<&2, S.Ev>
@@ -754,7 +846,7 @@ law once_ended_never_launches:
 # shows
 # EXCLUDES: an intended effect dropped by a crash before its start (a
 # tool call, a queued message or a fire that never runs and is never
-# reported), one reported interrupted though it never started
+# reported), one journaled unknown though it never started
 law once_unrun_resumes:
   for +p: O.Policy
   for +es: List<&2, S.Ev>
@@ -763,9 +855,9 @@ law once_unrun_resumes:
 
 # LAW once_unknown_is_said (O4): after every history of a `never` effect,
 # an effect that was cut (started, no end on record, nothing in flight)
-# is journaled unknown by the next run of either mode that cannot ask the
-# world, and no launch is made
-# EXCLUDES: a cut effect left running for ever (never reported), launched
+# is journaled unknown (treated as not run) by the next run of either mode
+# that cannot ask the world, and no launch is made
+# EXCLUDES: a cut effect left running for ever (never settled), launched
 # again, or reported finished
 law once_unknown_is_said:
   for +es: List<&2, S.Ev>
@@ -786,6 +878,25 @@ law once_stop_settles:
   for +es: List<&2, S.Ev>
   for look: Bool
   {Bool.or(wd_live(wd_run(es, S.w0(), p)), Bool.and(wd_closed(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), Bool.and(Bool.not(wd_live(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p))), Nat.is_eq(S.launches(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Stop{}, look}, p)), S.launches(wd_run(es, S.w0(), p)))))) == True{} : Bool}
+
+# LAW once_unknown_moves_on (O4, O13): after every history of an effect of
+# any policy, a resume that comes to it, the world asked or not, leaves a
+# launch in flight, or no record or an end on record: no step waits on a person
+# EXCLUDES: a cut step held open until a person runs /effects; a keyed one past its cap left open
+law once_unknown_moves_on:
+  for +p: O.Policy
+  for +es: List<&2, S.Ev>
+  for look: Bool
+  {Bool.or(wd_live(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Resume{}, look}, p)), wd_closed(wd_step(wd_run(es, S.w0(), p), S.Tick{O.Resume{}, look}, p))) == True{} : Bool}
+
+# LAW once_unknown_told_once (O4): in every history of an effect of any
+# policy, the restarts that journal it unknown (wd_told) number 1 when its
+# life is settled unknown, else 0: each unknown step is reported once
+# EXCLUDES: a step listed again in every later run's report; an unknown step never listed
+law once_unknown_told_once:
+  for +p: O.Policy
+  for +es: List<&2, S.Ev>
+  {wd_told(es, S.w0(), p) == S.told_spec(S.life(wd_run(es, S.w0(), p))) : Nat}
 
 # Laws: tools (H1 beside O2-O5)
 # -----------------------------
@@ -858,17 +969,6 @@ law once_key_reads_back:
   for +fb: {LawsBase.wire_fits(String.length(b)) == True{} : Bool}
   {on_read_key(FO.ffi(on_spell_key(a, b))) == Some{OnKey{a, b}} : Maybe<&2, OnKey>}
 
-# LAW once_key_reads (O7): a call input the laws' reader reads as exactly
-# two strings is answered as those strings spelled
-# EXCLUDES: an input read otherwise by the entry than by the wire's
-# grammar
-law once_key_reads:
-  for +i: String
-  for +a: String
-  for +b: String
-  for got: {on_read_key(i) == Some{OnKey{a, b}} : Maybe<&2, OnKey>}
-  {FO.ffi(i) == FO.ffi(on_spell_key(a, b)) : String}
-
 # LAW once_key_malformed_exact (O7): a call input the laws' reader does
 # not read as exactly two strings (a short or bad string, input left
 # over) answers exactly the error form 'E ' + "once: malformed key"
@@ -881,16 +981,21 @@ law once_key_malformed_exact:
 # Laws: the entry
 # ---------------
 
-# LAW once_entry_reads: in every state, an input the laws' reader reads
-# as exactly one event is answered as that event spelled
-# EXCLUDES: an input read otherwise by the entry than by the wire's
-# grammar
+# LAW once_entry_reads (O1, O8): in every state the records j tell, the
+# entry answers a spelled record r with the life the spec tells for j and
+# r, and a spelled question (its cap fitting the wire) with the spec's
+# verdict for j, the life kept
+# EXCLUDES: a field read as another (tag 1 read as finished, the mode read
+# for the policy), a reply spelled otherwise, a question that moves the life
 law once_entry_reads:
-  for +l: O.Life
-  for +i: String
-  for +e: FO.Ev
-  for got: {on_read(i) == Some{e} : Maybe<&2, FO.Ev>}
-  {FO.step(FO.Eff{l}, i) == FO.step(FO.Eff{l}, on_spell(e)) : FO.St & String}
+  for +j: List<&2, O.Rec>
+  for +r: O.Rec
+  for m: O.Mode
+  for +p: O.Policy
+  for s: O.Seen
+  for fit: {on_fit.policy(p) == True{} : Bool}
+  {FO.step(FO.Eff{S.life_spec(j)}, on_spell(FO.Note{r})) == (FO.Eff{S.life_spec(List.append(&2, O.Rec, j, [r]))}, on_spell_life(S.life_spec(List.append(&2, O.Rec, j, [r])))) : FO.St & String} &
+  {FO.step(FO.Eff{S.life_spec(j)}, on_spell(FO.Ask{m, p, s})) == (FO.Eff{S.life_spec(j)}, on_spell_verdict(S.verdict_spec(S.life_spec(j), s, m, p))) : FO.St & String}
 
 # LAW once_entry_malformed_exact: in every state, an input the laws'
 # reader does not read as exactly one event (a bad tag, a short or bad
@@ -924,7 +1029,7 @@ law once_entry_shut:
 
 # LAW once_entry_example: anchor: the bytes Rust sends and the replies: a
 # tool call cut mid-run (intended, started, then the restart: a `never`
-# call interrupted, a safe one launched, a stopped run's interrupted); a
+# call unknown, a safe one launched, a stopped run's unknown); a
 # call cut before its start (launched by a resume, abandoned by a stop);
 # a file write the world shows landed (adopted) or clean (launched); a
 # provider request sent twice asked again under cap 1 and cap 2 to a

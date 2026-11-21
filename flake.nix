@@ -57,7 +57,7 @@
           # to compile. Otherwise the same layout built from source.
           default = if release.assets ? ${system} then eukhe-prebuilt else eukhe-from-source;
           eukhe = self.packages.${system}.default;
-          # The gates' pinned Bend (scripts/toolchain.env), for the dev shell.
+          # The gates' pinned Bend (.github/scripts/toolchain.env), for the dev shell.
           bend = pkgs.callPackage ./nix/bend.nix { };
         }
         // lib.optionalAttrs (release.assets ? ${system}) { inherit eukhe-prebuilt; }
@@ -72,10 +72,10 @@
       });
 
       # The build inputs of the source package plus the tools the gates
-      # (scripts/ci_local.sh) and the tiny-model worker need at run time.
+      # (.github/scripts/ci_local.py) and the tiny-model worker need at run time.
       # Rust is nixpkgs' rustc, which checks.eval holds to the version
       # rust-toolchain.toml pins. Lean (bend --verdict) is not here:
-      # scripts/toolchain.env pins a Lean release nixpkgs does not carry.
+      # .github/scripts/toolchain.env pins a Lean release nixpkgs does not carry.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.eukhe-from-source ];

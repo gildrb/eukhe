@@ -1,5 +1,5 @@
 # The release toolchain image ghcr.io/gildrb/eukhe-build:jammy-<date>
-# (scripts/release/Dockerfile): built by hand, once per toolchain change,
+# (.github/scripts/release/Dockerfile): built by hand, once per toolchain change,
 # never by a release. Each architecture builds on its native runner and
 # pushes jammy-<date>-<arch>; merge joins them into the multi-arch tag and
 # prints its digest, which eukhe-release.yml's build-linux job pins.
@@ -44,7 +44,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
       - name: Build and push jammy-<date>-${{ matrix.arch }} (prints the installed packages)
-        run: scripts/release/build_image.sh push "${TAG}"
+        run: python3 .github/scripts/release/build_image.py push "${TAG}"
 
   merge:
     needs: build
@@ -63,4 +63,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
       - name: The multi-arch tag (prints the digest to pin)
-        run: scripts/release/build_image.sh merge "${TAG}"
+        run: python3 .github/scripts/release/build_image.py merge "${TAG}"

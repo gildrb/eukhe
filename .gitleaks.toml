@@ -1,4 +1,4 @@
-# The secrets scan (scripts/ci_local.sh, both hooks): the gitleaks
+# The secrets scan (.github/scripts/ci_local.py, both hooks): the gitleaks
 # default rules, less the test fixtures below. Each fixture is a fake
 # credential that a test needs; add a path here only for such a fixture.
 [extend]
@@ -8,7 +8,7 @@ useDefault = true
 description = "Test fixtures: fake keys and tokens"
 paths = [
   '''^crates/eukhe-ai/src/api/bedrock_converse_stream/credentials/tests\.rs$''',
-  '''^eukhe-runtime/test/test_bash\.py$''',
+  '''^rlm/test/test_bash\.py$''',
 ]
 
 [[allowlists]]

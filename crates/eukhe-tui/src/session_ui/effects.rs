@@ -1,9 +1,10 @@
 //! The exactly-once effects surface of the session view: the session's
-//! ledger of effects whose outcome a restart could not tell (seeded from
-//! the attach snapshot's `unknownEffects`, then `unknown_effects_update`),
-//! a warning row for each effect that opens and one summary row on every
-//! rebuilt transcript while some stay open, and `/effects` (list) with
-//! `/effects ran|not-run <id>` (settle one after looking at the world).
+//! ledger of steps a restart could not tell the outcome of and treated as
+//! not run (seeded from the attach snapshot's `unknownEffects`, then
+//! `unknown_effects_update`), and `/effects` (list) with `/effects
+//! ran|not-run <id>` (an optional correction after looking at the world).
+//! The run's end-of-run report lists the steps; the view asks nothing.
+//! A model request's row is the one notice: it says what stays counted.
 
 use eukhe_types::effects::{
     EffectKind, EffectResolution, ResolvedEffectReply, UnknownEffect, UnknownEffectsReply,
@@ -16,52 +17,37 @@ use super::{
 };
 use crate::glyphs::WARN;
 
-/// The warning row of one effect that opened: what it is, its id, and how
-/// to settle it. A model request's outcome is settled by its provider's
-/// usage report, which the user cannot see, so its row only says what was
-/// cut and what stays counted (its `what`, a sentence of its own).
-fn opened_row(effect: &UnknownEffect) -> String {
-    if effect.kind == EffectKind::Request {
-        return format!("{WARN} {}", effect.what);
-    }
-    format!(
-        "{WARN} Interrupted, outcome unknown: {} ({}). Check whether it ran, then /effects ran {} or /effects not-run {}",
-        effect.what, effect.id, effect.id, effect.id
-    )
+/// The warning row of a model request a restart cut and did not send
+/// again: what was cut and what stays counted (its `what`, a sentence of
+/// its own; its provider's usage report settles it).
+fn request_row(effect: &UnknownEffect) -> String {
+    format!("{WARN} {}", effect.what)
 }
 
-/// The rebuilt transcript's summary row while `open` effects stay open.
-fn open_summary_row(open: usize) -> String {
-    let effects = if open == 1 {
-        "effect has"
-    } else {
-        "effects have"
-    };
-    format!("{WARN} {open} interrupted {effects} an unknown outcome: /effects lists them")
-}
-
-/// The effects of the ledger `next` that are open and were not open in
+/// The uncorrected model requests of the ledger `next` that were not in
 /// the ledger `known`, oldest first.
-fn newly_open<'a>(
+fn newly_cut_requests<'a>(
     known: &'a [UnknownEffect],
     next: &'a [UnknownEffect],
 ) -> impl Iterator<Item = &'a UnknownEffect> {
     next.iter().filter(|effect| {
-        effect.is_open() && !known.iter().any(|was| was.id == effect.id && was.is_open())
+        effect.kind == EffectKind::Request
+            && effect.is_open()
+            && !known.iter().any(|was| was.id == effect.id)
     })
 }
 
 impl SessionUi {
-    /// One `unknown_effects_update`: a warning row for each effect that
-    /// opened since the last ledger, then the ledger replaces it.
+    /// One `unknown_effects_update`: a warning row for each model request
+    /// cut since the last ledger, then the ledger replaces it.
     pub(super) fn apply_unknown_effects(
         &mut self,
         effects: Vec<UnknownEffect>,
         view: &mut AgentView,
     ) {
-        for effect in newly_open(&self.unknown_effects, &effects) {
+        for effect in newly_cut_requests(&self.unknown_effects, &effects) {
             view.push_entry(ChatEntry::Status {
-                text: opened_row(effect),
+                text: request_row(effect),
                 kind: StatusKind::Warning,
             });
             self.last_status_index = None;
@@ -71,7 +57,7 @@ impl SessionUi {
         self.sync_effect_completions(view);
     }
 
-    /// The open effects' ids become the values `/effects ran` and
+    /// The uncorrected entries' ids become the values `/effects ran` and
     /// `/effects not-run` complete.
     pub(super) fn sync_effect_completions(&self, view: &mut AgentView) {
         let rows = self
@@ -91,24 +77,8 @@ impl SessionUi {
             .set_autocomplete_live_values(LiveValues::OpenEffects, rows);
     }
 
-    /// The rebuilt transcript's notice: one summary row while the ledger
-    /// holds open effects, none otherwise.
-    pub(super) fn push_open_effects_notice(&mut self, view: &mut AgentView) {
-        let open = self
-            .unknown_effects
-            .iter()
-            .filter(|effect| effect.is_open())
-            .count();
-        if open > 0 {
-            view.push_entry(ChatEntry::Status {
-                text: open_summary_row(open),
-                kind: StatusKind::Warning,
-            });
-        }
-    }
-
     /// `/effects` lists the ledger; `/effects ran <id>` and `/effects
-    /// not-run <id>` settle one open effect. `sub` is the subcommand path,
+    /// not-run <id>` correct one entry. `sub` is the subcommand path,
     /// `args` the text after it.
     pub(super) async fn handle_effects_command(
         &mut self,
@@ -134,7 +104,7 @@ impl SessionUi {
             match listed {
                 Ok(UnknownEffectsReply { effects }) => {
                     let text = if effects.is_empty() {
-                        "No interrupted effects with an unknown outcome.".to_owned()
+                        "No step was treated as not run after a crash.".to_owned()
                     } else {
                         effects
                             .iter()
@@ -184,7 +154,7 @@ impl SessionUi {
             });
         match resolved {
             Ok(ResolvedEffectReply { effect }) => {
-                self.note(&format!("Resolved {}", effect.line()), view);
+                self.note(&format!("Corrected {}", effect.line()), view);
             }
             Err(error) => self.error_row(&format!("{error:#}"), view),
         }
@@ -195,62 +165,48 @@ impl SessionUi {
 mod tests {
     use super::*;
 
-    fn effect(id: &str, resolution: Option<EffectResolution>) -> UnknownEffect {
+    fn effect(id: &str, kind: EffectKind, resolution: Option<EffectResolution>) -> UnknownEffect {
         UnknownEffect {
             id: id.to_owned(),
-            kind: EffectKind::Tool,
+            kind,
             what: format!("bash: {id}"),
             at: 0.0,
+            cause: None,
+            settled_run: None,
             resolution,
         }
     }
 
-    /// Only an effect that opened since the last ledger warns: one open
-    /// before, or settled now, stays silent.
+    /// Only a model request cut since the last ledger warns: a step
+    /// treated as not run waits for the end-of-run report, and a request
+    /// known before or corrected stays silent.
     #[test]
-    fn only_newly_open_effects_warn() {
-        let known = [effect("a", None), effect("b", Some(EffectResolution::Ran))];
+    fn only_newly_cut_requests_warn() {
+        let known = [effect("r1", EffectKind::Request, None)];
         let next = [
-            effect("a", None),
-            effect("b", Some(EffectResolution::Ran)),
-            effect("c", None),
-            effect("d", Some(EffectResolution::NotRun)),
+            effect("r1", EffectKind::Request, None),
+            effect("tool:c1", EffectKind::Tool, None),
+            effect("r2", EffectKind::Request, None),
+            effect("r3", EffectKind::Request, Some(EffectResolution::NotRun)),
         ];
-        let opened: Vec<&str> = newly_open(&known, &next)
+        let cut: Vec<&str> = newly_cut_requests(&known, &next)
             .map(|effect| effect.id.as_str())
             .collect();
-        assert_eq!(opened, ["c"]);
-        let from_nothing: Vec<&str> = newly_open(&[], &next)
-            .map(|effect| effect.id.as_str())
-            .collect();
-        assert_eq!(from_nothing, ["a", "c"]);
+        assert_eq!(cut, ["r2"]);
     }
 
     #[test]
-    fn the_rows_name_the_effect_and_the_count() {
-        assert_eq!(
-            opened_row(&effect("tool:c1", None)),
-            "! Interrupted, outcome unknown: bash: tool:c1 (tool:c1). Check whether it ran, then /effects ran tool:c1 or /effects not-run tool:c1"
-        );
+    fn a_request_row_says_what_stays_counted() {
         let request = UnknownEffect {
-            kind: EffectKind::Request,
             what: "Model request to p/m cut by a crash, not resent (no deduplication declared). \
                    Up to $0.42 stays counted until its usage is known."
                 .to_owned(),
-            ..effect("request:1:1", None)
+            ..effect("request:1:1", EffectKind::Request, None)
         };
         assert_eq!(
-            opened_row(&request),
+            request_row(&request),
             "! Model request to p/m cut by a crash, not resent (no deduplication declared). \
              Up to $0.42 stays counted until its usage is known."
-        );
-        assert_eq!(
-            open_summary_row(1),
-            "! 1 interrupted effect has an unknown outcome: /effects lists them"
-        );
-        assert_eq!(
-            open_summary_row(2),
-            "! 2 interrupted effects have an unknown outcome: /effects lists them"
         );
     }
 }

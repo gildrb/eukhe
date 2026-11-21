@@ -11,7 +11,7 @@ use super::{
 use crate::kernel::transport::KernelTransport;
 
 /// The runtime snapshot writer's reason for a name above the per-variable
-/// cap (eukhe-runtime/src/rlm/repl.py): such a skipped name is a live
+/// cap (rlm/src/rlm/repl.py): such a skipped name is a live
 /// over-cap survivor unless the same capture also pruned it.
 const OVER_CAP_SKIP_REASON: &str = "exceeds per-variable snapshot size cap";
 

@@ -896,7 +896,7 @@ fn startup_failure_is_retryable(error: &anyhow::Error) -> bool {
         "aborted",
         crate::kernel::bootstrap::KERNEL_FETCH_FAILED,
         crate::kernel::bootstrap::KERNEL_OVERRIDE_MISSING,
-        "the eukhe-runtime kernel runtime directory was not found",
+        "the rlm kernel runtime directory was not found",
         "Failed to initialize rlm runtime",
         "Update eukhe-runtime in the kernel Python",
         "Kernel start superseded",

@@ -6,9 +6,8 @@
 # The replies are spelled as Rust reads them (oe.put_life,
 # oe.put_verdict). From the life a journal tells, every reply is the
 # spec's for the records read so far (oe.model). The entry reads every
-# input as the laws' reader does (oe.read), and every cap that reader
-# answers fits the wire (oe.fit_go). Two spelled strings that are equal
-# spell the same string before the same rest (oe.str_inj).
+# input as the laws' reader does (oe.read). Two spelled strings that are
+# equal spell the same string before the same rest (oe.str_inj).
 
 import Base
 import ../../../bend/once.bend as O
@@ -20,9 +19,7 @@ import ../../../laws/wire.bend as Wire
 import ../../../spec/once/life.bend as S
 import ../base.bend as LA
 import ../../base/wire.bend as PBaseWire
-import ../../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
 import ../once_life_is_spec.bend as POnceLifeIsSpec
-import ../once_recover_is_spec.bend as POnceRecoverIsSpec
 
 # A spelled event
 # ---------------
@@ -191,7 +188,7 @@ def oe.life_reply(+j: List<&2, O.Rec>) -> {FO.put_life(O.life(j)) == Once.on_spe
 # the reply to a question: the spec's verdict for the records read
 def oe.verdict_reply(+j: List<&2, O.Rec>, +s: O.Seen, +m: O.Mode, +p: O.Policy) -> {FO.put_verdict(O.recover(O.life(j), s, m, p)) == Once.on_spell_verdict(S.verdict_spec(S.life_spec(j), s, m, p)) : String}:
   %Once.once_life_is_spec(j) : {FO.put_verdict(O.recover(O.life(j), s, m, p)) == Once.on_spell_verdict(S.verdict_spec(_, s, m, p)) : String}
-  %Once.once_recover_is_spec(O.life(j), s, m, p) : {FO.put_verdict(O.recover(O.life(j), s, m, p)) == Once.on_spell_verdict(_) : String}
+  %LA.ob.recover_spec(O.life(j), s, m, p) : {FO.put_verdict(O.recover(O.life(j), s, m, p)) == Once.on_spell_verdict(_) : String}
   oe.put_verdict(O.recover(O.life(j), s, m, p))
 
 # two equal heads before two equal tails
@@ -364,109 +361,6 @@ def oe.read(r: Wr.Dec<Nat>) -> {Once.on_read.go(r) == FO.get_ev.go(r) : Wr.Dec<F
       oe.rd_tag(n, s)
     case Wr.Bad{}:
       {==}
-
-# Every cap the laws' reader answers fits the wire
-# ------------------------------------------------
-
-def oe.FitP(d: Wr.Dec<O.Policy>) -> Type:
-  match d:
-    case Wr.Got{p, s}:
-      {Once.on_fit.policy(p) == True{} : Bool}
-    case Wr.Bad{}:
-      Unit
-
-def oe.FitD(d: Wr.Dec<FO.Ev>) -> Type:
-  match d:
-    case Wr.Got{e, s}:
-      {Once.on_fit.ev(e) == True{} : Bool}
-    case Wr.Bad{}:
-      Unit
-
-def oe.fit_dedup_tag(cap: Nat, n: Nat, s: String, fits: {LawsBase.wire_fits(cap) == True{} : Bool}) -> oe.FitP(Once.on_read_dedup.tag(cap, n, s)):
-  match n:
-    case 0n:
-      fits
-    case 1n:
-      fits
-    case 2n+p:
-      Unit{}
-
-def oe.fit_dedup(cap: Nat, r: Wr.Dec<Nat>, fits: {LawsBase.wire_fits(cap) == True{} : Bool}) -> oe.FitP(Once.on_read_dedup(cap, r)):
-  match r:
-    case Wr.Got{n, s}:
-      oe.fit_dedup_tag(cap, n, s, fits)
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_cap(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}) -> oe.FitP(Once.on_read_policy.cap(d)):
-  match d:
-    case Wr.Got{+cap, +r}:
-      oe.fit_dedup(cap, Wr.get_nat(r), Wire.wire_nat_decoded_fits(s, cap, r, ed))
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_policy_tag(n: Nat, +s: String) -> oe.FitP(Once.on_read_policy.tag(n, s)):
-  match n:
-    case 0n:
-      {==}
-    case 1n:
-      {==}
-    case 2n:
-      oe.fit_cap(s, Wr.get_nat(s), {==})
-    case 3n+p:
-      Unit{}
-
-def oe.fit_policy(r: Wr.Dec<Nat>) -> oe.FitP(Once.on_read_policy(r)):
-  match r:
-    case Wr.Got{n, s}:
-      oe.fit_policy_tag(n, s)
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_seen(-m: O.Mode, -p: O.Policy, r: Wr.Dec<O.Seen>, fp: {Once.on_fit.policy(p) == True{} : Bool}) -> oe.FitD(Once.on_read.seen(m, p, r)):
-  match r:
-    case Wr.Got{x, s}:
-      fp
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_ask(-m: O.Mode, d: Wr.Dec<O.Policy>, fp: oe.FitP(d)) -> oe.FitD(Once.on_read.policy(m, d)):
-  match d:
-    case Wr.Got{p, s}:
-      oe.fit_seen(m, p, Once.on_read_seen(Wr.get_nat(s)), fp)
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_mode(d: Wr.Dec<O.Mode>) -> oe.FitD(Once.on_read.mode(d)):
-  match d:
-    case Wr.Got{m, +s}:
-      oe.fit_ask(m, Once.on_read_policy(Wr.get_nat(s)), oe.fit_policy(Wr.get_nat(s)))
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_note(d: Wr.Dec<O.Rec>) -> oe.FitD(Once.on_read.note(d)):
-  match d:
-    case Wr.Got{x, s}:
-      {==}
-    case Wr.Bad{}:
-      Unit{}
-
-def oe.fit_tag(n: Nat, s: String) -> oe.FitD(Once.on_read.tag(n, s)):
-  match n:
-    case 0n:
-      oe.fit_note(Once.on_read_rec(Wr.get_nat(s)))
-    case 1n:
-      oe.fit_mode(Once.on_read_mode(Wr.get_nat(s)))
-    case 2n+p:
-      Unit{}
-
-# every cap of an event the laws' reader answers fits the wire
-def oe.fit_go(r: Wr.Dec<Nat>) -> oe.FitD(Once.on_read.go(r)):
-  match r:
-    case Wr.Got{n, s}:
-      oe.fit_tag(n, s)
-    case Wr.Bad{}:
-      Unit{}
 
 # Strings
 # -------

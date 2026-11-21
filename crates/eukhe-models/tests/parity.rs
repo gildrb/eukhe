@@ -1,6 +1,6 @@
 //! Parity verifier: parse the shipped models asset (the pinned models.dev
 //! snapshot mapped through `crates/eukhe-models/catalog/overrides.json`;
-//! refresh with `scripts/generate-catalog-fixture.py`) against the strict
+//! refresh with `.github/scripts/generate-catalog-fixture.py`) against the strict
 //! schema and transport pinning. Real data, real scale: 202 entries across
 //! 22 providers, 0 skipped.
 

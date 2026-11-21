@@ -56,7 +56,7 @@ pub(crate) const KERNEL_OVERRIDE_MISSING: &str = "EUKHE_KERNEL_PYTHON points to"
 const OPEN_FETCH_WAIT: Duration = Duration::from_secs(2);
 
 /// The packages of Eukhe's lock the prompt offers, as `(distribution,
-/// import name)`: the direct entries of `eukhe-runtime/pyproject.toml`'s
+/// import name)`: the direct entries of `rlm/pyproject.toml`'s
 /// `kernel` group a model imports (the lock test keeps both in step).
 pub const LOCKED_PACKAGES: [(&str, &str); 13] = [
     ("requests", "requests"),
@@ -338,7 +338,7 @@ pub fn kernel_state(cwd: Option<&Path>) -> anyhow::Result<KernelFetchState> {
 /// Why a session cannot start the kernel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelUnavailable {
-    /// No `eukhe-runtime/` beside the binary (or in the source checkout
+    /// No `rlm/` beside the binary (or in the source checkout
     /// it runs from): the text names every place looked at.
     RuntimeMissing(String),
     /// The pinned Python is not on disk and fetching it failed (offline,

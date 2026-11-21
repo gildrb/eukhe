@@ -101,7 +101,7 @@ const structured = JSON.stringify({
 }).replaceAll("<", "\\u003c");
 
 /**
- * The faces: Paper Mono's release files as they are (scripts/fonts.sh), one per weight. Its
+ * The faces: Paper Mono's release files as they are (scripts/fonts.py), one per weight. Its
  * advance is 606/1000 em; `size-adjust` sets it to the grid's 0.6em cell (99.01%: a CSS scale, the
  * files stay unmodified). Paper Mono has no Greek: the epigraphs' Greek comes from the system's
  * monospace (the font-family stack, tokens.stylex.ts). `?v=` names the release.

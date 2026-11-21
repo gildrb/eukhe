@@ -1,5 +1,5 @@
 //! A session's place in the agent tree and its local crown
-//! (`docs/internals/agent-tree.md`; decisions:
+//! (requirements T1-T16 of `spec/README.md`; decisions:
 //! `eukhe_bend::rules::agent_tree`).
 //!
 //! Each session keeps a LOCAL crown in its `eukhe.rlm.tree` conversation

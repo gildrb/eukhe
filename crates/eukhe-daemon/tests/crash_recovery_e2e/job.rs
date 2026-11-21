@@ -1,25 +1,32 @@
-//! Exactly-once background jobs (spec O1-O8): a user bash command is a
-//! job whose start is durable before its process launches. A real worker
-//! is killed (`SIGKILL`) at each point of the job's life
+//! Exactly-once background jobs (spec O1-O9): a user bash command is a
+//! job whose start is durable before its process launches, and whose exit
+//! is durable before its end retires it. A real worker is killed
+//! (`SIGKILL`) at each point of the job's life
 //! (`EUKHE_TEST_KILL_AT=job:<point>`: `intended` and `started` once its
-//! start record is durable, before the launch; `finished` once its end
-//! is). After the restart the model sees exactly one interrupted notice
-//! for a job whose end was not durable and none for one that finished,
-//! and the command never runs again.
+//! start record is durable, before the launch; `exited` once its exit is,
+//! before its end is; `finished` once its end is). After the restart the
+//! model sees exactly one notice for a job whose end was not durable: ran
+//! with its exit code when its exit was, else treated as not run (status
+//! `interrupted`, one ledger entry); none for one that finished. The
+//! command never runs again.
 
 use super::*;
 
-/// The marker of an interrupted job in the text the model reads.
+/// The markers of a stale job's notice in the text the model reads.
 const INTERRUPTED: &str = " status:interrupted]";
+const RAN: &str = " status:ok]";
 
 /// What a restart after a kill at `job:<point>` left: the interrupted-job
-/// rows of the transcript, the model requests that carried one, and the
-/// runs of the command.
+/// and the ran-job rows of the transcript, the model requests that carried
+/// one, the runs of the command, and the ledger's entries (`(id, cause)`,
+/// the job's id written `<job>`).
 #[derive(Debug, PartialEq, Eq)]
 struct Outcome {
-    rows: usize,
+    interrupted: usize,
+    ran: usize,
     seen: usize,
     runs: usize,
+    noted: Vec<(String, Value)>,
 }
 
 fn job_killed_at(point: &str) -> Outcome {
@@ -55,58 +62,108 @@ fn job_killed_at(point: &str) -> Outcome {
     wait_dead(pid);
     drop(client);
     let mut client = reattach(&world, &session_id);
-    if point != "finished" {
+    let marker = match point {
+        "finished" => None,
+        "exited" => Some(RAN),
+        _ => Some(INTERRUPTED),
+    };
+    if let Some(marker) = marker {
         // The notice wakes a turn; the model reads it there.
-        world
-            .mock
-            .wait_for(WAIT, "the interrupted-job notice", |log| {
-                log.iter()
-                    .any(|entry| entry.request.last_user_text.contains(INTERRUPTED))
-                    .then_some(())
-            });
+        world.mock.wait_for(WAIT, "the stale-job notice", |log| {
+            log.iter()
+                .any(|entry| entry.request.last_user_text.contains(marker))
+                .then_some(())
+        });
     }
     wait_idle(&mut client, &session_id);
     // One more turn: whatever the reopen admits is in the transcript first.
     run_turn(&mut client, &session_id, &prompt("after", &[], 0));
-    let rows = world
-        .transcript()
-        .custom_rows("job_settled")
-        .iter()
-        .filter(|row| row["details"]["status"] == "interrupted")
-        .count();
+    let transcript = world.transcript();
+    let rows = transcript.custom_rows("job_settled");
+    let status_rows = |status: &str| {
+        rows.iter()
+            .filter(|row| row["details"]["status"] == status)
+            .count()
+    };
     let seen = world
         .mock
         .log()
         .iter()
         .filter(|entry| {
             entry.request.kind == RequestKind::Turn
-                && entry.request.last_user_text.contains(INTERRUPTED)
+                && (entry.request.last_user_text.contains(INTERRUPTED)
+                    || entry.request.last_user_text.contains(RAN))
         })
         .count();
-    let runs = std::fs::read_to_string(&runs).map_or(0, |runs| runs.lines().count());
-    Outcome { rows, seen, runs }
-}
-
-#[test]
-fn a_job_killed_once_intended_is_reported_interrupted_once_and_never_runs() {
-    assert_eq!(
-        job_killed_at("intended"),
-        Outcome {
-            rows: 1,
-            seen: 1,
-            runs: 0
-        }
+    let jobs: Vec<String> = rows
+        .iter()
+        .filter_map(|row| row["details"]["job"].as_str())
+        .map(|job| format!("job:{job}"))
+        .collect();
+    let listed = client.request(
+        &json!({ "type": "get_unknown_effects", "activeSessionId": session_id }),
+        WAIT,
     );
+    assert_eq!(listed["success"], true, "get_unknown_effects: {listed}");
+    let noted = listed["data"]["effects"]
+        .as_array()
+        .map(|effects| {
+            effects
+                .iter()
+                .map(|effect| {
+                    let id = effect["id"].as_str().unwrap_or_default();
+                    let id = if jobs.iter().any(|job| job == id) {
+                        "job:<job>".to_owned()
+                    } else {
+                        id.to_owned()
+                    };
+                    (id, effect["cause"].clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let runs = std::fs::read_to_string(&runs).map_or(0, |runs| runs.lines().count());
+    Outcome {
+        interrupted: status_rows("interrupted"),
+        ran: status_rows("ok"),
+        seen,
+        runs,
+        noted,
+    }
+}
+
+/// A job treated as not run: one interrupted notice, one ledger entry,
+/// never run.
+fn treated_as_not_run() -> Outcome {
+    Outcome {
+        interrupted: 1,
+        ran: 0,
+        seen: 1,
+        runs: 0,
+        noted: vec![("job:<job>".to_owned(), json!("notRepeatSafe"))],
+    }
 }
 
 #[test]
-fn a_job_killed_once_started_is_reported_interrupted_once_and_never_runs() {
+fn a_job_killed_once_intended_is_treated_as_not_run_once_and_never_runs() {
+    assert_eq!(job_killed_at("intended"), treated_as_not_run());
+}
+
+#[test]
+fn a_job_killed_once_started_is_treated_as_not_run_once_and_never_runs() {
+    assert_eq!(job_killed_at("started"), treated_as_not_run());
+}
+
+#[test]
+fn a_job_killed_once_exited_is_reported_ran_once_and_ran_once() {
     assert_eq!(
-        job_killed_at("started"),
+        job_killed_at("exited"),
         Outcome {
-            rows: 1,
+            interrupted: 0,
+            ran: 1,
             seen: 1,
-            runs: 0
+            runs: 1,
+            noted: Vec::new(),
         }
     );
 }
@@ -116,9 +173,11 @@ fn a_job_killed_once_finished_is_not_reported_and_ran_once() {
     assert_eq!(
         job_killed_at("finished"),
         Outcome {
-            rows: 0,
+            interrupted: 0,
+            ran: 0,
             seen: 0,
-            runs: 1
+            runs: 1,
+            noted: Vec::new(),
         }
     );
 }

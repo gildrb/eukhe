@@ -10,15 +10,10 @@ let
   cfg = config.programs.eukhe;
   json = pkgs.formats.json { };
   stateDir = "${config.home.homeDirectory}/.eukhe";
-  # The declared settings over the file eukhe also writes (merge-settings.sh).
-  mergeSettings = pkgs.writeShellApplication {
-    name = "eukhe-merge-settings";
-    runtimeInputs = [
-      pkgs.coreutils
-      pkgs.jq
-    ];
-    text = builtins.readFile ./merge-settings.sh;
-  };
+  # The declared settings over the file eukhe also writes (merge_settings.py).
+  mergeSettings = pkgs.writers.writePython3Bin "eukhe-merge-settings" { } (
+    builtins.readFile ./merge_settings.py
+  );
   # The NixOS system when Home Manager runs as its module (a special
   # argument there); `null` standalone.
   osConfig = args.osConfig or null;

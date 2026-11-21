@@ -1,7 +1,7 @@
 //! Exactly-once effects: the life of one effect across restarts and what
 //! a restart does with it. The model `bend/once.bend`, entry
 //! `bend/ffi_once.bend` (a stepper and a call), laws `laws/once.bend`,
-//! spec `spec/once/life.bend` (O1-O8).
+//! spec `spec/once/life.bend` (O1-O8, O13).
 //!
 //! An effect is anything the harness does to the world for a run: a tool
 //! call, a subagent spawn, a background job, a cron fire, a heartbeat, the
@@ -10,12 +10,19 @@
 //! anything of it happens, started before each launch, then one end. At
 //! every restart of its run the owner reads the journal back into an
 //! [`Effect`], looks at the world when it can ([`Seen`]), asks
-//! [`Effect::restart`], and does what the [`Verdict`] says. An effect
-//! whose repeat nothing drops is never launched twice
+//! [`Effect::restart`], and does what the [`Verdict`] says. The restart
+//! settles a started effect itself: the world's evidence first
+//! (`once_recover_evidence_first`), then a repeat only when it is safe
+//! (`once_recover_dark_repeats_safe`), else unknown
+//! (`once_recover_dark_unsafe_unknown`):
+//! treated as not run, listed once in its run's end-of-run report
+//! (`once_unknown_told_once`), and the run goes on
+//! (`once_unknown_moves_on`); nobody is asked. An effect whose
+//! repeat nothing drops is never launched twice
 //! (`once_never_launches_twice`); a finished one is never launched again
-//! (`once_ended_never_launches`); one reported done ran (`once_done_ran`);
-//! a cut one is reported interrupted (`once_unknown_is_said`). The answers
-//! are the spec's after every prefix of a journal (`once_step_is_spec`).
+//! (`once_ended_never_launches`); one reported done ran (`once_done_ran`).
+//! The answers are the spec's after every prefix of a journal
+//! (`once_step_is_spec`).
 //!
 //! [`key`] is the idempotency key every send of one effect carries: two
 //! effects never share one (`once_key_distinct`).
@@ -51,7 +58,8 @@ pub enum Policy {
     /// It may change state and nothing drops a repeat: it is never
     /// launched twice.
     Never,
-    /// It changes nothing: it may run again.
+    /// A repeat leaves the world as one run does (a read, a write of a
+    /// known content): it may run again.
     Safe,
     /// Every launch carries its idempotency key ([`key`]); it is sent again
     /// under it only when its target's declaration `dedup` is
@@ -81,7 +89,7 @@ pub enum Record {
     Started,
     /// Written after the effect ended, with its result.
     Finished,
-    /// A restart could not tell whether it ran: reported interrupted.
+    /// A restart could not tell whether it ran: treated as not run.
     Unknown,
     /// A restart knows it never ran: reported not started.
     Unstarted,
@@ -98,7 +106,7 @@ pub enum Life {
     Running { again: u64 },
     /// Finished.
     Ran,
-    /// Settled unknown.
+    /// Settled unknown: treated as not run.
     Lost,
     /// Settled unstarted.
     Void,
@@ -115,7 +123,9 @@ pub enum Verdict {
     /// Journal [`Record::Finished`]: it ran; its effect in the world is its
     /// result.
     Adopt,
-    /// Journal [`Record::Unknown`]: report it interrupted; never run it.
+    /// Journal [`Record::Unknown`]: treat it as not run (never run it,
+    /// never report it done) and list it once in its run's end-of-run
+    /// report; the run goes on, nobody is asked.
     Interrupt,
     /// Journal [`Record::Unstarted`]: report it not started; never run it.
     Abandon,
@@ -263,9 +273,10 @@ fn read_verdict(reply: &str) -> Result<Verdict, WireError> {
 mod tests {
     use super::*;
 
-    /// A tool call cut mid-run: a `never` call is interrupted, a safe one
-    /// runs again, a stopped run's is interrupted whatever its policy; the
-    /// world showing it landed adopts it, showing it clean launches it.
+    /// A tool call cut mid-run: a `never` call is unknown (treated as not
+    /// run), a safe one runs again, a stopped run's is unknown whatever its
+    /// policy; the world showing it landed adopts it, showing it clean
+    /// launches it.
     #[test]
     fn a_cut_effect_is_decided_by_policy_and_world() {
         let cut = || [Record::Intended, Record::Started];
@@ -359,7 +370,7 @@ mod tests {
     }
 
     /// A keyed effect whose target has no declaration is never sent
-    /// again: a cut one is interrupted, whatever its cap.
+    /// again: a cut one is unknown (treated as not run), whatever its cap.
     #[test]
     fn a_keyed_effect_without_a_lasting_declaration_is_sent_once() {
         let mut effect = Effect::of([Record::Intended, Record::Started]);
