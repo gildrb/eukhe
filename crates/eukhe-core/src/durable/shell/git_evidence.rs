@@ -382,8 +382,9 @@ fn cleaned(message: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Run `git <args>` in `dir` (a throwaway repository: identity and
-    /// signing set here), outside any repository the test runs in.
+    /// Run `git <args>` in `dir` (a throwaway repository: identity set
+    /// here, the user's and system's git config ignored, so their signing
+    /// settings never reach it), outside any repository the test runs in.
     fn run(dir: &Path, args: &[&str]) -> String {
         let output = std::process::Command::new("git")
             .args([
@@ -392,14 +393,14 @@ mod tests {
                 "-c",
                 "user.email=test@example.com",
                 "-c",
-                "commit.gpgsign=false",
-                "-c",
                 "init.defaultBranch=main",
                 "-c",
                 "core.hooksPath=/dev/null",
             ])
             .args(args)
             .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
