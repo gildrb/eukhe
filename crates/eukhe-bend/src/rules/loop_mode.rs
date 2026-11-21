@@ -17,16 +17,16 @@ use eukhe_types::loop_mode::{
 use crate::wire::{Reader, WireError, Writer};
 use crate::{call, Entry, Error};
 
-/// How a turn of the loop settled.
+/// How a turn of the loop settled. The user's interrupt is no outcome: it
+/// is [`LoopEvent::Abort`], the one event that pauses a loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnOutcome {
     /// It ran to its end (a final answer).
     Ran,
-    /// It failed.
+    /// It failed: its run failed, its submission was refused or consumed
+    /// locally, an abort that is not the user's interrupt cut it, or a
+    /// restart found it over without an answer.
     Errored,
-    /// It did not run to its end: refused, consumed locally, or
-    /// interrupted by the user.
-    Halted,
 }
 
 /// What happened to the loop.
@@ -42,7 +42,8 @@ pub enum LoopEvent {
     },
     /// `/loop --stop`.
     Stop,
-    /// The user's interrupt.
+    /// The user's interrupt (Esc, the abort command); no other abort of a
+    /// run is one.
     Abort,
     /// The user sent a prompt that starts a turn.
     Prompt { text: String },
@@ -146,7 +147,6 @@ pub fn step(state: &LoopState, event: &LoopEvent) -> Result<(LoopState, LoopAct)
                 .tag(match outcome {
                     TurnOutcome::Ran => 0,
                     TurnOutcome::Errored => 1,
-                    TurnOutcome::Halted => 2,
                 })
                 .bool(*blocked)
                 .nat(*now_ms)

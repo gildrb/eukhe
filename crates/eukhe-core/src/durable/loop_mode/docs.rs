@@ -57,8 +57,8 @@ pub struct LoopDoc {
     /// after it becomes the loop's prompt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub waiting_since_ms: Option<u64>,
-    /// A manual compaction cut the turn in flight: its abort is no user
-    /// interrupt, and the turn is sent again once the compaction ended.
+    /// A manual compaction cut the turn in flight: its abort is no failed
+    /// turn, and the turn is sent again once the compaction ended.
     pub held: bool,
     /// How many times a cut turn was sent again (keeps their request ids
     /// apart).

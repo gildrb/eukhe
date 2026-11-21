@@ -127,15 +127,13 @@ def lp_spell_limit(lim: Lp.Limit, rest: String) -> String:
     case Lp.Span{ms}:
       Wr.put_nat(2n, Wr.put_nat(ms, rest))
 
-# how a turn settled: tag 0 ran, 1 errored, 2 halted
+# how a turn settled: tag 0 ran, 1 errored
 def lp_spell_out(o: Lp.Out, rest: String) -> String:
   match o:
     case Lp.Ran{}:
       Wr.put_nat(0n, rest)
     case Lp.Errored{}:
       Wr.put_nat(1n, rest)
-    case Lp.Halted{}:
-      Wr.put_nat(2n, rest)
 
 # a text that may be absent: tag 0 none, 1 then the text
 def lp_spell_mstr(m: Maybe<&2, String>, rest: String) -> String:

@@ -430,19 +430,20 @@ impl RpcSession {
         self.replace_locked(request).await
     }
 
-    /// Abort the main conversation's running work (TS `abort()`): withdraw
+    /// Abort the main conversation's running work (TS `abort()`): the
+    /// user's interrupt, so a running `/loop` pauses first; then withdraw
     /// its queued inputs and resolve once the work it stopped ended, not a
     /// run the abort started (a withdrawn child report submitted again).
     ///
     /// # Errors
     ///
-    /// The abort fails (the Harness is closed).
+    /// The loop's pause or the abort fails (the Harness is closed).
     pub async fn abort(&self) -> SessionResult<()> {
         let session = self.session().await;
-        session
-            .main()
-            .abort(ConversationAbortOptions::default(), &rpc_context())
-            .await
+        let main = session.main();
+        let cx = rpc_context();
+        eukhe_core::durable::loop_mode::interrupt_loop(session.harness(), &main, &cx).await?;
+        main.abort(ConversationAbortOptions::default(), &cx).await
     }
 
     /// The exit settle (TS `onInputEnd` -> `waitForIdle` -> `shutdown`):

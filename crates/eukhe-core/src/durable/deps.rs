@@ -458,6 +458,12 @@ impl SessionClosing {
         }
         Some(admission().await)
     }
+
+    /// Whether the close began: an abort the close makes always follows
+    /// its begin, so the end of a run that abort cut reads `true`.
+    pub(crate) async fn begun(&self) -> bool {
+        *self.closing.read().await
+    }
 }
 
 /// One kernel host request, with the durable tool call executing the cell
