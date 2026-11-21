@@ -12,7 +12,7 @@ import { connect, onFrame, onReady } from "./lib/link.ts";
 import { chatHref, currentRoute, navigate } from "./lib/router.ts";
 import { bind, opening, refreshSessions } from "./lib/session.ts";
 import { store } from "./lib/store.ts";
-import { derivePhase, reduce, type PhaseName } from "./lib/turn.ts";
+import { derivePhase, reduce, withNote, type PhaseName } from "./lib/turn.ts";
 
 const TICK_MS = 250;
 
@@ -22,7 +22,10 @@ applyTheme(store.get().prefs.theme);
 onFrame("event", (frame) => {
   const state = store.get();
   if (opening() || !state.session) return;
-  const session = reduce(state.session, frame.event, Date.now());
+  const now = Date.now();
+  const reduced = reduce(state.session, frame.event, now);
+  // A root run's end-of-run message: one note, the text every surface shows.
+  const session = frame.report ? withNote(reduced, "report", frame.report, now) : reduced;
   store.set({ session: frame.cursor ? { ...session, cursor: frame.cursor } : session });
   switch (frame.event.type) {
     case "agent_end":

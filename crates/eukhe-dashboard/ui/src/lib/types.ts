@@ -167,7 +167,7 @@ export type CheckProgress = {
     | { kind: "ended"; outcome: CheckOutcome; lastLines: string[] };
 };
 
-/** The 30 SessionEvent types the reducer folds. */
+/** The 32 SessionEvent types the tab reads: the reducer folds 30; `run_report` shows its frame's `report`, `ran_effects_update` nothing. */
 export type SessionEvent =
   | { type: "agent_start" }
   | { type: "agent_end" }
@@ -230,13 +230,19 @@ export type SessionEvent =
   | { type: "bash_end"; errorMessage?: string }
   | { type: "refine_complete" }
   | { type: "refine_failed"; error: string }
-  | { type: "python_sent_agent_message" };
+  | { type: "python_sent_agent_message" }
+  | { type: "ran_effects_update"; effects: unknown[] }
+  | { type: "run_report"; ran: unknown[]; unknown: unknown[] };
+
+/** A reply the bridge words for the tab (`/effects`): the text every surface shows. */
+export type TextReply = { text: string };
 
 export type ServerFrame =
   | { type: "hello"; protocol: number; build: string; ops: string[] }
   | { type: "reply"; id: number; data: unknown }
   | { type: "failure"; id: number; error: string }
-  | { type: "event"; event: SessionEvent; cursor?: Cursor }
+  /** `report`: a `run_report`'s end-of-run message. */
+  | { type: "event"; event: SessionEvent; cursor?: Cursor; report?: string }
   | { type: "resync"; reason: string }
   | { type: "unavailable"; error: string }
   | { type: "unpaired"; error: string };

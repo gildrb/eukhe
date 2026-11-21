@@ -148,11 +148,13 @@ pub(crate) enum ServerFrame<'a> {
     /// Request `id` failed.
     Failure { id: u64, error: String },
     /// One event of the bound session, with its cursor when the daemon
-    /// gave one.
+    /// gave one; a `run_report` with the end-of-run message's text.
     Event {
         event: &'a SessionEvent,
         #[serde(skip_serializing_if = "Option::is_none")]
         cursor: Option<EventCursor<'a>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        report: Option<String>,
     },
     /// The bound session moved (a worker replacement), lost its worker
     /// link, or closed: the tab opens it again.
@@ -326,6 +328,7 @@ mod tests {
             serde_json::to_value(ServerFrame::Event {
                 event: &SessionEvent::AgentStart,
                 cursor: None,
+                report: None,
             })
             .unwrap(),
             json!({ "type": "event", "event": { "type": "agent_start" } })
@@ -337,6 +340,7 @@ mod tests {
                     generation: Some("g"),
                     sequence: 9
                 }),
+                report: None,
             })
             .unwrap(),
             json!({
