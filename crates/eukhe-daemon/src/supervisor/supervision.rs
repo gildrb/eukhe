@@ -36,8 +36,8 @@ struct SessionEventHead<'a> {
     reason: Option<&'a serde_json::value::RawValue>,
 }
 
-/// The session address of a worker `side_question_event` or
-/// `state_tree_update` frame.
+/// The session address of a worker `side_question_event`,
+/// `editor_permission` or `state_tree_update` frame.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionAddress<'a> {
@@ -999,6 +999,21 @@ impl Supervisor {
                         };
                         if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
                             reader_supervisor.publish_session_line(
+                                &active_session_id,
+                                &super::subscribers::event_line(frame.payload),
+                            );
+                        }
+                    } else if outbound_type == crate::editor_permission::EDITOR_PERMISSION_FRAME {
+                        // Only the session's editors (the connections that
+                        // attached with the `editor_permission` capability)
+                        // get the question.
+                        let Ok(SessionAddress { active_session_id }) =
+                            serde_json::from_slice(&frame.payload)
+                        else {
+                            continue;
+                        };
+                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
+                            reader_supervisor.editor_subscribers.publish(
                                 &active_session_id,
                                 &super::subscribers::event_line(frame.payload),
                             );

@@ -729,6 +729,13 @@ impl Worker {
                 },
             );
         }));
+        // An irreversible effect asks the root session's editors first
+        // (spec I12); a subagent hands the question up. No editor: it runs.
+        let editor_permissions = self.editor_permissions.clone();
+        config.editor_permission = Some(Arc::new(move |request| {
+            let editor_permissions = editor_permissions.clone();
+            Box::pin(async move { editor_permissions.ask(request).await })
+        }));
         // Each accepted `rlm.progress.note` is a roster `note` candidate:
         // keep the latest on the core and push the changed summary.
         let progress_core = Arc::clone(&self.core);

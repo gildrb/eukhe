@@ -156,6 +156,7 @@ fn a_document_write_to_an_own_path_is_refused() {
             path: OwnPath::Tree(ws.join("own")),
             kind: OwnKind::Config,
         }]),
+        editor: None,
     };
     let locks = tempfile::tempdir().unwrap();
     let documents = Documents::new(locks.path().to_path_buf(), None);
@@ -204,6 +205,7 @@ fn a_write_to_a_file_a_check_protects_is_refused() {
             path: OwnPath::Tree(ws.join("LAWS.bend")),
             kind: OwnKind::CheckFile,
         }]),
+        editor: None,
     };
     let locks = tempfile::tempdir().unwrap();
     let documents = Documents::new(locks.path().to_path_buf(), None);
@@ -218,7 +220,10 @@ fn a_write_to_a_file_a_check_protects_is_refused() {
             | WriteError::Io { .. } => error.to_string(),
         });
     assert_eq!(
-        (written, std::fs::read_to_string(ws.join("LAWS.bend")).unwrap()),
+        (
+            written,
+            std::fs::read_to_string(ws.join("LAWS.bend")).unwrap()
+        ),
         (
             Err(format!(
                 "(write) refused: {} is part of the protected files of a check under \

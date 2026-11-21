@@ -162,6 +162,7 @@ async fn every_step_runs_unasked_and_an_own_write_stops_the_script() {
         .run(
             "cat notes | grep -c o\necho made > out.txt && cat out.txt\ncurl https://example.com\necho x > ../agent/settings.json\ntouch never",
             &bench.paths(),
+            &Unasked,
             &record,
         )
         .await;
@@ -211,6 +212,7 @@ async fn shell_state_chains_and_external_programs() {
         .run(
             "cd sub; export WHO=me; X=1; false || echo \"$WHO $X $?\"; tool a 'b c' 2>&1; missing-program; exit 3; echo after",
             &bench.paths(),
+            &Unasked,
             &record,
         )
         .await;
@@ -247,7 +249,10 @@ async fn a_script_outside_the_grammar_is_one_step_with_every_effect_it_holds() {
     let bench = Bench::new();
     let script = "for f in a b; do echo $f; done";
     let record = Record::default();
-    let got = bench.shell().run(script, &bench.paths(), &record).await;
+    let got = bench
+        .shell()
+        .run(script, &bench.paths(), &Unasked, &record)
+        .await;
     let command = format!("bash -c '{script}'");
     assert_eq!(
         (seen(&got, &record), got.end),
@@ -259,7 +264,7 @@ async fn a_script_outside_the_grammar_is_one_step_with_every_effect_it_holds() {
     let script = "for f in a; do echo $f > ../agent/f; done";
     let got = bench
         .shell()
-        .run(script, &bench.paths(), &Record::default())
+        .run(script, &bench.paths(), &Unasked, &Record::default())
         .await;
     assert_eq!(
         got,
@@ -290,7 +295,9 @@ async fn a_pipeline_ends_when_its_last_command_stops_reading() {
     let record = Record::default();
     let got = tokio::time::timeout(
         Duration::from_secs(10),
-        bench.shell().run("yes | head -n 3", &paths, &record),
+        bench
+            .shell()
+            .run("yes | head -n 3", &paths, &Unasked, &record),
     )
     .await
     .expect("`yes | head -n 3` ends");
@@ -307,7 +314,9 @@ async fn a_pipeline_ends_when_its_last_command_stops_reading() {
     let record = Record::default();
     let got = tokio::time::timeout(
         Duration::from_secs(10),
-        bench.shell().run("yes | cat | head -n 2", &paths, &record),
+        bench
+            .shell()
+            .run("yes | cat | head -n 2", &paths, &Unasked, &record),
     )
     .await
     .expect("`yes | cat | head -n 2` ends");
@@ -335,6 +344,7 @@ async fn a_refused_command_runs_none_of_its_pipeline() {
         .run(
             "echo first; yes | cat > ../agent/x",
             &bench.paths(),
+            &Unasked,
             &Record::default(),
         )
         .await;
@@ -368,6 +378,7 @@ async fn every_effect_of_a_step_counts() {
         .run(
             "curl x > got; touch ../out; touch ../guard/g; cat ../keys/id; cp ../keys/id copy",
             &bench.paths(),
+            &Unasked,
             &Record::default(),
         )
         .await;
@@ -410,6 +421,7 @@ async fn only_a_step_that_reads_its_working_directory_reads_a_secret_in_it() {
         .run(
             "echo hi; date; git -C work log; ls work; rg x work; ls; rg x; grep -r x; find -name x; du",
             &bench.paths(),
+            &Unasked,
             &Record::default(),
         )
         .await;
@@ -431,8 +443,99 @@ async fn a_shallow_ls_of_a_secret_holding_directory_reads_no_secret() {
         .run(
             "ls .; ls keys; ls -R .; find .; rg x .; cat keys/id",
             &bench.paths(),
+            &Unasked,
             &Record::default(),
         )
         .await;
     assert_eq!((secret_steps(&got), got.steps.len()), ((1..6).collect(), 6));
+}
+
+/// Asks about each step in order and refuses one (`refused`), keeping
+/// every question.
+struct Editor {
+    refused: u64,
+    asked: Mutex<Vec<(u64, String, ShellEffects)>>,
+}
+
+impl Before for Editor {
+    fn allows(
+        &self,
+        step: u64,
+        command: &str,
+        effects: ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        self.asked.lock().push((step, command.to_owned(), effects));
+        std::future::ready(step != self.refused)
+    }
+}
+
+/// A step `before` refuses does not run, and neither does any later
+/// step: the script ends `Rejected` there. An own write is refused before
+/// `before` is asked about it.
+#[tokio::test]
+async fn a_step_before_refuses_stops_the_script() {
+    let bench = Bench::new();
+    let editor = Editor {
+        refused: 1,
+        asked: Mutex::new(Vec::new()),
+    };
+    let record = Record::default();
+    let got = bench
+        .shell()
+        .run(
+            "echo one > one.txt; curl https://example.com; echo two > two.txt",
+            &bench.paths(),
+            &editor,
+            &record,
+        )
+        .await;
+    assert_eq!(
+        (
+            seen(&got, &record),
+            got.end,
+            editor.asked.lock().clone(),
+            bench.work().join("two.txt").exists()
+        ),
+        (
+            vec![ran(0, "echo one >one.txt", &[Read, Write], "", 0)],
+            End::Rejected {
+                step: 1,
+                command: "curl https://example.com".to_string(),
+                effects: ShellEffects::of(&[Net]),
+            },
+            vec![
+                (
+                    0,
+                    "echo one >one.txt".to_owned(),
+                    ShellEffects::of(&[Read, Write])
+                ),
+                (
+                    1,
+                    "curl https://example.com".to_owned(),
+                    ShellEffects::of(&[Net])
+                ),
+            ],
+            false
+        )
+    );
+    let editor = Editor {
+        refused: u64::MAX,
+        asked: Mutex::new(Vec::new()),
+    };
+    let got = bench
+        .shell()
+        .run(
+            "echo x > ../agent/f",
+            &bench.paths(),
+            &editor,
+            &Record::default(),
+        )
+        .await;
+    assert_eq!(
+        (
+            matches!(got.end, End::Refused { .. }),
+            editor.asked.lock().len()
+        ),
+        (true, 0)
+    );
 }

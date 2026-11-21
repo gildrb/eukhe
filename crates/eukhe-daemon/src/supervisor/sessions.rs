@@ -85,6 +85,7 @@ impl Supervisor {
         self.log_line(&format!(
             "rebinding stale session id {selector} -> {current}"
         ));
+        attached.rebind_subscription(&self.editor_subscribers, selector, &current);
         let was_attached = attached.rebind(&self.session_subscribers, selector, &current);
         if was_attached {
             let (session_id, session_file) = {

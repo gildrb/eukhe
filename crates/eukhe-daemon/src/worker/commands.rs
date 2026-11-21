@@ -64,6 +64,8 @@ impl Worker {
                 }
                 self.side_questions.abort(payload)
             }
+            "answer_editor_permission" => self.editor_permissions.answer(payload),
+            "relay_editor_permission" => self.editor_permissions.relay(payload).await,
             "compact" => self.handle_compaction(payload).await,
             "abort_compaction" => self.handle_abort_compaction().await,
             "set_auto_compaction" => self.handle_set_auto_compaction(payload).await,

@@ -50,6 +50,17 @@ impl OutboundFrame {
         }
     }
 
+    /// `editor_permission`: one question to the session's editors, for
+    /// the supervisor to route to the client connections that attached
+    /// with the `editor_permission` capability.
+    pub(crate) fn editor_permission(payload: Vec<u8>) -> Self {
+        OutboundFrame {
+            payload,
+            outbound_type: crate::editor_permission::EDITOR_PERMISSION_FRAME,
+            seq: 0,
+        }
+    }
+
     /// `state_tree_update`: new state tree records, for the supervisor to
     /// route to the subscribed client connections.
     pub(crate) fn state_tree_update(payload: Vec<u8>) -> Self {
@@ -1014,6 +1025,18 @@ impl Worker {
         if retained {
             // A client is back: the session is no longer left.
             core.left_at_ms = None;
+            // An editor (an ACP attach) is asked about each irreversible
+            // effect of the session.
+            let editor = client_kind != DaemonClientKind::Watch
+                && echoed_client_capabilities
+                    .as_ref()
+                    .unwrap_or(&capabilities)
+                    .iter()
+                    .any(|cap| cap == crate::editor_permission::EDITOR_PERMISSION_CAPABILITY);
+            core.editor_client_ids.retain(|id| id != &client_id);
+            if editor {
+                core.editor_client_ids.push(client_id.clone());
+            }
             match client_kind {
                 // A watch shows the session only: it is not an attached
                 // client for the kernel release.
@@ -1232,8 +1255,10 @@ impl Worker {
                 .any(|other| other.iter().any(|entry| entry == id));
             if !held_elsewhere {
                 core.attached_client_ids.retain(|entry| entry != id);
+                core.editor_client_ids.retain(|entry| entry != id);
             }
         }
+        self.editor_permissions.detached(&core);
     }
 
     pub(crate) fn handle_detach(&self, payload: &Value) -> DaemonResponse {
@@ -1267,7 +1292,9 @@ impl Worker {
             .any(|other| other.iter().any(|entry| entry == &client_id));
         if !held_elsewhere {
             core.attached_client_ids.retain(|id| id != &client_id);
+            core.editor_client_ids.retain(|id| id != &client_id);
         }
+        self.editor_permissions.detached(&core);
         // The last client left the session for another one: the idle
         // window shrinks to the left grace (the park re-arms it now).
         let left = core.attached_client_ids.is_empty()

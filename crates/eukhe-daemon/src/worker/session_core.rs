@@ -58,6 +58,10 @@ pub(crate) struct SessionCore {
 
     pub(crate) cwd: String,
     pub(crate) attached_client_ids: Vec<String>,
+    /// The attached clients that attached with the `editor_permission`
+    /// capability (an ACP editor; a subset of `attached_client_ids`): a
+    /// root session asks them before each irreversible effect.
+    pub(crate) editor_client_ids: Vec<String>,
     pub(crate) shutdown_requested: bool,
     /// The wall-clock ms of this session's last activity (run end);
     /// zero before any.
@@ -133,6 +137,7 @@ impl SessionCore {
             held: Vec::new(),
             withdrawn_gate: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             attached_client_ids: Vec::new(),
+            editor_client_ids: Vec::new(),
             shutdown_requested: false,
             last_activity_ms: 0,
             left_at_ms: None,
