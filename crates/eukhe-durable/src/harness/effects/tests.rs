@@ -28,19 +28,23 @@ async fn open(path: &std::path::Path) -> OpenChat {
     open_chat(jsonl(path).await, &setup, None).await.unwrap()
 }
 
-/// Start a run, then record `drafts` in one commit: the effects as
-/// recorded.
-async fn run_recording(chat: &OpenChat, drafts: Vec<RanEffectDraft>) -> Vec<RanEffect> {
+/// Start the run `key`, then record `drafts` in one commit: the run's
+/// number and the effects as recorded.
+async fn run_recording(
+    chat: &OpenChat,
+    key: &'static str,
+    drafts: Vec<RanEffectDraft>,
+) -> (u64, Vec<RanEffect>) {
     let id = chat.root.id();
     chat.harness
         .commit(
             move |tx| async move {
-                begin_run(&tx, id).await?;
+                let run = begin_run(&tx, id, key).await?;
                 let mut recorded = Vec::new();
                 for effect in drafts {
-                    recorded.push(record_ran(&tx, id, effect).await?);
+                    recorded.push(record_ran(&tx, id, effect, run).await?);
                 }
-                Ok(recorded)
+                Ok((run, recorded))
             },
             context(),
         )
@@ -49,15 +53,16 @@ async fn run_recording(chat: &OpenChat, drafts: Vec<RanEffectDraft>) -> Vec<RanE
 }
 
 /// Ids follow on across runs, a replayed key records nothing new and
-/// gives the effect as first recorded, the ledger survives a reopen, and
-/// each run's report holds exactly its effects and the steps it treated as
-/// not run.
+/// gives the effect as first recorded, a replayed run start numbers
+/// nothing new, the ledger survives a reopen, and each run's report holds
+/// exactly its effects and the steps it treated as not run.
 #[tokio::test]
 async fn each_effect_is_recorded_once_in_its_run_and_survives_a_reopen() {
     let (_dir, path) = store_path();
     let chat = open(&path).await;
     let first = run_recording(
         &chat,
+        "in1",
         vec![
             draft("s1:c1:0", "git push", None),
             draft("s2:c1:0", "curl -X POST https://x", Some("fix-tests")),
@@ -66,12 +71,14 @@ async fn each_effect_is_recorded_once_in_its_run_and_survives_a_reopen() {
     .await;
     let second = run_recording(
         &chat,
+        "in2",
         vec![
             draft("s1:c1:0", "git push", None),
             draft("s1:c2:3", "npm publish", None),
         ],
     )
     .await;
+    let replayed = run_recording(&chat, "in2", Vec::new()).await;
     let cut = UnknownEffect {
         id: "tool:c3".to_owned(),
         kind: EffectKind::Tool,
@@ -108,16 +115,19 @@ async fn each_effect_is_recorded_once_in_its_run_and_survives_a_reopen() {
         (
             first,
             second,
+            replayed,
             state.clone(),
             run_report(&state, 1).unwrap(),
             run_report(&state, 2).unwrap(),
             run_report(&state, 3).unwrap(),
         ),
         (
-            vec![push.clone(), curl.clone()],
-            vec![push.clone(), publish.clone()],
+            (1, vec![push.clone(), curl.clone()]),
+            (2, vec![push.clone(), publish.clone()]),
+            (2, Vec::new()),
             EffectsState {
                 run: 2,
+                run_key: Some("in2".to_owned()),
                 unknown: vec![cut.clone()],
                 ran: vec![push.clone(), curl.clone(), publish.clone()],
             },
@@ -146,7 +156,7 @@ async fn a_ledger_written_before_runs_reads_none_and_records() {
     let before = read_ran_effects(&chat.harness, id, context())
         .await
         .unwrap();
-    let recorded = run_recording(&chat, vec![draft("s1:c1:0", "git push", None)]).await;
+    let recorded = run_recording(&chat, "in1", vec![draft("s1:c1:0", "git push", None)]).await;
     let in_flight = chat
         .harness
         .commit(
@@ -161,9 +171,10 @@ async fn a_ledger_written_before_runs_reads_none_and_records() {
         (
             EffectsState::default(),
             Vec::new(),
-            vec![push.clone()],
+            (1, vec![push.clone()]),
             EffectsState {
                 run: 1,
+                run_key: Some("in1".to_owned()),
                 unknown: Vec::new(),
                 ran: vec![push],
             }

@@ -699,6 +699,16 @@ impl Supervisor {
                 );
                 (vec![response_line(&response)], false)
             }
+            DaemonCommand::RelayRanEffect {
+                active_session_id, ..
+            } if self.headless_parents.target(active_session_id).is_some() => {
+                // A child of a headless session: its root's ledger lives
+                // in the client process, reached over its connection.
+                let response = self
+                    .relay_ran_effect_to_headless_parent(command, &command_id, &type_name)
+                    .await;
+                (vec![response_line(&response)], false)
+            }
             DaemonCommand::Restart { .. } | DaemonCommand::Shutdown { .. } => {
                 // `ifIdle`: the supervisor decides, atomically with the
                 // stop, that no session holds work; a busy daemon refuses

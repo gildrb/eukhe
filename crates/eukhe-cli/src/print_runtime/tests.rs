@@ -84,6 +84,7 @@ async fn run_in(
         cwd: dir.to_path_buf(),
         parent_session: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -288,6 +289,7 @@ async fn the_wait_for_background_work_ends_at_the_time_budgets_deadline() {
         cwd: dir.path().to_path_buf(),
         parent_session: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -402,6 +404,7 @@ async fn a_final_answer_with_a_job_running_at_the_budget_deadline_exits_zero() {
         cwd: dir.path().to_path_buf(),
         parent_session: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -523,6 +526,7 @@ async fn a_parked_run_exits_one_and_says_until_when() {
         cwd: dir.path().to_path_buf(),
         parent_session: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;

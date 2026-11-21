@@ -223,7 +223,7 @@ fn script_under(kind: Option<&str>) -> (String, [Option<String>; 4]) {
 /// for each.
 #[test]
 fn an_irreversible_step_runs_unasked_and_an_own_write_is_refused_for_every_client() {
-    let result = "$ echo one >one.txt\n$ mkdir .git\n$ echo two >.git/note\n[stopped at step 3 (read+write+protected): `echo three >agent/settings.json` and the steps after it did not run: <agent>/settings.json is part of eukhe's own config and credentials; no agent may write it.]\n";
+    let result = "$ echo one >one.txt\n$ mkdir .git\n$ echo two >.git/note\n[stopped at step 3 (read+write+protected): `echo three >agent/settings.json` and the steps after it did not run: <agent>/settings.json is part of eukhe's own config and credentials; no agent may write it.]\n[irreversible: e1 mkdir .git (write+protected)]\n[irreversible: e2 echo two >.git/note (read+write+protected)]";
     let got: Vec<_> = [None, Some("interactive"), Some("gateway"), Some("watch")]
         .into_iter()
         .map(script_under)

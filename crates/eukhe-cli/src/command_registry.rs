@@ -127,15 +127,18 @@ for a node that comes back, restore for a node that changes.",
     CommandSpec::new(
         &["effects"],
         "effects [<agent>] [--json]",
-        "List the steps a restart treated as not run",
+        "List the irreversible effects that ran and the steps a restart treated as not run",
     )
     .description(
-        "After a crash, Eukhe settles each step of unknown outcome itself (a tool call, a file \
-write, a model request, a job, a spawn, a scheduled fire, a message delivery): it checks the \
-evidence (the file, the git ref, the job's exit record), runs again a step safe to repeat, and \
-otherwise treats the step as not run, lists it here under the run it was settled in, and goes on. Each \
-line shows the step id, its kind, its state (treated-not-run, or a correction: ran, not-run), and \
-what it is. Without <agent>, the only active agent.",
+        "Every irreversible effect that ran in the agent and its subagents (network, outside \
+the workspace, protected or secret paths, an MCP tool not declared read-only) is in its ledger, \
+one line each: its id, what ran, its classes, the subagent that ran it. After a crash, Eukhe \
+settles each step of unknown outcome itself (a tool call, a file write, a model request, a job, \
+a spawn, a scheduled fire, a message delivery): it checks the evidence (the file, the git ref, \
+the job's exit record), runs again a step safe to repeat, and otherwise treats the step as not \
+run, lists it in the run's end-of-run report, and goes on. Each such line shows the step id, its \
+kind, its state (treated-not-run, or a correction: ran, not-run), and what it is. Without \
+<agent>, the only active agent.",
     )
     .options(&["--json  Print JSON"]),
     CommandSpec::new(

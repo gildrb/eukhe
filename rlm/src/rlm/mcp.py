@@ -171,6 +171,9 @@ class _Generation:
         self.stack = AsyncExitStack()
         self.session: Any = None
         self.tools: dict[str, dict[str, Any]] = {}
+        # The tools the server declares read-only (``annotations.readOnlyHint``);
+        # a call of any other tool is an irreversible effect of class unknown.
+        self.read_only: set[str] = set()
         self.closed = False
         self._call_lock = asyncio.Lock()
         self._stderr: _StderrTail | None = None
@@ -334,6 +337,7 @@ class _Generation:
         so a partial inventory is never published as if complete.
         """
         tools: dict[str, dict[str, Any]] = {}
+        read_only: set[str] = set()
         cursors: set[str] = set()
         cursor: str | None = None
         pages = 0
@@ -352,6 +356,9 @@ class _Generation:
                     "description": getattr(tool, "description", "") or "",
                     "inputSchema": schema if isinstance(schema, dict) else {},
                 }
+                annotations = getattr(tool, "annotations", None)
+                if getattr(annotations, "readOnlyHint", None) is True or getattr(annotations, "read_only_hint", None) is True:
+                    read_only.add(name)
             cursor = getattr(response, "next_cursor", None)
             if cursor is None:
                 cursor = getattr(response, "nextCursor", None)
@@ -373,6 +380,7 @@ class _Generation:
                 )
             cursors.add(cursor)
         self.tools = tools
+        self.read_only = read_only
 
     async def _list_tools_page(self, cursor: str | None) -> Any:
         if cursor is None:
@@ -559,8 +567,13 @@ class _Registry:
 
         return await self._tracked(operation)
 
-    async def call(self, server: str, tool: str, arguments: dict[str, Any]) -> Any:
-        return await self._on(server, lambda generation: generation.call(tool, arguments))
+    async def call(self, server: str, tool: str, arguments: dict[str, Any]) -> tuple[Any, bool]:
+        """The tool's result, and whether the server declares the tool read-only."""
+
+        async def work(generation: _Generation) -> tuple[Any, bool]:
+            return await generation.call(tool, arguments), tool in generation.read_only
+
+        return await self._on(server, work)
 
     async def resources(self, server: str) -> list[dict[str, Any]]:
         return await self._on(server, lambda generation: generation.resources())
@@ -692,7 +705,24 @@ async def call_tool(server: str, tool: str, arguments: dict[str, Any] | None = N
     _validate_name(tool, "tool")
     if arguments is not None and not isinstance(arguments, dict):
         raise TypeError("arguments must be a dict or None")
-    return await _dispatch(lambda: _registry.call(server, tool, arguments or {}))
+    result, read_only = await _dispatch(lambda: _registry.call(server, tool, arguments or {}))
+    if not read_only:
+        await _record_ran(server, tool)
+    return result
+
+
+async def _record_ran(server: str, tool: str) -> None:
+    """A call of a tool its server does not declare read-only ran: an
+    irreversible effect of class unknown. The host records it in the root
+    session's ledger; its note joins the cell's output."""
+    try:
+        reply = await host_request("effects.ran", {"kind": "mcpCall", "command": f"mcp {server}.{tool}"})
+    except RuntimeError as error:
+        print(f"[irreversible: mcp {server}.{tool} (unknown) was not recorded: {error}]")
+        return
+    note = reply.get("note")
+    if isinstance(note, str) and note:
+        print(note)
 
 
 async def list_resources(server: str) -> list[dict[str, Any]]:

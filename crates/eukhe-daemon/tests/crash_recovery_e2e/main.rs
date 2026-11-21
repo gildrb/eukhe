@@ -52,6 +52,7 @@ mod git;
 mod irreversible_net;
 mod job;
 mod queue_edit;
+mod ran_effects;
 mod request;
 mod tool_once;
 
@@ -387,9 +388,17 @@ fn script(request: &Request, release: &Path) -> Reply {
                 reply
             } else if request.after_tool {
                 // The call after the tool answers the prompt its call
-                // id names.
+                // id names; a run whose end report the test reads holds
+                // that answer until the test attached again.
                 let call = request.tool_results.last().expect("a tool result");
-                Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)))
+                let reply = Reply::text(answer_for(call.strip_prefix("call-").unwrap_or(call)));
+                if request.prompt.contains(ran_effects::TAG)
+                    || request.prompt.contains(irreversible_net::TAG)
+                {
+                    reply.held(ran_effects::REPORT_GATE)
+                } else {
+                    reply
+                }
             } else if request.prompt.contains(codemode::TAG) {
                 Reply::tool_call(
                     format!("call-{prompt}"),
@@ -401,6 +410,12 @@ fn script(request: &Request, release: &Path) -> Reply {
                     format!("call-{prompt}"),
                     "bash",
                     json!({ "script": irreversible_net::script(release) }),
+                )
+            } else if request.prompt.contains(ran_effects::TAG) {
+                Reply::tool_call(
+                    format!("call-{prompt}"),
+                    "bash",
+                    json!({ "script": ran_effects::script(release) }),
                 )
             } else if let Some(script) = git::script(&request.prompt) {
                 Reply::tool_call(

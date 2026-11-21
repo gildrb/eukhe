@@ -319,6 +319,12 @@ pub struct SessionConfig {
     /// document access, an MCP call); `None`: nothing asks, every effect
     /// runs.
     pub editor_permission: Option<EditorPermissionSink>,
+    /// How a subagent's irreversible effects reach its root's ledger;
+    /// `None`: the session is a root and records in its own.
+    pub ran_effect_relay: Option<super::ran_effects::RanEffectRelay>,
+    /// Each root run's end-of-run report (spec I6); `None` drops it (the
+    /// ledger keeps every effect either way).
+    pub run_report: Option<super::ran_effects::RunReportSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -372,6 +378,8 @@ impl SessionConfig {
             progress_note: None,
             job_settled: None,
             editor_permission: None,
+            ran_effect_relay: None,
+            run_report: None,
             prewarm_kernel: false,
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
@@ -568,6 +576,10 @@ pub struct HostDeps {
     pub job_settled: Option<JobSettledSink>,
     /// [`SessionConfig::editor_permission`].
     pub editor_permission: Option<EditorPermissionSink>,
+    /// [`SessionConfig::ran_effect_relay`].
+    pub ran_effect_relay: Option<super::ran_effects::RanEffectRelay>,
+    /// [`SessionConfig::run_report`].
+    pub run_report: Option<super::ran_effects::RunReportSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
@@ -600,6 +612,9 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
+    /// Resolves once the run service ([`super::ran_effects`]) read every
+    /// commit published before the call; set when the service starts.
+    pub(crate) runs_barrier: OnceLock<ObserverBarrier>,
     /// The jobs of the session.
     pub jobs: super::jobs::JobTable,
     /// The session's live state tree, set when the session opens.
@@ -672,6 +687,8 @@ impl HostDeps {
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
             editor_permission: config.editor_permission.clone(),
+            ran_effect_relay: config.ran_effect_relay.clone(),
+            run_report: config.run_report.clone(),
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),
@@ -683,6 +700,7 @@ impl HostDeps {
             rlm_kernels: OnceLock::new(),
             optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
+            runs_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
             jobs: super::jobs::JobTable::new(harness),
             state_tree: OnceLock::new(),
@@ -716,6 +734,16 @@ impl HostDeps {
     /// overflow outcome, are committed). Immediate before they start.
     pub async fn observers_settled(&self) {
         if let Some(barrier) = self.compaction_barrier.get() {
+            barrier().await;
+        }
+    }
+
+    /// Wait until the run service (a root's, [`super::ran_effects`]) read
+    /// every commit published so far: each run that ended by then handed
+    /// its report to [`SessionConfig::run_report`]. Immediate before it
+    /// starts and in a subagent.
+    pub async fn runs_settled(&self) {
+        if let Some(barrier) = self.runs_barrier.get() {
             barrier().await;
         }
     }

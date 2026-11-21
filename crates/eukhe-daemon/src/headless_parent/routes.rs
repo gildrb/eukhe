@@ -335,6 +335,42 @@ impl Supervisor {
         }
     }
 
+    /// `relay_ran_effect` to a registered headless parent: the effect a
+    /// child ran goes over the parent's connection, and the parent's
+    /// receipt (the effect as its ledger recorded it) is the response
+    /// data.
+    pub(crate) async fn relay_ran_effect_to_headless_parent(
+        &self,
+        command: &DaemonCommand,
+        command_id: &str,
+        type_name: &str,
+    ) -> DaemonResponse {
+        let DaemonCommand::RelayRanEffect {
+            active_session_id,
+            effect,
+            ..
+        } = command
+        else {
+            return response_failure(Some(command_id), type_name, "invalid command", None);
+        };
+        let Some(target) = self.headless_parents.target(active_session_id) else {
+            return response_failure(
+                Some(command_id),
+                type_name,
+                &format!("The headless session {active_session_id} left"),
+                None,
+            );
+        };
+        let budget = Duration::from_millis(crate::supervisor::WORKER_REQUEST_TIMEOUT_MS);
+        match self
+            .deliver_to_headless_parent(&target, json!({ "ranEffect": effect }), budget)
+            .await
+        {
+            Ok(recorded) => response_success(Some(command_id), type_name, Some(recorded)),
+            Err(error) => response_failure(Some(command_id), type_name, &error.to_string(), None),
+        }
+    }
+
     /// The client connection `connection_id` closed: every parent it
     /// registered left, and their resident children close with them.
     pub(crate) async fn headless_connection_closed(self: &Arc<Self>, connection_id: &str) {

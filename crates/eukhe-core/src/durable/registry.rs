@@ -114,6 +114,10 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
     install(closing_extension)?;
+    // A root numbers its runs and reports each run's end; every session
+    // records the MCP calls its kernel makes.
+    super::ran_effects::install(deps);
+    super::ran_effects::register_host_requests(deps);
     registry.fix_roster();
     Ok(registry)
 }

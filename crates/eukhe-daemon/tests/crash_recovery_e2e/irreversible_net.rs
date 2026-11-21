@@ -3,8 +3,9 @@
 //! once the host has the request. Nothing tells whether the call finished
 //! and a repeat would POST again, so the restart treats it as not run: the
 //! host sees one POST, the call's result says it was interrupted, the
-//! ledger lists it once under the run in flight with its cause, and the
-//! run goes on to its answer with nobody asked.
+//! ledger lists it once under the run in flight with its cause, the run
+//! goes on to its answer with nobody asked, and the run's end-of-run
+//! report lists it (spec I6).
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -15,7 +16,7 @@ use super::*;
 pub(crate) const TAG: &str = "[net-post]";
 
 /// The file holding the port of the test's host, beside the release file.
-const PORT_FILE: &str = "net-port";
+pub(crate) const PORT_FILE: &str = "net-port";
 
 /// The call's script: one POST to the test's host, then a wait the kill
 /// cuts.
@@ -28,8 +29,8 @@ pub(crate) fn script(release: &Path) -> String {
 }
 
 /// Accept the host's connections on a thread, answering each `200 OK`,
-/// and count them in `posts`.
-fn serve(listener: TcpListener, posts: std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+/// and count the POSTs in `posts`.
+pub(crate) fn serve(listener: TcpListener, posts: std::sync::Arc<std::sync::atomic::AtomicUsize>) {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -71,7 +72,16 @@ fn a_post_cut_by_a_crash_is_treated_as_not_run_and_never_sent_again() {
     drop(client);
 
     let mut client = reattach(&world, &session_id);
+    // The run's answer waits for this attach: its end report reaches it.
+    let attached = client.len();
+    world.mock.open_gate(super::ran_effects::REPORT_GATE);
     wait_idle(&mut client, &session_id);
+    let (end, _) = client.wait_event_from(attached, WAIT, "the run's agent_end", |event| {
+        event["type"] == "agent_end"
+    });
+    let (_, report) = client.wait_event_from(end, WAIT, "the run's report", |event| {
+        event["type"] == "run_report"
+    });
     // The run went on to its answer: nothing waited on a person.
     assert_transcript(&world, std::slice::from_ref(&message));
     let results: Vec<String> = messages_of(&world.transcript(), "toolResult")
@@ -117,5 +127,19 @@ fn a_post_cut_by_a_crash_is_treated_as_not_run_and_never_sent_again() {
     assert!(
         effects[0]["settledRun"].is_u64(),
         "the entry names its run: {listed}"
+    );
+    let report: eukhe_types::effects::RunReport =
+        serde_json::from_value(report).expect("a run report");
+    // The post step ended before the crash cut the script: it is recorded
+    // at its own end, so the report lists it as ran, and the cut call as
+    // treated as not run.
+    let script = script(&world.release_path());
+    let charge = script.split("; ").next().unwrap_or_default();
+    assert_eq!(
+        eukhe_types::effects::run_report_text(&report),
+        Some(format!(
+            "Irreversible effects ran this run:\n- e1 {charge} (net)\nUnknown after a crash, treated as not run:\n- bash: {script} (cut by a crash; not safe to repeat)"
+        )),
+        "{report:?}"
     );
 }

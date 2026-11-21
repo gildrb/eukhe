@@ -48,6 +48,12 @@
 //!   host checked the world (optional: nothing waits for it), and
 //!   [`watch_unknown_effects`] follows the ledger (its current state first,
 //!   then every change).
+//! - [`ran_effects`] lists the irreversible effects that ran in a session
+//!   and its subagents (net, outside the workspace, protected, secret,
+//!   unknown), [`watch_ran_effects`] follows that ledger, and
+//!   [`ledger_text`] renders it; a [`RunReportSink`] in the config's
+//!   `run_report` gets each run's [`RunReport`] ([`run_report_text`]
+//!   renders it).
 //! - [`available_models`] lists the chat models whose providers have
 //!   credentials.
 //! - [`set_budget`] sets the [`budget`] limits of the session's runs (a
@@ -93,12 +99,13 @@ pub use eukhe_core::durable::acceptance::{
     acceptance_state, set_acceptance, watch_acceptance_updates, AcceptanceUpdates,
 };
 pub use eukhe_core::durable::budget::{BudgetError, BudgetGate, RunError, RunStart};
+pub use eukhe_core::durable::ran_effects::RunReportSink;
 pub use eukhe_core::durable::{
     create_models, EukheSession, ModelRequest, OpenError, SessionConfig, SessionModels,
     SessionStorage,
 };
 pub use eukhe_durable::harness::effects::{
-    EffectKind, EffectResolution, UnknownEffect, UnknownEffectUpdates,
+    EffectKind, EffectResolution, RanEffect, RanEffectUpdates, UnknownEffect, UnknownEffectUpdates,
 };
 pub use eukhe_durable::harness::{
     AgentEvent, AgentEventBatch, AgentEventStream, Conversation, SnapshotEvent,
@@ -108,6 +115,7 @@ pub use eukhe_types::acceptance::{
 };
 pub use eukhe_types::budget;
 pub use eukhe_types::daemon::BudgetAudit;
+pub use eukhe_types::effects::{ledger_text, run_report_text, RunReport};
 pub use eukhe_types::pi_ai::Model;
 
 use budget::{BudgetAmounts, BudgetReport, PlanNotice, RunKind, RunLimits};
@@ -274,6 +282,36 @@ pub fn watch_unknown_effects(
     Ok(eukhe_durable::harness::effects::watch_unknown_effects(
         session.harness(),
         conversation.id(),
+        cx,
+    )?)
+}
+
+/// The ledger of the irreversible effects that ran in `session` (a root
+/// session's: its subagents' too), by id.
+///
+/// # Errors
+///
+/// The ledger cannot be read (the session closed, `cx` cancelled).
+pub async fn ran_effects(session: &EukheSession, cx: &Context) -> anyhow::Result<Vec<RanEffect>> {
+    Ok(eukhe_durable::harness::effects::read_ran_effects(
+        session.harness(),
+        session.main().id(),
+        cx,
+    )
+    .await?)
+}
+
+/// Follow the ledger of the irreversible effects that ran in `session`:
+/// the current ledger first, then the ledger after every effect recorded.
+/// Dropping the stream stops it.
+///
+/// # Errors
+///
+/// The session's harness cannot attach the watch (closed).
+pub fn watch_ran_effects(session: &EukheSession, cx: &Context) -> anyhow::Result<RanEffectUpdates> {
+    Ok(eukhe_durable::harness::effects::watch_ran_effects(
+        session.harness(),
+        session.main().id(),
         cx,
     )?)
 }

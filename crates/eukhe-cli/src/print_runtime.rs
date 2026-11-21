@@ -515,9 +515,13 @@ async fn run_prompts(
     // The run's disclosure rows (a reported overflow outcome) commit from
     // the compaction observer after the run settles: both modes report them.
     session.deps().observers_settled().await;
+    // Each run's end-of-run report is out of the run service once it read
+    // the run's end.
+    session.deps().runs_settled().await;
     if let Some(events) = events {
         events.finish().await;
     }
+    print_run_reports(&opened.reports.take(), json_mode);
     let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
     let exit = task_exit(opened, &conversation, exit, since, json_mode, cx).await?;
     // "Done" is a claim: with acceptance checks the run exits 0 only when
@@ -550,6 +554,23 @@ async fn run_prompts(
         }
     }
     Ok(i32::try_from(code).unwrap_or(1))
+}
+
+/// The end-of-run reports of the runs (spec I6), after the runs' events:
+/// the text on stderr in both modes, and in json mode each as a
+/// `run_report` event.
+fn print_run_reports(reports: &[eukhe_types::effects::RunReport], json_mode: bool) {
+    for report in reports {
+        if let Some(text) = eukhe_types::effects::run_report_text(report) {
+            eprintln!("{text}");
+        }
+        if json_mode {
+            print_event(&SessionEvent::RunReport {
+                ran: report.ran.clone(),
+                unknown: report.unknown.clone(),
+            });
+        }
+    }
 }
 
 /// The exit of a run whose prompt loop ended as `ended`: gather the facts

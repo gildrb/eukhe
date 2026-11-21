@@ -261,7 +261,7 @@ fn the_editor_allows_one_irreversible_step_and_rejects_the_next() {
                 (json!("mkdir .git"), json!(["write", "protected"])),
                 (json!("echo two >.git/two"), json!(["read", "write", "protected"])),
             ],
-            "$ echo one >one.txt\n$ mkdir .git\n[stopped at step 2 (read+write+protected): `echo two >.git/two` and the steps after it did not run: the editor refused it.]\n"
+            "$ echo one >one.txt\n$ mkdir .git\n[stopped at step 2 (read+write+protected): `echo two >.git/two` and the steps after it did not run: the editor refused it.]\n[irreversible: e1 mkdir .git (write+protected)]"
                 .to_owned(),
             Some("one\n".to_owned()),
             true,
@@ -290,8 +290,7 @@ fn an_unsupported_editor_is_asked_once() {
         (
             (json!("mkdir .git"), json!(["write", "protected"])),
             0,
-            "$ echo one >one.txt\n$ mkdir .git\n$ echo two >.git/two\n$ echo three >.git/three\n"
-                .to_owned(),
+            ran_all(),
             Some("two\n".to_owned()),
             Some("three\n".to_owned()),
         )
@@ -319,10 +318,19 @@ fn an_editor_that_detaches_unanswered_lets_the_step_run() {
         ),
         (
             json!("mkdir .git"),
-            "$ echo one >one.txt\n$ mkdir .git\n$ echo two >.git/two\n$ echo three >.git/three\n"
-                .to_owned(),
+            ran_all(),
             Some("two\n".to_owned()),
             Some("three\n".to_owned()),
         )
     );
+}
+
+/// The result of the script when every step ran: its output, then the
+/// note of each irreversible step.
+fn ran_all() -> String {
+    "$ echo one >one.txt\n$ mkdir .git\n$ echo two >.git/two\n$ echo three >.git/three\n\
+[irreversible: e1 mkdir .git (write+protected)]\n\
+[irreversible: e2 echo two >.git/two (read+write+protected)]\n\
+[irreversible: e3 echo three >.git/three (read+write+protected)]"
+        .to_owned()
 }

@@ -47,8 +47,9 @@ use eukhe_durable::harness::types::{
     ToolExecutionResult, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_shell::{Before, End, Ran, Shell, Sink, Stream};
-use eukhe_types::effects::EffectClass;
+use eukhe_durable::types::ConversationId;
+use eukhe_shell::{End, Ran, Shell, Sink, StepRun, Steps, Stream};
+use eukhe_types::effects::{EffectClass, RanEffect, RanKind};
 use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::platform::kill_point::kill_point;
@@ -58,7 +59,7 @@ use super::bounded_output::BoundedOutput;
 use super::editor_permission::{self, EDITOR_REFUSED};
 use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
-use super::{EditorPermissionSink, HostDeps};
+use super::HostDeps;
 use crate::child_workspace::{ChildWorkspace, TreeStamp};
 use crate::kernel::manager::local_env;
 
@@ -70,14 +71,30 @@ fn names_git(script: &str) -> bool {
         .any(|word| word.rsplit('/').next() == Some("git"))
 }
 
-/// The editor's say on each irreversible step of one `bash` call (spec
-/// I12): each question's id is the call's id and the step.
-struct EditorBefore {
-    sink: Option<EditorPermissionSink>,
+/// What one `bash` call does around each step (spec I4, I12): the
+/// editor's say before an irreversible step (each question's id is the
+/// call's id and the step), and the ledger record of each irreversible
+/// step at its own end, before the next step starts (a crash later in
+/// the script keeps it recorded).
+struct CallSteps {
+    deps: Arc<HostDeps>,
+    conversation: ConversationId,
     call: String,
+    recorded: Mutex<Vec<RanEffect>>,
 }
 
-impl Before for EditorBefore {
+impl CallSteps {
+    /// The effects recorded so far, in step order (what the call's notes
+    /// list).
+    fn recorded(&self) -> Vec<RanEffect> {
+        self.recorded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Steps for CallSteps {
     fn allows(
         &self,
         step: u64,
@@ -85,12 +102,36 @@ impl Before for EditorBefore {
         effects: eukhe_types::shell::ShellEffects,
     ) -> impl Future<Output = bool> + Send {
         editor_permission::allows(
-            self.sink.clone(),
+            self.deps.editor_permission.clone(),
             format!("{}:{step}", self.call),
             Some(self.call.clone()),
             command.to_owned(),
             EffectClass::of_shell(effects),
         )
+    }
+
+    fn ran(&self, ran: &StepRun) -> impl Future<Output = ()> + Send {
+        let classes = EffectClass::of_shell(ran.effects);
+        let draft = eukhe_bend::rules::irreversible::is_irreversible(&classes).then(|| {
+            super::ran_effects::draft(
+                &self.deps,
+                &format!("{}:{}", self.call, ran.step),
+                RanKind::ShellStep,
+                ran.command.clone(),
+                classes,
+            )
+        });
+        async move {
+            if let Some(draft) = draft {
+                let recorded =
+                    super::ran_effects::record_effects(&self.deps, self.conversation, vec![draft])
+                        .await;
+                self.recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend(recorded);
+            }
+        }
     }
 }
 
@@ -249,7 +290,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
 
 #[tracing::instrument(level = "debug", skip_all, fields(task = %api.task_id()))]
 async fn execute(
-    deps: &HostDeps,
+    deps: &Arc<HostDeps>,
     args: PiJsonValue,
     api: Arc<dyn ToolExecutionApi>,
     cx: &Context,
@@ -286,16 +327,22 @@ async fn execute(
     }
     let workspace = cwd.clone();
     let paths = super::path_policy::call_policy(deps, Some(api.conversation_id()), &cwd, cx).await;
+    let call_steps = Arc::new(CallSteps {
+        deps: Arc::clone(deps),
+        conversation: api.conversation_id(),
+        call: api.call_id().to_owned(),
+        recorded: Mutex::new(Vec::new()),
+    });
     let mut running = {
         let env = local_env(&session_env(deps));
-        let (script, transcript) = (script.to_owned(), Arc::clone(&transcript));
-        let before = EditorBefore {
-            sink: deps.editor_permission.clone(),
-            call: api.call_id().to_owned(),
-        };
+        let (script, transcript, call_steps) = (
+            script.to_owned(),
+            Arc::clone(&transcript),
+            Arc::clone(&call_steps),
+        );
         tokio::spawn(async move {
             Shell::new(cwd, env, "bash")
-                .run(&script, &paths, &before, &*transcript)
+                .run(&script, &paths, &*call_steps, &*transcript)
                 .await
         })
     };
@@ -347,6 +394,7 @@ async fn execute(
             let (partial, bounded) = transcript.projection();
             let sink = deps.job_settled.clone();
             let settled_id = id.clone();
+            let call_steps = Arc::clone(&call_steps);
             tokio::spawn(async move {
                 let (status, event) = match running.await {
                     Ok(ran) => {
@@ -362,6 +410,11 @@ async fn execute(
                         (CellStatus::Error, JobEvent::Exited(1))
                     }
                 };
+                // Each irreversible step was recorded at its own end.
+                transcript.push(
+                    &super::ran_effects::tool_notes(&call_steps.recorded()),
+                    true,
+                );
                 if let Some(drift) = before
                     .drift(&TreeStamp::take(&workspace).await)
                     .text("the job")
@@ -383,6 +436,10 @@ async fn execute(
     kill_point(EffectKind::Tool.name(), "ran");
     let refused = matches!(ran.end, End::Refused { .. } | End::Rejected { .. });
     settle(&ran, &transcript);
+    transcript.push(
+        &super::ran_effects::tool_notes(&call_steps.recorded()),
+        true,
+    );
     let (text, bounded) = transcript.projection();
     let steps: Vec<serde_json::Value> = ran
         .steps
