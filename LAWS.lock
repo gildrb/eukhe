@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "5ae6683c58685bdd55439e29d3a214440f5e97a524a8314c62d3d141ce246684",
+      "spec/README.md": "6c427cc7bad34d32f483bdf641df822563634f842f9405041a4e40401e1f92c9",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3774,6 +3774,7 @@
     "laws/theme_pick.bend::theme_pick_example": "b1241d6eba390bab54a3660858486020ac230963966d0d6a30eca61ceb851257",
     "laws/theme_pick.bend::theme_pick_registered": "2f172a31d155b30f8ff52de254e5853a67c40a26e8eec552e1375a0986e0cbb2",
     "laws/theme_pick.bend::theme_prefix_example": "937632bae58d037846d636de9ff46197c2ce11d45703e17fa62bb461b3097da1",
+    "laws/theme_pick.bend::theme_resolve_empty": "77f15c01ddaa20457d1630fd713b3092db3ad35b35821f96d5e87b736cbe2c9a",
     "laws/theme_pick.bend::theme_resolve_first": "815360adcd1201e2f46e335f589132acbc125416f7c3333196388702692d5f73",
     "laws/theme_pick.bend::theme_resolve_missing": "2edd7e4b32518b3d77ae15659c5e0819404d86f58972bfdb03024e2325a372fc",
     "laws/thread.bend::thread_entry_exact": "a1043716f9d40fa634ae970773bf5c48b5a514fd887a71e7ed5abc28dec2b224",

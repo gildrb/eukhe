@@ -144,7 +144,7 @@ Law areas outside the pillars above, with what their laws state. An anchor (`*_e
 - [`slash_args`](../laws/slash_args/) (33): the words of a command and the arguments of `/goal` and `/autonomous` are read by the stated rules (quotes, whitespace, keywords).
 - [`slash_suggest`](../laws/slash_suggest.bend) (10): a mistyped slash command suggests the closest command by edit distance, the first on a tie, within a threshold of the typed length.
 - [`theme_entry`](../laws/theme_entry.bend) (2): the theme entry refuses every input that is not a request Rust spells.
-- [`theme_pick`](../laws/theme_pick.bend) (16): a theme name picks the registered, built-in, custom or default theme in the stated order (eukhe, the default theme's old name, picks forge), naming a broken theme once.
+- [`theme_pick`](../laws/theme_pick.bend) (17): a theme name picks the registered, built-in, custom or default theme in the stated order (the empty name the default quietly; eukhe, the default theme's old name, picks forge), naming a broken theme once.
 - [`tui_color`](../laws/tui_color.bend) (30): the effort ramp's colors are ordered and distinct for any ladder length; usage bands ascend.
 
 ### Compiled-core boundary

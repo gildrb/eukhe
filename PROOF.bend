@@ -990,6 +990,7 @@ import ./proof/theme/theme_status_sound.bend as PThemeStatusSound
 import ./proof/theme_pick/base.bend as LAThemePick
 import ./proof/theme_pick/theme_resolve_first.bend as PThemeResolveFirst
 import ./proof/theme_pick/theme_resolve_missing.bend as PThemeResolveMissing
+import ./proof/theme_pick/theme_resolve_empty.bend as PThemeResolveEmpty
 import ./proof/theme_pick/theme_hit_found.bend as PThemeHitFound
 import ./proof/theme_pick/theme_hit_witness.bend as PThemeHitWitness
 import ./proof/theme_pick/theme_pick_registered.bend as PThemePickRegistered
