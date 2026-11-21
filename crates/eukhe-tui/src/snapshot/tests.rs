@@ -630,6 +630,33 @@ fn decodes_the_user_bash_event_triple() {
     );
 }
 
+/// A root run's `run_report` becomes the end-of-run message's text (the
+/// words every surface shows); a report with nothing in it shows nothing.
+#[test]
+fn decodes_run_report_as_the_end_of_run_message() {
+    let ran = json!([{
+        "id": "e1", "key": "k1", "run": 1, "kind": "shellStep",
+        "command": "git push origin main", "classes": ["net"],
+        "sessionId": "s1", "atMs": 1,
+    }]);
+    assert_eq!(
+        [
+            event_to_update(&event(
+                json!({ "type": "run_report", "ran": ran, "unknown": [] })
+            )),
+            event_to_update(&event(
+                json!({ "type": "run_report", "ran": [], "unknown": [] })
+            )),
+        ],
+        [
+            TurnUpdate::RunReport(
+                "Irreversible effects ran this run:\n- e1 git push origin main (net)".to_string()
+            ),
+            TurnUpdate::StatusUpdate,
+        ]
+    );
+}
+
 #[test]
 fn decodes_session_action_update_as_the_queue_projection() {
     let update = event_to_update(&event(json!({

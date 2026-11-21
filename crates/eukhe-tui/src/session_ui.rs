@@ -16,6 +16,7 @@ mod dictation;
 mod effects;
 mod factory;
 mod heartbeats;
+mod irreversible;
 mod keys;
 mod lifecycle;
 mod memory;
