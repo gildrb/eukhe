@@ -34,6 +34,10 @@ The agent cannot set, change, skip or remove a check. A check that finds less th
 
 Each step reserves its maximum cost before it starts. The report gives the work done, the work not done and the limit that stopped it.
 
+## Models
+
+When a model cannot continue because its retries are used up, its login expired or its usage limit is reached, the run continues with another model that the user configured and is logged in to. Eukhe shows each change. When no model is left and the provider reports when its usage limit resets, the run waits for the reset; a script run stops at its wait limit and leaves the session waiting. Any other failure ends the run with its report.
+
 ## Crash recovery
 
 <p align="center"><img src="media/sort-crash.gif" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
