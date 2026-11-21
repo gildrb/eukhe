@@ -4,26 +4,28 @@ import Base
 import ../bend/verify.bend as V
 import ../bend/autonomous.bend as Au
 import ../bend/ffi_autonomous.bend as FAu
+import ../bend/work_left.bend as Wl
 import ../bend/wire.bend as Wr
 import ./base.bend as LawsBase
 import ../spec/autonomous/autonomous.bend as SpA
 
-# (AU2-AU6) An autonomous run goes on until its checks or its budget end it
+# (AU2-AU7) An autonomous run goes on until its checks or its budget end it
 # --------------------------------------------------------------------------
 # bend/autonomous.bend, run as the compiled core by
 # bend/ffi_autonomous.bend (eukhe-bend rules/autonomous.rs; asked by
 # eukhe-core durable/goals at each final answer with whether the run is
-# autonomous, how the answer ended, the checks' outcome at that answer and
-# whether the run's budget admits work). spec/autonomous/autonomous.bend
-# states the rule in words (A1-A5) and its wire (W1-W3). Every input is
-# free: any facts, any label, any string.
+# autonomous, how the answer ended, the checks' outcome at that answer,
+# whether the run's budget admits work and the final-answer judge's
+# reading of the answer). spec/autonomous/autonomous.bend states the rule
+# in words (A1-A6) and its wire (W1-W3). Every input is free: any facts,
+# any label, any reading, any string.
 #
 # R1: the run is continued with its prompt exactly when it is autonomous,
 #     its answer settled, it has no check and the budget admits work.
 # R2: the checks' return holds the run exactly when it is autonomous, its
 #     answer settled, the claim went back and the budget admits work.
 # R3: an ended claim stops an autonomous run with the claim's label,
-#     whatever the budget.
+#     whatever the budget, unless R7 lets the run go on.
 # R4: a budget that admits no work stops an autonomous run whose answer
 #     settled and whose claim did not end.
 # R5: the run gets nothing exactly when it is not autonomous or its answer
@@ -33,6 +35,10 @@ import ../spec/autonomous/autonomous.bend as SpA
 #     request with anything but the error form, and answers any input
 #     that is not exactly one request with exactly
 #     `E autonomous: malformed request`.
+# R7: a claim that ended passing (verified, checks passed) while the
+#     budget admits work: the core asks for the final-answer judge's
+#     reading exactly when it is not read yet, and the run goes on with
+#     the work left exactly when the judge read work left.
 #
 # Not pinned here (Rust, so the gate is tests): AU1, that turning a run on
 # gives it the intent check when it has none and that each command of the
@@ -47,8 +53,8 @@ import ../spec/autonomous/autonomous.bend as SpA
 # the_removed_max_turns_is_the_runs_request_limit,
 # an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it).
 
-# Laws: the step (R1-R5)
-# ----------------------
+# Laws: the step (R1-R5, R7)
+# --------------------------
 
 # LAW autonomous_continues_iff (R1): the run is continued with its prompt
 # exactly when it is autonomous, its answer settled, it has no check and
@@ -82,32 +88,68 @@ law autonomous_off_iff:
 
 # LAW autonomous_claim_end_stops (R3): a claim that ended stops an
 # autonomous run whose answer settled, with the claim's label, whatever
-# the budget
-# EXCLUDES: a run continued after its checks ended the claim (the old
-#   gate loop's extra turns), another label reported, a budget stop
-#   hiding the checks' verdict
+# the budget, unless R7 lets the run go on (SpA.claim_goes_on: a passing
+# claim, the budget admitting work, the reading missing or stating work
+# left). Changed by the owner's decision of 2026-11-21 (a passing check
+# does not end a run whose final answer states work left): the old form,
+# every ended claim stops whatever the reading, is withdrawn.
+# EXCLUDES: a run continued after its checks ended the claim with no work
+#   left (the old gate loop's extra turns), a failed or unverified claim
+#   continued, another label reported, a budget stop hiding the checks'
+#   verdict, an answer with no verdict read as work left
 law autonomous_claim_end_stops:
   for l: V.Label
   for b: Au.Budget
-  {Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{l}, b}) == Au.Stop{Au.ByChecks{l}} : Au.Step}
+  for r: Wl.Reading
+  for h: {SpA.claim_goes_on(Au.Facts{True{}, Au.Settled{}, Au.Ended{l}, b, r}) == False{} : Bool}
+  {Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{l}, b, r}) == Au.Stop{Au.ByChecks{l}} : Au.Step}
+
+# LAW autonomous_asks_iff (R7): the core asks for the final-answer judge's
+# reading exactly when the run is autonomous, its answer settled, its
+# claim ended passing, the budget admits work and the answer is not read
+# yet (SpA.asks)
+# EXCLUDES: a passing claim that ends the run unread (the work-left rule
+#   skipped for an autonomous run), a judge request for a failed or
+#   unverified claim, a run without checks, a returned claim or a run past
+#   its budget; a second request once a reading is given
+law autonomous_asks_iff:
+  for +f: Au.Facts
+  {SpA.is_ask(Au.decide(f)) == SpA.asks(f) : Bool}
+
+# LAW autonomous_finishes_iff (R7): the run goes on with the work its
+# answer left exactly when it is autonomous, its answer settled, its claim
+# ended passing, the budget admits work and the judge read work left
+# (SpA.finishes)
+# EXCLUDES: a passing check that ends a run whose answer states work left,
+#   a run going on past its budget, a failed or unverified claim continued
+#   past the checks' return cap, an answer read as done or with no verdict
+#   continued
+law autonomous_finishes_iff:
+  for +f: Au.Facts
+  {SpA.is_finish(Au.decide(f)) == SpA.finishes(f) : Bool}
 
 # LAW autonomous_short_stops (R4): a budget that admits no work stops an
-# autonomous run whose answer settled and whose claim did not end
+# autonomous run whose answer settled and whose claim did not end,
+# whatever the reading
 # EXCLUDES: a run continued or held past its limits, a budget stop read
 #   as a checks' verdict
 law autonomous_short_stops:
   for +c: Au.Checks
+  for r: Wl.Reading
   for h: {SpA.ended(c) == False{} : Bool}
-  {Au.decide(Au.Facts{True{}, Au.Settled{}, c, Au.Short{}}) == Au.Stop{Au.ByBudget{}} : Au.Step}
+  {Au.decide(Au.Facts{True{}, Au.Settled{}, c, Au.Short{}, r}) == Au.Stop{Au.ByBudget{}} : Au.Step}
 
-# LAW autonomous_example (R1-R5): anchor: an autonomous run without checks
-# continues; a returned claim holds; a claim ended failed stops failed,
-# one ended passed with the budget short stops passed; a budget short
-# without checks stops by the budget; a broken answer and a run not
-# autonomous get nothing
-# EXCLUDES: a step other than A1-A4 give for these facts
+# LAW autonomous_example (R1-R5, R7): anchor: an autonomous run without
+# checks continues, whatever the reading; a returned claim holds; a claim
+# ended failed stops failed though the answer states work left; one ended
+# passed with the budget short stops passed though the answer states work
+# left; a budget short without checks stops by the budget; a broken answer
+# and a run not autonomous get nothing; a claim ended passed, unread, asks
+# for the reading; one ended verified, read as work left, finishes; one
+# ended passed, read as done or with no verdict, stops passed
+# EXCLUDES: a step other than A1-A4 and A6 give for these facts
 law autonomous_example:
-  {[Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Unchecked{}, Au.Working{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Returned{}, Au.Working{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Failed{}}, Au.Working{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Short{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Unchecked{}, Au.Short{}}), Au.decide(Au.Facts{True{}, Au.Broken{}, Au.Unchecked{}, Au.Working{}}), Au.decide(Au.Facts{False{}, Au.Settled{}, Au.Unchecked{}, Au.Working{}})] == [Au.Continue{}, Au.Hold{}, Au.Stop{Au.ByChecks{V.Failed{}}}, Au.Stop{Au.ByChecks{V.Passed{}}}, Au.Stop{Au.ByBudget{}}, Au.Off{}, Au.Off{}] : List<&2, Au.Step>}
+  {[Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Unchecked{}, Au.Working{}, Wl.Left{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Returned{}, Au.Working{}, Wl.Unread{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Failed{}}, Au.Working{}, Wl.Left{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Short{}, Wl.Left{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Unchecked{}, Au.Short{}, Wl.Unread{}}), Au.decide(Au.Facts{True{}, Au.Broken{}, Au.Unchecked{}, Au.Working{}, Wl.Unread{}}), Au.decide(Au.Facts{False{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Working{}, Wl.Left{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Working{}, Wl.Unread{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Verified{}}, Au.Working{}, Wl.Left{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Working{}, Wl.Finished{}}), Au.decide(Au.Facts{True{}, Au.Settled{}, Au.Ended{V.Passed{}}, Au.Working{}, Wl.Unjudged{}})] == [Au.Continue{}, Au.Hold{}, Au.Stop{Au.ByChecks{V.Failed{}}}, Au.Stop{Au.ByChecks{V.Passed{}}}, Au.Stop{Au.ByBudget{}}, Au.Off{}, Au.Off{}, Au.Ask{}, Au.Finish{}, Au.Stop{Au.ByChecks{V.Passed{}}}, Au.Stop{Au.ByChecks{V.Passed{}}}] : List<&2, Au.Step>}
 
 # Laws: the entry (R6)
 # --------------------
@@ -124,8 +166,8 @@ law autonomous_entry_answers:
 # does not answer with the error form is exactly one spelled request (W1),
 # with nothing before or after it
 # EXCLUDES: a step answered for input that is no request (an unknown
-#   answer, checks, label or budget tag, a malformed Bool, a short request,
-#   input left over, a lenient field reader)
+#   answer, checks, label, budget or reading tag, a malformed Bool, a
+#   short request, input left over, a lenient field reader)
 law autonomous_entry_reads_only_requests:
   for +s: String
   for ok: {LawsBase.wire_opens_err(FAu.ffi(s)) == False{} : Bool}
@@ -151,9 +193,11 @@ law autonomous_entry_left_over:
 
 # LAW autonomous_entry_example (R6): anchor: the strings Rust sends and the
 # replies it reads: a run without checks, a returned claim, a claim ended
-# passed, a budget short, a broken answer, a run not autonomous; an
-# unknown answer, checks, label and budget tag, a malformed Bool, a short
-# request, input left over
+# passed with the budget short, a budget short, a broken answer, a run not
+# autonomous, a claim ended passed unread (ask), one ended verified read
+# as work left (finish), one ended passed read as done, one ended failed
+# read as work left; an unknown answer, checks, label, budget and reading
+# tag, a malformed Bool, a short request (no reading), input left over
 # EXCLUDES: another spelling of a request or a reply
 law autonomous_entry_example:
-  {[FAu.ffi("T0,0,0,"), FAu.ffi("T0,1,0,"), FAu.ffi("T0,2,3,1,"), FAu.ffi("T0,0,1,"), FAu.ffi("T1,0,0,"), FAu.ffi("F0,0,0,"), FAu.ffi("T2,0,0,"), FAu.ffi("T0,3,0,"), FAu.ffi("T0,2,4,0,"), FAu.ffi("T0,0,2,"), FAu.ffi("X0,0,0,"), FAu.ffi("T0,0,"), FAu.ffi("T0,0,0,x")] == ["2,", "1,", "3,0,3,", "3,1,", "0,", "0,", Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request")] : List<&2, String>}
+  {[FAu.ffi("T0,0,0,0,"), FAu.ffi("T0,1,0,2,"), FAu.ffi("T0,2,3,1,2,"), FAu.ffi("T0,0,1,0,"), FAu.ffi("T1,0,0,0,"), FAu.ffi("F0,0,0,0,"), FAu.ffi("T0,2,3,0,0,"), FAu.ffi("T0,2,0,0,2,"), FAu.ffi("T0,2,3,0,1,"), FAu.ffi("T0,2,1,0,2,"), FAu.ffi("T2,0,0,0,"), FAu.ffi("T0,3,0,0,"), FAu.ffi("T0,2,4,0,0,"), FAu.ffi("T0,0,2,0,"), FAu.ffi("T0,0,0,4,"), FAu.ffi("X0,0,0,0,"), FAu.ffi("T0,0,0,"), FAu.ffi("T0,0,0,0,x")] == ["2,", "1,", "3,0,3,", "3,1,", "0,", "0,", "4,", "5,", "3,0,3,", "3,0,1,", Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request"), Wr.err("autonomous: malformed request")] : List<&2, String>}

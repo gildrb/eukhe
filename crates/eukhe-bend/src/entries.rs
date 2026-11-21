@@ -274,8 +274,14 @@ pub enum Entry {
     HeadlessTask = 464,
     /// `bend/ffi_strength.bend`: a call.
     Strength = 465,
+    /// `bend/ffi_attack.bend`: a call.
+    Attack = 466,
+    /// `bend/ffi_restart_turn.bend`: a call.
+    RestartTurn = 468,
     /// `bend/ffi_work_left.bend`: a call.
     WorkLeft = 470,
+    /// `bend/ffi_gateway_report.bend`: a call.
+    GatewayReport = 471,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
     /// `bend/ffi_autonomous.bend`: a call.
@@ -419,7 +425,10 @@ impl Entry {
         Entry::WorkList,
         Entry::HeadlessTask,
         Entry::Strength,
+        Entry::Attack,
+        Entry::RestartTurn,
         Entry::WorkLeft,
+        Entry::GatewayReport,
         Entry::Fallback,
         Entry::Autonomous,
     ];

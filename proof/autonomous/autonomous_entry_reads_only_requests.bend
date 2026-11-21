@@ -10,16 +10,18 @@ import Base
 import ../../bend/verify.bend as V
 import ../../bend/autonomous.bend as Au
 import ../../bend/ffi_autonomous.bend as FAu
+import ../../bend/work_left.bend as Wl
 import ../../bend/wire.bend as Wr
 import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../../laws/autonomous.bend as Autonomous
 import ../../spec/autonomous/autonomous.bend as SpA
+import ../../spec/agents/work_left.bend as SpL
 import ../base/staging.bend as LStg
 import ../wire/wire_nat_exact.bend as PWireNatExact
 import ../wire/wire_bool_exact.bend as PWireBoolExact
 
-# The answer, the label, the checks, the budget
+# The answer, the label, the checks, the budget, the reading
 # ---------------------------------------------
 
 def auo.AT(s: String, x: Wr.Dec<Au.Answer>) -> Type:
@@ -131,6 +133,34 @@ def auo.budget(+s: String, x: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == x : Wr.Dec<Nat>
     case Wr.Bad{}:
       Unit{}
 
+def auo.RdT(s: String, x: Wr.Dec<Wl.Reading>) -> Type:
+  match x:
+    case Wr.Got{r, rr}:
+      {s == SpL.w_reading(r, rr) : String}
+    case Wr.Bad{}:
+      Unit
+
+def auo.reading_tag(-s: String, t: Nat, -s1: String, e: {s == Wr.put_nat(t, s1) : String}) -> auo.RdT(s, FAu.get_reading(Wr.Got{t, s1})):
+  match t:
+    case 0n:
+      e
+    case 1n:
+      e
+    case 2n:
+      e
+    case 3n:
+      e
+    case 4n+u:
+      Unit{}
+
+def auo.reading(+s: String, x: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == x : Wr.Dec<Nat>}) -> auo.RdT(s, FAu.get_reading(x)):
+  match x:
+    case Wr.Got{+t, +s1}:
+      +e = ed
+      auo.reading_tag(s, t, s1, Wire.wire_nat_exact(s, t, s1, e))
+    case Wr.Bad{}:
+      Unit{}
+
 # The request
 # -----------
 
@@ -141,10 +171,18 @@ def auo.RP(s: String, x: Wr.Dec<Au.Facts>) -> Type:
     case Wr.Bad{}:
       Unit
 
+def auo.after_reading(-s: String, +on: Bool, +a: Au.Answer, +c: Au.Checks, +b: Au.Budget, +s4: String, pre: {s == Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, s4)))) : String}, x: Wr.Dec<Wl.Reading>, rt: auo.RdT(s4, x)) -> auo.RP(s, FAu.get_facts.reading(on, a, c, b, x)):
+  match x:
+    case Wr.Got{+r, +s5}:
+      Equal.trans(String, s, Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, s4)))), Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, SpL.w_reading(r, s5))))), pre, Equal.cong(String, String, z => Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, z)))), s4, SpL.w_reading(r, s5), rt))
+    case Wr.Bad{}:
+      Unit{}
+
 def auo.after_budget(-s: String, +on: Bool, +a: Au.Answer, +c: Au.Checks, +s3: String, pre: {s == Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, s3))) : String}, x: Wr.Dec<Au.Budget>, bt: auo.BT(s3, x)) -> auo.RP(s, FAu.get_facts.budget(on, a, c, x)):
   match x:
     case Wr.Got{+b, +s4}:
-      Equal.trans(String, s, Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, s3))), Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, s4)))), pre, Equal.cong(String, String, z => Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, z))), s3, SpA.w_budget(b, s4), bt))
+      +pre2 = Equal.trans(String, s, Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, s3))), Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, SpA.w_budget(b, s4)))), pre, Equal.cong(String, String, z => Wr.put_bool(on, SpA.w_answer(a, SpA.w_checks(c, z))), s3, SpA.w_budget(b, s4), bt))
+      auo.after_reading(s, on, a, c, b, s4, pre2, FAu.get_reading(Wr.get_nat(s4)), auo.reading(s4, Wr.get_nat(s4), {==}))
     case Wr.Bad{}:
       Unit{}
 

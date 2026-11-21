@@ -195,12 +195,8 @@ impl WorkLeftHost {
         let gathered = self.gather(api, &conversation, &state, input, cx).await?;
         let (step, items) = match expect_core(Entry::WorkLeft, work_left::step(gathered.facts)) {
             Step::Ask => {
-                let (reading, items) = match answer_text(answer) {
-                    Some(text) => reading_of(
-                        read_final_answer(&*self.judge, conversation_id, &text, cx).await,
-                    ),
-                    None => (Reading::Unjudged, Vec::new()),
-                };
+                let (reading, items) =
+                    judge_answer(&*self.judge, conversation_id, answer, cx).await;
                 let facts = Facts {
                     reading,
                     ..gathered.facts
@@ -223,9 +219,10 @@ impl WorkLeftHost {
                                 left,
                                 end: None,
                             });
-                            tx.append_entry(conversation_id, notice(&items)?).await?;
+                            tx.append_entry(conversation_id, left_notice(&items)?)
+                                .await?;
                             WorkLeftOutcome::Continue {
-                                text: continuation(&items),
+                                text: left_continuation(&items),
                             }
                         }
                         // A reading is given: the core asks no more
@@ -314,6 +311,22 @@ fn recorded(state: &DirectorState, task_id: TaskId) -> Option<&WorkLeftRecord> {
         .filter(|record| record.task_id == task_id)
 }
 
+/// The final-answer judge's reading of `answer`, the final answer of
+/// `conversation_id` (`acceptance::read_final_answer`: one request, no
+/// tools, the answer alone), with the items it listed as left. An answer
+/// with no text has no verdict.
+pub(crate) async fn judge_answer(
+    judge: &dyn Judge,
+    conversation_id: ConversationId,
+    answer: &AssistantMessage,
+    cx: &Context,
+) -> (Reading, Vec<String>) {
+    match answer_text(answer) {
+        Some(text) => reading_of(read_final_answer(judge, conversation_id, &text, cx).await),
+        None => (Reading::Unjudged, Vec::new()),
+    }
+}
+
 /// The text of a final answer, when it has any.
 fn answer_text(answer: &AssistantMessage) -> Option<String> {
     let text = answer
@@ -338,8 +351,9 @@ fn reading_of(reading: AnswerReading) -> (Reading, Vec<String>) {
 }
 
 /// The harness continuation of an answer that left the work `items`
-/// undone (the judge's words; none when it listed none).
-fn continuation(items: &[String]) -> String {
+/// undone (the judge's words; none when it listed none): the work-left
+/// Director's, and an autonomous run's whose passing claim left work.
+pub(crate) fn left_continuation(items: &[String]) -> String {
     let left = if items.is_empty() {
         "[director: work left] The final answer leaves task work undone.".to_owned()
     } else {
@@ -356,7 +370,7 @@ fn continuation(items: &[String]) -> String {
 
 /// The display row that tells the user the run went on (the model does not
 /// see it).
-fn notice(items: &[String]) -> SessionResult<eukhe_durable::types::EntryDraft> {
+pub(crate) fn left_notice(items: &[String]) -> SessionResult<eukhe_durable::types::EntryDraft> {
     let text = if items.is_empty() {
         "The final answer left task work undone; the run went on.".to_owned()
     } else {

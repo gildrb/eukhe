@@ -7,6 +7,7 @@ import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
+import ./ffi_attack.bend as ffi_attack
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
 import ./ffi_autonomous.bend as ffi_autonomous
@@ -55,6 +56,7 @@ import ./ffi_fsmode.bend as ffi_fsmode
 import ./ffi_gateway_answer.bend as ffi_gateway_answer
 import ./ffi_gateway_backoff.bend as ffi_gateway_backoff
 import ./ffi_gateway_commands.bend as ffi_gateway_commands
+import ./ffi_gateway_report.bend as ffi_gateway_report
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
 import ./ffi_goal_text.bend as ffi_goal_text
@@ -93,6 +95,7 @@ import ./ffi_rebase.bend as ffi_rebase
 import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
+import ./ffi_restart_turn.bend as ffi_restart_turn
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -390,8 +393,14 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_task.ffi(input)
     case 465:
       ffi_strength.ffi(input)
+    case 466:
+      ffi_attack.ffi(input)
+    case 468:
+      ffi_restart_turn.ffi(input)
     case 470:
       ffi_work_left.ffi(input)
+    case 471:
+      ffi_gateway_report.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case 473:
