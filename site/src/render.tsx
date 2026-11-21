@@ -153,6 +153,8 @@ const globalCss = [
   `.thumb{background:${colors.tertiary}}`,
   // Visual mode's selection (Neovim's Visual group).
   `.vis{background:color-mix(in oklch,${colors.primary} 22%,transparent)}`,
+  // What a yank took, for 150 ms (Neovim's vim.hl.on_yank with IncSearch).
+  `.yank{background:${colors.primary};color:${colors.bg}}`,
   // A character two cells wide (fff's prompt goose): drawn in a box of exactly two cells.
   `.w2{display:inline-block;width:calc(2 * var(--cw));overflow:hidden;vertical-align:top}`,
 ].join("");

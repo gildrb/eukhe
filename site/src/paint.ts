@@ -5,7 +5,7 @@
  * the one the browser would paint, on any screen.
  */
 import type { EditorFile } from "./markdown.tsx";
-import type { BendList, Frame, Mark } from "./vim.mjs";
+import type { BendList, Frame, Mark, Span } from "./vim.mjs";
 
 export function list<T>(items: BendList<T>): T[] {
   const out: T[] = [];
@@ -152,6 +152,7 @@ export function textRows(
   file: EditorFile | undefined,
   dir: readonly string[],
   h: number,
+  flash: readonly Span[] = [],
 ): { htmls: string[]; copyAt: CopyAt[] } {
   const hits = list(frame.hits);
   const sel = list(frame.sel);
@@ -191,7 +192,11 @@ export function textRows(
     }
     const mine = hits.filter((hit) => hit.row === r);
     const picked = sel.filter((span) => span.row === r);
-    const hitEnd = Math.max(0, ...[...mine, ...picked].map((hit) => hit.col - g + hit.len));
+    const flashed = flash.filter((span) => span.row === r);
+    const hitEnd = Math.max(
+      0,
+      ...[...mine, ...picked, ...flashed].map((hit) => hit.col - g + hit.len),
+    );
     if (hitEnd > row.chars.length) {
       const wider = blankRow(hitEnd);
       row.chars.forEach((ch, c) => {
@@ -202,6 +207,7 @@ export function textRows(
     }
     for (const hit of mine) addClass(row, hit.col - g, hit.col - g + hit.len, "hit");
     for (const span of picked) addClass(row, span.col - g, span.col - g + span.len, "vis");
+    for (const span of flashed) addClass(row, span.col - g, span.col - g + span.len, "yank");
     htmls.push(rowHtml(row));
   }
   return { htmls, copyAt };

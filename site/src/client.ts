@@ -8,7 +8,7 @@
 import type { EditorFile, Run } from "./markdown.tsx";
 import { type CopyAt, cells, floatRows, gutterRows, list, statusParts, textRows } from "./paint.ts";
 import { desktop, imagesHtml, pageFile, textWidth } from "./rendered.ts";
-import Vim, { type BendList, type Buf, type Ev, type Frame, type St } from "./vim.mjs";
+import Vim, { type BendList, type Buf, type Ev, type Frame, type Span, type St } from "./vim.mjs";
 
 /** A touch screen (a phone): no keyboard, a smaller font, the finger scrolls. */
 const touch = window.matchMedia("(pointer: coarse)").matches;
@@ -234,7 +234,13 @@ function paint(frame: Frame) {
   const { rows } = size();
   const tgt = frame.tgt;
   const dir = tgt.$ === "Dir" && state !== null ? list(Vim["Vim.lines"](state)) : [];
-  const painted = textRows(frame, tgt.$ === "File" ? files[tgt.i] : undefined, dir, rows - 2);
+  const painted = textRows(
+    frame,
+    tgt.$ === "File" ? files[tgt.i] : undefined,
+    dir,
+    rows - 2,
+    flash,
+  );
   copyAt = painted.copyAt;
   setVar("--g", frame.gutter);
   show(gutter, gutterRows(frame));
@@ -266,6 +272,35 @@ function paint(frame: Frame) {
 }
 
 /** Events in a row, painted once (a finger's scroll sends many). */
+/**
+ * What a yank took flashes once, as Neovim's `vim.hl.on_yank` (IncSearch, 150 ms): the selection
+ * the frame before it showed, or for yy and Y the cursor's line and the lines after it the copy
+ * holds.
+ */
+let flash: Span[] = [];
+let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+function yanked(before: Frame | null, copied: string) {
+  if (before === null) return;
+  const { cols } = size();
+  const sel = list(before.sel);
+  const lines = Math.max(1, copied.split("\n").length - 1);
+  flash =
+    sel.length > 0
+      ? sel
+      : Array.from({ length: lines }, (_, k): Span => ({
+          $: "Span",
+          row: before.cur.row + k,
+          col: before.gutter,
+          len: cols - before.gutter,
+        }));
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    flash = [];
+    if (shown !== null) paint(shown);
+  }, 150);
+}
+
 function steps(events: readonly Ev[]) {
   if (state === null || events.length === 0) return;
   for (const event of events) state = Vim["Vim.step"](state, event).st;
@@ -280,6 +315,7 @@ function counted(n: number, keys: readonly string[]): Ev[] {
 
 function step(event: Ev) {
   if (state === null) return;
+  const before = shown;
   const next = Vim["Vim.step"](state, event);
   state = next.st;
   const act = next.act;
@@ -291,6 +327,7 @@ function step(event: Ev) {
       break;
     case "CopyText":
       void navigator.clipboard.writeText(act.text);
+      yanked(before, act.text);
       break;
     default: {
       const _: never = act;
