@@ -32,7 +32,9 @@ fn every_loader_file_and_the_session_record_are_own() {
         &cwd,
     );
     let own = |file: &Path| {
-        eukhe_shell::paths::own_write(&policy, &resolve(file)).map(|written| written.kind)
+        let real = resolve(file);
+        let judged = eukhe_shell::paths::judge(&policy, &real).class;
+        eukhe_shell::paths::own_write(&policy, &real, judged).map(|written| written.kind)
     };
     let mut files: Vec<(PathBuf, Option<OwnKind>)> = settings
         .watched()
