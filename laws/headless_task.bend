@@ -113,21 +113,15 @@ law headless_task_asks_exits_three:
   for h: {SpT.asks(f) == True{} : Bool}
   {Ht.decide(f) == Ht.Verdict{3n, Ht.Ask{}} : Ht.Verdict}
 
-# LAW headless_task_unacted_stands (R6): a run that did not act exits as
-# headless_exit decided, whatever the reading: a question answered is
-# never judged
-# EXCLUDES: plain use taxed or broken by the judge (a judge request, a
-#   reading that turns a plain answer into exit 1 or 3)
-law headless_task_unacted_stands:
-  for +f: Ht.Facts
-  for u: {SpT.unacted(f) == True{} : Bool}
-  {Ht.decide(f) == Ht.Verdict{Hx.code(SpT.cause_of(f)), Ht.Stands{}} : Ht.Verdict}
-
-# LAW headless_task_exit_stands (R2): every other run exits as
-# headless_exit decided: the code of its cause, the task standing
+# LAW headless_task_exit_stands (R2, R6): every other run exits as
+# headless_exit decided: the code of its cause, the task standing; a run
+# that did not act among them (SpT.unacted: never unfinished, unjudged or
+# asking), whatever the reading
 # EXCLUDES: a failure turned into exit 0 by a done answer, a done answer
 #   read as a failure, a budget-limited run turned into a failure, a
-#   question answered turned into a failure
+#   question answered turned into a failure, plain use taxed or broken by
+#   the judge (a judge request, a reading that turns a plain answer into
+#   exit 1 or 3)
 law headless_task_exit_stands:
   for +f: Ht.Facts
   for h: {SpT.unfinished(f) == False{} : Bool}
