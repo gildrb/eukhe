@@ -141,7 +141,8 @@ const globalCss = [
   // The README's images: in the page under their figure; in the editor in rows of their own.
   `main img{display:block;margin:0 auto;max-width:100%;height:auto}`,
   `[data-images]{position:absolute;top:var(--oy);left:calc(var(--ox) + var(--g) * var(--cw));right:0;height:calc(var(--H) - 2 * var(--lh));overflow:hidden;pointer-events:none}`,
-  `[data-images]>img{position:absolute;height:auto}`,
+  `[data-images]>a{position:absolute;display:block;pointer-events:auto}`,
+  `[data-images] img{display:block;width:100%;height:auto}`,
   `.bold{font-weight:${type.bold};color:${colors.primary}}`,
   `.italic{font-style:italic}`,
   `.code{color:${colors.primary}}`,

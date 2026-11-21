@@ -15,7 +15,7 @@ export type Placement = { line: number; rows: number; src: string; alt: string; 
 /** The rendered buffer: its lines, each line's highlights, its code blocks' `[copy]`, its images. */
 export type Rendered = { lines: string[]; runs: Run[][]; copies: Copy[]; images: Placement[] };
 
-/** Where Eukhe's source lives: the title's line and the page's last line link to it. */
+/** Where Eukhe's source lives: a line under the title and the page's last line link to it; so does each image. */
 export const repository = "https://github.com/gildrb/eukhe";
 
 /** The widest the text runs, in cells ('textwidth'). */
@@ -249,17 +249,7 @@ export function render(
     if (heading?.[2] !== undefined) {
       const text = heading[2];
       const n = Array.from(text).length;
-      const own: Run[] = [{ from: 0, to: n, hl: "heading" }];
-      if (lines.length > 0 || heading[1] !== "#") {
-        add({ text, runs: own });
-        continue;
-      }
-      // The page's title, the source's address at the right end of its line: a reader who does
-      // not want the page finds the code at once.
-      const label = repository.replace(/^https:\/\//, "");
-      const at = Math.max(n + 2, w - Array.from(label).length);
-      own.push({ from: at, to: at + Array.from(label).length, hl: "link", href: repository });
-      add({ text: text + " ".repeat(at - n) + label, runs: own });
+      add({ text, runs: [{ from: 0, to: n, hl: "heading" }] });
       continue;
     }
     if (line.startsWith("> ")) {
@@ -348,7 +338,7 @@ export function imagesHtml(
     .map((img) => {
       const width = `min(${img.width}px,${w} * var(--cw))`;
       const style = `top:calc(${img.line - top} * var(--lh));left:calc((${w} * var(--cw) - ${width}) / 2 - ${left} * var(--cw));width:${width}`;
-      return `<img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" loading="lazy" style="${style}">`;
+      return `<a href="${repository}" style="${style}"><img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" loading="lazy"></a>`;
     })
     .join("");
 }

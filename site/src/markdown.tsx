@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 import { greekLine } from "./paint.ts";
-import type { Placement, Sizes } from "./rendered.ts";
+import { type Placement, repository, type Sizes } from "./rendered.ts";
 import { install } from "./source.ts";
 import { colors, type } from "./tokens.stylex.ts";
 
@@ -241,14 +241,17 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         return <span {...stylex.props(styles.row)}> </span>;
       case "Para": {
         // The README's own HTML (a centred image and its caption), rendered: the README is this
-        // repository's, read at build time; its relative image paths are the site's.
+        // repository's, read at build time; its relative image paths are the site's, and each image
+        // links the source.
         const html = /^<p\b[^>]*>(.*)<\/p>$/.exec(block.text)?.[1];
         if (html !== undefined)
           return (
             <span
               {...stylex.props(styles.row, styles.figure)}
               dangerouslySetInnerHTML={{
-                __html: html.replaceAll(/\bsrc="(?![a-z]+:|\/)/g, 'src="/'),
+                __html: html
+                  .replaceAll(/\bsrc="(?![a-z]+:|\/)/g, 'src="/')
+                  .replaceAll(/<img\b[^>]*>/g, (img) => `<a href="${repository}">${img}</a>`),
               }}
             />
           );

@@ -1,5 +1,8 @@
 import { epigraphs, titleEpigraph } from "./epigraphs.ts";
 import { repository } from "./rendered.ts";
+
+/** The source's line: under the title and at the page's end. */
+const sourceLine = `Source: [${repository}](${repository})`;
 // The repository's own README (the site lives in site/ of Eukhe's repository).
 import readme from "../../README.md?raw";
 
@@ -43,7 +46,10 @@ function withEpigraphs(markdown: string): string {
   );
   return lines
     .flatMap((line, index) => {
-      const quote = index === title ? titleEpigraph : placed.get(line);
+      // Under the title, where a reader looks first: the source, then the title's epigraph.
+      if (index === title)
+        return [line, "", sourceLine, "", ...titleEpigraph.map((text) => `> ${text}`)];
+      const quote = placed.get(line);
       return quote === undefined ? [line] : [line, "", ...quote.map((text) => `> ${text}`)];
     })
     .join("\n");
@@ -54,7 +60,7 @@ function withEpigraphs(markdown: string): string {
  * README (the repository's `README.md`, read at build time) from its own first line, with the
  * site's epigraphs, then the source.
  */
-export const source = `${withEpigraphs(readme).trimEnd()}\n\nSource: [${repository}](${repository})\n`;
+export const source = `${withEpigraphs(readme).trimEnd()}\n\n${sourceLine}\n`;
 
 export const notFound = `EUKHE
 404: NO PAGE HERE
