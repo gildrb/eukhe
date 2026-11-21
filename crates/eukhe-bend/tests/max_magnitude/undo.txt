@@ -1,0 +1,16 @@
+# a step: the largest turns live and the largest first turn, each event:
+# /undo, /diff of the turn and all, the largest turn starting
+call 0,2,{MAX},99999999999998,{MAX},0,
+call 0,1,{MAX},{MAX},1,
+call 0,1,{MAX},{MAX},2,
+call 0,0,0,{MAX},
+call 0,0,0,0,
+# rows: blobs at their largest, held and not, added and removed
+call 1,9,{MAX},99999999999998,0,{MAX},{MAX},1,0,{MAX},0,
+call 2,9,{MAX},99999999999998,0,{MAX},{MAX},1,{MAX},0,0,
+# a turn, a blob, a count or a tag past the wire: refused, never a stop
+refuse 0,1,{LONG},0,0,
+refuse 0,0,{LONG},0,
+refuse 1,3,{LONG},0,0,
+refuse 2,{LONG},0,0,0,
+refuse {LONG},0,

@@ -223,3 +223,4 @@ import ./laws/fallback.bend as Fallback
 import ./laws/strength.bend as Strength
 import ./laws/irreversible.bend as Irreversible
 import ./laws/path_own.bend as PathOwn
+import ./laws/undo.bend as Undo
