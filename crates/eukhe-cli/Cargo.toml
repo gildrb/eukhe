@@ -73,6 +73,8 @@ nix = { version = "0.29", features = ["term", "signal", "fs", "socket", "user"] 
 # claim), PR_SET_PDEATHSIG (the daemon trampoline), and ptsname; and the
 # shared e2e `Daemon` guard's pidfd tree kill and wait.
 rustix = { version = "1", features = ["process", "pty", "event"] }
+# The dashboard e2e opens the bridge's socket as a tab does.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect"] }
 
 [lints]
 workspace = true
