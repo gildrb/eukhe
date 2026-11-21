@@ -231,22 +231,34 @@ async fn daemon_acp_create(
             location,
             cwd_override,
             ..
-        } => (
-            crate::headless_session::stored_cwd(
+        } => {
+            let opened_cwd = crate::headless_session::stored_cwd(
                 &location,
                 &config.cwd,
                 cwd_override.as_deref(),
                 cx,
             )
-            .await?,
-            Some(location.path().to_path_buf()),
-            DaemonSessionLifecycle::Resident,
-        ),
-        Selection::Fork { source } => {
+            .await;
+            if let Some(notice) = &opened_cwd.notice {
+                eprintln!("eukhe: {notice}");
+            }
+            (
+                opened_cwd.cwd,
+                Some(location.path().to_path_buf()),
+                DaemonSessionLifecycle::Resident,
+            )
+        }
+        Selection::Fork {
+            source,
+            other_project,
+        } => {
             // The fork's lease drops here: the daemon worker takes the
             // storage's lease when it opens it.
-            let (_, dir, _lease) =
+            let (session_id, dir, _lease) =
                 crate::headless_session::fork_into_fresh(options, &source, &config.cwd, cx).await?;
+            if let Some(other) = other_project {
+                eprintln!("eukhe: {}", other.forked_as(session_id));
+            }
             (
                 config.cwd.clone(),
                 Some(dir),
@@ -1158,12 +1170,15 @@ async fn begin_message(
 
 /// The json stream's leading identity line (the TS session header shape and
 /// field order: `type`, `version`, `id`, `timestamp`, `cwd`,
-/// `parentSession?`, `rlmDepth`).
+/// `parentSession?`, `rlmDepth`), and `notice` when the open did something
+/// in place of the session the flags named (a fork of another project's
+/// session, a gone working directory).
 fn session_header(opened: &HeadlessSession) -> serde_json::Value {
     header_for(
         &opened.session_id,
         &opened.cwd,
         opened.parent_session.as_deref(),
+        opened.notice.as_ref(),
     )
 }
 
@@ -1171,6 +1186,7 @@ fn header_for(
     session_id: &str,
     cwd: &std::path::Path,
     parent_session: Option<&std::path::Path>,
+    notice: Option<&crate::headless_session::ResumeNotice>,
 ) -> serde_json::Value {
     let mut header = serde_json::Map::new();
     header.insert("type".into(), "session".into());
@@ -1182,6 +1198,9 @@ fn header_for(
         header.insert("parentSession".into(), parent.display().to_string().into());
     }
     header.insert("rlmDepth".into(), 0.into());
+    if let Some(notice) = notice {
+        header.insert("notice".into(), notice.to_string().into());
+    }
     serde_json::Value::Object(header)
 }
 

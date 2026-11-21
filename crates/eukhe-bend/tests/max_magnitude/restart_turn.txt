@@ -1,0 +1,10 @@
+# a reopen with the continues made at their largest (the turn ends) and
+# just below the cap (the last continue); the give-ups after each prior
+call 0,{MAX},
+call 0,2,
+call 1,
+call 2,
+call 3,
+# a count or a tag one digit past the wire: refused
+refuse 0,{LONG},
+refuse {LONG},

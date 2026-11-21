@@ -174,6 +174,7 @@ impl EntryData for UserData {
             | InputOrigin::Director
             | InputOrigin::QuotaResume
             | InputOrigin::CompactionResume
+            | InputOrigin::RestartResume
             | InputOrigin::Report { .. } => to_json(&StoredUserData {
                 origin: self.origin.clone(),
             })
