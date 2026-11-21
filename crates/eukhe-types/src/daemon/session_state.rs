@@ -430,6 +430,10 @@ pub struct AgentConnectionState {
     /// first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_effects: Vec<crate::effects::UnknownEffect>,
+    /// The root session's ledger of irreversible effects that ran (the
+    /// `ran_effects_update` payload), by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ran_effects: Vec<crate::effects::RanEffect>,
     /// The session's `/loop` (off without one).
     #[serde(default)]
     pub r#loop: crate::loop_mode::LoopStatus,

@@ -1,6 +1,7 @@
-//! Exactly-once effects (spec O1-O13): the `eukhe.effects` document, the
-//! ledger of one conversation's steps whose outcome a restart could not
-//! tell and that were not safe to repeat.
+//! Exactly-once effects (spec O1-O13) and irreversible effects (spec
+//! I4-I8): the `eukhe.effects` document, one conversation's ledger of the
+//! steps whose outcome a restart could not tell and that were not safe to
+//! repeat and, in a root session, of the irreversible effects that ran.
 //!
 //! Every effect is journaled where its owner keeps it (a tool call in its
 //! task's checkpoints, a provider request in its generation's, a job in its
@@ -17,16 +18,30 @@
 //! ([`resolve_unknown`]). Clients read the ledger
 //! ([`read_unknown_effects`]) and follow it ([`watch_unknown_effects`]);
 //! its vocabulary is the shared wire one (`eukhe_types::effects`).
+//!
+//! A root run's start numbers the run ([`begin_run`]); each irreversible
+//! effect that ran, the root's or a subagent's, is recorded once by its
+//! key under the next id `e<N>` ([`record_ran`]); the end of a run reports
+//! exactly that run's ([`run_report`]). Clients read the whole list
+//! ([`read_ran_effects`]) and follow it ([`watch_ran_effects`]). The
+//! numbering and the run's list come from the compiled core
+//! (`eukhe_bend::rules::irreversible`).
+
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 
+use eukhe_bend::rules::irreversible::{self, Entry, Recorded};
 use eukhe_chord::context::{await_with_context, Context};
 use eukhe_chord::json::{from_json, to_json, JsonValue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-pub use eukhe_types::effects::{EffectKind, EffectResolution, UnknownCause, UnknownEffect};
+pub use eukhe_types::effects::{
+    EffectKind, EffectResolution, RanEffect, RanEffectDraft, RunReport, UnknownCause, UnknownEffect,
+};
 
 use crate::documents::{ConversationDoc, DocDefinition};
 use crate::harness::Harness;
@@ -43,8 +58,9 @@ pub const RESOLVED_KEPT: usize = 64;
 /// The persisted kind of [`EFFECTS_DOC`].
 const EFFECTS_DOC_KIND: &str = "eukhe.effects";
 
-/// The ledger: the steps treated as not run, oldest first, and the run of
-/// the root session in flight.
+/// The ledger: the steps treated as not run, oldest first, the run of the
+/// root session in flight, and the irreversible effects that ran, by id
+/// (a ledger written before it had them reads as none).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EffectsState {
     pub unknown: Vec<UnknownEffect>,
@@ -52,6 +68,8 @@ pub struct EffectsState {
     /// listed in that run's end-of-run report.
     #[serde(default)]
     pub run: u64,
+    #[serde(default)]
+    pub ran: Vec<RanEffect>,
 }
 
 /// The `eukhe.effects` document token.
@@ -164,6 +182,134 @@ pub async fn unknown_effects(
     Ok(from_json(&unknown.value()?)?)
 }
 
+/// The whole ledger as the commit in flight sees it.
+///
+/// # Errors
+///
+/// Document access or draft failures.
+pub async fn effects_state(
+    tx: &Tx,
+    conversation_id: ConversationId,
+) -> SessionResult<EffectsState> {
+    let ledger = tx.doc(&EFFECTS_DOC, conversation_id).await?;
+    Ok(from_json(&ledger.value()?)?)
+}
+
+/// Start the root session's next run, in the commit that starts it: its
+/// number (the first is 1).
+///
+/// # Errors
+///
+/// Document access or draft failures.
+pub async fn begin_run(tx: &Tx, conversation_id: ConversationId) -> SessionResult<u64> {
+    let ledger = tx.doc(&EFFECTS_DOC, conversation_id).await?;
+    let state: EffectsState = from_json(&ledger.value()?)?;
+    let run = state.run + 1;
+    ledger.set("run", to_json(&run)?)?;
+    Ok(run)
+}
+
+/// The number `N` of the id `e<N>`; `None` for any other text.
+fn ran_number(id: &str) -> Option<u64> {
+    id.strip_prefix('e')?.parse().ok()
+}
+
+/// The compiled core's view of the ran list.
+fn ran_entries(ran: &[RanEffect]) -> Vec<Entry> {
+    ran.iter()
+        .filter_map(|effect| {
+            Some(Entry {
+                n: ran_number(&effect.id)?,
+                key: effect.key.clone(),
+                run: effect.run,
+            })
+        })
+        .collect()
+}
+
+fn core_error(error: &eukhe_bend::Error) -> SessionError {
+    SessionError::error(format!("the effect ledger's core call failed: {error}"))
+}
+
+/// Record that the irreversible effect `draft` ran, in the root session's
+/// current run: the effect as recorded, under the next id `e<N>` (never
+/// reused). An effect is recorded once: recording its key again (a replay)
+/// changes nothing and gives the effect as first recorded.
+///
+/// # Errors
+///
+/// Document access or draft failures, or the core call failed.
+pub async fn record_ran(
+    tx: &Tx,
+    conversation_id: ConversationId,
+    draft: RanEffectDraft,
+) -> SessionResult<RanEffect> {
+    let ledger = tx.doc(&EFFECTS_DOC, conversation_id).await?;
+    let state: EffectsState = from_json(&ledger.value()?)?;
+    let recorded = irreversible::record(&ran_entries(&state.ran), &draft.key)
+        .map_err(|error| core_error(&error))?;
+    match recorded {
+        Recorded::Known(number) => state
+            .ran
+            .into_iter()
+            .find(|effect| ran_number(&effect.id) == Some(number))
+            .ok_or_else(|| SessionError::error("the core named a ran effect the ledger lacks")),
+        Recorded::New(number) => {
+            let effect = draft.recorded(number, state.run);
+            if !ledger.has("ran")? {
+                ledger.set("ran", JsonValue::array())?;
+            }
+            ledger.child("ran")?.push([to_json(&effect)?])?;
+            Ok(effect)
+        }
+    }
+}
+
+/// The end of run `run` of the ledger `state`: the irreversible effects
+/// that ran in it, in order, and the unknown effects it treated as not
+/// run.
+///
+/// # Errors
+///
+/// The core call failed.
+pub fn run_report(state: &EffectsState, run: u64) -> SessionResult<RunReport> {
+    let numbers = irreversible::this_run(&ran_entries(&state.ran), run)
+        .map_err(|error| core_error(&error))?;
+    let ran = numbers
+        .iter()
+        .filter_map(|number| {
+            state
+                .ran
+                .iter()
+                .find(|effect| ran_number(&effect.id) == Some(*number))
+                .cloned()
+        })
+        .collect();
+    Ok(RunReport {
+        ran,
+        unknown: eukhe_types::effects::treated_not_run(&state.unknown, run)
+            .cloned()
+            .collect(),
+    })
+}
+
+/// The committed ledger of the conversation (empty while it was never
+/// written).
+///
+/// # Errors
+///
+/// The document cannot be read or decoded.
+pub async fn read_effects_state(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<EffectsState> {
+    match harness.snapshot(&EFFECTS_DOC, conversation_id, cx).await? {
+        Some(value) => Ok(from_json(&JsonValue::Object(value))?),
+        None => Ok(EffectsState::default()),
+    }
+}
+
 /// The committed unknown effects of the conversation, oldest first (none
 /// while the ledger was never written).
 ///
@@ -175,31 +321,48 @@ pub async fn read_unknown_effects(
     conversation_id: ConversationId,
     cx: &Context,
 ) -> SessionResult<Vec<UnknownEffect>> {
-    match harness.snapshot(&EFFECTS_DOC, conversation_id, cx).await? {
-        Some(value) => {
-            let state: EffectsState = from_json(&JsonValue::Object(value))?;
-            Ok(state.unknown)
-        }
-        None => Ok(Vec::new()),
-    }
+    Ok(read_effects_state(harness, conversation_id, cx)
+        .await?
+        .unknown)
 }
 
-/// A live stream of one conversation's ledger (see
-/// [`watch_unknown_effects`]). Dropping it stops the subscription.
-pub struct UnknownEffectUpdates {
-    receiver: mpsc::UnboundedReceiver<Vec<UnknownEffect>>,
+/// The committed irreversible effects that ran in the conversation, by id
+/// (none while the ledger was never written).
+///
+/// # Errors
+///
+/// The document cannot be read or decoded.
+pub async fn read_ran_effects(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<Vec<RanEffect>> {
+    Ok(read_effects_state(harness, conversation_id, cx).await?.ran)
+}
+
+/// A live stream of one list of a conversation's ledger (see
+/// [`watch_unknown_effects`], [`watch_ran_effects`]). Dropping it stops
+/// the subscription.
+pub struct LedgerUpdates<T> {
+    receiver: mpsc::UnboundedReceiver<Vec<T>>,
     unsubscribe: Unsubscribe,
     task: JoinHandle<()>,
 }
 
-impl UnknownEffectUpdates {
-    /// The next ledger; `None` once the Harness closed or a read failed.
-    pub async fn next(&mut self) -> Option<Vec<UnknownEffect>> {
+/// The stream of the unknown effects.
+pub type UnknownEffectUpdates = LedgerUpdates<UnknownEffect>;
+
+/// The stream of the irreversible effects that ran.
+pub type RanEffectUpdates = LedgerUpdates<RanEffect>;
+
+impl<T> LedgerUpdates<T> {
+    /// The next list; `None` once the Harness closed or a read failed.
+    pub async fn next(&mut self) -> Option<Vec<T>> {
         self.receiver.recv().await
     }
 }
 
-impl Drop for UnknownEffectUpdates {
+impl<T> Drop for LedgerUpdates<T> {
     fn drop(&mut self) {
         self.unsubscribe.unsubscribe();
         self.task.abort();
@@ -226,9 +389,9 @@ fn changes_effects(publication: &CommitPublication, conversation_id: Conversatio
     })
 }
 
-/// Watch the ledger of `conversation_id`: the committed ledger first, then
-/// the ledger after every commit that changed it (an effect noted or
-/// resolved). Cancelling `cx` ends the stream.
+/// Watch the unknown effects of `conversation_id`: the committed list
+/// first, then the list after every commit that changed it (an effect
+/// noted or resolved). Cancelling `cx` ends the stream.
 ///
 /// # Errors
 ///
@@ -238,6 +401,35 @@ pub fn watch_unknown_effects(
     conversation_id: ConversationId,
     cx: &Context,
 ) -> SessionResult<UnknownEffectUpdates> {
+    watch_ledger(harness, conversation_id, cx, |ledger| ledger.unknown)
+}
+
+/// Watch the irreversible effects that ran in `conversation_id`: the
+/// committed list first, then the list after every commit that changed it
+/// (an effect recorded). Cancelling `cx` ends the stream.
+///
+/// # Errors
+///
+/// The Session is closed.
+pub fn watch_ran_effects(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+) -> SessionResult<RanEffectUpdates> {
+    watch_ledger(harness, conversation_id, cx, |ledger| ledger.ran)
+}
+
+/// Watch the list `pick` takes from the ledger of `conversation_id`: sent
+/// first, then again each time a commit changed it.
+fn watch_ledger<T>(
+    harness: &Harness,
+    conversation_id: ConversationId,
+    cx: &Context,
+    pick: fn(EffectsState) -> Vec<T>,
+) -> SessionResult<LedgerUpdates<T>>
+where
+    T: Clone + PartialEq + Send + 'static,
+{
     let (ticks, mut ticked) = mpsc::unbounded_channel::<()>();
     let listener: CommitListener = Arc::new(move |publication, _| {
         if changes_effects(publication, conversation_id) {
@@ -250,14 +442,15 @@ pub fn watch_unknown_effects(
     let reader = harness.clone();
     let cx = cx.clone();
     let task = tokio::spawn(async move {
-        let mut last: Option<Vec<UnknownEffect>> = None;
+        let mut sent: Option<Vec<T>> = None;
         loop {
-            let Ok(effects) = read_unknown_effects(&reader, conversation_id, &cx).await else {
+            let Ok(ledger) = read_effects_state(&reader, conversation_id, &cx).await else {
                 return;
             };
-            if last.as_ref() != Some(&effects) {
-                last = Some(effects.clone());
-                if sender.send(effects).is_err() {
+            let list = pick(ledger);
+            if sent.as_ref() != Some(&list) {
+                sent = Some(list.clone());
+                if sender.send(list).is_err() {
                     return;
                 }
             }
@@ -269,7 +462,7 @@ pub fn watch_unknown_effects(
             while ticked.try_recv().is_ok() {}
         }
     });
-    Ok(UnknownEffectUpdates {
+    Ok(LedgerUpdates {
         receiver,
         unsubscribe,
         task,

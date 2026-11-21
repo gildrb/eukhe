@@ -234,6 +234,11 @@ impl Worker {
                 .as_ref()
                 .map(|view| view.unknown_effects.clone())
                 .unwrap_or_default(),
+            ran_effects: core
+                .view
+                .as_ref()
+                .map(|view| view.ran_effects.clone())
+                .unwrap_or_default(),
             r#loop: core
                 .view
                 .as_ref()
@@ -902,6 +907,7 @@ mod tests {
             active: None,
             goal: Value::Null,
             unknown_effects: Vec::new(),
+            ran_effects: Vec::new(),
             loop_status: None,
             acceptance: Value::Null,
             workers: Vec::new(),

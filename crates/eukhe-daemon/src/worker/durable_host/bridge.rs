@@ -5,7 +5,8 @@
 //! `session_action_update` (with the queued inputs' previews read from the
 //! `pi.inbox` document), goal document changes become `goal_update`,
 //! loop document changes become `loop_update`, changes of the
-//! `eukhe.effects` ledger become `unknown_effects_update`, and main's
+//! `eukhe.effects` ledger become `unknown_effects_update` and
+//! `ran_effects_update`, and main's
 //! workers and the session's run pause land on the view (summary
 //! `workers`, `isPaused`).
 
@@ -19,7 +20,7 @@ use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_chord::AttachedReplicatedState;
 use eukhe_core::durable::children::{watch_workers, RunPause};
 use eukhe_core::durable::{ProviderWireEvent, SessionShape};
-use eukhe_durable::harness::effects::watch_unknown_effects;
+use eukhe_durable::harness::effects::{watch_ran_effects, watch_unknown_effects};
 use eukhe_durable::harness::types::{
     ConversationAbortOptions, InputEntry, InputSubmissionDraft, WhenBusy,
 };
@@ -30,7 +31,7 @@ use eukhe_durable::harness::{
 use eukhe_durable::session::{SessionError, SessionResult, WatchListenerError};
 use eukhe_durable::types::{ConversationId, DocumentReaderExt, SubmissionId};
 use eukhe_types::daemon::{SessionEvent, SessionWorker};
-use eukhe_types::effects::UnknownEffect;
+use eukhe_types::effects::{RanEffect, UnknownEffect};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::pi_ai::{UserContent, UserContentBlock};
@@ -97,6 +98,9 @@ pub(crate) struct ShownView {
     /// The ledger of effects whose outcome a restart could not tell
     /// (`unknown_effects_update` payload), oldest first.
     pub(crate) unknown_effects: Vec<UnknownEffect>,
+    /// The ledger of irreversible effects that ran (`ran_effects_update`
+    /// payload), by id.
+    pub(crate) ran_effects: Vec<RanEffect>,
     /// The served loop (`loop_update` payload); `None` until the loop
     /// watch read it.
     pub(crate) loop_status: Option<LoopStatus>,
@@ -237,6 +241,7 @@ impl EventBridge {
                 active: None,
                 goal: Value::Null,
                 unknown_effects: Vec::new(),
+                ran_effects: Vec::new(),
                 loop_status: None,
                 acceptance: Value::Null,
                 workers: Vec::new(),
@@ -560,6 +565,8 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
+            | SessionEvent::RanEffectsUpdate { .. }
+            | SessionEvent::RunReport { .. }
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::PlanUsage { .. }
@@ -624,9 +631,10 @@ async fn goal_loop(
     }
 }
 
-/// The ledger of `conversation_id` onto the view, each change announced
-/// as `unknown_effects_update` (an empty ledger at the start announces
-/// nothing).
+/// The ledger of `conversation_id` onto the view, each change of its
+/// unknown effects announced as `unknown_effects_update` and of its
+/// irreversible effects that ran as `ran_effects_update` (an empty list at
+/// the start announces nothing).
 async fn effects_loop(
     harness: Harness,
     epoch: u64,
@@ -634,28 +642,45 @@ async fn effects_loop(
     sink: BridgeSink,
     cx: Context,
 ) {
-    let mut updates = match watch_unknown_effects(&harness, conversation_id, &cx) {
-        Ok(updates) => updates,
-        Err(error) => {
-            eprintln!("eukhe-daemon worker: unknown effect updates unavailable: {error}");
+    let (mut unknown, mut ran) = match (
+        watch_unknown_effects(&harness, conversation_id, &cx),
+        watch_ran_effects(&harness, conversation_id, &cx),
+    ) {
+        (Ok(unknown), Ok(ran)) => (unknown, ran),
+        (Err(error), _) | (_, Err(error)) => {
+            eprintln!("eukhe-daemon worker: effect ledger updates unavailable: {error}");
             return;
         }
     };
-    while let Some(effects) = updates.next().await {
+    loop {
+        let update = tokio::select! {
+            Some(effects) = unknown.next() => Ledger::Unknown(effects),
+            Some(effects) = ran.next() => Ledger::Ran(effects),
+            else => return,
+        };
         let mut core = lock(&sink.core);
         let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
             return;
         };
-        if view.unknown_effects == effects {
-            continue;
-        }
-        view.unknown_effects.clone_from(&effects);
-        crate::worker::emit_event_locked(
-            &mut core,
-            &sink.events,
-            SessionEvent::UnknownEffectsUpdate { effects },
-        );
+        let event = match update {
+            Ledger::Unknown(effects) if view.unknown_effects != effects => {
+                view.unknown_effects.clone_from(&effects);
+                SessionEvent::UnknownEffectsUpdate { effects }
+            }
+            Ledger::Ran(effects) if view.ran_effects != effects => {
+                view.ran_effects.clone_from(&effects);
+                SessionEvent::RanEffectsUpdate { effects }
+            }
+            Ledger::Unknown(_) | Ledger::Ran(_) => continue,
+        };
+        crate::worker::emit_event_locked(&mut core, &sink.events, event);
     }
+}
+
+/// One list of the ledger, as its watch sent it.
+enum Ledger {
+    Unknown(Vec<UnknownEffect>),
+    Ran(Vec<RanEffect>),
 }
 
 /// The loop of the shown conversation on the core (state `loop`): each
