@@ -14,7 +14,9 @@ use eukhe_ai::providers::faux_script::{
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_durable::entries::{UserData, USER_ENTRY};
-use eukhe_durable::harness::types::{ConversationAbortOptions, InputSubmissionDraft, WhenBusy};
+use eukhe_durable::harness::types::{
+    ConversationAbortOptions, InputSubmissionDraft, WhenBusy, WriteSubmissionDraft,
+};
 use eukhe_durable::harness::ConversationEntryQuery;
 use eukhe_durable::types::EntryData;
 use eukhe_types::budget::BudgetLimits;
@@ -30,11 +32,11 @@ use serde_json::json;
 use tokio::sync::watch;
 
 use super::{
-    hold_loop_for_compaction, loop_status, resume_loop_after_compaction, watch_loop_updates,
-    LOOP_MODE_DOC, LOOP_NOTICE_CUSTOM_TYPE,
+    hold_loop_for_compaction, interrupt_loop, loop_status, resume_loop_after_compaction,
+    watch_loop_updates, LoopDoc, LOOP_MODE_DOC, LOOP_NOTICE_CUSTOM_TYPE,
 };
-use crate::durable::entries::CUSTOM_ENTRY;
-use crate::durable::goals::read_doc;
+use crate::durable::entries::{custom_entry_draft, CUSTOM_ENTRY};
+use crate::durable::goals::{open_doc, read_doc, write_doc};
 use crate::durable::session_commands::{classify_session_command, execute_session_command};
 use crate::durable::{open_session, EukheSession, ModelRequest, SessionConfig, SessionStorage};
 
@@ -261,6 +263,34 @@ impl Lab {
         self.rows(LOOP_NOTICE_CUSTOM_TYPE).await
     }
 
+    /// The user's interrupt, as the abort command sends it: the loop
+    /// pauses, then the run is aborted.
+    async fn interrupt(&self) {
+        let main = self.session.main();
+        interrupt_loop(self.session.harness(), &main, cx())
+            .await
+            .expect("the interrupt");
+        main.abort(ConversationAbortOptions::default(), cx())
+            .await
+            .expect("abort");
+    }
+
+    /// Write `doc` as the loop of the main conversation.
+    async fn write_loop(&self, doc: LoopDoc) {
+        let main = self.session.main();
+        let conversation_id = main.id();
+        main.commit(
+            move |tx| async move {
+                let (draft, _) = open_doc(&tx, &LOOP_MODE_DOC, conversation_id).await?;
+                write_doc(&draft, &doc)?;
+                Ok(())
+            },
+            cx(),
+        )
+        .await
+        .expect("the loop document");
+    }
+
     async fn close(self) {
         self.session.close(cx()).await.expect("close");
     }
@@ -271,6 +301,22 @@ fn sends(text: &str, iterations: &[u64]) -> Vec<(String, Option<u64>)> {
         .iter()
         .map(|iteration| (text.to_owned(), Some(*iteration)))
         .collect()
+}
+
+/// Loop `t` in the turn of iteration `iteration`, prompt `go`, with
+/// `remaining` automatic iterations left and no condition.
+fn loop_in_turn(iteration: u64, remaining: Option<u64>) -> LoopDoc {
+    LoopDoc {
+        state: LoopState {
+            phase: LoopPhase::Turn,
+            iteration,
+            remaining,
+            prompt: "go".to_owned(),
+            ..LoopState::default()
+        },
+        loop_id: Some("t".to_owned()),
+        ..LoopDoc::default()
+    }
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -698,11 +744,11 @@ async fn loop_again_ends_the_loop_once() {
     lab.close().await;
 }
 
-/// L5: an abort while a turn of the loop runs pauses the loop: nothing
-/// starts by itself; the next prompt the user sends becomes the loop's
-/// prompt and the loop goes on inside its count.
+/// L5: the user's interrupt while a turn of the loop runs pauses the
+/// loop: nothing starts by itself; the next prompt the user sends becomes
+/// the loop's prompt and the loop goes on inside its count.
 #[tokio::test]
-async fn an_abort_in_a_turn_pauses_the_loop_until_the_user_prompts() {
+async fn the_users_interrupt_in_a_turn_pauses_the_loop_until_the_user_prompts() {
     let (stuck, mut reached, _release) = gated("never");
     let lab = open(vec![stuck, answer("a"), answer("b"), answer("no")]).await;
     lab.run("/loop 1 go").await;
@@ -710,11 +756,7 @@ async fn an_abort_in_a_turn_pauses_the_loop_until_the_user_prompts() {
         .wait_for(|reached| *reached)
         .await
         .expect("the turn runs");
-    lab.session
-        .main()
-        .abort(ConversationAbortOptions::default(), cx())
-        .await
-        .expect("abort");
+    lab.interrupt().await;
     let paused = lab
         .until(|status| status.state.phase == LoopPhase::Paused)
         .await;
@@ -745,23 +787,246 @@ async fn an_abort_in_a_turn_pauses_the_loop_until_the_user_prompts() {
     lab.close().await;
 }
 
-/// L5: an abort while the condition command runs pauses the loop too:
-/// the command's late answer starts nothing.
+/// L5: the user's interrupt while the condition command runs pauses the
+/// loop too: the command's late answer starts nothing.
 #[tokio::test]
-async fn an_abort_in_the_check_pauses_the_loop() {
+async fn the_users_interrupt_in_the_check_pauses_the_loop() {
     let lab = open(vec![answer("1"), answer("no")]).await;
     lab.run("/loop --until 'sleep 20' go").await;
     lab.until(|status| status.state.phase == LoopPhase::Judging)
         .await;
+    lab.interrupt().await;
+    lab.until(|status| status.state.phase == LoopPhase::Paused)
+        .await;
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1]));
+    assert_eq!(lab.provider.get_pending_response_count(), 1);
+    lab.close().await;
+}
+
+/// L5: an abort of the run that is not the user's interrupt (a session
+/// replaced, a tree move, a host that stopped a hung run) is a failed
+/// turn: the loop counts it and goes on with the next iteration; it never
+/// waits for a user who is not there.
+#[tokio::test]
+async fn an_abort_that_is_not_the_users_is_a_failed_turn() {
+    let (stuck, mut reached, _release) = gated("never");
+    let lab = open(vec![stuck, answer("two"), answer("no")]).await;
+    lab.run("/loop 1 go").await;
+    reached
+        .wait_for(|reached| *reached)
+        .await
+        .expect("the turn runs");
     lab.session
         .main()
         .abort(ConversationAbortOptions::default(), cx())
         .await
         .expect("abort");
-    lab.until(|status| status.state.phase == LoopPhase::Paused)
+    let settled = lab
+        .until(|status| {
+            matches!(
+                status.state.phase,
+                LoopPhase::Paused | LoopPhase::Ended { .. }
+            )
+        })
         .await;
+    assert_eq!(
+        settled.state.phase,
+        LoopPhase::Ended {
+            end: LoopEnd::OutOfTurns
+        }
+    );
     lab.idle().await;
-    assert_eq!(lab.sent().await, sends("go", &[1]));
+    assert_eq!(lab.sent().await, sends("go", &[1, 2]));
+    assert_eq!(lab.provider.get_pending_response_count(), 1);
+    lab.close().await;
+}
+
+/// L5, L7: a worker that closes its session aborts the run first; the
+/// reopened session takes the cut turn up as a failed turn and the loop
+/// goes on, without the user.
+#[tokio::test]
+async fn a_turn_a_close_cut_is_taken_up_as_a_failed_turn() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let storage = || SessionStorage::Jsonl {
+        dir: dir.path().join("session"),
+        fsync: true,
+    };
+    let (stuck, mut reached, _release) = gated("never");
+    let (session, provider) = open_in(dir.path(), storage(), vec![stuck]).await;
+    let lab = Lab {
+        dir: tempfile::tempdir().expect("tempdir"),
+        session,
+        provider,
+    };
+    lab.run("/loop 1 go").await;
+    reached
+        .wait_for(|reached| *reached)
+        .await
+        .expect("the turn runs");
+    // The worker's close: the close begins, the run is aborted, the
+    // session closes.
+    lab.session.deps().begin_close().await;
+    lab.session
+        .main()
+        .abort(ConversationAbortOptions::default(), cx())
+        .await
+        .expect("abort");
+    lab.session.close(cx()).await.expect("close");
+
+    let (session, provider) =
+        open_in(dir.path(), storage(), vec![answer("two"), answer("no")]).await;
+    let lab = Lab {
+        dir: tempfile::tempdir().expect("tempdir"),
+        session,
+        provider,
+    };
+    let settled = lab
+        .until(|status| {
+            matches!(
+                status.state.phase,
+                LoopPhase::Paused | LoopPhase::Ended { .. }
+            )
+        })
+        .await;
+    assert_eq!(
+        settled.state.phase,
+        LoopPhase::Ended {
+            end: LoopEnd::OutOfTurns
+        }
+    );
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1, 2]));
+    assert_eq!(lab.provider.get_pending_response_count(), 1);
+    lab.close().await;
+}
+
+/// L7: a turn that settled while no worker carried the loop (its answer
+/// is on record, the loop was never told) is taken up at open as a turn
+/// that ran: the loop goes on to its next iterations.
+#[tokio::test]
+async fn a_restart_takes_up_a_turn_that_ran_and_goes_on() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let storage = || SessionStorage::Jsonl {
+        dir: dir.path().join("session"),
+        fsync: true,
+    };
+    let (session, provider) = open_in(dir.path(), storage(), vec![answer("one")]).await;
+    let lab = Lab {
+        dir: tempfile::tempdir().expect("tempdir"),
+        session,
+        provider,
+    };
+    // Iteration 1 of loop `t` ran to its answer before the loop knew.
+    lab.session
+        .main()
+        .submit(
+            InputSubmissionDraft {
+                request_id: Some("loop:t:1".to_owned()),
+                content: UserContent::Text("go".to_owned()),
+                when_busy: Some(WhenBusy::FollowUp),
+                origin: InputOrigin::Loop { iteration: 1 },
+                entry: None,
+            },
+            cx(),
+        )
+        .await
+        .expect("iteration 1");
+    lab.idle().await;
+    lab.write_loop(loop_in_turn(1, Some(2))).await;
+    lab.session.close(cx()).await.expect("close");
+
+    let (session, provider) = open_in(
+        dir.path(),
+        storage(),
+        vec![answer("two"), answer("three"), answer("no")],
+    )
+    .await;
+    let lab = Lab {
+        dir: tempfile::tempdir().expect("tempdir"),
+        session,
+        provider,
+    };
+    let settled = lab
+        .until(|status| {
+            matches!(
+                status.state.phase,
+                LoopPhase::Paused | LoopPhase::Ended { .. }
+            )
+        })
+        .await;
+    assert_eq!(
+        (settled.state.phase, settled.state.iteration),
+        (
+            LoopPhase::Ended {
+                end: LoopEnd::OutOfTurns
+            },
+            3
+        )
+    );
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1, 2, 3]));
+    assert_eq!(lab.provider.get_pending_response_count(), 1);
+    lab.close().await;
+}
+
+/// L4, L5: a submission the session refuses (its request id names a
+/// write) is a failed turn, at a take-up and at the next iteration alike:
+/// the loop counts each and goes on; the first one it can send runs.
+#[tokio::test]
+async fn a_refused_submission_is_a_failed_turn() {
+    let lab = open(vec![answer("three"), answer("no")]).await;
+    // The resends of iterations 1 and 2 of loop `t` are refused.
+    for request_id in ["loop:t:1:1", "loop:t:2:1"] {
+        let entry = custom_entry_draft(
+            "taken",
+            UserContent::Text("taken".to_owned()),
+            true,
+            None,
+            0,
+        )
+        .expect("an entry");
+        lab.session
+            .main()
+            .submit(
+                WriteSubmissionDraft {
+                    request_id: Some(request_id.to_owned()),
+                    entry,
+                },
+                cx(),
+            )
+            .await
+            .expect("the write");
+    }
+    // A compaction cut iteration 1: its release sends it again.
+    lab.write_loop(LoopDoc {
+        held: true,
+        ..loop_in_turn(1, Some(2))
+    })
+    .await;
+    let main = lab.session.main();
+    resume_loop_after_compaction(lab.session.deps(), &main, cx())
+        .await
+        .expect("resume");
+    let settled = lab
+        .until(|status| {
+            matches!(
+                status.state.phase,
+                LoopPhase::Paused | LoopPhase::Ended { .. }
+            )
+        })
+        .await;
+    assert_eq!(
+        (settled.state.phase, settled.state.iteration),
+        (
+            LoopPhase::Ended {
+                end: LoopEnd::OutOfTurns
+            },
+            3
+        )
+    );
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[3]));
     assert_eq!(lab.provider.get_pending_response_count(), 1);
     lab.close().await;
 }
@@ -1026,8 +1291,8 @@ async fn the_status_says_why_the_loop_still_runs() {
 }
 
 /// A manual compaction cuts the turn in flight: held, the loop does not
-/// read the abort as the user's interrupt, and sends the cut turn again
-/// as the same iteration.
+/// count the abort as a failed turn, and sends the cut turn again as the
+/// same iteration.
 #[tokio::test]
 async fn a_compaction_sends_the_cut_turn_again() {
     let (stuck, mut reached, _release) = gated("never");

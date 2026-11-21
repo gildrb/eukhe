@@ -326,6 +326,17 @@ impl Worker {
             Ok(inbox) => inbox,
             Err(error) => return response_failure(None, command, &error.to_string(), None),
         };
+        // The user's interrupt pauses a running `/loop` before the abort;
+        // every other abort of the run is a failed turn of the loop.
+        if let Err(error) = eukhe_core::durable::loop_mode::interrupt_loop(
+            hosted.harness(),
+            &main,
+            &BACKGROUND_CONTEXT,
+        )
+        .await
+        {
+            return response_failure(None, command, &error.to_string(), None);
+        }
         if let Err(error) = main
             .abort(ConversationAbortOptions::default(), &BACKGROUND_CONTEXT)
             .await

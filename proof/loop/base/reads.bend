@@ -575,9 +575,7 @@ def le.co_tag(-s: String, t: Nat, -s1: String, e: {s == Wr.put_nat(t, s1) : Stri
       e
     case 1n:
       e
-    case 2n:
-      e
-    case 3n+x:
+    case 2n+x:
       Unit{}
 
 def le.co_go(-s: String, d: Wr.Dec<Nat>, cn: le.ci_nat(s, d)) -> le.ci_out(s, FLp.get_out.go(d)):

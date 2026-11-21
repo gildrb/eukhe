@@ -92,7 +92,7 @@ def lj.judged_own(i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -c: Lp.Cond, -
 # ----------------
 
 # loop_settled_turn_is_judged, once the turn is the loop's own
-def lj.settled_judged(c: Lp.Cond, o: Lp.Out, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(Bool.and(S.has_cond(c), Bool.not(S.out_halted(o))), {(S.act(Lp.settled.mine(False{}, o, i, l, d, c, b, f, x, now, fu)), S.phase(S.state(Lp.settled.mine(False{}, o, i, l, d, c, b, f, x, now, fu)))) == (Lp.Judge{i}, Lp.Judging{}) : Lp.Act & Lp.Phase}):
+def lj.settled_judged(c: Lp.Cond, o: Lp.Out, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(S.has_cond(c), {(S.act(Lp.settled.mine(False{}, o, i, l, d, c, b, f, x, now, fu)), S.phase(S.state(Lp.settled.mine(False{}, o, i, l, d, c, b, f, x, now, fu)))) == (Lp.Judge{i}, Lp.Judging{}) : Lp.Act & Lp.Phase}):
   match c o:
     case Lp.NoCond{} _:
       Unit{}
@@ -100,20 +100,14 @@ def lj.settled_judged(c: Lp.Cond, o: Lp.Out, -i: Nat, -l: Maybe<&2, Nat>, -d: Ma
       {==}
     case Lp.Until{cmd} Lp.Errored{}:
       {==}
-    case Lp.Until{cmd} Lp.Halted{}:
-      Unit{}
     case Lp.While{cmd} Lp.Ran{}:
       {==}
     case Lp.While{cmd} Lp.Errored{}:
       {==}
-    case Lp.While{cmd} Lp.Halted{}:
-      Unit{}
     case Lp.Stated{u, t} Lp.Ran{}:
       {==}
     case Lp.Stated{u, t} Lp.Errored{}:
       {==}
-    case Lp.Stated{u, t} Lp.Halted{}:
-      Unit{}
 
 # loop_confirmed_ends for a ruling of a stated condition
 def lj.confirmed_said(u: Bool, met: Bool, -t: String, -i: Nat, -l: Maybe<&2, Nat>, -d: Maybe<&2, Nat>, -b: String, -f: Nat, -x: Lp.Last, -now: Nat, -fu: Bool) -> lj.If(S.shows_stop(Lp.Stated{u, t}, Lp.Ruled{met}), {Lp.judged.mine(False{}, i, l, d, Lp.Stated{u, t}, b, f, x, Lp.Ruled{met}, now, fu) == (Lp.St{Lp.Ended{Lp.Satisfied{}}, i, l, d, Lp.Stated{u, t}, b, f, Lp.Check{i, Lp.Ruled{met}}}, Lp.Report{Lp.Satisfied{}}) : Lp.St & Lp.Act}):
@@ -321,8 +315,6 @@ def lj.settled_sat(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Maybe<
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
       Unit{}
     case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
-      Unit{}
-    case True{} False{} Lp.Halted{} _:
       Unit{}
 
 # a nonzero exit of an `--until` condition never ends the loop satisfied:
@@ -536,8 +528,6 @@ def lj.settled_auto(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Maybe
       Unit{}
     case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
       Unit{}
-    case True{} False{} Lp.Halted{} _:
-      Unit{}
 
 # a nonzero exit of an `--until` condition starts an iteration only when
 # it is neither 126 nor 127 (bb False)
@@ -726,7 +716,7 @@ def lj.enter_first(s: Lp.St, -lim: Lp.Limit, -c: Lp.Cond, -t: String, -now: Nat)
     case Lp.St{Lp.Ended{w}, i, l, d, c0, b, f, x}:
       {==}
 
-def lj.enter_arms(s: Lp.St, -lim: Lp.Limit, -c: Lp.Cond, -now: Nat) -> lj.IfN(S.is_on(S.phase(s)), {(S.does(s, Lp.Enter{lim, c, None{}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, None{}, now})), S.cond(S.next(s, Lp.Enter{lim, c, None{}, now})))) == (Lp.Rest{}, (Lp.Armed{}, c)) : Lp.Act & (Lp.Phase & Lp.Cond)}):
+def lj.enter_arms(s: Lp.St, -lim: Lp.Limit, -c: Lp.Cond, -now: Nat) -> lj.IfN(S.is_on(S.phase(s)), {(S.does(s, Lp.Enter{lim, c, None{}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, None{}, now})), (S.cond(S.next(s, Lp.Enter{lim, c, None{}, now})), S.body(S.next(s, Lp.Enter{lim, c, None{}, now}))))) == (Lp.Rest{}, (Lp.Armed{}, (c, ""))) : Lp.Act & (Lp.Phase & (Lp.Cond & String))}):
   match s:
     case Lp.St{Lp.Off{}, i, l, d, c0, b, f, x}:
       {==}
@@ -818,8 +808,6 @@ def lj.settled_resends(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, +i: Nat, +l: Ma
     case True{} False{} Lp.Errored{} Lp.While{cmd}:
       Unit{}
     case True{} False{} Lp.Errored{} Lp.Stated{u, t}:
-      Unit{}
-    case True{} False{} Lp.Halted{} _:
       Unit{}
 
 def lj.verdict_resends(v: Lp.Verdict, -c: Lp.Cond, -ev: Lp.Evid, +i: Nat, +l: Maybe<&2, Nat>, +d: Maybe<&2, Nat>, +b: String, +f: Nat, +x: Lp.Last, +now: Nat, +fu: Bool) -> lj.If(S.is_submit(S.act(Lp.judged.verdict(v, i, l, d, c, b, f, x, ev, now, fu))), {S.act(Lp.judged.verdict(v, i, l, d, c, b, f, x, ev, now, fu)) == Lp.Submit{1n+i, b} : Lp.Act}):

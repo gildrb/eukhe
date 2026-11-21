@@ -65,8 +65,8 @@ type End is Data:
 
 # Off: no loop. Armed: on, waiting for the prompt to repeat. Turn: an
 # iteration's turn is in flight. Judging: the turn settled, the condition
-# command runs. Paused: suspended by the user, waiting for a new prompt.
-# Ended: over, with its reason.
+# command runs. Paused: suspended by the user's interrupt, waiting for a
+# new prompt; nothing else pauses a loop. Ended: over, with its reason.
 type Phase is Data:
   Off{}
   Armed{}
@@ -82,12 +82,13 @@ type Limit is Data:
   Count{n: Nat}
   Span{ms: Nat}
 
-# How a turn settled: it ran to its end; it failed; it did not run to its
-# end (refused, consumed locally, or interrupted by the user).
+# How a turn settled: it ran to its end (a final answer); it failed (an
+# error, a submission refused or consumed locally, an abort that is not
+# the user's interrupt, a turn a restart found over without an answer).
+# The user's interrupt is no outcome of a turn: it is the event Abort.
 type Out is Data:
   Ran{}
   Errored{}
-  Halted{}
 
 # The last evidence read: none yet; ev, read after iteration `at`.
 type Last is Data:
@@ -103,7 +104,8 @@ type St is Data:
 
 # Enter: `/loop` with its bound, its condition, its inline prompt and the
 # clock: it starts a loop, or ends the one that is on. Stop: `/loop --stop`.
-# Abort: the user's interrupt (Esc). Prompt: the user sent a prompt that
+# Abort: the user's interrupt (Esc, the abort command); no other abort of a
+# run is one. Prompt: the user sent a prompt that
 # starts a turn. Settled: iteration `iter`'s turn settled (blocked: the
 # session is not idle: queued input or unsettled work is still ahead); the
 # clock; funded: the budget funds one more turn. Judged: the condition
@@ -477,14 +479,15 @@ def gate(c: Cond, +i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, b: String, f: N
     case Stated{u, t}:
       (St{Judging{}, i, l, d, Stated{u, t}, b, f, x}, Judge{i})
 
+# a settled turn: a good one clears the failed turns, a failed one counts
+# one more; either way the check or the next iteration follows, inside
+# the bounds; a settled turn never pauses the loop
 def settled.out(out: Out, i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, c: Cond, b: String, f: Nat, x: Last, now: Nat, funded: Bool) -> St & Act:
   match out:
     case Ran{}:
       gate(c, i, l, d, b, 0n, x, now, funded)
     case Errored{}:
       gate(c, i, l, d, b, 1n+f, x, now, funded)
-    case Halted{}:
-      (St{Paused{}, i, l, d, c, "", f, x}, Rest{})
 
 def settled.mine(blocked: Bool, out: Out, i: Nat, l: Maybe<&2, Nat>, d: Maybe<&2, Nat>, c: Cond, b: String, f: Nat, x: Last, now: Nat, funded: Bool) -> St & Act:
   match blocked:

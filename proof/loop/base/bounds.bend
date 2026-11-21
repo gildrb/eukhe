@@ -355,8 +355,6 @@ def lb.ns_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: Na
               lb.ns_gate(c, i, l, d, b, 0n, x, now, fu, h0)
             case Lp.Errored{}:
               lb.ns_gate(c, i, l, d, b, 1n+f, x, now, fu, h1)
-            case Lp.Halted{}:
-              {==}
     case False{}:
       {==}
 
@@ -555,8 +553,6 @@ def lb.tied_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: 
               lb.tied_gate(c, i, l, d, b, 0n, x, now, fu)
             case Lp.Errored{}:
               lb.tied_gate(c, i, l, d, b, 1n+f, x, now, fu)
-            case Lp.Halted{}:
-              Unit{}
     case False{}:
       Unit{}
 
@@ -727,8 +723,6 @@ def lb.ends_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: 
               lb.ends_gate(c, i, l, d, b, 0n, x, now, fu)
             case Lp.Errored{}:
               lb.ends_gate(c, i, l, d, b, 1n+f, x, now, fu)
-            case Lp.Halted{}:
-              Unit{}
     case False{}:
       Unit{}
 
@@ -931,8 +925,6 @@ def lb.noop_settled(m: Bool, o: Lp.Out, c: Lp.Cond, k: Nat, i: Nat, l: Maybe<&2,
           lb.noop_gate_s(c, i, l, d, b, 0n, x, k, Lp.Ran{}, now, fu, lb.eq_not_succ(k, i, hm))
         case Lp.Errored{}:
           lb.noop_gate_s(c, i, l, d, b, 1n+f, x, k, Lp.Errored{}, now, fu, lb.eq_not_succ(k, i, hm))
-        case Lp.Halted{}:
-          {==}
     case False{}:
       %hm : {Lp.settled(_, Lp.Turn{}, i, l, d, c, b, f, x, o, False{}, now, fu) == (Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Rest{}) : Lp.St & Lp.Act}
       {==}
@@ -1331,8 +1323,6 @@ def lb.kept_settled(m: Bool, bl: Bool, o: Lp.Out, c: Lp.Cond, -p: Lp.Phase, -i: 
               lb.kept_gate(c, i, l, d, b, 0n, x, now, fu)
             case Lp.Errored{}:
               lb.kept_gate(c, i, l, d, b, 1n+f, x, now, fu)
-            case Lp.Halted{}:
-              {==}
     case False{}:
       {==}
 
