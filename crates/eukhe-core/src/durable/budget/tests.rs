@@ -2235,3 +2235,100 @@ fn a_notice_shows_what_is_left_in_each_limited_dimension() {
         )
     );
 }
+
+/// B21: what the budget says at a reached limit (the wrap-up and plan
+/// notices, the refused and stopped request and tool call, the floor
+/// errors) asks nothing and sends nobody to add budget: the run ends with
+/// its report, never waiting on the principal.
+#[test]
+fn a_reached_limit_says_what_ended_the_work_and_asks_nothing() {
+    let report = BudgetReport {
+        limits: tokens(100_000),
+        free: BudgetAmounts {
+            tokens: 3_000,
+            ..BudgetAmounts::default()
+        },
+        ..BudgetReport::default()
+    };
+    let plan = eukhe_types::budget::PlanShare {
+        reserve_percent: 20,
+        windows: vec![eukhe_types::quota::QuotaWindow {
+            label: "5h".to_owned(),
+            window_minutes: Some(300),
+            used_permille: 810,
+            resets_at_ms: None,
+        }],
+        wrapped_by: 0,
+    };
+    let least = |dimension| BudgetAmounts::default().with(dimension, 1);
+    let texts = [
+        notices::wrap_up_text("tokens", &report, 2_048),
+        notices::plan_wrap_text(&plan, 2_048),
+        notices::request_refused("tokens"),
+        notices::tool_refused("tool calls"),
+        notices::REQUEST_STOPPED.to_owned(),
+        notices::TOOL_STOPPED.to_owned(),
+        notices::floor_text(
+            BudgetDimension::Tokens,
+            &tokens(9_000),
+            least(BudgetDimension::Tokens),
+            least(BudgetDimension::Tokens),
+        ),
+        super::BelowFloor {
+            dimension: BudgetDimension::Requests,
+            limit: 1,
+            source: LimitSource::Set,
+            request: 1,
+            keep: 1,
+        }
+        .to_string(),
+    ];
+    let asking: Vec<&String> = texts
+        .iter()
+        .filter(|text| {
+            let lower = text.to_lowercase();
+            ["?", "add budget", "/budget", "raise", "continue"]
+                .iter()
+                .any(|word| lower.contains(word))
+        })
+        .collect();
+    assert_eq!(asking, Vec::<&String>::new());
+    assert!(
+        texts[0].contains("what is done, what is left, and that the tokens limit ended the work")
+    );
+    assert!(texts[1]
+        .contains("what is done, what is left, and that the plan's 5h window ended the work"));
+}
+
+/// B22: a call of `bash` or `python` runs a program and the run counts it
+/// (a lower bound: a program another tool starts is not counted); any
+/// other tool call is no program run.
+#[tokio::test]
+async fn a_run_counts_the_tool_calls_that_run_a_program() {
+    let fixture = Fixture::new();
+    fixture.gate.set(tokens(100_000)).unwrap();
+    let mut outcomes = Vec::new();
+    for name in ["bash", "read", "python"] {
+        outcomes.push(
+            fixture
+                .gate
+                .gated_call(
+                    super::tools::tool_label(name),
+                    BACKGROUND_CONTEXT.clone(),
+                    |_cx| async { "ran" },
+                )
+                .await,
+        );
+    }
+    assert_eq!(
+        (outcomes, fixture.gate.report().unwrap().program_runs),
+        (
+            vec![
+                ToolOutcome::Ran("ran"),
+                ToolOutcome::Ran("ran"),
+                ToolOutcome::Ran("ran")
+            ],
+            2
+        )
+    );
+}
