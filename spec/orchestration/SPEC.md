@@ -64,7 +64,7 @@ bounded mailbox with returns.
 |Area|What it decides today|Where|
 |---|---|---|
 |provider admission|Per provider: at most `providerMaxInFlight` requests; FIFO per class; a background request only while no interactive one holds or waits; on a capped provider an interactive request preempts background holders; past `providerMaxQueued` (64) the next request fails at once.|`bend/admission.bend`, `laws/admission.bend` (`admission_capacity`, `admission_fifo`, `admission_no_lost_wakeup`, `admission_preempts`, `admission_every_ticket_ends`), `crates/eukhe-core/src/admission.rs`|
-|family|A spawn needs a reason, depth below `rlmMaxDepth`, the family's running subagents within `subagentMaxConcurrency` (32); a batch all or none; refusal order fixed.|`bend/family.bend`, `laws/family.bend` (R1)|
+|agent tree|An agent works alone or splits into exactly two children, each owning a scope; a running child holds its whole limit and a settled one charges its parent what its subtree spent.|`bend/agent_tree.bend`, `laws/agent_tree.bend` (R1)|
 |workflow|A run's concurrency semaphore, agent budget, resume cache; a failure spares siblings.|`bend/workflow.bend`, `laws/workflow/` (56)|
 |sub-model calls|`rlm.query` batches: budget, then concurrency cap, then waves covering every call once, in order.|`bend/rlm_query.bend` (R3)|
 |messages|An agent messages only its parent and its children; an admitted message is queued, taken or wakes a parked target, never dropped.|`bend/kin.bend`, `spec/agents/kin.bend` (A3)|
