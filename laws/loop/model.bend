@@ -7,6 +7,7 @@
 import Base
 import ../../bend/loop.bend as Lp
 import ../../spec/loop/loop.bend as S
+import ../base.bend as LawsBase
 
 # Requirements (spec/README.md L1-L9)
 # -----------------------------------
@@ -374,14 +375,30 @@ law loop_enter_arms:
   for off: {S.is_on(S.phase(s)) == False{} : Bool}
   {(S.does(s, Lp.Enter{lim, c, None{}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, None{}, now})), (S.cond(S.next(s, Lp.Enter{lim, c, None{}, now})), S.body(S.next(s, Lp.Enter{lim, c, None{}, now}))))) == (Lp.Rest{}, (Lp.Armed{}, (c, ""))) : Lp.Act & (Lp.Phase & (Lp.Cond & String))}
 
-# LAW loop_enter_sets_bounds (L1, L4): the loop `/loop` starts, when no
-# loop is on, has the bound that was typed: a count n leaves exactly n
+def lp_cut.at(ok: Bool, t: Nat) -> Maybe<&2, Nat>:
+  match ok:
+    case True{}:
+      Some{t}
+    case False{}:
+      None{}
+
+# the deadline t as the wire carries it: t when it fits the wire, else
+# none (past the wire's largest Nat, 10^14-1 ms, the year 5138, is no
+# practical deadline)
+def lp_cut(+t: Nat) -> Maybe<&2, Nat>:
+  lp_cut.at(LawsBase.wire_fits(t), t)
+
+# LAW loop_enter_sets_bounds (L1, L4, L10): the loop `/loop` starts, when
+# no loop is on, has the bound that was typed: a count n leaves exactly n
 # automatic iterations and no deadline; a span of ms milliseconds sets
-# the deadline ms after the clock of the start and no count; no bound
-# sets neither; with or without an inline prompt
+# the deadline ms after the clock of the start, and no count; a deadline
+# past the wire's largest Nat (10^14-1 ms, the year 5138) is none, so
+# that the state reads back (lp_cut); no bound sets neither; with or
+# without an inline prompt
 # EXCLUDES: `/loop 10m` running with no deadline, a count stored one off
 #   or not at all, the first turn spending an automatic iteration, the
-#   bound of an earlier loop kept
+#   bound of an earlier loop kept, a deadline past the wire that the entry
+#   then refuses to read, a deadline the wire carries dropped
 law loop_enter_sets_bounds:
   for +s: Lp.St
   for n: Nat
@@ -391,7 +408,7 @@ law loop_enter_sets_bounds:
   for now: Nat
   for off: {S.is_on(S.phase(s)) == False{} : Bool}
   {(S.left(S.next(s, Lp.Enter{Lp.Count{n}, c, pr, now})), S.deadline(S.next(s, Lp.Enter{Lp.Count{n}, c, pr, now}))) == (Some{n}, None{}) : Maybe<&2, Nat> & Maybe<&2, Nat>} &
-  {(S.left(S.next(s, Lp.Enter{Lp.Span{ms}, c, pr, now})), S.deadline(S.next(s, Lp.Enter{Lp.Span{ms}, c, pr, now}))) == (None{}, Some{Nat.add(now, ms)}) : Maybe<&2, Nat> & Maybe<&2, Nat>} &
+  {(S.left(S.next(s, Lp.Enter{Lp.Span{ms}, c, pr, now})), S.deadline(S.next(s, Lp.Enter{Lp.Span{ms}, c, pr, now}))) == (None{}, lp_cut(Nat.add(now, ms))) : Maybe<&2, Nat> & Maybe<&2, Nat>} &
   {(S.left(S.next(s, Lp.Enter{Lp.NoLimit{}, c, pr, now})), S.deadline(S.next(s, Lp.Enter{Lp.NoLimit{}, c, pr, now}))) == (None{}, None{}) : Maybe<&2, Nat> & Maybe<&2, Nat>}
 
 # LAW loop_enter_starts_fresh (L1, L6): the loop `/loop` starts, when no
