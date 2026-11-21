@@ -21,7 +21,7 @@
 #    that did not load warns once (theme_pick_broken_once); a valid file
 #    whose name an earlier valid file has clashes with the first of them
 #    (theme_pick_clashes_first). The resolver over candidates:
-#    theme_resolve_first, theme_resolve_missing, with hit pinned by
+#    theme_resolve_first, theme_resolve_missing, theme_resolve_empty, with hit pinned by
 #    theme_hit_found and theme_hit_witness. Anchors: theme_pick_example,
 #    theme_prefix_example, theme_builtin_before_custom_example,
 #    theme_old_name_example.
@@ -53,6 +53,13 @@ law theme_resolve_missing:
   for ne: {String.is_empty(n) == False{} : Bool}
   for miss: {TName.hit(src, n) == False{} : Bool}
   {TName.resolve.name(src, n) == TName.Res{TName.dflt(), True{}} : TName.Res}
+
+# LAW theme_resolve_empty (R5): the empty name resolves to the default theme, with no warning, whatever the candidates
+# EXCLUDES: the empty name warned, matched against a candidate named "",
+#   or resolved to another theme
+law theme_resolve_empty:
+  for src: List<&2, TName.Cand>
+  {TName.resolve.name(src, "") == TName.Res{TName.dflt(), False{}} : TName.Res}
 
 # a valid candidate named n splits src: the candidates before it, its
 # name and id, the candidates after it
