@@ -9,6 +9,7 @@ import ../bend/ffi_attack.bend as FA
 import ../bend/wire.bend as Wr
 import ../spec/verified/attack.bend as SA
 import ../spec/verified/attack_wire.bend as SAW
+import ./base.bend as LawsBase
 
 # (S8) Blind attackers: their survivors count like breaks
 # ---------------------------------------------------------------------
@@ -27,11 +28,29 @@ import ../spec/verified/attack_wire.bend as SAW
 #     with no attacks, done is certified exactly as bend/strength.bend
 #     says; a task with no strong check is certified only with two or
 #     more clean attacks; an unrun attack changes nothing.
-# A4: the outcome, certified, the label and the exit code are the rules
-#     spec/verified/attack.bend restates (B1-B4) on every input.
+# A4: certified, the label and the exit code are the rules
+#     spec/verified/attack.bend restates (B2-B4) on every input.
 # A5: the entry (bend/ffi_attack.bend) answers each request Rust writes
-#     with the model's decision, reads exactly the request and nothing
-#     after it, and answers any other input with the exact error form.
+#     with the model's decision; every input it does not answer with the
+#     error form is such a request read whole, and every error it answers
+#     is exactly "attack: malformed request".
+# The rest of S8 is Rust (crates/eukhe-core/src/durable/acceptance):
+# - the attacks shown and dropped: tests.rs
+#   a_blind_attack_that_survives_ends_not_certified (a survivor ends not
+#   certified, exit 3; a change of the checks drops the attacks),
+#   a_judge_only_task_with_two_clean_attacks_is_certified,
+#   an_attack_that_could_not_run_certifies_nothing; command.rs
+#   the_status_lists_the_blind_attacks (`/accept` lists them, an attack
+#   of an earlier state shown stale); e2e
+#   a_blind_attack_whose_lookup_table_passes_the_tests_ends_not_certified
+#   (crates/eukhe-cli/tests/mutation_gate_e2e.rs).
+# - the attacker's reply: strength/attack.rs
+#   an_attack_reads_from_the_first_json_object_of_the_reply.
+# - the scratch copies (never the user's workspace): strength/scratch.rs
+#   a_scratch_copy_holds_the_sources_and_the_dependencies_and_goes_away;
+#   the runs count against the run's limits through the session's
+#   BudgetGate, and at most MAX_ATTACKS (2) attackers run per claim
+#   (strength/attack.rs).
 
 # Spec helpers
 # ------------
@@ -80,6 +99,34 @@ def ap_is_clean(o: At.Outcome) -> Bool:
     case At.Unrun{}:
       False{}
 
+# no outcome is a survivor
+def ap_none_survived(os: List<&2, At.Outcome>) -> Bool:
+  match os:
+    case Nil{}:
+      True{}
+    case Con{o, t}:
+      match o:
+        case At.Survived{}:
+          False{}
+        case At.Clean{}:
+          ap_none_survived(t)
+        case At.Unrun{}:
+          ap_none_survived(t)
+
+# how many outcomes are clean
+def ap_clean_count(os: List<&2, At.Outcome>) -> Nat:
+  match os:
+    case Nil{}:
+      0n
+    case Con{o, t}:
+      match o:
+        case At.Survived{}:
+          ap_clean_count(t)
+        case At.Clean{}:
+          1n+ap_clean_count(t)
+        case At.Unrun{}:
+          ap_clean_count(t)
+
 # Laws: the outcome of one attack (A1)
 # ------------------------------------
 
@@ -121,24 +168,6 @@ law attack_clean_iff:
   for +differs: Bool
   for +agrees: Maybe<&2, Bool>
   {ap_is_clean(At.outcome(At.Run{ran, passes, differs, agrees})) == Bool.and(ran, Bool.or(Bool.not(passes), Bool.or(Bool.not(differs), ap_rejected(agrees)))) : Bool}
-
-# LAW attack_unrun_never_clean (A1): an attack that did not run is never
-# clean
-# EXCLUDES: an attacker cut off by the budget counted toward the two
-#   clean attacks a judge-only task needs
-law attack_unrun_never_clean:
-  for passes: Bool
-  for differs: Bool
-  for agrees: Maybe<&2, Bool>
-  {At.outcome(At.Run{False{}, passes, differs, agrees}) == At.Unrun{} : At.Outcome}
-
-# LAW attack_failing_a_check_clean (A1): wrong code that fails a check is
-# a clean attack whatever its witness and the judge say
-# EXCLUDES: the checks caught the wrong code, yet the attack blocks done
-law attack_failing_a_check_clean:
-  for differs: Bool
-  for agrees: Maybe<&2, Bool>
-  {At.outcome(At.Run{True{}, False{}, differs, agrees}) == At.Clean{} : At.Outcome}
 
 # Laws: certified (A2, A3)
 # ------------------------
@@ -183,17 +212,21 @@ law attack_unrun_changes_nothing:
   for +post: List<&2, At.Outcome>
   {At.certified(now, gs, List.append(&2, At.Outcome, pre, At.Unrun{} <> post)) == At.certified(now, gs, List.append(&2, At.Outcome, pre, post)) : Bool}
 
-# LAW attack_judge_only_needs_two_clean (A3): with no strong check and
-# none weak or unshown (judges, the intent check, waived checks), done is
-# certified exactly when no attack survived and two or more ran clean
-# EXCLUDES: a judge-only task certified on one clean attack, or on none
-law attack_judge_only_needs_two_clean:
+# LAW attack_judge_only_counts_clean (A3, A1): with no strong check and
+# none weak or unshown, done is certified exactly when no outcome is a
+# survivor and two or more outcomes are clean, each outcome counted by
+# what it is
+# EXCLUDES: an unrun attack, or a survivor, counted among the two clean
+#   ones; [Unrun, Unrun] or [Clean, Unrun] certifying a judge-only task;
+#   a clean attack counted twice; a survivor after two clean attacks
+#   overlooked
+law attack_judge_only_counts_clean:
   for +now: Nat
   for +gs: List<&2, St.Gauge>
   for +os: List<&2, At.Outcome>
   for none: {S.strongs(now, gs) == 0n : Nat}
   for clear: {St.clear(now, gs) == True{} : Bool}
-  {At.certified(now, gs, os) == Bool.and(Bool.not(At.survived(os)), Nat.is_le(2n, At.cleans(os))) : Bool}
+  {At.certified(now, gs, os) == Bool.and(ap_none_survived(os), Nat.is_le(2n, ap_clean_count(os))) : Bool}
 
 # Laws: the label and the exit (A2, A3)
 # -------------------------------------
@@ -245,14 +278,6 @@ law attack_exit_survivor_never_zero:
 
 # Laws: the model is the spec (A4)
 # --------------------------------
-
-# LAW attack_outcome_is_spec (A4, A1): the outcome of every attack is the
-# spec's (B1)
-# EXCLUDES: a judge's missing verdict read as clean or as a survivor; a
-#   witness that shows nothing counted as a survivor
-law attack_outcome_is_spec:
-  for +r: At.Run
-  {At.outcome(r) == SA.outcome(r) : At.Outcome}
 
 # LAW attack_certified_is_spec (A4, A2, A3): done is certified with every
 # set of outcomes exactly as the spec says (B2)
@@ -317,32 +342,31 @@ law attack_entry_answers:
   {FA.ffi(SAW.w_req(q, "")) == SAW.w_reply(q) : String}
 
 # LAW attack_entry_reads (A5): the laws' reader reads every spelled request
-# that fits the wire back whole, so attack_entry_malformed_exact refuses
-# no request Rust spells
+# that fits the wire back whole
 # EXCLUDES: a reader that refuses everything
 law attack_entry_reads:
   for +q: FA.Req
   for fit: {SAW.fit_req(q) == True{} : Bool}
   {SAW.read(SAW.w_req(q, "")) == Some{q} : Maybe<&2, FA.Req>}
 
-# LAW attack_entry_read_answers (A5): every input the laws' reader reads
-# as exactly one request is answered with the model's decision on that
-# request
-# EXCLUDES: an input decoded into another request than the reader's
-law attack_entry_read_answers:
+# LAW attack_entry_exact (A5): every input the entry does not answer with
+# the error form is a spelled request that fits the wire
+# EXCLUDES: a decision answered on input that is no request (an unknown
+#   tag, outcome, bar, mark, verdict or label read as a known one, a
+#   list cut short, a missing field, a number past the wire, input left
+#   over)
+law attack_entry_exact:
   for +s: String
-  for +q: FA.Req
-  for got: {SAW.read(s) == Some{q} : Maybe<&2, FA.Req>}
-  {FA.ffi(s) == SAW.w_reply(q) : String}
+  for ok: {LawsBase.wire_opens_err(FA.ffi(s)) == False{} : Bool}
+  exs q: FA.Req
+  {s == SAW.w_req(q, "") : String} & {SAW.fit_req(q) == True{} : Bool}
 
-# LAW attack_entry_malformed_exact (A5): every input that is not exactly
-# one request gets exactly the error form 'E ', then "attack: malformed
-# request"
-# EXCLUDES: a decision answered for input that is no request, another
-#   error text, a default
-law attack_entry_malformed_exact:
+# LAW attack_entry_refuses (A5): for every input whose answer opens with
+# 'E' (an error), the answer is exactly `E attack: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law attack_entry_refuses:
   for +s: String
-  for no: {SAW.read(s) == None{} : Maybe<&2, FA.Req>}
+  for bad: {LawsBase.wire_opens_err(FA.ffi(s)) == True{} : Bool}
   {FA.ffi(s) == Wr.err("attack: malformed request") : String}
 
 # LAW attack_entry_leftover_refused (A5): a request Rust spells followed

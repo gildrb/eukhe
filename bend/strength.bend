@@ -119,10 +119,20 @@ def strength.mark(pct: Nat, now: Nat, m: Mark) -> Strength:
     case Measured{caught, ran, planned, at}:
       strength.on(Nat.is_eq(at, now), pct, caught, ran, planned)
 
+# the strength of a gauged check whose owner asks a share of `pct`
+# percent: a share of 0 asks nothing, so the check is waived (free)
+def strength.needs(pct: Nat, now: Nat, m: Mark) -> Strength:
+  match pct:
+    case 0n:
+      Free{}
+    case 1n+p:
+      strength.mark(1n+p, now, m)
+
 # the strength of a check on the state `now`: a gauged check is strong
 # when its mark, taken on `now` and not cut short, ran at least one break
 # and caught at least its share; weak when it caught less, or nothing was
-# there to break; unshown without a whole mark on `now`
+# there to break; unshown without a whole mark on `now`; a judge, the
+# intent check and a check whose share is waived (or 0) are free
 def strength(now: Nat, g: Gauge) -> Strength:
   match g:
     case Gauge{b, m}:
@@ -132,7 +142,7 @@ def strength(now: Nat, g: Gauge) -> Strength:
         case Waived{}:
           Free{}
         case Needs{pct}:
-          strength.mark(pct, now, m)
+          strength.needs(pct, now, m)
 
 def is_strong(s: Strength) -> Bool:
   match s:
@@ -228,7 +238,7 @@ def label(+l: V.Label, now: Nat, gs: List<&2, Gauge>) -> Label:
 # The verifier's step
 # -------------------
 
-# the check is gauged and has no mark taken on `now`
+# the check is gauged (a share above 0) and has no mark taken on `now`
 def unmeasured(now: Nat, g: Gauge) -> Bool:
   match g:
     case Gauge{b, m}:
@@ -238,11 +248,15 @@ def unmeasured(now: Nat, g: Gauge) -> Bool:
         case Waived{}:
           False{}
         case Needs{pct}:
-          match m:
-            case Unmeasured{}:
-              True{}
-            case Measured{caught, ran, planned, at}:
-              Bool.not(Nat.is_eq(at, now))
+          match pct:
+            case 0n:
+              False{}
+            case 1n+p:
+              match m:
+                case Unmeasured{}:
+                  True{}
+                case Measured{caught, ran, planned, at}:
+                  Bool.not(Nat.is_eq(at, now))
 
 def due.pick(open: Bool, i: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match open:

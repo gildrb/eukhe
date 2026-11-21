@@ -1,14 +1,9 @@
 # verified (spec): what the laws of area attack (laws/attack.bend) speak
-# of, over the types of bend/attack.bend: the outcome of one blind attack
-# and when done is certified with the attacks' outcomes. A spec: the
-# shipped code never calls it.
+# of, over the types of bend/attack.bend: when done is certified with the
+# attacks' outcomes, the label and the exit. A spec: the shipped code
+# never calls it. The outcome of one attack (B1) is stated outcome by
+# outcome by the laws of A1 in laws/attack.bend.
 #
-# B1: an attack that did not run is unrun. One that ran is clean when its
-#     wrong code failed a gauged check, or the witness's output on it is
-#     the required output; else (the code passed every gauged check and
-#     the witness shows it wrong) it survives when the judge agrees the
-#     required output is what the task asks, is clean when the judge
-#     rejects it, and is unrun when the judge gave no verdict.
 # B2: done is certified on a state with some outcomes exactly when no
 #     attack survived, no check is weak or unshown on that state
 #     (spec/verified/strength.bend K2), and either at least one check is
@@ -25,32 +20,6 @@ import ../../bend/strength.bend as St
 import ../../bend/attack.bend as At
 import ./verify.bend as SV
 import ./strength.bend as S
-
-# B1: the outcome of one attack
-def outcome(r: At.Run) -> At.Outcome:
-  match r:
-    case At.Run{ran, passes, differs, agrees}:
-      match ran:
-        case False{}:
-          At.Unrun{}
-        case True{}:
-          match passes:
-            case False{}:
-              At.Clean{}
-            case True{}:
-              match differs:
-                case False{}:
-                  At.Clean{}
-                case True{}:
-                  match agrees:
-                    case None{}:
-                      At.Unrun{}
-                    case Some{yes}:
-                      match yes:
-                        case True{}:
-                          At.Survived{}
-                        case False{}:
-                          At.Clean{}
 
 # B2: the outcome is a survivor
 def survives(o: At.Outcome) -> Bool:

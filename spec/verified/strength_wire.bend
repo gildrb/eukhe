@@ -117,7 +117,7 @@ def w_recorded(r: Bool & List<&2, St.Gauge>) -> String:
 # The decisions are the model's (bend/strength.bend), each pinned by the
 # laws of laws/strength.bend: settle by the laws of K4, label by
 # strength_label_is_spec, exit by strength_exit_is_spec, record by the
-# laws of K5, strength by strength_grade_is_spec.
+# laws of K5, strength by the laws of K1.
 def w_reply(q: FS.Req) -> String:
   match q:
     case FS.QSettle{l, now, gs}:

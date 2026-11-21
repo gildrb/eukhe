@@ -1,10 +1,10 @@
 # eukhe: lemmas of the proofs of area attack on the model
-# (bend/attack.bend): the outcome is the spec's (am.outcome), the folds of
-# certified are the spec's counts (am.unsurvived, am.cleans,
-# am.certified), a survivor anywhere is seen (am.survived_around), an
-# unrun outcome anywhere changes no fold (am.survived_unrun,
-# am.cleans_unrun), no outcome leaves bend/strength.bend's certified
-# (am.cert_none), and the label and the exit code by cases
+# (bend/attack.bend): the folds of certified are the spec's counts
+# (am.unsurvived, am.cleans, am.certified), a survivor anywhere is seen
+# (am.survived_around), an unrun outcome anywhere changes no fold
+# (am.survived_unrun, am.cleans_unrun), no outcome leaves
+# bend/strength.bend's certified (am.cert_none), and the label and the
+# exit code by cases
 
 import Base
 import ../../../bend/verify.bend as V
@@ -189,34 +189,8 @@ def am.certified(+now: Nat, +gs: List<&2, St.Gauge>, +os: List<&2, At.Outcome>) 
   %am.cleans(os) : {At.certified(now, gs, os) == Bool.and(Bool.not(At.survived(os)), Bool.and(St.clear(now, gs), Bool.or(St.shown(now, gs), Nat.is_le(2n, _)))) : Bool}
   am.cert_bool(Bool.not(At.survived(os)), St.shown(now, gs), St.clear(now, gs), Nat.is_le(2n, At.cleans(os)))
 
-# The outcome, the label and the exit code
-# ----------------------------------------
-
-# the model's outcome is the spec's
-def am.outcome(r: At.Run) -> {At.outcome(r) == SA.outcome(r) : At.Outcome}:
-  match r:
-    case At.Run{ran, passes, differs, agrees}:
-      match ran:
-        case True{}:
-          match passes:
-            case True{}:
-              match differs:
-                case True{}:
-                  match agrees:
-                    case None{}:
-                      {==}
-                    case Some{yes}:
-                      match yes:
-                        case True{}:
-                          {==}
-                        case False{}:
-                          {==}
-                case False{}:
-                  {==}
-            case False{}:
-              {==}
-        case False{}:
-          {==}
+# The label and the exit code
+# ---------------------------
 
 # the model's label is the spec's
 def am.label(+l: V.Label, +now: Nat, +gs: List<&2, St.Gauge>, +os: List<&2, At.Outcome>) -> {At.label(l, now, gs, os) == SA.label(l, now, gs, os) : St.Label}:

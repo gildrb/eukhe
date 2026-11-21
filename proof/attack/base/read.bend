@@ -2,10 +2,7 @@
 # reads every input as the laws' reader does (ar.outcome_tag to ar.req:
 # stage by stage; the outcomes by their item loop, ar.list_go; verify's
 # label and the gauges as the strength entry's, LSR.sr.vlabel,
-# LSR.sr.gauges; the slots as the verify entry's, LVR.vr.slots), and what
-# the entry answers on what that reader read: its answer to the request
-# read whole (ar.got_some), its error form where no request is read whole
-# (ar.got_none)
+# LSR.sr.gauges; the slots as the verify entry's, LVR.vr.slots)
 
 import Base
 import ../../../bend/verify.bend as V
@@ -207,72 +204,5 @@ def ar.req(d: Wr.Dec<Nat>) -> {FA.get_req(d) == SAW.r_req(d) : Wr.Dec<FA.Req>}:
           ar.exit(Wr.get_nat(s))
         case 3n+u:
           {==}
-    case Wr.Bad{}:
-      {==}
-
-# The entry on what the reader read
-# ---------------------------------
-
-def ar.MS(m: Maybe<&2, FA.Req>, G: Type) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      G
-
-def ar.none_some(-q: FA.Req, -G: Type, e: {None{} == Some{q} : Maybe<&2, FA.Req>}) -> G:
-  %e : ar.MS(_, G)
-  Unit{}
-
-def ar.MN(m: Maybe<&2, FA.Req>, G: Type) -> Type:
-  match m:
-    case None{}:
-      G
-    case Some{x}:
-      Unit
-
-def ar.some_none(-q: FA.Req, -G: Type, e: {Some{q} == None{} : Maybe<&2, FA.Req>}) -> G:
-  %e : ar.MN(_, G)
-  Unit{}
-
-def ar.val(d: FA.Req, m: Maybe<&2, FA.Req>) -> FA.Req:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
-
-# Some is one to one
-def ar.some(+p: FA.Req, +q: FA.Req, e: {Some{p} == Some{q} : Maybe<&2, FA.Req>}) -> {q == p : FA.Req}:
-  Equal.sym(FA.Req, p, q, Equal.cong(Maybe<&2, FA.Req>, FA.Req, m => ar.val(p, m), Some{p}, Some{q}, e))
-
-def ar.end_some(b: Bool, +q: FA.Req, +p: FA.Req, got: {SAW.r_whole.end(b, p) == Some{q} : Maybe<&2, FA.Req>}) -> {FA.ffi.done(p, b) == FA.answer(q) : String}:
-  match b:
-    case True{}:
-      %ar.some(p, q, got) : {FA.answer(_) == FA.answer(q) : String}
-      {==}
-    case False{}:
-      ar.none_some(q, {FA.ffi.done(p, False{}) == FA.answer(q) : String}, got)
-
-# where the reader finds the whole request q, the entry answers q
-def ar.got_some(r: Wr.Dec<FA.Req>, +q: FA.Req, got: {SAW.r_whole(r) == Some{q} : Maybe<&2, FA.Req>}) -> {FA.ffi.got(r) == FA.answer(q) : String}:
-  match r:
-    case Wr.Got{p, +s}:
-      ar.end_some(Wr.end(s), q, p, got)
-    case Wr.Bad{}:
-      ar.none_some(q, {Wr.err("attack: malformed request") == FA.answer(q) : String}, got)
-
-def ar.end_none(b: Bool, -q: FA.Req, no: {SAW.r_whole.end(b, q) == None{} : Maybe<&2, FA.Req>}) -> {FA.ffi.done(q, b) == Wr.err("attack: malformed request") : String}:
-  match b:
-    case True{}:
-      ar.some_none(q, {FA.answer(q) == Wr.err("attack: malformed request") : String}, no)
-    case False{}:
-      {==}
-
-# where the reader finds no whole request, the entry answers its error form
-def ar.got_none(r: Wr.Dec<FA.Req>, no: {SAW.r_whole(r) == None{} : Maybe<&2, FA.Req>}) -> {FA.ffi.got(r) == Wr.err("attack: malformed request") : String}:
-  match r:
-    case Wr.Got{q, +s}:
-      ar.end_none(Wr.end(s), q, no)
     case Wr.Bad{}:
       {==}

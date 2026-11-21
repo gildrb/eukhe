@@ -67,8 +67,9 @@ def w_req(q: FA.Req, rest: String) -> String:
 # the reply to a request: the model's decision, spelled as Rust reads it
 # (the label as the strength entry spells it). The decisions are the
 # model's (bend/attack.bend), each pinned by the laws of laws/attack.bend:
-# outcome by attack_outcome_is_spec, label by attack_label_is_spec, exit
-# by attack_exit_is_spec.
+# outcome by the laws of A1 (attack_survives_iff, attack_unrun_iff,
+# attack_clean_iff), label by attack_label_is_spec, exit by
+# attack_exit_is_spec.
 def w_reply(q: FA.Req) -> String:
   match q:
     case FA.QOutcome{r}:

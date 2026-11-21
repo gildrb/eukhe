@@ -154,13 +154,6 @@ def sg.absurd_t(-A: Type, e: {True{} == False{} : Bool}) -> A:
   %e : sg.BD(_, Unit, A)
   Unit{}
 
-def sg.le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+p:
-      sg.le_refl(p)
-
 # a number below another is not at least it
 def sg.lt_not_le(a: Nat, b: Nat, e: {Nat.is_lt(a, b) == True{} : Bool}) -> {False{} == Nat.is_le(b, a) : Bool}:
   match a b:
@@ -230,19 +223,32 @@ def sg.strength(+now: Nat, g: St.Gauge) -> {St.strength(now, g) == S.strength(no
         case St.Waived{}:
           {==}
         case St.Needs{pct}:
-          match m:
-            case St.Unmeasured{}:
+          match pct:
+            case 0n:
               {==}
-            case St.Measured{c, r, p, at}:
-              sg.on(Nat.is_eq(at, now), pct, c, r, p)
+            case 1n+q:
+              match m:
+                case St.Unmeasured{}:
+                  {==}
+                case St.Measured{c, r, p, at}:
+                  sg.on(Nat.is_eq(at, now), 1n+q, c, r, p)
 
 # a whole measurement on the state now with breaks run whose catch is short
-# of the share is weak
-def sg.weak(-pct: Nat, -c: Nat, -n: Nat, -p: Nat, +now: Nat, whole: {Nat.is_le(p, n) == True{} : Bool}, ran: {Nat.is_eq(n, 0n) == False{} : Bool}, short: {Nat.is_le(Nat.mul(pct, n), Nat.mul(100n, c)) == False{} : Bool}) -> {St.strength(now, St.Gauge{St.Needs{pct}, St.Measured{c, n, p, now}}) == St.Weak{} : St.Strength}:
-  %sv.eq_refl(now) : {St.strength.on(_, pct, c, n, p) == St.Weak{} : St.Strength}
-  %Equal.sym(Bool, Nat.is_le(p, n), True{}, whole) : {St.strength.full(_, pct, c, n) == St.Weak{} : St.Strength}
-  %Equal.sym(Bool, Nat.is_eq(n, 0n), False{}, ran) : {St.strength.ran(Bool.not(_), pct, c, n) == St.Weak{} : St.Strength}
-  %Equal.sym(Bool, Nat.is_le(Nat.mul(pct, n), Nat.mul(100n, c)), False{}, short) : {St.strength.caught(_) == St.Weak{} : St.Strength}
+# of the share (1 percent or more) is weak
+def sg.weak(-pct: Nat, -c: Nat, -n: Nat, -p: Nat, +now: Nat, whole: {Nat.is_le(p, n) == True{} : Bool}, ran: {Nat.is_eq(n, 0n) == False{} : Bool}, short: {Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)) == False{} : Bool}) -> {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, now}}) == St.Weak{} : St.Strength}:
+  %sv.eq_refl(now) : {St.strength.on(_, 1n+pct, c, n, p) == St.Weak{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_le(p, n), True{}, whole) : {St.strength.full(_, 1n+pct, c, n) == St.Weak{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_eq(n, 0n), False{}, ran) : {St.strength.ran(Bool.not(_), 1n+pct, c, n) == St.Weak{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)), False{}, short) : {St.strength.caught(_) == St.Weak{} : St.Strength}
+  {==}
+
+# a whole measurement on the state now with breaks run whose catch meets the
+# share (1 percent or more) is strong
+def sg.strong(-pct: Nat, -c: Nat, -n: Nat, -p: Nat, +now: Nat, whole: {Nat.is_le(p, n) == True{} : Bool}, ran: {Nat.is_eq(n, 0n) == False{} : Bool}, met: {Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)) == True{} : Bool}) -> {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, now}}) == St.Strong{} : St.Strength}:
+  %sv.eq_refl(now) : {St.strength.on(_, 1n+pct, c, n, p) == St.Strong{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_le(p, n), True{}, whole) : {St.strength.full(_, 1n+pct, c, n) == St.Strong{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_eq(n, 0n), False{}, ran) : {St.strength.ran(Bool.not(_), 1n+pct, c, n) == St.Strong{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)), True{}, met) : {St.strength.caught(_) == St.Strong{} : St.Strength}
   {==}
 
 # Certified (K2)
@@ -388,11 +394,15 @@ def sg.unm(+now: Nat, g: St.Gauge) -> {S.due_here(now, g) == St.unmeasured(now, 
         case St.Waived{}:
           {==}
         case St.Needs{pct}:
-          match m:
-            case St.Unmeasured{}:
+          match pct:
+            case 0n:
               {==}
-            case St.Measured{c, r, p, at}:
-              {==}
+            case 1n+q:
+              match m:
+                case St.Unmeasured{}:
+                  {==}
+                case St.Measured{c, r, p, at}:
+                  {==}
 
 # Some n when b
 def sg.opt(b: Bool, n: Nat) -> Maybe<&2, Nat>:

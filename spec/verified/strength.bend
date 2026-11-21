@@ -11,7 +11,8 @@
 #     ran on that state and it caught less, or none was there to run;
 #     unshown otherwise (never measured, measured on another state, cut
 #     short). A judge, the intent check and a check whose owner waived
-#     its share are free: they neither show nor block.
+#     its share (`--strength 0`: a share of 0) are free: they neither
+#     show nor block.
 # K2: done is certified on a state exactly when at least one check is
 #     strong on it and none is weak or unshown.
 # K3: the label of a result whose checks all passed (verify's verified or
@@ -65,11 +66,15 @@ def strength(+now: Nat, g: St.Gauge) -> St.Strength:
         case St.Waived{}:
           St.Free{}
         case St.Needs{pct}:
-          match m:
-            case St.Unmeasured{}:
-              St.Unshown{}
-            case St.Measured{c, +r, p, at}:
-              grade(Bool.and(Nat.is_eq(at, now), Nat.is_le(p, r)), Nat.is_eq(r, 0n), Nat.is_le(Nat.mul(pct, r), Nat.mul(100n, c)))
+          match pct:
+            case 0n:
+              St.Free{}
+            case 1n+q:
+              match m:
+                case St.Unmeasured{}:
+                  St.Unshown{}
+                case St.Measured{c, +r, p, at}:
+                  grade(Bool.and(Nat.is_eq(at, now), Nat.is_le(p, r)), Nat.is_eq(r, 0n), Nat.is_le(Nat.mul(1n+q, r), Nat.mul(100n, c)))
 
 # 1 for true, 0 for false
 def bit(b: Bool) -> Nat:
@@ -142,7 +147,8 @@ def label(l: V.Label, +now: Nat, +gs: List<&2, St.Gauge>) -> St.Label:
     case V.Passed{}:
       label.ok(certified(now, gs), St.Passed{})
 
-# K4: the check is gauged and its mark was not taken on the state now
+# K4: the check is gauged (a share above 0) and its mark was not taken on
+# the state now
 def due_here(+now: Nat, g: St.Gauge) -> Bool:
   match g:
     case St.Gauge{b, m}:
@@ -152,11 +158,15 @@ def due_here(+now: Nat, g: St.Gauge) -> Bool:
         case St.Waived{}:
           False{}
         case St.Needs{pct}:
-          match m:
-            case St.Unmeasured{}:
-              True{}
-            case St.Measured{c, r, p, at}:
-              Bool.not(Nat.is_eq(at, now))
+          match pct:
+            case 0n:
+              False{}
+            case 1n+q:
+              match m:
+                case St.Unmeasured{}:
+                  True{}
+                case St.Measured{c, r, p, at}:
+                  Bool.not(Nat.is_eq(at, now))
 
 def lead.step(here: Bool, rest: Nat) -> Nat:
   match here:

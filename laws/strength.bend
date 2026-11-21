@@ -30,7 +30,7 @@ import ./base.bend as LawsBase
 #     ran, one or more ran, and it caught at least its share of them;
 #     weak when it caught less or nothing was there to break; unshown
 #     with no whole mark on that state. A judge, the intent check and a
-#     waived check are free.
+#     waived check (`--strength 0`: a share of 0) are free.
 # R2 (S2): done is certified exactly when some check is strong and none
 #     is weak or unshown: a trivial check (`true`, a test that asserts
 #     nothing) catches no break and keeps done from being certified, and
@@ -51,8 +51,34 @@ import ./base.bend as LawsBase
 #     is not certified exits 3, the code of an unjudged answer
 #     (bend/headless_task.bend), instead of 0; a nonzero own code is kept.
 # R7: the entry answers each request Rust writes with the model's
-#     decision, reads exactly the request and nothing after it, and
-#     answers any other input with the exact error form.
+#     decision; every input it does not answer with the error form is
+#     such a request read whole, and every error it answers is exactly
+#     "strength: malformed request".
+# The rest of S3-S7 is Rust, tested there (crates/eukhe-core/src/durable
+# unless named):
+# - S3, the texts of the label, the `/accept` status and the verdict row
+#   with each check's strength: acceptance/tests.rs
+#   a_claim_whose_checks_pass_on_the_final_state_is_verified,
+#   a_passing_check_that_catches_no_break_ends_not_certified.
+# - S4, the breaks and the scratch copies: acceptance/strength/mod.rs
+#   the_check_s_files_are_never_broken,
+#   a_break_replaces_its_line_and_keeps_the_endings,
+#   a_break_runs_at_most_the_check_s_limit; strength/mutants.rs
+#   each_language_breaks_its_code_and_never_its_strings_or_comments,
+#   a_sample_takes_one_break_of_each_line_in_turn; strength/scratch.rs
+#   a_scratch_copy_holds_the_sources_and_the_dependencies_and_goes_away;
+#   strength/changes.rs a_diff_gives_the_new_lines_of_each_changed_file,
+#   the_task_s_lines_are_those_since_the_baseline_and_the_untracked_files.
+# - S5, a write to a file a check protects refused: path_policy/tests.rs
+#   a_write_to_a_file_a_check_protects_is_refused.
+# - S6, the headless stderr and exit code end to end:
+#   crates/eukhe-cli/tests/mutation_gate_e2e.rs
+#   a_check_that_catches_nothing_is_weak_and_exits_three,
+#   a_real_test_that_catches_the_breaks_certifies_done,
+#   a_lookup_table_of_the_tested_inputs_never_ends_done.
+# - S7, `/accept bend`: acceptance/command.rs
+#   the_bend_check_runs_the_proofs_and_protects_every_law_and_the_lock;
+#   mutation_gate_e2e.rs a_write_to_a_law_file_under_accept_bend_is_refused.
 
 # helpers of the laws
 # -------------------
@@ -64,33 +90,67 @@ def sp_around(pre: List<&2, St.Gauge>, g: St.Gauge, post: List<&2, St.Gauge>) ->
 # Laws: the strength of one check (R1)
 # ------------------------------------
 
-# LAW strength_grade_is_spec (R1): the strength of every check on every
-# state is the spec's (spec/verified/strength.bend K1)
-# EXCLUDES: a mark of an earlier state counted, a measurement cut short
-#   read as strong, a share computed the other way round, a judge or a
-#   waived check read as strong or weak
-law strength_grade_is_spec:
+# LAW strength_share_met_strong (R1): a whole measurement on the state
+# now (every planned break ran) that ran one or more breaks and caught
+# at least the owner's share of them (caught / ran >= pct / 100, the
+# share 1 percent or more) is strong
+# EXCLUDES: a check that catches 20 of 24 breaks under an 80 percent bar
+#   reported weak; a share read the other way round (ran over caught); a
+#   check that catches exactly its share read as short of it; a good
+#   check never shown strong, so no claim is ever certified
+law strength_share_met_strong:
+  for +pct: Nat
+  for +c: Nat
+  for +n: Nat
+  for +p: Nat
   for +now: Nat
-  for +g: St.Gauge
-  {St.strength(now, g) == S.strength(now, g) : St.Strength}
+  for whole: {Nat.is_le(p, n) == True{} : Bool}
+  for ran: {Nat.is_eq(n, 0n) == False{} : Bool}
+  for met: {Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)) == True{} : Bool}
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, now}}) == St.Strong{} : St.Strength}
 
-# LAW strength_catches_nothing_weak (R1, R2): a gauged check that let
-# every break of a whole measurement on the state now through (caught
-# none of one or more) is weak, whatever its share
-# EXCLUDES: `true`, or a test that asserts nothing, reported strong; a
-#   check with a share of 0 percent of the owner's bar read as met by
-#   nothing caught
-law strength_catches_nothing_weak:
+# LAW strength_nothing_to_break_weak (R1): a whole measurement on the
+# state now that planned and ran no break (nothing there to break) is
+# weak, whatever its share and its count
+# EXCLUDES: a check on code with nothing to break counted strong because
+#   0 of 0 meets any share; such a measurement read as never taken, so
+#   the verifier measures it again forever
+law strength_nothing_to_break_weak:
   for pct: Nat
+  for c: Nat
   for +now: Nat
-  for +k: Nat
-  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{0n, 1n+k, 1n+k, now}}) == St.Weak{} : St.Strength}
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, 0n, 0n, now}}) == St.Weak{} : St.Strength}
+
+# LAW strength_unmeasured_unshown (R1): a gauged check never measured
+# shows nothing
+# EXCLUDES: a check that only passed, never broken, counted strong or
+#   free
+law strength_unmeasured_unshown:
+  for pct: Nat
+  for now: Nat
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Unmeasured{}}) == St.Unshown{} : St.Strength}
+
+# LAW strength_ungauged_free (R1): a judge or the intent check (no code
+# to break) and a check whose owner waived its share (`--strength 0`,
+# however it is spelled: waived, or a share of 0) are free on every
+# state, whatever mark they carry
+# EXCLUDES: a judge read as weak or unshown because no break ran for it;
+#   a waived check keeping done from being certified; `true` under a
+#   share of 0 (0 of 12 caught meets 0 percent) shown strong and
+#   certifying done on its own; a stray mark on a judge read as strong
+law strength_ungauged_free:
+  for now: Nat
+  for m: St.Mark
+  {St.strength(now, St.Gauge{St.Exempt{}, m}) == St.Free{} : St.Strength} &
+  {St.strength(now, St.Gauge{St.Waived{}, m}) == St.Free{} : St.Strength} &
+  {St.strength(now, St.Gauge{St.Needs{0n}, m}) == St.Free{} : St.Strength}
 
 # LAW strength_short_of_share_weak (R1): a whole measurement on the state
 # now whose caught breaks are below the share of those run is weak
 # EXCLUDES: a check that catches 3 of 24 breaks under an 80 percent bar
-#   reported strong; a rounding that lets a check just under its share
-#   through
+#   reported strong; `true`, or a test that asserts nothing (none of one
+#   or more caught), reported strong; a rounding that lets a check just
+#   under its share through
 law strength_short_of_share_weak:
   for +pct: Nat
   for +c: Nat
@@ -99,8 +159,8 @@ law strength_short_of_share_weak:
   for +now: Nat
   for whole: {Nat.is_le(p, n) == True{} : Bool}
   for ran: {Nat.is_eq(n, 0n) == False{} : Bool}
-  for short: {Nat.is_le(Nat.mul(pct, n), Nat.mul(100n, c)) == False{} : Bool}
-  {St.strength(now, St.Gauge{St.Needs{pct}, St.Measured{c, n, p, now}}) == St.Weak{} : St.Strength}
+  for short: {Nat.is_le(Nat.mul(1n+pct, n), Nat.mul(100n, c)) == False{} : Bool}
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, now}}) == St.Weak{} : St.Strength}
 
 # LAW strength_stale_mark_unshown (R1): a mark taken on another state
 # shows nothing on the state now
@@ -114,7 +174,7 @@ law strength_stale_mark_unshown:
   for +at: Nat
   for +now: Nat
   for other: {Nat.is_eq(at, now) == False{} : Bool}
-  {St.strength(now, St.Gauge{St.Needs{pct}, St.Measured{c, n, p, at}}) == St.Unshown{} : St.Strength}
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, at}}) == St.Unshown{} : St.Strength}
 
 # LAW strength_cut_short_unshown (R1): a measurement that ran fewer
 # breaks than it planned (the budget or the time ran out) shows nothing
@@ -127,7 +187,7 @@ law strength_cut_short_unshown:
   for +p: Nat
   for +now: Nat
   for short: {Nat.is_lt(n, p) == True{} : Bool}
-  {St.strength(now, St.Gauge{St.Needs{pct}, St.Measured{c, n, p, now}}) == St.Unshown{} : St.Strength}
+  {St.strength(now, St.Gauge{St.Needs{1n+pct}, St.Measured{c, n, p, now}}) == St.Unshown{} : St.Strength}
 
 # Laws: certified (R2)
 # --------------------
@@ -333,10 +393,11 @@ law strength_exit_keeps_code:
 # 3); a mark of state 6 is unshown on state 7; a measurement that ran 3
 # of 24 is unshown; a passed claim with an unmeasured check measures it;
 # a failed claim ends failed at once; a judge-only task is not certified;
-# a waived check next to a strong one certifies
+# a waived check next to a strong one certifies; `true` catching 0 of 12
+# under a share of 0 is free
 # EXCLUDES: another decision for these facts
 law strength_example:
-  {[St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{23n, 24n, 24n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{0n, 12n, 12n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{24n, 24n, 24n, 6n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{3n, 3n, 24n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{0n, 0n, 0n, 7n}}), St.strength(7n, St.Gauge{St.Exempt{}, St.Unmeasured{}})] == [St.Strong{}, St.Weak{}, St.Unshown{}, St.Unshown{}, St.Weak{}, St.Free{}] : List<&2, St.Strength>} &
+  {[St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{23n, 24n, 24n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{0n, 12n, 12n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{24n, 24n, 24n, 6n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{3n, 3n, 24n, 7n}}), St.strength(7n, St.Gauge{St.Needs{80n}, St.Measured{0n, 0n, 0n, 7n}}), St.strength(7n, St.Gauge{St.Exempt{}, St.Unmeasured{}}), St.strength(7n, St.Gauge{St.Needs{0n}, St.Measured{0n, 12n, 12n, 7n}})] == [St.Strong{}, St.Weak{}, St.Unshown{}, St.Unshown{}, St.Weak{}, St.Free{}, St.Free{}] : List<&2, St.Strength>} &
   {[St.settle(V.Passed{}, 7n, [St.Gauge{St.Needs{80n}, St.Measured{23n, 24n, 24n, 7n}}, St.Gauge{St.Exempt{}, St.Unmeasured{}}]), St.settle(V.Passed{}, 7n, [St.Gauge{St.Needs{80n}, St.Measured{0n, 12n, 12n, 7n}}]), St.settle(V.Passed{}, 7n, [St.Gauge{St.Exempt{}, St.Unmeasured{}}, St.Gauge{St.Needs{80n}, St.Unmeasured{}}]), St.settle(V.Failed{}, 7n, [St.Gauge{St.Needs{80n}, St.Unmeasured{}}]), St.settle(V.Passed{}, 7n, [St.Gauge{St.Exempt{}, St.Unmeasured{}}]), St.settle(V.Passed{}, 7n, [St.Gauge{St.Waived{}, St.Unmeasured{}}, St.Gauge{St.Needs{80n}, St.Measured{20n, 24n, 24n, 7n}}])] == [St.End{St.Passed{}}, St.End{St.Uncertified{}}, St.Measure{1n}, St.End{St.Failed{}}, St.End{St.Uncertified{}}, St.End{St.Passed{}}] : List<&2, St.Step>} &
   {[St.exit(0n, 7n, [V.Judged{V.Confirmed{}, 7n}], [St.Gauge{St.Needs{80n}, St.Measured{0n, 12n, 12n, 7n}}]), St.exit(0n, 7n, [V.Judged{V.Confirmed{}, 7n}], [St.Gauge{St.Needs{80n}, St.Measured{23n, 24n, 24n, 7n}}]), St.exit(0n, 7n, [], []), St.exit(0n, 7n, [V.Judged{V.Refuted{}, 7n}], [St.Gauge{St.Needs{80n}, St.Unmeasured{}}]), St.exit(2n, 7n, [V.Judged{V.Confirmed{}, 7n}], [St.Gauge{St.Exempt{}, St.Unmeasured{}}])] == [3n, 0n, 0n, 1n, 2n] : List<&2, Nat>}
 
@@ -354,32 +415,31 @@ law strength_entry_answers:
   {FS.ffi(SW.w_req(q, "")) == SW.w_reply(q) : String}
 
 # LAW strength_entry_reads (R7): the laws' reader reads every spelled
-# request that fits the wire back whole, so strength_entry_malformed_exact
-# refuses no request Rust spells
+# request that fits the wire back whole
 # EXCLUDES: a reader that refuses everything
 law strength_entry_reads:
   for +q: FS.Req
   for fit: {SW.fit_req(q) == True{} : Bool}
   {SW.read(SW.w_req(q, "")) == Some{q} : Maybe<&2, FS.Req>}
 
-# LAW strength_entry_read_answers (R7): every input the laws' reader
-# reads as exactly one request is answered with the model's decision on
-# that request
-# EXCLUDES: an input decoded into another request than the reader's
-law strength_entry_read_answers:
+# LAW strength_entry_exact (R7): every input the entry does not answer
+# with the error form is a spelled request that fits the wire
+# EXCLUDES: a decision answered on input that is no request (an unknown
+#   tag, label, actor, bar, mark or verdict read as a known one, a list
+#   cut short, a missing field, a number past the wire, input left over)
+law strength_entry_exact:
   for +s: String
-  for +q: FS.Req
-  for got: {SW.read(s) == Some{q} : Maybe<&2, FS.Req>}
-  {FS.ffi(s) == SW.w_reply(q) : String}
+  for ok: {LawsBase.wire_opens_err(FS.ffi(s)) == False{} : Bool}
+  exs q: FS.Req
+  {s == SW.w_req(q, "") : String} & {SW.fit_req(q) == True{} : Bool}
 
-# LAW strength_entry_malformed_exact (R7): every input that is not
-# exactly one request gets exactly the error form 'E ', then
-# "strength: malformed request"
-# EXCLUDES: a decision answered for input that is no request, another
-#   error text, a default
-law strength_entry_malformed_exact:
+# LAW strength_entry_refuses (R7): for every input whose answer opens
+# with 'E' (an error), the answer is exactly
+# `E strength: malformed request`
+# EXCLUDES: an error text that varies with the input, a second error form
+law strength_entry_refuses:
   for +s: String
-  for no: {SW.read(s) == None{} : Maybe<&2, FS.Req>}
+  for bad: {LawsBase.wire_opens_err(FS.ffi(s)) == True{} : Bool}
   {FS.ffi(s) == Wr.err("strength: malformed request") : String}
 
 # LAW strength_entry_leftover_refused (R7): a request Rust spells followed
