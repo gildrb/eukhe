@@ -255,6 +255,16 @@ function note(
   return notes;
 }
 
+/** One note of kind `output` (a command's answer), `report` (the end-of-run message) or `error`, kept with its lines. */
+export function withNote(
+  session: Session,
+  kind: "output" | "report" | "error",
+  text: string,
+  now: number,
+): Session {
+  return { ...session, notes: note(session, kind, text, now) };
+}
+
 /** Exact speed of a settled assistant message, from `usage` and `timing`. */
 export function messageSpeed(message: Message | undefined | null): Speed | null {
   if (!message || message.role !== "assistant") return null;

@@ -5,8 +5,9 @@
 //! hears `unpaired` and nothing runs), greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
-//! runs daemon commands for the bound session, hears resyncs, reads the
-//! memory tree, and keeps events flowing while a request waits.
+//! runs daemon commands for the bound session, hears the end-of-run
+//! message and resyncs, words the replies of `/effects`, reads the memory
+//! tree, and keeps events flowing while a request waits.
 #![cfg(unix)]
 
 use std::future::Future;
@@ -302,8 +303,18 @@ fn daemon_answer(command: &Value) -> Value {
             std::fs::write(path, format!("{kind} of {session}")).expect("write the export");
             json!({ "path": path })
         }
+        "get_ran_effects" => json!({ "effects": [ran_effect()] }),
+        "get_unknown_effects" => json!({ "effects": [] }),
         _ => json!({}),
     }
+}
+
+/// The irreversible effect `e1` of session `s1`, as the daemon sends it.
+fn ran_effect() -> Value {
+    json!({
+        "id": "e1", "key": "tool:c1:0", "run": 1, "kind": "shellStep",
+        "command": "git push origin main", "classes": ["net"], "sessionId": "s1", "atMs": 1,
+    })
 }
 
 /// One plain HTTP/1.1 GET under `host` with extra header lines: the
@@ -1413,5 +1424,64 @@ async fn a_socket_without_the_current_token_runs_nothing() {
             json!("hello"),
             2
         )
+    );
+}
+
+/// A root run's end-of-run message reaches the tab once, in the words
+/// every surface shows, beside its event; a report with nothing in it
+/// carries none. `/effects` reaches the daemon for the bound session, and
+/// each reply carries its words: the ledger, then the unknown steps.
+#[tokio::test]
+async fn a_tab_hears_the_end_of_run_message_and_effects_answers_in_words() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+
+    let report = json!({ "type": "run_report", "ran": [ran_effect()], "unknown": [] });
+    let empty = json!({ "type": "run_report", "ran": [], "unknown": [] });
+    daemon.write(&session_event(4, &report));
+    daemon.write(&session_event(5, &empty));
+    let heard = [next_frame(&mut socket).await, next_frame(&mut socket).await];
+    let cursor = |sequence: u64| json!({ "generation": "g1", "sequence": sequence });
+    assert_eq!(
+        heard,
+        [
+            json!({
+                "type": "event", "event": report, "cursor": cursor(4),
+                "report": "Irreversible effects ran this run:\n- e1 git push origin main (net)",
+            }),
+            json!({ "type": "event", "event": empty, "cursor": cursor(5) }),
+        ]
+    );
+
+    let mut answered = Vec::new();
+    for (id, command) in [
+        (2, json!({ "type": "get_ran_effects" })),
+        (3, json!({ "type": "get_unknown_effects" })),
+    ] {
+        let mut sent = command.clone();
+        sent["activeSessionId"] = json!("someone-else");
+        let reply = request(
+            &mut socket,
+            json!({ "id": id, "op": "run", "command": sent }),
+        )
+        .await;
+        let mut reached = command;
+        reached["activeSessionId"] = json!("s1");
+        answered.push((
+            reply["data"]["text"].clone(),
+            daemon.next_command() == reached,
+        ));
+    }
+    assert_eq!(
+        answered,
+        [
+            (
+                json!("Irreversible effects ran in this session:\n- e1 git push origin main (net)"),
+                true
+            ),
+            (json!(""), true),
+        ]
     );
 }

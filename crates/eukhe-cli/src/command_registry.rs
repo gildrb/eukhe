@@ -527,7 +527,8 @@ replaces its heartbeat. Runs until Ctrl+C.",
     .description(
         "Serves a mobile-friendly web dashboard on 127.0.0.1 and opens it in the browser. It \
 chats with the newest session (the one the CLI and the gateway use, or one you pick), controls it \
-(model, thinking, queue, compaction, saved sessions), and shows the chat memory as a \
+(model, thinking, queue, compaction, saved sessions), shows the irreversible effects \
+that ran, and shows the chat memory as a \
 tree of dated lines you can open down to each message. It listens on loopback only. The URL it \
 prints holds a pairing token after `#token=`: a browser must present it, and nothing runs for a \
 socket without the current token. The token stays the same across restarts (it is in the agent \
