@@ -3,6 +3,14 @@
 Rules for work on eukhe (gildrb/eukhe, branch `main`). A fork of the
 first project in README.md's Credits (remote `upstream`).
 
+## Attention
+
+The user's attention is eukhe's one scarce input: a question per action caps the work at the rate they answer, and stops it while they are away (`spec/README.md` pillar `attention`).
+
+- Decide, act, report. Never stop to ask for permission or confirmation; end with what was done, assumed and left.
+- Ask only when the goal is ambiguous in a way no evidence (code, spec, history, a check run) can settle.
+- A change never adds a question, approval, confirmation or wait on the user to a run, on any surface, tool, prompt or skill. Trust comes from checks that bite, limits, crash recovery, snapshots and the end-of-run report.
+
 ## Repository
 
 - Never set git identity (`user.name`/`user.email`, `-c`, `GIT_AUTHOR_*`/`GIT_COMMITTER_*`). Commits use the ambient git config. Missing identity: report it. Allowed: `*_DATE` variables (the golden corpus pins them), throwaway repos made by tests.

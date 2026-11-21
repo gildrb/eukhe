@@ -37,9 +37,16 @@ use crate::packages::get_bundled_skills_dir;
 /// own place (its scope and room to split, a `session-role` line of 90
 /// bytes on a root that can spawn; this test's root has no child host and
 /// sends the no-subagents line instead) is paid for by trimming 92 bytes
-/// of the layers: 22,113 (system prompt 9,704, tool schemas 12,409). No
-/// headroom: the prompt does not grow further unless a change decides it.
-const PROMPT_BUDGET_BYTES: usize = 22_113;
+/// of the layers: 22,113 (system prompt 9,704, tool schemas 12,409). The
+/// attention pillar (N3, the owner's decision of 2026-11-17) raised it by
+/// 423 to 22,536 (system prompt 10,129, tool schemas 12,407): the core
+/// layer's "Decide, act, report" rules (never stop to ask for permission
+/// or confirmation, or offer to do the rest; ask only when the goal is
+/// ambiguous in a way no evidence can settle) and the critical layer's
+/// stop rule (a question is no stopping point; a refusal, missing
+/// credential or protected file blocks only its own step). No headroom:
+/// the prompt does not grow further unless a change decides it.
+const PROMPT_BUDGET_BYTES: usize = 22_536;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT

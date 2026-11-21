@@ -463,3 +463,13 @@ law run_ffi_tags_example:
 #   swapped or reworded
 law run_ffi_errors_example:
   {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,4,"), FRn.ffi("5,2,2,2,5,1,5,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}
+
+# LAW run_ffi_limits_example: anchor: the note and retry caps Rust sends are read apart. Limits
+# 2 rounds, 5 ms, 3 retries, 1 note: a noted error after one note fails
+# (6,) with every retry left, after none notes (4,); a retryable error
+# after 3 transient retries fails (6,), after 2 and a note retries (3,).
+# Limits 1 retry, 3 notes: a noted error after one note notes (4,)
+# EXCLUDES: MAX_NOTES read as retry.maxRetries or the two read in each
+#   other's place, a note past MAX_NOTES
+law run_ffi_limits_example:
+  {[FRn.ffi("0,2,5,3,1,2,1,0,F3,FT"), FRn.ffi("0,2,5,3,1,1,0,0,F3,FT"), FRn.ffi("0,2,5,3,1,4,0,0,F3,TF"), FRn.ffi("0,2,5,3,1,4,1,0,F3,TF"), FRn.ffi("0,2,5,1,3,2,1,0,F3,FT")] == ["6,", "4,", "6,", "3,", "4,"] : List<&2, String>}

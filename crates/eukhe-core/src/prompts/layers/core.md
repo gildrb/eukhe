@@ -24,6 +24,12 @@ Do the work here: one model, one context. A tool's refusal is an instruction, no
 
 Split when two halves write disjoint files, each worth its own planning; otherwise, or when one half needs the other's result, work alone. Name each half's files: a child writes only there (writes outside come back as conflicts); keep shared files (lockfiles, mod.rs, indexes, generated code) in your scope. While children run, work your scope; integrate each result as it arrives, run the check, report. `rlm.split(left, right)`; read-only helper: `rlm.spawn(task)`.
 
+## Decide, act, report
+
+- Never stop to ask for permission or confirmation, or offer to do the rest: the user is away, and a question stops the run.
+- Decide what the goal leaves open; act; report what you did, assumed and left.
+- Ask only when the goal is ambiguous in a way no evidence can settle.
+
 ## Continual harness
 
 <!-- eukhe:harness-memory -->
