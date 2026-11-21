@@ -18,8 +18,9 @@
 #     snapshot is restored but by /undo.
 # R3: a refused /undo changes nothing.
 # R4: /diff compares the workspace with the newest snapshot not undone
-#     (the turn) or with the session's first snapshot (all); with no such
-#     snapshot there is nothing to compare. /diff changes nothing.
+#     (the turn) or with the session's first snapshot (all), from any state
+#     Rust stored, whatever its first snapshot; with no such snapshot there
+#     is nothing to compare. /diff changes nothing.
 # R5: /undo restores exactly the snapshot's content of every row that is
 #     not held: a path added since is removed, a path removed or changed
 #     since gets the snapshot's content back; a held row (ignored, over the
@@ -445,6 +446,19 @@ law undo_refusal_keeps_state:
 law undo_diff_compares:
   for +h: List<&2, U.Ev>
   {sp_act(U.step(sp_replay(h), U.Diff{U.Turn{}})) == sp_cmp(sp_head(sp_live(h, 0n))) : U.Act} & {sp_act(U.step(sp_replay(h), U.Diff{U.All{}})) == sp_cmp(sp_first(h)) : U.Act}
+
+# LAW undo_diff_any_state (R4): from every state, whatever its first
+# snapshot (none recorded included), /diff of the turn compares with the
+# newest turn not undone and /diff all with the first snapshot; nothing to
+# compare when there is none
+# EXCLUDES: the turn's comparison decided by the first snapshot (no
+#   comparison while a turn is left, on a state no history builds, as the
+#   wire may carry), the turn compared with an older turn or the first
+#   snapshot, all compared with the newest turn
+law undo_diff_any_state:
+  for +live: List<&2, Nat>
+  for +b: Maybe<&2, Nat>
+  {sp_act(U.step(U.St{live, b}, U.Diff{U.Turn{}})) == sp_cmp(sp_head(live)) : U.Act} & {sp_act(U.step(U.St{live, b}, U.Diff{U.All{}})) == sp_cmp(b) : U.Act}
 
 # LAW undo_diff_keeps (R4): /diff, of either scope, from every state,
 # leaves the snapshots as they are
