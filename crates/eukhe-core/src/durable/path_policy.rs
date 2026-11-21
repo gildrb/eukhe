@@ -29,12 +29,15 @@
 //! check under acceptance protects.
 //!
 //! [`DocumentsGate`] is the gate of one document tool call: every access
-//! runs unasked but a write to an own path, which is refused.
+//! runs unasked but a write to an own path, which is refused, and an
+//! irreversible access the editor attached through ACP rejects.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use eukhe_docs::{Access, AccessGate, AccessRefusal};
+use eukhe_types::effects::EffectClass;
 use eukhe_types::path_policy::{
     OwnKind, OwnPath, OwnRule, OwnWrite, PathClass, PathPolicy, PathRule, RealPath,
 };
@@ -44,8 +47,9 @@ use eukhe_chord::context::Context;
 use eukhe_durable::types::ConversationId;
 
 use super::acceptance::protected_files;
+use super::editor_permission::{self, EDITOR_REFUSED};
 use super::settings::EukheSettings;
-use super::HostDeps;
+use super::{EditorPermissionSink, HostDeps};
 use crate::settings::{resolve_session_dir, CONFIG_DIR_NAME, PROFILE_DIR};
 use crate::state_list::{state_list, Install, StateKind, StatePart};
 
@@ -261,32 +265,76 @@ pub(crate) fn effects(policy: &PathPolicy, access: Access, real: &RealPath) -> S
 }
 
 /// The gate of one document tool call (or one kernel `fs.*` request):
-/// every access runs but a write to an own path.
+/// every access runs but a write to an own path, and an irreversible
+/// access the editor rejects.
 pub(crate) struct DocumentsGate {
     pub(crate) policy: PathPolicy,
+    /// The editor's say on an irreversible access (spec I12); `None`:
+    /// nothing asks.
+    pub(crate) editor: Option<EditorAsk>,
 }
 
-/// Why a [`DocumentsGate`] refused an access: the write reaches an own
-/// path. The effects open the refusal, as a `bash` step's stop line names
-/// them.
+/// How a [`DocumentsGate`] asks the editor about its call's accesses.
+pub(crate) struct EditorAsk {
+    pub(crate) sink: EditorPermissionSink,
+    /// The tool call the accesses belong to; `None` for a kernel request.
+    pub(crate) call: Option<String>,
+    /// The start of each question's id (the call's id, else a fresh one),
+    /// then the count of questions asked.
+    pub(crate) prefix: String,
+    pub(crate) asked: AtomicU64,
+    /// The runtime the question waits on (the gate's checks run on a
+    /// blocking thread).
+    pub(crate) runtime: tokio::runtime::Handle,
+}
+
+/// Why a [`DocumentsGate`] refused an access. The effects open the
+/// refusal, as a `bash` step's stop line names them.
 #[derive(Debug, thiserror::Error)]
-#[error("({}) refused: {own}", effects.names())]
-pub(crate) struct DocumentsRefusal {
-    effects: ShellEffects,
-    own: OwnWrite,
+pub(crate) enum DocumentsRefusal {
+    /// The write reaches an own path.
+    #[error("({}) refused: {own}", effects.names())]
+    Own {
+        effects: ShellEffects,
+        own: OwnWrite,
+    },
+    /// The editor rejected the irreversible access.
+    #[error("({}) refused: {EDITOR_REFUSED}", effects.names())]
+    Editor { effects: ShellEffects },
 }
 
 impl AccessGate for DocumentsGate {
     fn check(&self, access: Access, real: &RealPath, _display: &str) -> Result<(), AccessRefusal> {
-        if access != Access::Write {
-            return Ok(());
+        if access == Access::Write {
+            if let Some(own) = eukhe_shell::paths::own_write(&self.policy, real) {
+                return Err(AccessRefusal::new(DocumentsRefusal::Own {
+                    effects: effects(&self.policy, access, real),
+                    own,
+                }));
+            }
         }
-        match eukhe_shell::paths::own_write(&self.policy, real) {
-            None => Ok(()),
-            Some(own) => Err(AccessRefusal::new(DocumentsRefusal {
-                effects: effects(&self.policy, access, real),
-                own,
-            })),
+        let Some(editor) = &self.editor else {
+            return Ok(());
+        };
+        let effects = effects(&self.policy, access, real);
+        let verb = match access {
+            Access::Read => "read",
+            Access::List => "list",
+            Access::Search => "search",
+            Access::Write => "write",
+        };
+        let asked = editor.asked.fetch_add(1, Ordering::Relaxed);
+        let allowed = editor.runtime.block_on(editor_permission::allows(
+            Some(editor.sink.clone()),
+            format!("{}:fs{asked}", editor.prefix),
+            editor.call.clone(),
+            eukhe_shell::visible(&format!("{verb} {}", real.path().display())),
+            EffectClass::of_shell(effects),
+        ));
+        if allowed {
+            Ok(())
+        } else {
+            Err(AccessRefusal::new(DocumentsRefusal::Editor { effects }))
         }
     }
 }

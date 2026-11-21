@@ -19,6 +19,7 @@ mod tool;
 mod urls;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
 use eukhe_chord::context::Context;
@@ -27,7 +28,7 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{Extension, ToolExecutionApi};
 
 use self::contract::Function;
-use super::path_policy::{call_policy, session_policy, DocumentsGate};
+use super::path_policy::{call_policy, session_policy, DocumentsGate, EditorAsk};
 use super::settings::EukheSettings;
 use super::HostDeps;
 use crate::memory::Memory;
@@ -65,7 +66,10 @@ pub(crate) struct GateInputs {
 impl DocumentsHost {
     /// The gate of one call of `api`'s conversation (a kernel request
     /// without one: none) working in `workspace`: the session's path
-    /// policy, whose own set refuses a write.
+    /// policy, whose own set refuses a write, and the session's editor
+    /// sink, asked about each irreversible access; each question's id
+    /// starts with the id of `api`'s tool call (a kernel request: a fresh
+    /// id).
     async fn gate(
         &self,
         workspace: &Path,
@@ -73,11 +77,26 @@ impl DocumentsHost {
         cx: &Context,
     ) -> DocumentsGate {
         let conversation = api.map(ToolExecutionApi::conversation_id);
-        let policy = match self.deps.upgrade() {
-            Some(deps) => call_policy(&deps, conversation, workspace, cx).await,
+        let deps = self.deps.upgrade();
+        let policy = match &deps {
+            Some(deps) => call_policy(deps, conversation, workspace, cx).await,
             None => session_policy(&self.gate.agent_dir, &self.gate.settings, workspace, &[]),
         };
-        DocumentsGate { policy }
+        let editor = deps
+            .and_then(|deps| deps.editor_permission.clone())
+            .map(|sink| {
+                let call = api.map(|api| api.call_id().to_owned());
+                EditorAsk {
+                    sink,
+                    prefix: call
+                        .clone()
+                        .unwrap_or_else(|| format!("fs-{}", uuid::Uuid::new_v4().simple())),
+                    call,
+                    asked: AtomicU64::new(0),
+                    runtime: tokio::runtime::Handle::current(),
+                }
+            });
+        DocumentsGate { policy, editor }
     }
 }
 

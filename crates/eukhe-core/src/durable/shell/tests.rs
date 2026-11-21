@@ -60,7 +60,7 @@ async fn transcript_of(script: &str, truncation: Truncation) -> (String, Option<
         Vec::new(),
     );
     let ran = Shell::new(dir.path(), env, "bash")
-        .run(script, &paths, &transcript)
+        .run(script, &paths, &eukhe_shell::Unasked, &transcript)
         .await;
     assert_eq!(ran.end, End::Finished { status: 0 });
     transcript.projection()

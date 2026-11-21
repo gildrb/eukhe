@@ -240,6 +240,9 @@ pub fn supported_client_capabilities() -> &'static [&'static str] {
         "chunked_snapshot",
         "client_owned_sessions",
         "elide_snapshot_images",
+        // An editor attached through ACP: asked before each irreversible
+        // effect (`editor_permission` frames).
+        crate::editor_permission::EDITOR_PERMISSION_CAPABILITY,
     ]
 }
 

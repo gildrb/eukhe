@@ -48,7 +48,7 @@ pub(crate) use clients::client_command_payload;
 // scheduling_catalog).
 pub(crate) use routing::{
     client_route_admission, client_route_timeout, ROUTE_TIMEOUT_MS, SUMMARY_TIMEOUT_MS,
-    WORKER_NOT_CONNECTED,
+    WORKER_NOT_CONNECTED, WORKER_REQUEST_TIMEOUT_MS,
 };
 
 use worker_lifecycle::{probe_worker_socket, worker_connect_deadline};
@@ -147,6 +147,10 @@ pub struct Supervisor {
     /// The `subscribe_state_tree` routing index: session -> the
     /// connections that get its `state_tree_update` frames.
     pub(crate) state_tree_subscribers: subscribers::SessionSubscribers,
+    /// The editors' routing index: session -> the attached connections
+    /// that attached with the `editor_permission` capability (they get
+    /// its `editor_permission` frames).
+    pub(crate) editor_subscribers: subscribers::SessionSubscribers,
     /// Live client connections: connection id -> the connection's
     /// effective client id (TS `this.clients` + `protocolClientId`).
     pub(crate) client_connections:
@@ -309,6 +313,7 @@ impl Supervisor {
             events,
             session_subscribers: subscribers::SessionSubscribers::new(),
             state_tree_subscribers: subscribers::SessionSubscribers::new(),
+            editor_subscribers: subscribers::SessionSubscribers::new(),
             client_connections: std::sync::Mutex::new(std::collections::HashMap::new()),
             headless_parents: crate::headless_parent::HeadlessParents::default(),
             roster: std::sync::Mutex::new(crate::agent_roster::AgentRoster::new()),

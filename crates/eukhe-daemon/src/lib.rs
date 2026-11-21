@@ -47,6 +47,7 @@ pub(crate) mod context_tree_cache;
 pub(crate) mod context_tree_children;
 pub(crate) mod create_reuse;
 pub mod descriptor;
+pub(crate) mod editor_permission;
 pub(crate) mod error_chain;
 pub(crate) mod factory_activity;
 pub mod framing;

@@ -13,7 +13,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use eukhe_shell::{End, Shell, Sink, Stream};
+use eukhe_shell::{End, Shell, Sink, Stream, Unasked};
 use eukhe_types::path_policy::PathPolicy;
 use tokio::sync::mpsc;
 
@@ -120,7 +120,7 @@ pub(crate) async fn run(
         tokio::spawn(async move {
             let RunGate { env, paths } = gate;
             Shell::new(root, env, "bash")
-                .run(SCRIPT, &paths, &*lines)
+                .run(SCRIPT, &paths, &Unasked, &*lines)
                 .await
         })
     };
@@ -161,6 +161,11 @@ pub(crate) async fn run(
         End::Refused { command, own, .. } => {
             RunEnd::Refused(format!("`{command}` did not run: {own}."))
         }
+        // Nothing asks before a benchmark step: no step is rejected.
+        End::Rejected { command, .. } => RunEnd::Refused(format!(
+            "`{command}` did not run: {}.",
+            crate::durable::editor_permission::EDITOR_REFUSED
+        )),
     })
 }
 

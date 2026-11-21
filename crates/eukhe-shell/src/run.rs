@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
+use std::future::Future;
 use std::io::{Read, Write as _};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -48,6 +49,35 @@ pub trait Sink: Sync {
     fn end(&self, step: u64, status: i32);
 }
 
+/// What may stop a step before it runs, besides an own write: the
+/// editor's say on an irreversible step (spec I12). Asked once per step,
+/// in step order, after the step's own check and before any command of
+/// its pipeline starts.
+pub trait Before: Sync {
+    /// Whether step `step` (`command`, with `effects`) may run; `false`
+    /// refuses it, and it and every later step do not run.
+    fn allows(
+        &self,
+        step: u64,
+        command: &str,
+        effects: ShellEffects,
+    ) -> impl Future<Output = bool> + Send;
+}
+
+/// Nothing stops a step before it runs.
+pub struct Unasked;
+
+impl Before for Unasked {
+    fn allows(
+        &self,
+        _step: u64,
+        _command: &str,
+        _effects: ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        std::future::ready(true)
+    }
+}
+
 /// One step that ran and its exit status (its output went to the
 /// [`Sink`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +103,13 @@ pub enum End {
         command: String,
         effects: ShellEffects,
         own: OwnWrite,
+    },
+    /// [`Before`] refused this step (the editor rejected it): it, every
+    /// later step, and the other steps of its pipeline did not run.
+    Rejected {
+        step: u64,
+        command: String,
+        effects: ShellEffects,
     },
 }
 
@@ -254,10 +291,16 @@ impl Shell {
     }
 
     /// Run `script`: every step runs unasked but one that writes an own
-    /// path, which ends the script. `paths` classes the paths a step
-    /// names. The output streams to `sink`.
+    /// path, or that `before` refuses, which ends the script. `paths`
+    /// classes the paths a step names. The output streams to `sink`.
     #[tracing::instrument(level = "debug", skip_all, fields(cwd = %self.cwd.display()))]
-    pub async fn run(&mut self, script: &str, paths: &PathPolicy, sink: &impl Sink) -> Ran {
+    pub async fn run(
+        &mut self,
+        script: &str,
+        paths: &PathPolicy,
+        before: &impl Before,
+        sink: &impl Sink,
+    ) -> Ran {
         let mut steps = Vec::new();
         let list = match parse::parse(script) {
             Ok(list) => list,
@@ -297,7 +340,7 @@ impl Shell {
                     effects,
                     own: refused(verdict, own),
                 };
-                let end = self.pipeline(vec![whole], sink, &mut steps).await;
+                let end = self.pipeline(vec![whole], before, sink, &mut steps).await;
                 return Ran {
                     steps,
                     end: end.unwrap_or(End::Finished {
@@ -308,7 +351,7 @@ impl Shell {
         };
         for chain in &list {
             let planned = self.plan(&chain.first, steps.len() as u64, paths);
-            if let Some(end) = self.pipeline(planned, sink, &mut steps).await {
+            if let Some(end) = self.pipeline(planned, before, sink, &mut steps).await {
                 return Ran { steps, end };
             }
             for (link, pipeline) in &chain.rest {
@@ -318,7 +361,7 @@ impl Shell {
                 };
                 if runs {
                     let planned = self.plan(pipeline, steps.len() as u64, paths);
-                    if let Some(end) = self.pipeline(planned, sink, &mut steps).await {
+                    if let Some(end) = self.pipeline(planned, before, sink, &mut steps).await {
                         return Ran { steps, end };
                     }
                 }
@@ -511,12 +554,13 @@ impl Shell {
         planned
     }
 
-    /// Run a pipeline's commands together unless one is refused; `Some`
-    /// when the script ends here. A refused command runs no command of
-    /// its pipeline.
+    /// Run a pipeline's commands together unless one is refused (an own
+    /// write, then `before`, in step order); `Some` when the script ends
+    /// here. A refused command runs no command of its pipeline.
     async fn pipeline(
         &mut self,
         planned: Vec<Planned>,
+        before: &impl Before,
         sink: &impl Sink,
         steps: &mut Vec<StepRun>,
     ) -> Option<End> {
@@ -530,6 +574,18 @@ impl Shell {
                 effects: stage.effects,
                 own,
             });
+        }
+        for stage in &planned {
+            if !before
+                .allows(stage.step, &stage.command, stage.effects)
+                .await
+            {
+                return Some(End::Rejected {
+                    step: stage.step,
+                    command: stage.command.clone(),
+                    effects: stage.effects,
+                });
+            }
         }
         let place = if planned.len() == 1 {
             Place::Alone

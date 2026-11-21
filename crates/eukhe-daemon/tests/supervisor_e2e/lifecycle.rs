@@ -50,6 +50,7 @@ fn supervisor_end_to_end_scripted_session_lifecycle() {
             "chunked_snapshot",
             "client_owned_sessions",
             "elide_snapshot_images",
+            "editor_permission",
             "delete_rlm_subagent",
             "heartbeat_catalog",
             "heartbeat_management",
