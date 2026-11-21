@@ -11,22 +11,27 @@
 //! runs, and no detach is reported, without a durable start. A writer task
 //! (a session service) commits the ends of the table in order, a batch per
 //! commit, off every caller's path: an end always commits after its start.
+//! The exit of each job that exited is durable first, on its node (the
+//! record `Finished` with its code), then the batch retires the nodes.
 //!
 //! At open the nodes the history left are the jobs of an earlier process,
-//! whose processes died with the worker that ran them. Each one the
-//! compiled core settles unknown is reported interrupted to the main
-//! conversation (a `job_settled` notice under the request id
-//! `job-interrupted:<job id>`), then its node is retired and the effect
-//! noted in the conversation's `eukhe.effects` ledger in one commit. A
-//! crash between the two leaves the node: the next open admits the same
-//! request id again, which the harness drops, and then retires it, so a
-//! job is reported once and never run again.
+//! whose processes died with the worker that ran them. A node with an exit
+//! is a job that ran to its end: the compiled core adopts it, and it is
+//! reported ran with its exit code (a `job_settled` notice under the
+//! request id `job-exited:<job id>`; its output is lost). One without is
+//! settled unknown: treated as not run, reported to the main conversation
+//! (a `job_settled` notice of status `interrupted` under the request id
+//! `job-interrupted:<job id>`), and noted in the conversation's
+//! `eukhe.effects` ledger in the commit that retires its node. A crash
+//! between the notice and the retirement leaves the node: the next open
+//! admits the same request id again, which the harness drops, and then
+//! retires it, so a job is reported once and never run again.
 
 use std::sync::{Arc, Weak};
 
 use eukhe_bend::rules::once::{self, Mode, Policy, Record, Seen, Verdict};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
-use eukhe_chord::json::{from_json, JsonValue};
+use eukhe_chord::json::{from_json, to_json, JsonValue};
 use eukhe_durable::documents::{DocFamilyDefinition, SessionDocFamily};
 use eukhe_durable::harness::define::section;
 use eukhe_durable::harness::effects::{note_unknown, EffectKind, UnknownCause, UnknownEffect};
@@ -63,6 +68,10 @@ pub(super) struct JobDocState {
     /// [`JobKind::name`].
     kind: String,
     label: String,
+    /// The code the job's process exited with, once that is durable; a
+    /// killed job has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exit: Option<i64>,
 }
 
 /// One `eukhe.job` document per job, keyed by the job id (version 1); the
@@ -80,10 +89,13 @@ pub(super) static JOB_DOC: SessionDocFamily<JobDocState, JobDocState> =
     };
 
 /// The one end of a job, which the writer commits as the retirement of
-/// its node.
+/// its node (and, for an exit, the exit on the node first).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct JobEnded {
     pub(super) id: JobId,
+    pub(super) kind: JobKind,
+    /// What ran, for people ([`JobDocState::label`]).
+    pub(super) label: String,
     pub(super) end: JobEnd,
 }
 
@@ -154,6 +166,7 @@ pub(super) async fn commit_start(
     let seed = JobDocState {
         kind: kind.name().to_owned(),
         label: label.to_owned(),
+        exit: None,
     };
     harness
         .commit(
@@ -166,13 +179,52 @@ pub(super) async fn commit_start(
         .await
 }
 
+/// Record the exit of each job of `ends` that exited on its node, in one
+/// commit (none when none exited): the kill point `job:exited` follows,
+/// before the batch's ends retire the nodes.
+#[tracing::instrument(skip_all)]
+pub(super) async fn commit_exits(harness: &Harness, ends: &[JobEnded]) -> SessionResult<()> {
+    let exits: Vec<(JobId, JobDocState, i64)> = ends
+        .iter()
+        .filter_map(|ended| match ended.end {
+            JobEnd::Exited(code) => Some((
+                ended.id.clone(),
+                JobDocState {
+                    kind: ended.kind.name().to_owned(),
+                    label: ended.label.clone(),
+                    exit: None,
+                },
+                code,
+            )),
+            JobEnd::Killed => None,
+        })
+        .collect();
+    if exits.is_empty() {
+        return Ok(());
+    }
+    harness
+        .commit(
+            move |tx| async move {
+                for (id, seed, code) in exits {
+                    let node = tx.doc_member(&JOB_DOC, id.as_str(), &seed).await?;
+                    node.set("exit", to_json(&code)?)?;
+                }
+                Ok(())
+            },
+            &BACKGROUND_CONTEXT,
+        )
+        .await?;
+    kill_point("job", "exited");
+    Ok(())
+}
+
 /// Retire the nodes of the jobs of `ends` in one commit.
 #[tracing::instrument(skip_all, fields(ends = ends.len()))]
 async fn commit_ends(harness: &Harness, ends: Vec<JobEnded>) -> SessionResult<()> {
     harness
         .commit(
             move |tx| async move {
-                for JobEnded { id, end } in ends {
+                for JobEnded { id, end, .. } in ends {
                     // The retirement of an absent node retires nothing.
                     tracing::debug!(job = %id, ?end, "retiring the node of an ended job");
                     tx.retire_doc(&JOB_DOC, id.as_str()).await?;
@@ -185,7 +237,9 @@ async fn commit_ends(harness: &Harness, ends: Vec<JobEnded>) -> SessionResult<()
 }
 
 /// Commit the ends of the table, a batch per commit, until the session
-/// closes. When a batch fails, commit its ends one at a time, so one bad
+/// closes: first the exits of the batch, then the retirement of its nodes.
+/// An exit that does not commit leaves the retirement to say the job
+/// ended. When a batch fails, commit its ends one at a time, so one bad
 /// end loses no other; an end that fails alone goes to the main
 /// conversation as a notice.
 #[tracing::instrument(skip_all)]
@@ -193,6 +247,9 @@ pub(super) async fn write_records(harness: Harness, mut queue: mpsc::UnboundedRe
     let mut batch = Vec::new();
     while queue.recv_many(&mut batch, BATCH).await > 0 {
         let ends = std::mem::take(&mut batch);
+        if let Err(error) = commit_exits(&harness, &ends).await {
+            tracing::warn!(%error, "recording the exits of a batch of jobs failed");
+        }
         let Err(error) = commit_ends(&harness, ends.clone()).await else {
             kill_point("job", "finished");
             continue;
@@ -262,12 +319,15 @@ async fn interrupt_stale(deps: Weak<HostDeps>, harness: Harness, main: Conversat
 /// Settle the node of `id`, a job of an earlier process, as the compiled
 /// core says (`once::restart` of its journal, `Intended` then `Started`):
 /// its process died with the worker that ran it (the supervisor reaps a
-/// dead worker's process groups), and nothing tells whether it ran, so
-/// the world is dark and a job is never launched twice. An interrupted job
-/// is reported to `main` (the `job_settled` row of status `interrupted`,
-/// a steer, request id `job-interrupted:<id>`), then its node is retired
-/// and the effect noted unknown in `main`'s ledger in one commit. A
-/// closing session admits no notice: the node stays for the next open.
+/// dead worker's process groups). Its exit on the node shows it ran to
+/// its end ([`Seen::Landed`]): adopted, reported to `main` with its exit
+/// code (a steer, request id `job-exited:<id>`). Without one nothing
+/// tells whether it ran ([`Seen::Dark`]), and a job is never launched
+/// twice: treated as not run, reported to `main` (the `job_settled` row
+/// of status `interrupted`, a steer, request id `job-interrupted:<id>`),
+/// and noted unknown in `main`'s ledger in the commit that retires its
+/// node. A closing session admits no notice: the node stays for the next
+/// open.
 #[tracing::instrument(skip_all, fields(job = %id))]
 pub(super) async fn settle_stale(
     harness: &Harness,
@@ -281,70 +341,42 @@ pub(super) async fn settle_stale(
         return Ok(());
     };
     let job: JobDocState = from_json(&JsonValue::Object(value)).map_err(SessionError::other)?;
+    let seen = match job.exit {
+        Some(_) => Seen::Landed,
+        None => Seen::Dark,
+    };
     let (_, verdict) = once::restart(
         [Record::Intended, Record::Started],
         mode,
         Policy::Never,
-        Seen::Dark,
+        seen,
     );
-    let effect = match verdict {
+    let JobDocState { kind, label, exit } = job;
+    let settled = match (verdict, exit) {
+        (Verdict::Adopt, Some(code)) => Some(Stale::Ran { code }),
         // A job is never launched again: its process belongs to the worker
         // that ran it, and a started journal of a job no repeat drops never
         // answers a launch (`once_never_launches_twice`).
-        Verdict::Interrupt | Verdict::Launch => {
-            let JobDocState { kind, label } = &job;
-            let report = Report::JobSettled {
-                job: id.clone(),
-                status: CellStatus::Interrupted,
-            };
-            let text = report.render(&format!(
-                "The background {kind} job {id} ({label:?}) was interrupted by a restart: it may have partially run, and its output is lost. It was not run again; check the state it changes before you run it again."
-            ));
-            let entry = input_entry(
-                JOB_SETTLED_CUSTOM_TYPE,
-                UserContent::Text(text.clone()),
-                true,
-                Some(serde_json::json!({
-                    "job": id.as_str(),
-                    "status": CellStatus::Interrupted.label(),
-                })),
-                InputOrigin::Report {
-                    report: report.clone(),
-                },
-            )
-            .map_err(SessionError::other)?;
-            let draft = InputSubmissionDraft {
-                request_id: Some(format!("job-interrupted:{id}")),
-                content: UserContent::Text(text),
-                when_busy: Some(WhenBusy::Steer),
-                origin: InputOrigin::Report { report },
-                entry: Some(entry),
-            };
+        (Verdict::Interrupt | Verdict::Launch, _) => Some(Stale::Interrupted),
+        (Verdict::Adopt, None) => {
+            return Err(SessionError::error(
+                "The compiled core adopted a job whose exit is not on record",
+            ))
+        }
+        // A started journal is never absent, ended, or unstarted: nothing
+        // to report; the node only goes.
+        (Verdict::Skip | Verdict::Abandon | Verdict::Settled, _) => None,
+    };
+    let effect = match settled {
+        Some(stale) => {
+            let draft = stale.notice(id, &kind, &label)?;
             let Some(admitted) = closing.admit(|| main.submit(draft, cx)).await else {
                 return Ok(());
             };
             admitted.map(drop)?;
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "epoch milliseconds stay below 2^53"
-            )]
-            let at = now_millis() as f64;
-            Some(UnknownEffect {
-                id: format!("job:{id}"),
-                kind: EffectKind::Job,
-                what: job.label,
-                at,
-                cause: Some(match mode {
-                    Mode::Resume => UnknownCause::NotRepeatSafe,
-                    Mode::Stop => UnknownCause::RunStopped,
-                }),
-                settled_run: None,
-                resolution: None,
-            })
+            stale.unknown(id, label, mode)
         }
-        // A started journal is never absent, ended, or unstarted: nothing
-        // to report; the node only goes.
-        Verdict::Skip | Verdict::Adopt | Verdict::Abandon | Verdict::Settled => None,
+        None => None,
     };
     let (conversation, id) = (main.id(), id.clone());
     harness
@@ -359,6 +391,99 @@ pub(super) async fn settle_stale(
             cx,
         )
         .await
+}
+
+/// How a job of an earlier process settles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stale {
+    /// Its exit is on record: it ran to its end.
+    Ran { code: i64 },
+    /// Nothing tells whether it ran: treated as not run.
+    Interrupted,
+}
+
+impl Stale {
+    /// The status its notice reports.
+    fn status(self) -> CellStatus {
+        match self {
+            Self::Ran { code: 0 } => CellStatus::Ok,
+            Self::Ran { .. } => CellStatus::Error,
+            Self::Interrupted => CellStatus::Interrupted,
+        }
+    }
+
+    /// The notice of the job `id` of `kind` that ran `label`, for the main
+    /// conversation: a `job_settled` row on the steer lane, under a request
+    /// id the harness admits once.
+    fn notice(self, id: &JobId, kind: &str, label: &str) -> SessionResult<InputSubmissionDraft> {
+        let status = self.status();
+        let report = Report::JobSettled {
+            job: id.clone(),
+            status,
+        };
+        let (body, request_id) = match self {
+            Self::Ran { code } => (
+                format!(
+                    "The background {kind} job {id} ({label:?}) ran to its end with exit code {code} before a crash or restart; its output is lost. It was not run again."
+                ),
+                format!("job-exited:{id}"),
+            ),
+            Self::Interrupted => (
+                format!(
+                    "The background {kind} job {id} ({label:?}) was cut by a crash or restart before its end was recorded: treated as not run. It may have partially run, and its output is lost. It was not run again; check the state it changes before you run it again."
+                ),
+                format!("job-interrupted:{id}"),
+            ),
+        };
+        let text = report.render(&body);
+        let entry = input_entry(
+            JOB_SETTLED_CUSTOM_TYPE,
+            UserContent::Text(text.clone()),
+            true,
+            Some(serde_json::json!({
+                "job": id.as_str(),
+                "status": status.label(),
+            })),
+            InputOrigin::Report {
+                report: report.clone(),
+            },
+        )
+        .map_err(SessionError::other)?;
+        Ok(InputSubmissionDraft {
+            request_id: Some(request_id),
+            content: UserContent::Text(text),
+            when_busy: Some(WhenBusy::Steer),
+            origin: InputOrigin::Report { report },
+            entry: Some(entry),
+        })
+    }
+
+    /// The ledger entry of a job treated as not run, for the run that came
+    /// back as `mode`; none for a job that ran.
+    fn unknown(self, id: &JobId, label: String, mode: Mode) -> Option<UnknownEffect> {
+        match self {
+            Self::Ran { .. } => None,
+            Self::Interrupted => {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "epoch milliseconds stay below 2^53"
+                )]
+                let at = now_millis() as f64;
+                Some(UnknownEffect {
+                    id: format!("job:{id}"),
+                    kind: EffectKind::Job,
+                    what: label,
+                    at,
+                    cause: Some(match mode {
+                        Mode::Resume => UnknownCause::NotRepeatSafe,
+                        Mode::Stop => UnknownCause::RunStopped,
+                    }),
+                    settled_run: None,
+                    resolution: None,
+                })
+            }
+        }
+    }
 }
 
 /// The orphan jobs a rewind sent the kill to.

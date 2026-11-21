@@ -174,8 +174,8 @@ async fn adopts_a_call_whose_change_landed_without_running_it_again() {
             (
                 1,
                 false,
-                "Tool pwrite was cut by a restart after its change landed: what it wrote holds \
-                 the new content. Its own result was lost; read what it changed for the details.",
+                "Tool pwrite was cut by a restart after its change landed: what it changes shows \
+                 the change made. Its own result was lost; read what it changed for the details.",
                 Vec::new(),
                 vec![record()]
             )

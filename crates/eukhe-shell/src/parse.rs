@@ -464,6 +464,43 @@ pub(crate) fn bare_literal(word: &Word) -> Option<&str> {
     }
 }
 
+/// The words of `script` when it is exactly one simple command whose every
+/// word is literal text (quotes removed; no variable, `$?`, `~` or
+/// pathname pattern), with no assignment or redirection: what runs is
+/// these words, whatever the shell's state. Any other script: `None`.
+#[must_use]
+pub fn literal_command(script: &str) -> Option<Vec<String>> {
+    let chains = parse(script).ok()?;
+    let [AndOr { first, rest }] = chains.as_slice() else {
+        return None;
+    };
+    let ([command], true) = (first.commands.as_slice(), rest.is_empty()) else {
+        return None;
+    };
+    if !command.assigns.is_empty() || !command.redirects.is_empty() {
+        return None;
+    }
+    command.words.iter().map(literal_text).collect()
+}
+
+/// The text of a word made only of literals, none of them a bare pattern.
+fn literal_text(word: &Word) -> Option<String> {
+    word.parts
+        .iter()
+        .map(|part| match part {
+            Part::Lit {
+                text,
+                quoting: Quoting::Quoted,
+            } => Some(text.as_str()),
+            Part::Lit {
+                text,
+                quoting: Quoting::Bare,
+            } => (!text.contains(['*', '?', '['])).then_some(text.as_str()),
+            Part::Var { .. } | Part::Status { .. } | Part::Tilde => None,
+        })
+        .collect()
+}
+
 fn is_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars
@@ -1020,6 +1057,42 @@ mod tests {
                     Vec::new()
                 ),
                 simple(vec![word(vec![quoted("${X:-y}")])], Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_one_literal_simple_command_gives_its_words() {
+        let words = |words: &[&str]| Some(words.iter().map(ToString::to_string).collect());
+        assert_eq!(
+            [
+                "git push origin main",
+                "  git commit -m 'one two'\n",
+                "git commit -m \"a\"'b'c",
+                "git push && true",
+                "git push; ls",
+                "git push | cat",
+                "X=1 git push",
+                "git push > out",
+                "git commit -m \"$MSG\"",
+                "ls *.rs",
+                "cd ~",
+                "",
+            ]
+            .map(literal_command),
+            [
+                words(&["git", "push", "origin", "main"]),
+                words(&["git", "commit", "-m", "one two"]),
+                words(&["git", "commit", "-m", "abc"]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
             ]
         );
     }

@@ -23,7 +23,13 @@
 //! get [`local_env`] over
 //! [`session_env`]: the host environment less every credential name (laws
 //! (G3)).
+//!
+//! A script that is one `git push` or one `git commit` records the ref it
+//! moves before it runs ([`git_evidence`]): a restart that cut the call
+//! adopts it when that ref holds its commit, and treats it as not run
+//! otherwise.
 
+mod git_evidence;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +42,7 @@ use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::env::Utf8Decoder;
 use eukhe_durable::harness::define::{define_extension, define_tool};
+use eukhe_durable::harness::effects::EffectKind;
 use eukhe_durable::harness::types::{
     Extension, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionApi, ToolExecutionMode,
     ToolExecutionResult, ToolRegistration, ToolReplay,
@@ -44,6 +51,7 @@ use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_shell::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, Stream};
 use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
+use eukhe_types::platform::kill_point::kill_point;
 use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
 
 use super::bounded_output::BoundedOutput;
@@ -277,9 +285,11 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
             async move { execute(&deps, args, api, &cx).await }
         },
     );
-    // A step may have written before a crash: never replay.
+    // A step may have written before a crash: never replay. A git push or
+    // commit is adopted when the ref it moves shows it landed.
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
     registration.replay = Some(ToolReplay::Unsafe);
+    registration.probe = Some(git_evidence::probe());
     registration.extra = Some(Arc::new(super::runner::Runner {
         caps: eukhe_types::shell::ShellEffects::of(&ShellEffect::ALL),
         gate: super::runner::Gate::EachStep,
@@ -351,6 +361,11 @@ async fn execute(
                 transcript.push(&format!("[no git view of this copy: {error:#}]\n"), true);
             }
         }
+    }
+    // Durable before the script starts: a restart that cuts the call looks
+    // at the ref its git step moves.
+    if let Some(record) = git_evidence::record(script, &cwd).await? {
+        api.probe(record, cx).await?;
     }
     let workspace = cwd.clone();
     let mut running = {
@@ -443,6 +458,8 @@ async fn execute(
             return Ok(detached_result(&id, budget, partial, bounded));
         }
     };
+    // The script ran; its result is not durable yet.
+    kill_point(EffectKind::Tool.name(), "ran");
     let refused = matches!(ran.end, End::Refused { .. });
     settle(&ran, &transcript);
     let (text, bounded) = transcript.projection();

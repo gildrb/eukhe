@@ -551,8 +551,8 @@ fn inconsistent_verdict() -> SessionError {
 /// it: it ran, though its own result died with the process.
 fn landed(call: &ToolCall) -> ToolExecutionResult {
     let text = format!(
-        "Tool {} was cut by a restart after its change landed: what it wrote holds the new \
-         content. Its own result was lost; read what it changed for the details.",
+        "Tool {} was cut by a restart after its change landed: what it changes shows the \
+         change made. Its own result was lost; read what it changed for the details.",
         call.name
     );
     ToolExecutionResult {

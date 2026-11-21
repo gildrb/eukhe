@@ -1472,7 +1472,7 @@ async fn a_job_cut_by_a_restart_is_reported_interrupted_once() {
     job_nodes_become(&session, &[]).await;
     let expected = (
         vec![
-            "[job-settled job:bash-cut status:interrupted]\n\nResume your work using the result below.\n\nThe background bash job bash-cut (\"sleep 60\") was interrupted by a restart: it may have partially run, and its output is lost. It was not run again; check the state it changes before you run it again."
+            "[job-settled job:bash-cut status:interrupted]\n\nResume your work using the result below.\n\nThe background bash job bash-cut (\"sleep 60\") was cut by a crash or restart before its end was recorded: treated as not run. It may have partially run, and its output is lost. It was not run again; check the state it changes before you run it again."
                 .to_owned(),
         ],
         vec![(

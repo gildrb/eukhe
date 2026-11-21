@@ -48,6 +48,7 @@ mod bash_tool;
 mod cases;
 mod codemode;
 mod fire;
+mod git;
 mod irreversible_net;
 mod job;
 mod queue_edit;
@@ -400,6 +401,12 @@ fn script(request: &Request, release: &Path) -> Reply {
                     format!("call-{prompt}"),
                     "bash",
                     json!({ "script": irreversible_net::script(release) }),
+                )
+            } else if let Some(script) = git::script(&request.prompt) {
+                Reply::tool_call(
+                    format!("call-{prompt}"),
+                    "bash",
+                    json!({ "script": script }),
                 )
             } else if request.prompt.contains(bash_tool::TAG) {
                 Reply::tool_call(
