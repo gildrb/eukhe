@@ -278,6 +278,8 @@ pub enum Entry {
     Irreversible = 466,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
+    /// `bend/ffi_path_own.bend`: a call.
+    PathOwn = 473,
 }
 
 impl Entry {
@@ -419,6 +421,7 @@ impl Entry {
         Entry::Strength,
         Entry::Irreversible,
         Entry::Fallback,
+        Entry::PathOwn,
     ];
 
     /// The id `bend/core.bend` dispatches on.

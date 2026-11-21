@@ -1,0 +1,6 @@
+# names at the largest the wire carries, in a rule and in the path
+call 3,1,{MAX},0,1,{MAX},2,T
+call 4,1,{MAX},{MAX},0,2,{MAX},{MAX},3,T
+call 3,2,{MAX},0,1,{MAX},0,F
+refuse 1,{LONG},0,0,T
+refuse 0,1,{LONG},0,T
