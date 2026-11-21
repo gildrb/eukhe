@@ -51,7 +51,12 @@ import ../spec/autonomous/autonomous.bend as SpA
 # removed_options_map_onto_the_budget_and_the_checks,
 # crates/eukhe-core/src/durable/goals/tests.rs::
 # the_removed_max_turns_is_the_runs_request_limit,
-# an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it).
+# an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it);
+# AU7's request and continuation: the judge reads the final answer alone
+# (one request, asked only when the core says so), the run goes on with
+# the Director's continuation listing the work left and one display row
+# the model never sees (crates/eukhe-core/src/durable/acceptance/tests/
+# autonomous.rs::a_passing_claim_whose_answer_states_work_left_goes_on).
 
 # Laws: the step (R1-R5, R7)
 # --------------------------
