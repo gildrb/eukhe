@@ -5,7 +5,7 @@ first time code needs it, at the one version a lock names and only after
 its files match the lock's hashes (``uv pip install --require-hashes``), so
 every machine gets the same files:
 
-- Eukhe's lock (``eukhe-runtime/requirements-kernel.txt``) ships with
+- Eukhe's lock (``rlm/requirements-kernel.txt``) ships with
   Eukhe. ``import numpy`` in a cell, a skill or the runtime itself installs
   the locked numpy and its locked dependencies, then imports it.
 - A project lock (``<project>/.eukhe/requirements-kernel.txt``, written by

@@ -23,7 +23,7 @@ transport tuples).
 the dist profile) and falls back to `<repo>/target/dist/eukhe` (host builds).
 `--decoder` is the split-debug sidecar from split_debug.py, required (with an
 explicit `--binary`) on Linux targets and rejected elsewhere.
-`--runtime-dir` defaults to `<repo>/eukhe-runtime` (the vendored sidecar
+`--runtime-dir` defaults to `<repo>/rlm` (the vendored sidecar
 from the kernel-packaging lane).
 
 Archive naming: `eukhe-<version>-<platform-alias>.tar.gz` (e.g.
@@ -57,7 +57,7 @@ from runtime_lock import LockError, read_runtime_lock
 BINARY_NAME = "eukhe"
 STAGED_ENTRIES = [
     BINARY_NAME,
-    "eukhe-runtime",
+    "rlm",
     "skills",
     "LICENSE",
     "README.md",
@@ -70,9 +70,9 @@ STAGED_ENTRIES = [
 # Shipped-content policy: what the installed tree carries beyond the binary.
 #
 # The runtime sidecar ships only what the kernel consumes. The kernel
-# runs the runtime from `<payload>/eukhe-runtime/src` (on its
+# runs the runtime from `<payload>/rlm/src` (on its
 # `PYTHONPATH`; nothing is installed) and installs packages on demand from
-# `<payload>/eukhe-runtime/requirements-kernel.txt` (`uv pip install
+# `<payload>/rlm/requirements-kernel.txt` (`uv pip install
 # --require-hashes --only-binary :all:`, the hash-locked export of
 # `uv.lock`; runtime_lock.py gates it at staging) — so the test suite
 # (`test/`) and the development `uv.lock` (already exported into the
@@ -218,10 +218,10 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     verbatim copy.
     """
     binary = resolve_binary(args)
-    runtime_dir = args.runtime_dir or (args.repo_root / "eukhe-runtime")
+    runtime_dir = args.runtime_dir or (args.repo_root / "rlm")
     sources = {
         BINARY_NAME: binary,
-        "eukhe-runtime": runtime_dir,
+        "rlm": runtime_dir,
         "skills": args.repo_root / "skills",
         "LICENSE": args.repo_root / "LICENSE",
         "README.md": args.repo_root / "README.md",
@@ -229,7 +229,7 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     if not runtime_dir.joinpath("pyproject.toml").is_file():
         fail(
             "kernel runtime sidecar not found at "
-            f"{runtime_dir} (expected eukhe-runtime with pyproject.toml); "
+            f"{runtime_dir} (expected rlm with pyproject.toml); "
             "pass --runtime-dir or merge the kernel-packaging lane"
         )
     # The bootstrap installs nothing that is not an exact, hashed pin.
@@ -242,7 +242,7 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
         if not source.exists():
             fail(f"release payload entry {name!r} missing at {source}")
         if source.is_dir():
-            if name == "eukhe-runtime":
+            if name == "rlm":
                 copy_runtime_tree(source, target_path)
             elif name == "skills":
                 shutil.copytree(source, target_path, ignore=lambda _directory, names: {

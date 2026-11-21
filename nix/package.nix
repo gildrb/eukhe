@@ -25,8 +25,13 @@ stdenv.mkDerivation {
   # The .tar.xz twin when the release lists one (a third smaller than the
   # .tar.gz; stdenv unpacks both).
   src = fetchurl { inherit (asset.xz or asset) url hash; };
-  # The archive's files sit at its root.
-  sourceRoot = ".";
+  # The archive's files sit at its root: unpacked into payload/, they are
+  # the payload as the release made it.
+  unpackCmd = ''
+    mkdir payload
+    tar -xf "$curSrc" -C payload
+  '';
+  sourceRoot = "payload";
 
   nativeBuildInputs = [
     makeWrapper
@@ -44,7 +49,7 @@ stdenv.mkDerivation {
     runHook preInstall
     payload="$out/libexec/eukhe"
     mkdir -p "$payload" "$out/bin"
-    cp -R eukhe eukhe-runtime skills LICENSE models.bundled.json "$payload/"
+    cp -R . "$payload/"
     # git commits the chat memory after every turn; a user's own git
     # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
     # fetches its own pinned uv and Python. The tiny-model worker loads

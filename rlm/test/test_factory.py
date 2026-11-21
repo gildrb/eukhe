@@ -8228,8 +8228,8 @@ asyncio.run(main())
 class StagedRuntimeLibraryTest(unittest.TestCase):
     """A staged runtime runs the bundled machines on the standard library.
 
-    The kernel runs eukhe-runtime from its shipped directory: the host puts
-    ``<payload>/eukhe-runtime/src`` on ``PYTHONPATH`` and installs nothing.
+    The kernel runs rlm from its shipped directory: the host puts
+    ``<payload>/rlm/src`` on ``PYTHONPATH`` and installs nothing.
     This stages the runtime the way the release does and runs
     ``rlm.factory.run("review-sweep")`` end-to-end against a scripted host
     in an interpreter that sees only the standard library and that
@@ -8250,7 +8250,7 @@ class StagedRuntimeLibraryTest(unittest.TestCase):
     def stage_runtime(self) -> Path:
         """Copy the runtime tree the release-staging way, minus its excludes."""
         runtime_dir = Path(__file__).resolve().parents[1]
-        staged = self.root / "payload" / "eukhe-runtime"
+        staged = self.root / "payload" / "rlm"
         for source in runtime_dir.rglob("*"):
             relative = source.relative_to(runtime_dir)
             if any(part in self.STAGING_EXCLUDED for part in relative.parts):

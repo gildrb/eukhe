@@ -73,7 +73,7 @@ class SyntheticRepo:
         (runtime / "requirements-kernel.txt").write_text(FIXTURE_RUNTIME_LOCK)
         (runtime / "src").mkdir()
         # The exe-adjacent kernel runtime tree package_release.py stages.
-        kernel = root / "eukhe-runtime"
+        kernel = root / "rlm"
         (kernel / "src" / "rlm").mkdir(parents=True)
         (kernel / "pyproject.toml").write_text("[project]\nname='rlm'\n")
         (kernel / "requirements-kernel.txt").write_text(FIXTURE_RUNTIME_LOCK)
@@ -394,7 +394,7 @@ class PackerGates(unittest.TestCase):
         self.assertTrue((staged / "models.bundled.json").is_file())
 
     def test_kernel_packer_rejects_decoder_leak(self):
-        leaked = self.repo.root / "eukhe-runtime" / "leak.debug.gz"
+        leaked = self.repo.root / "rlm" / "leak.debug.gz"
         leaked.write_bytes(b"decoder-like payload")
         out = self.tmp / "release-package-leak"
         result = run_cli(PACKER, ["--root", str(self.repo.root), "--version", "9.9.9",

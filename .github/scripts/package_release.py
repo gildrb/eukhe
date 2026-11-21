@@ -19,7 +19,7 @@ runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
   LICENSE
   models.bundled.json    bundled model catalog (spec §3.2 layer 2), staged
                          beside the executable
-  eukhe-runtime/   the kernel runtime sidecar (dev caches excluded)
+  rlm/                   the kernel runtime sidecar (dev caches excluded)
   skills/                built-in skills
 
 Run it as the packaging dry-run: it builds (or takes) the binary, stages,
@@ -66,7 +66,7 @@ from assemble_artifacts import (  # noqa: E402
     fail_if_decoder_in_tree,
     pack_tarball,
 )
-# `--root` re-anchors asset discovery (workspace version, eukhe-runtime,
+# `--root` re-anchors asset discovery (workspace version, rlm,
 # skills, README, LICENSE) so integration tests can package synthetic trees.
 
 
@@ -94,15 +94,15 @@ REQUIRED_FILES = (
     "README.md",
     "LICENSE",
     "models.bundled.json",
-    "eukhe-runtime/pyproject.toml",
+    "rlm/pyproject.toml",
     # Eukhe's package lock: what a kernel installs on demand, with hashes.
-    "eukhe-runtime/requirements-kernel.txt",
-    "eukhe-runtime/src/rlm/repl.py",
+    "rlm/requirements-kernel.txt",
+    "rlm/src/rlm/repl.py",
 )
-REQUIRED_DIRS = ("eukhe-runtime/src/rlm", "skills")
+REQUIRED_DIRS = ("rlm/src/rlm", "skills")
 
 # Tree assets copied with the exclusion filter; everything else is a single file.
-TREE_ASSETS = ("eukhe-runtime", "skills")
+TREE_ASSETS = ("rlm", "skills")
 
 
 def parse_args(argv):
@@ -212,7 +212,7 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
     for name in BUNDLED_CATALOG_FILES:
         shutil.copy2(catalog_assets / name, stage_dir / name)
     for name in TREE_ASSETS:
-        if name == "eukhe-runtime":
+        if name == "rlm":
             copy_tree(root / name, stage_dir / name,
                       extra_excluded_names=RUNTIME_EXCLUDED_NAMES,
                       extra_excluded_suffixes=RUNTIME_EXCLUDED_SUFFIXES)

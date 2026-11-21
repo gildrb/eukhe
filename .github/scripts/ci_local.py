@@ -492,7 +492,7 @@ def full() -> int:
     gate("fmt", run, "cargo", "fmt", "--all", "--check")
     gate("crate layers", run, "python3", ".github/scripts/check_crate_layers.py", ".")
     # The other lane runs in a forked process, its output in a log. The
-    # eukhe-runtime tests send SIGINT, so it takes the default SIGINT action
+    # rlm tests send SIGINT, so it takes the default SIGINT action
     # (Ctrl+C then stops every lane). The Rust lane runs in the foreground:
     # its pty tests need the terminal state of a foreground job.
     log = tempfile.TemporaryFile(mode="w+", errors="replace")

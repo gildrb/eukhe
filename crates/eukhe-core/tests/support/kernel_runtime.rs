@@ -1,6 +1,6 @@
 //! The kernel interpreter of the real-kernel tests: a venv of this
-//! checkout's `eukhe-runtime` (editable, synced from
-//! `eukhe-runtime/uv.lock`) with this checkout's Python skills installed
+//! checkout's `rlm` (editable, synced from
+//! `rlm/uv.lock`) with this checkout's Python skills installed
 //! editable. Never the user's installed kernel venv: the tests validate
 //! the runtime and skills of the tree under test.
 //!
@@ -27,7 +27,7 @@ fn provision() -> PathBuf {
         .join("../..")
         .canonicalize()
         .expect("resolve the checkout root");
-    let runtime = root.join("eukhe-runtime");
+    let runtime = root.join("rlm");
     let mut skills = std::fs::read_dir(root.join("skills"))
         .expect("read the checkout's skills/")
         .map(|entry| entry.expect("read a skills/ entry").path())
@@ -44,7 +44,7 @@ fn provision() -> PathBuf {
             .as_encoded_bytes(),
     );
     key.update([0]);
-    key.update(std::fs::read(runtime.join("uv.lock")).expect("read eukhe-runtime/uv.lock"));
+    key.update(std::fs::read(runtime.join("uv.lock")).expect("read rlm/uv.lock"));
     for skill in &skills {
         key.update([0]);
         key.update(skill.as_os_str().as_encoded_bytes());
@@ -100,7 +100,7 @@ fn run_uv(command: &mut Command) {
     let output = command.output().unwrap_or_else(|error| {
         panic!(
             "the real-kernel tests need uv on PATH to build the test kernel venv from \
-             eukhe-runtime/uv.lock: {error}"
+             rlm/uv.lock: {error}"
         )
     });
     assert!(

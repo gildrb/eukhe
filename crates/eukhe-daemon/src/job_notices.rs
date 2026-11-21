@@ -8,7 +8,7 @@
 //! (agent-session.ts `_createKernelHostHandlers`' `bash.completed`/
 //! `bash.consumed` arms + rlm-runtime.ts's validated host handlers +
 //! messages.ts `createAsyncBashCompletionMessage`): the kernel runtime
-//! (`eukhe-runtime`'s `bash.py`) starts a notice task for every
+//! (`rlm`'s `bash.py`) starts a notice task for every
 //! background `bash()` whose creating cell ends before the command
 //! settles, and sends a `bash.completed` host request when the process
 //! finishes still unconsumed. A later kernel read that reaches the model

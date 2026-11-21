@@ -1,6 +1,6 @@
 //! The kernel's pinned toolchain, in Eukhe's own directory
 //! (`~/.eukhe/kernel`): one uv release, one standalone `CPython`, and the
-//! kernel env made from it. `eukhe-runtime/kernel-toolchain.json` is the one
+//! kernel env made from it. `rlm/kernel-toolchain.json` is the one
 //! place that pins them (versions, download urls, sha256 of every archive);
 //! it is embedded in the binary. Every kernel on every machine runs on that
 //! `CPython`: no interpreter of the system or of `PATH` is ever looked at.
@@ -28,7 +28,7 @@ use super::dir_lock::acquire_bootstrap_lock;
 use super::setup::{setup_steps, Have, SetupStep};
 
 /// The pin file, embedded: a packaged binary carries its own pins.
-const PIN_JSON: &str = include_str!("../../../../../eukhe-runtime/kernel-toolchain.json");
+const PIN_JSON: &str = include_str!("../../../../../rlm/kernel-toolchain.json");
 
 /// `EUKHE_KERNEL_DIR`: where the toolchain lives instead of
 /// `~/.eukhe/kernel` (a test's or a packager's prepared directory). It
@@ -72,7 +72,7 @@ struct PythonPin {
 
 static PIN: LazyLock<Pin> = LazyLock::new(|| {
     serde_json::from_str(PIN_JSON)
-        .expect("eukhe-runtime/kernel-toolchain.json parses (this module's tests read it)")
+        .expect("rlm/kernel-toolchain.json parses (this module's tests read it)")
 });
 
 fn pin() -> &'static Pin {

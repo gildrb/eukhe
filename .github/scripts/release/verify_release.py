@@ -89,7 +89,7 @@ def main() -> int:
                 f"!= designed payload {sorted(EXPECTED_TOP_LEVEL)}"
             )
         for member in members:
-            if member.name.startswith(("skills/", "eukhe-runtime/")) and any(
+            if member.name.startswith(("skills/", "rlm/")) and any(
                 part in RUNTIME_EXCLUDED_NAMES or part.endswith(RUNTIME_EXCLUDED_SUFFIXES)
                 for part in Path(member.name).parts
             ):
@@ -100,7 +100,7 @@ def main() -> int:
                 fail(f"tarball entry {member.name!r} is not deterministic "
                      f"(uid={member.uid} gid={member.gid} mtime={member.mtime})")
         # A kernel installs Eukhe's packages only from this hash-locked file.
-        lock_member = f"eukhe-runtime/{RUNTIME_LOCK_FILE}"
+        lock_member = f"rlm/{RUNTIME_LOCK_FILE}"
         if lock_member not in {member.name for member in members}:
             fail(f"tarball is missing the kernel runtime lock {lock_member!r}")
         lock_file = tar.extractfile(lock_member)

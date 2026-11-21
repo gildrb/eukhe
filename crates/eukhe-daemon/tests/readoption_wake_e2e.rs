@@ -11,7 +11,7 @@
 //! session). The scheduled-jobs wake (an `every 5s` heartbeat) keeps
 //! firing across the same restart.
 //!
-//! Test A runs a live kernel (the eukhe-runtime `bash`) on this checkout's
+//! Test A runs a live kernel (the rlm `bash`) on this checkout's
 //! runtime. Test B is the scripted engine (no kernel).
 
 // Pedantic-gate dispositions (fleet-uniform ruling; see this lane's PR for

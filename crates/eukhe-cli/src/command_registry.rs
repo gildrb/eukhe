@@ -576,7 +576,7 @@ then the Python; each download is checked against its pinned sha256), so nothing
 installed: `kernel install` does that fetch now (before going offline) and prints each stage; a \
 second run fetches nothing. --check prints `ready: <python> (Python <version>)` (exit 0) or \
 `not fetched: ...` (exit 1), with no network request. The kernel starts on the standard library; \
-the packages of Eukhe's lock (eukhe-runtime/requirements-kernel.txt: exact versions with hashes) \
+the packages of Eukhe's lock (rlm/requirements-kernel.txt: exact versions with hashes) \
 install on first import. `kernel lock <requirement>...` adds other packages to the project's lock \
 (.eukhe/requirements-kernel.txt): it resolves them once, with the locked versions as constraints, \
 and records exact versions and hashes; the kernel's automatic installs take only packages a lock names.",

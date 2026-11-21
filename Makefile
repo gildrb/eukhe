@@ -4,7 +4,7 @@
 check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets --locked -- -D warnings
-	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from eukhe-runtime/uv.lock"; exit 1; }
+	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from rlm/uv.lock"; exit 1; }
 	cargo nextest run --workspace --locked
 	cargo test --workspace --doc --locked
 	$(MAKE) runtime-test
@@ -50,10 +50,10 @@ hooks:
 	@command -v prek >/dev/null 2>&1 || { echo "prek not installed (mise use -g github:j178/prek@0.5.7)"; exit 1; }
 	prek install --allow-missing-config --hook-type pre-commit --hook-type pre-push
 
-# The eukhe-runtime Python suite on the uv-locked kernel env (the env the
+# The rlm Python suite on the uv-locked kernel env (the env the
 # real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).
 runtime-test:
-	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project eukhe-runtime python -m unittest discover -s eukhe-runtime/test
+	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project rlm python -m unittest discover -s rlm/test
 
 # The Home Manager module's settings merge (nix/merge_settings.py): the
 # declared settings never drop the model choice eukhe saved.
@@ -160,7 +160,7 @@ glibc-gate:
 # Local mirror of eukhe-release.yml's build-job gates:
 # release build against the committed lockfile, deterministic tarball assembly,
 # then end-to-end verification of the host-target artifact. The vendored
-# eukhe-runtime/ at the repo root is the default runtime sidecar
+# rlm/ at the repo root is the default runtime sidecar
 # (kernel-packaging lane); pass RUNTIME_DIR to re-anchor it. A local build
 # reports <workspace version>-dev (eukhe-build-info; only the release
 # workflow names a release), so the dry runs package that version.
@@ -255,9 +255,9 @@ catalog-assets-gates:
 	python3 .github/scripts/release/test_catalog_assets.py
 	python3 .github/scripts/release/test_models_dev.py
 
-# Eukhe's package lock: eukhe-runtime/uv.lock (the `kernel` group, resolved
-# for the pinned Python of eukhe-runtime/kernel-toolchain.json) exported to
-# eukhe-runtime/requirements-kernel.txt, the only file a kernel installs
+# Eukhe's package lock: rlm/uv.lock (the `kernel` group, resolved
+# for the pinned Python of rlm/kernel-toolchain.json) exported to
+# rlm/requirements-kernel.txt, the only file a kernel installs
 # Eukhe's packages from, on demand. runtime-lock re-resolves (network) and re-exports;
 # runtime-lock-check is offline: uv.lock must match pyproject.toml, the
 # committed export must equal a fresh frozen export, and every pin must be
@@ -265,11 +265,11 @@ catalog-assets-gates:
 RUNTIME_LOCK_EXPORT = uv export --frozen --no-header --format requirements-txt --no-emit-project --no-default-groups --group kernel
 
 runtime-lock:
-	cd eukhe-runtime && uv lock && $(RUNTIME_LOCK_EXPORT) > requirements-kernel.txt
+	cd rlm && uv lock && $(RUNTIME_LOCK_EXPORT) > requirements-kernel.txt
 
 runtime-lock-check:
-	cd eukhe-runtime && uv lock --check --offline
-	cd eukhe-runtime && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
+	cd rlm && uv lock --check --offline
+	cd rlm && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
 	python3 .github/scripts/release/test_runtime_lock.py
 
 # The dashboard web app: install the locked packages, check (format, lint,

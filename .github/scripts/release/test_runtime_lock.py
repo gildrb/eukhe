@@ -16,7 +16,7 @@ from runtime_lock import (  # noqa: E402
     parse_requirements,
 )
 
-REPO_RUNTIME = Path(__file__).resolve().parents[3] / "eukhe-runtime"
+REPO_RUNTIME = Path(__file__).resolve().parents[3] / "rlm"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 

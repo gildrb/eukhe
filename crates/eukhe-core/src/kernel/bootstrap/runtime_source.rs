@@ -1,4 +1,4 @@
-//! Where the `eukhe-runtime` sources of this build live: the packaged
+//! Where the `rlm` sources of this build live: the packaged
 //! sidecar layout, then the source-checkout fallback. A missing runtime
 //! source is a hard error: there is no registry fallback (the
 //! `eukhe-runtime` name is not ours on any package index).
@@ -9,7 +9,7 @@ use anyhow::anyhow;
 
 use super::toolchain::expand_home;
 
-/// Directory of the installed `eukhe-runtime` sources. The Rust binary
+/// Directory of the installed `rlm` sources. The Rust binary
 /// ships the same sidecar layout the compiled TS executable uses; an explicit
 /// `EUKHE_PACKAGE_DIR` override wins (matching the TS `getPackageDir`).
 fn package_dir() -> PathBuf {
@@ -29,20 +29,16 @@ fn package_dir() -> PathBuf {
 /// not, so a miss can name them all): the packaged exe-adjacent sidecar
 /// (the TS `runtimeCandidateDirs` bun-binary candidates, `EUKHE_PACKAGE_DIR`
 /// included through [`package_dir`]), then the source checkout's
-/// `eukhe-runtime/` — only for a binary running from inside that checkout
+/// `rlm/` — only for a binary running from inside that checkout
 /// ([`crate::packages::source_checkout_root`]).
 fn runtime_candidate_dirs() -> Vec<PathBuf> {
     let package = package_dir();
-    let mut candidates = vec![
-        package.join("eukhe-runtime"),
-        package.join("dist").join("eukhe-runtime"),
-    ];
-    candidates
-        .extend(crate::packages::source_checkout_root().map(|root| root.join("eukhe-runtime")));
+    let mut candidates = vec![package.join("rlm"), package.join("dist").join("rlm")];
+    candidates.extend(crate::packages::source_checkout_root().map(|root| root.join("rlm")));
     candidates
 }
 
-/// The directory of the `eukhe-runtime` sources this build runs.
+/// The directory of the `rlm` sources this build runs.
 ///
 /// # Errors
 ///
@@ -67,8 +63,8 @@ fn select_runtime_source_dir(candidates: &[PathBuf]) -> anyhow::Result<PathBuf> 
         .collect::<Vec<_>>()
         .join(", ");
     Err(anyhow!(
-        "the eukhe-runtime kernel runtime directory was not found (looked in: {looked}); \
-         reinstall eukhe so eukhe-runtime/ ships beside the binary, or set EUKHE_PACKAGE_DIR \
+        "the rlm kernel runtime directory was not found (looked in: {looked}); \
+         reinstall eukhe so rlm/ ships beside the binary, or set EUKHE_PACKAGE_DIR \
          to the directory that contains it"
     ))
 }
@@ -82,16 +78,16 @@ mod tests {
         // Regression: no local runtime used to fall back to installing the
         // bare `eukhe-runtime` name from PyPI (an unclaimed name).
         let temp = tempfile::tempdir()?;
-        let packaged = temp.path().join("eukhe-runtime");
-        let checkout = temp.path().join("checkout").join("eukhe-runtime");
+        let packaged = temp.path().join("rlm");
+        let checkout = temp.path().join("checkout").join("rlm");
         std::fs::create_dir_all(&packaged)?;
         let error = select_runtime_source_dir(&[packaged.clone(), checkout.clone()])
             .expect_err("no runtime source must not resolve");
         assert_eq!(
             error.to_string(),
             format!(
-                "the eukhe-runtime kernel runtime directory was not found (looked in: {}, {}); \
-                 reinstall eukhe so eukhe-runtime/ ships beside the binary, or set \
+                "the rlm kernel runtime directory was not found (looked in: {}, {}); \
+                 reinstall eukhe so rlm/ ships beside the binary, or set \
                  EUKHE_PACKAGE_DIR to the directory that contains it",
                 packaged.display(),
                 checkout.display()
