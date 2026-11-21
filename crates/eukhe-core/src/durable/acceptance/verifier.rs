@@ -687,12 +687,35 @@ fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> 
     }
     Ok(match (blocks.is_empty(), shown) {
         (true, true) => Certification::Shown(format!("caught {caught} of {ran} breaks")),
-        (true, false) => Certification::Blocked(
-            "no check was shown to catch broken code (a judge or a waived check certifies nothing)"
-                .to_owned(),
-        ),
+        (true, false) => Certification::Blocked(judges_only(&doc.checks).map_or_else(
+            || {
+                "no check was shown to catch broken code (a judge or a waived check certifies nothing)"
+                    .to_owned()
+            },
+            str::to_owned,
+        )),
         (false, _) => Certification::Blocked(blocks.join("; ")),
     })
+}
+
+/// Why checks that all passed certify nothing when every one is a judge
+/// (S2): only the intent check ran, or only judges did; `None` when a
+/// check has code to break, or there is no check.
+pub(crate) fn judges_only(checks: &[AcceptanceCheck]) -> Option<&'static str> {
+    if checks.is_empty()
+        || checks
+            .iter()
+            .any(|check| check.spec.bar() != StrengthBar::Exempt)
+    {
+        None
+    } else if checks
+        .iter()
+        .all(|check| matches!(check.spec, CheckSpec::Intent { .. }))
+    {
+        Some("only the intent check ran")
+    } else {
+        Some("only judges ran")
+    }
 }
 
 /// Whether a passed claim's checks were shown to catch broken code, in

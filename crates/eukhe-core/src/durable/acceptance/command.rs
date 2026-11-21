@@ -24,7 +24,7 @@ use std::path::Path;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::acceptance::{AcceptanceState, CheckSpec};
 
-use super::verifier::{describe, strength_text};
+use super::verifier::{describe, judges_only, strength_text};
 
 /// What `/accept` asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,6 +305,17 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
         ));
     }
     Ok(lines.join("\n"))
+}
+
+/// The end line of a headless run whose checks all passed while done is
+/// not certified (exit 3): the work is done, and why it is not certified
+/// (`done; not certified: only the intent check ran`).
+#[must_use]
+pub fn uncertified_line(state: &AcceptanceState) -> String {
+    format!(
+        "done; not certified: {}",
+        judges_only(&state.checks).unwrap_or("the checks were not shown to catch broken code")
+    )
 }
 
 #[cfg(test)]

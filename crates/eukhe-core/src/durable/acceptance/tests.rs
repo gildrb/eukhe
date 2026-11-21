@@ -43,7 +43,7 @@ use super::docs::ACCEPTANCE_DOC;
 use super::evidence::{judge_prompt, ModelJudge};
 use super::strength::{Measurement, Probe};
 use super::{
-    acceptance_exit_code, acceptance_extension, acceptance_state, set_acceptance,
+    acceptance_exit_code, acceptance_extension, acceptance_state, set_acceptance, uncertified_line,
     watch_acceptance_updates, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services,
     ACCEPTANCE_CUSTOM_TYPE,
 };
@@ -1572,6 +1572,80 @@ async fn a_requirement_added_later_extends_the_task() {
     let last = state(&harness, &root).await;
     assert_eq!(last.label, AcceptanceLabel::ChecksPassedNotCertified);
     assert_ne!(last.state, first.state);
+    harness.close(cx()).await.expect("close");
+}
+
+/// S2, S6: the intent check alone passes the done work yet certifies
+/// nothing (it has no code to break): the verdict row and the end line of
+/// a headless run say the work is done and only the intent check ran; a
+/// judge with it, only judges; a gauged check, that it was not shown to
+/// catch broken code.
+#[tokio::test]
+async fn the_intent_check_alone_ends_done_not_certified() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![CheckSpec::intent()], None)
+        .await;
+    setup
+        .judge
+        .replies
+        .lock()
+        .expect("replies")
+        .push_back(JudgeReply::Text("PASS\nhello.txt exists".to_owned()));
+    setup
+        .faux
+        .set_responses(vec![call("work", "w1"), answer("hello.txt written")]);
+    run(&harness, &root, "write hello.txt").await;
+
+    let got = state(&harness, &root).await;
+    assert_eq!(got.label, AcceptanceLabel::ChecksPassedNotCertified);
+    assert_eq!(
+        uncertified_line(&got),
+        "done; not certified: only the intent check ran"
+    );
+    let rows = verdict_rows(&entries(&root).await);
+    assert_eq!(
+        rows.last().map(|(text, _, _)| text.as_str()),
+        Some(
+            "Acceptance checks passed, not certified: 1 acceptance check confirmed; only the intent check ran."
+        )
+    );
+
+    let with = |spec: CheckSpec| {
+        let mut checks = got.checks.clone();
+        checks.insert(
+            0,
+            AcceptanceCheck {
+                spec,
+                protected: Vec::new(),
+                result: None,
+                strength: None,
+            },
+        );
+        AcceptanceState {
+            checks,
+            ..got.clone()
+        }
+    };
+    assert_eq!(
+        uncertified_line(&with(CheckSpec::Judge {
+            condition: "the README names the flag".to_owned(),
+            evidence: Vec::new(),
+            model: None,
+        })),
+        "done; not certified: only judges ran"
+    );
+    assert_eq!(
+        uncertified_line(&with(CheckSpec::Command {
+            command: "true".to_owned(),
+            expect: 0,
+            timeout_ms: None,
+            protect: Vec::new(),
+            strength: None,
+        })),
+        "done; not certified: the checks were not shown to catch broken code"
+    );
     harness.close(cx()).await.expect("close");
 }
 
