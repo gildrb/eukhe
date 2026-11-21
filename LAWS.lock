@@ -3991,6 +3991,7 @@
     "laws/tui_color.bend::tui_usage_band_percents": "ed9dbf7c939bbe91b2f9650eb7ea805040db719cf6fdc864d8d6906198a2c4dc",
     "laws/tui_color.bend::tui_usage_bands_ascend": "f5b0ced339c8e59b52df1008c442ad9a17b6b390bec777669e549afbf7245644",
     "laws/tui_color.bend::tui_usage_bands_ascend_teeth_example": "8fc2834d31220289c89150a3e4a1ff254e100d81e0c48cbc2213d944ec9a4001",
+    "laws/undo.bend::undo_diff_any_state": "acf711001aa4c6495646b8a6d98245d0aac0dbe33a67d61949adecaed4503c1b",
     "laws/undo.bend::undo_diff_compares": "441a8d0afa6663345bef0870f9b61bb03bbdeb17d0fdb20a0ab65f454d386d55",
     "laws/undo.bend::undo_diff_keeps": "ebe2f8ab80ff7ba3ddb55e21dcb33e03884f05985beb3b1ed5462114468ea70e",
     "laws/undo.bend::undo_diff_rows": "4790740d4600a36d2aee7eb2f993e9ac8e002c65bb93720b616ee9b282a121a1",
