@@ -448,17 +448,22 @@ law undo_diff_compares:
   {sp_act(U.step(sp_replay(h), U.Diff{U.Turn{}})) == sp_cmp(sp_head(sp_live(h, 0n))) : U.Act} & {sp_act(U.step(sp_replay(h), U.Diff{U.All{}})) == sp_cmp(sp_first(h)) : U.Act}
 
 # LAW undo_diff_any_state (R4): from every state, whatever its first
-# snapshot (none recorded included), /diff of the turn compares with the
-# newest turn not undone and /diff all with the first snapshot; nothing to
-# compare when there is none
+# snapshot (none recorded included): /diff of the turn compares with the
+# newest turn when one is left and finds no snapshot when none is; /diff
+# all compares with the first snapshot when one is recorded and finds no
+# snapshot when none is
 # EXCLUDES: the turn's comparison decided by the first snapshot (no
 #   comparison while a turn is left, on a state no history builds, as the
 #   wire may carry), the turn compared with an older turn or the first
-#   snapshot, all compared with the newest turn
+#   snapshot, all compared with the newest turn, a comparison with no
+#   snapshot
 law undo_diff_any_state:
-  for +live: List<&2, Nat>
-  for +b: Maybe<&2, Nat>
-  {sp_act(U.step(U.St{live, b}, U.Diff{U.Turn{}})) == sp_cmp(sp_head(live)) : U.Act} & {sp_act(U.step(U.St{live, b}, U.Diff{U.All{}})) == sp_cmp(b) : U.Act}
+  for t: Nat
+  for rest: List<&2, Nat>
+  for live: List<&2, Nat>
+  for b: Maybe<&2, Nat>
+  for f: Nat
+  {sp_act(U.step(U.St{t <> rest, b}, U.Diff{U.Turn{}})) == U.Compare{t} : U.Act} & {sp_act(U.step(U.St{Nil{}, b}, U.Diff{U.Turn{}})) == U.NoSnapshot{} : U.Act} & {sp_act(U.step(U.St{live, Some{f}}, U.Diff{U.All{}})) == U.Compare{f} : U.Act} & {sp_act(U.step(U.St{live, None{}}, U.Diff{U.All{}})) == U.NoSnapshot{} : U.Act}
 
 # LAW undo_diff_keeps (R4): /diff, of either scope, from every state,
 # leaves the snapshots as they are
