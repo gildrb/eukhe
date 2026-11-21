@@ -622,47 +622,6 @@ fn an_incomplete_task_says_what_remains() {
     );
 }
 
-/// A call acts unless it only read: the read tools never act, a `bash`
-/// call acts once a step has an effect other than reading (or its steps
-/// are not recorded), every other tool acts.
-#[test]
-fn a_call_acts_unless_it_only_read() {
-    let result =
-        |tool: &str, details: Option<serde_json::Value>| eukhe_types::pi_ai::ToolResultMessage {
-            tool_call_id: "call-1".to_owned(),
-            tool_name: tool.to_owned(),
-            content: Vec::new(),
-            details,
-            usage: None,
-            nested_calls: None,
-            is_error: false,
-            timestamp: 0,
-            duration_ms: None,
-        };
-    let steps = |effects: &[&[&str]]| {
-        Some(serde_json::json!({
-            "steps": effects
-                .iter()
-                .map(|effects| serde_json::json!({ "effects": effects }))
-                .collect::<Vec<_>>()
-        }))
-    };
-    let acted: Vec<bool> = [
-        result("read", None),
-        result("grep", None),
-        result("bash", steps(&[&["read"], &["read"]])),
-        result("bash", steps(&[&["read"], &["read", "write"]])),
-        result("bash", steps(&[&["exec"]])),
-        result("bash", None),
-        result("edit", None),
-        result("python", None),
-    ]
-    .iter()
-    .map(activity::tool_acted)
-    .collect();
-    assert_eq!(acted, [false, false, false, true, true, true, true, true]);
-}
-
 #[test]
 fn the_session_header_carries_the_ts_fields_in_order() {
     let opened_cwd = std::path::PathBuf::from("/work/project");

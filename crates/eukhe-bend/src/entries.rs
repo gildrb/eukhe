@@ -272,6 +272,8 @@ pub enum Entry {
     WorkList = 463,
     /// `bend/ffi_headless_task.bend`: a call.
     HeadlessTask = 464,
+    /// `bend/ffi_work_left.bend`: a call.
+    WorkLeft = 470,
 }
 
 impl Entry {
@@ -410,6 +412,7 @@ impl Entry {
         Entry::Limits,
         Entry::WorkList,
         Entry::HeadlessTask,
+        Entry::WorkLeft,
     ];
 
     /// The id `bend/core.bend` dispatches on.
