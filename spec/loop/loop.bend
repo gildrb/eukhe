@@ -24,7 +24,8 @@
 #     command; a judge that could not rule is the check breaking).
 # S4: the bounds of an automatic iteration: the count of the start (one
 #     fewer after each), the deadline of the start (the clock must be
-#     before it), three failed turns in a row, the budget.
+#     before it; a span reaching past the wire's largest Nat, 10^14-1 ms,
+#     sets none), three failed turns in a row, the budget.
 # S5: what starts or judges: Submit, Adopt, Judge, Resume. What waits:
 #     Rest, Defer. Report tells the end.
 # S6: an event that can be delivered twice after a crash: a stop, an
