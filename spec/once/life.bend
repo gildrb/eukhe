@@ -25,29 +25,40 @@
 #     the world shows its effect. It is reported not started only when it
 #     certainly never ran.
 # O4: a started effect with no end on record, about which the world says
-#     nothing, is reported interrupted (`unknown`) at the restart: it is
-#     not launched again and not reported done. The same when its run was
-#     stopped, whatever its policy.
+#     nothing and whose repeat is not safe, is journaled unknown at the
+#     restart (the same when its run was stopped, whatever its policy):
+#     it is treated as not run (never launched again, never reported
+#     done), listed once in its run's end-of-run report ("Unknown after a
+#     crash, treated as not run: …"), and the run goes on. Nobody is
+#     asked.
 # O5: an effect that certainly never ran (intended and never started; or
 #     started, and the world shows it clean) is launched when its run
 #     resumes, and reported not started when its run was stopped.
 # O6: an effect ends once. An ended effect never changes and is never
 #     launched, whatever records, restarts and answers of the world
 #     follow.
-# O7: an effect that changes nothing (`safe`) runs again after a restart.
+# O7: an effect whose repeat leaves the world as one run does (`safe`: a
+#     read, a write of a known content) runs again after a restart.
 #     Every launch of a `keyed` effect carries its idempotency key. It is
 #     sent again under that key only when its target declares, by a
 #     declaration the principal or the target's operator made (sr170),
 #     that it drops every repeat of the key whenever it comes (`lasting`),
-#     and at most `cap` more times; then it is reported interrupted. With
-#     no such declaration (`undeclared`; a declaration that drops a repeat
-#     only within a window counts as none: only the harness's own clock
-#     could tell that a relaunch falls inside it, sr01, sr33), it is
-#     launched once and, cut, reported interrupted. Elapsed time never sends an effect
-#     again. Two effects never share a key.
+#     and at most `cap` more times; then it is journaled unknown (O4).
+#     With no such declaration (`undeclared`; a declaration that drops a
+#     repeat only within a window counts as none: only the harness's own
+#     clock could tell that a relaunch falls inside it, sr01, sr33), it
+#     is launched once and, cut, journaled unknown (O4). Elapsed time
+#     never sends an effect again. Two effects never share a key.
 # O8: O1-O7 hold at every crash point: after any prefix of the records of
 #     a journal, and after any list of records at all (also one no run
 #     writes), the restart's answer is the one above for the records read.
+# O13: a restart settles every started effect with no end on record
+#     itself, in order: (1) the evidence first (the file's bytes, a git
+#     ref, a job's exit record, a subagent's own record): landed is
+#     adopted, clean is launched when its run resumes, whatever the
+#     policy; (2) the evidence dark, a repeat that is safe (O7) runs again;
+#     (3) else it is unknown (O4): treated as not run, reported once,
+#     never waiting on a person. `/effects ran|not-run` only correct it.
 
 import Base
 import ../../bend/once.bend as O
@@ -175,7 +186,21 @@ def lasting(d: O.Dedup) -> Bool:
     case O.Lasting{}:
       True{}
 
-# the answer O1-O7 ask of a restart, as one table
+# a repeat of a started effect leaves the world as one run does (O7,
+# O13): a safe effect (a read, a write of a known content), or a keyed one
+# whose target drops every repeat of its key, sent again fewer than cap
+# times
+def repeat_safe(p: O.Policy, again: Nat) -> Bool:
+  match p:
+    case O.Never{}:
+      False{}
+    case O.Safe{}:
+      True{}
+    case O.Keyed{d, cap}:
+      Bool.and(lasting(d), Nat.is_lt(again, cap))
+
+# the answer O1-O7 and O13 ask of a restart, as one table: the world's
+# evidence first (landed, clean), then the policy when it is dark
 def verdict_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> O.Verdict:
   match l:
     case O.Absent{}:
@@ -209,8 +234,8 @@ def verdict_spec(l: O.Life, s: O.Seen, m: O.Mode, p: O.Policy) -> O.Verdict:
     case O.Void{}:
       O.Settled{}
 
-# The world of one effect (O2-O7)
-# -------------------------------
+# The world of one effect (O2-O7, O13)
+# ------------------------------------
 # The run journals the effect intended; the runtime comes to it (a first
 # run, or a restart: a resume or a stop of its run) and does what the
 # restart's verdict says, never while a launch of it is in flight; a
@@ -354,3 +379,46 @@ def is_void(l: O.Life) -> Bool:
       False{}
     case O.Void{}:
       True{}
+
+# 1 for a verdict that journals the effect unknown (O4)
+def told.verdict(v: O.Verdict) -> Nat:
+  match v:
+    case O.Skip{}:
+      0n
+    case O.Launch{}:
+      0n
+    case O.Adopt{}:
+      0n
+    case O.Interrupt{}:
+      1n
+    case O.Abandon{}:
+      0n
+    case O.Settled{}:
+      0n
+
+# 1 for a restart that journals the effect unknown: nothing in flight
+# (with a launch in flight the runtime does nothing), the verdict an
+# interrupt (O4)
+def told(live: Bool, v: O.Verdict) -> Nat:
+  match live:
+    case True{}:
+      0n
+    case False{}:
+      told.verdict(v)
+
+# the reports an effect of life l is owed as an unknown step: 1 for a
+# settled unknown, else 0 (O4)
+def told_spec(l: O.Life) -> Nat:
+  match l:
+    case O.Absent{}:
+      0n
+    case O.Pending{}:
+      0n
+    case O.Running{again}:
+      0n
+    case O.Ran{}:
+      0n
+    case O.Unsure{}:
+      1n
+    case O.Void{}:
+      0n

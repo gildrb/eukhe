@@ -8,8 +8,8 @@
 #   intended   before anything of the effect happens
 #   started    before each launch of the effect
 #   finished   after the effect ended, with its result
-#   unknown    a restart could not tell whether it ran: it is reported
-#              interrupted
+#   unknown    a restart could not tell whether it ran: it is treated as
+#              not run and listed once in its run's end-of-run report
 #   unstarted  a restart knows it never ran: it is reported not started
 #
 # and asks this model at every restart of a run (a resume, or a stop of
@@ -38,7 +38,7 @@ type Dedup is Data:
 # What a second launch of an effect would do
 type Policy is Data:
   Never{}                    # it may change state and nothing drops a repeat: never launched twice
-  Safe{}                     # it changes nothing: it may run again
+  Safe{}                     # a repeat leaves the world as one run does (a read, a write of a known content): it may run again
   Keyed{d: Dedup, cap: Nat}  # every launch carries its idempotency key: sent again under it only when its target declares d lasting, at most cap more times
 
 # What the world shows of a started effect at a restart
@@ -61,7 +61,7 @@ type Life is Data:
   Pending{}            # intended, never launched
   Running{again: Nat}  # launched 1 + again times, no end on record
   Ran{}               # finished
-  Unsure{}               # settled unknown
+  Unsure{}               # settled unknown: treated as not run
   Void{}               # settled unstarted
 
 # What a restart does with an effect
@@ -69,7 +69,7 @@ type Verdict is Data:
   Skip{}       # no record of it: nothing to do
   Launch{}     # journal started, then run it (a first launch, or one more)
   Adopt{}      # journal finished: it ran; its effect in the world is its result
-  Interrupt{}  # journal unknown: report it interrupted; never run it
+  Interrupt{}  # journal unknown: treat it as not run (never run it, never report it done), list it once in its run's end-of-run report; the run goes on, nobody is asked
   Abandon{}    # journal unstarted: report it not started; never run it
   Settled{}    # it ended before: report what the journal says; never run it
 
@@ -167,7 +167,8 @@ def unrun(m: Mode) -> Verdict:
       Abandon{}
 
 # a started effect nothing can be asked about: only a run that goes on
-# launches again, and only what its policy allows
+# launches again, and only an effect whose repeat leaves the world as one
+# run does (its policy); any other is unknown, treated as not run
 def dark(m: Mode, p: Policy, again: Nat) -> Verdict:
   match m:
     case Resume{}:
