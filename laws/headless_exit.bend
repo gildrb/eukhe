@@ -41,6 +41,12 @@ import ../spec/durable/headless_wire.bend as SpW
 #     R1-R5), answers no input but exactly one request with anything but
 #     the error form, and answers any input that is not exactly one
 #     request with exactly `E headless_exit: malformed request`.
+# R7: the code of every cause (bend/headless_exit.bend `code`, the code
+#     headless_task's exit stands on, R2 there), those `decide` never
+#     gives included (a run failed by a reset, a stale run, a withdrawn
+#     input or a budget refusal: the task wire carries every cause), is 0
+#     exactly for a run that answered or is budget-limited, and 1 for
+#     every other cause.
 
 # the code of an exit
 def code_of(v: Hx.Verdict) -> Nat:
@@ -71,12 +77,6 @@ def only_excused(m: Maybe<&2, Hx.Cause>) -> Bool:
     case Some{x}:
       Sp.excused(x)
 
-# whether the final answer from the budget's reserve was delivered
-def budget_answered(f: Hx.Facts) -> Bool:
-  match f:
-    case Hx.Facts{cf, w, run, p, c, ba}:
-      ba
-
 # E1 read over the facts: no failure holds: no failed command, a quiet
 # wait (Sp.wait_cause), a run that did not fail (no run, answered, reset,
 # stale, withdrawn: Sp.run_cause), a terminal entry that is no failure
@@ -96,8 +96,34 @@ def budget_limited(f: Hx.Facts) -> Bool:
     case Hx.Facts{cf, w, run, p, c, ba}:
       Bool.and(ba, Bool.and(Bool.not(cf), Bool.and(only_excused(Sp.wait_cause(w)), Bool.and(only_excused(Sp.run_cause(run)), Bool.and(only_excused(Sp.primary_cause(p)), Bool.not(c))))))
 
-# Laws: the exit (R1-R2)
-# ----------------------
+# R7: a cause of a run that succeeded: it answered, or is budget-limited
+def succeeded(c: Hx.Cause) -> Bool:
+  match c:
+    case Hx.CAnswered{}:
+      True{}
+    case Hx.CCommandFailed{}:
+      False{}
+    case Hx.CGaveUp{}:
+      False{}
+    case Hx.CRunFailed{r}:
+      False{}
+    case Hx.CProviderError{}:
+      False{}
+    case Hx.CAborted{}:
+      False{}
+    case Hx.CUnfinished{}:
+      False{}
+    case Hx.CSlashFailed{}:
+      False{}
+    case Hx.CCompactionFailed{}:
+      False{}
+    case Hx.CBudgetLimited{}:
+      True{}
+    case Hx.CBudgetUnanswered{}:
+      False{}
+
+# Laws: the exit (R1-R2, R7)
+# --------------------------
 
 # LAW headless_exit_zero_iff_no_failure (R2): the code is 0 exactly when
 # no failure fact holds (no_failure: no failed command, a quiet wait, a
@@ -113,23 +139,23 @@ law headless_exit_zero_iff_no_failure:
   for +f: Hx.Facts
   {Nat.is_eq(code_of(Hx.decide(f)), 0n) == Bool.or(no_failure(f), budget_limited(f)) : Bool}
 
-# LAW headless_exit_no_failure_answered (R1, R4): when no failure fact
-# holds (no_failure) and no final answer from the budget's reserve was
-# delivered, the cause is that the run answered
-# EXCLUDES: a run with no failure reported with a failure cause (a cause
-#   invented from a reset or a slash command that succeeded)
-law headless_exit_no_failure_answered:
-  for +f: Hx.Facts
-  for clean: {no_failure(f) == True{} : Bool}
-  for plain: {budget_answered(f) == False{} : Bool}
-  {cause_of(Hx.decide(f)) == Hx.CAnswered{} : Hx.Cause}
-
 # LAW headless_exit_code_at_most_one (R2): the code is 0 or 1
 # EXCLUDES: a code past 1 (a signal number, a code a shell reads as
 #   another failure)
 law headless_exit_code_at_most_one:
   for +f: Hx.Facts
   {Nat.is_le(code_of(Hx.decide(f)), 1n) == True{} : Bool}
+
+# LAW headless_exit_code_zero_iff_success (R7): for every cause, those
+# `decide` never gives included, the code is 0 exactly when the run
+# answered or is budget-limited (succeeded), and at most 1
+# EXCLUDES: a cause the task wire carries but `decide` never gives (a run
+#   failed by a reset, a stale run, a withdrawn input, a budget refusal)
+#   mapped to 0, so headless_task lets it exit 0; an answered or
+#   budget-limited cause mapped to 1; a code past 1
+law headless_exit_code_zero_iff_success:
+  for +c: Hx.Cause
+  {Nat.is_eq(Hx.code(c), 0n) == succeeded(c) : Bool} & {Nat.is_le(Hx.code(c), 1n) == True{} : Bool}
 
 # Laws: every failure fails (R3)
 # ------------------------------
@@ -302,68 +328,6 @@ law headless_exit_compaction_failed_fails:
 law headless_exit_cause_is_first_failure:
   for +f: Hx.Facts
   {cause_of(Hx.decide(f)) == Sp.exit_cause(f) : Hx.Cause}
-
-# LAW headless_exit_command_failed_first (R4): a failed command is the
-# cause, whatever else holds
-# EXCLUDES: a later cause reported for a failed command
-law headless_exit_command_failed_first:
-  for w: Hx.Wait
-  for r: Hx.Run
-  for p: Hx.Primary
-  for c: Bool
-  for ba: Bool
-  {cause_of(Hx.decide(Hx.Facts{True{}, w, r, p, c, ba})) == Hx.CCommandFailed{} : Hx.Cause}
-
-# LAW headless_exit_gave_up_before_run (R4): without a failed command, a
-# give-up at the wait limit is the cause, whatever the run, the
-# transcript and the final answer from the reserve
-# EXCLUDES: a run's state reported for a run the wait abandoned
-law headless_exit_gave_up_before_run:
-  for r: Hx.Run
-  for p: Hx.Primary
-  for c: Bool
-  for ba: Bool
-  {cause_of(Hx.decide(Hx.Facts{False{}, Hx.GaveUp{}, r, p, c, ba})) == Hx.CGaveUp{} : Hx.Cause}
-
-# LAW headless_exit_run_before_transcript (R4): without a failed command or
-# a give-up, a run that failed is the cause, with its reason, whatever the
-# transcript and the flags
-# EXCLUDES: a run failure reported as the transcript entry it left, a
-#   reason lost or swapped
-law headless_exit_run_before_transcript:
-  for +r: Hx.Reason
-  for p: Hx.Primary
-  for c: Bool
-  for ba: Bool
-  for fails: {Sp.run_fails(r) == True{} : Bool}
-  {cause_of(Hx.decide(Hx.Facts{False{}, Hx.Quiet{}, Hx.Unanswered{r}, p, c, ba})) == Hx.CRunFailed{r} : Hx.Cause}
-
-# LAW headless_exit_transcript_before_flags (R4): without an earlier
-# failure and without the final answer from the reserve, a failed
-# terminal entry is the cause, whatever the flags
-# EXCLUDES: a compaction failure reported over the entry that failed
-law headless_exit_transcript_before_flags:
-  for +r: Hx.Run
-  for +p: Hx.Primary
-  for c: Bool
-  for +x: Hx.Cause
-  for ok: {Sp.run_cause(r) == None{} : Maybe<&2, Hx.Cause>}
-  for failed: {Sp.primary_cause(p) == Some{x} : Maybe<&2, Hx.Cause>}
-  {cause_of(Hx.decide(Hx.Facts{False{}, Hx.Quiet{}, r, p, c, False{}})) == x : Hx.Cause}
-
-# LAW headless_exit_compaction_last (R4): without an earlier failure (no
-# failed command, a quiet wait, a run that did not fail by Sp.run_cause, a
-# terminal entry that is no failure by Sp.primary_cause), a failed
-# compaction is the cause
-# EXCLUDES: a failed compaction reported as an answer, as budget-limited
-#   or as another cause
-law headless_exit_compaction_last:
-  for +r: Hx.Run
-  for +p: Hx.Primary
-  for +ba: Bool
-  for ok: {Sp.run_cause(r) == None{} : Maybe<&2, Hx.Cause>}
-  for clean: {Sp.primary_cause(p) == None{} : Maybe<&2, Hx.Cause>}
-  {cause_of(Hx.decide(Hx.Facts{False{}, Hx.Quiet{}, r, p, True{}, ba})) == Hx.CCompactionFailed{} : Hx.Cause}
 
 # Laws: no failure by itself (R5)
 # -------------------------------
