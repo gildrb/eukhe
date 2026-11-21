@@ -314,7 +314,7 @@ fn remove(value: &mut Value, path: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::types::{CompactionSettings, QueueModeSetting, ShellSettings};
+    use crate::settings::types::{CompactionSettings, QueueModeSetting};
     use serde_json::json;
 
     fn load(value: &Value) -> Loaded {
@@ -392,18 +392,17 @@ mod tests {
     /// does not admit was skipped in silence.
     #[test]
     fn a_value_its_cvar_refuses_is_named() {
-        let loaded = load(&json!({ "shell": { "autoEffects": ["read", "wirte"] } }));
+        let loaded = load(&json!({ "chatDetail": "evrything" }));
         assert_eq!(
-            serde_json::to_value(loaded.settings.shell).unwrap(),
-            serde_json::to_value(Some(ShellSettings::default())).unwrap()
-        );
-        assert_eq!(
-            loaded.rejected,
-            vec![CvarError::BadValue {
-                id: "shell.autoEffects".into(),
-                value: "[\"read\",\"wirte\"]".into(),
-                expected: "a list of read, write, exec, net, outside, protected, secret".into()
-            }]
+            (loaded.settings.chat_detail, loaded.rejected),
+            (
+                None,
+                vec![CvarError::BadValue {
+                    id: "chatDetail".into(),
+                    value: "evrything".into(),
+                    expected: crate::settings::cvar::table::CHAT_DETAIL.ty.name(),
+                }]
+            )
         );
     }
 

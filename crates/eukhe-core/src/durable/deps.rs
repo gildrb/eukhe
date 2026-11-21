@@ -230,19 +230,6 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink =
     Arc<dyn Fn(eukhe_types::job::JobSettled, crate::durable::jobs::NoticeAdmission) + Send + Sync>;
 
-/// Asks the user whether one gated step of a `bash` tool script may run
-/// (G5): the daemon worker asks its attached clients and
-/// waits for the first answer, or answers by the gateway rule when its
-/// only clients are the phone gateway, or hands the question to its
-/// parent session when no client is attached.
-pub type ShellApprovalSink = Arc<
-    dyn Fn(
-            eukhe_types::shell::ShellApprovalRequest,
-        ) -> BoxFuture<'static, eukhe_types::shell::ShellAnswer>
-        + Send
-        + Sync,
->;
-
 /// An MCP login surface: the UI the OAuth flow drives and its HTTP client
 /// (see [`crate::mcp::wire_begin_login`]).
 #[derive(Clone)]
@@ -313,9 +300,6 @@ pub struct SessionConfig {
     /// Settled detached jobs (the daemon's job-settled wake); `None` drops
     /// them.
     pub job_settled: Option<JobSettledSink>,
-    /// The approval channel of the `bash` tool's gated steps; `None`
-    /// leaves every gated step unanswered (denied).
-    pub shell_approval: Option<ShellApprovalSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -368,7 +352,6 @@ impl SessionConfig {
             late_agent_message: None,
             progress_note: None,
             job_settled: None,
-            shell_approval: None,
             prewarm_kernel: false,
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
@@ -563,8 +546,6 @@ pub struct HostDeps {
     pub late_agent_message: Option<LateAgentMessageSink>,
     pub progress_note: Option<ProgressNoteSink>,
     pub job_settled: Option<JobSettledSink>,
-    /// [`SessionConfig::shell_approval`].
-    pub shell_approval: Option<ShellApprovalSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
@@ -668,7 +649,6 @@ impl HostDeps {
             late_agent_message: config.late_agent_message.clone(),
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
-            shell_approval: config.shell_approval.clone(),
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),

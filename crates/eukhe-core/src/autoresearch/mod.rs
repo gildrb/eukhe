@@ -9,8 +9,8 @@
 //!
 //! - [`store`]: the event log of each repository branch, written before
 //!   an event's effect runs, replayed on open;
-//! - [`runner`]: one run of `bash autoresearch.sh` through the approval
-//!   gate of the `bash` tool, each output line fed to the Lab;
+//! - [`runner`]: one run of `bash autoresearch.sh` through the in-process
+//!   shell of the `bash` tool, each output line fed to the Lab;
 //! - [`git`]: the `autoresearch/*` branch, the commit of a kept run, the
 //!   reset of the others, the paths a run changed;
 //! - [`ops`]: the operations (init, run, log, flag, notes, state, mode);
@@ -52,9 +52,8 @@ use self::store::{Durability, Store};
 #[error("{0}")]
 pub(crate) struct Refused(pub(crate) String);
 
-/// Builds the approval gate of one run; the argument identifies the run's
-/// questions to the user (the tool call's id).
-pub(crate) type GateSource = Arc<dyn Fn(&str) -> RunGate + Send + Sync>;
+/// Builds what one run needs (its environment and path policy).
+pub(crate) type GateSource = Arc<dyn Fn() -> RunGate + Send + Sync>;
 
 /// The autoresearch host of one session: where its stores live, its
 /// working directory, and the gate its runs pass.

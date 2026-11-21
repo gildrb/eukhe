@@ -129,7 +129,7 @@ export async function deleteChat(id: string): Promise<void> {
   await request("delete", { sessionId: id });
   store.set((state) => ({
     sessions: { ...state.sessions, rows: state.sessions.rows.filter((row) => row.id !== id) },
-    ...(wasCurrent ? { session: null, approvals: [] } : {}),
+    ...(wasCurrent ? { session: null } : {}),
   }));
   const rows = await refreshSessions().catch(() => store.get().sessions.rows);
   if (!wasCurrent) return;

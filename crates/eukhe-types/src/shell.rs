@@ -1,17 +1,15 @@
-//! The shell's approval vocabulary (S7): the effects of one
-//! step of a `bash` script (a set), the auto set, the question the host
-//! asks the attached client about a step that is not within the auto set,
-//! the client's answer, and how the question ended.
+//! The shell's effect vocabulary (S7): the effects of one step of a
+//! `bash` script (a set). [`AutoSet`] and [`ShellAnswer`] stay only for
+//! the compiled core's approval wrappers, which go with them.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::path_policy::PathClass;
 
 /// One effect a step may have. A command the classification table does
-/// not know is [`ShellEffect::Exec`]. Every effect may sit in an
-/// [`AutoSet`]; the user's `shell.autoEffects` decides (a secret access
-/// gates like any other; the gate, `eukhe_bend::rules::shell`, runs
-/// bend/tools.bend `within`).
+/// not know is [`ShellEffect::Exec`]. Every step runs unasked whatever its
+/// effects; read, write and exec inside the workspace are reversible, the
+/// others irreversible (`eukhe_bend::rules::irreversible`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellEffect {
@@ -187,32 +185,7 @@ impl AutoSet {
     }
 }
 
-/// The host asks the attached client whether one step may run (the
-/// `shell_approval` frame).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellApprovalRequest {
-    /// Unique within the session; the answer names it.
-    pub request_id: String,
-    /// The step's place in the script, from 0, in the order steps run.
-    pub step: u64,
-    /// The step exactly as it will run, after expansion, with every
-    /// control and bidi character escaped.
-    pub command: String,
-    /// Every effect of the step.
-    pub effects: ShellEffects,
-}
-
-/// The client's answer to one [`ShellApprovalRequest`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellVerdict {
-    Approve,
-    Deny,
-}
-
-/// How one [`ShellApprovalRequest`] ended: the answer of the session's
-/// approval sink.
+/// How an approval question of the compiled core's approval desk ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellAnswer {

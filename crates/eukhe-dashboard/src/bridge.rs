@@ -1,10 +1,10 @@
 //! One browser tab's bridge to the daemon: its own daemon connection, the
 //! session it is bound to, the tab's requests, and the bound session's
-//! events, approval questions and resyncs pushed as they come. Each
-//! request runs on its own task and answers under its id, so a slow one
-//! (an open, a memory read) never holds back another or the events. When
-//! the daemon goes away the bridge ends and the tab reconnects (a new
-//! bridge starts the daemon again).
+//! events and resyncs pushed as they come. Each request runs on its own
+//! task and answers under its id, so a slow one (an open, a memory read)
+//! never holds back another or the events. When the daemon goes away the
+//! bridge ends and the tab reconnects (a new bridge starts the daemon
+//! again).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -916,26 +916,6 @@ impl Tab {
                 }),
                 Binding::Unbound | Binding::Opening { .. } | Binding::Bound { .. } => {}
             },
-            // The tab's approval card does not name a subagent that asks.
-            DaemonClientEvent::ShellApproval {
-                active_session_id,
-                request,
-                agent: _,
-            } => {
-                if binding.active_session_id() == Some(active_session_id.as_str()) {
-                    self.send(&ServerFrame::Approval { request: &request });
-                }
-            }
-            DaemonClientEvent::ShellApprovalSettled {
-                active_session_id,
-                request_id,
-            } => {
-                if binding.active_session_id() == Some(active_session_id.as_str()) {
-                    self.send(&ServerFrame::ApprovalSettled {
-                        request_id: &request_id,
-                    });
-                }
-            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,
@@ -979,7 +959,6 @@ impl Tab {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use eukhe_types::shell::{ShellApprovalRequest, ShellEffect, ShellEffects};
     use std::io::{BufRead, BufReader, Write};
 
     #[tokio::test]
@@ -1029,22 +1008,8 @@ mod tests {
             event: Box::new(SessionEvent::AgentStart),
             meta_sequence,
         };
-        let approval = |active_session_id: &str| DaemonClientEvent::ShellApproval {
-            active_session_id: active_session_id.to_string(),
-            request: ShellApprovalRequest {
-                request_id: format!("r-{active_session_id}"),
-                step: 1,
-                command: "make".to_string(),
-                effects: ShellEffects::of(&[ShellEffect::Exec]),
-            },
-            agent: None,
-        };
         let lost = |active_session_id: &str| DaemonClientEvent::DirectLinkLost {
             active_session_id: active_session_id.to_string(),
-        };
-        let settled = |active_session_id: &str| DaemonClientEvent::ShellApprovalSettled {
-            active_session_id: active_session_id.to_string(),
-            request_id: format!("r-{active_session_id}"),
         };
         for news in [
             // Already in the snapshot the tab holds.
@@ -1053,15 +1018,10 @@ mod tests {
             event("s2", 5),
             // No sequence from the daemon: no cursor.
             event("s1", 0),
-            approval("s2"),
-            approval("s1"),
-            settled("s2"),
-            settled("s1"),
             lost("s2"),
             lost("s1"),
             // Unbound now: the tab opens the session again first.
             event("s1", 6),
-            approval("s1"),
         ] {
             tab.forward(news);
         }
@@ -1078,11 +1038,6 @@ mod tests {
                     "cursor": { "generation": "g1", "sequence": 4 },
                 }),
                 json!({ "type": "event", "event": { "type": "agent_start" } }),
-                json!({
-                    "type": "approval",
-                    "request": { "requestId": "r-s1", "step": 1, "command": "make", "effects": ["exec"] },
-                }),
-                json!({ "type": "approval_settled", "requestId": "r-s1" }),
                 json!({ "type": "resync", "reason": "the link to the session's worker was lost" }),
             ]
         );

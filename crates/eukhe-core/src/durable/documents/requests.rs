@@ -587,8 +587,7 @@ fn decode<T: DeserializeOwned>(function: Function, args: JsonObject) -> Result<T
 
 /// Run one call on `documents`, resolving relative paths against `cwd`,
 /// each path access through `gate`, each write recorded by `witness`
-/// before it lands. Blocking: file I/O, the gate may wait for the user,
-/// and the witness for its record.
+/// before it lands. Blocking: file I/O, and the witness for its record.
 fn perform_blocking(
     documents: &Documents,
     function: Function,
@@ -666,29 +665,7 @@ pub(super) async fn perform(
         Caller::Tool(api) => (Some(Arc::clone(&api)), Box::new(ProbeWitness::new(api, cx))),
         Caller::Kernel(api) => (api, Box::new(Unwitnessed)),
     };
-    let held = match &api {
-        Some(api) => {
-            match crate::durable::acceptance::held_files(
-                &**api,
-                api.conversation_id(),
-                workspace,
-                cx,
-            )
-            .await
-            {
-                Ok(held) => held,
-                Err(error) => {
-                    return Ok(Err(Rejection::new(
-                        function,
-                        "acceptance_unreadable",
-                        &error,
-                    )));
-                }
-            }
-        }
-        None => Vec::new(),
-    };
-    let gate = host.gate(workspace, api.as_deref(), held);
+    let gate = host.gate(workspace, api.as_deref(), cx).await;
     let url = match function {
         Function::Read => args
             .get("path")

@@ -137,7 +137,7 @@ export function General() {
       {notificationsSupported() ? (
         <Labelled
           label="Notifications"
-          note="While this tab is in the background, eukhe tells you when a reply finishes, fails or needs your approval."
+          note="While this tab is in the background, eukhe tells you when a reply finishes or fails."
         >
           <Segmented
             label="Notifications"

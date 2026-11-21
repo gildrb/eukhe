@@ -21,15 +21,8 @@
 //! `await jobs.wait(...)`, which runs without the kernel
 //! ([`super::wait::served`]).
 //!
-//! A cell runs code that may run any program, so the approval gate covers
-//! it as one `bash` step of the effect `exec` (bend/runners.bend): it runs
-//! unasked only when `exec` is in the auto set (`shell.autoEffects`), else
-//! only after the user approves it through the session's
-//! [`ShellApprovalSink`](crate::durable::ShellApprovalSink), the question
-//! the `bash` tool asks. The gate answers before the call touches the
-//! kernel and before its budget starts: a denied or unanswered cell does
-//! not start the kernel, start a job or reach the kernel. The `bash()`
-//! calls and host requests of a cell run inside the cell the gate let run.
+//! A cell runs code that may run any program (the effect `exec`): it runs
+//! unasked, as every `bash` step does.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -37,8 +30,6 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use eukhe_ai::typebox::{TSchema, Type};
-use eukhe_bend::rules::runners::{self, Asker, Ended};
-use eukhe_bend::rules::shell::{self as gate, Said};
 use eukhe_chord::context::Context;
 use eukhe_chord::json::JsonValue;
 use eukhe_durable::harness::define::define_tool;
@@ -49,11 +40,10 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{OutputLimits, Truncation};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_shell::Refusal;
 use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::output::describe_bound;
 use eukhe_types::pi_ai::{ImageContent, JsonValue as PiJsonValue, TextContent, UserContentBlock};
-use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
+use eukhe_types::shell::{ShellEffect, ShellEffects};
 use futures::FutureExt;
 use serde_json::json;
 
@@ -63,7 +53,6 @@ use super::RlmRuntime;
 use crate::durable::bounded_output::BoundedOutput;
 use crate::durable::jobs::{self, Job, JobEvent, JobKind, JobSpec, Wait};
 use crate::durable::runner::{Gate, Runner};
-use crate::durable::shell::{auto_set, RefusalText};
 use crate::kernel::cancellation::AbortSignal as KernelAbortSignal;
 use crate::kernel::shared::{
     CellJob, ExecuteOptions, ExecuteResult, ExecuteStatus, KernelAttachment,
@@ -78,7 +67,7 @@ use crate::kernel::ReplKernelManager;
 pub const PYTHON_TOOL_NAME: &str = "python";
 
 /// The tool description.
-const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPython): top-level `await` works; the last expression is shown. `%pip install <pkg>` installs its locked version; no `!cmd`: shell is `bash('cmd')`/`await bash('cmd')`. State persists across calls and is revived best-effort on resume. A cell is `exec`: it runs at once if `exec` is in `shell.autoEffects` (default), else after approval. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run the project's imports, tests and CLIs through `bash()`. A cell past the blocking budget continues as a job holding the kernel; its end arrives as `[job-settled ...]`.";
+const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPython): top-level `await` works; the last expression is shown. `%pip install <pkg>` installs its locked version; no `!cmd`: shell is `bash('cmd')`/`await bash('cmd')`. State persists across calls and is revived best-effort on resume. A cell runs at once. Prefer `read` for files (`edit` needs its header) and the `bash` tool for read-only commands. The REPL has its own venv: run the project's imports, tests and CLIs through `bash()`. A cell past the blocking budget continues as a job holding the kernel; its end arrives as `[job-settled ...]`.";
 
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -94,7 +83,7 @@ pub fn python_parameters() -> TSchema {
 
 /// The `python` registration: sequential (the kernel is single-threaded),
 /// never replayed after a crash (a cell may have partially run), and a
-/// [`Runner`] of `exec` that the gate covers at each call.
+/// [`Runner`] of `exec`.
 pub(crate) fn python_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
     let runtime = Arc::clone(runtime);
     let runner = Runner {
@@ -107,7 +96,7 @@ pub(crate) fn python_tool(runtime: &Arc<RlmRuntime>) -> Arc<ToolRegistration> {
         python_parameters(),
         move |args: PiJsonValue, api: Arc<dyn ToolExecutionApi>, cx: Context| {
             let runtime = Arc::clone(&runtime);
-            async move { execute(&runtime, runner.caps, &args, api, &cx).await }
+            async move { execute(&runtime, &args, api, &cx).await }
         },
     );
     registration.execution_mode = Some(ToolExecutionMode::Sequential);
@@ -169,7 +158,6 @@ fn cell_label(args: &PiJsonValue, code: &str) -> String {
 #[tracing::instrument(skip_all, fields(call = api.call_id()))]
 async fn execute(
     runtime: &RlmRuntime,
-    caps: ShellEffects,
     args: &PiJsonValue,
     api: Arc<dyn ToolExecutionApi>,
     cx: &Context,
@@ -180,48 +168,6 @@ async fn execute(
         .ok_or_else(|| SessionError::error("python tool requires a code string"))?
         .to_owned();
     let label = cell_label(args, &code);
-    // The gate (the compiled core, bend/runners.bend `within`, `cell`): a
-    // cell outside the auto set runs only once the user approves it. No
-    // kernel, job or budget before the answer.
-    let auto = auto_set(&runtime.deps.settings);
-    if runners::within(auto, caps) == gate::Gate::Asks {
-        let (asker, answer) = match &runtime.deps.shell_approval {
-            Some(sink) => {
-                let request = ShellApprovalRequest {
-                    request_id: format!("{}:cell", api.task_id()),
-                    step: 0,
-                    command: eukhe_shell::visible(&code),
-                    effects: caps,
-                };
-                let answer = tokio::select! {
-                    answer = sink(request) => answer,
-                    () = call_aborted(cx) => {
-                        return Err(aborted(cx).unwrap_or_else(|| SessionError::error("aborted")));
-                    }
-                };
-                let asker = match answer {
-                    ShellAnswer::Approve => Asker::Says(Said::Yes),
-                    ShellAnswer::Deny | ShellAnswer::GatewayRefused => Asker::Says(Said::No),
-                    ShellAnswer::Unanswered => Asker::Silent,
-                };
-                (asker, answer)
-            }
-            None => (Asker::NoClient, ShellAnswer::Unanswered),
-        };
-        let refusal = match runners::cell(auto, caps, asker) {
-            Ended::RanUnasked | Ended::RanApproved => None,
-            Ended::Denied if answer == ShellAnswer::GatewayRefused => Some(Refusal::GatewayRefused),
-            Ended::Denied => Some(Refusal::Denied),
-            Ended::Unanswered => Some(Refusal::Unanswered),
-        };
-        if let Some(refusal) = refusal {
-            return Ok(error_result(format!(
-                "python did not run ({}): {}",
-                caps.names(),
-                RefusalText::of(refusal)
-            )));
-        }
-    }
     // The runtime's one blocking budget bounds this call's wait on its cell
     // (ADR 0010), the one blocking wait on a job ([`jobs::wait_until`]).
     // Booting the kernel is the provisioner's, bounded by its own startup

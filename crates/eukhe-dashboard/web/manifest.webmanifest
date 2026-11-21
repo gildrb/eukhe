@@ -1,7 +1,7 @@
 {
   "name": "eukhe",
   "short_name": "eukhe",
-  "description": "Watch, steer and approve your eukhe sessions.",
+  "description": "Watch and steer your eukhe sessions.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

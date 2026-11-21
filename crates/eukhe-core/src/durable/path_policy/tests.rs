@@ -1,24 +1,24 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 
 use eukhe_docs::{Access, Documents, WriteError};
-use eukhe_types::path_policy::{resolve, PathClass};
-use eukhe_types::shell::{AutoSet, ShellEffect};
+use eukhe_types::path_policy::{resolve, OwnKind, PathClass};
 
 use super::*;
 
-/// Regression (audit C2): every file the settings loaders read, and the
-/// auth store, is Protected or Secret, so for a user whose auto set
-/// lacks the file's effect no agent write to it runs without the user's
-/// yes.
+/// Regression (audit C2): every file the settings loaders read, the
+/// profiles and the session record are own: no agent writes them. A
+/// file a check under acceptance protects is own too. A `.git` hook and
+/// another project's `.eukhe` file are protected (a write there is
+/// irreversible) but no agent is refused them.
 #[test]
-fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
+fn every_loader_file_and_the_session_record_are_own() {
     let dir = tempfile::tempdir().unwrap();
     let top = dir.path().canonicalize().unwrap();
     let (home, agent_dir, cwd) = (top.join("home"), top.join("home/.eukhe"), top.join("work"));
     std::fs::create_dir_all(&agent_dir).unwrap();
     let settings = EukheSettings::new(&cwd, &agent_dir);
     std::fs::create_dir_all(cwd.join("src")).unwrap();
+    let protect = [cwd.join("tests/golden.txt")];
     let policy = policy(
         &Layout {
             agent_dir: &agent_dir,
@@ -27,42 +27,41 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
             executable: None,
             path: None,
             env: &|_| None,
+            protect: &protect,
         },
         &cwd,
     );
-    let mut files: Vec<PathBuf> = settings.watched().to_vec();
-    files.extend([
-        agent_dir.join("models.json"),
-        agent_dir.join("binds.cfg"),
-        agent_dir.join("agents/other.cfg"),
-        cwd.join(".git/hooks/pre-commit"),
-        cwd.join("sub/.eukhe/settings.json"),
-    ]);
-    let auto = AutoSet::new([
-        ShellEffect::Read,
-        ShellEffect::Write,
-        ShellEffect::Exec,
-        ShellEffect::Net,
-        ShellEffect::Outside,
-    ]);
-    let unasked: Vec<(PathBuf, bool)> = files
+    let own = |file: &Path| {
+        eukhe_shell::paths::own_write(&policy, &resolve(file)).map(|written| written.kind)
+    };
+    let mut files: Vec<(PathBuf, Option<OwnKind>)> = settings
+        .watched()
         .iter()
-        .map(|file| {
-            (
-                file.clone(),
-                eukhe_bend::rules::shell::allows(
-                    auto,
-                    effects(&policy, Access::Write, &resolve(file)),
-                ) == eukhe_bend::rules::shell::Gate::Unasked,
-            )
-        })
+        .map(|file| (file.clone(), Some(OwnKind::Config)))
         .collect();
+    files.extend([
+        (agent_dir.join("models.json"), Some(OwnKind::Config)),
+        (agent_dir.join("binds.cfg"), Some(OwnKind::Config)),
+        (agent_dir.join("agents/other.cfg"), Some(OwnKind::Config)),
+        (
+            agent_dir.join("sessions/s1.jsonl"),
+            Some(OwnKind::SessionRecord),
+        ),
+        (
+            agent_dir.join("sessions-archive/s0.jsonl"),
+            Some(OwnKind::SessionRecord),
+        ),
+        (cwd.join("tests/golden.txt"), Some(OwnKind::CheckFile)),
+        (cwd.join(".git/hooks/pre-commit"), None),
+        (cwd.join("sub/.eukhe/settings.json"), None),
+        (cwd.join("src/main.rs"), None),
+    ]);
     assert_eq!(
-        unasked,
         files
             .iter()
-            .map(|file| (file.clone(), false))
-            .collect::<Vec<_>>()
+            .map(|(file, _)| (file.clone(), own(file)))
+            .collect::<Vec<_>>(),
+        files
     );
     // The fixture world lives in the OS temp dir, a workspace root: a path
     // beside the workspace inside it is Inside; one outside both roots is Outside.
@@ -70,6 +69,7 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
         [
             eukhe_shell::paths::judge_path(&policy, &agent_dir.join("auth.json")).class,
             eukhe_shell::paths::judge_path(&policy, &home.join(".ssh/id_ed25519")).class,
+            eukhe_shell::paths::judge_path(&policy, &cwd.join(".git/hooks/pre-commit")).class,
             eukhe_shell::paths::judge_path(&policy, &cwd.join("src/main.rs")).class,
             eukhe_shell::paths::judge_path(&policy, &top.join("elsewhere.txt")).class,
             eukhe_shell::paths::judge_path(&policy, std::path::Path::new("/elsewhere.txt")).class,
@@ -77,6 +77,7 @@ fn every_loader_file_is_guarded_and_a_project_file_is_inside() {
         [
             PathClass::Secret,
             PathClass::Secret,
+            PathClass::Protected,
             PathClass::Inside,
             PathClass::Inside,
             PathClass::Outside
@@ -103,6 +104,7 @@ fn every_state_part_is_protected_or_secret() {
             executable: Some(&executable),
             path: None,
             env: &|_| None,
+            protect: &[],
         },
         &cwd,
     );
@@ -129,75 +131,79 @@ fn every_state_part_is_protected_or_secret() {
 /// Regression (G1 bridge): `ws/a/../x` where the link `a` loops resolves
 /// to `ws/x` with no link left, but its links looped, so its class is
 /// Outside (`laws/path_policy/policy.bend`, `Pp.class`). The gate judged a second
-/// resolution of `ws/x`, which lost the loop: the write ran unasked as
-/// Inside.
+/// resolution of `ws/x`, which lost the loop: the write counted as
+/// Inside, reversible.
 #[test]
-fn a_write_whose_links_looped_asks_even_when_its_real_path_is_inside() {
+fn a_write_whose_links_looped_is_outside_even_when_its_real_path_is_inside() {
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().canonicalize().unwrap();
     std::os::unix::fs::symlink("a", ws.join("a")).unwrap();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
+    let policy = PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new());
+    assert_eq!(
+        effects(&policy, Access::Write, &resolve(&ws.join("a/../x"))),
+        ShellEffects::write_to(PathClass::Outside)
+    );
+}
+
+/// A document tool's write to an own path is refused and names the path
+/// and why; every other access runs.
+#[test]
+fn a_document_write_to_an_own_path_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().canonicalize().unwrap();
     let gate = DocumentsGate {
-        policy: PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new()),
-        auto: AutoSet::new([ShellEffect::Read, ShellEffect::Write]),
-        sink: None,
-        call: "call".to_owned(),
-        asked: AtomicU64::new(0),
-        runtime: runtime.handle().clone(),
-        held: Vec::new(),
+        policy: PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new()).with_own(vec![OwnRule {
+            path: OwnPath::Tree(ws.join("own")),
+            kind: OwnKind::Config,
+        }]),
     };
     let locks = tempfile::tempdir().unwrap();
-    let written = Documents::new(locks.path().to_path_buf(), None)
-        .write(&ws, "a/../x", "text", &gate, &eukhe_docs::Unwitnessed)
-        .map(|outcome| outcome.bytes)
-        .map_err(|error| match error {
-            WriteError::Refused { reason, .. } => reason.to_string(),
-            WriteError::IsDirectory { .. }
-            | WriteError::Changed { .. }
-            | WriteError::Unseen { .. }
-            | WriteError::Io { .. } => error.to_string(),
-        });
+    let documents = Documents::new(locks.path().to_path_buf(), None);
+    let write = |path: &str| {
+        documents
+            .write(&ws, path, "text", &gate, &eukhe_docs::Unwitnessed)
+            .map(|outcome| outcome.bytes)
+            .map_err(|error| match error {
+                WriteError::Refused { reason, .. } => reason.to_string(),
+                WriteError::IsDirectory { .. }
+                | WriteError::Changed { .. }
+                | WriteError::Unseen { .. }
+                | WriteError::Io { .. } => error.to_string(),
+            })
+    };
     assert_eq!(
-        (written, ws.join("x").exists()),
         (
-            Err(
-                "(write+outside) it needs the user's approval, and no client answered. Ask the \
-user to attach a client, or to allow its effect in shell.autoEffects if that is read, write, \
-exec, net, outside, protected or secret; or \
-use read-only steps."
-                    .to_owned()
-            ),
-            false
+            write("own/f"),
+            write("note.txt"),
+            ws.join("own/f").exists(),
+            std::fs::read_to_string(ws.join("note.txt")).ok()
+        ),
+        (
+            Err(format!(
+                "(write) refused: {} is part of eukhe's own config and credentials; no agent may \
+write it",
+                ws.join("own/f").display()
+            )),
+            Ok(4),
+            false,
+            Some("text".to_owned())
         )
     );
 }
 
 /// A file an acceptance check protects belongs to the task's owner: the
-/// worker's documents write to it is refused even when the user's auto set
-/// lets workspace writes run, and the file keeps its bytes; another file of
-/// the workspace is written as before.
+/// worker's documents write to it is refused, and the file keeps its bytes;
+/// another file of the workspace is written as before.
 #[test]
 fn a_write_to_a_file_a_check_protects_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().canonicalize().unwrap();
     std::fs::write(ws.join("LAWS.bend"), "law a:\n").unwrap();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
     let gate = DocumentsGate {
-        policy: PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new()),
-        auto: AutoSet::new([ShellEffect::Read, ShellEffect::Write]),
-        sink: None,
-        call: "call".to_owned(),
-        asked: AtomicU64::new(0),
-        runtime: runtime.handle().clone(),
-        held: vec![HeldFile {
-            real: ws.join("LAWS.bend"),
-            named: "LAWS.bend".to_owned(),
-            check: 1,
-        }],
+        policy: PathPolicy::new(vec![ws.clone()], Vec::new(), Vec::new()).with_own(vec![OwnRule {
+            path: OwnPath::Tree(ws.join("LAWS.bend")),
+            kind: OwnKind::CheckFile,
+        }]),
     };
     let locks = tempfile::tempdir().unwrap();
     let documents = Documents::new(locks.path().to_path_buf(), None);
@@ -214,7 +220,11 @@ fn a_write_to_a_file_a_check_protects_is_refused() {
     assert_eq!(
         (written, std::fs::read_to_string(ws.join("LAWS.bend")).unwrap()),
         (
-            Err("(write protected) LAWS.bend belongs to acceptance check 1: only the task's owner changes it".to_owned()),
+            Err(format!(
+                "(write) refused: {} is part of the protected files of a check under \
+acceptance; no agent may write it",
+                ws.join("LAWS.bend").display()
+            )),
             "law a:\n".to_owned()
         )
     );

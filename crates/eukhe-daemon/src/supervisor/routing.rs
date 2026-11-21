@@ -127,8 +127,8 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
             | DaemonCommand::Compact { .. }
             // A tree navigation may run a branch-summary model call.
             | DaemonCommand::NavigateTree { .. }
-            // A relayed approval question waits for the user.
-            | DaemonCommand::RelayShellApproval { .. }
+            // A relayed editor permission question waits for the editor.
+            | DaemonCommand::RelayEditorPermission { .. }
     ) || prompt_runs_session_command(command)
     {
         WORKER_REQUEST_TIMEOUT_MS
@@ -153,8 +153,8 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
             // holding a permit for its whole run would starve the bound.
             | DaemonCommand::Compact { .. }
             | DaemonCommand::NavigateTree { .. }
-            // A question parked on the user, like a turn-long wait.
-            | DaemonCommand::RelayShellApproval { .. }
+            // A question parked on the editor, like a turn-long wait.
+            | DaemonCommand::RelayEditorPermission { .. }
     ) || prompt_runs_session_command(command)
     {
         RouteAdmission::Watch

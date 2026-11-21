@@ -138,8 +138,6 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "list_kernel_bash",
     "tail_kernel_bash",
     "kill_kernel_bash",
-    "answer_shell_approval",
-    "relay_shell_approval",
     "answer_editor_permission",
     "relay_editor_permission",
     "relay_ran_effect",
@@ -258,7 +256,6 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 "side_question_transcript",
                 "transient_bash",
                 "kernel_bash_activity",
-                "shell_approval",
                 "factory_activity",
                 "workflow_activity",
                 "session_input_admission",
@@ -692,12 +689,6 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::KillKernelBash {
             active_session_id, ..
         }
-        | DaemonCommand::AnswerShellApproval {
-            active_session_id, ..
-        }
-        | DaemonCommand::RelayShellApproval {
-            active_session_id, ..
-        }
         | DaemonCommand::AnswerEditorPermission {
             active_session_id, ..
         }
@@ -1082,8 +1073,6 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::ListKernelBash { .. } => "list_kernel_bash",
         DaemonCommand::TailKernelBash { .. } => "tail_kernel_bash",
         DaemonCommand::KillKernelBash { .. } => "kill_kernel_bash",
-        DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
-        DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
         DaemonCommand::AnswerEditorPermission { .. } => "answer_editor_permission",
         DaemonCommand::RelayEditorPermission { .. } => "relay_editor_permission",
         DaemonCommand::RelayRanEffect { .. } => "relay_ran_effect",
@@ -1224,27 +1213,29 @@ mod tests {
     }
 
     #[test]
-    fn answer_shell_approval_is_session_scoped() {
+    fn answer_editor_permission_is_session_scoped() {
         let line = json!({
             "type": "command",
             "id": "c1",
             "protocol": current_protocol_info(),
             "command": {
-                "type": "answer_shell_approval",
+                "type": "answer_editor_permission",
                 "activeSessionId": "session",
                 "requestId": "r1",
-                "verdict": "approve",
+                "verdict": "allow",
             },
         })
         .to_string();
         let parsed = parse_supervisor_command_line(&line).unwrap();
-        assert_eq!(command_type_name(&parsed.command), "answer_shell_approval");
-        assert_eq!(command_active_session_id(&parsed.command), Some("session"));
-        assert!(KNOWN_COMMAND_TYPES.contains(&"answer_shell_approval"));
-        assert!(eukhe_types::daemon::is_session_plane_daemon_command(
-            "answer_shell_approval"
-        ));
-        assert!(default_server_capabilities().contains(&"shell_approval".to_string()));
+        assert_eq!(
+            (
+                command_type_name(&parsed.command),
+                command_active_session_id(&parsed.command),
+                KNOWN_COMMAND_TYPES.contains(&"answer_editor_permission"),
+                eukhe_types::daemon::is_session_plane_daemon_command("answer_editor_permission"),
+            ),
+            ("answer_editor_permission", Some("session"), true, true)
+        );
     }
 
     #[test]

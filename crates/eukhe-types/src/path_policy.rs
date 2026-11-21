@@ -14,17 +14,19 @@
 //! The classes, strongest first:
 //!
 //! - [`PathClass::Secret`]: under a secret entry (an ssh key dir, a
-//!   credential store). A read or a write gates like any access: the
-//!   user's auto set decides.
-//! - [`PathClass::Protected`]: eukhe's own config and credentials (a
-//!   [`PathRule`] covers it), or an ancestor of a protected or secret entry
-//!   (a write there can move or remove the entry). A write asks the user.
-//! - [`PathClass::Inside`]: under a workspace root. A write may run
-//!   without a question when the user's auto set allows writes.
-//! - [`PathClass::Outside`]: anything else. A write asks the user.
+//!   credential store). An access to it is irreversible.
+//! - [`PathClass::Protected`]: a place whose change outlives the
+//!   workspace (a [`PathRule`] covers it), or an ancestor of a protected or
+//!   secret entry (a write there can move or remove the entry). A write to
+//!   it is irreversible.
+//! - [`PathClass::Inside`]: under a workspace root. A write is reversible.
+//! - [`PathClass::Outside`]: anything else. A write is irreversible.
 //!
 //! A path whose links loop (more than [`MAX_LINKS`] links) is never
 //! [`PathClass::Inside`]: the part not resolved cannot be judged.
+//!
+//! Apart from the classes, the policy holds the own paths ([`OwnRule`],
+//! spec I3): what no agent writes, whatever its class.
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -94,13 +96,74 @@ impl PathRule {
     }
 }
 
-/// The workspace roots, the protected rules and the secret entries of one
-/// session, each over real paths.
+/// Why a path is eukhe's own, which no agent writes (spec I3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OwnKind {
+    /// Eukhe's own config and credentials: the agent dir and its direct
+    /// entries, the profile dir, every settings file the session reads.
+    Config,
+    /// The session record: the sessions dir, its archive.
+    SessionRecord,
+    /// A file a check under acceptance protects (`--protect`).
+    CheckFile,
+}
+
+impl OwnKind {
+    /// What the path is part of, for the agent and for people.
+    #[must_use]
+    pub fn why(self) -> &'static str {
+        match self {
+            Self::Config => "eukhe's own config and credentials",
+            Self::SessionRecord => "the session record",
+            Self::CheckFile => "the protected files of a check under acceptance",
+        }
+    }
+}
+
+/// The paths one own rule covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnPath {
+    /// The path and everything under it.
+    Tree(PathBuf),
+    /// The directory itself and every entry directly in it (not deeper).
+    Dir(PathBuf),
+}
+
+/// One rule of the own set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnRule {
+    pub path: OwnPath,
+    pub kind: OwnKind,
+}
+
+impl OwnRule {
+    /// The rule over real paths.
+    fn real(self) -> Self {
+        let path = match self.path {
+            OwnPath::Tree(path) => OwnPath::Tree(real_path(&path)),
+            OwnPath::Dir(path) => OwnPath::Dir(real_path(&path)),
+        };
+        Self { path, ..self }
+    }
+}
+
+/// A write refused because it reaches an own path: the path and why.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{} is part of {}; no agent may write it", path.display(), kind.why())]
+pub struct OwnWrite {
+    pub path: PathBuf,
+    pub kind: OwnKind,
+}
+
+/// The workspace roots, the protected rules, the secret entries and the
+/// own rules of one session, each over real paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathPolicy {
     roots: Vec<PathBuf>,
     protected: Vec<PathRule>,
     secret: Vec<PathBuf>,
+    own: Vec<OwnRule>,
 }
 
 /// One step of a resolution.
@@ -215,7 +278,23 @@ impl PathPolicy {
             roots: roots.into_iter().map(|root| real_path(&root)).collect(),
             protected: protected.into_iter().map(PathRule::real).collect(),
             secret: secret.into_iter().map(|entry| real_path(&entry)).collect(),
+            own: Vec::new(),
         }
+    }
+
+    /// The policy with the own rules `own` (made real now).
+    #[must_use]
+    pub fn with_own(self, own: Vec<OwnRule>) -> Self {
+        Self {
+            own: own.into_iter().map(OwnRule::real).collect(),
+            ..self
+        }
+    }
+
+    /// The own rules, over real paths.
+    #[must_use]
+    pub fn own(&self) -> &[OwnRule] {
+        &self.own
     }
 
     /// The workspace roots, real.
@@ -235,6 +314,7 @@ impl PathPolicy {
     pub fn secret(&self) -> &[PathBuf] {
         &self.secret
     }
+
     /// Whether `resolved` is a strict ancestor of a secret (a secret
     /// below it, none at it): only a read that descends into it (a
     /// search) reads that secret, so a shallow listing does not. The
