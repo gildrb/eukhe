@@ -1,7 +1,8 @@
-// The command the dashboard runs itself instead of sending it to the
+// The commands the dashboard runs itself instead of sending them to the
 // agent: `/effects` (the irreversible effects that ran, then the steps a
-// crash left unknown). The bridge words each reply (`text`): the text
-// every surface shows. The answer becomes one note of the transcript.
+// crash left unknown), `/undo` and `/diff [all]` (the per-prompt workspace
+// snapshots). The bridge words each reply (`text`): the text every surface
+// shows. Each answer becomes one note of the transcript.
 
 import { run } from "./link.ts";
 import { store } from "./store.ts";
@@ -9,14 +10,25 @@ import { withNote } from "./turn.ts";
 import type { TextReply } from "./types.ts";
 
 /** A command the dashboard runs itself. */
-export type Command = { name: "effects" } | { name: "usage"; text: string };
+export type Command =
+  | { name: "effects" }
+  | { name: "undo" }
+  | { name: "diff"; all: boolean }
+  | { name: "usage"; text: string };
 
-/** The command `text` names, or null for a message to the agent. */
+/** The command `text` names, or null for a message to the agent. The word after `/diff` is read in any case. */
 export function parseCommand(text: string): Command | null {
   const [head, ...args] = text.trim().split(/\s+/);
   switch (head) {
     case "/effects":
       return args.length ? { name: "usage", text: "Usage: /effects" } : { name: "effects" };
+    case "/undo":
+      return args.length ? { name: "usage", text: "Usage: /undo" } : { name: "undo" };
+    case "/diff": {
+      if (!args.length) return { name: "diff", all: false };
+      if (args.length === 1 && args[0]?.toLowerCase() === "all") return { name: "diff", all: true };
+      return { name: "usage", text: "Usage: /diff [all]" };
+    }
     default:
       return null;
   }
@@ -44,6 +56,12 @@ export async function runCommand(command: Command): Promise<void> {
     switch (command.name) {
       case "effects":
         return show("output", await effectsText());
+      case "undo":
+        return show("output", (await run<TextReply>({ type: "undo_turn" })).text);
+      case "diff": {
+        const scope = command.all ? "all" : "turn";
+        return show("output", (await run<TextReply>({ type: "get_turn_diff", scope })).text);
+      }
       case "usage":
         return show("error", command.text);
     }

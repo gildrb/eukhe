@@ -234,7 +234,7 @@ export type SessionEvent =
   | { type: "ran_effects_update"; effects: unknown[] }
   | { type: "run_report"; ran: unknown[]; unknown: unknown[] };
 
-/** A reply the bridge words for the tab (`/effects`): the text every surface shows. */
+/** A reply the bridge words for the tab (`/effects`, `/undo`, `/diff`): the text every surface shows. */
 export type TextReply = { text: string };
 
 export type ServerFrame =
