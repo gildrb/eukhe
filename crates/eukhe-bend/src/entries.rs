@@ -280,6 +280,8 @@ pub enum Entry {
     RestartTurn = 468,
     /// `bend/ffi_irreversible.bend`: a call.
     Irreversible = 469,
+    /// `bend/ffi_work_left.bend`: a call.
+    WorkLeft = 470,
     /// `bend/ffi_gateway_report.bend`: a call.
     GatewayReport = 471,
     /// `bend/ffi_fallback.bend`: a call.
@@ -428,6 +430,7 @@ impl Entry {
         Entry::Undo,
         Entry::RestartTurn,
         Entry::Irreversible,
+        Entry::WorkLeft,
         Entry::GatewayReport,
         Entry::Fallback,
         Entry::PathOwn,
