@@ -1,48 +1,21 @@
 //! The runners of code (`bend/runners.bend`, entry `bend/ffi_runners.bend`;
-//! `laws/runners.bend`): whether a call of a tool that runs code runs
-//! unasked, how a gated call ends once the user answered (or no one
-//! could), and the tools a session installs with their caps and gates.
-//! Each function encodes its facts, calls [`Entry::Runners`] and decodes
-//! the decision.
+//! `laws/runners.bend`): the tools a session installs with their caps and
+//! gates, and main's roster. Each function encodes its facts, calls
+//! [`Entry::Runners`] and decodes the decision.
 
-use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
+use eukhe_types::shell::{ShellEffect, ShellEffects};
 
-use super::shell::{Gate, Said};
 use crate::wire::{Reader, Writer};
 use crate::{call, expect_core, Entry, Error};
 
-/// Who answered the question about a gated call (`Ru.Asker`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Asker {
-    /// No approver is attached: no one was asked.
-    NoClient,
-    /// An approver was asked and gave no answer.
-    Silent,
-    /// The user answered.
-    Says(Said),
-}
-
-/// How a gated call ended (`Ru.End`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ended {
-    /// Its code runs: within the auto set.
-    RanUnasked,
-    /// Its code runs: the user approved it.
-    RanApproved,
-    /// It does not run: the user denied it.
-    Denied,
-    /// It does not run: no one answered.
-    Unanswered,
-}
-
-/// How the approval gate covers a tool's code (`Ru.Gate`).
+/// How the gate covers a tool's code (`Ru.Gate`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Covered {
     /// The tool runs no code of its own.
     Ungated,
-    /// Each step asks unless within the auto set (`bash`).
+    /// Each step passes the shell step's verdict (`bash`).
     EachStep,
-    /// Each call asks unless within the auto set (`python`).
+    /// Each call is judged as an effect with its caps (`python`).
     EachCall,
 }
 
@@ -53,61 +26,6 @@ pub struct Tool {
     /// The effects the code it runs may have.
     pub caps: ShellEffects,
     pub gate: Covered,
-}
-
-/// Whether a call of a tool with `caps` runs unasked under `auto`
-/// (`Ru.within`).
-#[must_use]
-pub fn within(auto: AutoSet, caps: ShellEffects) -> Gate {
-    expect_core(Entry::Runners, within_call(auto, caps))
-}
-
-fn within_call(auto: AutoSet, caps: ShellEffects) -> Result<Gate, Error> {
-    let mut request = Writer::new();
-    request.tag(0);
-    codes(&mut request, caps);
-    codes(&mut request, auto.effects());
-    let reply = call(Entry::Runners, &request.finish()?)?;
-    let mut reader = Reader::reply(&reply)?;
-    let gate = if reader.bool()? {
-        Gate::Unasked
-    } else {
-        Gate::Asks
-    };
-    reader.end()?;
-    Ok(gate)
-}
-
-/// How a call of a tool with `caps` under `auto` ends when `asker`
-/// answered (`Ru.cell`).
-#[must_use]
-pub fn cell(auto: AutoSet, caps: ShellEffects, asker: Asker) -> Ended {
-    expect_core(Entry::Runners, cell_call(auto, caps, asker))
-}
-
-fn cell_call(auto: AutoSet, caps: ShellEffects, asker: Asker) -> Result<Ended, Error> {
-    let mut request = Writer::new();
-    request.tag(1);
-    codes(&mut request, caps);
-    codes(&mut request, auto.effects());
-    match asker {
-        Asker::NoClient => request.tag(0),
-        Asker::Silent => request.tag(1),
-        Asker::Says(said) => request.tag(2).bool(said == Said::Yes),
-    };
-    let reply = call(Entry::Runners, &request.finish()?)?;
-    let mut reader = Reader::reply(&reply)?;
-    // Whether it asked: the caller knows it asked an approver.
-    reader.bool()?;
-    let ran = reader.tag_of(2, "how a call ended")? == 0;
-    let second = reader.tag_of(2, "how a call ran or why it was refused")? == 0;
-    reader.end()?;
-    Ok(match (ran, second) {
-        (true, true) => Ended::RanUnasked,
-        (true, false) => Ended::RanApproved,
-        (false, true) => Ended::Denied,
-        (false, false) => Ended::Unanswered,
-    })
 }
 
 /// Every tool a session installs, in install order (`Ru.registry`): a
@@ -164,44 +82,4 @@ fn roster_call(roster: Roster) -> Result<Vec<Tool>, Error> {
     }
     reader.end()?;
     Ok(tools)
-}
-
-/// A set of effects as the list of their codes.
-fn codes(request: &mut Writer, effects: ShellEffects) {
-    request.count(effects.iter().count());
-    for effect in effects.iter() {
-        request.nat(u64::from(effect.code()));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use eukhe_types::shell::{AutoSet, ShellEffect, ShellEffects};
-
-    use super::{cell, within, Asker, Ended};
-    use crate::rules::shell::{Gate, Said};
-
-    #[test]
-    fn the_codec_carries_each_question_through_the_core() {
-        let exec = ShellEffects::of(&[ShellEffect::Exec]);
-        let read = AutoSet::new([ShellEffect::Read]);
-        assert_eq!(
-            (
-                within(read, exec),
-                within(AutoSet::new([ShellEffect::Exec]), exec),
-                cell(read, exec, Asker::NoClient),
-                cell(read, exec, Asker::Silent),
-                cell(read, exec, Asker::Says(Said::No)),
-                cell(read, exec, Asker::Says(Said::Yes)),
-            ),
-            (
-                Gate::Asks,
-                Gate::Unasked,
-                Ended::Unanswered,
-                Ended::Unanswered,
-                Ended::Denied,
-                Ended::RanApproved,
-            )
-        );
-    }
 }

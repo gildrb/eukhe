@@ -50,13 +50,6 @@ def pp.demote_inside(c: Pp.Cls, looped: Bool, h: {Pp.demote(c, looped) == Pp.Ins
       %h : LLogicLogic.pp.CM(_, {Bool.and(Bool.not(looped), False{}) == True{} : Bool})
       Unit{}
 
-# 3. The gate
-# -----------
-
-# a yes that is not a yes
-def pp.yes_clash(-A: Type, ans: Pp.Ans, ran: {Pp.Ans.yes(ans) == True{} : Bool}, no: {Pp.Ans.yes(ans) == False{} : Bool}) -> A:
-  LLogicLogic.pp.absurd(A, Equal.trans(Bool, True{}, Pp.Ans.yes(ans), False{}, Equal.sym(Bool, Pp.Ans.yes(ans), True{}, ran), no))
-
 # 5. The spec
 # -----------
 

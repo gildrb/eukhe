@@ -98,8 +98,6 @@ pub enum Entry {
     ToolSurface = 51,
     /// `bend/ffi_runners.bend`: a call.
     Runners = 52,
-    /// `bend/ffi_approvals.bend`: a call and a stepper.
-    Approvals = 53,
     /// `bend/ffi_frames.bend`: a call.
     Frames = 54,
     /// `bend/ffi_config.bend`: a call.
@@ -331,7 +329,6 @@ impl Entry {
         Entry::Shell,
         Entry::ToolSurface,
         Entry::Runners,
-        Entry::Approvals,
         Entry::Frames,
         Entry::Config,
         Entry::Quirks,

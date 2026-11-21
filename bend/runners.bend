@@ -1,18 +1,16 @@
 # runners: the model of the tools that run code (crates/eukhe-core/src/durable/runner.rs).
 #
-# 1. The registry. A tool has a name, its caps (the effects the code it
-#    runs may have, as effect codes) and how the approval gate covers that
-#    code. `registry` is every tool a session installs, in install order,
-#    as crates/eukhe-core/src/durable/registry.rs installs them.
-#    `main_roster` is the roster of main (a root session in the
-#    `main-worker` shape): read-only tools and the worker tools only.
-# 2. The cell gate. A tool the gate covers at each call (`python`) runs
-#    its code unasked only when its caps are within the auto set. Else it
-#    asks the attached client, and runs only when the user approves.
+# The registry. A tool has a name, its caps (the effects the code it runs
+# may have, as effect codes) and how the gate covers that code: each step
+# of `bash` passes the shell step's verdict, each call of `python` is
+# judged as an effect with its caps.
+# `registry` is every tool a session installs, in install order, as
+# crates/eukhe-core/src/durable/registry.rs installs them. `main_roster` is
+# the roster of main (a root session in the `main-worker` shape):
+# read-only tools and the worker tools only.
 #
 # Effect codes (crates/eukhe-types/src/shell.rs, `ShellEffect::code`):
-# 0 read, 1 write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret. Only
-# 0 to 5 are grantable: an auto set never holds 6.
+# 0 read, 1 write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret.
 
 import Base
 
@@ -27,13 +25,13 @@ def elem(xs: List<&2, Nat>, +x: Nat) -> Bool:
 def exec() -> Nat:
   2n
 
-# 1. The registry
-# ---------------
+# The registry
+# ------------
 
 type Gate is Data:
   Ungated{}   # the tool runs no code of its own (no `Runner`)
-  EachStep{}  # each step asks unless within the auto set (`bash`)
-  EachCall{}  # each call asks unless within the auto set (`python`)
+  EachStep{}  # each step passes the shell step's verdict (`bash`)
+  EachCall{}  # each call is judged as an effect with its caps (`python`)
 
 type ToolReg is Data:
   ToolReg{name: String, caps: List<&2, Nat>, gate: Gate}
@@ -155,88 +153,3 @@ def find.go(ts: List<&2, ToolReg>, +n: String, hit: Bool) -> Maybe<&2, ToolReg>:
 
 def find(+ts: List<&2, ToolReg>, +n: String) -> Maybe<&2, ToolReg>:
   find.go(ts, n, named.at(ts, n))
-
-# 2. The cell gate
-# ----------------
-
-# an effect the auto set may hold: every effect but secret (6)
-def grantable(c: Nat) -> Bool:
-  Nat.is_lt(c, 6n)
-
-# every cap is in the auto set (the auto set keeps only grantable effects)
-def within(caps: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
-  match caps:
-    case Nil{}:
-      True{}
-    case +c <> rest:
-      Bool.and(Bool.and(grantable(c), elem(auto, c)), within(rest, auto))
-
-# Who answers a question
-type Asker is Data:
-  NoClient{}       # no approver attached
-  Silent{}         # an approver, who gives no answer
-  Says{yes: Bool}  # an approver, who approves (True) or denies (False)
-
-# the asker approves
-def Asker.yes(a: Asker) -> Bool:
-  match a:
-    case NoClient{}:
-      False{}
-    case Silent{}:
-      False{}
-    case Says{y}:
-      y
-
-type How is Data:
-  Auto{}      # within the auto set: unasked
-  Approved{}  # the user approved
-
-type Why is Data:
-  Denied{}      # the user denied
-  Unanswered{}  # no approver, or no answer
-
-type End is Data:
-  Ran{how: How}
-  Refused{why: Why}
-
-# How a call went: whether it asked, and how it ended
-type Out is Data:
-  Out{asked: Bool, end: End}
-
-def Out.end(o: Out) -> End:
-  match o:
-    case Out{a, e}:
-      e
-
-def End.ran(e: End) -> Bool:
-  match e:
-    case Ran{h}:
-      True{}
-    case Refused{w}:
-      False{}
-
-# the code ran
-def ran(o: Out) -> Bool:
-  End.ran(Out.end(o))
-
-# a gated call; free is within(caps, auto)
-def cell.go(free: Bool, a: Asker) -> Out:
-  match free:
-    case True{}:
-      Out{False{}, Ran{Auto{}}}
-    case False{}:
-      match a:
-        case NoClient{}:
-          Out{False{}, Refused{Unanswered{}}}
-        case Silent{}:
-          Out{True{}, Refused{Unanswered{}}}
-        case Says{y}:
-          match y:
-            case True{}:
-              Out{True{}, Ran{Approved{}}}
-            case False{}:
-              Out{True{}, Refused{Denied{}}}
-
-# a call of a tool with caps under the auto set auto, answered by a
-def cell(caps: List<&2, Nat>, +auto: List<&2, Nat>, a: Asker) -> Out:
-  cell.go(within(caps, auto), a)

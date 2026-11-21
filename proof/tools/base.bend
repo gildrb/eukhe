@@ -1,9 +1,7 @@
 # eukhe: lemmas the proofs of area tools share
 
 import Base
-import ../../bend/approvals.bend as Am
 import ../../bend/tools.bend as Tl
-import ../../laws/tools.bend as Tools
 import ../base/logic/logic.bend as LLogicLogic
 
 def tools.pl.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -52,30 +50,13 @@ def pl.len(xs: List<&2, Nat>) -> Nat:
     case y <> rest:
       1n+pl.len(rest)
 
-# 4. The approval gate
-# --------------------
-
-def pl.steps_add(+s: Tl.Step, r: Tl.Ran) -> {s <> Tl.Ran.steps(r) == Tl.Ran.steps(Tl.ran.add(s, r)) : List<&2, Tl.Step>}:
-  match r:
-    case Tl.Ran{ss, e}:
-      {==}
-
-# a denied step runs nothing
-def pl.gate_no(s: Tl.Step, r: Tl.Ran) -> {Nil{} == Tl.Ran.steps(Tl.gate(False{}, s, r)) : List<&2, Tl.Step>}:
-  match s:
-    case Tl.Step{i, f}:
-      {==}
-
 # ---- shell ----
 
 # proof_shell: the G2 laws (shell classification) of
-# the gate model in bend/tools.bend part 4. An effect of a part is in the
+# the step model in bend/tools.bend part 4. An effect of a part is in the
 # join of the parts (`ps.elem_app_l`, `ps.elem_app_r`, by induction on the
-# parts before it). A step with one effect that is not within the auto set
-# is not within it (`ps.within_out`, by induction on its effects, with the
-# head test as a parameter). The gate reads `within` of
-# the head step: a rewrite with it runs the step free, or with no answer
-# denies it.
+# parts before it). A step has the secret effect exactly when one of its
+# parts names a secret path (`ps.secret_iff`).
 
 # Logic
 # -----
@@ -90,13 +71,6 @@ def shell.ps.BD(b: Bool, t: Type, f: Type) -> Type:
 def shell.ps.absurdF(-A: Type, e: {False{} == True{} : Bool}) -> A:
   %e : shell.ps.BD(_, A, Unit)
   Unit{}
-
-def shell.ps.and_f(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
 
 def shell.ps.or_tr(a: Bool, +b: Bool, hb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
   match a:
@@ -208,154 +182,4 @@ def ps.secret_iff(xs: List<&2, Tl.Part>) -> {Tl.elem(Tl.join(Tl.parts.effs(xs)),
       %Equal.sym(Bool, Tl.elem(List.append(&2, Nat, Tl.part.effs(p), Tl.join(Tl.parts.effs(rest))), 6n), Bool.or(Tl.elem(Tl.part.effs(p), 6n), Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n)), ps.elem_app(Tl.part.effs(p), Tl.join(Tl.parts.effs(rest)), 6n)) : {_ == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
       %Equal.sym(Bool, Tl.elem(Tl.part.effs(p), 6n), Tl.Part.secret(p), ps.part_secret(p)) : {Bool.or(_, Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n)) == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
       %Equal.sym(Bool, Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n), Tl.parts.secret(rest), ps.secret_iff(rest)) : {Bool.or(Tl.Part.secret(p), _) == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
-      {==}
-
-# Within the auto set
-# -------------------
-
-# the head x of effs, with test b = Nat.is_eq(x, c): when x is c, x is not
-# within; else c is in the rest, which is then not within
-def ps.within_head(+x: Nat, +rest: List<&2, Nat>, +auto: List<&2, Nat>, +c: Nat, b: Bool, e: {Nat.is_eq(x, c) == b : Bool}, has: {Bool.or(b, Tl.elem(rest, c)) == True{} : Bool}, out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}, ih: {Tl.elem(rest, c) == True{} : Bool} -> {Tl.within(rest, auto) == False{} : Bool}) -> {Bool.and(Bool.and(Tl.grantable(x), Tl.elem(auto, x)), Tl.within(rest, auto)) == False{} : Bool}:
-  match b:
-    case True{}:
-      %Equal.sym(Nat, x, c, shell.ps.eq_of_is_eq(x, c, e)) : {Bool.and(Bool.and(Tl.grantable(_), Tl.elem(auto, _)), Tl.within(rest, auto)) == False{} : Bool}
-      %Equal.sym(Bool, Bool.and(Tl.grantable(c), Tl.elem(auto, c)), False{}, out) : {Bool.and(_, Tl.within(rest, auto)) == False{} : Bool}
-      {==}
-    case False{}:
-      %Equal.sym(Bool, Tl.within(rest, auto), False{}, ih(has)) : {Bool.and(Bool.and(Tl.grantable(x), Tl.elem(auto, x)), _) == False{} : Bool}
-      shell.ps.and_f(Bool.and(Tl.grantable(x), Tl.elem(auto, x)))
-
-# effects with one effect c that is not grantable or not in auto are not
-# within auto
-def ps.within_out(effs: List<&2, Nat>, +auto: List<&2, Nat>, +c: Nat, has: {Tl.elem(effs, c) == True{} : Bool}, +out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}) -> {Tl.within(effs, auto) == False{} : Bool}:
-  match effs:
-    case Nil{}:
-      shell.ps.absurdF({Tl.within(Nil{}, auto) == False{} : Bool}, has)
-    case +x <> +rest:
-      ps.within_head(x, rest, auto, c, Nat.is_eq(x, c), {==}, has, out, k => ps.within_out(rest, auto, c, k, out))
-
-def ps.auto_needs_every_effect(+s: Tl.Step, +auto: List<&2, Nat>, +c: Nat, has: {Tl.elem(Tl.Step.effs(s), c) == True{} : Bool}, out: {Bool.and(Tl.grantable(c), Tl.elem(auto, c)) == False{} : Bool}) -> {Tl.auto.at(auto, s) == False{} : Bool}:
-  ps.within_out(Tl.Step.effs(s), auto, c, has, out)
-
-def approvals.pa.absurdT(-A: Type, e: {True{} == False{} : Bool}) -> A:
-  %e : LLogicLogic.approvals.pa.BD(_, Unit, A)
-  Unit{}
-
-# it lets the step run when the guarded code is absent
-def pa.guard_false(b: Bool, h: {b == False{} : Bool}) -> {Am.guard(b) == Am.Runs{} : Am.Fate}:
-  match b:
-    case True{}:
-      approvals.pa.absurdT({Am.guard(True{}) == Am.Runs{} : Am.Fate}, h)
-    case False{}:
-      {==}
-
-# a step not within the auto set goes its route
-def pa.gate_routed(w: Bool, +es: List<&2, Nat>, +ds: List<&2, Am.Desk>, h: {w == False{} : Bool}) -> {Am.gate.by(w, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}:
-  match w:
-    case True{}:
-      approvals.pa.absurdT({Am.gate.by(True{}, es, ds) == Am.routed(es, Am.route(ds)) : Am.Gated}, h)
-    case False{}:
-      {==}
-
-# the gateway's outcome as the gate gives it
-def pa.phone_gate(+auto: List<&2, Nat>, +es: List<&2, Nat>, +above: List<&2, Am.Desk>, -f: Am.Fate, w: {Tl.within(es, auto) == False{} : Bool}, r: {Am.rule(es) == f : Am.Fate}) -> {Am.gate(auto, es, Am.Phone{} <> above) == Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, f} : Am.Gated}:
-  Equal.trans(Am.Gated, Am.gate(auto, es, Am.Phone{} <> above), Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, Am.rule(es)}, Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, f}, pa.gate_routed(Tl.within(es, auto), es, Am.Phone{} <> above, w), Equal.cong(Am.Fate, Am.Gated, x => Am.Routed{Am.Out{Nil{}, Am.Ruled{0n}}, x}, Am.rule(es), f, r))
-
-# ---- the gate, by its parts ----
-
-# The laws' terms of the gate (laws/tools.bend G2) are the model's:
-# membership is Tl.elem, the codes an auto set may hold (0 to 6) are
-# Tl.grantable's, so tg_free is the model's head test `within`. A step
-# that runs unasked heads exec's free arm (tgh.free), one that asks its
-# answer arm (tgh.held).
-
-# membership is the laws'
-def pge.in(xs: List<&2, Nat>, +c: Nat) -> {Tl.elem(xs, c) == Tools.tg_in(xs, c) : Bool}:
-  match xs:
-    case Nil{}:
-      {==}
-    case y <> rest:
-      %pge.in(rest, c) : {Bool.or(Nat.is_eq(y, c), Tl.elem(rest, c)) == Bool.or(Nat.is_eq(y, c), _) : Bool}
-      {==}
-
-# an auto set may hold exactly the codes 0 to 6
-def pge.grant(c: Nat) -> {Tl.grantable(c) == Nat.is_lt(c, 7n) : Bool}:
-  match c:
-    case 0n:
-      {==}
-    case 1n+a:
-      match a:
-        case 0n:
-          {==}
-        case 1n+b:
-          match b:
-            case 0n:
-              {==}
-            case 1n+d:
-              match d:
-                case 0n:
-                  {==}
-                case 1n+e:
-                  match e:
-                    case 0n:
-                      {==}
-                    case 1n+f:
-                      match f:
-                        case 0n:
-                          {==}
-                        case 1n+g:
-                          match g:
-                            case 0n:
-                              {==}
-                            case 1n+h:
-                              match h:
-                                case 0n:
-                                  {==}
-                                case 1n+q:
-                                  {==}
-
-# the model's head test is the laws'
-def pge.within(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> {Tl.within(effs, auto) == Tools.tg_unasked(effs, auto) : Bool}:
-  match effs:
-    case Nil{}:
-      {==}
-    case +c <> rest:
-      %pge.grant(c) : {Bool.and(Bool.and(Tl.grantable(c), Tl.elem(auto, c)), Tl.within(rest, auto)) == Bool.and(Bool.and(_, Tools.tg_in(auto, c)), Tools.tg_unasked(rest, auto)) : Bool}
-      %pge.in(auto, c) : {Bool.and(Bool.and(Tl.grantable(c), Tl.elem(auto, c)), Tl.within(rest, auto)) == Bool.and(Bool.and(Tl.grantable(c), _), Tools.tg_unasked(rest, auto)) : Bool}
-      %pge.within(rest, auto) : {Bool.and(Bool.and(Tl.grantable(c), Tl.elem(auto, c)), Tl.within(rest, auto)) == Bool.and(Bool.and(Tl.grantable(c), Tl.elem(auto, c)), _) : Bool}
-      {==}
-
-def pge.free(s: Tl.Step, +auto: List<&2, Nat>) -> {Tl.within(Tl.Step.effs(s), auto) == Tools.tg_free(s, auto) : Bool}:
-  match s:
-    case Tl.Step{i, f}:
-      pge.within(f, auto)
-
-def tgh.and_l(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      shell.ps.absurdF({False{} == True{} : Bool}, e)
-
-def tgh.and_r(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
-  match a:
-    case True{}:
-      e
-    case False{}:
-      shell.ps.absurdF({b == True{} : Bool}, e)
-
-# a step that runs unasked takes no answer: it runs, then the rest
-def tgh.free(+s: Tl.Step, +rest: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>, fr: {Tools.tg_free(s, auto) == True{} : Bool}) -> {Tl.exec(s <> rest, auto, ans) == Tl.ran.add(s, Tl.exec(rest, auto, ans)) : Tl.Ran}:
-  %Equal.sym(Bool, Tl.within(Tl.Step.effs(s), auto), True{}, Equal.trans(Bool, Tl.within(Tl.Step.effs(s), auto), Tools.tg_free(s, auto), True{}, pge.free(s, auto), fr)) : {Tl.exec.go(s <> rest, auto, _, ans) == Tl.ran.add(s, Tl.exec(rest, auto, ans)) : Tl.Ran}
-  {==}
-
-# a step that asks goes the model's answer arm
-def tgh.held(+s: Tl.Step, +rest: List<&2, Tl.Step>, +auto: List<&2, Nat>, ans: List<&2, Bool>, he: {Tools.tg_free(s, auto) == False{} : Bool}) -> {Tl.exec(s <> rest, auto, ans) == Tl.exec.go(s <> rest, auto, False{}, ans) : Tl.Ran}:
-  %Equal.sym(Bool, Tl.within(Tl.Step.effs(s), auto), False{}, Equal.trans(Bool, Tl.within(Tl.Step.effs(s), auto), Tools.tg_free(s, auto), False{}, pge.free(s, auto), he)) : {Tl.exec.go(s <> rest, auto, _, ans) == Tl.exec.go(s <> rest, auto, False{}, ans) : Tl.Ran}
-  {==}
-
-# a denied step ends the script denied at its id, nothing run
-def tgh.deny(s: Tl.Step, r: Tl.Ran) -> {Tl.gate(False{}, s, r) == Tl.Ran{Nil{}, Tl.Denied{Tl.Step.id(s)}} : Tl.Ran}:
-  match s:
-    case Tl.Step{i, f}:
       {==}

@@ -1,17 +1,9 @@
 # ffi_runners: the runners of code (bend/runners.bend) as an entry of the
-# compiled Bend core (crates/eukhe-core/src/durable/rlm/tool.rs, the
+# compiled Bend core (crates/eukhe-core/src/durable/registry.rs, the
 # registry test of crates/eukhe-core/src/durable/runner/tests.rs, through
 # crates/eukhe-bend/src/rules/runners.rs). A request names its question
 # (crates/eukhe-bend/WIRE.md is the grammar):
 #
-#   tag 0  within    a tool's caps, the auto set (List<Nat> each)
-#                    -> T when the call runs unasked (`within`)
-#   tag 1  cell      the caps, the auto set, who answered: 0 (no client)
-#                    | 1 (no answer) | 2, Bool (the user said yes or no)
-#                    -> whether it asked (Bool), then how the call ended:
-#                       0, 0 (ran, unasked) | 0, 1 (ran, approved)
-#                       | 1, 0 (refused, denied) | 1, 1 (refused,
-#                       unanswered): `cell`
 #   tag 2  registry  nothing more
 #                    -> every tool a session installs, in order: its name
 #                       (String), its caps (List<Nat>), its gate (0 none,
@@ -19,6 +11,9 @@
 #   tag 3  main      whether main has chat memory (Bool)
 #                    -> main's roster in the `main-worker` shape, each
 #                       tool spelled as for tag 2: `main_roster`
+#
+# Tags 0 and 1 name no question (they were `within` and `cell`); the tags
+# keep their numbers.
 #
 # Every input that is not exactly one request answers the error form
 # "runners: malformed request", never a default. laws/runners.bend
@@ -31,76 +26,11 @@ import ./runners.bend as Ru
 
 # A request of the entry
 type Req is Data:
-  QWithin{caps: List<&2, Nat>, auto: List<&2, Nat>}
-  QCell{caps: List<&2, Nat>, auto: List<&2, Nat>, asker: Ru.Asker}
   QRegistry{}
   QMain{chat: Bool}
 
 # Requests
 # --------
-
-def get_ns(s: String) -> W.Dec<List<&2, Nat>>:
-  W.get_list(~Nat, ~W.get_nat, s)
-
-def get_says(r: W.Dec<Bool>) -> W.Dec<Ru.Asker>:
-  match r:
-    case W.Got{y, s}:
-      W.Got{Ru.Says{y}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_asker.tag(t: Nat, s: String) -> W.Dec<Ru.Asker>:
-  match t:
-    case 0n:
-      W.Got{Ru.NoClient{}, s}
-    case 1n:
-      W.Got{Ru.Silent{}, s}
-    case 2n:
-      get_says(W.get_bool(s))
-    case 3n+u:
-      W.Bad{}
-
-def get_asker(r: W.Dec<Nat>) -> W.Dec<Ru.Asker>:
-  match r:
-    case W.Got{t, s}:
-      get_asker.tag(t, s)
-    case W.Bad{}:
-      W.Bad{}
-
-def get_within.auto(c: List<&2, Nat>, r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
-  match r:
-    case W.Got{a, s}:
-      W.Got{QWithin{c, a}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_within(r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
-  match r:
-    case W.Got{c, s}:
-      get_within.auto(c, get_ns(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_cell.asker(c: List<&2, Nat>, a: List<&2, Nat>, r: W.Dec<Ru.Asker>) -> W.Dec<Req>:
-  match r:
-    case W.Got{k, s}:
-      W.Got{QCell{c, a, k}, s}
-    case W.Bad{}:
-      W.Bad{}
-
-def get_cell.auto(c: List<&2, Nat>, r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
-  match r:
-    case W.Got{a, s}:
-      get_cell.asker(c, a, get_asker(W.get_nat(s)))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_cell(r: W.Dec<List<&2, Nat>>) -> W.Dec<Req>:
-  match r:
-    case W.Got{c, s}:
-      get_cell.auto(c, get_ns(s))
-    case W.Bad{}:
-      W.Bad{}
 
 def get_main(r: W.Dec<Bool>) -> W.Dec<Req>:
   match r:
@@ -112,9 +42,9 @@ def get_main(r: W.Dec<Bool>) -> W.Dec<Req>:
 def get_req.tag(t: Nat, s: String) -> W.Dec<Req>:
   match t:
     case 0n:
-      get_within(get_ns(s))
+      W.Bad{}
     case 1n:
-      get_cell(get_ns(s))
+      W.Bad{}
     case 2n:
       W.Got{QRegistry{}, s}
     case 3n:
@@ -135,26 +65,6 @@ def get_req(s: String) -> W.Dec<Req>:
 # Replies
 # -------
 
-def put_end(e: Ru.End, rest: String) -> String:
-  match e:
-    case Ru.Ran{h}:
-      match h:
-        case Ru.Auto{}:
-          W.put_nat(0n, W.put_nat(0n, rest))
-        case Ru.Approved{}:
-          W.put_nat(0n, W.put_nat(1n, rest))
-    case Ru.Refused{w}:
-      match w:
-        case Ru.Denied{}:
-          W.put_nat(1n, W.put_nat(0n, rest))
-        case Ru.Unanswered{}:
-          W.put_nat(1n, W.put_nat(1n, rest))
-
-def put_out(o: Ru.Out, rest: String) -> String:
-  match o:
-    case Ru.Out{a, e}:
-      W.put_bool(a, put_end(e, rest))
-
 def put_gate(g: Ru.Gate, rest: String) -> String:
   match g:
     case Ru.Ungated{}:
@@ -172,10 +82,6 @@ def put_tool(t: Ru.ToolReg, rest: String) -> String:
 # the model's decision on a request, encoded
 def answer(q: Req) -> String:
   match q:
-    case QWithin{c, +a}:
-      W.put_bool(Ru.within(c, a), "")
-    case QCell{c, +a, k}:
-      put_out(Ru.cell(c, a, k), "")
     case QRegistry{}:
       W.put_list(~Ru.ToolReg, ~put_tool, Ru.registry(), "")
     case QMain{h}:

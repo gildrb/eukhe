@@ -1,5 +1,5 @@
 # eukhe: the laws of area path_policy: the judgment, the real path, the
-# gate and the entry, each whole against a spec
+# effects of an access and the entry, each whole against a spec
 
 import Base
 import ../../bend/ffi_path_policy.bend as FPp
@@ -313,7 +313,7 @@ law path_real_spec:
   for +segs: List<&2, Tl.Seg>
   {Pp.real(ls, segs) == pp_real(ls, segs) : Pp.Res}
 
-# ---- the gate, whole (spec) ----
+# ---- the effects of an access, whole (spec) ----
 #
 # An access's effects, restated from (G1) with the codes of
 # bend/path_policy.bend's header (read 0, write 1, outside 4, protected 5,
@@ -321,8 +321,7 @@ law path_real_spec:
 # read or a list of a Secret path, and a search of a Secret path or of a
 # directory that holds a secret, also has the secret effect (6). A write
 # also has the effect of its class: 4 Outside, 5 Protected, 6 Secret,
-# none Inside. The access runs when the user said yes, or when each of
-# its effects is a code (below 7) the auto set holds.
+# none Inside.
 
 # what a read adds for a class: the secret effect for a Secret path only
 def pp_read_mark(c: Pp.Cls) -> List<&2, Nat>:
@@ -364,52 +363,16 @@ def pp_effs(c: Pp.Cls, a: Pp.Acc) -> List<&2, Nat>:
     case Pp.Wr{}:
       1n <> pp_write_mark(c)
 
-# each effect of es is a code below 7 that the auto set holds
-def pp_auto_holds(+auto: List<&2, Nat>, es: List<&2, Nat>) -> Bool:
-  match es:
-    case Nil{}:
-      True{}
-    case +e <> rest:
-      Bool.and(Bool.and(Nat.is_lt(e, 7n), pp_has(auto, e)), pp_auto_holds(auto, rest))
-
-# the user said yes (no and no answer are not)
-def pp_said_yes(ans: Pp.Ans) -> Bool:
-  match ans:
-    case Pp.Yes{}:
-      True{}
-    case Pp.No{}:
-      False{}
-    case Pp.Gone{}:
-      False{}
-
-# the access runs: the auto set holds its effects, or the user said yes
-def pp_runs(c: Pp.Cls, a: Pp.Acc, +auto: List<&2, Nat>, ans: Pp.Ans) -> Bool:
-  Bool.or(pp_auto_holds(auto, pp_effs(c, a)), pp_said_yes(ans))
-
 # LAW gate_effs_spec (G1): the effects of every access to a path of every
 # class are the spec's
-# EXCLUDES: a write of any class that has only the write effect (so a
-#   Protected, Secret or Outside write runs unasked when the auto set is
-#   {1}: gate_yes_runs and gate_inside_write_runs pinned only a yes and an
-#   Inside write); a read, list or search of a Secret path, or a search of
-#   a directory that holds a secret, without the secret effect; a read
-#   with the outside or protected effect; the codes swapped
+# EXCLUDES: a write of any class that has only the write effect; a read,
+#   list or search of a Secret path, or a search of a directory that
+#   holds a secret, without the secret effect; a read with the outside or
+#   protected effect; the codes swapped
 law gate_effs_spec:
   for c: Pp.Cls
   for a: Pp.Acc
   {Pp.effs(c, a) == pp_effs(c, a) : List<&2, Nat>}
-
-# LAW gate_runs_spec (G1): every access, under every auto set and every
-# answer of the user, runs exactly as the spec says
-# EXCLUDES: a gate that runs every access (or every write) unasked, that
-#   runs on a no or on no answer, that checks only the access's first
-#   effect, or that grants a code the auto set does not hold
-law gate_runs_spec:
-  for c: Pp.Cls
-  for a: Pp.Acc
-  for +auto: List<&2, Nat>
-  for ans: Pp.Ans
-  {Pp.runs(c, a, auto, ans) == pp_runs(c, a, auto, ans) : Bool}
 
 # ---- the entry, whole (spec) ----
 #

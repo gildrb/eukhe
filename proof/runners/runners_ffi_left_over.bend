@@ -9,7 +9,7 @@ import ../../bend/wire.bend as Wr
 import ../../laws/runners.bend as Runners
 import ./base/entry.bend as LARn
 
-def Runners.runners_ffi_left_over(q, more, fits, some):
-  %Equal.sym(Wr.Dec<FRu.Req>, FRu.get_req(Runners.spell_req(q, more)), Wr.Got{q, more}, LARn.rn.rt(q, more, fits)) : {FRu.run(_) == Runners.malformed() : String}
+def Runners.runners_ffi_left_over(q, more, some):
+  %Equal.sym(Wr.Dec<FRu.Req>, FRu.get_req(Runners.spell_req(q, more)), Wr.Got{q, more}, LARn.rn.rt(q, more)) : {FRu.run(_) == Runners.malformed() : String}
   %Equal.sym(Bool, String.is_empty(more), False{}, some) : {FRu.run.end(_, q) == Runners.malformed() : String}
   {==}
