@@ -1,10 +1,7 @@
 # eukhe: lemmas of the entry proofs of area strength: the entry's decoder
 # reads every input as the laws' reader does (sr.vlabel to sr.req: stage
 # by stage; the gauges by their item loop, sr.list_go; the slots and the
-# actor as the verify entry's, LR.vr.slots, LR.vr.actor), and what the
-# entry answers on what that reader read: its answer to the request read
-# whole (sr.got_some), its error form where no request is read whole
-# (sr.got_none)
+# actor as the verify entry's, LR.vr.slots, LR.vr.actor)
 
 import Base
 import ../../../bend/verify.bend as V
@@ -291,72 +288,5 @@ def sr.req(d: Wr.Dec<Nat>) -> {FS.get_req(d) == SW.r_req(d) : Wr.Dec<FS.Req>}:
           sr.strength(Wr.get_nat(s))
         case 5n+u:
           {==}
-    case Wr.Bad{}:
-      {==}
-
-# The entry on what the reader read
-# ---------------------------------
-
-def sr.MS(m: Maybe<&2, FS.Req>, G: Type) -> Type:
-  match m:
-    case None{}:
-      Unit
-    case Some{x}:
-      G
-
-def sr.none_some(-q: FS.Req, -G: Type, e: {None{} == Some{q} : Maybe<&2, FS.Req>}) -> G:
-  %e : sr.MS(_, G)
-  Unit{}
-
-def sr.MN(m: Maybe<&2, FS.Req>, G: Type) -> Type:
-  match m:
-    case None{}:
-      G
-    case Some{x}:
-      Unit
-
-def sr.some_none(-q: FS.Req, -G: Type, e: {Some{q} == None{} : Maybe<&2, FS.Req>}) -> G:
-  %e : sr.MN(_, G)
-  Unit{}
-
-def sr.val(d: FS.Req, m: Maybe<&2, FS.Req>) -> FS.Req:
-  match m:
-    case None{}:
-      d
-    case Some{x}:
-      x
-
-# Some is one to one
-def sr.some(+p: FS.Req, +q: FS.Req, e: {Some{p} == Some{q} : Maybe<&2, FS.Req>}) -> {q == p : FS.Req}:
-  Equal.sym(FS.Req, p, q, Equal.cong(Maybe<&2, FS.Req>, FS.Req, m => sr.val(p, m), Some{p}, Some{q}, e))
-
-def sr.end_some(b: Bool, +q: FS.Req, +p: FS.Req, got: {SW.r_whole.end(b, p) == Some{q} : Maybe<&2, FS.Req>}) -> {FS.ffi.done(p, b) == FS.answer(q) : String}:
-  match b:
-    case True{}:
-      %sr.some(p, q, got) : {FS.answer(_) == FS.answer(q) : String}
-      {==}
-    case False{}:
-      sr.none_some(q, {FS.ffi.done(p, False{}) == FS.answer(q) : String}, got)
-
-# where the reader finds the whole request q, the entry answers q
-def sr.got_some(r: Wr.Dec<FS.Req>, +q: FS.Req, got: {SW.r_whole(r) == Some{q} : Maybe<&2, FS.Req>}) -> {FS.ffi.got(r) == FS.answer(q) : String}:
-  match r:
-    case Wr.Got{p, +s}:
-      sr.end_some(Wr.end(s), q, p, got)
-    case Wr.Bad{}:
-      sr.none_some(q, {Wr.err("strength: malformed request") == FS.answer(q) : String}, got)
-
-def sr.end_none(b: Bool, -q: FS.Req, no: {SW.r_whole.end(b, q) == None{} : Maybe<&2, FS.Req>}) -> {FS.ffi.done(q, b) == Wr.err("strength: malformed request") : String}:
-  match b:
-    case True{}:
-      sr.some_none(q, {FS.answer(q) == Wr.err("strength: malformed request") : String}, no)
-    case False{}:
-      {==}
-
-# where the reader finds no whole request, the entry answers its error form
-def sr.got_none(r: Wr.Dec<FS.Req>, no: {SW.r_whole(r) == None{} : Maybe<&2, FS.Req>}) -> {FS.ffi.got(r) == Wr.err("strength: malformed request") : String}:
-  match r:
-    case Wr.Got{q, +s}:
-      sr.end_none(Wr.end(s), q, no)
     case Wr.Bad{}:
       {==}

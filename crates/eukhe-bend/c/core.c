@@ -10164,6 +10164,8 @@ INLINE Term spin_dash_access_cons(Env e, THR Term* o, u32 r0, u32 r1, Term r2, T
 INLINE Term spin_dash_access_last_here(Env e, THR Term* o, u32 r0, Term r1);
 INLINE Term spin_ffi_doc_lines_get_mend(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_doc_lines_get_line_end(Env e, THR Term* o, Term r0, u32 r1, u32 r2, u32 r3, Term r4);
+INLINE Term spin_strength_enough(Env e, THR Term* o, Term r0, Term r1, Term r2);
+INLINE Term spin_strength_strength_caught(Env e, THR Term* o, u32 r0);
 INLINE Term spin_shape_done(Env e, THR Term* o, u32 r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_shape_moved(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_shape_run_step(Env e, THR Term* o, u32 r0, Term r1, u32 r2, u32 r3, u32 r4, Term r5, Term r6, Term r7, u32 r8, Term r9, Term r10);
@@ -10458,8 +10460,7 @@ INLINE Term spin_ffi_doc_lines_get_line_len(Env e, THR Term* o, u32 r0, Term r1,
 INLINE Term spin_ffi_doc_lines_get_line(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_rlm_query_get_plan_sizes(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, Term r7);
 INLINE Term spin_rlm_query_waves_last(Env e, THR Term* o, Term r0);
-INLINE Term spin_strength_enough(Env e, THR Term* o, Term r0, Term r1, Term r2);
-INLINE Term spin_strength_strength_caught(Env e, THR Term* o, u32 r0);
+INLINE Term spin_strength_strength_ran(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3);
 INLINE Term spin_ffi_strength_put_mark(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, Term r5);
 INLINE Term spin_ffi_strength_put_bar(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_shape_budget(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4);
@@ -10854,7 +10855,7 @@ INLINE Term spin_ffi_doc_lines_put_end(Env e, THR Term* o, u32 r0, Term r1);
 INLINE Term spin_rlm_query_width_of(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_strength_get_mark_at(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_ffi_strength_get_gauge(Env e, THR Term* o, Term r0);
-INLINE Term spin_strength_strength_ran(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3);
+INLINE Term spin_strength_strength_full(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3);
 INLINE Term spin_ffi_strength_put_gauge(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6, Term r7);
 INLINE Term spin_shape_all_skip(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_String_split_push(Env e, THR Term* o, u32 r0, Term r1);
@@ -11366,7 +11367,7 @@ INLINE Term spin_ffi_doc_lines_put_seps(Env e, THR Term* o, u32 r0, Term r1, Ter
 INLINE Term spin_rlm_query_width(Env e, THR Term* o, Term r0, Term r1);
 INLINE Term spin_rlm_query_total_go(Env e, THR Term* o, Term r0, Term r1);
 INLINE Term spin_ffi_strength_get_mark_planned(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4);
-INLINE Term spin_strength_strength_full(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3);
+INLINE Term spin_strength_strength_on(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4);
 INLINE Term spin_wire_put_list_step_55(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6, Term r7, Term r8);
 INLINE Term spin_headless_task_unjudged_code(Env e, THR Term* o);
 INLINE Term spin_strength_strength(Env e, THR Term* o, Term r0, u32 r1, Term r2, u32 r3, Term r4, Term r5, Term r6, Term r7);
@@ -12000,7 +12001,7 @@ INLINE Term spin_rlm_query_bytes(Env e, THR Term* o, u32 r0);
 INLINE Term spin_rlm_query_bytes_of(Env e, THR Term* o, u32 r0, u32 r1, u32 r2);
 INLINE Term spin_rlm_query_total(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_strength_get_mark_ran(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3);
-INLINE Term spin_strength_strength_on(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4);
+INLINE Term spin_strength_strength_mark(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6);
 INLINE Term spin_strength_put_mark(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, u32 r7, Term r8, Term r9, Term r10, Term r11);
 INLINE Term spin_strength_put_cons(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6, u32 r7, Term r8);
 INLINE Term spin_strength_exit_cert(Env e, THR Term* o, u32 r0, Term r1);
@@ -12719,7 +12720,7 @@ INLINE Term spin_ffi_strength_get_gauge_mark(Env e, THR Term* o, u32 r0, Term r1
 INLINE Term spin_ffi_strength_get_mark_caught(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_strength_get_req_record_gs(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6, u32 r7, Term r8, Term r9);
 INLINE Term spin_ffi_strength_get_req_exit_gs(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
-INLINE Term spin_strength_strength_mark(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6);
+INLINE Term spin_strength_strength_needs(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6);
 INLINE Term spin_strength_record_put(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_strength_passes(Env e, THR Term* o, u32 r0);
 INLINE Term spin_strength_label_pass(Env e, THR Term* o, u32 r0, u32 r1, u32 r2);
@@ -35911,6 +35912,36 @@ INLINE Term spin_ffi_doc_lines_get_line_end(Env e, THR Term* o, Term r0, u32 r1,
   return 1;
 }
 
+INLINE Term spin_strength_enough(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  Term _pct_0 = r0;
+  Term _caught_0 = r1;
+  Term _ran_0 = r2;
+  WL_SPIN
+    Term _o_0[1];
+    if (spin_Nat_is_le(e, _o_0, nat_mul(e, _pct_0, _ran_0), nat_mul(e, 100ull, _caught_0)) == 0) {
+      return 0;
+    }
+    o[0] = (u32)_o_0[0];
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_strength_strength_caught(Env e, THR Term* o, u32 r0) {
+  u32 wpoll = 0;
+  u32 _enough_0 = r0;
+  WL_SPIN
+    if (_enough_0 == 1) {
+      o[0] = 0;
+    } else {
+      o[0] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
 INLINE Term spin_shape_done(Env e, THR Term* o, u32 r0, Term r1, Term r2, u32 r3, Term r4, Term r5) {
   u32 wpoll = 0;
   u32 _ends_0 = r0;
@@ -45136,28 +45167,23 @@ INLINE Term spin_rlm_query_waves_last(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_strength_enough(Env e, THR Term* o, Term r0, Term r1, Term r2) {
+INLINE Term spin_strength_strength_ran(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
-  Term _pct_0 = r0;
-  Term _caught_0 = r1;
-  Term _ran_0 = r2;
+  u32 _some_0 = r0;
+  Term _pct_0 = r1;
+  Term _caught_0 = r2;
+  Term _ran_0 = r3;
   WL_SPIN
-    Term _o_0[1];
-    if (spin_Nat_is_le(e, _o_0, nat_mul(e, _pct_0, _ran_0), nat_mul(e, 100ull, _caught_0)) == 0) {
-      return 0;
-    }
-    o[0] = (u32)_o_0[0];
-  break;
-  }
-  return 1;
-}
-
-INLINE Term spin_strength_strength_caught(Env e, THR Term* o, u32 r0) {
-  u32 wpoll = 0;
-  u32 _enough_0 = r0;
-  WL_SPIN
-    if (_enough_0 == 1) {
-      o[0] = 0;
+    if (_some_0 == 1) {
+      Term _o_0[1];
+      if (spin_strength_enough(e, _o_0, _pct_0, _caught_0, _ran_0) == 0) {
+        return 0;
+      }
+      Term _o_1[1];
+      if (spin_strength_strength_caught(e, _o_1, (u32)_o_0[0]) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
     } else {
       o[0] = 1;
     }
@@ -57718,25 +57744,29 @@ INLINE Term spin_ffi_strength_get_gauge(Env e, THR Term* o, Term r0) {
   return 1;
 }
 
-INLINE Term spin_strength_strength_ran(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_strength_strength_full(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
   u32 wpoll = 0;
-  u32 _some_0 = r0;
+  u32 _full_0 = r0;
   Term _pct_0 = r1;
   Term _caught_0 = r2;
   Term _ran_0 = r3;
   WL_SPIN
-    if (_some_0 == 1) {
+    if (_full_0 == 1) {
       Term _o_0[1];
-      if (spin_strength_enough(e, _o_0, _pct_0, _caught_0, _ran_0) == 0) {
+      if (spin_Nat_is_eq(e, _o_0, _ran_0, 0ull) == 0) {
         return 0;
       }
       Term _o_1[1];
-      if (spin_strength_strength_caught(e, _o_1, (u32)_o_0[0]) == 0) {
+      if (spin_Bool_not(e, _o_1, (u32)_o_0[0]) == 0) {
         return 0;
       }
-      o[0] = (u32)_o_1[0];
+      Term _o_2[1];
+      if (spin_strength_strength_ran(e, _o_2, (u32)_o_1[0], _pct_0, _caught_0, _ran_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_2[0];
     } else {
-      o[0] = 1;
+      o[0] = 2;
     }
   break;
   }
@@ -73210,27 +73240,24 @@ INLINE Term spin_ffi_strength_get_mark_planned(Env e, THR Term* o, Term r0, Term
   return 1;
 }
 
-INLINE Term spin_strength_strength_full(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3) {
+INLINE Term spin_strength_strength_on(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
   u32 wpoll = 0;
-  u32 _full_0 = r0;
+  u32 _same_0 = r0;
   Term _pct_0 = r1;
   Term _caught_0 = r2;
   Term _ran_0 = r3;
+  Term _planned_0 = r4;
   WL_SPIN
-    if (_full_0 == 1) {
+    if (_same_0 == 1) {
       Term _o_0[1];
-      if (spin_Nat_is_eq(e, _o_0, _ran_0, 0ull) == 0) {
+      if (spin_Nat_is_le(e, _o_0, _planned_0, _ran_0) == 0) {
         return 0;
       }
       Term _o_1[1];
-      if (spin_Bool_not(e, _o_1, (u32)_o_0[0]) == 0) {
+      if (spin_strength_strength_full(e, _o_1, (u32)_o_0[0], _pct_0, _caught_0, _ran_0) == 0) {
         return 0;
       }
-      Term _o_2[1];
-      if (spin_strength_strength_ran(e, _o_2, (u32)_o_1[0], _pct_0, _caught_0, _ran_0) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_2[0];
+      o[0] = (u32)_o_1[0];
     } else {
       o[0] = 2;
     }
@@ -73288,7 +73315,7 @@ INLINE Term spin_strength_strength(Env e, THR Term* o, Term r0, u32 r1, Term r2,
       o[0] = 3;
     } else {
       Term _o_0[1];
-      if (spin_strength_strength_mark(e, _o_0, _g_1, _now_0, _g_2, _g_3, _g_4, _g_5, _g_6) == 0) {
+      if (spin_strength_strength_needs(e, _o_0, _g_1, _now_0, _g_2, _g_3, _g_4, _g_5, _g_6) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -73368,18 +73395,22 @@ INLINE Term spin_strength_unmeasured(Env e, THR Term* o, Term r0, u32 r1, Term r
     } else if (_g_0 == 1) {
       o[0] = 0;
     } else {
-      if (_g_2 == 0) {
-        o[0] = 1;
+      if (_g_1 == 0) {
+        o[0] = 0;
       } else {
-        Term _o_0[1];
-        if (spin_Nat_is_eq(e, _o_0, _g_6, _now_0) == 0) {
-          return 0;
+        if (_g_2 == 0) {
+          o[0] = 1;
+        } else {
+          Term _o_0[1];
+          if (spin_Nat_is_eq(e, _o_0, _g_6, _now_0) == 0) {
+            return 0;
+          }
+          Term _o_1[1];
+          if (spin_Bool_not(e, _o_1, (u32)_o_0[0]) == 0) {
+            return 0;
+          }
+          o[0] = (u32)_o_1[0];
         }
-        Term _o_1[1];
-        if (spin_Bool_not(e, _o_1, (u32)_o_0[0]) == 0) {
-          return 0;
-        }
-        o[0] = (u32)_o_1[0];
       }
     }
   break;
@@ -92350,26 +92381,28 @@ INLINE Term spin_ffi_strength_get_mark_ran(Env e, THR Term* o, Term r0, u32 r1, 
   return 1;
 }
 
-INLINE Term spin_strength_strength_on(Env e, THR Term* o, u32 r0, Term r1, Term r2, Term r3, Term r4) {
+INLINE Term spin_strength_strength_mark(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6) {
   u32 wpoll = 0;
-  u32 _same_0 = r0;
-  Term _pct_0 = r1;
-  Term _caught_0 = r2;
-  Term _ran_0 = r3;
-  Term _planned_0 = r4;
+  Term _pct_0 = r0;
+  Term _now_0 = r1;
+  u32 _m_0 = r2;
+  Term _m_1 = r3;
+  Term _m_2 = r4;
+  Term _m_3 = r5;
+  Term _m_4 = r6;
   WL_SPIN
-    if (_same_0 == 1) {
+    if (_m_0 == 0) {
+      o[0] = 2;
+    } else {
       Term _o_0[1];
-      if (spin_Nat_is_le(e, _o_0, _planned_0, _ran_0) == 0) {
+      if (spin_Nat_is_eq(e, _o_0, _m_4, _now_0) == 0) {
         return 0;
       }
       Term _o_1[1];
-      if (spin_strength_strength_full(e, _o_1, (u32)_o_0[0], _pct_0, _caught_0, _ran_0) == 0) {
+      if (spin_strength_strength_on(e, _o_1, (u32)_o_0[0], _pct_0, _m_1, _m_2, _m_3) == 0) {
         return 0;
       }
       o[0] = (u32)_o_1[0];
-    } else {
-      o[0] = 2;
     }
   break;
   }
@@ -117013,7 +117046,7 @@ INLINE Term spin_ffi_strength_get_req_exit_gs(Env e, THR Term* o, Term r0, Term 
   return 1;
 }
 
-INLINE Term spin_strength_strength_mark(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6) {
+INLINE Term spin_strength_strength_needs(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4, Term r5, Term r6) {
   u32 wpoll = 0;
   Term _pct_0 = r0;
   Term _now_0 = r1;
@@ -117023,18 +117056,14 @@ INLINE Term spin_strength_strength_mark(Env e, THR Term* o, Term r0, Term r1, u3
   Term _m_3 = r5;
   Term _m_4 = r6;
   WL_SPIN
-    if (_m_0 == 0) {
-      o[0] = 2;
+    if (_pct_0 == 0) {
+      o[0] = 3;
     } else {
       Term _o_0[1];
-      if (spin_Nat_is_eq(e, _o_0, _m_4, _now_0) == 0) {
+      if (spin_strength_strength_mark(e, _o_0, _pct_0, _now_0, _m_0, _m_1, _m_2, _m_3, _m_4) == 0) {
         return 0;
       }
-      Term _o_1[1];
-      if (spin_strength_strength_on(e, _o_1, (u32)_o_0[0], _pct_0, _m_1, _m_2, _m_3) == 0) {
-        return 0;
-      }
-      o[0] = (u32)_o_1[0];
+      o[0] = (u32)_o_0[0];
     }
   break;
   }

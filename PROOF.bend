@@ -4613,8 +4613,11 @@ import ./proof/verify/verify_entry_example.bend as PVerifyEntryExample
 import ./proof/strength/base/model.bend as LStrengthModel
 import ./proof/strength/base/entry.bend as LStrengthEntry
 import ./proof/strength/base/read.bend as LStrengthRead
-import ./proof/strength/strength_grade_is_spec.bend as PStrengthGradeIsSpec
-import ./proof/strength/strength_catches_nothing_weak.bend as PStrengthCatchesNothingWeak
+import ./proof/strength/base/exact.bend as LStrengthExact
+import ./proof/strength/strength_share_met_strong.bend as PStrengthShareMetStrong
+import ./proof/strength/strength_nothing_to_break_weak.bend as PStrengthNothingToBreakWeak
+import ./proof/strength/strength_unmeasured_unshown.bend as PStrengthUnmeasuredUnshown
+import ./proof/strength/strength_ungauged_free.bend as PStrengthUngaugedFree
 import ./proof/strength/strength_short_of_share_weak.bend as PStrengthShortOfShareWeak
 import ./proof/strength/strength_stale_mark_unshown.bend as PStrengthStaleMarkUnshown
 import ./proof/strength/strength_cut_short_unshown.bend as PStrengthCutShortUnshown
@@ -4637,8 +4640,8 @@ import ./proof/strength/strength_exit_keeps_code.bend as PStrengthExitKeepsCode
 import ./proof/strength/strength_example.bend as PStrengthExample
 import ./proof/strength/strength_entry_answers.bend as PStrengthEntryAnswers
 import ./proof/strength/strength_entry_reads.bend as PStrengthEntryReads
-import ./proof/strength/strength_entry_read_answers.bend as PStrengthEntryReadAnswers
-import ./proof/strength/strength_entry_malformed_exact.bend as PStrengthEntryMalformedExact
+import ./proof/strength/strength_entry_exact.bend as PStrengthEntryExact
+import ./proof/strength/strength_entry_refuses.bend as PStrengthEntryRefuses
 import ./proof/strength/strength_entry_leftover_refused.bend as PStrengthEntryLeftoverRefused
 import ./proof/strength/strength_entry_example.bend as PStrengthEntryExample
 import ./proof/server_peer/base.bend as LAServerPeer

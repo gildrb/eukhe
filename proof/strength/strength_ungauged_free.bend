@@ -1,7 +1,7 @@
-# eukhe: the proof of LAW strength_grade_is_spec
+# eukhe: the proof of LAW strength_ungauged_free
 #
-# PROOF: the model's grade of a check is the spec's, case by case on the bar and
-# the mark; a measured mark through each stage of the model (LS.sg.strength).
+# PROOF: by the model's definition: an exempt or waived bar is free before the
+# mark is read, and so is a share of 0 (strength.needs).
 
 import Base
 import ../../bend/verify.bend as V
@@ -12,5 +12,5 @@ import ../../spec/verified/strength.bend as S
 import ../../laws/strength.bend as Strength
 import ./base/model.bend as LS
 
-def Strength.strength_grade_is_spec(now, g):
-  LS.sg.strength(now, g)
+def Strength.strength_ungauged_free(now, m):
+  ({==}, ({==}, {==}))
