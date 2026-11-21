@@ -451,13 +451,24 @@ async fn a_shallow_ls_of_a_secret_holding_directory_reads_no_secret() {
 }
 
 /// Asks about each step in order and refuses one (`refused`), keeping
-/// every question.
+/// every question, and when each question and each step's end came.
 struct Editor {
     refused: u64,
     asked: Mutex<Vec<(u64, String, ShellEffects)>>,
+    order: Mutex<Vec<(&'static str, u64)>>,
 }
 
-impl Before for Editor {
+impl Editor {
+    fn refusing(refused: u64) -> Self {
+        Self {
+            refused,
+            asked: Mutex::new(Vec::new()),
+            order: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Steps for Editor {
     fn allows(
         &self,
         step: u64,
@@ -465,20 +476,56 @@ impl Before for Editor {
         effects: ShellEffects,
     ) -> impl Future<Output = bool> + Send {
         self.asked.lock().push((step, command.to_owned(), effects));
+        self.order.lock().push(("asked", step));
         std::future::ready(step != self.refused)
+    }
+
+    fn ran(&self, ran: &StepRun) -> impl Future<Output = ()> + Send {
+        self.order.lock().push(("ran", ran.step));
+        std::future::ready(())
     }
 }
 
-/// A step `before` refuses does not run, and neither does any later
+/// Each step that ran goes to the hooks at its own end, before the next
+/// step is asked about or starts; a pipeline's steps end together.
+#[tokio::test]
+async fn each_step_goes_to_the_hooks_at_its_own_end() {
+    let bench = Bench::new();
+    let editor = Editor::refusing(u64::MAX);
+    let got = bench
+        .shell()
+        .run(
+            "echo one > one.txt; echo two | cat > two.txt; echo three",
+            &bench.paths(),
+            &editor,
+            &Record::default(),
+        )
+        .await;
+    assert_eq!(
+        (got.steps.len(), editor.order.lock().clone()),
+        (
+            4,
+            vec![
+                ("asked", 0),
+                ("ran", 0),
+                ("asked", 1),
+                ("asked", 2),
+                ("ran", 1),
+                ("ran", 2),
+                ("asked", 3),
+                ("ran", 3),
+            ]
+        )
+    );
+}
+
+/// A step the hooks refuse does not run, and neither does any later
 /// step: the script ends `Rejected` there. An own write is refused before
-/// `before` is asked about it.
+/// the hooks are asked about it.
 #[tokio::test]
 async fn a_step_before_refuses_stops_the_script() {
     let bench = Bench::new();
-    let editor = Editor {
-        refused: 1,
-        asked: Mutex::new(Vec::new()),
-    };
+    let editor = Editor::refusing(1);
     let record = Record::default();
     let got = bench
         .shell()
@@ -518,10 +565,7 @@ async fn a_step_before_refuses_stops_the_script() {
             false
         )
     );
-    let editor = Editor {
-        refused: u64::MAX,
-        asked: Mutex::new(Vec::new()),
-    };
+    let editor = Editor::refusing(u64::MAX);
     let got = bench
         .shell()
         .run(

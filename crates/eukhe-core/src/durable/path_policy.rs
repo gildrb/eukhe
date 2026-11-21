@@ -31,10 +31,12 @@
 //! [`DocumentsGate`] is the gate of one document tool call: every access
 //! runs unasked but a write to an own path, which is refused, and an
 //! irreversible access the editor attached through ACP rejects.
+//! [`RecordingGate`] also keeps the irreversible accesses it let run.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use eukhe_docs::{Access, AccessGate, AccessRefusal};
 use eukhe_types::effects::EffectClass;
@@ -336,6 +338,60 @@ impl AccessGate for DocumentsGate {
         } else {
             Err(AccessRefusal::new(DocumentsRefusal::Editor { effects }))
         }
+    }
+}
+
+/// One access a call made that passed its gate and is irreversible (spec
+/// I1): what it did, for people, and its classes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AccessRan {
+    pub(crate) command: String,
+    pub(crate) classes: Vec<EffectClass>,
+}
+
+/// A [`DocumentsGate`] that keeps every irreversible access it lets run,
+/// in order, for the ledger.
+pub(crate) struct RecordingGate {
+    gate: DocumentsGate,
+    ran: Mutex<Vec<AccessRan>>,
+}
+
+impl RecordingGate {
+    pub(crate) fn new(gate: DocumentsGate) -> Self {
+        Self {
+            gate,
+            ran: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The irreversible accesses it let run, in order.
+    pub(crate) fn into_ran(self) -> Vec<AccessRan> {
+        self.ran
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl AccessGate for RecordingGate {
+    fn check(&self, access: Access, real: &RealPath, display: &str) -> Result<(), AccessRefusal> {
+        self.gate.check(access, real, display)?;
+        let classes = EffectClass::of_shell(effects(&self.gate.policy, access, real));
+        if eukhe_bend::rules::irreversible::is_irreversible(&classes) {
+            let verb = match access {
+                Access::Read => "read",
+                Access::List => "list",
+                Access::Search => "search",
+                Access::Write => "write",
+            };
+            self.ran
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(AccessRan {
+                    command: eukhe_shell::visible(&format!("{verb} {}", real.path().display())),
+                    classes,
+                });
+        }
+        Ok(())
     }
 }
 

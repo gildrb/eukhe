@@ -90,6 +90,7 @@ impl Worker {
             "get_run_outcome" => self.handle_get_run_outcome().await,
             "get_unknown_effects" => self.handle_get_unknown_effects().await,
             "get_ran_effects" => self.handle_get_ran_effects().await,
+            "relay_ran_effect" => self.handle_relay_ran_effect(payload).await,
             "resolve_unknown_effect" => self.handle_resolve_unknown_effect(payload).await,
             "set_acceptance" => self.handle_set_acceptance(payload).await,
             "get_acceptance" => self.handle_get_acceptance().await,

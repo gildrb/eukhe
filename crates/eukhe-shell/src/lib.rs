@@ -7,10 +7,11 @@
 //! table does not know is `Exec`), and runs it unasked unless a part
 //! writes an own path (eukhe's own config and credentials, the session
 //! record, a protected file of a check; the compiled core's verdict,
-//! `eukhe_bend::rules::shell::verdict`) or the caller's [`Before`] refuses
+//! `eukhe_bend::rules::shell::verdict`) or the caller's [`Steps`] refuses
 //! it (the editor's say on an irreversible step). A refused step stops
 //! the script there: the steps before it ran and their effects stand, it
-//! and every later step did not run.
+//! and every later step did not run. Each step that ran goes to the
+//! caller's [`Steps`] at its own end (the ledger of irreversible effects).
 //!
 //! The common commands run in process with their common options (`cat`,
 //! `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`,
@@ -36,5 +37,5 @@ mod shown;
 
 pub use effect::GIT_UNTRUSTED_REPO_ARGS;
 pub use parse::literal_command;
-pub use run::{Before, End, Ran, Shell, Sink, StepRun, Stream, Unasked};
+pub use run::{End, Ran, Shell, Sink, StepRun, Steps, Stream, Unasked};
 pub use shown::visible;

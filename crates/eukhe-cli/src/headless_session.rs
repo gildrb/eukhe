@@ -26,6 +26,7 @@ use eukhe_daemon::lease::{SessionAlreadyActiveError, SessionLease};
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_durable::session::SessionError;
 use eukhe_tui::session_open_error::{already_active_error, SessionHolder};
+use eukhe_types::effects::RunReport;
 
 use crate::mode::{AppMode, RunOptions};
 
@@ -150,6 +151,8 @@ pub(crate) struct HeadlessSession {
     /// The session's job-settled wake (its in-flight notices count toward
     /// quiescence).
     pub wakes: HeadlessWakes,
+    /// The end-of-run reports of its runs, until printed.
+    pub reports: RunReports,
 }
 
 /// Which session to open.
@@ -232,7 +235,7 @@ pub(crate) async fn open_headless_session(
     let opened = match selection {
         Selection::Memory => {
             let session_id = new_session_id();
-            let (session, wakes) = open(
+            let (session, wakes, reports) = open(
                 options,
                 &options.config.cwd,
                 &session_id,
@@ -247,13 +250,15 @@ pub(crate) async fn open_headless_session(
                 cwd: options.config.cwd.clone(),
                 parent_session: None,
                 wakes,
+                reports,
             }
         }
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             HeadlessSession {
                 session,
                 lease: Some(lease),
@@ -261,12 +266,14 @@ pub(crate) async fn open_headless_session(
                 cwd,
                 parent_session: None,
                 wakes,
+                reports,
             }
         }
         Selection::Fork { source } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             HeadlessSession {
                 session,
                 lease: Some(lease),
@@ -274,6 +281,7 @@ pub(crate) async fn open_headless_session(
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
                 wakes,
+                reports,
             }
         }
         Selection::Open {
@@ -306,7 +314,8 @@ pub(crate) async fn open_headless_session(
                         })?;
                 }
             }
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             if cwd_override.is_some() {
                 set_main_cwd(&session, &cwd, cx).await?;
             }
@@ -318,6 +327,7 @@ pub(crate) async fn open_headless_session(
                 cwd,
                 parent_session: None,
                 wakes,
+                reports,
             }
         }
     };
@@ -499,19 +509,43 @@ fn jsonl(dir: &Path) -> SessionStorage {
     }
 }
 
+/// The end-of-run reports of a headless session's root runs, in order,
+/// kept until the run's output prints them after the run's events.
+#[derive(Clone, Default)]
+pub(crate) struct RunReports(Arc<std::sync::Mutex<Vec<RunReport>>>);
+
+impl RunReports {
+    /// Keep each report the session's run service hands over.
+    fn wire(&self, config: &mut SessionConfig) {
+        let kept = self.clone();
+        config.run_report = Some(Arc::new(move |report| kept.lock().push(report)));
+    }
+
+    /// The reports kept so far, oldest first; they are kept no more.
+    pub(crate) fn take(&self) -> Vec<RunReport> {
+        std::mem::take(&mut *self.lock())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<RunReport>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 /// Open a session with the CLI inputs ([`session_config`]), its
-/// job-settled wake, and its subagent runtime, like a daemon worker's: a
-/// settled background job or kernel command, or a child's report, wakes
-/// the session into its next turn. Children run as daemon child sessions
-/// ([`crate::headless_children`]; the supervisor starts on the first
-/// spawn).
+/// job-settled wake, its end-of-run reports, and its subagent runtime,
+/// like a daemon worker's: a settled background job or kernel command, or
+/// a child's report, wakes the session into its next turn. Children run
+/// as daemon child sessions ([`crate::headless_children`]; the supervisor
+/// starts on the first spawn).
 async fn open(
     options: &RunOptions,
     cwd: &Path,
     session_id: &str,
     storage: SessionStorage,
     cx: &Context,
-) -> Result<(Arc<EukheSession>, HeadlessWakes), HeadlessSessionError> {
+) -> Result<(Arc<EukheSession>, HeadlessWakes, RunReports), HeadlessSessionError> {
     let session_file = match &storage {
         SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
         SessionStorage::Memory => None,
@@ -529,13 +563,15 @@ async fn open(
     children.register_agent_messaging(&mut config);
     let wakes = HeadlessWakes::default();
     wakes.wire(&mut config);
+    let reports = RunReports::default();
+    reports.wire(&mut config);
     let session = open_session(config, cx)
         .await
         .map(Arc::new)
         .map_err(HeadlessSessionError::Open)?;
     wakes.bind(&session);
     children.bind(&session);
-    Ok((session, wakes))
+    Ok((session, wakes, reports))
 }
 
 /// The prompt guidelines of a headless session's root: a print or json run
