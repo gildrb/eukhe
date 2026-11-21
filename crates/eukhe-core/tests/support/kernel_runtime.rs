@@ -4,10 +4,11 @@
 //! editable. Never the user's installed kernel venv: the tests validate
 //! the runtime and skills of the tree under test.
 //!
-//! The venv lives in the temp dir, keyed by the checkout path, `HOME`
-//! (uv's managed interpreters live under it), the lock, and the skill
-//! manifests. A file lock serializes concurrent test processes; a `ready`
-//! stamp marks a finished build. `uv` must be on `PATH`.
+//! The venv lives in the temp dir, keyed by the runtime directory's path
+//! (its editable install points there), `HOME` (uv's managed interpreters
+//! live under it), the lock, and the skill manifests. A file lock
+//! serializes concurrent test processes; a `ready` stamp marks a finished
+//! build. `uv` must be on `PATH`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -36,7 +37,7 @@ fn provision() -> PathBuf {
     skills.sort();
 
     let mut key = Sha256::new();
-    key.update(root.as_os_str().as_encoded_bytes());
+    key.update(runtime.as_os_str().as_encoded_bytes());
     key.update([0]);
     key.update(
         std::env::var_os("HOME")
