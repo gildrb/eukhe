@@ -592,12 +592,23 @@ const TurnView = memo(
     }
     for (const [index, item] of notes.entries()) {
       answer.push(
-        <p
-          key={`note:${index}`}
-          {...stylex.props(ui.small, item.kind === "error" ? styles.failed : ui.tertiary)}
-        >
-          {item.text}
-        </p>,
+        // A command's answer and the end-of-run message keep their lines.
+        item.kind === "output" || item.kind === "report" ? (
+          <pre
+            key={`note:${index}`}
+            translate={false}
+            {...stylex.props(ui.mono, styles.output, item.kind === "report" && styles.report)}
+          >
+            {item.text}
+          </pre>
+        ) : (
+          <p
+            key={`note:${index}`}
+            {...stylex.props(ui.small, item.kind === "error" ? styles.failed : ui.tertiary)}
+          >
+            {item.text}
+          </p>
+        ),
       );
     }
     if (!running)
@@ -1112,6 +1123,15 @@ const styles = stylex.create({
   },
   loopLead: { fontWeight: weight.medium, color: colors.secondary },
   loopPaused: { fontWeight: weight.medium, color: colors.primary },
+  output: {
+    margin: 0,
+    fontSize: type.small,
+    lineHeight: type.blockLine,
+    color: colors.secondary,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  report: { color: colors.primary },
   notice: { display: "flex", alignItems: "center", columnGap: space.x4, color: colors.secondary },
   latest: {
     position: "absolute",

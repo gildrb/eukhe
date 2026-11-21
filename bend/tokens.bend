@@ -182,9 +182,8 @@ def grounds(+fg: Tone, +need: Need) -> List<&2, Ink>:
 
 # primary, secondary and danger text on every ground; tertiary on the
 # grounds, and as a caption on the fills; the ground's color on the
-# filled controls (primary: tooltips, the approval card, the send
-# button; secondary: a primary button under the pointer; danger: a
-# danger button)
+# filled controls (primary: tooltips, the send button; secondary: a
+# primary button under the pointer; danger: a danger button)
 def pairs() -> List<&2, Ink>:
   List.concat(&2, Ink, [grounds(Primary{}, Prose{}), grounds(Secondary{}, Prose{}), grounds(Danger{}, Prose{}), [Ink{Tertiary{}, Bg{}, Prose{}}, Ink{Tertiary{}, Sidebar{}, Prose{}}, Ink{Tertiary{}, Raised{}, Prose{}}, Ink{Tertiary{}, Surface{}, Caption{}}, Ink{Tertiary{}, Hover{}, Caption{}}, Ink{Bg{}, Primary{}, Prose{}}, Ink{Bg{}, Secondary{}, Prose{}}, Ink{Bg{}, Danger{}, Prose{}}]])
 
