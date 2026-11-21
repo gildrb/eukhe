@@ -232,7 +232,8 @@ impl AcceptanceDoc {
     }
 }
 
-/// The gauge of one check: its bar, and its last mark.
+/// The gauge of one check: its bar, and its last mark, bounded as the
+/// compiled core reads it (and answers it from `record`).
 pub(crate) fn gauge_of(check: &AcceptanceCheck) -> Gauge {
     Gauge {
         bar: match check.spec.bar() {
@@ -244,6 +245,7 @@ pub(crate) fn gauge_of(check: &AcceptanceCheck) -> Gauge {
         },
         mark: check.strength.as_ref().map_or(Mark::Unmeasured, mark_of),
     }
+    .bounded()
 }
 
 /// A stored measurement as the compiled core reads it.

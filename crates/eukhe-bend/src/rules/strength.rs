@@ -43,31 +43,73 @@ pub struct Gauge {
     pub mark: Mark,
 }
 
+/// The largest share the compiled core is asked, in percent. A check
+/// catches at most the breaks that ran, so no share above 100 is ever met:
+/// 101 decides as every one of them does.
+pub const SHARE_MAX: u64 = 101;
+
+/// The largest break count the compiled core is asked (12 digits; the
+/// verifier runs at most 24 breaks). The core compares the share times the
+/// breaks run with 100 times the breaks caught; `SHARE_MAX * COUNT_MAX`
+/// stays below the 2^48-1 its numbers hold.
+pub const COUNT_MAX: u64 = 999_999_999_999;
+
 impl Mark {
-    fn write(self, request: &mut Writer) {
+    /// The mark as the compiled core reads it: the counts at most
+    /// [`COUNT_MAX`], the state at most `NAT_MAX`.
+    #[must_use]
+    pub fn bounded(self) -> Self {
         match self {
+            Mark::Unmeasured => Mark::Unmeasured,
+            Mark::Measured {
+                caught,
+                ran,
+                planned,
+                at,
+            } => Mark::Measured {
+                caught: caught.min(COUNT_MAX),
+                ran: ran.min(COUNT_MAX),
+                planned: planned.min(COUNT_MAX),
+                at: at.min(NAT_MAX),
+            },
+        }
+    }
+
+    fn write(self, request: &mut Writer) {
+        match self.bounded() {
             Mark::Unmeasured => request.tag(0),
             Mark::Measured {
                 caught,
                 ran,
                 planned,
                 at,
-            } => request
-                .tag(1)
-                .nat(caught.min(NAT_MAX))
-                .nat(ran.min(NAT_MAX))
-                .nat(planned.min(NAT_MAX))
-                .nat(at.min(NAT_MAX)),
+            } => request.tag(1).nat(caught).nat(ran).nat(planned).nat(at),
         };
     }
 }
 
 impl Gauge {
+    /// The gauge as the compiled core reads it and [`record`] answers it:
+    /// the share at most [`SHARE_MAX`], the mark [`Mark::bounded`]. Every
+    /// decision on it is the decision on the gauge itself.
+    #[must_use]
+    pub fn bounded(self) -> Self {
+        Gauge {
+            bar: match self.bar {
+                Bar::Needs { pct } => Bar::Needs {
+                    pct: pct.min(SHARE_MAX),
+                },
+                bar => bar,
+            },
+            mark: self.mark.bounded(),
+        }
+    }
+
     fn write(self, request: &mut Writer) {
         match self.bar {
             Bar::Exempt => request.tag(0),
             Bar::Waived => request.tag(1),
-            Bar::Needs { pct } => request.tag(2).nat(pct.min(NAT_MAX)),
+            Bar::Needs { pct } => request.tag(2).nat(pct.min(SHARE_MAX)),
         };
         self.mark.write(request);
     }
@@ -369,5 +411,30 @@ mod tests {
             ],
             [3, 0, 0, 2]
         );
+    }
+
+    /// The largest numbers a gauge holds are answered (the core never
+    /// stops past its 48-bit numbers) with the decisions they make: a
+    /// share above 100 is never met, every break caught meets 100.
+    #[test]
+    fn the_largest_numbers_are_answered_with_their_decisions() {
+        let all = measured(u64::MAX, u64::MAX, u64::MAX);
+        let share = |pct, mark| Gauge {
+            bar: Bar::Needs { pct },
+            mark,
+        };
+        assert_eq!(
+            [
+                strength(u64::MAX, share(u64::MAX, measured(24, 24, u64::MAX))),
+                strength(u64::MAX, share(u64::MAX, all)),
+                strength(u64::MAX, share(100, all)),
+            ]
+            .map(|s| s.expect("strength")),
+            [Strength::Weak, Strength::Weak, Strength::Strong]
+        );
+        let gauges = [share(u64::MAX, all)];
+        let (admitted, next) = record(Actor::Verifier, 0, all, &gauges).expect("record");
+        assert!(admitted);
+        assert_eq!(next, [share(SHARE_MAX, all).bounded()]);
     }
 }
