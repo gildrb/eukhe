@@ -276,6 +276,8 @@ pub enum Entry {
     Strength = 465,
     /// `bend/ffi_attack.bend`: a call.
     Attack = 466,
+    /// `bend/ffi_gateway_report.bend`: a call.
+    GatewayReport = 471,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
 }
@@ -418,6 +420,7 @@ impl Entry {
         Entry::HeadlessTask,
         Entry::Strength,
         Entry::Attack,
+        Entry::GatewayReport,
         Entry::Fallback,
     ];
 

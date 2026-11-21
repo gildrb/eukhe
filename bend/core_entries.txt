@@ -137,3 +137,4 @@
 472 fallback
 465 strength
 466 attack
+471 gateway_report

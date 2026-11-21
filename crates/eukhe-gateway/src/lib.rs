@@ -1,10 +1,12 @@
 //! Signal gateway: one `signal-cli` child carries chat messages between a
-//! phone and the eukhe daemon. The phone shares the CLI's session.
+//! phone and the eukhe daemon. The phone shares the CLI's session and
+//! hears one report per run, when the run ends.
 
 mod answer;
 mod commands;
 mod gateway;
 mod link;
+mod report;
 mod sessions;
 mod setup;
 mod signal;
@@ -123,7 +125,7 @@ pub enum GatewayExit {
 
 /// Run the gateway until SIGINT, SIGTERM or the phone's `/restart`: relay
 /// the allowed Signal senders' messages into the daemon session the CLI
-/// uses, and the agent's replies back. `settings` is the settings store
+/// uses, and each run's end-of-run report back. `settings` is the settings store
 /// `/model` reads (the all-roles model); `restart` serves `/restart` and
 /// logs the staged-update notice. On a signal or a restart it stops the
 /// typing indicator and detaches.

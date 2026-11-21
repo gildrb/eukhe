@@ -1,0 +1,12 @@
+# the numbers are tags, flags and lengths: every held answer, answer and run end
+call 0,0,0,
+call 1,1,a2,2,yy0,
+call 0,3,0,
+call 3,1,1,b0,
+call 1,1,a0,1,T0,
+call 2,1,x1,2,yy1,F1,4,b  c
+call 0,0,1,F1,0,
+call 1,3,a\nb0,1,F1,1,z
+refuse 1,{LONG},x0,0,
+refuse 0,0,1,F1,{LONG},x
+refuse 4,0,0,

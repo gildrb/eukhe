@@ -104,7 +104,8 @@ Law areas outside the pillars above, with what their laws state. An anchor (`*_e
 
 ### Phone gateway
 
-- [`gateway_answer`](../laws/gateway_answer.bend) (15): a settled session event tells the Signal peer the agent's text, a failure, a stop or nothing.
+- [`gateway_answer`](../laws/gateway_answer.bend) (15): a settled session event answers the agent's text, a failure, a stop or nothing.
+- [`gateway_report`](../laws/gateway_report.bend) (14): the phone hears one report per run, when the run ends with nothing it started still running: the run's last text or failure, with what is left of the goal; a stop goes at once; nothing goes mid-run.
 - [`gateway_backoff`](../laws/gateway_backoff.bend) (11): the reconnect wait starts at 250 ms, doubles and never passes 10 s.
 - [`gateway_commands`](../laws/gateway_commands.bend) (26): a phone text is a phone command, an answer the gateway sends itself or a prompt, by its first word.
 - [`gateway_width`](../laws/gateway_width.bend) (21): a Signal table's columns align by the glyph widths of their cells.
