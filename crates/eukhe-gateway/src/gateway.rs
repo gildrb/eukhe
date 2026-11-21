@@ -1107,8 +1107,8 @@ impl<L: DaemonLauncher> Gateway<L> {
         session_path: Option<&str>,
         saved_cwd: Option<&str>,
     ) -> anyhow::Result<Binding> {
-        let mut create_config =
-            json!({ "sessionDir": self.config.session_dir.display().to_string() });
+        let mut create_config = Value::Object(self.config.create_config.clone());
+        create_config["sessionDir"] = json!(self.config.session_dir.display().to_string());
         let new_cwd = self.config.new_session_cwd.display().to_string();
         match (session_path, saved_cwd) {
             (None, _) => create_config["cwd"] = json!(new_cwd),
