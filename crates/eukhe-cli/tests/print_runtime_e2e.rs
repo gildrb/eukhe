@@ -1198,9 +1198,9 @@ fn print_mode_fork_copies_the_session_into_a_new_file() {
     assert!(texts.contains(&"second answer".to_owned()), "{texts:?}");
 }
 
-/// `--fork` is the cross-project path: a session saved under another
-/// project's cwd forks into the CURRENT one (the TS GLOBAL resolution
-/// arm), while `--resume` still refuses it with the fork hint.
+/// A session saved under another project's cwd forks into the CURRENT one
+/// (the TS GLOBAL resolution arm), by `--fork` and by `--resume` alike:
+/// `--resume` says so on stderr and the run goes on.
 #[test]
 fn print_mode_fork_imports_a_global_session_into_this_cwd() {
     let home = isolated_home();
@@ -1217,23 +1217,22 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
     let session_id = storage_id(&files[0]);
     let selector = session_id[..8].to_string();
 
-    // The same session is GLOBAL for the other project: resume refuses.
-    let script = serde_json::json!({ "responses": ["no"] });
+    // The same session is GLOBAL for the other project: resume forks it.
+    let script = serde_json::json!({ "responses": ["resumed here"] });
     let (stdout, stderr, code) = run_in_home_cwd(
         home.path(),
         &project,
-        &["--resume", selector.as_str(), "-p", "refused"],
+        &["--resume", selector.as_str(), "-p", "resume here"],
         &script,
     );
-    assert_eq!(code, 1);
-    assert!(stdout.is_empty());
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "resumed here\n");
     assert!(
         stderr.contains(&format!(
-            "session {selector} belongs to a different project"
+            "eukhe: session {selector} belongs to another project"
         )),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains(&format!("Pass --fork {selector}")));
 
     // ...and --fork imports it into this cwd.
     let script = serde_json::json!({ "responses": ["forked into the project"] });
@@ -1246,20 +1245,29 @@ fn print_mode_fork_imports_a_global_session_into_this_cwd() {
     assert_eq!(code, 0, "stderr: {stderr}");
     assert_eq!(stdout, "forked into the project\n");
     let after = session_files(home.path());
-    assert_eq!(after.len(), 2);
-    let fork = after
+    assert_eq!(after.len(), 3);
+    let forks: Vec<_> = after
         .iter()
-        .find(|path| path.as_path() != files[0].as_path())
-        .expect("the fork file");
-    let transcript = read_transcript(fork);
-    assert_eq!(
-        transcript.agent["cwd"],
-        project.display().to_string(),
-        "the fork adopts the TARGET cwd"
-    );
-    let texts = transcript.message_texts();
-    assert!(texts.contains(&"origin".to_owned()), "{texts:?}");
-    assert!(texts.contains(&"continue here".to_owned()), "{texts:?}");
+        .filter(|path| path.as_path() != files[0].as_path())
+        .map(|fork| read_transcript(fork))
+        .collect();
+    for fork in &forks {
+        assert_eq!(
+            fork.agent["cwd"],
+            project.display().to_string(),
+            "the fork adopts the TARGET cwd"
+        );
+        let texts = fork.message_texts();
+        assert!(texts.contains(&"origin".to_owned()), "{texts:?}");
+    }
+    for prompt in ["resume here", "continue here"] {
+        assert!(
+            forks
+                .iter()
+                .any(|fork| fork.message_texts().contains(&prompt.to_owned())),
+            "a fork holds {prompt}"
+        );
+    }
 }
 
 /// TS `forkFrom`'s failure contract on the CLI: an empty source file

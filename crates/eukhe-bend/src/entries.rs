@@ -272,6 +272,8 @@ pub enum Entry {
     WorkList = 463,
     /// `bend/ffi_headless_task.bend`: a call.
     HeadlessTask = 464,
+    /// `bend/ffi_restart_turn.bend`: a call.
+    RestartTurn = 468,
 }
 
 impl Entry {
@@ -410,6 +412,7 @@ impl Entry {
         Entry::Limits,
         Entry::WorkList,
         Entry::HeadlessTask,
+        Entry::RestartTurn,
     ];
 
     /// The id `bend/core.bend` dispatches on.

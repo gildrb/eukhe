@@ -60,7 +60,6 @@ pub(crate) mod kin_gate;
 pub mod lease;
 pub mod limits_text;
 pub mod mcp_connections;
-pub mod mcp_login;
 pub(crate) mod messaging;
 pub mod model_allowlist;
 pub(crate) mod model_catalog;

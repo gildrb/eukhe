@@ -42,6 +42,7 @@ pub(crate) use connection::{
 };
 
 mod create;
+mod interrupted_run;
 
 pub(crate) use create::CreateParams;
 use create::{active_session_id_of, worker_server_capabilities};
@@ -311,7 +312,6 @@ impl Worker {
         let acp_mcp = eukhe_core::mcp::McpManager::new(eukhe_core::mcp::McpManagerOptions {
             auth_storage: eukhe_core::auth::AuthStorage::create(&agent_dir),
             get_user_servers: Box::new(|| None),
-            begin_login: None,
             agent_dir: Some(agent_dir),
             get_catalog_sources: None,
             probe_override: None,

@@ -25,6 +25,115 @@ fn run_options(dir: &Path) -> RunOptions {
     }
 }
 
+/// A saved session whose cwd is `cwd` (a fresh open, then its close); its
+/// id.
+async fn saved_session(dir: &Path, cwd: &Path) -> String {
+    let mut options = run_options(dir);
+    options.config.cwd = cwd.to_path_buf();
+    let opened = open_headless_session(
+        &options,
+        HeadlessTarget::New {
+            cwd: Some(cwd.to_path_buf()),
+        },
+        &BACKGROUND_CONTEXT,
+    )
+    .await
+    .expect("the session opens");
+    let HeadlessSession {
+        session,
+        session_id,
+        lease,
+        ..
+    } = opened;
+    if let Ok(session) = Arc::try_unwrap(session) {
+        session
+            .close(&BACKGROUND_CONTEXT)
+            .await
+            .expect("the session closes");
+    }
+    drop(lease);
+    session_id
+}
+
+/// `--resume` of another project's session forks it into this project:
+/// the run goes on here, in a new session, and says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resuming_another_projects_session_forks_it_here() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let (project, here) = (dir.path().join("project"), dir.path().join("here"));
+    std::fs::create_dir_all(&project).expect("project dir");
+    std::fs::create_dir_all(&here).expect("current dir");
+    let source = saved_session(dir.path(), &project).await;
+    let mut options = run_options(dir.path());
+    options.config.cwd = here.clone();
+    options.session.resume = Some(source[..8].to_owned());
+
+    let opened = open_headless_session(&options, HeadlessTarget::Selected, &BACKGROUND_CONTEXT)
+        .await
+        .expect("the run goes on");
+
+    assert_ne!(opened.session_id, source);
+    assert_eq!(
+        (
+            opened.cwd.clone(),
+            opened.parent_session.clone(),
+            opened.notice.clone()
+        ),
+        (
+            here,
+            Some(sessions_dir(&options).join(&source)),
+            Some(ResumeNotice::Forked {
+                selector: source[..8].to_owned(),
+                project: project.display().to_string(),
+                session_id: opened.session_id,
+            })
+        )
+    );
+}
+
+/// `--resume` of a session whose working directory is gone continues it
+/// in the current directory and says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_whose_cwd_is_gone_continues_here() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let (gone, here) = (dir.path().join("gone"), dir.path().join("here"));
+    std::fs::create_dir_all(&gone).expect("project dir");
+    std::fs::create_dir_all(&here).expect("current dir");
+    let id = saved_session(dir.path(), &gone).await;
+    std::fs::remove_dir(&gone).expect("the project dir goes");
+    let mut options = run_options(dir.path());
+    options.config.cwd = here.clone();
+    options.session.resume = Some(sessions_dir(&options).join(&id).display().to_string());
+
+    let opened = open_headless_session(&options, HeadlessTarget::Selected, &BACKGROUND_CONTEXT)
+        .await
+        .expect("the run goes on");
+    let agent = opened
+        .session
+        .main()
+        .agent(&BACKGROUND_CONTEXT)
+        .await
+        .expect("the main agent");
+
+    assert_eq!(
+        (
+            opened.session_id.clone(),
+            opened.cwd.clone(),
+            opened.notice.clone(),
+            agent.cwd
+        ),
+        (
+            id,
+            here.clone(),
+            Some(ResumeNotice::Relocated {
+                stored: gone,
+                cwd: here.clone(),
+            }),
+            Some(here.display().to_string())
+        )
+    );
+}
+
 /// A fresh session whose runtime lease cannot be acquired (the lease root
 /// is a regular file) fails closed: the open answers the lease error and
 /// nothing is written under the sessions directory.

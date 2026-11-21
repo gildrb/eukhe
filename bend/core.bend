@@ -91,6 +91,7 @@ import ./ffi_rebase.bend as ffi_rebase
 import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
+import ./ffi_restart_turn.bend as ffi_restart_turn
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -384,6 +385,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_work_list.ffi(input)
     case 464:
       ffi_headless_task.ffi(input)
+    case 468:
+      ffi_restart_turn.ffi(input)
     case _:
       W.err("unknown entry")
 

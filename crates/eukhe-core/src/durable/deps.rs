@@ -243,14 +243,6 @@ pub type ShellApprovalSink = Arc<
         + Sync,
 >;
 
-/// An MCP login surface: the UI the OAuth flow drives and its HTTP client
-/// (see [`crate::mcp::wire_begin_login`]).
-#[derive(Clone)]
-pub struct McpLogin {
-    pub ui: Arc<dyn crate::mcp::McpLoginUi>,
-    pub http: Arc<dyn crate::mcp::OAuthHttp>,
-}
-
 /// What an eukhe session opens with.
 #[derive(Clone)]
 pub struct SessionConfig {
@@ -281,11 +273,6 @@ pub struct SessionConfig {
     pub models: Option<Models>,
     /// Shared MCP manager (the daemon worker's); `None` builds one.
     pub mcp: Option<Arc<Mutex<crate::mcp::McpManager>>>,
-    /// The interactive login behind the session MCP manager's
-    /// `mcp.begin_login` host request (the daemon worker's browser login);
-    /// `None` leaves the request unregistered (TS registers it only when a
-    /// login is wired).
-    pub mcp_login: Option<McpLogin>,
     /// Harness clock (ms since the epoch); `None` uses the system clock.
     pub now: Option<Clock>,
     /// The provider admission authority the session's model requests ask
@@ -359,7 +346,6 @@ impl SessionConfig {
             prompt: PromptConfig::default(),
             models: None,
             mcp: None,
-            mcp_login: None,
             now: None,
             admission: None,
             admission_state: None,

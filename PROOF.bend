@@ -4623,3 +4623,13 @@ import ./proof/work_list/work_list_entry_reads.bend as PWorkListEntryReads
 import ./proof/work_list/work_list_entry_exact.bend as PWorkListEntryExact
 import ./proof/work_list/work_list_entry_refuses.bend as PWorkListEntryRefuses
 import ./proof/work_list/work_list_entry_example.bend as PWorkListEntryExample
+import ./proof/restart_turn/restart_turn_continues.bend as PRestartTurnContinues
+import ./proof/restart_turn/restart_turn_ends.bend as PRestartTurnEnds
+import ./proof/restart_turn/restart_turn_give_up_relaunches.bend as PRestartTurnGiveUpRelaunches
+import ./proof/restart_turn/restart_turn_give_up_retires.bend as PRestartTurnGiveUpRetires
+import ./proof/restart_turn/restart_turn_example.bend as PRestartTurnExample
+import ./proof/restart_turn/restart_turn_entry_reads.bend as PRestartTurnEntryReads
+import ./proof/restart_turn/restart_turn_entry_answers.bend as PRestartTurnEntryAnswers
+import ./proof/restart_turn/restart_turn_entry_exact.bend as PRestartTurnEntryExact
+import ./proof/restart_turn/restart_turn_entry_refuses.bend as PRestartTurnEntryRefuses
+import ./proof/restart_turn/restart_turn_entry_example.bend as PRestartTurnEntryExample
