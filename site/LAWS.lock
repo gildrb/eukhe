@@ -46,7 +46,16 @@
     "laws/vim/screen.bend::fits": "06e59018ea1873251b9f7a0f9261a11422f291299fbf2ac3e69aa9e73ee7dc77",
     "laws/vim/screen.bend::scrolloff": "3d2b4640ac2ab19211f8b70beecb08206e5800073dc67e80115c689f04984662",
     "laws/vim/screen.bend::scrolloff_any": "1c7a975f05a07f7d55913fa6a92006275ec1437ce71f82ab2e9dd2e1476cd6bd",
+    "laws/vim/visual.bend::V_V": "d016131ba63b97b7a8f701c8ff1e570fa9db9866232fa5f753d293b715614241",
+    "laws/vim/visual.bend::V_v": "48c2493e1df7923999c1ed530dc9b3efd5be4d2a6347a2c1cd6d4ef36a56e381",
+    "laws/vim/visual.bend::sel_cells": "e7d3cbc318ffed7d354bc26d1a00ce60128e63a2af710b00d9c58d48d3fd0844",
+    "laws/vim/visual.bend::v_V": "43d464da5f92a57c36b1a08d3ec8c4ccc4a0c7df47a387f8789b7058229bdf4f",
+    "laws/vim/visual.bend::v_j": "0daa6d5c9989b841a39b58a3895a5109d8a208b1ebea2fdfb0b9ed5fa899f23f",
+    "laws/vim/visual.bend::v_minus": "1f652f0adcc80aed0a0516e9281fa0597a19777000239c1b58e508a0cb0f88fa",
+    "laws/vim/visual.bend::v_v": "8970be0da6702f948998189b70252dc0ca909f5d1ae6875f864de77a8a34291f",
+    "laws/vim/visual.bend::vis_label": "9ed483d76fce6346f78b8db998d85d432a229d5f3b136c2c60a6fe4e6d73d2d4",
     "laws/vim/visual.bend::yank_char": "0e50777b47e9cd3422db8eeeb23c3b1ad2090c91657f6a12572e9fd0f412ba6c",
+    "laws/vim/visual.bend::yank_either_way": "31c2cbeccca86e24a7cc2a51bb2cbb30b2fd5bb138e868a5214ef55a8104c75a",
     "laws/vim/visual.bend::yank_line": "a586645b3a554a57161cd3777afb382a6abf91a7e6a28f876d4276a4dddeb46d"
   },
   "spec": {}

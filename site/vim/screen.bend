@@ -197,7 +197,7 @@ def Scr.sel(+s: T.St, m: T.Mode) -> List<&2, T.Span>:
       Nil{}
     case T.Visual{+k, +start}:
       +w = S.St.win(s)
-      Vi.Vis.spans(k, C.St.lines(s), start, S.Win.cur(w), S.Win.top(w), C.St.h(s), S.Win.left(w), C.St.w(s), C.St.g(s))
+      Vi.Vis.spans(k, C.St.lines(s), start, S.Win.cur(w), S.Win.top(w), C.St.h(s))
 
 # the cursor's cell kept inside the float, when one is open (a float cut
 # to a small screen may leave the prompt's caret past its edges)

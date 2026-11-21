@@ -101,31 +101,35 @@ def Vis.text(+k: T.Vis, +ls: List<&2, String>, +a: T.Pos, +b: T.Pos) -> String:
 def Vis.cols(k: T.Vis, +l: Nat, +n: Nat, +p: T.Pos, +q: T.Pos) -> (Nat & Nat):
   match k:
     case T.VChars{}:
+      +whole = Nat.max(n, 1n)
       +l1 = S.Pos.line(p)
       +l2 = S.Pos.line(q)
-      Bool.pick((Nat & Nat), Bool.and(Nat.is_le(l1, l), Nat.is_le(l, l2)), (Bool.pick(Nat, Nat.is_eq(l, l1), S.Pos.col(p), 0n), Bool.pick(Nat, Nat.is_eq(l, l2), 1n+S.Pos.col(q), Nat.max(n, 1n))), (0n, 0n))
+      Bool.pick((Nat & Nat), Bool.and(Nat.is_le(l1, l), Nat.is_le(l, l2)), (Bool.pick(Nat, Nat.is_eq(l, l1), S.Pos.col(p), 0n), Bool.pick(Nat, Nat.is_eq(l, l2), Nat.min(1n+S.Pos.col(q), whole), whole)), (0n, 0n))
     case T.VLines{}:
       Bool.pick((Nat & Nat), Bool.and(Nat.is_le(S.Pos.line(p), l), Nat.is_le(l, S.Pos.line(q))), (0n, Nat.max(n, 1n)), (0n, 0n))
 
-# columns from..to as a run on screen row r, if any of it shows
-def Vis.span(ft: (Nat & Nat), +r: Nat, +left: Nat, +w: Nat, +g: Nat) -> Maybe<&2, T.Span>:
+# columns from..to (to excluded) as a run on screen row r, in the text's
+# columns (the host shows the part the window does, as it does the files'
+# highlights); none when it holds no column
+def Vis.run(ft: (Nat & Nat), +r: Nat) -> Maybe<&2, T.Span>:
   match ft:
-    case (+from, to):
-      V.View.span(r, from, Nat.sub(to, from), left, w, g)
+    case (+from, +to):
+      Bool.pick(Maybe<&2, T.Span>, Nat.is_lt(from, to), Some{T.Span{r, from, Nat.sub(to, from)}}, None{})
 
-def Vis.go(h: Nat, ls: List<&2, String>, +k: T.Vis, +l: Nat, +r: Nat, +p: T.Pos, +q: T.Pos, +left: Nat, +w: Nat, +g: Nat, +acc: List<&2, T.Span>) -> List<&2, T.Span>:
+# the runs of h text rows from line l of ls, on screen rows from r
+def Vis.go(h: Nat, ls: List<&2, String>, +k: T.Vis, +l: Nat, +r: Nat, +p: T.Pos, +q: T.Pos) -> List<&2, T.Span>:
   match h ls:
     case 0n _:
-      List.reverse(&2, T.Span, acc)
+      Nil{}
     case 1n+n Nil{}:
-      List.reverse(&2, T.Span, acc)
+      Nil{}
     case 1n+n Con{line, t}:
-      Vis.go(n, t, k, 1n+l, 1n+r, p, q, left, w, g, V.View.span.put(Vis.span(Vis.cols(k, l, X.Text.len(line), p, q), r, left, w, g), acc))
+      V.View.span.put(Vis.run(Vis.cols(k, l, Vis.size(line), p, q), r), Vis.go(n, t, k, 1n+l, 1n+r, p, q))
 
-# the selection's runs on the h text rows from line top, columns left
-# to left + w - 1, the text starting at screen column g
-def Vis.spans(+k: T.Vis, +ls: List<&2, String>, +a: T.Pos, +b: T.Pos, +top: Nat, +h: Nat, +left: Nat, +w: Nat, +g: Nat) -> List<&2, T.Span>:
-  Vis.go(h, B.Lines.drop(ls, top), k, top, 0n, Vis.lo(a, b), Vis.hi(a, b), left, w, g, Nil{})
+# the selection's runs on the h text rows from line top (screen rows,
+# text columns)
+def Vis.spans(+k: T.Vis, +ls: List<&2, String>, +a: T.Pos, +b: T.Pos, +top: Nat, +h: Nat) -> List<&2, T.Span>:
+  Vis.go(h, B.Lines.drop(ls, top), k, top, 0n, Vis.lo(a, b), Vis.hi(a, b))
 
 # Modes
 # -----
@@ -148,14 +152,12 @@ def Vis.same(a: T.Vis, b: T.Vis) -> Bool:
     case T.VLines{} T.VLines{}:
       True{}
 
-# a window shows the same buffer as before
+# a window still shows file i's buffer (visual mode starts only on files)
 def Vis.same_tgt(a: T.Tgt, b: T.Tgt) -> Bool:
   match a b:
     case T.File{i} T.File{j}:
       Nat.is_eq(i, j)
     case T.File{i} T.Dir{q}:
       False{}
-    case T.Dir{p} T.File{j}:
+    case T.Dir{p} _:
       False{}
-    case T.Dir{p} T.Dir{q}:
-      String.eq(p, q)

@@ -47,3 +47,7 @@ import ./proof/vim/motion/col_G.bend as ColBigG
 import ./proof/vim/motion/j_view.bend as JView
 import ./proof/vim/visual/yank_line.bend as YankLine
 import ./proof/vim/visual/yank_char.bend as YankChar
+import ./proof/vim/visual/modes.bend as VisualModes
+import ./proof/vim/visual/either.bend as YankEither
+import ./proof/vim/visual/cells.bend as SelCells
+import ./proof/vim/visual/leave.bend as VisualLeave

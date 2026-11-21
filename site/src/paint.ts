@@ -206,8 +206,8 @@ export function textRows(
       row = wider;
     }
     for (const hit of mine) addClass(row, hit.col - g, hit.col - g + hit.len, "hit");
-    for (const span of picked) addClass(row, span.col - g, span.col - g + span.len, "vis");
-    for (const span of flashed) addClass(row, span.col - g, span.col - g + span.len, "yank");
+    for (const span of picked) addClass(row, span.col - left, span.col - left + span.len, "vis");
+    for (const span of flashed) addClass(row, span.col - left, span.col - left + span.len, "yank");
     htmls.push(rowHtml(row));
   }
   return { htmls, copyAt };

@@ -58,7 +58,7 @@ export type Frame = {
   /** The whole statusline row, exactly `cols` cells. */
   status: string;
   float: Maybe<Float>;
-  /** The visual selection's runs on the text rows, in screen columns; none outside visual mode. */
+  /** The visual selection's runs: screen rows, the text's columns (as the files' runs); none outside visual mode. */
   sel: BendList<Span>;
 };
 export type Ev =

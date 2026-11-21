@@ -291,8 +291,8 @@ function yanked(before: Frame | null, copied: string) {
       : Array.from({ length: lines }, (_, k): Span => ({
           $: "Span",
           row: before.cur.row + k,
-          col: before.gutter,
-          len: cols - before.gutter,
+          col: before.left,
+          len: cols,
         }));
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => {

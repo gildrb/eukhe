@@ -122,7 +122,7 @@ proof/vim/screen/*.bend, from `Final.of` and screen/base.bend, parts.bend, frame
   cons/within`), `When.both`/`Pick.both` (a property of both branches),
   and `Gx.sub(line, c)`: the target gx cuts is a run of the line.
 
-### visual (yank_line, yank_char)
+### visual (yank_line, yank_char, yank_either_way, vis_label, v_v, V_v, v_V, V_V, v_j, v_minus, sel_cells)
 
 - `proof/vim/visual/yank_line.bend`: on Idle.mk of the editor, Y on file i
   computes to `Key.copy` of one line; `Line.text`: the cut from where the
@@ -132,6 +132,17 @@ proof/vim/screen/*.bend, from `Final.of` and screen/base.bend, parts.bend, frame
   mode: Vim.final keeps the window v leaves); `Char.text`: the cut at the
   cursor of length one (`Drop.add`, `One.of`, `Char.cut`) is the character
   there, or the line break on an empty line.
+- `proof/vim/visual/either.bend`: `Text.sym`: the selection's ends ordered
+  by `Vis.lo` and `Vis.hi` are the same pair either way round.
+- `proof/vim/visual/modes.bend`: `Label.text` (the name cut to 17 columns or
+  more is whole); v v, V v, v V and V V by computation; v j as a chain of small
+  equations (`VJ.vpress`, `VJ.state`, `PV.e1`..`PV.e4`, `Cmd.vis`): each one
+  its own def, so `--verdict` never unfolds a whole keypress at once.
+- `proof/vim/visual/leave.bend`: v then -: Oil's folder (`Oil.here_file`) is
+  not the file, so `Revis.leave` drops visual mode and `Leave.nosel` holds.
+- `proof/vim/visual/cells.bend`: `Go.cov` (row d of the runs is line top + d),
+  `Run.cov`, `Cols.in` (`Cols.chars` through `Tri`, `Bef0` for V), `Sel.in`;
+  `Vf.line` and `Vf.col` read the cursor back from the frame.
 - Visual mode in the frame laws: `Mode.text` (normal and visual mode show the
   cursor in the text), so `OnText.at` and `Scrolled.at` cover both.
 

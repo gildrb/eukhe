@@ -182,6 +182,7 @@ type Float is Data:
 # each text row, the cursor's cell and the character under it, the
 # command line, the search hits on screen, the scrollbar (first row and
 # rows; 0 rows: none), whether the cursor's row shows the cursorline, the
-# statusline (cols cells), the float, the visual selection's runs on screen
+# statusline (cols cells), the float, the visual selection's runs (screen
+# rows, text columns, as the files' highlights)
 type Frame is Data:
   Frame{tgt: Tgt, top: Nat, left: Nat, gutter: Nat, nums: List<&2, String>, cur: Cell, char: String, cmd: String, hits: List<&2, Span>, bar: Span, cl: Bool, status: String, float: Maybe<&2, Float>, sel: List<&2, Span>}
