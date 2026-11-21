@@ -20,8 +20,8 @@ races) plus the accepted review findings from both:
   admitted resident instances alone never block completion;
 - queued siblings of a terminal (failed/cancelled) entry are never
   admitted (_next_pending_instance serves running entries only);
-- the run budget is enforced before each admission, including run()'s and
-  resume()'s admission phase;
+- the run budget is enforced before each admission, including run()'s
+  admission phase, and reaching any limit stops the run with a report;
 - rate-limit backoff never blocks the sole control lane: admission defers
   to a deadline and the loop waits it out in bounded slices while children
   keep being collected;
@@ -38,9 +38,9 @@ races) plus the accepted review findings from both:
   duplicated across states are rejected at write time (Macroscope review
   finding: the name was dropped, so children always got the generated
   label);
-- milestone notices go to the host as validated "factory.progress"
-  payloads exactly once per kind per run, and a dead bridge leaves the
-  milestone in the ledger instead of wedging the run.
+- every milestone reaches the calling agent as one "factory.report"
+  host request, and a dead bridge leaves the milestone in the ledger
+  (with a report_failed event) instead of wedging the run.
 """
 
 from __future__ import annotations
@@ -818,7 +818,7 @@ class CanonicalizeFactorySpecTest(unittest.TestCase):
             canonicalize_factory_spec(dag),
             {
                 "run": {
-                    "failure_policy": "escalate",
+                    "failure_policy": "continue",
                     "max_parallel": 8,
                     "max_transitions": 10,
                     "max_children": 10_000,
@@ -831,7 +831,7 @@ class CanonicalizeFactorySpecTest(unittest.TestCase):
                         "subagent": "worker",
                         "lifecycle": "task",
                         "retries": 0,
-                        "failure_policy": "escalate",
+                        "failure_policy": "continue",
                     }
                 ],
                 "transitions": [],
@@ -2702,7 +2702,7 @@ class FakeHost:
     scripted per child id first (``child_outcomes``), then per node id
     (``outcomes``); a "running" outcome never settles. ``rate_limit_first``
     / ``rate_limit_forever`` make spawn admissions for a node fail with a
-    429-style RuntimeError. ``gate("rlm.collect"|"rlm.delete_subagent"|"rlm.run"|"factory.progress", n)``
+    429-style RuntimeError. ``gate("rlm.collect"|"rlm.delete_subagent"|"rlm.run"|"factory.report", n)``
     suspends the n-th call of that type on an asyncio.Event so tests can
     reproduce races between the control loop and stop()/resume().
     ``advance_per_run`` advances the injected clock on every admission (a
@@ -2790,7 +2790,7 @@ class FakeHost:
     async def __call__(self, request_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
         gate = None
-        if request_type in ("rlm.collect", "rlm.delete_subagent", "rlm.run", "factory.progress"):
+        if request_type in ("rlm.collect", "rlm.delete_subagent", "rlm.run", "factory.report"):
             index = self._call_indices.get(request_type, 0) + 1
             self._call_indices[request_type] = index
             gate = self.gates.pop((request_type, index), None)
@@ -2907,7 +2907,7 @@ class FakeHost:
                 },
                 "outcome": "deleted",
             }
-        if request_type == "factory.progress":
+        if request_type == "factory.report":
             self.notices.append(payload)
             return {}
         raise AssertionError(f"unexpected host request type {request_type!r}")
@@ -2924,10 +2924,10 @@ class DeleteFailsHost(FakeHost):
 
 
 class DeadNoticeHost(FakeHost):
-    """FakeHost whose factory.progress bridge is dead (every call raises)."""
+    """FakeHost whose factory.report bridge is dead (every call raises)."""
 
     async def __call__(self, request_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        if request_type == "factory.progress":
+        if request_type == "factory.report":
             self.calls.append((request_type, payload or {}))
             raise RuntimeError("bridge dead")
         return await super().__call__(request_type, payload)
@@ -4029,10 +4029,32 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(self.host.notice_kinds(), ["failed"])
 
     @async_test
-    async def test_escalate_pauses_notifies_and_resume_continues(self) -> None:
+    async def test_default_policy_continues_and_never_pauses(self) -> None:
+        # The default failure policy hands nothing back to a person: a's
+        # failure leaves its entry errored, b still runs, and the run ends
+        # failed with one report to the caller.
         self.host.outcomes["a"] = {"status": "error", "error": "boom"}
         self.store_factory(
             {
+                "nodes": [
+                    {"id": "a", "subagent": "worker"},
+                    {"id": "b", "subagent": "worker", "depends_on": ["a"]},
+                ],
+            }
+        )
+        result = await self.start()
+        final = await self.settle(result)
+        self.assertEqual(
+            (final["state"], self.node_status(final, "b")["status"], self.host.notice_kinds()),
+            ("failed", "done", ["failed"]),
+        )
+
+    @async_test
+    async def test_escalate_pauses_reports_and_resume_continues(self) -> None:
+        self.host.outcomes["a"] = {"status": "error", "error": "boom"}
+        self.store_factory(
+            {
+                "run": {"failure_policy": "escalate"},
                 "nodes": [
                     {"id": "a", "subagent": "worker"},
                     {"id": "b", "subagent": "worker", "depends_on": ["a"]},
@@ -4045,7 +4067,22 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(self.node_status(paused, "a")["status"], "error")
         self.assertEqual(self.node_status(paused, "b")["status"], "pending")
         self.assertEqual(self.host.spawn_calls("b"), [])
-        self.assertIn("paused", self.host.notice_kinds())
+        # the pause wakes the calling agent, which decides
+        run_id = result["run_id"]
+        self.assertEqual(
+            [(notice["state"], notice["report"]) for notice in self.host.notices],
+            [
+                (
+                    "paused",
+                    f"factory run {run_id} (sw): paused: state a failed: boom\n"
+                    "failed: a (boom)\n"
+                    "not entered: b\n"
+                    f"resume with await rlm.factory.resume('{run_id}') "
+                    f"or stop with await rlm.factory.stop('{run_id}')\n"
+                    f"details: await rlm.factory.status('{run_id}')",
+                )
+            ],
+        )
         # resume() restarts the run: b is ready (a is terminal) and finishes.
         resumed = await rlm_module.rlm.factory.resume(result["run_id"])
         self.assertEqual(resumed["state"], "running")
@@ -4063,6 +4100,7 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.host.rate_limit_first["b"] = 2
         self.store_factory(
             {
+                "run": {"failure_policy": "escalate"},
                 "nodes": [
                     {"id": "a", "subagent": "worker"},
                     {"id": "b", "subagent": "worker", "depends_on": ["a"]},
@@ -4087,10 +4125,9 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(self.sleeps.sleeps[sleep_mark:], [1.0])
 
     @async_test
-    async def test_repeated_pause_records_every_milestone_in_the_ledger(self) -> None:
-        # A run that pauses, resumes, and pauses again must record the second
-        # pause in the ledger even though the parent notice fires once per
-        # kind: status() is the only reader of the repeat.
+    async def test_every_pause_reports_to_the_caller(self) -> None:
+        # A run that pauses, resumes, and pauses again needs the caller's
+        # decision each time: each pause is its own report.
         self.host.outcomes["a"] = {"status": "error", "error": "a boom"}
         self.host.outcomes["b"] = {"status": "error", "error": "b boom"}
         self.store_machine(
@@ -4106,21 +4143,22 @@ class FactoryExecutorTest(_ExecutorTestCase):
         result = await self.start()
         first = await self.settle(result)
         self.assertEqual(first["state"], "paused")
-        self.assertEqual(len(self.events_of(first, "milestone")), 1)  # one pause so far
         await rlm_module.rlm.factory.resume(result["run_id"])
         second = await self.settle(result)
         self.assertEqual(second["state"], "paused")
         self.assertEqual(self.executor._runs[result["run_id"]].pause_reason, "b boom")
-        # the second pause is in the ledger with its own event, notice-free
         milestones = [event for event in second["events"] if event["kind"] == "milestone"]
-        self.assertEqual([event["milestone"] for event in milestones], ["paused", "paused"])
-        self.assertIn("a boom", milestones[0]["detail"])
-        self.assertIn("b boom", milestones[1]["detail"])
-        self.assertEqual(self.host.notice_kinds(), ["paused"])  # one notice per kind
-        # the announced pause keeps "shown"; the repeat (no second notice)
-        # was only ever read through status(), so it reads "delivered"
-        self.assertEqual(milestones[0]["stage"], "shown")
-        self.assertEqual(milestones[1]["stage"], "delivered")
+        self.assertEqual(
+            [(event["milestone"], event["detail"], event["stage"]) for event in milestones],
+            [
+                ("paused", "state a failed: a boom", "shown"),
+                ("paused", "state b failed: b boom", "shown"),
+            ],
+        )
+        self.assertEqual(
+            [(notice["kind"], notice["seq"]) for notice in self.host.notices],
+            [("paused", event["seq"]) for event in milestones],
+        )
 
     # -- retries --------------------------------------------------------------------
 
@@ -4169,7 +4207,9 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(status["state"], "failed")
 
     @async_test
-    async def test_run_budget_pauses_and_notifies_then_resume_completes(self) -> None:
+    async def test_run_budget_stops_the_run_and_reports_done_and_left(self) -> None:
+        # Limits bound cost: reaching the run budget ends the run, it never
+        # waits paused for someone to resume it.
         self.clock.advance_per_collect = 2.0
         self.store_factory(
             {
@@ -4181,24 +4221,31 @@ class FactoryExecutorTest(_ExecutorTestCase):
             }
         )
         result = await self.start()
-        paused = await self.settle(result)
-        self.assertEqual(paused["state"], "paused")
-        self.assertIn("budget_exceeded", self.host.notice_kinds())
-        self.assertEqual(self.host.spawn_calls("b"), [])
-        # the pause reports the overshoot accounting: elapsed time past the
-        # budget, and that only new spawns stop.
-        milestone = next(
-            event for event in self.events_of(paused, "milestone") if event["milestone"] == "budget_exceeded"
-        )
-        self.assertIn("no new spawns", milestone["detail"])
-        self.assertIn("2000ms", milestone["detail"])
-        self.assertEqual(self.executor._runs[result["run_id"]].pause_reason, "run budget exceeded")
-        # resume continues despite the spent budget (reported once per run)
-        await rlm_module.rlm.factory.resume(result["run_id"])
         final = await self.settle(result)
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.node_status(final, "b")["status"], "done")
-        self.assertEqual(self.host.notice_kinds(), ["budget_exceeded", "finished"])
+        self.assertEqual(final["state"], "stopped")
+        self.assertEqual(self.host.spawn_calls("b"), [])
+        self.assertEqual(self.node_status(final, "b")["status"], "cancelled")
+        run_id = result["run_id"]
+        milestone = self.events_of(final, "milestone")[0]
+        self.assertEqual(
+            self.host.notices,
+            [
+                {
+                    "run_id": run_id,
+                    "seq": milestone["seq"],
+                    "state": "stopped",
+                    "kind": "budget_exceeded",
+                    "report": (
+                        f"factory run {run_id} (sw): stopped: run budget_ms 1500 reached after 2000ms\n"
+                        "done: a\n"
+                        "cancelled: b\n"
+                        f"details: await rlm.factory.status('{run_id}')"
+                    ),
+                }
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "not paused"):
+            await rlm_module.rlm.factory.resume(run_id)
 
     @async_test
     async def test_admission_phase_stops_at_the_run_budget_boundary(self) -> None:
@@ -4220,33 +4267,28 @@ class FactoryExecutorTest(_ExecutorTestCase):
         result = await self.start()
         # Admissions at t=1000 and t=1002 pass the budget check; the third
         # would launch at t=1004 (4000ms elapsed > 3000ms budget), so the
-        # run pauses BEFORE admitting it.
+        # run stops BEFORE admitting it and cancels the two in flight.
         self.assertEqual(result["started"], ["a", "b"])
         self.assertEqual(len(self.host.calls_of("rlm.run")), 2)
         status = await rlm_module.rlm.factory.status(result["run_id"])
-        self.assertEqual(status["state"], "paused")
-        self.assertIn("budget_exceeded", self.host.notice_kinds())
-        # c was prepared but never admitted: its entry reports running, its
-        # instance is still pending, and no spawn call was made for it.
-        c_report = self.node_status(status, "c")
-        self.assertEqual(c_report["status"], "running")
-        self.assertEqual(c_report["instances"][0]["status"], "pending")
-        self.assertEqual(self.host.spawn_calls("c"), [])
-        # resume is the explicit operator decision: c runs, no second pause
-        await rlm_module.rlm.factory.resume(result["run_id"])
-        final = await self.settle(result)
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.node_status(final, "c")["status"], "done")
-        self.assertEqual(self.host.notice_kinds(), ["budget_exceeded", "finished"])
+        self.assertEqual(
+            (
+                status["state"],
+                [self.node_status(status, node)["status"] for node in ("a", "b", "c")],
+                self.host.deleted_targets(),
+                self.host.spawn_calls("c"),
+                self.host.notice_kinds(),
+            ),
+            ("stopped", ["cancelled", "cancelled", "cancelled"], ["child-1", "child-2"], [], ["budget_exceeded"]),
+        )
 
     @async_test
-    async def test_run_max_children_pauses_at_admission_then_resume_completes(self) -> None:
+    async def test_run_max_children_stops_at_admission(self) -> None:
         # Macroscope finding: foreach.max bounds per-entry expansion,
         # max_transitions bounds transitions, and max_parallel bounds
         # concurrency — nothing bounded TOTAL admissions over the run's
         # life. run.max_children is that budget: enforced before each
-        # admission (run()'s own phase included), pause once at the
-        # boundary, resume continues past it (explicit operator decision).
+        # admission (run()'s own phase included); reaching it ends the run.
         self.store_factory(
             {
                 "run": {"failure_policy": "continue", "max_children": 2},
@@ -4262,40 +4304,27 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(result["started"], ["a", "b"])
         self.assertEqual(len(self.host.calls_of("rlm.run")), 2)
         status = await rlm_module.rlm.factory.status(result["run_id"])
-        self.assertEqual(status["state"], "paused")
-        # its OWN milestone kind, distinct from the run-budget pause
-        self.assertIn("max_children_exceeded", self.host.notice_kinds())
-        self.assertNotIn("budget_exceeded", self.host.notice_kinds())
-        milestone = next(
-            event for event in self.events_of(status, "milestone") if event["milestone"] == "max_children_exceeded"
+        milestone = self.events_of(status, "milestone")[0]
+        self.assertEqual(
+            (
+                status["state"],
+                milestone["milestone"],
+                milestone["detail"],
+                status["usage"]["spawns"],
+                status["usage"]["max_children"],
+                self.host.spawn_calls("c"),
+                self.host.notice_kinds(),
+            ),
+            ("stopped", "max_children_exceeded", "max_children 2 reached", 2, 2, [], ["max_children_exceeded"]),
         )
-        self.assertIn("run max_children 2 exceeded after 2 children", milestone["detail"])
-        self.assertIn("no new spawns", milestone["detail"])
-        self.assertIn("resume with await rlm.factory.resume", milestone["detail"])
-        self.assertEqual(self.executor._runs[result["run_id"]].pause_reason, "max_children exceeded")
-        self.assertEqual(status["usage"]["spawns"], 2)
-        self.assertEqual(status["usage"]["max_children"], 2)
-        # c was prepared but never admitted: entry running, instance pending.
-        c_report = self.node_status(status, "c")
-        self.assertEqual(c_report["status"], "running")
-        self.assertEqual(c_report["instances"][0]["status"], "pending")
-        self.assertEqual(self.host.spawn_calls("c"), [])
-        # resume is the explicit operator decision: c runs, no second pause
-        await rlm_module.rlm.factory.resume(result["run_id"])
-        final = await self.settle(result)
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.node_status(final, "c")["status"], "done")
-        self.assertEqual(final["usage"]["spawns"], 3)
-        self.assertEqual(self.host.notice_kinds(), ["max_children_exceeded", "finished"])
 
     @async_test
     async def test_foreach_children_count_against_the_run_max_children_budget(self) -> None:
         # The finding's scenario, pinned: nothing bounded the total
         # children of repeated foreach expansion (10,000 transitions x
         # foreach.max 256 = 2.56M admissions with no run budget). foreach
-        # expansions count against run.max_children: the run pauses
-        # mid-expansion with the exact error, and resume finishes the
-        # expansion exactly once past it.
+        # expansions count against run.max_children: the run stops
+        # mid-expansion and never spends the rest.
         self.host.outcomes["src"] = {
             "status": "done",
             "answer": '```json\n{"items": ["w", "x", "y", "z"]}\n```',
@@ -4316,30 +4345,20 @@ class FactoryExecutorTest(_ExecutorTestCase):
             }
         )
         result = await self.start()
-        paused = await self.settle(result)
-        # src plus fan instance 0 hit the budget; the remaining fan
-        # instances wait: the executor refuses their spawns, it never
-        # wedges and never spends them.
-        self.assertEqual(paused["state"], "paused")
-        self.assertIn("max_children_exceeded", self.host.notice_kinds())
-        self.assertEqual(self.executor._runs[result["run_id"]].pause_reason, "max_children exceeded")
-        self.assertEqual(paused["usage"]["spawns"], 2)
-        fan = self.node_status(paused, "fan")
-        self.assertEqual(len(fan["instances"]), 4)
-        self.assertEqual([instance["status"] for instance in fan["instances"]], ["running", "pending", "pending", "pending"])
-        self.assertEqual(len(self.host.spawn_calls("fan")), 1)
-        # resume finishes the expansion: all four fan children run, no
-        # second child-budget pause fires.
-        await rlm_module.rlm.factory.resume(result["run_id"])
         final = await self.settle(result)
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.node_status(final, "fan")["status"], "done")
-        self.assertEqual(final["usage"]["spawns"], 5)
+        # src plus fan instance 0 hit the budget; the remaining fan
+        # instances are cancelled unspent, and the one in flight with them.
+        fan = self.node_status(final, "fan")
         self.assertEqual(
-            sorted(call["prompt"] for call in self.host.spawn_calls("fan")),
-            ["Expand item w.", "Expand item x.", "Expand item y.", "Expand item z."],
+            (
+                final["state"],
+                final["usage"]["spawns"],
+                [instance["status"] for instance in fan["instances"]],
+                len(self.host.spawn_calls("fan")),
+                self.host.notice_kinds(),
+            ),
+            ("stopped", 2, ["cancelled", "cancelled", "cancelled", "cancelled"], 1, ["max_children_exceeded"]),
         )
-        self.assertEqual(self.host.notice_kinds(), ["max_children_exceeded", "finished"])
 
 
     # -- stop and rate limits -------------------------------------------------------------
@@ -4372,6 +4391,25 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(again, {"run_id": result["run_id"], "state": "stopped", "cancelled": []})
         run_stopped_events = [e for e in self.executor._runs[result["run_id"]].events if e["kind"] == "run_stopped"]
         self.assertEqual(len(run_stopped_events), 1)
+        # the agent's own stop is no news to it: no report
+        self.assertEqual(self.host.notice_kinds(), [])
+
+    @async_test
+    async def test_a_stop_from_the_view_reports_to_the_agent_once(self) -> None:
+        # The user stopping a run from the factory view ends work the agent
+        # started: the agent learns of it through the run's report.
+        self.host.outcomes["a"] = {"status": "running"}
+        self.store_factory({"nodes": [{"id": "a", "subagent": "worker"}]})
+        result = await self.start()
+        await self.wait_until(lambda: self.host.collects >= 1)
+        request = {"action": "stop", "runId": result["run_id"]}
+        await self.executor.activity(request)
+        await self.executor.activity(request)
+        self.assertEqual(
+            [(notice["kind"], notice["state"]) for notice in self.host.notices],
+            [("stopped", "stopped")],
+        )
+        self.assertIn(": stopped: stopped from the factory view\ncancelled: a\n", self.host.notices[0]["report"])
 
     @async_test
     async def test_concurrent_stop_runs_one_cancellation_pass(self) -> None:
@@ -4760,14 +4798,14 @@ class FactoryExecutorTest(_ExecutorTestCase):
                 await getattr(rlm_module.rlm.factory, call)("no-such-run")
 
     @async_test
-    async def test_milestone_notices_carry_validated_payloads(self) -> None:
-        # The TS-era host handler validated the payload; the kernel-side
-        # contract it validated is pinned here: run-level milestones send
-        # {run_id, kind, detail} (no node), node-level ones add "node", and
-        # every notice goes through one "factory.progress" host request.
+    async def test_every_milestone_is_one_report_request(self) -> None:
+        # Each milestone that leaves the run out of running is one
+        # "factory.report" host request: the run, the milestone's ledger
+        # seq (the host's dedupe key), the run state, the kind, the report.
         self.host.outcomes["a"] = {"status": "error", "error": "boom"}
         self.store_factory(
             {
+                "run": {"failure_policy": "escalate"},
                 "nodes": [
                     {"id": "a", "subagent": "worker"},
                     {"id": "b", "subagent": "worker", "depends_on": ["a"]},
@@ -4777,24 +4815,20 @@ class FactoryExecutorTest(_ExecutorTestCase):
         result = await self.start()
         paused = await self.settle(result)
         self.assertEqual(paused["state"], "paused")
-        resume = await rlm_module.rlm.factory.resume(result["run_id"])
+        await rlm_module.rlm.factory.resume(result["run_id"])
         final = await self.settle(result)
         self.assertEqual(final["state"], "failed")
-        kinds = self.host.notice_kinds()
-        self.assertEqual(kinds, ["paused", "failed"])
-        paused_notice, failed_notice = self.host.notices
-        self.assertEqual(paused_notice["kind"], "paused")
-        self.assertEqual(paused_notice["run_id"], result["run_id"])
-        self.assertIn("state a failed", paused_notice["detail"])
-        self.assertIn("resume", paused_notice["detail"])
-        self.assertEqual(paused_notice.get("node"), "a")  # node-level milestone
-        self.assertEqual(failed_notice["kind"], "failed")
-        self.assertEqual(failed_notice["run_id"], result["run_id"])
-        self.assertIsNone(failed_notice.get("node"))  # run-level milestone
-        self.assertEqual(set(paused_notice.keys()), {"run_id", "kind", "detail", "node"})
-        self.assertEqual(set(failed_notice.keys()), {"run_id", "kind", "detail"})
-        # one host request per notice, typed factory.progress
-        self.assertEqual(len(self.host.calls_of("factory.progress")), 2)
+        milestones = self.all_events_of(result, "milestone")
+        self.assertEqual(
+            [
+                {key: value for key, value in notice.items() if key != "report"}
+                for notice in self.host.calls_of("factory.report")
+            ],
+            [
+                {"run_id": result["run_id"], "seq": milestones[0]["seq"], "state": "paused", "kind": "paused"},
+                {"run_id": result["run_id"], "seq": milestones[1]["seq"], "state": "failed", "kind": "failed"},
+            ],
+        )
 
     @async_test
     async def test_dead_bridge_keeps_the_milestone_in_the_ledger(self) -> None:
@@ -4807,6 +4841,7 @@ class FactoryExecutorTest(_ExecutorTestCase):
         failing.outcomes["a"] = {"status": "error", "error": "boom"}
         self.store_factory(
             {
+                "run": {"failure_policy": "escalate"},
                 "nodes": [
                     {"id": "a", "subagent": "worker"},
                     {"id": "b", "subagent": "worker", "depends_on": ["a"]},
@@ -4816,22 +4851,24 @@ class FactoryExecutorTest(_ExecutorTestCase):
         result = await self.start()
         run = self.executor._runs[result["run_id"]]
         # a fails: escalate pauses the run while the bridge is dead, so the
-        # milestone lands in the ledger without ever being shown.
+        # milestone lands in the ledger without ever being shown, and the
+        # failed report is recorded beside it.
         await self.wait_until(lambda: run.state == "paused")
-        await self.wait_until(lambda: any(event["kind"] == "milestone" for event in run.events))
-        raw = [event for event in run.events if event["kind"] == "milestone"]
-        self.assertEqual(len(raw), 1)
-        self.assertEqual(raw[0]["stage"], "recorded")  # never shown: bridge dead
-        self.assertIn("state a failed", raw[0]["detail"])
+        await self.wait_until(lambda: any(event["kind"] == "report_failed" for event in run.events))
+        self.assertEqual(
+            [(event["kind"], event["stage"]) for event in run.events[-2:]],
+            [("milestone", "recorded"), ("report_failed", "recorded")],
+        )
+        self.assertEqual(run.events[-1]["error"], "RuntimeError: bridge dead")
         # status() still surfaces the milestone to the parent: the read marks
         # the unread ("recorded") event delivered, like any other ledger read.
         paused = await self.settle(result)
         self.assertEqual(paused["state"], "paused")
         milestones = [event for event in paused["events"] if event["kind"] == "milestone"]
-        self.assertEqual(len(milestones), 1)
-        self.assertEqual(milestones[0]["milestone"], "paused")
-        self.assertEqual(milestones[0]["stage"], "delivered")  # read via status()
-        self.assertIn("state a failed", milestones[0]["detail"])
+        self.assertEqual(
+            [(event["milestone"], event["stage"], event["detail"]) for event in milestones],
+            [("paused", "delivered", "state a failed: boom")],
+        )
         # the run is not wedged: resume still works end to end.
         await rlm_module.rlm.factory.resume(result["run_id"])
         final = await self.settle(result)
@@ -5058,7 +5095,7 @@ class FactoryExecutorTest(_ExecutorTestCase):
         self.assertEqual(status["usage"]["transitions_fired"], 2)
 
     @async_test
-    async def test_machine_max_transitions_pauses_once_then_resumes(self) -> None:
+    async def test_machine_max_transitions_stops_the_run(self) -> None:
         self.store_machine(
             {
                 "run": {"max_transitions": 1, "failure_policy": "continue"},
@@ -5074,96 +5111,19 @@ class FactoryExecutorTest(_ExecutorTestCase):
             }
         )
         result = await self.start()
-        paused = await self.settle(result)
-        # a->b fired (cap 1); b's settle pauses the run before b->c
-        self.assertEqual(paused["state"], "paused")
-        # the max_transitions pause uses its OWN milestone kind, distinct from
-        # the run-budget pause's budget_exceeded (no kind collision)
-        self.assertIn("max_transitions_exceeded", self.host.notice_kinds())
-        self.assertNotIn("budget_exceeded", self.host.notice_kinds())
-        self.assertEqual(paused["usage"]["transitions_fired"], 1)
-        self.assertEqual(self.state_report(paused, "b")["status"], "done")
-        self.assertEqual(self.state_report(paused, "c")["entries_used"], 0)
-        resumed = await rlm_module.rlm.factory.resume(result["run_id"])
-        self.assertEqual(resumed["state"], "running")
         final = await self.settle(result)
-        # resume is the explicit operator override: the remaining transition fires
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(final["usage"]["transitions_fired"], 2)
-        self.assertEqual(self.state_report(final, "c")["status"], "done")
-
-    @async_test
-    async def test_machine_max_transitions_pause_mid_settle_does_not_refire_on_resume(self) -> None:
-        # Regression (review finding): cap=1 with a fan-out settle
-        # [a->b, a->c]. The pause lands AFTER a->b fired; resume must
-        # continue with a->c only — a->b must never fire twice.
-        self.store_machine(
-            {
-                "run": {"max_transitions": 1, "failure_policy": "continue"},
-                "states": [
-                    {"id": "a", "entry": True, "subagent": "worker"},
-                    {"id": "b", "subagent": "worker"},
-                    {"id": "c", "subagent": "worker"},
-                ],
-                "transitions": [
-                    {"from": "a", "to": "b"},
-                    {"from": "a", "to": "c"},
-                ],
-            }
+        # a->b fired (cap 1); b's settle ends the run before b->c, with the
+        # limit's own milestone kind.
+        self.assertEqual(
+            (
+                final["state"],
+                final["usage"]["transitions_fired"],
+                self.state_report(final, "b")["status"],
+                self.state_report(final, "c")["entries_used"],
+                self.host.notice_kinds(),
+            ),
+            ("stopped", 1, "done", 0, ["max_transitions_exceeded"]),
         )
-        result = await self.start()
-        paused = await self.settle(result)
-        self.assertEqual(paused["state"], "paused")
-        self.assertIn("max_transitions_exceeded", self.host.notice_kinds())
-        # a->b fired before the pause; a->c is the paused transition
-        self.assertEqual(self.state_report(paused, "b")["entries_used"], 1)
-        self.assertEqual(self.state_report(paused, "c")["entries_used"], 0)
-        self.assertEqual(paused["usage"]["transitions_fired"], 1)
-        await rlm_module.rlm.factory.resume(result["run_id"])
-        final = await self.settle(result)
-        # exactly one entry of each target: the pre-pause fire is not repeated
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.state_report(final, "b")["entries_used"], 1)
-        self.assertEqual(self.state_report(final, "c")["entries_used"], 1)
-        self.assertEqual(len(self.host.spawn_calls("b")), 1)
-        self.assertEqual(final["usage"]["transitions_fired"], 2)
-
-    @async_test
-    async def test_machine_join_paused_at_max_transitions_fires_after_resume(self) -> None:
-        # Regression (bot review): a join transition that reaches the
-        # max_transitions boundary was marked fired BEFORE the pause, so
-        # the resume skipped it forever and the join target never entered.
-        # The provisional mark must be cleared when the settle is re-queued.
-        self.store_machine(
-            {
-                "run": {"max_transitions": 1, "failure_policy": "continue"},
-                "states": [
-                    {"id": "a", "entry": True, "subagent": "worker"},
-                    {"id": "b", "entry": True, "subagent": "worker"},
-                    {"id": "c", "subagent": "worker", "max_entries": 2},
-                ],
-                "transitions": [
-                    {"from": "a", "to": "c"},
-                    {"from": ["a", "b"], "to": "c"},
-                ],
-            }
-        )
-        result = await self.start()
-        paused = await self.settle(result)
-        self.assertEqual(paused["state"], "paused")
-        self.assertIn("max_transitions_exceeded", self.host.notice_kinds())
-        # a->c fired before the pause; the join is the paused transition
-        self.assertEqual(self.state_report(paused, "c")["entries_used"], 1)
-        self.assertEqual(paused["usage"]["transitions_fired"], 1)
-        await rlm_module.rlm.factory.resume(result["run_id"])
-        final = await self.settle(result)
-        # the join fired after the resume: c has TWO entries, never one
-        self.assertEqual(final["state"], "done")
-        self.assertEqual(self.state_report(final, "c")["entries_used"], 2)
-        joins = [e for e in self.all_events_of(result, "transition_fired") if e.get("from") == ["a", "b"]]
-        self.assertEqual(len(joins), 1)
-        self.assertEqual(len(self.host.spawn_calls("c")), 2)
-        self.assertEqual(final["usage"]["transitions_fired"], 2)
 
     @async_test
     async def test_machine_guards_compare_json_strictly(self) -> None:
@@ -5874,14 +5834,15 @@ class FactoryExecutorTest(_ExecutorTestCase):
         # child) while the new loop's admission is still in flight.
         self.host.outcomes["a"] = {"status": "error", "error": "boom"}
         self.host.rate_limit_first["b"] = 1  # resume()'s admission defers once
-        progress_gate = self.host.gate("factory.progress", 1)
-        progress_entered = self.host.gate_entered("factory.progress", 1)
+        progress_gate = self.host.gate("factory.report", 1)
+        progress_entered = self.host.gate_entered("factory.report", 1)
         # rlm.run call #1 is a's admission at run(); #2 is b's first admission
         # at resume() (rate limited, deferred nonblockingly); the gate holds
         # call #3 -- the NEW loop's retry admission -- mid-spawn.
         spawn_gate = self.host.gate("rlm.run", 3)
         self.store_factory(
             {
+                "run": {"failure_policy": "escalate"},
                 "nodes": [
                     {"id": "a", "subagent": "worker"},
                     {"id": "b", "subagent": "worker", "depends_on": ["a"]},
@@ -7557,6 +7518,21 @@ class MachineLibraryResolutionTest(unittest.TestCase):
             machine_two = parse_machine_file(path.read_text(encoding="utf-8"), source=str(path))[0]
             assert machine_two is not None
             self.assertEqual(machine_two.spec, machine.spec, name)
+
+    def test_the_shipped_seed_machines_never_park(self) -> None:
+        # No seed waits on anyone: each runs the default failure policy and
+        # every state settles (no resident stays behind its run).
+        names = ("review-sweep", "builder", "pr-manager")
+        shapes = {}
+        for name in names:
+            machine, _ = resolve_machine(name, repo_dir=repo_machines_dir(), user_dir=Path("/nonexistent-user-machines"))
+            canonical = canonicalize_factory_spec(machine.spec)
+            shapes[name] = (
+                canonical["run"]["failure_policy"],
+                sorted({state["failure_policy"] for state in canonical["states"]}),
+                sorted({state["lifecycle"] for state in canonical["states"]}),
+            )
+        self.assertEqual(shapes, {name: ("continue", ["continue"], ["task"]) for name in names})
 
 
 class MachineCliDispatchTest(unittest.TestCase):

@@ -75,7 +75,7 @@ FOREACH_MAX_MAX = 256
 MAX_TRANSITIONS_CAP = 10_000
 MAX_CHILDREN_CAP = 1_000_000
 TRANSITIONS_PER_STATE_DEFAULT = 10
-RUN_FAILURE_POLICY_DEFAULT = "escalate"
+RUN_FAILURE_POLICY_DEFAULT = "continue"
 RUN_MAX_PARALLEL_DEFAULT = 8
 RUN_MAX_CHILDREN_DEFAULT = 10_000
 NODE_LIFECYCLE_DEFAULT = "task"
@@ -839,7 +839,7 @@ def validate_factory_spec(spec: Any) -> list[str]:
 def _canonicalize_machine(machine: dict[str, Any]) -> dict[str, Any]:
     """Apply defaults to a validated machine and normalize it into a clean dict.
 
-    Defaults: run failure_policy 'escalate', run max_parallel 8, run
+    Defaults: run failure_policy 'continue', run max_parallel 8, run
     max_transitions 10 per state capped at 10000, run max_children 10000,
     state entry False, state max_entries 1, state lifecycle 'task', state
     retries 0, state failure_policy copied from the run policy, and
@@ -1086,6 +1086,14 @@ _RATE_LIMIT_MARKERS = (
 
 _FENCED_JSON_RE = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
 TERMINAL_ENTRY_STATUSES = ("done", "error", "cancelled")
+#: How a run report names each entry status, in report order.
+REPORT_STATUS_WORDS = {
+    "done": "done",
+    "error": "failed",
+    "running": "running",
+    "pending": "pending",
+    "cancelled": "cancelled",
+}
 
 
 def _is_rate_limit_error(message: str) -> bool:
@@ -1430,17 +1438,14 @@ class FactoryRun:
     max_parallel: int = RUN_MAX_PARALLEL_DEFAULT
     max_transitions: int = MAX_TRANSITIONS_CAP
     max_children: int = RUN_MAX_CHILDREN_DEFAULT
-    max_transitions_reported: bool = False
-    max_children_reported: bool = False
     run_budget_ms: int | None = None
-    budget_reported: bool = False
+    # Why an escalate failure paused the run; cleared by resume().
     pause_reason: str | None = None
     states: dict[str, _StateRun] = field(default_factory=dict)
     order: list[str] = field(default_factory=list)
     transitions_from: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    pending_evaluations: list[tuple[str, int, int]] = field(default_factory=list)
+    pending_evaluations: list[tuple[str, int]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
-    milestones: set[str] = field(default_factory=set)
     spawn_count: int = 0
     settle_count: int = 0
     transitions_fired: int = 0
@@ -1584,8 +1589,8 @@ class FactoryExecutor:
         if self._run_complete(run):
             await self._finalize(run)
         elif run.state == "running":
-            # A budget pause during the initial admission leaves the run
-            # paused with no loop: resuming is the operator's decision.
+            # A limit reached during the initial admission ended the run
+            # (stopped and reported); no loop starts.
             self._start_loop(run)
         return {
             "run_id": run.run_id,
@@ -1647,11 +1652,11 @@ class FactoryExecutor:
         return {"run_id": run.run_id, "state": "stopped", "cancelled": stopped}
 
     async def resume(self, run_id: str) -> dict[str, Any]:
-        """Resume a paused run (escalate, budget, or max_transitions pause).
+        """Resume a run an ``escalate`` failure paused.
 
-        A budget or max_transitions pause is reported once per run:
-        resuming after it is an explicit operator decision and no further
-        budget pauses fire. Raises ``ValueError`` when the run is not paused.
+        The pause reported to the calling agent; resuming is that agent's
+        decision (or ``stop``). Raises ``ValueError`` when the run is not
+        paused.
         """
         run = self._require_run(run_id)
         if run.state != "paused":
@@ -1897,8 +1902,8 @@ class FactoryExecutor:
             # Liveness is children-shaped, not state-shaped alone: a
             # ``done``/``failed`` run whose instances are still in
             # flight (the resident lifecycle — admitted residents never
-            # block completion, and the finished milestone tells the
-            # operator to ``rlm.factory.stop()`` them) is LIVE, so the
+            # block completion, and the finished report tells the
+            # caller to ``rlm.factory.stop()`` them) is LIVE, so the
             # page keeps the run and its stop control while any child
             # runs; the terminal history window holds only runs with no
             # child in flight.
@@ -2068,7 +2073,14 @@ class FactoryExecutor:
         if not run_id:
             raise ValueError(f"factory activity {action} requires runId")
         if action == "stop":
-            return _wire_payload(await self.stop(run_id))
+            # A stop from the view is the user's, not the agent's own: the
+            # agent learns of it through the run's report.
+            run = self._require_run(run_id)
+            already = run.state in ("stopping", "stopped")
+            stopped = await self.stop(run_id)
+            if not already:
+                await self._milestone(run, "stopped", "stopped from the factory view")
+            return _wire_payload(stopped)
         return _wire_payload(await self.resume(run_id))
 
     # -- setup --------------------------------------------------------------
@@ -2192,8 +2204,8 @@ class FactoryExecutor:
         """Append one ledger entry.
 
         Stages follow the spec: ``arrived`` (a child answer settled and was
-        captured), ``recorded`` (everything else), ``shown`` (a milestone
-        notice was injected into the parent conversation), and ``delivered``
+        captured), ``recorded`` (everything else), ``shown`` (a milestone's
+        report reached the calling agent's conversation), and ``delivered``
         (the parent read the ledger via ``status()``).
         """
         event: dict[str, Any] = {"seq": len(run.events) + 1, "kind": kind, "stage": stage}
@@ -2224,28 +2236,60 @@ class FactoryExecutor:
         run.watchers = []
 
     async def _milestone(self, run: FactoryRun, kind: str, detail: str, *, node: str | None = None) -> None:
-        """Record a run milestone and inject one quiet notice (one per kind).
+        """Record a milestone and report it to the calling agent.
 
-        Every milestone lands in the ledger, repeats included: a run that
-        pauses twice must still show the second pause to the parent reading
-        ``status()``. Only the parent-visible notice is deduped per kind.
+        Every milestone leaves the run out of ``running`` (done, failed,
+        stopped at a limit, or paused by an ``escalate`` failure), so each
+        one is news the caller acts on: the ``factory.report`` host request
+        turns it into a settled-work message that starts the caller's turn
+        (``[job-settled job:factory-<run_id> status:...]``), one per
+        milestone (the ledger seq keys it). The report names what settled
+        and what is left.
         """
         event = self._event(run, "milestone", milestone=kind, detail=detail, node=node)
-        if kind in run.milestones:
-            return  # the kind was announced once; the ledger keeps this repeat
-        run.milestones.add(kind)
         try:
             from . import host_request
 
-            payload: dict[str, Any] = {"run_id": run.run_id, "kind": kind, "detail": detail}
-            if node is not None:
-                payload["node"] = node
-            await host_request("factory.progress", payload)
+            await host_request(
+                "factory.report",
+                {
+                    "run_id": run.run_id,
+                    "seq": event["seq"],
+                    "state": run.state,
+                    "kind": kind,
+                    "report": self._report_text(run, detail),
+                },
+            )
             event["stage"] = "shown"
-        except Exception:
-            # A dead bridge cannot be told; the ledger keeps the milestone and
-            # status() still surfaces it to the parent.
-            pass
+        except Exception as exc:
+            # A host that cannot take the report leaves it in the ledger,
+            # where status() still shows it; the failure is recorded beside it.
+            self._event(run, "report_failed", error=f"{type(exc).__name__}: {exc}")
+
+    def _report_text(self, run: FactoryRun, detail: str) -> str:
+        """The report body: the run's outcome, then its states by status."""
+        label = run.spec_id if run.name is None else f"{run.spec_id}, {run.name}"
+        lines = [f"factory run {run.run_id} ({label}): {run.state}: {detail}"]
+        groups: dict[str, list[str]] = {}
+        for state_id in run.order:
+            state = run.states[state_id]
+            if not state.entries:
+                groups.setdefault("not entered", []).append(state_id)
+                continue
+            latest = state.entries[-1]
+            word = REPORT_STATUS_WORDS[latest.status]
+            item = state_id if latest.error is None else f"{state_id} ({latest.error})"
+            groups.setdefault(word, []).append(item)
+        for word in (*REPORT_STATUS_WORDS.values(), "not entered"):
+            if word in groups:
+                lines.append(f"{word}: {', '.join(groups[word])}")
+        if run.state == "paused":
+            lines.append(
+                f"resume with await rlm.factory.resume('{run.run_id}') "
+                f"or stop with await rlm.factory.stop('{run.run_id}')"
+            )
+        lines.append(f"details: await rlm.factory.status('{run.run_id}')")
+        return "\n".join(lines)
 
     # -- entries, transitions -------------------------------------------------
 
@@ -2260,9 +2304,7 @@ class FactoryExecutor:
 
     def _queue_settle(self, run: FactoryRun, state: _StateRun, entry: _StateEntry) -> None:
         entry.is_settle = True
-        # The third element is the transition index to resume from: 0 for a
-        # fresh settle, or the paused index after a max_transitions pause.
-        run.pending_evaluations.append((state.state_id, entry.index, 0))
+        run.pending_evaluations.append((state.state_id, entry.index))
 
     async def _evaluate_settles(self, run: FactoryRun) -> None:
         """Evaluate every queued settle's outgoing transitions once.
@@ -2270,23 +2312,19 @@ class FactoryExecutor:
         ALL transitions whose guards pass fire (fan-out is legal); a join
         transition (from is a list) fires once per source-settle completion;
         a fire enters the target unless it is out of max_entries (recorded
-        as transition_blocked). Exceeding max_transitions pauses the run once
-        (max_transitions_exceeded milestone, resume-able) with the settle
-        left unconsumed AND the transition index where the pause landed, so
-        a resume continues after the transitions that already fired instead
-        of re-firing them.
+        as transition_blocked). A fire past max_transitions ends the run
+        instead: stopped, in-flight children cancelled, reported to the
+        caller (``max_transitions_exceeded``).
         """
         while run.pending_evaluations and run.state == "running":
-            state_id, entry_index, resume_from = run.pending_evaluations.pop(0)
+            state_id, entry_index = run.pending_evaluations.pop(0)
             state = run.states[state_id]
             entry = state.entries[entry_index]
             if entry.consumed or not entry.is_settle:
                 continue
             entry.consumed = True
             outputs = entry.outputs or {}
-            for transition_index, transition in enumerate(run.transitions_from.get(state_id, [])):
-                if transition_index < resume_from:
-                    continue  # already fired before the pause; do not re-fire
+            for transition in run.transitions_from.get(state_id, []):
                 raw_from = transition["from"]
                 join_signature: "frozenset[tuple[str, int]] | None" = None
                 if isinstance(raw_from, list):
@@ -2312,11 +2350,8 @@ class FactoryExecutor:
                     key = (id(transition), transition["to"])
                     if run.join_fired.get(key) == signature:
                         continue  # this completion already fired (or was blocked)
-                    # The signature is CLAIMED only below, when the
-                    # transition actually fires or is blocked: a
-                    # max_transitions pause that re-queues this transition
-                    # must not leave a stale mark, or the resume would skip
-                    # the join forever.
+                    # The signature is claimed below, when the transition
+                    # fires or is blocked.
                     join_signature = (key, signature)
                 else:
                     sources = [raw_from]
@@ -2340,17 +2375,11 @@ class FactoryExecutor:
                         **{"from": from_field, "to": target.state_id},
                     )
                     continue
-                if run.transitions_fired >= run.max_transitions and not run.max_transitions_reported:
-                    run.max_transitions_reported = True
-                    entry.consumed = False
-                    run.pending_evaluations.insert(0, (state_id, entry_index, transition_index))
-                    run.state = "paused"
-                    run.pause_reason = "max_transitions exceeded"
-                    await self._milestone(
+                if run.transitions_fired >= run.max_transitions:
+                    await self._stop_at_limit(
                         run,
                         "max_transitions_exceeded",
-                        f"max_transitions {run.max_transitions} exceeded; no new entries; "
-                        f"resume with await rlm.factory.resume('{run.run_id}')",
+                        f"max_transitions {run.max_transitions} reached",
                     )
                     return
                 if join_signature is not None:
@@ -2383,7 +2412,7 @@ class FactoryExecutor:
         run_budget_ms expired. The run-wide child budget (max_children:
         every admission over the run's life, foreach expansions and retry
         re-spawns included) is enforced the same way — the next admission
-        over it pauses the run instead of launching the child.
+        over it ends the run instead of launching the child.
         Admission is also skipped while a
         rate-limit backoff deadline is outstanding. Returns the state ids
         that had at least one instance admitted here.
@@ -2394,7 +2423,10 @@ class FactoryExecutor:
             if not self._loop_alive(run, generation):
                 break
             if self._run_budget_exceeded(run):
-                await self._pause_for_budget(run)
+                elapsed_ms = int((self._now_fn() - run.started_at) * 1000)
+                await self._stop_at_limit(
+                    run, "budget_exceeded", f"run budget_ms {run.run_budget_ms} reached after {elapsed_ms}ms"
+                )
                 break
             if run.admission_backoff_until is not None and self._now_fn() < run.admission_backoff_until:
                 break  # the loop waits out the deadline in bounded slices
@@ -2406,8 +2438,10 @@ class FactoryExecutor:
             # tree and take no max_parallel slot; read-only ones do.
             if instance.scope is None and self._running_instance_count(run) >= run.max_parallel:
                 break
-            if self._children_budget_exceeded(run):
-                await self._pause_for_children(run)
+            if run.spawn_count >= run.max_children:
+                await self._stop_at_limit(
+                    run, "max_children_exceeded", f"max_children {run.max_children} reached"
+                )
                 break
             if instance.scope is None:
                 outcome = await self._admit(run, state, entry, instance, allow_backoff=allow_backoff)
@@ -2431,51 +2465,24 @@ class FactoryExecutor:
         return run.state == "running" and run.loop_generation == generation
 
     def _run_budget_exceeded(self, run: FactoryRun) -> bool:
-        if run.run_budget_ms is None or run.budget_reported:
+        if run.run_budget_ms is None:
             return False
         return (self._now_fn() - run.started_at) * 1000 > run.run_budget_ms
 
-    async def _pause_for_budget(self, run: FactoryRun) -> None:
-        """Pause the run at the budget boundary (milestone fires once).
+    async def _stop_at_limit(self, run: FactoryRun, kind: str, detail: str) -> None:
+        """End the run at a limit (run budget_ms, max_children: every
+        admission over the run's life, max_transitions).
 
-        Children already in flight keep running; they settle normally once
-        the run resumes. Resuming after the milestone is an explicit operator
-        decision, so no further budget pauses fire (budget_reported)."""
-        elapsed_ms = (self._now_fn() - run.started_at) * 1000
-        run.state = "paused"
-        run.pause_reason = "run budget exceeded"
-        run.budget_reported = True
-        await self._milestone(
-            run,
-            "budget_exceeded",
-            f"run budget_ms {run.run_budget_ms} exceeded after {int(elapsed_ms)}ms; no new spawns; "
-            f"resume with await rlm.factory.resume('{run.run_id}')",
-        )
-
-    def _children_budget_exceeded(self, run: FactoryRun) -> bool:
-        if run.max_children_reported:
-            return False
-        return run.spawn_count >= run.max_children
-
-    async def _pause_for_children(self, run: FactoryRun) -> None:
-        """Pause the run at the child-budget boundary (milestone fires once).
-
-        max_children is the TOTAL-admission budget over the run's life:
-        spawn_count counts every admission, foreach expansions and retry
-        re-spawns included (max_parallel bounds concurrency only, and
-        max_transitions bounds transitions — neither bounds children).
-        Children already in flight keep running. Resuming after the
-        milestone is an explicit operator decision, so no further
-        child-budget pauses fire (max_children_reported)."""
-        run.state = "paused"
-        run.pause_reason = "max_children exceeded"
-        run.max_children_reported = True
-        await self._milestone(
-            run,
-            "max_children_exceeded",
-            f"run max_children {run.max_children} exceeded after {run.spawn_count} children; "
-            f"no new spawns; resume with await rlm.factory.resume('{run.run_id}')",
-        )
+        Limits bound cost, so reaching one ends the run: in-flight children
+        are cancelled, unentered states cancelled, the run is ``stopped``,
+        and the caller gets the report of what settled and what is left.
+        """
+        run.state = "stopping"
+        self._touch(run)
+        stopped = await self._halt_nonterminal(run, f"run stopped: {detail}")
+        run.state = "stopped"
+        self._event(run, "run_stopped", detail=f"{detail}; {len(stopped)} state(s) cancelled")
+        await self._milestone(run, kind, detail)
 
     async def _prepare_ready_entries(self, run: FactoryRun) -> None:
         """Bind inputs and create instances for every entry whose input
@@ -3019,15 +3026,10 @@ class FactoryExecutor:
             )
         elif policy == "continue":
             pass  # the entry stays error; dependents see the error settle at binding
-        else:  # escalate (default)
+        else:  # escalate: pause and hand the decision to the calling agent
             run.state = "paused"
             run.pause_reason = reason
-            await self._milestone(
-                run,
-                "paused",
-                f"state {state.state_id} failed: {reason}; resume with await rlm.factory.resume('{run.run_id}')",
-                node=state.state_id,
-            )
+            await self._milestone(run, "paused", f"state {state.state_id} failed: {reason}", node=state.state_id)
 
     async def _halt_nonterminal(self, run: FactoryRun, reason: str) -> list[str]:
         """Delete every running child and cancel every non-terminal entry;
@@ -3291,9 +3293,6 @@ class FactoryExecutor:
             if self._run_complete(run):
                 await self._finalize(run)
                 return
-            if self._run_budget_exceeded(run):
-                await self._pause_for_budget(run)
-                return
             started = await self._spawn_ready(run, generation=generation, allow_backoff=True)
             if not self._loop_alive(run, generation):
                 return
@@ -3535,7 +3534,7 @@ async def stop_factory(run_id: str) -> dict[str, Any]:
 
 
 async def resume_factory(run_id: str) -> dict[str, Any]:
-    """Resume a paused run (escalate, budget, or max_transitions pause)."""
+    """Resume a run an ``escalate`` failure paused."""
     require_factory_enabled()
     return await default_factory_executor().resume(run_id)
 
@@ -4586,7 +4585,7 @@ pr-manager shape:
 ```python
 rlm.harness.create_factory(
     "pr-manager",
-    "Drive a PR through review/fix cycles, then keep a resident watcher on it.",
+    "Drive a PR through review/fix cycles, then report its checks.",
     id="pr-manager",
     machine={
         "run": {"budget_ms": 1_800_000, "max_parallel": 8, "max_transitions": 24},
@@ -4631,11 +4630,9 @@ rlm.harness.create_factory(
             },
             {
                 "id": "monitoring",
-                "subagent": {"prompt": "Stay resident as the watcher for {pr_url}: "
-                    "report the `gh pr checks` state once, then remain available for "
-                    "follow-up questions."},
+                "subagent": {"prompt": "Report the `gh pr checks` state of {pr_url} "
+                    "in one line."},
                 "inputs": [{"name": "pr_url", "type": "json", "from": "entry.pr_url"}],
-                "lifecycle": "resident",
             },
         ],
         "transitions": [
@@ -4654,8 +4651,8 @@ The example exercises the core forms: `entry` is an entry state; the two
 guards select the next state from the reviewer's `verdict`; `fix_report` is
 optional, so the reviewer's first entry binds a null sentinel before the
 fixer ever runs and its re-entry re-binds the real report; `max_entries`
-bounds the loop; `monitoring` is a `resident` that stays alive under the
-parent session after the run ends. Both worked examples bound their
+bounds the loop; `monitoring` reports the checks once and the run ends.
+Both worked examples bound their
 emitted payloads in the prompt — a capped findings list here, a capped
 file list in the review-sweep example — because captured answers are
 capped previews: an unbounded payload truncates at the cap and fails to
@@ -4740,19 +4737,18 @@ bind.
   per-node limit. `run.max_children` (default 10,000, capped at
   1,000,000) is the run's global budget of total admissions over its
   life — foreach expansions and retry re-spawns included (neither
-  `max_parallel` nor `max_transitions` bounds children); reaching it
-  pauses the run once, and `resume` continues past it as an explicit
-  operator decision. `run.max_transitions` (default 10 per state, capped
-  at 10,000) pauses the run once at the boundary, mid-settle; `resume`
-  continues after the transitions that already fired without re-firing
-  them. `run.budget_ms` pauses the run once when exceeded (in-flight
-  children keep running). Per state: `max_entries` (default 1), `retries`
-  (0..10, same rendered prompt), `budget_ms` (admission to settlement;
-  exceeding it fails the attempt without a retry), and `failure_policy` —
-  `fail_fast` (cancel every child, run failed), `continue` (entry stays
-  errored; the run finishes and reports failed if any state errored), or
-  `escalate` (the default: pause the run; resuming is the operator's
-  decision).
+  `max_parallel` nor `max_transitions` bounds children). Limits bound
+  cost: reaching `run.max_children`, `run.max_transitions` (default 10 per
+  state, capped at 10,000) or `run.budget_ms` ends the run `stopped`
+  (in-flight children cancelled) with a report of what settled and what
+  is left; rerun with a higher limit to go further. Per state:
+  `max_entries` (default 1), `retries` (0..10, same rendered prompt),
+  `budget_ms` (admission to settlement; exceeding it fails the attempt
+  without a retry), and `failure_policy` — `continue` (the default: after
+  its retries the entry stays errored, dependents run, and the run
+  finishes and reports failed if any state errored), `fail_fast` (cancel
+  every child, run failed), or `escalate` (pause the run and report to the
+  calling agent, which resumes or stops it).
 - **Dead configurations fail loudly, never wedge**: a pending entry whose
   input source never settled, a `max_parallel` cap held entirely by
   never-settling residents with work queued, or nothing in flight and
@@ -4860,10 +4856,13 @@ watched = await rlm.factory.watch(result["run_id"], 30)
 - `run` re-validates the spec and resolves every subagent reference first,
   reporting all failures in one `ValueError` and starting nothing on any
   failure; `name=` labels the run in status and the TUI.
-- Pause and failure notices (escalate, budget, max_transitions,
-  max_children, failed, finished) arrive as quiet notices in the
-  conversation once per kind per run, the pause notices with the resume
-  call spelled out — a paused run does not need polling to be noticed.
+- Every run reports how it ended to the agent that started it: done,
+  failed, stopped at a limit or from the factory view, or paused by an
+  `escalate` failure each arrive as a `[job-settled
+  job:factory-<run_id> status:ok|error|aborted]` message that starts a
+  turn, naming the states done, failed, cancelled and not entered. Never
+  poll for it: do other work, or end the turn and continue when it
+  arrives.
 - `stop(run_id)` cancels every running child of the run (idempotent);
   `resume(run_id)` continues a paused run and raises on a non-paused one.
 - The activity lane the daemon and TUI speak is camelCase on the wire
@@ -4899,8 +4898,7 @@ watched = await rlm.factory.watch(result["run_id"], 30)
 
 - Every state spawns real children that spend budget. Bound loops with
   `max_entries`, `max_transitions`, and `run.max_children` (total
-  admissions); the default `escalate` policy pauses
-  instead of failing, so read `status` (or the notice) before resuming.
+  admissions).
 - Captured answers are capped previews (about 160 characters) and outputs
   bind from them: keep declared outputs compact — a small fenced json
   block or one short line — and let the full answer live in the child's

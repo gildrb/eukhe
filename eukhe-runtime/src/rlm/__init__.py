@@ -713,9 +713,11 @@ class _RLMFactoryNamespace:
     ``run('<spec_id>')`` validates a stored factory entry (machine form, or
     dag sugar that compiles to one), enters the entry states up to the
     spec's max_parallel, and returns immediately; a kernel asyncio task
-    continues the run (nonblocking control loop). Runs live in kernel
-    memory only; children stay supervisor-owned. Every call is async, so
-    always await it: ``await rlm.factory.run('<id>')``.
+    continues the run (nonblocking control loop). The run's end (or an
+    ``escalate`` pause) arrives as a ``[job-settled job:factory-<run_id>
+    ...]`` message that starts a turn: never poll for it. Runs live in
+    kernel memory only; children stay supervisor-owned. Every call is
+    async, so always await it: ``await rlm.factory.run('<id>')``.
 
     When no stored entry carries the id, ``run`` falls back to the machine
     library: the bundled seeds ship inside the runtime (the personal

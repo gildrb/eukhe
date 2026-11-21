@@ -22,15 +22,15 @@ the simplest multi-child shape the factory runs.
 
     result = await rlm.factory.run("builder")
 
-Then watch progress with `await rlm.factory.status(result["run_id"])`. The
-collector's `merged` text is the latest settle answer of the `collect`
+The run's end arrives as a `[job-settled job:factory-<run_id> ...]`
+message; `await rlm.factory.status(result["run_id"])` shows the details.
+The collector's `merged` text is the latest settle answer of the `collect`
 state.
 
 ```machine-spec
 {
   "run": {
     "budget_ms": 900000,
-    "failure_policy": "escalate",
     "max_parallel": 8
   },
   "nodes": [

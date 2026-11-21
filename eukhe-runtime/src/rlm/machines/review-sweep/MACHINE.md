@@ -27,15 +27,15 @@ template directly from the library:
 
     result = await rlm.factory.run("review-sweep")
 
-Then watch progress with `await rlm.factory.status(result["run_id"])`. The
-run finishes at quiescence; the aggregator's `issues` JSON is the latest
-settle answer of the `report` state.
+The run finishes at quiescence and its end arrives as a `[job-settled
+job:factory-<run_id> ...]` message; `await
+rlm.factory.status(result["run_id"])` shows the details. The aggregator's
+`issues` JSON is the latest settle answer of the `report` state.
 
 ```machine-spec
 {
   "run": {
     "budget_ms": 900000,
-    "failure_policy": "escalate",
     "max_parallel": 8
   },
   "nodes": [

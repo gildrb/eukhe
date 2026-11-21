@@ -1,6 +1,6 @@
 ---
 name: pr-manager
-description: Drive a pull request through review and fix cycles, then keep a resident watcher on it.
+description: Drive a pull request through review and fix cycles, then report its checks.
 version: 1
 author: Eukhe
 ---
@@ -12,29 +12,28 @@ author: Eukhe
 Drives a pull request through review and fix cycles. One entry child
 resolves the pull request URL, a reviewer child judges the diff, and a
 fixer child addresses the findings; the guarded loop alternates until the
-verdict approves or the bounded re-entries run out, then a resident
-watcher stays available for follow-ups.
+verdict approves or the bounded re-entries run out, then a monitoring
+child reports the pull request's checks once and the run ends.
 
 This is the machine-form example: guarded transitions select the next
 state (`approved` true or false), `max_entries` bounds each loop state,
-the fixer's `fix_report` is an optional input on the reviewer's next
-re-entry (it binds only after the fixer settled at least once), and
-`monitoring` uses the `resident` lifecycle so its instance stays alive
-after approval instead of ending the run.
+and the fixer's `fix_report` is an optional input on the reviewer's next
+re-entry (it binds only after the fixer settled at least once).
 
 ## How to run it
 
     result = await rlm.factory.run("pr-manager")
 
-Then watch progress with `await rlm.factory.status(result["run_id"])`.
+The run's end arrives as a `[job-settled job:factory-<run_id> ...]`
+message; `await rlm.factory.status(result["run_id"])` shows the details.
 The alternation count is bounded by `max_transitions` and by each loop
-state's `max_entries`; the run pauses (escalates) instead of spinning.
+state's `max_entries`; reaching `max_transitions` stops the run with a
+report instead of spinning.
 
 ```machine-spec
 {
   "run": {
     "budget_ms": 1800000,
-    "failure_policy": "escalate",
     "max_parallel": 8,
     "max_transitions": 24
   },
@@ -107,7 +106,7 @@ state's `max_entries`; the run pauses (escalates) instead of spinning.
     {
       "id": "monitoring",
       "subagent": {
-        "prompt": "Stay resident as the pull-request watcher for {pr_url}: inspect the checks with `gh pr checks` once, report their state in one line, and remain available for follow-up questions about the pull request.",
+        "prompt": "Report the `gh pr checks` state of the pull request at {pr_url} in one line.",
         "name": "pr-monitoring"
       },
       "inputs": [
@@ -117,7 +116,7 @@ state's `max_entries`; the run pauses (escalates) instead of spinning.
           "from": "entry.pr_url"
         }
       ],
-      "lifecycle": "resident"
+      "budget_ms": 240000
     }
   ],
   "transitions": [
