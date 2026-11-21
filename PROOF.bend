@@ -2004,6 +2004,9 @@ import ./proof/gateway_commands/gateway_commands_reasoning.bend as PGatewayComma
 import ./proof/gateway_commands/gateway_commands_reasoning_usage.bend as PGatewayCommandsReasoningUsage
 import ./proof/gateway_commands/gateway_commands_restart.bend as PGatewayCommandsRestart
 import ./proof/gateway_commands/gateway_commands_restart_usage.bend as PGatewayCommandsRestartUsage
+import ./proof/gateway_commands/gateway_commands_diff.bend as PGatewayCommandsDiff
+import ./proof/gateway_commands/gateway_commands_diff_usage_word.bend as PGatewayCommandsDiffUsageWord
+import ./proof/gateway_commands/gateway_commands_diff_usage_long.bend as PGatewayCommandsDiffUsageLong
 import ./proof/gateway_commands/gateway_commands_lone_slash.bend as PGatewayCommandsLoneSlash
 import ./proof/gateway_commands/gateway_commands_listing.bend as PGatewayCommandsListing
 import ./proof/gateway_commands/gateway_commands_near.bend as PGatewayCommandsNear

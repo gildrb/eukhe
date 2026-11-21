@@ -8,8 +8,9 @@
 # - The name is read lowercased (ASCII). A session command name (the list
 #   Rust sends) is a prompt: the session runs it.
 # - A command name with exactly its arguments (`/use` one, `/model` none,
-#   one, `all`, or `all` and one, `/reasoning` none or one, the others
-#   none) is that command; with other arguments, its usage line.
+#   one, `all`, or `all` and one, `/reasoning` none or one, `/diff` none
+#   or `all`, the others none) is that command; with other arguments, its
+#   usage line.
 # - Another name alone answers suggestions: a lone `/` the command list,
 #   the commands the name starts, else the closest command, else the
 #   command list; another name with more words is a prompt.
@@ -39,6 +40,13 @@ type Cmd is Data:
   CModelAll{arg: Maybe<&2, String>}
   # `/restart` starts the gateway again on the installed build
   CRestart{}
+  # `/effects` lists the session's ledger of irreversible effects
+  CEffects{}
+  # `/undo` restores the workspace to the start of the last prompt
+  CUndo{}
+  # `/diff` shows what changed since the last prompt started; `/diff all`
+  # (all: True) since the session's first prompt
+  CDiff{all: Bool}
 
 # What one text message means
 type Out is Data:
@@ -53,7 +61,7 @@ type Spec is Data:
 
 # The commands, in PhoneCommand order
 def specs() -> List<&2, Spec>:
-  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [all] [N]", "Show the models; N switches to one; all N uses it for every role."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}, Spec{"restart", "/restart", "Restart the gateway on the installed eukhe version (applies a downloaded update)."}]
+  [Spec{"help", "/help", "Show the commands."}, Spec{"sessions", "/sessions", "Show the newest sessions."}, Spec{"use", "/use N", "Send messages to session N."}, Spec{"latest", "/latest", "Send messages to the newest session."}, Spec{"new", "/new", "Start a new session."}, Spec{"stop", "/stop", "Stop the current turn."}, Spec{"status", "/status", "Show the session state."}, Spec{"memory", "/memory", "Show the chat memory state."}, Spec{"model", "/model [all] [N]", "Show the models; N switches to one; all N uses it for every role."}, Spec{"reasoning", "/reasoning [level]", "Show the thinking level; a level sets it."}, Spec{"restart", "/restart", "Restart the gateway on the installed eukhe version (applies a downloaded update)."}, Spec{"effects", "/effects", "Show the irreversible effects this session ran."}, Spec{"undo", "/undo", "Restore the workspace to the start of the last prompt."}, Spec{"diff", "/diff [all]", "Show what changed since the last prompt started; all: since the first prompt."}]
 
 # Text
 # ----
@@ -203,8 +211,24 @@ def reasoning(m: Maybe<&2, Maybe<&2, String>>) -> Maybe<&2, Cmd>:
     case Some{a}:
       Some{CReasoning{a}}
 
+def diff.one(all: Bool, rest: List<&2, String>) -> Maybe<&2, Cmd>:
+  match all:
+    case True{}:
+      none(rest, CDiff{True{}})
+    case False{}:
+      None{}
+
+# `/diff` given args: none is since the last prompt, the word `all` (as
+# written) since the first prompt; anything else is no command
+def diff(args: List<&2, String>) -> Maybe<&2, Cmd>:
+  match args:
+    case Nil{}:
+      Some{CDiff{False{}}}
+    case +a <> rest:
+      diff.one(String.eq(a, "all"), rest)
+
 # the command at index i of specs() given args, when they are its own;
-# i is an index find answered, so the last arm is index 10 (restart)
+# i is an index find answered, so the last arm is index 13 (diff)
 def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
   match i:
     case 0n:
@@ -227,8 +251,14 @@ def command(i: Nat, args: List<&2, String>) -> Maybe<&2, Cmd>:
       model(args)
     case 9n:
       reasoning(upto(args))
-    case 10n+u:
+    case 10n:
       none(args, CRestart{})
+    case 11n:
+      none(args, CEffects{})
+    case 12n:
+      none(args, CUndo{})
+    case 13n+u:
+      diff(args)
 
 def find.at(b: Bool, i: Nat, later: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match b:

@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW gateway_commands_plain
 #
-# PROOF: the text routes to the code's command lookup on the lowercased name (gcb.known); that name is the k-th argument-free command's (cmd), which the code's table answers with no argument, for each k of the seven.
+# PROOF: the text routes to the code's command lookup on the lowercased name (gcb.known); that name is the k-th argument-free command's (cmd), which the code's table answers with no argument, for each k of the nine.
 
 import Base
 import ../../bend/gateway_commands.bend as Gc
@@ -27,8 +27,12 @@ def gcpl.at(k: Nat, -L: String, few: {GatewayCommands.gc_plain_has(k) == True{} 
       Equal.cong(String, Gc.Out, z => Gc.known(z, [], Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(5n)), cmd)
     case 6n:
       Equal.cong(String, Gc.Out, z => Gc.known(z, [], Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(6n)), cmd)
-    case 7n+u:
-      LGa.gab.absurd({Gc.known(L, [], Gc.find(L, Gc.names(Gc.specs()), 0n)) == Gc.OCommand{GatewayCommands.gc_plain_cmd(7n+u)} : Gc.Out}, few)
+    case 7n:
+      Equal.cong(String, Gc.Out, z => Gc.known(z, [], Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(7n)), cmd)
+    case 8n:
+      Equal.cong(String, Gc.Out, z => Gc.known(z, [], Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(8n)), cmd)
+    case 9n+u:
+      LGa.gab.absurd({Gc.known(L, [], Gc.find(L, Gc.names(Gc.specs()), 0n)) == Gc.OCommand{GatewayCommands.gc_plain_cmd(9n+u)} : Gc.Out}, few)
 
 def GatewayCommands.gateway_commands_plain(t, sess, name, k, well, ws, nm, few, cmd, own):
   +L = String.to_lower(name)
