@@ -32,6 +32,8 @@ use crate::style::{self, StyledText};
 use crate::{GatewayConfig, GatewayExit, RestartSupport};
 use eukhe_client::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
 
+mod effects;
+
 /// Signal shows a typing indicator for about 15 s; refresh it sooner.
 const TYPING_REFRESH: Duration = Duration::from_secs(10);
 
@@ -517,6 +519,9 @@ impl<L: DaemonLauncher> Gateway<L> {
             PhoneCommand::Reasoning(level) => self.reasoning(level).await,
             PhoneCommand::ModelAll(number) => self.model(number, ModelSwitch::AllRoles).await,
             PhoneCommand::Restart => return Ok(self.restart().await),
+            PhoneCommand::Effects => self.effects().await,
+            PhoneCommand::Undo => self.undo().await,
+            PhoneCommand::Diff(scope) => return self.diff(peer, scope).await,
         };
         reply.map(Done::Reply)
     }
@@ -1237,6 +1242,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.stop_typing().await;
                 }
             }
+            SessionEvent::RunReport { ran, unknown } => self.send_run_report(ran, unknown).await,
             SessionEvent::MessageStart { .. }
             | SessionEvent::MessageUpdate { .. }
             | SessionEvent::MessageEnd { .. }
@@ -1257,7 +1263,6 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::RanEffectsUpdate { .. }
-            | SessionEvent::RunReport { .. }
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::PlanUsage { .. }

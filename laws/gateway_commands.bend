@@ -26,19 +26,22 @@ import ./doc_commit.bend as DocCommit
 # R3: the name is read with its ASCII letters lowercased; a name among the
 #     session command names Rust sends is a prompt (the session runs it).
 # R4: the commands, in order: help, sessions, use, latest, new, stop,
-#     status, memory, model, reasoning, restart. `/use` takes exactly one
-#     argument (kept as written), `/reasoning` none or one (kept as written),
-#     `/model` none, one, or the two `all` and N: one argument `all` is the
-#     all-roles listing, another one argument a switch (kept as written),
-#     `all` then N sets the all-roles model (N kept as written); the others
-#     none; a command name with exactly its arguments is that command.
+#     status, memory, model, reasoning, restart, effects, undo, diff.
+#     `/use` takes exactly one argument (kept as written), `/reasoning`
+#     none or one (kept as written), `/model` none, one, or the two `all`
+#     and N: one argument `all` is the all-roles listing, another one
+#     argument a switch (kept as written), `all` then N sets the all-roles
+#     model (N kept as written); `/diff` none (since the last prompt
+#     started) or the one word `all` as written (since the session's first
+#     prompt); the others none; a command name with exactly its arguments
+#     is that command.
 # R5: a command name with other arguments answers
 #     `Usage: <usage> - <description>` (its line of gc_lines).
 # R6: another name followed by more words is a prompt. Alone it answers:
 #     for the empty name (a lone `/`), the help text; else, when command
 #     names start with it, their lines in order, each on its own line,
 #     then `Send one of these. Send / for all commands.`; else, when the
-#     slash_suggest suggestion over the 11 names picks one,
+#     slash_suggest suggestion over the 14 names picks one,
 #     `No command /<name>. Did you mean /<closest>?` and on a second line
 #     `Not sent to the agent. Send / for all commands.`; else
 #     `No command /<name>. Not sent to the agent.` and on the next lines
@@ -48,10 +51,10 @@ import ./doc_commit.bend as DocCommit
 # R8: the entry answers each request Rust writes (the text and the session
 #     names, every length within the wire) with the meaning of R1-R7 (a
 #     command by its tag, `/use` with its argument, `/model`, `/model all`
-#     and `/reasoning` with their optional argument; an answer with its
-#     text; a prompt), reads exactly the request and nothing after it, and
-#     answers any other input with the exact error form
-#     `E gateway_commands: malformed request`.
+#     and `/reasoning` with their optional argument, `/diff` with its
+#     scope; an answer with its text; a prompt), reads exactly the request
+#     and nothing after it, and answers any other input with the exact
+#     error form `E gateway_commands: malformed request`.
 
 
 # Spec helpers
@@ -59,15 +62,15 @@ import ./doc_commit.bend as DocCommit
 
 # R4: the command names, in order
 def gc_names() -> List<&2, String>:
-  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory", "model", "reasoning", "restart"]
+  ["help", "sessions", "use", "latest", "new", "stop", "status", "memory", "model", "reasoning", "restart", "effects", "undo", "diff"]
 
 # R5: the command lines, in the same order
 def gc_lines() -> List<&2, String>:
-  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "/reasoning [level] - Show the thinking level; a level sets it.", "/restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."]
+  ["/help - Show the commands.", "/sessions - Show the newest sessions.", "/use N - Send messages to session N.", "/latest - Send messages to the newest session.", "/new - Start a new session.", "/stop - Stop the current turn.", "/status - Show the session state.", "/memory - Show the chat memory state.", "/model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "/reasoning [level] - Show the thinking level; a level sets it.", "/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).", "/effects - Show the irreversible effects this session ran.", "/undo - Restore the workspace to the start of the last prompt.", "/diff [all] - Show what changed since the last prompt started; all: since the first prompt."]
 
 # R7
 def gc_help() -> String:
-  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\n/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\nOther text goes to the agent."
+  "Commands:\n/help - Show the commands.\n/sessions - Show the newest sessions.\n/use N - Send messages to session N.\n/latest - Send messages to the newest session.\n/new - Start a new session.\n/stop - Stop the current turn.\n/status - Show the session state.\n/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\n/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\n/effects - Show the irreversible effects this session ran.\n/undo - Restore the workspace to the start of the last prompt.\n/diff [all] - Show what changed since the last prompt started; all: since the first prompt.\nOther text goes to the agent."
 
 # the text at index i of xs; "" past the end
 def gc_at(xs: List<&2, String>, i: Nat) -> String:
@@ -146,7 +149,7 @@ def gc_slash_first(ws: List<&2, String>) -> Bool:
     case w <> rest:
       gc_slash(w)
 
-# R4: the commands that take no argument, k = 0..6: their index in
+# R4: the commands that take no argument, k = 0..8: their index in
 # gc_names / gc_lines and the command
 def gc_plain_has(k: Nat) -> Bool:
   match k:
@@ -164,7 +167,11 @@ def gc_plain_has(k: Nat) -> Bool:
       True{}
     case 6n:
       True{}
-    case 7n+u:
+    case 7n:
+      True{}
+    case 8n:
+      True{}
+    case 9n+u:
       False{}
 
 def gc_plain_at(k: Nat) -> Nat:
@@ -183,7 +190,11 @@ def gc_plain_at(k: Nat) -> Nat:
       6n
     case 6n:
       7n
-    case 7n+u:
+    case 7n:
+      11n
+    case 8n:
+      12n
+    case 9n+u:
       0n
 
 def gc_plain_cmd(k: Nat) -> Gc.Cmd:
@@ -202,7 +213,11 @@ def gc_plain_cmd(k: Nat) -> Gc.Cmd:
       Gc.CStatus{}
     case 6n:
       Gc.CMemory{}
-    case 7n+u:
+    case 7n:
+      Gc.CEffects{}
+    case 8n:
+      Gc.CUndo{}
+    case 9n+u:
       Gc.CHelp{}
 
 # R4: an optional argument as words
@@ -212,6 +227,15 @@ def gc_opt(m: Maybe<&2, String>) -> List<&2, String>:
       Nil{}
     case Some{a}:
       [a]
+
+# R4: the words after `/diff` for its scope: none for since the last
+# prompt started, the word `all` for since the session's first prompt
+def gc_diff_words(all: Bool) -> List<&2, String>:
+  match all:
+    case False{}:
+      Nil{}
+    case True{}:
+      ["all"]
 
 # R8: the spelling of a request and of its reply
 
@@ -254,6 +278,16 @@ def gc_w_cmd(c: Gc.Cmd) -> String:
       Wr.put_nat(10n, gc_w_arg(m))
     case Gc.CRestart{}:
       Wr.put_nat(11n, "")
+    case Gc.CEffects{}:
+      Wr.put_nat(12n, "")
+    case Gc.CUndo{}:
+      Wr.put_nat(13n, "")
+    case Gc.CDiff{all}:
+      match all:
+        case False{}:
+          Wr.put_nat(14n, Wr.put_nat(0n, ""))
+        case True{}:
+          Wr.put_nat(14n, Wr.put_nat(1n, ""))
 
 def gc_w_out(o: Gc.Out) -> String:
   match o:
@@ -309,8 +343,8 @@ law gateway_commands_session:
 
 # LAW gateway_commands_plain (R3, R4): `/` then a name whose
 # ASCII-lowercased form is the k-th command that takes no argument (help,
-# sessions, latest, new, stop, status, memory) and no session command, with
-# no other word, is that command
+# sessions, latest, new, stop, status, memory, effects, undo) and no
+# session command, with no other word, is that command
 # EXCLUDES: a case-sensitive name, a command taken for another, a session
 #   name preferred to no session name
 law gateway_commands_plain:
@@ -536,6 +570,55 @@ law gateway_commands_restart_usage:
   for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
   {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{"Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."} : Gc.Out}
 
+# LAW gateway_commands_diff (R4): `/diff` (any ASCII case, no session
+# command) alone shows the changes since the last prompt started, with the
+# one word `all` as written those since the session's first prompt
+# EXCLUDES: the two scopes swapped, `/diff all` taken for the last prompt
+law gateway_commands_diff:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +all: Bool
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> gc_diff_words(all) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "diff" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OCommand{Gc.CDiff{all}} : Gc.Out}
+
+# LAW gateway_commands_diff_usage_word (R5): `/diff` with one word other
+# than `all` as written answers its usage line
+# EXCLUDES: any word taken for `all`, `ALL` taken for `all`
+law gateway_commands_diff_usage_word:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == [SCon{'/', name}, a] : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "diff" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  for other: {String.eq(a, "all") == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 13n))} : Gc.Out}
+
+# LAW gateway_commands_diff_usage_long (R5): `/diff` with two words or more
+# after it answers its usage line
+# EXCLUDES: extra words after `all` dropped
+law gateway_commands_diff_usage_long:
+  for +t: GatewayAnswer.GaText
+  for +sess: List<&2, String>
+  for +name: String
+  for +a: String
+  for +b: String
+  for +more: List<&2, String>
+  for +well: {GatewayAnswer.ga_well(t, True{}) == True{} : Bool}
+  for ws: {GatewayAnswer.ga_words_of(t) == SCon{'/', name} <> (a <> (b <> more)) : List<&2, String>}
+  for nm: {gc_name(name) == True{} : Bool}
+  for cmd: {String.to_lower(name) == "diff" : String}
+  for own: {gc_in(String.to_lower(name), sess) == False{} : Bool}
+  {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{String.append("Usage: ", gc_at(gc_lines(), 13n))} : Gc.Out}
+
 # LAW gateway_commands_lone_slash (R6, R7): a lone `/` (the empty name not a
 # session command) answers the help text
 # EXCLUDES: a missing or partial help text, a lone `/` sent to the agent
@@ -569,7 +652,7 @@ law gateway_commands_listing:
   {Gc.parse(GatewayAnswer.ga_spell(t), sess) == Gc.OAnswer{gc_listing(l <> ls)} : Gc.Out}
 
 # LAW gateway_commands_near (R6): the same name, when no command name
-# starts with it and the slash_suggest suggestion over the 11 names picks
+# starts with it and the slash_suggest suggestion over the 14 names picks
 # the j-th, answers `No command /<name>. Did you mean /<j-th name>?` and
 # `Not sent to the agent. Send / for all commands.` on a second line
 # EXCLUDES: a near miss named past the slash_suggest pick, a near miss sent
@@ -639,10 +722,13 @@ law gateway_commands_example:
 # uppercase name, a far miss, a blank text, a prefix of three commands,
 # extra spaces, `/stop` with a word, an uppercase `/Reasoning`, the prefix
 # `/m` of memory and model, `/model ALL 3` (only the word `all` as written),
-# the prefix `/re` of reasoning and restart, an uppercase `/Restart`
+# the prefix `/re` of reasoning and restart, an uppercase `/Restart`, the
+# prefixes `/e`, `/u` (use and undo) and `/d`, an uppercase `/Undo`,
+# `/diff all`, `/diff ALL` (only the word `all` as written), `/effects` and
+# `/undo` with a word, and `/undp` (one edit from `/undo`)
 # EXCLUDES: a code that drifts from these vectors
 law gateway_commands_more_example:
-  {[Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/Reasoning", []), Gc.parse("/m", []), Gc.parse("/model ALL 3", []), Gc.parse("/re", []), Gc.parse("/Restart", [])] == [Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CRestart{}}] : List<&2, Gc.Out>}
+  {[Gc.parse("/", []), Gc.parse("/he", []), Gc.parse("/use", []), Gc.parse("/tmp/x", []), Gc.parse("/xyz more words", []), Gc.parse("/HELP", []), Gc.parse("/xyz", []), Gc.parse(" \n", []), Gc.parse("/s", []), Gc.parse(" /use  a ", []), Gc.parse("/stop x", []), Gc.parse("/Reasoning", []), Gc.parse("/m", []), Gc.parse("/model ALL 3", []), Gc.parse("/re", []), Gc.parse("/Restart", []), Gc.parse("/e", []), Gc.parse("/u", []), Gc.parse("/d", []), Gc.parse("/Undo", []), Gc.parse("/diff all", []), Gc.parse("/diff ALL", []), Gc.parse("/effects x", []), Gc.parse("/undo now", []), Gc.parse("/undp", [])] == [Gc.OAnswer{gc_help()}, Gc.OAnswer{"/help - Show the commands.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /use N - Send messages to session N."}, Gc.OPrompt{}, Gc.OPrompt{}, Gc.OCommand{Gc.CHelp{}}, Gc.OAnswer{String.append("No command /xyz. Not sent to the agent.\n", gc_help())}, Gc.OPrompt{}, Gc.OAnswer{"/sessions - Show the newest sessions.\n/stop - Stop the current turn.\n/status - Show the session state.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUse{"a"}}, Gc.OAnswer{"Usage: /stop - Stop the current turn."}, Gc.OCommand{Gc.CReasoning{None{}}}, Gc.OAnswer{"/memory - Show the chat memory state.\n/model [all] [N] - Show the models; N switches to one; all N uses it for every role.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role."}, Gc.OAnswer{"/reasoning [level] - Show the thinking level; a level sets it.\n/restart - Restart the gateway on the installed eukhe version (applies a downloaded update).\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CRestart{}}, Gc.OAnswer{"/effects - Show the irreversible effects this session ran.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"/use N - Send messages to session N.\n/undo - Restore the workspace to the start of the last prompt.\nSend one of these. Send / for all commands."}, Gc.OAnswer{"/diff [all] - Show what changed since the last prompt started; all: since the first prompt.\nSend one of these. Send / for all commands."}, Gc.OCommand{Gc.CUndo{}}, Gc.OCommand{Gc.CDiff{True{}}}, Gc.OAnswer{"Usage: /diff [all] - Show what changed since the last prompt started; all: since the first prompt."}, Gc.OAnswer{"Usage: /effects - Show the irreversible effects this session ran."}, Gc.OAnswer{"Usage: /undo - Restore the workspace to the start of the last prompt."}, Gc.OAnswer{"No command /undp. Did you mean /undo?\nNot sent to the agent. Send / for all commands."}] : List<&2, Gc.Out>}
 
 # Laws: the entry (R8)
 # --------------------
@@ -691,8 +777,9 @@ law gateway_commands_entry_refuses:
 # usage answer, a session command, a prompt; input left over and a
 # malformed request; `/model` without and with its argument, `/reasoning`
 # with its argument, a `/model` usage answer; `/model all` without and
-# with its argument; `/restart` and its usage answer
+# with its argument; `/restart` and its usage answer; `/effects`, `/undo`,
+# `/diff`, `/diff all` and a `/diff` usage answer
 # EXCLUDES: a field order other than Rust's, another reply spelling
 law gateway_commands_entry_example:
-  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,"), FGc.ffi("8,/restart0,"), FGc.ffi("12,/restart now0,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3", "0,11,", "1,99,Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."] : List<&2, String>}
+  {[FGc.ffi("5,/help0,"), FGc.ffi("6,/use 30,"), FGc.ffi("4,/use0,"), FGc.ffi("8,/compact1,7,compact"), FGc.ffi("2,hi0,"), FGc.ffi("5,/help0,x"), FGc.ffi("x"), FGc.ffi("6,/model0,"), FGc.ffi("8,/model 20,"), FGc.ffi("15,/reasoning high0,"), FGc.ffi("10,/model 2 30,"), FGc.ffi("10,/model all0,"), FGc.ffi("12,/model all 30,"), FGc.ffi("8,/restart0,"), FGc.ffi("12,/restart now0,"), FGc.ffi("8,/effects0,"), FGc.ffi("5,/undo0,"), FGc.ffi("5,/diff0,"), FGc.ffi("9,/diff all0,"), FGc.ffi("10,/diff some0,")] == ["0,0,", "0,2,1,3", "1,43,Usage: /use N - Send messages to session N.", "2,", "2,", Wr.err("gateway_commands: malformed request"), Wr.err("gateway_commands: malformed request"), "0,8,0,", "0,8,1,1,2", "0,9,1,4,high", "1,91,Usage: /model [all] [N] - Show the models; N switches to one; all N uses it for every role.", "0,10,0,", "0,10,1,1,3", "0,11,", "1,99,Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update).", "0,12,", "0,13,", "0,14,0,", "0,14,1,", "1,98,Usage: /diff [all] - Show what changed since the last prompt started; all: since the first prompt."] : List<&2, String>}
 
