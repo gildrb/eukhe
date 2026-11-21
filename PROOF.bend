@@ -4377,6 +4377,7 @@ import ./proof/loop/loop_prompt_takes_turn.bend as PLoopPromptTakesTurn
 import ./proof/loop/loop_prompt_clears_failures.bend as PLoopPromptClearsFailures
 import ./proof/loop/loop_deadline_bounds.bend as PLoopDeadlineBounds
 import ./proof/loop/loop_good_turn_forgives.bend as PLoopGoodTurnForgives
+import ./proof/loop/loop_good_turn_starts_over.bend as PLoopGoodTurnStartsOver
 import ./proof/loop/loop_failed_turn_counts.bend as PLoopFailedTurnCounts
 import ./proof/loop/loop_failed_turn_goes_on.bend as PLoopFailedTurnGoesOn
 import ./proof/loop/loop_failed_turn_stops.bend as PLoopFailedTurnStops
@@ -4386,13 +4387,16 @@ import ./proof/loop/loop_unfunded_stops.bend as PLoopUnfundedStops
 import ./proof/loop/loop_spent_stops.bend as PLoopSpentStops
 import ./proof/loop/loop_late_stops.bend as PLoopLateStops
 import ./proof/loop/loop_inside_continues.bend as PLoopInsideContinues
-import ./proof/loop/loop_halted_turn_pauses.bend as PLoopHaltedTurnPauses
-import ./proof/loop/loop_halted_turn_keeps.bend as PLoopHaltedTurnKeeps
+import ./proof/loop/loop_only_interrupt_pauses.bend as PLoopOnlyInterruptPauses
+import ./proof/loop/loop_failed_turn_never_waits.bend as PLoopFailedTurnNeverWaits
 import ./proof/loop/loop_abort_pauses.bend as PLoopAbortPauses
 import ./proof/loop/loop_paused_waits.bend as PLoopPausedWaits
 import ./proof/loop/loop_report_names_the_end.bend as PLoopReportNamesTheEnd
 import ./proof/loop/loop_end_keeps_iteration.bend as PLoopEndKeepsIteration
 import ./proof/loop/loop_restart_changes_nothing.bend as PLoopRestartChangesNothing
+import ./proof/loop/loop_take_up_resumes.bend as PLoopTakeUpResumes
+import ./proof/loop/loop_take_up_judges.bend as PLoopTakeUpJudges
+import ./proof/loop/loop_take_up_continues.bend as PLoopTakeUpContinues
 import ./proof/loop/loop_restart_resumes_submit.bend as PLoopRestartResumesSubmit
 import ./proof/loop/loop_restart_resumes_adopted.bend as PLoopRestartResumesAdopted
 import ./proof/loop/loop_restart_rejudges.bend as PLoopRestartRejudges

@@ -331,8 +331,6 @@ def le.r_out(o: Lp.Out, -rest: String) -> {FLp.get_out(LoopEntry.lp_spell_out(o,
       {==}
     case Lp.Errored{}:
       {==}
-    case Lp.Halted{}:
-      {==}
 
 # an event that fits
 def le.r_ev(e: Lp.Ev, +rest: String, h: {LoopEntry.lp_ev_fits(e) == True{} : Bool}) -> {FLp.get_ev(LoopEntry.lp_spell_ev(e, rest)) == Wr.Got{e, rest} : Wr.Dec<Lp.Ev>}:

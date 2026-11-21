@@ -1,20 +1,26 @@
 //! The loop's run-end observer: a run that ends without a final answer
 //! never reaches `on_yield`, so a post-commit observer tells the loop.
 //!
-//! - An aborted run (the user's interrupt, or any other abort of the
-//!   session) is the loop's interrupt: the loop pauses. The abort a manual
-//!   compaction makes is not one: the compaction holds the loop first
-//!   ([`super::hold_loop_for_compaction`]) and sends the cut turn again;
-//!   the cut turn's end, seen after the compaction already released the
-//!   loop, is known by its request id and still no interrupt.
-//! - A run that failed (a terminal provider failure, no model, a fault,
-//!   the run limit) is a failed turn: the compiled core counts it and, under
-//!   the cap of failed turns in a row, the loop goes on (the check, then
-//!   the next iteration as a submission).
+//! - A run that ended without an answer (it failed: a terminal provider
+//!   failure, no model, a fault, the run limit; or an abort) is a failed
+//!   turn: the compiled core counts it and, under the cap of failed turns
+//!   in a row, the loop goes on (the check, then the next iteration as a
+//!   submission). The user's interrupt never reaches here as one: it
+//!   pauses the loop before it aborts the run ([`super::interrupt_loop`]),
+//!   and a paused loop has nothing to take up. Every other abort (a
+//!   session replaced, a tree move, a host that stopped a hung worker's
+//!   run) is no interrupt of the user's.
+//! - The abort a manual compaction makes is no failed turn either: the
+//!   compaction holds the loop first ([`super::hold_loop_for_compaction`])
+//!   and sends the cut turn again; the cut turn's end, seen after the
+//!   compaction already released the loop, is known by its request id.
+//! - The abort of a session that closes leaves the loop as it is: the
+//!   reopened session takes the turn up.
 //!
 //! At open the observer takes up a loop whose pending work nothing carries
 //! any more (a worker that died between the state and the submission of an
-//! iteration, or in the condition command of a failed turn).
+//! iteration, in the condition command of a failed turn, or while its run
+//! ended without an answer).
 
 use std::sync::Arc;
 
@@ -28,6 +34,7 @@ use futures::FutureExt;
 
 use super::docs::{LoopDoc, LOOP_MODE_DOC};
 use super::drive::{turn_request_id, Input, LoopHost, Mode};
+use crate::durable::deps::SessionClosing;
 use crate::durable::goals::read_doc;
 use crate::durable::{HostDeps, OpenedSession, ServiceStop};
 
@@ -74,12 +81,14 @@ fn ended_run(publication: &CommitPublication) -> Option<EndedRun> {
 /// Start the observer when the session opens.
 pub(super) fn install(deps: &Arc<HostDeps>, host: &LoopHost) {
     let host = host.clone();
-    deps.add_service(Box::new(move |opened| start(opened, host)));
+    let closing = deps.closing.clone();
+    deps.add_service(Box::new(move |opened| start(opened, host, closing)));
 }
 
 fn start(
     opened: OpenedSession,
     host: LoopHost,
+    closing: SessionClosing,
 ) -> futures::future::BoxFuture<'static, SessionResult<Option<ServiceStop>>> {
     async move {
         let (events, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<EndedRun>();
@@ -104,7 +113,7 @@ fn start(
                 tokio::select! {
                     run = event_rx.recv() => {
                         let Some(run) = run else { break };
-                        run_ended(&host, &harness, run).await;
+                        run_ended(&host, &closing, &harness, run).await;
                     }
                     () = task_close.notified() => break,
                 }
@@ -154,23 +163,27 @@ fn cut_turn(doc: &LoopDoc, run: &EndedRun) -> bool {
     })
 }
 
-/// Tell the loop that a run ended without an answer; a failure is logged
-/// (the loop stays as it is, visible in its status).
-async fn run_ended(host: &LoopHost, harness: &Harness, run: EndedRun) {
+/// Tell the loop that a run ended without an answer: a failed turn, unless
+/// a compaction cut it or the session closes. A failure is logged (the
+/// loop stays as it is, visible in its status).
+async fn run_ended(host: &LoopHost, closing: &SessionClosing, harness: &Harness, run: EndedRun) {
     let cx = BACKGROUND_CONTEXT.clone();
     let handled = async {
+        // The close aborted the run: the reopened session takes it up.
+        if closing.begun().await {
+            return Ok(());
+        }
         // A withdrawn queued input ends no run: the loop's turn still runs.
         let Some(doc) = stranded(harness, run.conversation_id, &cx).await? else {
             return Ok(());
         };
+        // The compaction that cut the turn sends it again.
+        if run.aborted && (doc.held || cut_turn(&doc, &run)) {
+            return Ok(());
+        }
         let conversation = host.conversation(run.conversation_id, &cx).await?;
-        let input = match (run.aborted, doc.held || cut_turn(&doc, &run)) {
-            // The compaction that cut the turn sends it again.
-            (true, true) => return Ok(()),
-            (true, false) => Input::Abort,
-            (false, _) => Input::TurnSettled(TurnOutcome::Errored),
-        };
-        host.drive(&conversation, input, Mode::Idle, None, &cx)
+        let failed = Input::TurnSettled(TurnOutcome::Errored);
+        host.drive(&conversation, failed, Mode::Idle, None, &cx)
             .await?;
         Ok(())
     };
@@ -182,7 +195,8 @@ async fn run_ended(host: &LoopHost, harness: &Harness, run: EndedRun) {
 
 /// At open: a loop with pending work that nothing carries takes it up (the
 /// core's `Restart`): a check runs again; a turn whose prompt never was
-/// sent is sent; a turn that is over pauses the loop.
+/// sent is sent; a turn that is over settles as its record says (ran or
+/// failed), and the loop goes on.
 async fn take_up(host: &LoopHost, harness: &Harness, conversation_id: ConversationId) {
     let cx = BACKGROUND_CONTEXT.clone();
     let handled = async {

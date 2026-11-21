@@ -40,7 +40,7 @@ pub use self::docs::{LoopDoc, LOOP_MODE_DOC};
 pub use self::watch::{watch_loop_updates, LoopUpdates};
 
 use self::args::{parse_loop_command, resolve_condition, status_message, LoopCommand};
-use self::drive::{decide, Input, LoopHost, Mode};
+use self::drive::{decide, Facts, Input, LoopHost, Mode};
 use super::acceptance::ModelJudge;
 use super::goals::{open_doc, read_doc, write_doc};
 use super::HostDeps;
@@ -259,8 +259,36 @@ pub(crate) async fn execute_loop_command(
         .unwrap_or_else(|| "Loop mode disabled.".to_owned()))
 }
 
+/// The user's interrupt (Esc, the abort command), before it aborts the
+/// run: a loop with a turn or a check in flight pauses (the core's
+/// `Abort`) until the user sends a prompt or `/loop`. Only this pauses a
+/// loop; the end of the run the interrupt aborts then finds the loop
+/// paused and changes nothing. Any other abort of the run is a failed
+/// turn of the loop.
+///
+/// # Errors
+///
+/// Read or commit failures.
+pub async fn interrupt_loop(
+    harness: &Harness,
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<()> {
+    let pending = read_doc(harness, &LOOP_MODE_DOC, conversation.id(), cx)
+        .await?
+        .is_some_and(|doc| matches!(doc.state.phase, LoopPhase::Turn | LoopPhase::Judging));
+    if pending {
+        let facts = Facts {
+            blocked: false,
+            funded: true,
+        };
+        decide(conversation, Input::Abort, facts, Mode::Idle, true, cx).await?;
+    }
+    Ok(())
+}
+
 /// Before a manual compaction aborts the run: a loop with a turn in
-/// flight is held, so the abort is not read as the user's interrupt.
+/// flight is held, so the abort is not read as a failed turn.
 /// Returns whether a loop is held.
 ///
 /// # Errors

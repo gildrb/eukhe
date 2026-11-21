@@ -25,6 +25,9 @@ import ../../spec/loop/loop.bend as S
 #      condition, and no word of it becomes a command.
 #                     loop_command_needs_quote_or_lookup,
 #                     loop_words_stay_words
+#      `/loop --status` shows the loop: Rust reads the stored state, no
+#      decision of the model; tested by the_status_says_why_the_loop_still_runs
+#      (crates/eukhe-core/src/durable/loop_mode/tests.rs).
 #   L2 every automatic iteration sends the loop's prompt, byte for byte;
 #      a prompt the user sends while the loop is on becomes the prompt
 #      from then on and spends nothing of the count.
@@ -57,11 +60,15 @@ import ../../spec/loop/loop.bend as S
 #                     loop_late_stops, loop_inside_continues,
 #                     loop_enter_sets_bounds, loop_keeps_deadline,
 #                     loop_count_conserved, loop_uncounted_stays,
-#                     loop_prompt_clears_failures
-#   L5 after the user's interrupt no turn and no check starts until the
-#      user acts again; a turn that did not run to its end pauses the loop.
-#                     loop_abort_holds, loop_halted_turn_pauses,
-#                     loop_halted_turn_keeps,
+#                     loop_prompt_clears_failures, loop_failed_turn_never_waits,
+#                     loop_good_turn_starts_over
+#   L5 only the user's interrupt pauses the loop: after it no turn and no
+#      check starts until the user acts again. A turn that failed (its run
+#      failed, its submission was refused or consumed locally, an abort
+#      that is not the user's interrupt cut it) counts as a failed turn
+#      under the cap of L4 and never leaves the loop waiting for the user.
+#                     loop_only_interrupt_pauses,
+#                     loop_failed_turn_never_waits, loop_abort_holds,
 #                     loop_abort_pauses, loop_paused_waits,
 #                     loop_stale_turn_ignored, loop_stale_check_ignored
 #   L6 a loop ends once: it reports its end once, and after the end (or
@@ -70,9 +77,12 @@ import ../../spec/loop/loop.bend as S
 #                     loop_report_names_the_end, loop_end_keeps_iteration
 #   L7 a restart resumes the same loop at the same iteration: it changes
 #      nothing and takes up the work that was pending (the turn in flight,
-#      never sent twice; the check); an event delivered twice is a no-op
-#      the second time; no event but a new `/loop` changes the condition.
-#                     loop_restart_changes_nothing,
+#      never sent twice; the check); a turn it finds over settles as one
+#      that ran or failed, and the loop goes on; an event delivered twice
+#      is a no-op the second time; no event but a new `/loop` changes the
+#      condition.
+#                     loop_restart_changes_nothing, loop_take_up_resumes,
+#                     loop_take_up_judges, loop_take_up_continues,
 #                     loop_restart_resumes_submit,
 #                     loop_restart_resumes_adopted, loop_restart_rejudges,
 #                     loop_restart_idle_rests, loop_redelivery_is_noop,
@@ -221,7 +231,6 @@ law loop_settled_turn_is_judged:
   for now: Nat
   for fu: Bool
   for hc: {S.has_cond(c) == True{} : Bool}
-  for ho: {S.out_halted(o) == False{} : Bool}
   {(S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, o, False{}, now, fu}), S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, o, False{}, now, fu}))) == (Lp.Judge{i}, Lp.Judging{}) : Lp.Act & Lp.Phase}
 
 # LAW loop_settled_turn_awaits_its_check (L3, L7): when the turn of a loop
@@ -352,15 +361,18 @@ law loop_enter_first_turn:
   {(S.does(s, Lp.Enter{lim, c, Some{t}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, Some{t}, now})), (S.body(S.next(s, Lp.Enter{lim, c, Some{t}, now})), S.cond(S.next(s, Lp.Enter{lim, c, Some{t}, now}))))) == (Lp.Submit{1n, t}, (Lp.Turn{}, (t, c))) : Lp.Act & (Lp.Phase & (String & Lp.Cond))}
 
 # LAW loop_enter_arms (L1): `/loop` with no inline prompt, when no loop is
-# on, starts nothing: the new loop is armed with the given condition
-# EXCLUDES: an empty prompt sent, the loop left off
+# on, starts nothing: the new loop is armed with the given condition and
+# holds no prompt yet (the empty prompt): its prompt is the next one the
+# user sends, never one of an earlier loop
+# EXCLUDES: an empty prompt sent, the loop left off, the prompt of an
+#   earlier loop kept as the new loop's
 law loop_enter_arms:
   for +s: Lp.St
   for lim: Lp.Limit
   for c: Lp.Cond
   for now: Nat
   for off: {S.is_on(S.phase(s)) == False{} : Bool}
-  {(S.does(s, Lp.Enter{lim, c, None{}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, None{}, now})), S.cond(S.next(s, Lp.Enter{lim, c, None{}, now})))) == (Lp.Rest{}, (Lp.Armed{}, c)) : Lp.Act & (Lp.Phase & Lp.Cond)}
+  {(S.does(s, Lp.Enter{lim, c, None{}, now}), (S.phase(S.next(s, Lp.Enter{lim, c, None{}, now})), (S.cond(S.next(s, Lp.Enter{lim, c, None{}, now})), S.body(S.next(s, Lp.Enter{lim, c, None{}, now}))))) == (Lp.Rest{}, (Lp.Armed{}, (c, ""))) : Lp.Act & (Lp.Phase & (Lp.Cond & String))}
 
 # LAW loop_enter_sets_bounds (L1, L4): the loop `/loop` starts, when no
 # loop is on, has the bound that was typed: a count n leaves exactly n
@@ -544,6 +556,25 @@ law loop_good_turn_forgives:
   for now: Nat
   for fu: Bool
   {S.fails(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Ran{}, False{}, now, fu})) == 0n : Nat}
+
+# LAW loop_good_turn_starts_over (L4): a turn of the loop that ran to its
+# end decides what follows (the state stored and the act) exactly as if
+# no failed turn had been counted before it, whatever count the stored
+# state holds
+# EXCLUDES: a loop ended "too many failed turns in a row" right after a
+#   turn that ran (the cap checked on the count before the turn), a good
+#   turn that keeps any trace of the failures before it
+law loop_good_turn_starts_over:
+  for +i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for fu: Bool
+  {Lp.step(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Ran{}, False{}, now, fu}) == Lp.step(Lp.St{Lp.Turn{}, i, l, d, c, b, 0n, x}, Lp.Settled{i, Lp.Ran{}, False{}, now, fu}) : Lp.St & Lp.Act}
 
 # LAW loop_failed_turn_counts (L4): a turn of a loop with a condition
 # that failed counts as exactly one more failed turn in a row, and the
@@ -758,41 +789,44 @@ law loop_inside_continues:
 # Laws: the interrupt (L5)
 # ------------------------
 
-# LAW loop_halted_turn_pauses (L5): a turn of the loop that did not run to
-# its end (refused, consumed locally, interrupted by the user) pauses the
-# loop and starts nothing
-# EXCLUDES: a refused prompt re-sent after every yield, an interrupted
-#   turn followed by the next iteration
-law loop_halted_turn_pauses:
-  for i: Nat
-  for l: Maybe<&2, Nat>
-  for d: Maybe<&2, Nat>
-  for c: Lp.Cond
-  for b: String
-  for f: Nat
-  for x: Lp.Last
-  for now: Nat
-  for fu: Bool
-  {(S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}), S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}))) == (Lp.Rest{}, Lp.Paused{}) : Lp.Act & Lp.Phase}
+# LAW loop_only_interrupt_pauses (L5): the user's interrupt is the one
+# event that pauses a loop: from a state that is not paused, the next
+# state is paused exactly when the event is the user's interrupt of a loop
+# that is on; no settled turn (ran or failed: a failed run, a refused or
+# locally consumed submission, an abort that is not the user's), judged
+# check, restart, prompt, stop or `/loop` pauses it
+# EXCLUDES: a refused submission, a failed turn, a close's or a restart's
+#   abort, or a turn a restart found over, that pauses the loop until the
+#   user comes back; an interrupt that leaves a running loop unpaused; an
+#   interrupt that revives a loop that is off or ended as paused
+law loop_only_interrupt_pauses:
+  for +s: Lp.St
+  for +e: Lp.Ev
+  for np: {S.is_paused(S.phase(s)) == False{} : Bool}
+  {S.is_paused(S.phase(S.next(s, e))) == Bool.and(S.is_abort(e), S.is_on(S.phase(s))) : Bool}
 
-# LAW loop_halted_turn_keeps (L5): the loop that a turn which did not run
-# to its end paused keeps its iteration, its count left, its deadline,
-# its condition, its failed turns and its evidence, so the next prompt
-# resumes it as the next iteration
-# EXCLUDES: a halted turn that skips or spends an iteration, refills or
-#   drops the count or the deadline, forgets the condition or the
-#   evidence, or counts a failure
-law loop_halted_turn_keeps:
+# LAW loop_failed_turn_never_waits (L4, L5): a turn of the loop that failed
+# (its run failed, its submission was refused or consumed locally, an
+# abort that is not the user's interrupt cut it) in an idle session never
+# leaves the loop waiting for the user: the loop counts one more failed
+# turn and either judges (stored judging, the check asked), sends an
+# iteration (stored in a turn, a submission asked; loop_failed_turn_goes_on
+# pins it to the next one) or ends (stored ended, the end reported)
+# EXCLUDES: a refused submission that pauses the loop or arms it again for
+#   a new prompt (even while it asks for the next iteration), a failed
+#   turn after which the loop rests in its turn (nothing more ever
+#   happens), a failed turn that is not counted
+law loop_failed_turn_never_waits:
   for i: Nat
   for l: Maybe<&2, Nat>
   for d: Maybe<&2, Nat>
-  for c: Lp.Cond
+  for +c: Lp.Cond
   for b: String
   for f: Nat
   for x: Lp.Last
   for now: Nat
   for fu: Bool
-  {(S.iter(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.left(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.deadline(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.cond(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), (S.fails(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu})), S.last(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Halted{}, False{}, now, fu}))))))) == (i, (l, (d, (c, (f, x))))) : Nat & (Maybe<&2, Nat> & (Maybe<&2, Nat> & (Lp.Cond & (Nat & Lp.Last))))}
+  {(S.moves_on(S.phase(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, fu})), S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, fu})), S.fails(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Settled{i, Lp.Errored{}, False{}, now, fu}))) == (True{}, 1n+f) : Bool & Nat}
 
 # LAW loop_abort_pauses (L5): the user's interrupt of a loop that is on
 # pauses it and starts nothing; the loop stays on at the same iteration
@@ -920,6 +954,65 @@ law loop_restart_idle_rests:
   for +s: Lp.St
   for h: {Bool.or(S.is_turn(S.phase(s)), S.is_judging(S.phase(s))) == False{} : Bool}
   {S.does(s, Lp.Restart{}) == Lp.Rest{} : Lp.Act}
+
+# LAW loop_take_up_resumes (L5, L7): a restart in the turn of iteration i,
+# whatever the condition and the failed turns, takes that turn up
+# (Resume, the same prompt) and changes nothing: it never pauses the loop
+# or leaves the turn waiting
+# EXCLUDES: a restart that pauses a loop in its turn or rests there (a
+#   crashed loop whose turn is never taken up), a take-up that resends
+#   another iteration or another prompt
+law loop_take_up_resumes:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  {(S.does(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Restart{}), S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Restart{})) == (Lp.Resume{i, b}, Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}) : Lp.Act & Lp.St}
+
+# LAW loop_take_up_judges (L5, L7): in a loop with a condition, a turn of
+# iteration i the take-up after a restart finds over (it settled while no
+# worker carried the loop) settles, ran or failed as its record says,
+# like any settled turn, whatever the failed turns before it: the loop is
+# stored judging iteration i, its failed turns cleared (ran) or one more
+# (failed), and asks that check
+# EXCLUDES: a taken-up turn that pauses the loop, rests in its turn, skips
+#   the check, or reads a failed turn as one that ran (the cap of failed
+#   turns never reached)
+law loop_take_up_judges:
+  for i: Nat
+  for l: Maybe<&2, Nat>
+  for d: Maybe<&2, Nat>
+  for +c: Lp.Cond
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for fu: Bool
+  for hc: {S.has_cond(c) == True{} : Bool}
+  {Lp.step(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Restart{}), Lp.Settled{i, Lp.Ran{}, False{}, now, fu}) == (Lp.St{Lp.Judging{}, i, l, d, c, b, 0n, x}, Lp.Judge{i}) : Lp.St & Lp.Act} &
+  {Lp.step(S.next(Lp.St{Lp.Turn{}, i, l, d, c, b, f, x}, Lp.Restart{}), Lp.Settled{i, Lp.Errored{}, False{}, now, fu}) == (Lp.St{Lp.Judging{}, i, l, d, c, b, 1n+f, x}, Lp.Judge{i}) : Lp.St & Lp.Act}
+
+# LAW loop_take_up_continues (L5, L7): in a loop with no condition, no
+# count and no deadline, with fewer than two failed turns in a row and a
+# funded budget, a turn of iteration i the take-up after a restart finds
+# over settles, ran or failed as its record says: the loop is stored in
+# the turn of iteration 1 + i with the same prompt, its failed turns
+# cleared (ran) or one more (failed), and sends it
+# EXCLUDES: a taken-up turn that pauses the loop or waits for a user who
+#   is not there, sends iteration i again, or reads a failed turn as one
+#   that ran
+law loop_take_up_continues:
+  for i: Nat
+  for b: String
+  for f: Nat
+  for x: Lp.Last
+  for now: Nat
+  for hf: {Nat.is_lt(f, 2n) == True{} : Bool}
+  {Lp.step(S.next(Lp.St{Lp.Turn{}, i, None{}, None{}, Lp.NoCond{}, b, f, x}, Lp.Restart{}), Lp.Settled{i, Lp.Ran{}, False{}, now, True{}}) == (Lp.St{Lp.Turn{}, 1n+i, None{}, None{}, Lp.NoCond{}, b, 0n, x}, Lp.Submit{1n+i, b}) : Lp.St & Lp.Act} &
+  {Lp.step(S.next(Lp.St{Lp.Turn{}, i, None{}, None{}, Lp.NoCond{}, b, f, x}, Lp.Restart{}), Lp.Settled{i, Lp.Errored{}, False{}, now, True{}}) == (Lp.St{Lp.Turn{}, 1n+i, None{}, None{}, Lp.NoCond{}, b, 1n+f, x}, Lp.Submit{1n+i, b}) : Lp.St & Lp.Act}
 
 # LAW loop_redelivery_is_noop (L7): an event that may be delivered twice
 # after a crash (S.once: a stop, an abort, a settled turn or a judged

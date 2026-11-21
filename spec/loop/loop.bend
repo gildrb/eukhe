@@ -5,7 +5,8 @@
 # the shipped code never calls it.
 #
 # S1: a loop is on from `/loop` until it ends: armed (waiting for the
-#     prompt), in a turn, judging (the condition command runs) or paused.
+#     prompt), in a turn, judging (the condition command runs) or paused
+#     (after the user's interrupt: nothing else pauses it).
 # S2: an automatic iteration is a turn the loop starts by itself (Submit).
 #     The user's own acts are `/loop` (Enter) and a prompt (Prompt); a
 #     history with neither is unattended.
@@ -172,6 +173,22 @@ def is_satisfied(p: Lp.Phase) -> Bool:
     case Lp.Ended{w}:
       end_is_satisfied(w)
 
+# the loop is paused: it waits for the user after their interrupt
+def is_paused(p: Lp.Phase) -> Bool:
+  match p:
+    case Lp.Off{}:
+      False{}
+    case Lp.Armed{}:
+      False{}
+    case Lp.Turn{}:
+      False{}
+    case Lp.Judging{}:
+      False{}
+    case Lp.Paused{}:
+      True{}
+    case Lp.Ended{w}:
+      False{}
+
 # S2: events and histories
 # ------------------------
 
@@ -206,6 +223,24 @@ def is_judged(e: Lp.Ev) -> Bool:
       False{}
     case Lp.Judged{k, ev, b, now, fu}:
       True{}
+    case Lp.Restart{}:
+      False{}
+
+# the user's interrupt (Esc, the abort command)
+def is_abort(e: Lp.Ev) -> Bool:
+  match e:
+    case Lp.Enter{lim, c, pr, now}:
+      False{}
+    case Lp.Stop{}:
+      False{}
+    case Lp.Abort{}:
+      True{}
+    case Lp.Prompt{t}:
+      False{}
+    case Lp.Settled{k, o, b, now, fu}:
+      False{}
+    case Lp.Judged{k, ev, b, now, fu}:
+      False{}
     case Lp.Restart{}:
       False{}
 
@@ -249,17 +284,6 @@ def out_ran(o: Lp.Out) -> Bool:
       True{}
     case Lp.Errored{}:
       False{}
-    case Lp.Halted{}:
-      False{}
-
-def out_halted(o: Lp.Out) -> Bool:
-  match o:
-    case Lp.Ran{}:
-      False{}
-    case Lp.Errored{}:
-      False{}
-    case Lp.Halted{}:
-      True{}
 
 # a turn that ran to its end settled
 def is_ran(e: Lp.Ev) -> Bool:
@@ -612,6 +636,41 @@ def is_rest(a: Lp.Act) -> Bool:
       False{}
     case Lp.Defer{}:
       False{}
+
+def is_judge(a: Lp.Act) -> Bool:
+  match a:
+    case Lp.Rest{}:
+      False{}
+    case Lp.Submit{i, t}:
+      False{}
+    case Lp.Adopt{i}:
+      False{}
+    case Lp.Judge{i}:
+      True{}
+    case Lp.Resume{i, t}:
+      False{}
+    case Lp.Report{w}:
+      False{}
+    case Lp.Defer{}:
+      False{}
+
+# the loop moves on by itself, waiting for no one: stored in a turn, it
+# sends the iteration; judging, it asks the check; ended, it reports the
+# end. Armed, paused or off it moves on to nothing.
+def moves_on(p: Lp.Phase, a: Lp.Act) -> Bool:
+  match p:
+    case Lp.Off{}:
+      False{}
+    case Lp.Armed{}:
+      False{}
+    case Lp.Turn{}:
+      is_submit(a)
+    case Lp.Judging{}:
+      is_judge(a)
+    case Lp.Paused{}:
+      False{}
+    case Lp.Ended{w}:
+      is_report(a)
 
 # Histories
 # ---------

@@ -17,7 +17,7 @@
 #   Phase   = tag 0 Off | 1 Armed | 2 Turn | 3 Judging | 4 Paused
 #             | 5 Ended (why: End)
 #   Limit   = tag 0 NoLimit | 1 Count (n: Nat) | 2 Span (ms: Nat)
-#   Out     = tag 0 Ran | 1 Errored | 2 Halted
+#   Out     = tag 0 Ran | 1 Errored
 #   Last    = tag 0 NoCheck | 1 Check (at: Nat, ev: Evid)
 #   St      = a record (phase: Phase, iter: Nat, left: Maybe<Nat>,
 #             deadline: Maybe<Nat>, cond: Cond, body: String, fails: Nat,
@@ -496,9 +496,7 @@ def get_out.tag(t: Nat, s: String) -> W.Dec<M.Out>:
       W.Got{M.Ran{}, s}
     case 1n:
       W.Got{M.Errored{}, s}
-    case 2n:
-      W.Got{M.Halted{}, s}
-    case 3n+x:
+    case 2n+x:
       W.Bad{}
 
 def get_out.go(d: W.Dec<Nat>) -> W.Dec<M.Out>:

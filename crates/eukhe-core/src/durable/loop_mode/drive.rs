@@ -8,6 +8,9 @@
 //! submission), and a prompt sent as the continuation of a final answer is
 //! recorded with the answering generation task, so a rerun of that task
 //! repeats the continuation instead of deciding again.
+//!
+//! Nothing here pauses a loop: a submission the session refuses, and a
+//! turn a take-up finds over without an answer, are failed turns.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,14 +18,16 @@ use std::sync::Arc;
 use eukhe_bend::rules::loop_mode::{step, LoopAct, LoopEvent, TurnOutcome};
 use eukhe_bend::rules::verify::Answer;
 use eukhe_chord::context::Context;
-use eukhe_durable::entries::ASSISTANT_ENTRY;
+use eukhe_durable::entries::{ASSISTANT_ENTRY, USER_ENTRY};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::types::{ConversationId, TaskId};
+use eukhe_durable::types::{ConversationId, SubmissionStatus, TaskId};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::loop_mode::{LoopCondition, LoopEnd, LoopEvidence, LoopLimit, LoopPhase};
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, UserContent};
+use eukhe_types::pi_ai::{
+    AssistantContentBlock, AssistantMessage, Message, StopReason, UserContent,
+};
 use serde_json::json;
 
 use super::args::{enabled_message, end_message, CONDITION_TIMEOUT_MS};
@@ -469,8 +474,9 @@ impl LoopHost {
     }
 
     /// Send iteration `iteration` as a submission of `doc`'s loop: the
-    /// request id names it, so a second send queues nothing. Returns
-    /// whether that submission is already settled (its turn is over).
+    /// request id names it, so a second send queues nothing. Returns how
+    /// that submission's turn settled when it already did, as its record
+    /// says: answered, it ran; unanswered, it failed.
     async fn send(
         &self,
         conversation: &Conversation,
@@ -478,7 +484,7 @@ impl LoopHost {
         iteration: u64,
         text: String,
         cx: &Context,
-    ) -> SessionResult<bool> {
+    ) -> SessionResult<Option<TurnOutcome>> {
         let request_id = turn_request_id(doc, iteration, doc.resends);
         let submission = conversation
             .submit(
@@ -492,7 +498,11 @@ impl LoopHost {
                 cx,
             )
             .await?;
-        Ok(submission.status(cx).await?.state.is_settled())
+        Ok(match submission.status(cx).await?.state.status() {
+            SubmissionStatus::Queued | SubmissionStatus::Placed => None,
+            SubmissionStatus::Done => Some(TurnOutcome::Ran),
+            SubmissionStatus::Unanswered => Some(TurnOutcome::Errored),
+        })
     }
 
     /// Decide on `input`, then carry out every act it leads to: check the
@@ -532,22 +542,30 @@ impl LoopHost {
                         output,
                     };
                 }
-                LoopAct::Submit { iteration, text } => {
-                    return match mode {
-                        Mode::Yield(_) => Ok(Some((text, InputOrigin::Loop { iteration }))),
-                        Mode::Idle => {
-                            self.start(conversation, &doc, iteration, text, cx).await?;
-                            Ok(None)
+                LoopAct::Submit { iteration, text } => match mode {
+                    Mode::Yield(_) => return Ok(Some((text, InputOrigin::Loop { iteration }))),
+                    Mode::Idle => match self.send(conversation, &doc, iteration, text, cx).await {
+                        // A fresh submission that settles tells the loop
+                        // through the run-end observer.
+                        Ok(_) => return Ok(None),
+                        Err(error) => {
+                            refused(iteration, &error);
+                            input = Input::TurnSettled(TurnOutcome::Errored);
                         }
-                    };
-                }
-                LoopAct::Resume { iteration, text } => {
-                    if mode == Mode::Idle {
-                        self.take_up_turn(conversation, &doc, iteration, text, cx)
-                            .await?;
+                    },
+                },
+                LoopAct::Resume { iteration, text } => match mode {
+                    Mode::Yield(_) => return Ok(None),
+                    Mode::Idle => {
+                        match self
+                            .take_up_turn(conversation, &doc, iteration, text, cx)
+                            .await?
+                        {
+                            Some(outcome) => input = Input::TurnSettled(outcome),
+                            None => return Ok(None),
+                        }
                     }
-                    return Ok(None);
-                }
+                },
                 LoopAct::Rest | LoopAct::Adopt { .. } | LoopAct::Report(_) | LoopAct::Defer => {
                     return Ok(None);
                 }
@@ -555,8 +573,10 @@ impl LoopHost {
         }
     }
 
-    /// Start iteration `iteration` as a submission; a submission the
-    /// session refuses pauses the loop.
+    /// Start iteration `iteration` as a submission. A submission the
+    /// session refuses is a failed turn: the loop counts it and goes on
+    /// (the check, the next iteration) or ends at the cap of failed turns;
+    /// it never pauses.
     pub(crate) async fn start(
         &self,
         conversation: &Conversation,
@@ -566,35 +586,20 @@ impl LoopHost {
         cx: &Context,
     ) -> SessionResult<()> {
         if let Err(error) = self.send(conversation, doc, iteration, text, cx).await {
-            self.halt(conversation, cx).await?;
-            return Err(error);
+            refused(iteration, &error);
+            let failed = Input::TurnSettled(TurnOutcome::Errored);
+            self.drive(conversation, failed, Mode::Idle, None, cx)
+                .await?;
         }
         Ok(())
     }
 
-    /// The turn in flight did not run to its end: the loop pauses.
-    async fn halt(&self, conversation: &Conversation, cx: &Context) -> SessionResult<()> {
-        let facts = Facts {
-            blocked: false,
-            funded: true,
-        };
-        decide(
-            conversation,
-            Input::TurnSettled(TurnOutcome::Halted),
-            facts,
-            Mode::Idle,
-            true,
-            cx,
-        )
-        .await?;
-        Ok(())
-    }
-
     /// Take up iteration `iteration`'s turn while nothing runs: a prompt
-    /// that never was sent is sent; a turn whose prompt was sent (the
-    /// user's own, a final answer's continuation, or a submission that
-    /// already settled) is over without the loop being told, and the loop
-    /// pauses.
+    /// that never was sent is sent, and the turn runs (`None`). A turn
+    /// whose prompt was sent (the user's own, a final answer's
+    /// continuation, or a submission that already settled) is over
+    /// without the loop being told: the record says how it settled. A
+    /// submission the session refuses is a failed turn.
     async fn take_up_turn(
         &self,
         conversation: &Conversation,
@@ -602,18 +607,54 @@ impl LoopHost {
         iteration: u64,
         text: String,
         cx: &Context,
-    ) -> SessionResult<()> {
+    ) -> SessionResult<Option<TurnOutcome>> {
         let continued = doc
             .yield_record
             .is_some_and(|record| record.iteration == iteration);
         if continued || doc.adopted == Some(iteration) {
-            return self.halt(conversation, cx).await;
+            return recorded_outcome(conversation, cx).await.map(Some);
         }
-        if self.send(conversation, doc, iteration, text, cx).await? {
-            return self.halt(conversation, cx).await;
+        match self.send(conversation, doc, iteration, text, cx).await {
+            Ok(settled) => Ok(settled),
+            Err(error) => {
+                refused(iteration, &error);
+                Ok(Some(TurnOutcome::Errored))
+            }
         }
-        Ok(())
     }
+}
+
+/// A submission of iteration `iteration` the session refused: logged, and
+/// counted as a failed turn by the caller.
+fn refused(iteration: u64, error: &SessionError) {
+    tracing::warn!(
+        target: "eukhe.loop",
+        "the session refused iteration {iteration}'s submission, a failed turn: {error}"
+    );
+}
+
+/// How a turn whose prompt is in the transcript settled, as the
+/// transcript records it: the newest prompt or answer decides. An answer
+/// that ended its turn (`stop`) ran; an answer cut or failed, or no
+/// answer after the prompt, failed.
+async fn recorded_outcome(conversation: &Conversation, cx: &Context) -> SessionResult<TurnOutcome> {
+    let page = conversation
+        .entries(ConversationEntryQuery::default(), RECENT_ENTRIES, None, cx)
+        .await?;
+    // Newest first.
+    let ran = page
+        .items
+        .iter()
+        .find(|entry| entry.kind == ASSISTANT_ENTRY.kind() || entry.kind == USER_ENTRY.kind())
+        .and_then(|entry| entry.model.as_ref()?.first())
+        .is_some_and(|message| {
+            matches!(message, Message::Assistant(answer) if answer.stop_reason == StopReason::Stop)
+        });
+    Ok(if ran {
+        TurnOutcome::Ran
+    } else {
+        TurnOutcome::Errored
+    })
 }
 
 /// The request id of iteration `iteration`'s turn of `doc`'s loop, sent

@@ -405,8 +405,6 @@ def lh.view_settled(m: Bool, blocked: Bool, out: Lp.Out, c: Lp.Cond, -i: Nat, +l
       {==}
     case True{} True{} _ _:
       {==}
-    case True{} False{} Lp.Halted{} _:
-      {==}
     case True{} False{} Lp.Ran{} Lp.NoCond{}:
       lh.view_adv(Lp.halt(0n, funded, l, d, now), l, i, d, Lp.NoCond{}, b, 0n, x, lh.halt_spent(Lp.spent(l), Lp.tired(0n), funded, Lp.late(d, now)))
     case True{} False{} Lp.Ran{} Lp.Until{cmd}:
@@ -906,8 +904,6 @@ def lh.pot_settled(m: Bool, blocked: Bool, out: Lp.Out, c: Lp.Cond, +f: Nat, -i:
       lh.le_refl(Nat.sub(2n, f))
     case True{} True{} _ _:
       lh.le_refl(Nat.sub(2n, f))
-    case True{} False{} Lp.Halted{} _:
-      lh.le_zero(Nat.sub(2n, f))
     case True{} False{} Lp.Ran{} _:
       lh.absurd_ft(lh.PotLe(Lp.settled(True{}, Lp.Turn{}, i, l, d, c, b, f, x, Lp.Ran{}, False{}, now, funded), Nat.sub(2n, f)), nr)
     case True{} False{} Lp.Errored{} Lp.NoCond{}:
