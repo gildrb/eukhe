@@ -79,6 +79,20 @@ export async function images(root: string): Promise<Image[]> {
   );
 }
 
+/** An image's width and height in pixels, from its header (GIF, PNG); another type fails the build. */
+export function imageSize(image: Image): readonly [number, number] {
+  const b = image.bytes;
+  if (b.subarray(0, 4).toString("latin1") === "GIF8") return [b.readUInt16LE(6), b.readUInt16LE(8)];
+  if (b.subarray(1, 4).toString("latin1") === "PNG")
+    return [b.readUInt32BE(16), b.readUInt32BE(20)];
+  throw new Error(`${image.path}: not a GIF or a PNG`);
+}
+
+/** The images' sizes by the path the README names them by. */
+export function sizes(shown: readonly Image[]): Record<string, readonly [number, number]> {
+  return Object.fromEntries(shown.map((image) => [image.path, imageSize(image)]));
+}
+
 /** The README's reach but the README itself, in path order; `root` is the site's directory. */
 export async function gather(root: string): Promise<SourceFile[]> {
   const repository = path.resolve(root, "..");

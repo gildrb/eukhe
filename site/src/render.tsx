@@ -5,6 +5,7 @@ import { escape, gutterRows, statusParts, textRows } from "./paint.ts";
 import about from "./content/about.md?raw";
 import contact from "./content/contact.md?raw";
 import privacy from "./content/privacy.md?raw";
+import { desktop, imagesHtml, pageFile, type Sizes, textWidth } from "./rendered.ts";
 import { install, notFound, source } from "./source.ts";
 import { colors, palette, type } from "./tokens.stylex.ts";
 import Vim, { type BendList, type Buf } from "./vim.mjs";
@@ -137,6 +138,13 @@ const globalCss = [
   `.muted,.nr,.bd,.dim,.count{color:${colors.tertiary}}`,
   `.heading,.match{color:${colors.primary};font-weight:${type.bold}}`,
   `.link,.copy{text-decoration:underline;text-decoration-color:${colors.tertiary};text-underline-offset:3px}`,
+  // The README's images: in the page under their figure; in the editor in rows of their own.
+  `main img{display:block;margin:0 auto;max-width:100%;height:auto}`,
+  `[data-images]{position:absolute;top:var(--oy);left:calc(var(--ox) + var(--g) * var(--cw));right:0;height:calc(var(--H) - 2 * var(--lh));overflow:hidden;pointer-events:none}`,
+  `[data-images]>img{position:absolute;height:auto}`,
+  `.bold{font-weight:${type.bold};color:${colors.primary}}`,
+  `.italic{font-style:italic}`,
+  `.code{color:${colors.primary};background:color-mix(in oklch,${colors.primary} 7%,transparent)}`,
   `.copy{cursor:pointer}`,
   `.cl{background:color-mix(in oklch,${colors.primary} 6%,transparent)}`,
   `.hit{background:color-mix(in oklch,${colors.tertiary} 40%,transparent)}`,
@@ -158,6 +166,7 @@ type Screen = {
   left: string;
   right: string;
   char: string;
+  images: string;
   vars: Record<string, number>;
 };
 
@@ -186,6 +195,7 @@ function firstScreen(files: readonly EditorFile[]): Screen {
     left,
     right,
     char: escape(frame.char),
+    images: page.page === null ? "" : imagesHtml(page.images, 0, 0, page.page.width),
     vars: {
       "--g": frame.gutter,
       "--crow": frame.cur.row,
@@ -290,6 +300,7 @@ function Page({
             dangerouslySetInnerHTML={{ __html: screen?.text ?? "" }}
             {...stylex.props(styles.text)}
           />
+          <div data-images="" dangerouslySetInnerHTML={{ __html: screen?.images ?? "" }} />
           <div data-status="" {...stylex.props(styles.status)}>
             <span data-status-l="">{screen?.left ?? ""}</span>
             <span data-status-r="">{screen?.right ?? ""}</span>
@@ -297,7 +308,6 @@ function Page({
           <div data-cmd="" {...stylex.props(styles.cmd)} />
           <div data-bar="" {...stylex.props(styles.bar)} />
           <div data-float="" hidden {...stylex.props(styles.float)} />
-          <img data-image="" hidden alt="" {...stylex.props(styles.image)} />
           <div
             data-cursor=""
             dangerouslySetInnerHTML={{ __html: screen?.char ?? "" }}
@@ -427,18 +437,25 @@ function folderDoc(folder: string, paths: readonly string[]): Doc {
  * highlights (for the screen); eukhe's files are also served as they are, at their paths, and each
  * of their folders as a page.
  */
-export function render(css: string, script: string, files: SourceFile[]): Record<string, string> {
-  // The editor's files: the home page, the other pages, then eukhe's files.
+export function render(
+  css: string,
+  script: string,
+  files: SourceFile[],
+  sizes: Sizes,
+): Record<string, string> {
+  // The editor's files: the home page (rendered), the other pages, then eukhe's files.
   const editor = [
-    { path: "index.md", text: source, plain: false, header: false },
-    ...docs.map((doc) => ({
-      path: `${doc.path.slice(1)}.md`,
-      text: doc.markdown,
-      plain: false,
-      header: true,
-    })),
-    ...files.map((file) => ({ ...file, header: false })),
-  ].map((file) => editorFile(file.path, file.text, file.plain, file.header));
+    pageFile("index.md", source, sizes, install, textWidth, desktop),
+    ...[
+      ...docs.map((doc) => ({
+        path: `${doc.path.slice(1)}.md`,
+        text: doc.markdown,
+        plain: false,
+        header: true,
+      })),
+      ...files.map((file) => ({ ...file, header: false })),
+    ].map((file) => editorFile(file.path, file.text, file.plain, file.header)),
+  ];
   // A page opens the editor on its own file: that file first (client.ts orders them the same way).
   const first = (path: string) => {
     const own = editor.filter((file) => file.path === path);
@@ -573,16 +590,6 @@ const styles = stylex.create({
     left: "calc(var(--ox) + var(--fcol) * var(--cw))",
     width: "calc(var(--fw) * var(--cw))",
     backgroundColor: colors.bg,
-  },
-  /** The image of the cursor's line (client.ts places it): a window over the cells, its edge a rule. */
-  image: {
-    position: "absolute",
-    height: "auto",
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: colors.tertiary,
-    backgroundColor: colors.bg,
-    pointerEvents: "none",
   },
   /** vim's block cursor: the character under it in the page color. */
   cursor: {

@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 import { greekLine } from "./paint.ts";
+import type { Placement, Sizes } from "./rendered.ts";
 import { install } from "./source.ts";
 import { colors, type } from "./tokens.stylex.ts";
 
@@ -239,17 +240,19 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
       case "Blank":
         return <span {...stylex.props(styles.row)}> </span>;
       case "Para": {
-        // A paragraph that shows an image (`<img src="media/x.gif">`) shows it under its source.
-        const src = /<img\b[^>]*\bsrc="([^":]+)"/.exec(block.text)?.[1];
-        const alt = /<img\b[^>]*\balt="([^"]*)"/.exec(block.text)?.[1] ?? "";
-        return (
-          <span {...stylex.props(styles.row)}>
-            {inline(block.text)}
-            {src === undefined ? null : (
-              <img src={`/${src}`} alt={alt} loading="lazy" {...stylex.props(styles.image)} />
-            )}
-          </span>
-        );
+        // The README's own HTML (a centred image and its caption), rendered: the README is this
+        // repository's, read at build time; its relative image paths are the site's.
+        const html = /^<p\b[^>]*>(.*)<\/p>$/.exec(block.text)?.[1];
+        if (html !== undefined)
+          return (
+            <span
+              {...stylex.props(styles.row, styles.figure)}
+              dangerouslySetInnerHTML={{
+                __html: html.replaceAll(/\bsrc="(?![a-z]+:|\/)/g, 'src="/'),
+              }}
+            />
+          );
+        return <span {...stylex.props(styles.row)}>{inline(block.text)}</span>;
       }
       case "Item":
         return (
@@ -300,7 +303,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
 }
 
 /** A highlight group of the editor's screen (client.ts paints each as a class). */
-export type Hl = "title" | "muted" | "heading" | "link";
+export type Hl = "title" | "muted" | "heading" | "link" | "bold" | "italic" | "code";
 
 /** Characters from..to (code points, end exclusive) of a line drawn in a group. */
 /** `href`: where a link run goes when it is not its own text (the header's link home). */
@@ -315,6 +318,9 @@ export type EditorFile = {
   lines: string[];
   runs: Run[][];
   copy: number | null;
+  images: Placement[];
+  /** The home page: its Markdown and its images' sizes, to render again at a narrower width. */
+  page: { source: string; sizes: Sizes; width: number; install: string } | null;
 };
 
 /** Code points in a string: the editor's columns. */
@@ -414,6 +420,8 @@ export function editorFile(
     lines: text.split("\n"),
     runs: entries.map((entry) => lineRuns(entry.line)),
     copy: plain ? null : copyFence(entries),
+    images: [],
+    page: null,
   };
 }
 
@@ -473,8 +481,8 @@ const styles = stylex.create({
     animationIterationCount: "infinite",
   },
   muted: { color: colors.tertiary },
-  /** An image under its source line, as wide as the README shows it and no wider than the page. */
-  image: { display: "block", width: "640px", maxWidth: "100%", height: "auto" },
+  /** A centred figure (the README's `<p align="center">`): its image no wider than the page. */
+  figure: { textAlign: "center" },
   /** A row of the page: one block, wrapping at the screen's width; an empty one keeps its line. */
   row: { display: "block", minHeight: type.leading },
   /** A list item, a quote or a code line: wrapped lines start under the text, not the marker. */

@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import stylexVite from "@stylexjs/unplugin/vite";
 import { defineConfig, type Plugin } from "vite-plus";
-import { gather, images } from "./scripts/files.ts";
+import { gather, images, sizes } from "./scripts/files.ts";
 import type * as RenderModule from "./src/render.tsx";
 
 type Render = typeof RenderModule;
@@ -52,14 +52,20 @@ const site: Plugin = {
         .ssrLoadModule("/src/render.tsx")
         .then(async (module) => {
           const css = stylexPlugin.__stylexCollectCss?.() ?? "";
-          const files = renderModule(module).render(css, "/src/client.ts", await gather(root));
+          const shown = await images(root);
+          const files = renderModule(module).render(
+            css,
+            "/src/client.ts",
+            await gather(root),
+            sizes(shown),
+          );
           const name = pathname.endsWith("/")
             ? `${pathname.slice(1)}index.html`
             : pathname.slice(1);
           const body = files[name];
           if (body === undefined) {
             // The README's images, read again on every request, as its linked files are.
-            const image = (await images(root)).find((file) => file.path === name);
+            const image = shown.find((file) => file.path === name);
             if (image === undefined) return next();
             response.setHeader("Content-Type", contentType(name));
             return response.end(image.bytes);
@@ -141,8 +147,8 @@ export default defineConfig({
       const outDir = "dist";
       // The pages inline the CSS; the client pass's copy of it is unused.
       await rm(path.join(outDir, "assets/stylex.css"), { force: true });
-      const pages = render(css, `/${entry.fileName}`, await gather(root));
       const shown = await images(root);
+      const pages = render(css, `/${entry.fileName}`, await gather(root), sizes(shown));
       const taken = shown.filter((image) => image.path in pages).map((image) => image.path);
       if (taken.length > 0)
         throw new Error(`README images clash with the site's files: ${taken.join(", ")}`);

@@ -7,6 +7,7 @@
  */
 import type { EditorFile, Run } from "./markdown.tsx";
 import { type CopyAt, cells, floatRows, gutterRows, list, statusParts, textRows } from "./paint.ts";
+import { desktop, imagesHtml, pageFile, textWidth } from "./rendered.ts";
 import Vim, { type BendList, type Buf, type Ev, type Frame, type St } from "./vim.mjs";
 
 /** A touch screen (a phone): no keyboard, a smaller font, the finger scrolls. */
@@ -28,7 +29,7 @@ function isRun(value: unknown): value is Run {
   if (!("to" in value) || typeof value.to !== "number") return false;
   if ("href" in value && typeof value.href !== "string") return false;
   if (!("hl" in value) || typeof value.hl !== "string") return false;
-  return ["title", "muted", "heading", "link"].includes(value.hl);
+  return ["title", "muted", "heading", "link", "bold", "italic", "code"].includes(value.hl);
 }
 
 function isStrings(value: unknown): value is string[] {
@@ -42,6 +43,8 @@ function isEditorFile(value: unknown): value is EditorFile {
   if (!("lines" in value) || !isStrings(value.lines)) return false;
   if (!("runs" in value) || !Array.isArray(value.runs)) return false;
   if (!value.runs.every((row: unknown) => Array.isArray(row) && row.every(isRun))) return false;
+  if (!("images" in value) || !Array.isArray(value.images)) return false;
+  if (!("page" in value) || (value.page !== null && typeof value.page !== "object")) return false;
   return "copy" in value && (value.copy === null || typeof value.copy === "number");
 }
 
@@ -153,7 +156,6 @@ const floatLayer = layer("[data-float]");
 const statusLeft = element("[data-status-l]", HTMLElement);
 const statusRight = element("[data-status-r]", HTMLElement);
 const cmdline = element("[data-cmd]", HTMLElement);
-const picture = element("[data-image]", HTMLImageElement);
 let blink: Animation | undefined;
 
 /** The cell under the mouse, for Enter on a link. */
@@ -195,51 +197,25 @@ function setVar(name: string, value: number) {
   if (term.style.getPropertyValue(name) !== next) term.style.setProperty(name, next);
 }
 
-/** An `<img …>` tag on a line; its `src` and `alt`. */
-const imagePattern = /<img\b[^>]*>/;
-const srcPattern = /\bsrc="([^"]+)"/;
-const altPattern = /\balt="([^"]*)"/;
+/** The cells left of the page's text: the sign column (2), the number column (4), one to spare. */
+const pageGutter = 7;
 
-/** The widest an image shows, in CSS pixels: the README's own `width="640"`. */
-const imageWidth = 640;
+/** The images over the text rows (rendered.ts), painted again only when they change. */
+const imageLayer = element("[data-images]", HTMLElement);
+let imagesPainted = imageLayer.innerHTML;
 
-/**
- * The image of the cursor's line, as Neovim's image plugins show it (snacks.nvim `float`): a window
- * under the line, or over it when the room is above, as wide as the README shows it and no wider
- * than the text, over the cells. None while another float is open or the line shows no image.
- */
-function paintImage(frame: Frame) {
+function paintImages(frame: Frame) {
   const file = frame.tgt.$ === "File" ? files[frame.tgt.i] : undefined;
-  const line = file?.lines[frame.top + frame.cur.row];
-  const tag = line === undefined || frame.float.$ === "Some" ? null : imagePattern.exec(line);
-  const src = tag === null ? undefined : srcPattern.exec(tag[0])?.[1];
-  if (file === undefined || tag === null || src === undefined) {
-    picture.hidden = true;
-    return;
+  const page = file?.page ?? null;
+  const html =
+    file === undefined || page === null || frame.float.$ === "Some"
+      ? ""
+      : imagesHtml(file.images, frame.top, frame.left, page.width);
+  if (html !== imagesPainted) {
+    imageLayer.innerHTML = html;
+    imagesPainted = html;
   }
-  const url = new URL(src, new URL(`/${file.path}`, location.origin)).pathname;
-  if (picture.getAttribute("src") !== url) picture.src = url;
-  picture.alt = altPattern.exec(tag[0])?.[1] ?? "";
-  const { rows, cols } = size();
-  const lines = rows - 2;
-  const ratio = picture.naturalWidth > 0 ? picture.naturalHeight / picture.naturalWidth : 9 / 16;
-  const below = lines - frame.cur.row - 1;
-  const above = frame.cur.row;
-  const room = Math.max(below, above) * lh - 2;
-  const width = Math.min(imageWidth, (cols - frame.gutter - 1) * cw - 2, room / ratio);
-  const height = width * ratio;
-  const row = below * lh - 2 >= height || below >= above ? frame.cur.row + 1 : frame.cur.row;
-  const top = row === frame.cur.row ? pad + row * lh - height - 2 : pad + row * lh;
-  picture.style.top = `${top}px`;
-  picture.style.left = `${pad + frame.gutter * cw}px`;
-  picture.style.width = `${width}px`;
-  picture.hidden = false;
 }
-
-// Its size is the image's own once it has loaded.
-picture.addEventListener("load", () => {
-  if (shown !== null) paintImage(shown);
-});
 
 function paint(frame: Frame) {
   shown = frame;
@@ -266,7 +242,7 @@ function paint(frame: Frame) {
     setVar("--fw", float.width);
   }
   floatLayer.element.hidden = frame.float.$ === "None";
-  paintImage(frame);
+  paintImages(frame);
   setVar("--crow", frame.cur.row);
   setVar("--ccol", frame.cur.col);
   setVar("--bar-start", frame.bar.row);
@@ -388,6 +364,16 @@ async function start() {
     ...all.filter((file) => file.path !== page),
   ];
   const { rows, cols } = size();
+  // The home page, rendered again where the screen is narrower than the build's width, or its
+  // cells another size (a phone): its text then wraps at the screen, its images keep their aspect.
+  files = files.map((file) => {
+    const home = file.page;
+    if (home === null) return file;
+    const w = Math.min(textWidth, cols - pageGutter);
+    return w === home.width && cw === desktop.cw && lh === desktop.lh
+      ? file
+      : pageFile(file.path, home.source, home.sizes, home.install, w, { cw, lh });
+  });
   const bufs = cons(
     files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),
   );
