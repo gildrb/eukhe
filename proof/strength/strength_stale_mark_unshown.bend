@@ -13,5 +13,5 @@ import ../../laws/strength.bend as Strength
 import ./base/model.bend as LS
 
 def Strength.strength_stale_mark_unshown(pct, c, n, p, at, now, other):
-  %Equal.sym(Bool, Nat.is_eq(at, now), False{}, other) : {St.strength.on(_, pct, c, n, p) == St.Unshown{} : St.Strength}
+  %Equal.sym(Bool, Nat.is_eq(at, now), False{}, other) : {St.strength.on(_, 1n+pct, c, n, p) == St.Unshown{} : St.Strength}
   {==}

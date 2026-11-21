@@ -14,6 +14,6 @@ import ../../laws/strength.bend as Strength
 import ./base/model.bend as LS
 
 def Strength.strength_cut_short_unshown(pct, c, n, p, now, short):
-  %LS.sv.eq_refl(now) : {St.strength.on(_, pct, c, n, p) == St.Unshown{} : St.Strength}
-  %LS.sg.lt_not_le(n, p, short) : {St.strength.full(_, pct, c, n) == St.Unshown{} : St.Strength}
+  %LS.sv.eq_refl(now) : {St.strength.on(_, 1n+pct, c, n, p) == St.Unshown{} : St.Strength}
+  %LS.sg.lt_not_le(n, p, short) : {St.strength.full(_, 1n+pct, c, n) == St.Unshown{} : St.Strength}
   {==}
