@@ -2953,6 +2953,8 @@ import ./proof/theme_model/theme_vals_example.bend as PThemeValsExample
 import ./proof/theme_model/theme_load_spec.bend as PThemeLoadSpec
 import ./proof/theme_model/theme_rename_spec.bend as PThemeRenameSpec
 import ./proof/theme_model/theme_valid_example.bend as PThemeValidExample
+import ./proof/theme_model/theme_concrete_cases.bend as PThemeConcreteCases
+import ./proof/theme_model/theme_export_page_example.bend as PThemeExportPageExample
 import ./proof/theme_entry/base.bend as LAThemeEntry
 import ./proof/theme_entry/theme_ffi_spelled.bend as PThemeFfiSpelled
 import ./proof/theme_entry/theme_ffi_refuses.bend as PThemeFfiRefuses

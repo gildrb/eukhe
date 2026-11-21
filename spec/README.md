@@ -33,7 +33,7 @@ Rust keeps IO only. Each rule runs as the proven model: a compiled-core entry
 |loop|eukhe: a prompt sent again after every turn until its condition is met, a bound is reached or the user stops it; the loop survives a restart|`loop/loop.bend`|loop (57)|
 |verified|eukhe|`verified/verify.bend`, `verified/verify_wire.bend`, `verified/strength.bend`, `verified/strength_wire.bend`|verify (48), strength (30)|
 |settings|eukhe|`settings/config.bend`, `settings/config_rules.bend`|config (55), cvar (83)|
-|theme|eukhe|`theme/{model,read,rules,wire}.bend`|theme (42), theme_model (18), color (49)|
+|theme|eukhe|`theme/{model,read,rules,wire}.bend`|theme (42), theme_model (20), color (49)|
 |once|eukhe: exactly-once effects, an intent journal per effect (a restart settles a step of unknown outcome from its evidence, runs it again only when a repeat is safe, else treats it as not run and goes on: the core decides from the journal)|`once/life.bend`|once (34)|
 |budgets|eukhe (the worst case of every request and tool call is reserved before it runs; every agent of a task tree draws from one account that keeps the final-answer reserves of the agents above, and a child given its own budget has it carved from its parent's)|`budget/ledger.bend`, `budget/limits.bend`|budget (45), budget_share (15), limits (29)|
 |tree|eukhe: a binary agent tree; a node works alone or splits into exactly two children with disjoint scopes and isolated checkouts, integrates their results and reports up; read-only help leaves crown it (T1-T16; the compiled core decides every split, spend, end and wait)|`agents/agent_tree.bend`, `agents/agent_crown.bend`, `agents/work_list.bend`|agent_tree (66), agent_crown (15), work_list (9)|
