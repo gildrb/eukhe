@@ -111,10 +111,10 @@ fn enter_runs_a_full_path_and_completes_a_partial_one() {
     assert_eq!(submitted(&mut e), ["/memory"]);
 
     let mut e = ed();
-    type_slowly(&mut e, &chars("/go"));
+    type_slowly(&mut e, &chars("/remi"));
     e.handle_input("enter");
     assert!(submitted(&mut e).is_empty());
-    assert_eq!(e.get_text(), "/goal ");
+    assert_eq!(e.get_text(), "/remind ");
 }
 
 /// An unknown subcommand is submitted as typed (the dispatch reports it

@@ -143,8 +143,8 @@ fn tier_argument_completions_list_filter_and_mark_current() {
 fn slash_completion_applies_separator_by_argument() {
     let provider = provider("/tmp");
     // Argument-taking command: completes into the parameter position.
-    let result = provider.apply_completion(&["/goa".to_string()], 0, 4, &item("goal"), "/goa");
-    assert_eq!(result.lines[0], "/goal ");
+    let result = provider.apply_completion(&["/aut".to_string()], 0, 4, &item("auto"), "/aut");
+    assert_eq!(result.lines[0], "/auto ");
     assert_eq!(result.cursor_col, 6);
     // Bare command: no trailing separator.
     let result = provider.apply_completion(&["/refi".to_string()], 0, 5, &item("refine"), "/refi");
