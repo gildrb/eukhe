@@ -49,16 +49,24 @@
 #                                     command_ffi_menu_reads_spelled,
 #                                     command_ffi_out_reads_spelled,
 #                                     command_ffi_reply_example
-#   R14i every request and reply the entry's own encoders write reads
-#        back whole, the rest untouched; a request with input after it is
-#        refused                      command_ffi_round_trip,
+#   R14i the entry's own encoders write exactly the grammar's spelling of
+#        every request and reply they are given, fitting the wire or not
+#        (an encoder never rewrites what it is given: a place past the
+#        wire is written as it is, and the reader refuses it); every
+#        request and reply that fits reads back whole, the rest untouched;
+#        a request with input after it is refused
+#                                     command_ffi_req_spells,
+#                                     command_ffi_res_spells,
+#                                     command_ffi_menu_spells,
+#                                     command_ffi_out_spells,
+#                                     command_ffi_round_trip,
 #                                     command_ffi_left_over,
 #                                     command_ffi_res_round_trip,
 #                                     command_ffi_menu_round_trip,
 #                                     command_ffi_out_round_trip
 # The requests and replies of R14a-R14h are spelled with the spec spellers
 # below and those of laws/base.bend, never with the entry's own encoders
-# (R14i reads those encoders back).
+# (R14i ties those encoders to the spellers and reads them back).
 
 import Base
 import ../../bend/command.bend as Cmd
@@ -383,6 +391,51 @@ def cmd_spell_reply(r: FCmd.Req) -> String:
 # and /goal (text)
 def cmd_example_wire_table() -> String:
   "4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT"
+
+# Laws: the encoders spell the grammar
+# ------------------------------------
+
+# LAW command_ffi_req_spells: the entry's request encoder (put_req) writes
+# the grammar's spelling of every request, fitting the wire or not, then
+# the rest
+# EXCLUDES: an encoder that rewrites a request past the wire into another
+#   one (a row place of 15 digits written as place 0, or a long line or
+#   count cut), so that the request reads back as one it is not
+law command_ffi_req_spells:
+  for +r: FCmd.Req
+  for +rest: String
+  {FCmd.put_req(r, rest) == cmd_spell_req(r, rest) : String}
+
+# LAW command_ffi_res_spells: the entry's resolve reply encoder (put_res)
+# writes the grammar's spelling of every resolve reply, fitting the wire
+# or not, then the rest
+# EXCLUDES: an encoder that rewrites a reply past the wire into another
+#   one (a long path or word cut or dropped), so that Rust reads an answer
+#   the model did not give
+law command_ffi_res_spells:
+  for +x: FCmd.ResW
+  for +rest: String
+  {FCmd.put_res(x, rest) == cmd_spell_resw(x, rest) : String}
+
+# LAW command_ffi_menu_spells: the entry's menu reply encoder (put_menu)
+# writes the grammar's spelling of every menu reply, fitting the wire or
+# not, then the rest
+# EXCLUDES: an encoder that rewrites a menu past the wire into another
+#   one (a place of 15 digits written as place 0, a long place list cut)
+law command_ffi_menu_spells:
+  for +x: FCmd.MenuW
+  for +rest: String
+  {FCmd.put_menu(x, rest) == cmd_spell_menuw(x, rest) : String}
+
+# LAW command_ffi_out_spells: the entry's key reply encoder (put_out)
+# writes the grammar's spelling of every key reply, fitting the wire or
+# not, then the rest
+# EXCLUDES: an encoder that rewrites a key reply past the wire into
+#   another one (a long line cut or emptied)
+law command_ffi_out_spells:
+  for +x: FCmd.OutW
+  for +rest: String
+  {FCmd.put_out(x, rest) == cmd_spell_outw(x, rest) : String}
 
 # Laws: the spelled entry
 # -----------------------
