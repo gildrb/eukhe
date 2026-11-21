@@ -14,7 +14,7 @@ use eukhe_bend::rules::headless::{
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, read_final_answer,
-    seed_acceptance, session_judge, AnswerReading, Judge,
+    seed_acceptance, session_judge, uncertified_line, AnswerReading, Judge,
 };
 use eukhe_core::durable::goals::{
     autonomous_state, budget_report, configure_autonomous, goal_state, seed_initial_goal,
@@ -29,7 +29,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
-use eukhe_types::acceptance::{AcceptanceLabel, AttackOutcome};
+use eukhe_types::acceptance::AcceptanceLabel;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::goal::{GoalState, GoalStatus};
@@ -540,8 +540,8 @@ async fn run_prompts(
     // each is confirmed on the final state (`laws/verify.bend`) and done is
     // certified (`laws/strength.bend`, `laws/attack.bend`): a run whose
     // checks passed without being shown to catch broken code, or that also
-    // passed a blind attack's wrong code, exits 3 (`UNJUDGED_CODE`). The
-    // label goes to stderr in both modes.
+    // passed a blind attack's wrong code, is done but not certified and
+    // exits 3 (`UNJUDGED_CODE`). The label goes to stderr in both modes.
     let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
     if !acceptance.checks.is_empty() {
         eprintln!("{}", format_acceptance_status(&acceptance)?);
@@ -550,16 +550,9 @@ async fn run_prompts(
     if acceptance.label == AcceptanceLabel::ChecksPassedNotCertified
         && code == u64::from(UNJUDGED_CODE)
     {
-        let survived = acceptance.attacks.iter().any(|attack| {
-            attack.at == acceptance.state && attack.outcome == AttackOutcome::Survived
-        });
-        let why = if survived {
-            "also passed wrong code a blind attack wrote"
-        } else {
-            "were not shown to catch broken code"
-        };
         eprintln!(
-            "eukhe: the checks passed but {why}: exit {UNJUDGED_CODE}, the run counts as not done"
+            "eukhe: {} (exit {UNJUDGED_CODE})",
+            uncertified_line(&acceptance)
         );
         if json_mode {
             println!("{}", serde_json::json!({ "type": "task_uncertified" }));

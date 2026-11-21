@@ -4,8 +4,9 @@
 //! the real binary in a git workspace, the scripted faux provider
 //! (`EUKHE_FAUX_SCRIPT`) as the worker and as the blind attacker, and the
 //! product breaker. A check that lets deliberate breaks of the changed
-//! code through is weak and the run exits 3; a real test that catches them
-//! certifies done (exit 0); the worker's write to a law file under
+//! code through is weak and the run exits 3, done but not certified, as
+//! does a run checked by the intent judge alone; a real test that catches
+//! them certifies done (exit 0); the worker's write to a law file under
 //! `/accept bend` is refused; an answer that admits its work is a lookup
 //! table of the tested inputs never ends done, and one that hides it is
 //! caught by a blind attack whose lookup table passes the tests too.
@@ -142,7 +143,7 @@ fn a_check_that_catches_nothing_is_weak_and_exits_three() {
     assert!(stderr.contains("survived: lib.py:2"), "stderr: {stderr}");
     assert!(
         stderr.contains(
-            "eukhe: the checks passed but were not shown to catch broken code: exit 3, the run counts as not done"
+            "eukhe: done; not certified: the checks were not shown to catch broken code (exit 3)"
         ),
         "stderr: {stderr}"
     );
@@ -153,6 +154,35 @@ fn a_check_that_catches_nothing_is_weak_and_exits_three() {
     assert_eq!(
         std::fs::read_to_string(dir.path().join("lib.py")).unwrap(),
         FIX
+    );
+}
+
+/// The intent judge alone (`--accept-intent`) passes the done work, but a
+/// judge has no code to break and certifies nothing (S2): the run is done
+/// and not certified, exits 3, and says so plainly in one line.
+#[test]
+fn the_intent_judge_alone_ends_done_not_certified() {
+    let dir = workspace(&[("lib.py", STUB)]);
+    let script = serde_json::json!({
+        "responses": [
+            write("lib.py", FIX),
+            { "text": "Implemented total." },
+            { "text": "PASS\nlib.py implements total" },
+        ],
+    });
+    let (_, stderr, code) = run(
+        dir.path(),
+        &["--accept-intent", "-p", "implement total in lib.py"],
+        &script,
+    );
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(
+        stderr.contains("checks passed, not certified"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("eukhe: done; not certified: only the intent check ran (exit 3)"),
+        "stderr: {stderr}"
     );
 }
 
@@ -336,7 +366,7 @@ fn a_blind_attack_whose_lookup_table_passes_the_tests_ends_not_certified() {
     );
     assert!(
         stderr.contains(
-            "eukhe: the checks passed but also passed wrong code a blind attack wrote: exit 3, the run counts as not done"
+            "eukhe: done; not certified: the checks also passed wrong code a blind attack wrote (exit 3)"
         ),
         "stderr: {stderr}"
     );
