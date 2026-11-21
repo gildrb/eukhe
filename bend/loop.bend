@@ -420,7 +420,35 @@ def turns(lim: Limit) -> Maybe<&2, Nat>:
     case Span{ms}:
       None{}
 
-# the deadline a limit sets from the clock
+# 1 + how many more decimal digits follow the lowest one of a Nat whose
+# higher part is q (the fuel f >= q is enough)
+def digits.go(f: Nat, q: Nat) -> Nat:
+  match f:
+    case 0n:
+      0n
+    case 1n+g:
+      match q:
+        case 0n:
+          0n
+        case 1n+p:
+          +m = {1n+p : Nat}
+          1n+digits.go(g, Nat.div(m, 10n))
+
+# n has at most 14 decimal digits: the wire carries it
+def fits(n: Nat) -> Bool:
+  +m = n
+  Nat.is_le(1n+digits.go(m, Nat.div(m, 10n)), 14n)
+
+def until.cut(ok: Bool, t: Nat) -> Maybe<&2, Nat>:
+  match ok:
+    case True{}:
+      Some{t}
+    case False{}:
+      None{}
+
+# the deadline a limit sets from the clock: none when it lies past the
+# wire's largest Nat (10^14-1 ms, the year 5138: no practical deadline),
+# so that every state the loop writes reads back
 def until(lim: Limit, now: Nat) -> Maybe<&2, Nat>:
   match lim:
     case NoLimit{}:
@@ -428,7 +456,8 @@ def until(lim: Limit, now: Nat) -> Maybe<&2, Nat>:
     case Count{n}:
       None{}
     case Span{ms}:
-      Some{Nat.add(now, ms)}
+      +t = Nat.add(now, ms)
+      until.cut(fits(t), t)
 
 # a new loop: armed without a prompt, else in its first turn
 def start(+lim: Limit, c: Cond, pr: Maybe<&2, String>, now: Nat) -> St & Act:

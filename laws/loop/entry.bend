@@ -10,17 +10,22 @@ import ../../bend/loop.bend as Lp
 import ../../bend/ffi_loop.bend as FLp
 import ../../bend/wire.bend as Wr
 import ../base.bend as LawsBase
+import ../../spec/loop/loop.bend as S
 
 # Requirement (spec/README.md L10)
 # --------------------------------
 #   L10 the entry answers every request Rust spells with the spelling of
 #       the model's answer, refuses input left over and any input that is
 #       not a spelled request with the exact error form, and reads back
-#       every state it wrote.
+#       every state it wrote: for fewer than 10^14 - 1 turns, every state
+#       the loop writes fits the wire (a duration reaching past the wire's
+#       largest number sets no deadline).
 #                     loop_ffi_decides, loop_ffi_spelled_left_over,
 #                     loop_ffi_reads_only_requests,
 #                     loop_ffi_malformed_unless_request,
-#                     loop_ffi_st_reads_spelled, loop_ffi_example
+#                     loop_ffi_st_reads_spelled, loop_step_fits,
+#                     loop_enter_sets_bounds (laws/loop/model.bend),
+#                     loop_ffi_example
 
 # Spec spellers: the entry
 # ------------------------
@@ -277,6 +282,13 @@ def lp_st_fits(s: Lp.St) -> Bool:
     case Lp.St{p, i, l, d, c, b, f, z}:
       Bool.and(LawsBase.wire_fits(i), Bool.and(LawsBase.wire_mfits(l), Bool.and(LawsBase.wire_mfits(d), Bool.and(lp_cond_fits(c), Bool.and(LawsBase.wire_fits(String.length(b)), Bool.and(LawsBase.wire_fits(f), lp_last_fits(z)))))))
 
+# the iteration and the failed turns of a state have room for one more on
+# the wire (a loop reaches 10^14-1 of either only after that many turns)
+def lp_st_room(s: Lp.St) -> Bool:
+  match s:
+    case Lp.St{p, i, l, d, c, b, f, z}:
+      Bool.and(LawsBase.wire_fits(1n+i), LawsBase.wire_fits(1n+f))
+
 def lp_limit_fits(lim: Lp.Limit) -> Bool:
   match lim:
     case Lp.NoLimit{}:
@@ -376,6 +388,23 @@ law loop_ffi_st_reads_spelled:
   for +rest: String
   for h: {lp_st_fits(s) == True{} : Bool}
   {FLp.get_st(lp_spell_st(s, rest)) == Wr.Got{s, rest} : Wr.Dec<Lp.St>}
+
+# LAW loop_step_fits (L10): every state the loop writes fits the wire, so
+# the entry reads it back (loop_ffi_st_reads_spelled): from a state that
+# fits, whose iteration and failed turns have room for one more, any event
+# that fits leads to a state that fits. What a span reaching past the
+# wire sets instead (no deadline) is loop_enter_sets_bounds' claim
+# EXCLUDES: a deadline of the clock plus a span past 14 digits (the entry
+#   then refuses the state it wrote, and the loop never iterates, ends or
+#   survives a restart again), a count, iteration, condition, prompt or
+#   evidence stored past the wire
+law loop_step_fits:
+  for +s: Lp.St
+  for +e: Lp.Ev
+  for hs: {lp_st_fits(s) == True{} : Bool}
+  for room: {lp_st_room(s) == True{} : Bool}
+  for he: {lp_ev_fits(e) == True{} : Bool}
+  {lp_st_fits(S.next(s, e)) == True{} : Bool}
 
 # LAW loop_ffi_example (L10): anchor: the exact strings Rust sends and
 # reads: `/loop` with a count of 3, `--until abc` and the prompt "fix" at

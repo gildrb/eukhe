@@ -4351,6 +4351,7 @@ import ./proof/loop/base/entry.bend as LALoopEntry
 import ./proof/loop/base/history.bend as LALoopHistory
 import ./proof/loop/base/judged.bend as LALoopJudged
 import ./proof/loop/base/reads.bend as LALoopReads
+import ./proof/loop/base/fits.bend as LALoopFits
 import ./proof/loop/loop_verdict_table.bend as PLoopVerdictTable
 import ./proof/loop/loop_settled_turn_is_judged.bend as PLoopSettledTurnIsJudged
 import ./proof/loop/loop_settled_turn_awaits_its_check.bend as PLoopSettledTurnAwaitsItsCheck
@@ -4424,6 +4425,7 @@ import ./proof/loop/loop_ffi_spelled_left_over.bend as PLoopFfiSpelledLeftOver
 import ./proof/loop/loop_ffi_reads_only_requests.bend as PLoopFfiReadsOnlyRequests
 import ./proof/loop/loop_ffi_malformed_unless_request.bend as PLoopFfiMalformedUnlessRequest
 import ./proof/loop/loop_ffi_st_reads_spelled.bend as PLoopFfiStReadsSpelled
+import ./proof/loop/loop_step_fits.bend as PLoopStepFits
 import ./proof/loop/loop_ffi_example.bend as PLoopFfiExample
 import ./proof/budget/base/amt.bend as LBudgetAmt
 import ./proof/budget/base/reserve.bend as LBudgetReserve

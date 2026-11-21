@@ -1065,6 +1065,45 @@ async fn three_failed_turns_in_a_row_end_the_loop() {
     lab.close().await;
 }
 
+/// L4, L10: a duration whose end lies past the wire's largest number
+/// (`/loop 27777777h`: the clock plus the span has 15 digits) sets no
+/// deadline, and the loop goes on. It once stored the clock plus the
+/// span, which the core then refused to read back: the loop never sent
+/// its second iteration.
+#[tokio::test]
+async fn a_duration_past_the_wire_keeps_the_loop_going() {
+    let lab = open(vec![
+        answer("1"),
+        answer("2"),
+        failure(),
+        failure(),
+        failure(),
+        answer("no"),
+    ])
+    .await;
+    lab.run("/loop 27777777h go").await;
+    let ended = lab
+        .until(|status| matches!(status.state.phase, LoopPhase::Ended { .. }))
+        .await;
+    assert_eq!(
+        (
+            ended.state.phase,
+            ended.state.iteration,
+            ended.state.deadline_ms
+        ),
+        (
+            LoopPhase::Ended {
+                end: LoopEnd::TurnsFailed
+            },
+            5,
+            None
+        )
+    );
+    lab.idle().await;
+    assert_eq!(lab.sent().await, sends("go", &[1, 2, 3, 4, 5]));
+    lab.close().await;
+}
+
 /// L8: a message the user queues while a turn of the loop runs is not
 /// lost and not overtaken: it runs before the next iteration, and the
 /// loop keeps its own prompt.
