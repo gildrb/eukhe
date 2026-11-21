@@ -651,3 +651,61 @@ fn with_limits_on_a_plan_window_past_its_share_wraps_the_run_up() {
     }
     assert_eq!(gate.report().unwrap().phase, BudgetPhase::WrapUp);
 }
+
+/// B21, B15: a message sent once a run reached its limit is never
+/// refused: the run wrapped up and then had nothing left, and the next
+/// message starts its own run, whose limits fill afresh and whose first
+/// request goes on.
+#[test]
+fn a_message_after_a_reached_limit_starts_its_own_run() {
+    let (_dir, gate) = gate(BudgetLimitsMode::Off, AuthClass::ApiKey, Value::Null);
+    let limits = RunLimits {
+        requests: Some(LimitValue::At(2)),
+        ..RunLimits::default()
+    };
+    start(&gate, RunKind::Interactive, limits, &[]);
+    let three = BudgetAmounts {
+        requests: 3,
+        ..BudgetAmounts::default()
+    };
+    let mut phases = Vec::new();
+    for spend in [eukhe_budget::Use::Work, eukhe_budget::Use::Final] {
+        let reserved = gate
+            .ledger()
+            .reserve(
+                "session",
+                spend,
+                "model:turn",
+                BudgetAmounts::default(),
+                BudgetAmounts::default(),
+                &[three],
+                eukhe_budget::REQUEST_MIN_MS,
+            )
+            .unwrap();
+        assert!(matches!(reserved, eukhe_budget::Reserved::Refused { .. }));
+        phases.push(gate.report().unwrap().phase);
+    }
+    let next = start(&gate, RunKind::Interactive, limits, &[]);
+    let model = SeenModel {
+        provider: "test-after-limit".to_owned(),
+        priced: true,
+    };
+    assert_eq!(
+        (
+            phases,
+            next.phase,
+            next.free.requests,
+            matches!(
+                gate.check_work(&model, one_request(), one_request())
+                    .unwrap(),
+                Checked::Go
+            ),
+        ),
+        (
+            vec![BudgetPhase::WrapUp, BudgetPhase::Exhausted],
+            BudgetPhase::Working,
+            2,
+            true,
+        )
+    );
+}

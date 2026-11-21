@@ -123,16 +123,11 @@ impl BudgetGate {
 
     /// `execute` of the tool `name` behind the gate
     /// ([`Self::gated_call`]); a call the gate refuses or stops returns its
-    /// tool error. A call of `bash` or `python` runs a program: the run
-    /// counts it.
+    /// tool error. The run counts the calls that run a program
+    /// ([`tool_label`]).
     pub(crate) fn wrap_tool(self: &Arc<Self>, name: &str, execute: ToolExecute) -> ToolExecute {
         let gate = Arc::clone(self);
-        let label = match name {
-            "bash" | crate::durable::rlm::PYTHON_TOOL_NAME => {
-                format!("{PROGRAM_LABEL}{name}")
-            }
-            _ => format!("tool:{name}"),
-        };
+        let label = tool_label(name);
         Arc::new(move |args, api, cx| {
             if !gate.fills_runs() && !gate.ledger.exists() {
                 return execute(args, api, cx);
@@ -155,5 +150,15 @@ impl BudgetGate {
             }
             .boxed()
         })
+    }
+}
+
+/// The reservation label of a call of the tool `name`: a call of `bash`
+/// or `python` runs a program ([`PROGRAM_LABEL`], counted in the run's
+/// `program_runs`, B22), any other a tool.
+pub(super) fn tool_label(name: &str) -> String {
+    match name {
+        "bash" | crate::durable::rlm::PYTHON_TOOL_NAME => format!("{PROGRAM_LABEL}{name}"),
+        _ => format!("tool:{name}"),
     }
 }
