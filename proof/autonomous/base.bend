@@ -7,8 +7,10 @@ import Base
 import ../../bend/verify.bend as V
 import ../../bend/autonomous.bend as Au
 import ../../bend/ffi_autonomous.bend as FAu
+import ../../bend/work_left.bend as Wl
 import ../../bend/wire.bend as Wr
 import ../../spec/autonomous/autonomous.bend as SpA
+import ../../spec/agents/work_left.bend as SpL
 import ../../laws/autonomous.bend as Autonomous
 import ../../laws/wire.bend as Wire
 
@@ -81,10 +83,35 @@ def au.budget(d: Wr.Dec<Nat>) -> {FAu.get_budget(d) == SpA.r_budget(d) : Wr.Dec<
     case Wr.Bad{}:
       {==}
 
-def au.after_budget(on: Bool, a: Au.Answer, c: Au.Checks, d: Wr.Dec<Au.Budget>) -> {FAu.get_facts.budget(on, a, c, d) == SpA.r_req.budget(on, a, c, d) : Wr.Dec<Au.Facts>}:
+def au.reading(d: Wr.Dec<Nat>) -> {FAu.get_reading(d) == SpA.r_reading(d) : Wr.Dec<Wl.Reading>}:
   match d:
-    case Wr.Got{b, s}:
+    case Wr.Got{t, s}:
+      match t:
+        case 0n:
+          {==}
+        case 1n:
+          {==}
+        case 2n:
+          {==}
+        case 3n:
+          {==}
+        case 4n+u:
+          {==}
+    case Wr.Bad{}:
       {==}
+
+def au.after_reading(on: Bool, a: Au.Answer, c: Au.Checks, b: Au.Budget, d: Wr.Dec<Wl.Reading>) -> {FAu.get_facts.reading(on, a, c, b, d) == SpA.r_req.reading(on, a, c, b, d) : Wr.Dec<Au.Facts>}:
+  match d:
+    case Wr.Got{r, s}:
+      {==}
+    case Wr.Bad{}:
+      {==}
+
+def au.after_budget(+on: Bool, +a: Au.Answer, +c: Au.Checks, d: Wr.Dec<Au.Budget>) -> {FAu.get_facts.budget(on, a, c, d) == SpA.r_req.budget(on, a, c, d) : Wr.Dec<Au.Facts>}:
+  match d:
+    case Wr.Got{+b, +s}:
+      %au.reading(Wr.get_nat(s)) : {FAu.get_facts.reading(on, a, c, b, FAu.get_reading(Wr.get_nat(s))) == SpA.r_req.reading(on, a, c, b, _) : Wr.Dec<Au.Facts>}
+      au.after_reading(on, a, c, b, FAu.get_reading(Wr.get_nat(s)))
     case Wr.Bad{}:
       {==}
 
@@ -154,19 +181,32 @@ def au.budget_rt(b: Au.Budget, -rest: String) -> {SpA.r_budget(Wr.get_nat(SpA.w_
     case Au.Short{}:
       {==}
 
+def au.reading_rt(r: Wl.Reading, -rest: String) -> {SpA.r_reading(Wr.get_nat(SpL.w_reading(r, rest))) == Wr.Got{r, rest} : Wr.Dec<Wl.Reading>}:
+  match r:
+    case Wl.Unread{}:
+      {==}
+    case Wl.Finished{}:
+      {==}
+    case Wl.Left{}:
+      {==}
+    case Wl.Unjudged{}:
+      {==}
+
 # a spelled request reads back (with the laws' reader), and the rest is
 # untouched
 def au.req_rt(+f: Au.Facts, +rest: String) -> {SpA.r_req(SpA.w_req(f, rest)) == Wr.Got{f, rest} : Wr.Dec<Au.Facts>}:
   match f:
-    case Au.Facts{+on, +a, +c, +b}:
-      +r3 = SpA.w_budget(b, rest)
+    case Au.Facts{+on, +a, +c, +b, +r}:
+      +r4 = SpL.w_reading(r, rest)
+      +r3 = SpA.w_budget(b, r4)
       +r2 = SpA.w_checks(c, r3)
       +r1 = SpA.w_answer(a, r2)
-      -q = {Wr.Got{Au.Facts{on, a, c, b}, rest} : Wr.Dec<Au.Facts>}
+      -q = {Wr.Got{Au.Facts{on, a, c, b, r}, rest} : Wr.Dec<Au.Facts>}
       %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(on, r1)), Wr.Got{on, r1}, Wire.wire_bool_round_trip(on, r1)) : {SpA.r_req.on(_) == q : Wr.Dec<Au.Facts>}
       %Equal.sym(Wr.Dec<Au.Answer>, SpA.r_answer(Wr.get_nat(r1)), Wr.Got{a, r2}, au.answer_rt(a, r2)) : {SpA.r_req.answer(on, _) == q : Wr.Dec<Au.Facts>}
       %Equal.sym(Wr.Dec<Au.Checks>, SpA.r_checks(Wr.get_nat(r2)), Wr.Got{c, r3}, au.checks_rt(c, r3)) : {SpA.r_req.checks(on, a, _) == q : Wr.Dec<Au.Facts>}
-      %Equal.sym(Wr.Dec<Au.Budget>, SpA.r_budget(Wr.get_nat(r3)), Wr.Got{b, rest}, au.budget_rt(b, rest)) : {SpA.r_req.budget(on, a, c, _) == q : Wr.Dec<Au.Facts>}
+      %Equal.sym(Wr.Dec<Au.Budget>, SpA.r_budget(Wr.get_nat(r3)), Wr.Got{b, r4}, au.budget_rt(b, r4)) : {SpA.r_req.budget(on, a, c, _) == q : Wr.Dec<Au.Facts>}
+      %Equal.sym(Wr.Dec<Wl.Reading>, SpA.r_reading(Wr.get_nat(r4)), Wr.Got{r, rest}, au.reading_rt(r, rest)) : {SpA.r_req.reading(on, a, c, b, _) == q : Wr.Dec<Au.Facts>}
       {==}
 
 # The reply
@@ -199,3 +239,7 @@ def au.put(t: Au.Step, +rest: String) -> {FAu.put_step(t, rest) == SpA.w_step(t,
           {==}
         case Au.ByBudget{}:
           {==}
+    case Au.Ask{}:
+      {==}
+    case Au.Finish{}:
+      {==}

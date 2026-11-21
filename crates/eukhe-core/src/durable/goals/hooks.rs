@@ -21,7 +21,9 @@
 //!   or turns `budget_limited` and yields when the session's budget admits
 //!   no more work; otherwise an autonomous run asks the compiled core
 //!   (`eukhe_bend::rules::autonomous`), from what the checks did with the
-//!   answer and the session's budget; reminders
+//!   answer, the session's budget and, for a claim that passed, the
+//!   final-answer judge's reading (asked first, one request: a passing
+//!   claim whose answer states work left goes on with that work); reminders
 //!   lead the continuation, or stay on the stack when no continuation
 //!   comes; a forced call not made yet continues the run forced. Queued
 //!   user input and unsettled RLM children hold the continuation (the
@@ -39,6 +41,7 @@
 
 use std::sync::Arc;
 
+use eukhe_bend::rules::work_left::Reading;
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::hook;
@@ -72,8 +75,9 @@ use crate::autonomous::{now_millis, SessionBudget};
 use crate::durable::acceptance::{checks_at, AnswerChecks};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::directors::{
-    compared, read_work, stall_check, DirectorLimits, DirectorState, End, Last, Layer, LayerKind,
-    Loop, RunLoop, Stall, Verdict, DIRECTORS_DOC, DIRECTOR_NOTICE_CUSTOM_TYPE,
+    compared, judge_answer, left_continuation, left_notice, read_work, stall_check, DirectorLimits,
+    DirectorState, End, Last, Layer, LayerKind, Loop, RunLoop, Stall, Verdict, DIRECTORS_DOC,
+    DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::workflow::unsettled_runs;
@@ -366,6 +370,9 @@ impl GoalsHost {
             // No Director: the loop hands back, and nothing is written.
             return Ok(None);
         }
+        let (reading, left) = self
+            .read_passing_claim(answer, &goal, &autonomous, checks, budget, api, cx)
+            .await?;
         let Step {
             continuation,
             abort,
@@ -378,6 +385,8 @@ impl GoalsHost {
                 answer: AnswerAt {
                     stop_reason: answer.stop_reason,
                     checks,
+                    reading,
+                    left,
                 },
                 limits,
                 work,
@@ -390,6 +399,45 @@ impl GoalsHost {
             Some(error) => Err(SessionError::other(error)),
             None => Ok(continuation),
         }
+    }
+
+    /// The final-answer judge's reading of `answer` when the core asks for
+    /// it (`autonomous_asks_iff`: a claim of the autonomous run that passed
+    /// while the budget admits work), with the items it listed as left;
+    /// else not read. One request, before the step's commit: the step
+    /// decides with it.
+    #[allow(clippy::too_many_arguments)] // the step's facts, read once by on_yield
+    async fn read_passing_claim(
+        &self,
+        answer: &AssistantMessage,
+        goal: &GoalState,
+        autonomous: &AutonomousDocState,
+        checks: AnswerChecks,
+        budget: SessionBudget,
+        api: &HookApi,
+        cx: &Context,
+    ) -> SessionResult<(Reading, Vec<String>)> {
+        // A goal that drives continuations owns the boundary.
+        if owns_continuation_wakeup(goal) {
+            return Ok((Reading::Unread, Vec::new()));
+        }
+        Ok(
+            match decide(
+                autonomous,
+                answer.stop_reason,
+                checks,
+                budget.rule(),
+                Reading::Unread,
+            )? {
+                AutonomousYield::Ask => {
+                    judge_answer(&*self.judge, api.conversation_id(), answer, cx).await
+                }
+                AutonomousYield::Inactive
+                | AutonomousYield::Continue { .. }
+                | AutonomousYield::Stop { .. }
+                | AutonomousYield::Finish { .. } => (Reading::Unread, Vec::new()),
+            },
+        )
     }
 
     /// Count the response to a forced request for the layer that forced it
@@ -502,6 +550,9 @@ struct Pass {
     /// Written when the loop goes on: the autonomous run after its
     /// continuation.
     autonomous_continued: Option<AutonomousDocState>,
+    /// Appended when the loop goes on: the display row that tells the user
+    /// the autonomous run went on with the work its answer left.
+    left_row: Option<EntryDraft>,
     /// Written whatever the loop does: the stopped autonomous run.
     autonomous_stopped: Option<AutonomousDocState>,
     /// The forced call whose layer aborted.
@@ -548,12 +599,16 @@ fn goal_check(
     }
 }
 
-/// What the step knows of the final answer: how it ended, and what the
-/// checks did with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the step knows of the final answer: how it ended, what the checks
+/// did with it, and the final-answer judge's reading of it with the items
+/// it listed as left (read only for a claim of the autonomous run that
+/// passed).
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct AnswerAt {
     stop_reason: StopReason,
     checks: AnswerChecks,
+    reading: Reading,
+    left: Vec<String>,
 }
 
 /// Start a new loop when the stored one belongs to another run (its first
@@ -621,8 +676,10 @@ fn begin(
 ///   yields; a cleared goal leaves.
 /// - Autonomous: defers to a goal that drives continuations; leaves when
 ///   off; else the compiled core decides from the checks' outcome at the
-///   answer and the budget: a continuation (Again), or Yield (the checks'
-///   return continues the run, or the run stopped).
+///   answer, the budget and the final-answer judge's reading: a
+///   continuation (Again: with its prompt, or with the work the answer of
+///   a passing claim left), or Yield (the checks' return continues the
+///   run, or the run stopped).
 /// - Reminder: its text leads the continuation (Lead): it leaves with the
 ///   continuation, and stays when the step ends the loop.
 /// - `ForceTool`: leaves once the model called the tool; else Again while
@@ -632,7 +689,7 @@ fn judge(
     stack: &[Layer],
     goal: &GoalState,
     autonomous: &AutonomousDocState,
-    answer: AnswerAt,
+    answer: &AnswerAt,
     check: GoalCheck,
     session: SessionTerms,
     now: u64,
@@ -715,11 +772,21 @@ fn judge(
                         answer.stop_reason,
                         answer.checks,
                         session.budget.rule(),
+                        answer.reading,
                     )? {
-                        AutonomousYield::Inactive => Verdict::Yield,
+                        // A reading not given (the run changed between
+                        // the read and the commit): the answer stands.
+                        AutonomousYield::Inactive | AutonomousYield::Ask => Verdict::Yield,
                         AutonomousYield::Continue { text, nudge, next } => {
                             pass.continuation = Some((text, InputOrigin::Autonomous { nudge }));
                             pass.autonomous_continued = Some(next);
+                            Verdict::Again
+                        }
+                        AutonomousYield::Finish { next } => {
+                            pass.continuation =
+                                Some((left_continuation(&answer.left), InputOrigin::Director));
+                            pass.autonomous_continued = Some(next);
+                            pass.left_row = Some(left_notice(&answer.left)?);
                             Verdict::Again
                         }
                         AutonomousYield::Stop { next, .. } => {
@@ -843,7 +910,7 @@ async fn commit_step(
                     &state.stack,
                     &goal_state,
                     &autonomous_state,
-                    answer,
+                    &answer,
                     check,
                     session,
                     now,
@@ -886,6 +953,7 @@ async fn commit_step(
                     write_doc(draft, &limited)?;
                 }
                 let mut row = None;
+                let mut left_row = None;
                 let outcome = match (ticked.end, pass.continuation) {
                     (None, Some((text, origin))) => {
                         if let (Some((slot, context)), Some((draft, _))) = (pass.goal_slot, &goal) {
@@ -897,6 +965,7 @@ async fn commit_step(
                         {
                             write_doc(draft, &continued)?;
                         }
+                        left_row = pass.left_row;
                         let text = pass
                             .reminders
                             .into_iter()
@@ -914,6 +983,9 @@ async fn commit_step(
                 write_doc(&loop_draft, &loop_state)?;
                 if let Some(row) = row {
                     tx.append_entry(conversation_id, row).await?;
+                }
+                if let Some(left_row) = left_row {
+                    tx.append_entry(conversation_id, left_row).await?;
                 }
                 if let Some(notice) = notice {
                     tx.append_entry(conversation_id, notice).await?;
@@ -983,6 +1055,8 @@ mod tests {
         AnswerAt {
             stop_reason: StopReason::Stop,
             checks: AnswerChecks::Unchecked,
+            reading: Reading::Unread,
+            left: Vec::new(),
         }
     }
 
@@ -992,7 +1066,7 @@ mod tests {
             stack,
             &GoalState::default(),
             &AutonomousDocState::initial(),
-            answer(),
+            &answer(),
             check(),
             working(),
             0,
@@ -1019,7 +1093,7 @@ mod tests {
             &stack,
             &goal,
             &AutonomousDocState::initial(),
-            answer(),
+            &answer(),
             check(),
             SessionTerms {
                 budget: SessionBudget::Short(Some(eukhe_types::budget::BudgetDimension::Tokens)),
@@ -1124,9 +1198,11 @@ mod tests {
                 &stack,
                 &GoalState::default(),
                 &run,
-                AnswerAt {
+                &AnswerAt {
                     stop_reason: StopReason::Stop,
                     checks,
+                    reading: Reading::Unread,
+                    left: Vec::new(),
                 },
                 check(),
                 working(),

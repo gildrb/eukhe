@@ -42,7 +42,7 @@ use super::{
     AutonomousChange,
 };
 use crate::autonomous::{AgentAutonomousConfig, AutonomousStop};
-use crate::durable::acceptance::{acceptance_state, set_acceptance};
+use crate::durable::acceptance::{acceptance_state, answer_judge, set_acceptance};
 use crate::durable::budget::{wrap_models_with_budget, BudgetGate, RunStart};
 use crate::durable::directors::{DirectorLimits, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
@@ -111,6 +111,8 @@ pub(crate) fn setup_with(beside: impl FnOnce(Beside<'_>) -> Vec<Arc<Extension>>)
             cell.clone(),
             Arc::clone(&budget),
             limits_of,
+            // A faux model takes no judge request: no verdict.
+            answer_judge(cell.clone(), models.clone()),
             &requests,
             Vec::new(),
         ))

@@ -49,22 +49,18 @@ use super::{
     set_acceptance, uncertified_line, watch_acceptance_updates, AnswerReading, Attacker, Breaker,
     Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services, ACCEPTANCE_CUSTOM_TYPE,
 };
-use crate::autonomous::{
-    AgentAutonomousConfig, AgentAutonomousGateConfig, AutonomousStop, ChildProcessResult,
-    GateCommandRunner,
-};
+use crate::autonomous::{ChildProcessResult, GateCommandRunner};
 use crate::durable::budget::BudgetGate;
 use crate::durable::directors::DirectorLimits;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::goals::tests::{open_jsonl, user_origins, user_texts};
-use crate::durable::goals::{
-    autonomous_state, goal_state, goals_extension, read_doc, set_autonomous, AutonomousChange,
-};
+use crate::durable::goals::{goal_state, goals_extension, read_doc};
 use crate::durable::rlm::tool_result as python_result;
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::GoalStatus;
 use crate::kernel::shared::{ExecuteResult, ExecuteStatus, KernelBashCommands};
 
+mod autonomous;
 mod commits;
 mod ran;
 mod returns;
@@ -514,6 +510,8 @@ fn setup() -> Setup {
             cell.clone(),
             Arc::clone(&budget),
             Arc::new(DirectorLimits::default),
+            // The same script answers the final-answer judge.
+            Arc::clone(&judge) as Arc<dyn Judge>,
             &requests,
             Vec::new(),
         ))
@@ -1172,88 +1170,6 @@ async fn a_returned_claim_is_verified_once_the_fix_passes_on_the_new_state() {
     assert!(texts[1].contains(
         "2. command `cargo clippy` (expect exit 0): refuted: exited with code 101\n\n<evidence>\nwarning: unused\n</evidence>"
     ));
-    harness.close(cx()).await.expect("close");
-}
-
-/// AU1, AU2: the commands of an autonomous run's removed gates are command
-/// checks beside the intent check; a refuted claim goes back to the worker
-/// with its evidence (the checks' return: no continuation of the run's
-/// own), and the claim the checks end stops the run with its label.
-#[tokio::test]
-async fn an_autonomous_run_stops_when_its_checks_end_the_claim() {
-    let setup = setup();
-    let (harness, root) = setup.memory().await;
-    set_autonomous(
-        &harness,
-        &setup.budget,
-        root.id(),
-        AutonomousChange::On(AgentAutonomousConfig {
-            gates: Some(AgentAutonomousGateConfig {
-                commands: Some(vec!["make test".to_owned()]),
-                ..AgentAutonomousGateConfig::default()
-            }),
-            ..AgentAutonomousConfig::default()
-        }),
-        setup.cwd(),
-        cx(),
-    )
-    .await
-    .expect("autonomous on");
-    let specs: Vec<CheckSpec> = state(&harness, &root)
-        .await
-        .checks
-        .into_iter()
-        .map(|check| check.spec)
-        .collect();
-    assert_eq!(specs, vec![command("make test"), CheckSpec::intent()]);
-    setup
-        .runner
-        .script(vec![exited(1, "1 failed"), exited(0, "ok")]);
-    setup.judge.replies.lock().expect("replies").extend([
-        JudgeReply::Text("PASS\n1. the tests: make test".to_owned()),
-        JudgeReply::Text("PASS\n1. the tests: make test".to_owned()),
-    ]);
-    setup.faux.set_responses(vec![
-        answer("done"),
-        call("work", "w1"),
-        answer("fixed"),
-        answer("unused"),
-    ]);
-
-    run(&harness, &root, "make the tests pass").await;
-
-    let entries = entries(&root).await;
-    assert_eq!(
-        user_origins(&entries),
-        vec![InputOrigin::User, InputOrigin::Director]
-    );
-    assert!(
-        user_texts(&entries)[1].contains("1. command `make test` (expect exit 0): refuted"),
-        "{:?}",
-        user_texts(&entries)
-    );
-    assert_eq!(
-        setup.runner.commands(),
-        vec!["make test".to_owned(), "make test".to_owned()]
-    );
-    assert_eq!(
-        state(&harness, &root).await.label,
-        AcceptanceLabel::ChecksPassedUnconfined
-    );
-    let run = autonomous_state(&harness, root.id(), cx())
-        .await
-        .expect("the run reads");
-    assert_eq!(
-        (run.enabled, run.continuations_used, run.last_stop),
-        (
-            true,
-            0,
-            Some(AutonomousStop::Checks(
-                AcceptanceLabel::ChecksPassedUnconfined
-            ))
-        )
-    );
-    assert_eq!(setup.faux.get_pending_response_count(), 1);
     harness.close(cx()).await.expect("close");
 }
 

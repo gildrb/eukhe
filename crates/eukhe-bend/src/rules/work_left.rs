@@ -33,6 +33,19 @@ pub enum Reading {
     Unjudged,
 }
 
+impl Reading {
+    /// The reading's tag on the wire (the work-left and autonomous
+    /// requests): 0 not read, 1 no work left, 2 work left, 3 no verdict.
+    pub(crate) fn tag(self) -> u32 {
+        match self {
+            Self::Unread => 0,
+            Self::Finished => 1,
+            Self::Left => 2,
+            Self::Unjudged => 3,
+        }
+    }
+}
+
 /// The facts at a final answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)] // the independent facts of the wire's request
@@ -86,12 +99,7 @@ pub fn step(facts: Facts) -> Result<Step, Error> {
     };
     request
         .nat(facts.left.min(NAT_MAX))
-        .tag(match facts.reading {
-            Reading::Unread => 0,
-            Reading::Finished => 1,
-            Reading::Left => 2,
-            Reading::Unjudged => 3,
-        });
+        .tag(facts.reading.tag());
     let reply = call(Entry::WorkLeft, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let step = match reader.tag_of(3, "a step")? {

@@ -1604,1248 +1604,1250 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define CID_autonomous_Hold 1291
 #define CID_autonomous_Continue 1292
 #define CID_autonomous_Stop 1293
-#define CID_cron_Active 1294
-#define CID_cron_Paused 1295
-#define CID_cron_Finished 1296
-#define CID_cron_Cancelled 1297
-#define CID_cron_store_POnce 1298
-#define CID_cron_store_PEvery 1299
-#define CID_cron_store_PRule 1300
-#define CID_strength_Exempt 1301
-#define CID_strength_Waived 1302
-#define CID_strength_Needs 1303
-#define CID_arg_repair_KV 1304
-#define CID_arg_repair_VNull 1305
-#define CID_arg_repair_VBool 1306
-#define CID_arg_repair_VNum 1307
-#define CID_arg_repair_VStr 1308
-#define CID_arg_repair_VArr 1309
-#define CID_arg_repair_VObj 1310
-#define CID_staging_Utf 1311
-#define CID_staging_Raw 1312
-#define CID_staging_KDir 1313
-#define CID_staging_KFile 1314
-#define CID_staging_KOther 1315
-#define CID_log_Whole 1316
-#define CID_log_Torn 1317
-#define CID_log_Odd 1318
-#define CID_account_In 1319
-#define CID_doc_rows_Range 1320
-#define CID_model_roles_Row 1321
-#define CID_worker_Run 1322
-#define CID_worker_Paused 1323
-#define CID_tool_call_Run 1324
-#define CID_tool_call_Missing 1325
-#define CID_tool_call_Unavailable 1326
-#define CID_tool_call_Rerun 1327
-#define CID_tool_call_Interrupted 1328
-#define CID_tool_call_Aborted 1329
-#define CID_tool_call_Abandoned 1330
-#define CID_ffi_orphan_Reply 1331
-#define CID_wait_any_Live 1332
-#define CID_wait_any_Kept 1333
-#define CID_wait_any_Sent 1334
-#define CID_agent_tree_Leaf 1335
-#define CID_agent_tree_Split 1336
-#define CID_agent_crown_Help 1337
-#define CID_agent_tree_EvSplit 1338
-#define CID_agent_tree_EvSpend 1339
-#define CID_agent_tree_EvFinish 1340
-#define CID_agent_tree_EvFail 1341
-#define CID_agent_tree_EvCancel 1342
-#define CID_agent_tree_EvRedo 1343
-#define CID_agent_tree_EvTick 1344
-#define CID_path_policy_Tree 1345
-#define CID_path_policy_Dir 1346
-#define CID_path_policy_Named 1347
-#define CID_path_policy_Judged 1348
-#define CID_auth_flight_Serve 1349
-#define CID_auth_flight_Refresh 1350
-#define CID_auth_flight_Refuse 1351
-#define CID_auth_flight_KeepPeer 1352
-#define CID_auth_flight_Write 1353
-#define CID_kernel_local_Cand 1354
-#define CID_kernel_local_Aside 1355
-#define CID_kernel_local_Foreign 1356
-#define CID_kernel_local_Alive 1357
-#define CID_kernel_local_Dead 1358
-#define CID_progress_Prior 1359
-#define CID_undo_Turn 1360
-#define CID_undo_All 1361
-#define CID_effort_LvMap 1362
-#define CID_revive_Revive 1363
-#define CID_revive_GaveUp 1364
-#define CID_revive_Archived 1365
-#define CID_revive_Leased 1366
-#define CID_revive_NoEvidence 1367
-#define CID_revive_Stale 1368
-#define CID_default_model_Runs 1369
-#define CID_default_model_Nothing 1370
-#define CID_default_model_Refused 1371
-#define CID_retry_note_Call 1372
-#define CID_ffi_retry_note_Three 1373
-#define CID_doc_commit_NotPlaced 1374
-#define CID_doc_commit_Placed 1375
-#define CID_doc_commit_Lands 1376
-#define CID_doc_commit_Fails 1377
-#define CID_refine_plan_ACreate 1378
-#define CID_refine_plan_AUpdate 1379
-#define CID_refine_plan_ADelete 1380
-#define CID_refine_plan_KPrompt 1381
-#define CID_refine_plan_KMemory 1382
-#define CID_refine_plan_KSkill 1383
-#define CID_refine_plan_KSubagent 1384
-#define CID_refine_plan_KFactory 1385
-#define CID_refine_plan_Pyref 1386
-#define CID_refine_plan_Args 1387
-#define CID_gateway_report_Out 1388
-#define CID_headless_exit_Verdict 1389
-#define CID_tree_Kept 1390
-#define CID_tree_Took 1391
-#define CID_tree_Cut 1392
-#define CID_tree_Effects 1393
-#define CID_tree_Nodes 1394
-#define CID_notice_Shown 1395
-#define CID_notice_Noted 1396
-#define CID_selection_Single 1397
-#define CID_selection_Head 1398
-#define CID_selection_Cont 1399
-#define CID_selection_Res 1400
-#define CID_doc_search_Range 1401
-#define CID_doc_search_Opened 1402
-#define CID_doc_search_Skip 1403
-#define CID_doc_glob_Ahead 1404
-#define CID_doc_glob_Twin 1405
-#define CID_doc_glob_Behind 1406
-#define CID_ffi_quirks_Ask 1407
-#define CID_infer_guard_Goes 1408
-#define CID_infer_guard_Cuts 1409
-#define CID_bound_Body 1410
-#define CID_bound_Drop 1411
-#define CID_bound_Store 1412
-#define CID_bound_Trim 1413
-#define CID_bound_Seen 1414
-#define CID_progress_Call 1415
-#define CID_progress_Res 1416
-#define CID_progress_Txt 1417
-#define CID_progress_Think 1418
-#define CID_progress_User 1419
-#define CID_progress_Sys 1420
-#define CID_progress_Read 1421
-#define CID_progress_Again 1422
-#define CID_retry_WakeStall 1423
-#define CID_retry_WakeSleep 1424
-#define CID_auth_flight_DRes 1425
-#define CID_dash_VPaired 1426
-#define CID_dash_VRun 1427
-#define CID_dash_VRefuse 1428
-#define CID_dash_VClosed 1429
-#define CID_tiny_DoPing 1430
-#define CID_tiny_DoShutdown 1431
-#define CID_tiny_DoLaunch 1432
-#define CID_tiny_DoUse 1433
-#define CID_tiny_DoFail 1434
-#define CID_tiny_DoLock 1435
-#define CID_tiny_DoAdopt 1436
-#define CID_tiny_DoTake 1437
-#define CID_tiny_DoFault 1438
-#define CID_tiny_DoNothing 1439
-#define CID_tool_call_Keep 1440
-#define CID_tool_call_Refuse 1441
-#define CID_tool_call_Settle 1442
-#define CID_tool_call_Late 1443
-#define CID_once_Undeclared 1444
-#define CID_once_Lasting 1445
-#define CID_optchat_open_Built 1446
-#define CID_log_FlushParent 1447
-#define CID_log_AppendSide 1448
-#define CID_log_FlushSide 1449
-#define CID_log_FlushDir 1450
-#define CID_log_AppendMain 1451
-#define CID_log_FlushMain 1452
-#define CID_log_Ack 1453
-#define CID_ai_text_Span 1454
-#define CID_cvar_Accept 1455
-#define CID_cvar_Twice 1456
-#define CID_cvar_BadInit 1457
-#define CID_cvar_TgUndeclared 1458
-#define CID_cvar_TgGlobal 1459
-#define CID_cvar_TgNotBool 1460
-#define CID_cvar_TgFlip 1461
-#define CID_cvar_CkUndeclared 1462
-#define CID_cvar_CkGlobal 1463
-#define CID_cvar_CkType 1464
-#define CID_cvar_CkFine 1465
-#define CID_retry_After 1466
-#define CID_retry_Refused 1467
-#define CID_retry_Switch 1468
-#define CID_headless_task_Stands 1469
-#define CID_headless_task_Incomplete 1470
-#define CID_headless_task_Unjudged 1471
-#define CID_headless_task_Ask 1472
-#define CID_task_life_Ended 1473
-#define CID_task_life_Held 1474
-#define CID_task_life_NotRunning 1475
-#define CID_task_life_NotHeld 1476
-#define CID_dash_policy_ForSession 1477
-#define CID_dash_policy_ForCatalog 1478
-#define CID_dash_policy_NotRun 1479
-#define CID_loop_Satisfied 1480
-#define CID_loop_CheckBroke 1481
-#define CID_loop_OutOfTurns 1482
-#define CID_loop_OutOfTime 1483
-#define CID_loop_TurnsFailed 1484
-#define CID_loop_OutOfBudget 1485
-#define CID_loop_Stopped 1486
-#define CID_loop_Rest 1487
-#define CID_loop_Submit 1488
-#define CID_loop_Adopt 1489
-#define CID_loop_Judge 1490
-#define CID_loop_Resume 1491
-#define CID_loop_Report 1492
-#define CID_loop_Defer 1493
-#define CID_loop_Confirmed 1494
-#define CID_loop_Refuted 1495
-#define CID_loop_Broken 1496
-#define CID_loop_Unjudged 1497
-#define CID_stream_failure_Http 1498
-#define CID_stream_failure_Named 1499
-#define CID_stream_failure_Repeat 1500
-#define CID_screen_Active 1501
-#define CID_screen_Final 1502
-#define CID_screen_Comm 1503
-#define CID_screen_Chunk 1504
-#define CID_screen_Frame 1505
-#define CID_screen_Rect 1506
-#define CID_fallback_Failed 1507
-#define CID_fallback_Login 1508
-#define CID_fallback_Quota 1509
-#define CID_fallback_Unset 1510
-#define CID_fallback_Keep 1511
-#define CID_fallback_Switch 1512
-#define CID_fallback_Hold 1513
-#define CID_fallback_End 1514
-#define CID_stop_Stands 1515
-#define CID_stop_Goes 1516
-#define CID_stop_Drops 1517
-#define CID_stop_Facts 1518
-#define CID_child_W 1519
-#define CID_child_Completed 1520
-#define CID_child_Failed 1521
-#define CID_child_Cancelled 1522
-#define CID_child_Stalled 1523
-#define CID_child_Unreachable 1524
-#define CID_tool_result_Keep 1525
-#define CID_tool_result_Omit 1526
-#define CID_launcher_Wk 1527
-#define CID_launcher_Adopt 1528
-#define CID_launcher_Replace 1529
-#define CID_goal_text_Host 1530
-#define CID_runners_ToolReg 1531
-#define CID_rebase_Edit 1532
-#define CID_facts_Fit 1533
-#define CID_facts_Dynamic 1534
-#define CID_facts_Tokens 1535
-#define CID_facts_Unordered 1536
-#define CID_ffi_facts_P2 1537
-#define CID_server_peer_Served 1538
-#define CID_server_peer_OtherUid 1539
-#define CID_server_peer_NoRecord 1540
-#define CID_server_peer_OtherPid 1541
-#define CID_gateway_width_Display 1542
-#define CID_gateway_width_Chars 1543
-#define CID_wire_flat_Start 1544
-#define CID_wire_flat_Mid 1545
-#define CID_config_Num 1546
-#define CID_config_Malformed 1547
-#define CID_config_Refused 1548
-#define CID_config_Wrote 1549
-#define CID_config_Unlimited 1550
-#define CID_config_Cap 1551
-#define CID_doc_publish_Place 1552
-#define CID_doc_publish_Rebase 1553
-#define CID_doc_publish_Refuse 1554
-#define CID_glob_parse_EClass 1555
-#define CID_glob_parse_ERange 1556
-#define CID_glob_parse_EUnopened 1557
-#define CID_glob_parse_EUnclosed 1558
-#define CID_glob_parse_EEscape 1559
-#define CID_glob_items_Opts 1560
-#define CID_scan_Begin 1561
-#define CID_scan_Refuse 1562
-#define CID_scan_NoId 1563
-#define CID_scan_UseId 1564
-#define CID_scan_RefuseId 1565
-#define CID_compactor_Ends 1566
-#define CID_compactor_Asks 1567
-#define CID_compactor_W1 1568
-#define CID_compactor_W2 1569
-#define CID_compactor_W3 1570
-#define CID_compactor_W4 1571
-#define CID_skill_load_Checked 1572
-#define CID_package_source_Parsed 1573
-#define CID_package_source_Refused 1574
-#define CID_package_source_NoGit 1575
-#define CID_package_source_IsGit 1576
-#define CID_package_source_BadGit 1577
-#define CID_package_source_NpmSpec 1578
-#define CID_doc_tags_Tagged 1579
-#define CID_doc_tags_OverLimit 1580
-#define CID_doc_tags_NotUtf8 1581
-#define CID_supervise_Relaunch 1582
-#define CID_supervise_GiveUp 1583
-#define CID_supervise_Decision 1584
-#define CID_supervise_St 1585
-#define CID_sandbox_Serve 1586
-#define CID_sandbox_Duplicate 1587
-#define CID_sandbox_Oversize 1588
-#define CID_sandbox_Kindless 1589
-#define CID_sandbox_NotServed 1590
-#define CID_job_Exited 1591
-#define CID_job_Killed 1592
-#define CID_job_Out 1593
-#define CID_job_Quit 1594
-#define CID_job_Kill 1595
-#define CID_job_Tick 1596
-#define CID_ffi_tokens_Block 1597
-#define CID_limits_Filled 1598
-#define CID_limits_Told 1599
-#define CID_budget_Cost 1600
-#define CID_budget_Tok 1601
-#define CID_budget_Time 1602
-#define CID_budget_Calls 1603
-#define CID_budget_Reqs 1604
-#define CID_limits_Read 1605
-#define CID_limits_Refused 1606
-#define CID_command_Ent 1607
-#define CID_theme_palette_Rejected 1608
-#define CID_theme_palette_Painted 1609
-#define CID_theme_resolve_Resolved 1610
-#define CID_doc_seen_Check 1611
-#define CID_verify_Rest 1612
-#define CID_verify_Run 1613
-#define CID_verify_Return 1614
-#define CID_verify_End 1615
-#define CID_autonomous_ByChecks 1616
-#define CID_autonomous_ByBudget 1617
-#define CID_kin_Admit 1618
-#define CID_kin_Refuse 1619
-#define CID_kin_Queue 1620
-#define CID_kin_Deliver 1621
-#define CID_kin_WakeThenDeliver 1622
-#define CID_workflow_Ended 1623
-#define CID_workflow_Reattach 1624
-#define CID_workflow_Reuse 1625
-#define CID_workflow_Spawn 1626
-#define CID_workflow_Refused 1627
-#define CID_workflow_Limits 1628
-#define CID_cron_store_Keep 1629
-#define CID_cron_store_Roll 1630
-#define CID_cron_store_Claimed 1631
-#define CID_cron_store_Kept 1632
-#define CID_cron_store_Interrupted 1633
-#define CID_cron_store_Refire 1634
-#define CID_cron_store_Untouched 1635
-#define CID_cron_store_Ran 1636
-#define CID_cron_store_Skipped 1637
-#define CID_cron_store_Same 1638
-#define CID_cron_store_Cut 1639
-#define CID_cron_store_Resumed 1640
-#define CID_cron_store_Ended 1641
-#define CID_cron_store_NotRecurring 1642
-#define CID_cron_store_Locked 1643
-#define CID_cron_store_Edited 1644
-#define CID_cron_store_Made 1645
-#define CID_strength_Verified 1646
-#define CID_strength_Failed 1647
-#define CID_strength_Unverified 1648
-#define CID_strength_Passed 1649
-#define CID_strength_Uncertified 1650
-#define CID_tools_Runs 1651
-#define CID_tools_Refused 1652
-#define CID_arg_repair_SPlain 1653
-#define CID_arg_repair_SBrace 1654
-#define CID_arg_repair_SBracket 1655
-#define CID_arg_repair_Repaired 1656
-#define CID_arg_repair_Rejected 1657
-#define CID_staging_Moved 1658
-#define CID_staging_Taken 1659
-#define CID_staging_MKeep 1660
-#define CID_staging_MDescend 1661
-#define CID_staging_MLeftover 1662
-#define CID_staging_MOrphan 1663
-#define CID_staging_PKeep 1664
-#define CID_staging_PRmDir 1665
-#define CID_staging_PRmDirLock 1666
-#define CID_staging_PRmFile 1667
-#define CID_listing_PSkip 1668
-#define CID_listing_PStore 1669
-#define CID_listing_PLegacy 1670
-#define CID_listing_Row 1671
-#define CID_job_notice_Drops 1672
-#define CID_job_notice_Wakes 1673
-#define CID_shape_Shape 1674
-#define CID_account_Free 1675
-#define CID_account_Until 1676
-#define CID_account_Dead 1677
-#define CID_account_Use 1678
-#define CID_account_Hold 1679
-#define CID_account_Quota 1680
-#define CID_account_Login 1681
-#define CID_strength_Measure 1682
-#define CID_strength_End 1683
-#define CID_strength_Strong 1684
-#define CID_strength_Weak 1685
-#define CID_strength_Unshown 1686
-#define CID_strength_Free 1687
-#define CID_rlm_query_Waves 1688
-#define CID_rlm_query_Refused 1689
-#define CID_rlm_query_Fits 1690
-#define CID_rlm_query_CutAt 1691
-#define CID_doc_lines_Seps 1692
-#define CID_doc_lines_Proj 1693
-#define CID_infer_force_Hit 1694
-#define CID_infer_force_Again 1695
-#define CID_infer_force_Fails 1696
-#define CID_budget_Granted 1697
-#define CID_budget_Refused 1698
-#define CID_budget_Carved 1699
-#define CID_budget_Kept 1700
-#define CID_budget_Closed 1701
-#define CID_budget_Busy 1702
-#define CID_path_own_Judged 1703
-#define CID_path_own_Own 1704
-#define CID_model_roles_Chat 1705
-#define CID_model_roles_Memory 1706
-#define CID_model_roles_Auxiliary 1707
-#define CID_model_roles_Image 1708
-#define CID_model_roles_Subagent 1709
-#define CID_model_roles_Worker 1710
-#define CID_model_roles_Gateway 1711
-#define CID_model_roles_Query 1712
-#define CID_model_roles_Titles 1713
-#define CID_model_roles_Judge 1714
-#define CID_model_roles_Translate 1715
-#define CID_model_roles_Speech 1716
-#define CID_model_roles_Dictation 1717
-#define CID_model_roles_Own 1718
-#define CID_model_roles_All 1719
-#define CID_model_roles_Default 1720
-#define CID_submission_Stays 1721
-#define CID_submission_Moves 1722
-#define CID_submission_Refused 1723
-#define CID_worker_Go 1724
-#define CID_worker_Hold 1725
-#define CID_worker_Release 1726
-#define CID_worker_Kept 1727
-#define CID_worker_Pass 1728
-#define CID_worker_Ack 1729
-#define CID_worker_Pick 1730
-#define CID_fsmode_Seen 1731
-#define CID_fsmode_Accept 1732
-#define CID_fsmode_Drop 1733
-#define CID_fsmode_Mode 1734
-#define CID_fsmode_Opened 1735
-#define CID_fsmode_NeedsCwd 1736
-#define CID_fsmode_Gone 1737
-#define CID_fsmode_NotDir 1738
-#define CID_fsmode_NoCwd 1739
-#define CID_fsmode_GoneCwd 1740
-#define CID_fsmode_FileCwd 1741
-#define CID_fsmode_DirCwd 1742
-#define CID_redirect_input_Pasted 1743
-#define CID_redirect_input_Failed 1744
-#define CID_dash_Hex 1745
-#define CID_dash_Blank 1746
-#define CID_dash_Junk 1747
-#define CID_dash_Mint 1748
-#define CID_dash_Reuse 1749
-#define CID_dash_Restrict 1750
-#define CID_dash_Unreadable 1751
-#define CID_dash_Tokenless 1752
-#define CID_orphan_Shut 1753
-#define CID_orphan_Handover 1754
-#define CID_cron_file_Swept 1755
-#define CID_cron_file_Closed 1756
-#define CID_irreversible_New 1757
-#define CID_irreversible_Known 1758
-#define CID_wait_any_Waits 1759
-#define CID_wait_any_Takes 1760
-#define CID_wait_any_NoWork 1761
-#define CID_wait_any_Capped 1762
-#define CID_wait_any_Stopped 1763
-#define CID_wait_any_Out 1764
-#define CID_infer_Fits 1765
-#define CID_infer_Over 1766
-#define CID_gateway_commands_OCommand 1767
-#define CID_gateway_commands_OAnswer 1768
-#define CID_gateway_commands_OPrompt 1769
-#define CID_agent_tree_Info 1770
-#define CID_agent_tree_Running 1771
-#define CID_agent_tree_Finished 1772
-#define CID_agent_tree_Failed 1773
-#define CID_agent_tree_Cancelled 1774
-#define CID_agent_tree_Unlimited 1775
-#define CID_agent_tree_Value 1776
-#define CID_agent_crown_CTook 1777
-#define CID_agent_crown_CRefused 1778
-#define CID_agent_tree_ReadMessage 1779
-#define CID_agent_tree_Integrate 1780
-#define CID_agent_tree_WorkOwn 1781
-#define CID_agent_tree_Waits 1782
-#define CID_aux_fallback_Stay 1783
-#define CID_aux_fallback_Went 1784
-#define CID_aux_fallback_Sub 1785
-#define CID_aux_fallback_Note 1786
-#define CID_kernel_local_FetchUv 1787
-#define CID_kernel_local_FetchPython 1788
-#define CID_kernel_local_MakeEnv 1789
-#define CID_kernel_local_Run 1790
-#define CID_kernel_local_Got 1791
-#define CID_kernel_local_Busy 1792
-#define CID_kernel_local_Freed 1793
-#define CID_kernel_local_Crash 1794
-#define CID_kernel_local_Free 1795
-#define CID_kernel_local_Live 1796
-#define CID_kernel_local_Gone 1797
-#define CID_slash_args_AStatus 1798
-#define CID_slash_args_AOn 1799
-#define CID_slash_args_AOff 1800
-#define CID_slash_args_AErr 1801
-#define CID_slash_args_ATask 1802
-#define CID_run_decision_DoAnswer 1803
-#define CID_run_decision_DoTools 1804
-#define CID_run_decision_DoPoll 1805
-#define CID_run_decision_DoRetry 1806
-#define CID_run_decision_DoNote 1807
-#define CID_run_decision_DoCompact 1808
-#define CID_run_decision_DoFail 1809
-#define CID_run_decision_DoLate 1810
-#define CID_run_decision_Waits 1811
-#define CID_run_decision_Sends 1812
-#define CID_run_decision_EndStop 1813
-#define CID_run_decision_EndReset 1814
-#define CID_run_decision_EndCapped 1815
-#define CID_run_decision_EndNext 1816
-#define CID_run_decision_Runs 1817
-#define CID_run_decision_Redoes 1818
-#define CID_run_decision_Quits 1819
-#define CID_run_decision_Compacts 1820
-#define CID_run_decision_Lowers 1821
-#define CID_undo_Took 1822
-#define CID_undo_Restore 1823
-#define CID_undo_Refused 1824
-#define CID_undo_Compare 1825
-#define CID_undo_NoSnapshot 1826
-#define CID_undo_Keep 1827
-#define CID_undo_Remove 1828
-#define CID_undo_Write 1829
-#define CID_undo_Same 1830
-#define CID_undo_Differs 1831
-#define CID_undo_Skipped 1832
-#define CID_tools_Schema 1833
-#define CID_tools_Join 1834
-#define CID_tools_Quit 1835
-#define CID_tools_Turn 1836
-#define CID_tools_Sess 1837
-#define CID_call_lift_Fam 1838
-#define CID_effort_Missing 1839
-#define CID_effort_Null 1840
-#define CID_effort_Wire 1841
-#define CID_effort_Mdl 1842
-#define CID_ffi_effort_P2 1843
-#define CID_infer_threshold_Plan 1844
-#define CID_catalog_union_TNil 1845
-#define CID_catalog_union_TNode 1846
-#define CID_default_model_Saved 1847
-#define CID_default_model_Other 1848
-#define CID_default_model_Kept 1849
-#define CID_default_model_Swapped 1850
-#define CID_default_model_K 1851
-#define CID_facts_RThinking 1852
-#define CID_facts_RNested 1853
-#define CID_doc_commit_NoWarn 1854
-#define CID_doc_commit_SyncWarn 1855
-#define CID_doc_commit_RemoveWarn 1856
-#define CID_doc_commit_Go 1857
-#define CID_doc_commit_Stop 1858
-#define CID_doc_commit_Failure 1859
-#define CID_doc_commit_Summary 1860
-#define CID_doc_commit_Proceed 1861
-#define CID_doc_commit_Unseen 1862
-#define CID_doc_commit_Stale 1863
-#define CID_refine_plan_VMissing 1864
-#define CID_refine_plan_VNull 1865
-#define CID_refine_plan_VObject 1866
-#define CID_refine_plan_VOther 1867
-#define CID_refine_plan_Plan 1868
-#define CID_refine_plan_Back 1869
-#define CID_refine_plan_Texts 1870
-#define CID_refine_plan_TTry 1871
-#define CID_refine_plan_TOk 1872
-#define CID_refine_plan_TNo 1873
-#define CID_replace_Same 1874
-#define CID_replace_Older 1875
-#define CID_replace_Newer 1876
-#define CID_replace_Other 1877
-#define CID_replace_Replace 1878
-#define CID_replace_Keep 1879
-#define CID_work_list_Finished 1880
-#define CID_work_list_Stopped 1881
-#define CID_tree_Start 1882
-#define CID_tree_Stop 1883
-#define CID_tree_Restore 1884
-#define CID_doc_search_Binary 1885
-#define CID_doc_search_Unreadable 1886
-#define CID_doc_search_Excluded 1887
-#define CID_doc_search_Link 1888
-#define CID_doc_search_Broken 1889
-#define CID_doc_search_Ent 1890
-#define CID_doc_search_Out 1891
-#define CID_infer_Query 1892
-#define CID_bound_Span 1893
-#define CID_bound_Win 1894
-#define CID_auth_flight_Acts 1895
-#define CID_auth_flight_Joined 1896
-#define CID_auth_flight_Off 1897
-#define CID_dash_Admit 1898
-#define CID_dash_Refuse 1899
-#define CID_tiny_WhyIo 1900
-#define CID_tiny_WhyProtocol 1901
-#define CID_tiny_WhyMistagged 1902
-#define CID_tiny_WhyVacant 1903
-#define CID_tiny_WhySpawn 1904
-#define CID_wait_Arrive 1905
-#define CID_wait_Tick 1906
-#define CID_wait_Cancel 1907
-#define CID_tool_call_Finished 1908
-#define CID_tool_call_Failed 1909
-#define CID_tool_call_Cancelled 1910
-#define CID_optchat_state_Msg 1911
-#define CID_optchat_state_Build 1912
-#define CID_optchat_state_Start 1913
-#define CID_optchat_state_Free 1914
-#define CID_autoresearch_state_Took 1915
-#define CID_autoresearch_state_Refuse 1916
-#define CID_privacy_token_Toks 1917
-#define CID_once_Skip 1918
-#define CID_once_Launch 1919
-#define CID_once_Adopt 1920
-#define CID_once_Interrupt 1921
-#define CID_once_Abandon 1922
-#define CID_once_Settled 1923
-#define CID_infer_Fine 1924
-#define CID_infer_Unheard 1925
-#define CID_infer_ClashAt 1926
-#define CID_ai_text_DPre 1927
-#define CID_ai_text_DMime 1928
-#define CID_ai_text_DMark 1929
-#define CID_ai_text_DData 1930
-#define CID_ai_text_DFail 1931
-#define CID_director_Dec 1932
-#define CID_doc_search_Scope 1933
-#define CID_stop_LengthStop 1934
-#define CID_stop_EmptyStop 1935
-#define CID_stop_MarkupStop 1936
-#define CID_stop_PendingWork 1937
-#define CID_runners_Ungated 1938
-#define CID_runners_EachStep 1939
-#define CID_runners_EachCall 1940
-#define CID_rebase_Rebased 1941
-#define CID_rebase_Conflict 1942
-#define CID_ffi_rebase_Cut 1943
-#define CID_bound_Slice 1944
-#define CID_bound_AtEnd 1945
-#define CID_bound_AtStart 1946
-#define CID_slash_suggest_Near 1947
-#define CID_config_Item 1948
-#define CID_glob_parse_Glob 1949
-#define CID_glob_items_One 1950
-#define CID_glob_items_Star 1951
-#define CID_glob_queries_IGlob 1952
-#define CID_glob_queries_IAll 1953
-#define CID_glob_queries_ISkip 1954
-#define CID_compactor_Whole 1955
-#define CID_compactor_CutReply 1956
-#define CID_compactor_CutBest 1957
-#define CID_compactor_CutInput 1958
-#define CID_compactor_Errored 1959
-#define CID_compactor_Lst 1960
-#define CID_package_source_SrcNpm 1961
-#define CID_package_source_SrcGit 1962
-#define CID_package_source_SrcLocal 1963
-#define CID_package_source_GitSrc 1964
-#define CID_package_source_Cut 1965
-#define CID_job_Code 1966
-#define CID_tokens_Entry 1967
-#define CID_tokens_Light 1968
-#define CID_tokens_Dark 1969
-#define CID_tokens_Step 1970
-#define CID_limits_Srcs 1971
-#define CID_limits_UntilFinished 1972
-#define CID_limits_Set 1973
-#define CID_limits_LimitsProfile 1974
-#define CID_limits_Profile 1975
-#define CID_limits_Preset 1976
-#define CID_limits_KV 1977
-#define CID_limits_Cut 1978
-#define CID_ffi_command_RunsW 1979
-#define CID_ffi_command_OpensW 1980
-#define CID_ffi_command_UnknownW 1981
-#define CID_ffi_command_NoCmdW 1982
-#define CID_command_Runs 1983
-#define CID_command_Opens 1984
-#define CID_command_Unknown 1985
-#define CID_command_NoCmd 1986
-#define CID_ffi_command_NamesW 1987
-#define CID_ffi_command_KidsW 1988
-#define CID_ffi_command_ShutW 1989
-#define CID_command_Names 1990
-#define CID_command_Kids 1991
-#define CID_command_Shut 1992
-#define CID_ffi_command_OutW 1993
-#define CID_command_Out 1994
-#define CID_theme_file_Unknown 1995
-#define CID_theme_file_InColor 1996
-#define CID_theme_file_Missing 1997
-#define CID_theme_file_InExport 1998
-#define CID_theme_file_Dflt 1999
-#define CID_theme_file_Idx 2000
-#define CID_theme_file_Hex 2001
-#define CID_theme_reader_Loaded 2002
-#define CID_theme_reader_Failed 2003
-#define CID_theme_name_Res 2004
-#define CID_theme_choice_FailedAt 2005
-#define CID_theme_choice_NoTheme 2006
-#define CID_theme_choice_Clash 2007
-#define CID_theme_resolve_OLoaded 2008
-#define CID_theme_resolve_OFaulty 2009
-#define CID_theme_resolve_ONone 2010
-#define CID_theme_resolve_Seen 2011
-#define CID_theme_choice_Pick 2012
-#define CID_theme_choice_Fine 2013
-#define CID_theme_choice_Broke 2014
-#define CID_doc_seen_Show 2015
-#define CID_kin_Parent 2016
-#define CID_kin_Child 2017
-#define CID_kin_SelfMessage 2018
-#define CID_kin_NotKin 2019
-#define CID_cron_store_NNone 2020
-#define CID_cron_store_NAt 2021
-#define CID_cron_store_NRoll 2022
-#define CID_cron_Win 2023
-#define CID_cron_Loss 2024
-#define CID_cron_Skip 2025
-#define CID_arg_repair_Out 2026
-#define CID_arg_repair_RAlias 2027
-#define CID_arg_repair_RCoerce 2028
-#define CID_arg_repair_Refused 2029
-#define CID_arg_repair_Unknown 2030
-#define CID_arg_repair_Ambiguous 2031
-#define CID_arg_repair_Seen 2032
-#define CID_mcp_url_V4No 2033
-#define CID_mcp_url_V4Bad 2034
-#define CID_mcp_url_V4Quad 2035
-#define CID_shape_AtStart 2036
-#define CID_shape_Anywhere 2037
-#define CID_shape_Lit 2038
-#define CID_shape_Fold 2039
-#define CID_shape_Run 2040
-#define CID_shape_Cap 2041
-#define CID_shape_Opt 2042
-#define CID_shape_Alt 2043
-#define CID_shape_Many 2044
-#define CID_shape_Ahead 2045
-#define CID_shape_Same 2046
-#define CID_shape_Bound 2047
-#define CID_shape_Begin 2048
-#define CID_shape_End 2049
-#define CID_shape_Found 2050
-#define CID_shape_Fit 2051
-#define CID_sandbox_Keep 2052
-#define CID_sandbox_Clash 2053
-#define CID_sandbox_Take 2054
-#define CID_sandbox_Drop 2055
-#define CID_rlm_query_OverBudget 2056
-#define CID_rlm_query_Full 2057
-#define CID_doc_lines_Line 2058
-#define CID_dash_access_HostPort 2059
-#define CID_dash_access_NoAuthority 2060
-#define CID_dash_access_Cut 2061
-#define CID_budget_Short 2062
-#define CID_budget_Held 2063
-#define CID_budget_Stopped 2064
-#define CID_submission_NotQueued 2065
-#define CID_submission_NotPlacedInput 2066
-#define CID_fsmode_Create 2067
-#define CID_fsmode_Use 2068
-#define CID_fsmode_Refuse 2069
-#define CID_redirect_input_Cut 2070
-#define CID_gateway_commands_CHelp 2071
-#define CID_gateway_commands_CSessions 2072
-#define CID_gateway_commands_CUse 2073
-#define CID_gateway_commands_CLatest 2074
-#define CID_gateway_commands_CNew 2075
-#define CID_gateway_commands_CStop 2076
-#define CID_gateway_commands_CStatus 2077
-#define CID_gateway_commands_CMemory 2078
-#define CID_gateway_commands_CModel 2079
-#define CID_gateway_commands_CReasoning 2080
-#define CID_gateway_commands_CModelAll 2081
-#define CID_gateway_commands_CRestart 2082
-#define CID_gateway_commands_CEffects 2083
-#define CID_gateway_commands_CUndo 2084
-#define CID_gateway_commands_CDiff 2085
-#define CID_agent_tree_NoNode 2086
-#define CID_agent_tree_NotRunning 2087
-#define CID_agent_tree_NotLeaf 2088
-#define CID_agent_tree_TooDeep 2089
-#define CID_agent_tree_TooMany 2090
-#define CID_agent_tree_BadScopes 2091
-#define CID_agent_tree_NoBudget 2092
-#define CID_agent_tree_Unsettled 2093
-#define CID_agent_tree_NotRedoable 2094
-#define CID_agent_tree_Took 2095
-#define CID_agent_tree_Refused 2096
-#define CID_agent_crown_HOk 2097
-#define CID_agent_crown_HNo 2098
-#define CID_slash_args_Conf 2099
-#define CID_slash_args_Tok 2100
-#define CID_run_state_Prepare 2101
-#define CID_run_state_Call 2102
-#define CID_run_state_Compact 2103
-#define CID_run_state_Tools 2104
-#define CID_run_state_Answered 2105
-#define CID_run_state_Aborted 2106
-#define CID_run_state_Failed 2107
-#define CID_run_state_St 2108
-#define CID_run_state_Cfg 2109
-#define CID_run_state_Goes 2110
-#define CID_run_state_Stops 2111
-#define CID_run_state_Resets 2112
-#define CID_run_recovery_Dec 2113
-#define CID_run_recovery_Leak 2114
-#define CID_run_recovery_Ran 2115
-#define CID_run_recovery_Noted 2116
-#define CID_run_recovery_Said 2117
-#define CID_run_recovery_Answer 2118
-#define CID_run_recovery_Other 2119
-#define CID_run_recovery_Empty 2120
-#define CID_run_recovery_Think 2121
-#define CID_call_lift_Step 2122
-#define CID_call_lift_Unknown 2123
-#define CID_call_lift_Current 2124
-#define CID_call_lift_Stranded 2125
-#define CID_call_lift_Lifted 2126
-#define CID_infer_Defaults 2127
-#define CID_infer_threshold_Under 2128
-#define CID_infer_threshold_Early 2129
-#define CID_infer_threshold_Blocks 2130
-#define CID_default_model_NotInCatalog 2131
-#define CID_default_model_NoCredentials 2132
-#define CID_default_model_NotInScope 2133
-#define CID_doc_commit_Changed 2134
-#define CID_doc_commit_Taken 2135
-#define CID_doc_commit_Untouched 2136
-#define CID_doc_commit_Written 2137
-#define CID_doc_commit_Unwritten 2138
-#define CID_doc_commit_Skipped 2139
-#define CID_refine_plan_Row 2140
-#define CID_refine_plan_Touch 2141
-#define CID_refine_plan_Pick 2142
-#define CID_refine_plan_Scan 2143
-#define CID_semver_Ver 2144
-#define CID_tui_color_Frac 2145
-#define CID_aws_text_St 2146
-#define CID_admission_Holding 2147
-#define CID_admission_Waiting 2148
-#define CID_doc_search_NoMatch 2149
-#define CID_doc_search_Shown 2150
-#define CID_doc_search_PagedOut 2151
-#define CID_doc_search_Unsearched 2152
-#define CID_doc_search_Skipped 2153
-#define CID_infer_Best 2154
-#define CID_auth_flight_To 2155
-#define CID_autoresearch_state_Nothing 2156
-#define CID_autoresearch_state_Commit 2157
-#define CID_autoresearch_state_Reset 2158
-#define CID_privacy_token_Mapped 2159
-#define CID_privacy_token_OneWay 2160
-#define CID_privacy_token_Step 2161
-#define CID_optchat_fit_Last 2162
-#define CID_optchat_fit_First 2163
-#define CID_stream_failure_Test 2164
-#define CID_text_pat_Pat 2165
-#define CID_screen_Put 2166
-#define CID_screen_Fresh 2167
-#define CID_screen_Kept 2168
-#define CID_ffi_fallback_Parts 2169
-#define CID_stop_Pass 2170
-#define CID_stop_Continue 2171
-#define CID_stop_Yield 2172
-#define CID_stop_Drop 2173
-#define CID_child_Busy 2174
-#define CID_child_PollFailed 2175
-#define CID_child_Answered 2176
-#define CID_child_Broke 2177
-#define CID_child_Gone 2178
-#define CID_child_Submit 2179
-#define CID_child_Await 2180
-#define CID_child_Resubmit 2181
-#define CID_child_Delivered 2182
-#define CID_rebase_Invalid 2183
-#define CID_rebase_Moved 2184
-#define CID_rebase_Ambiguous 2185
-#define CID_rebase_Crossed 2186
-#define CID_rebase_TooLarge 2187
-#define CID_config_Pref 2188
-#define CID_config_Limit 2189
-#define CID_config_Prompt 2190
-#define CID_config_Credential 2191
-#define CID_config_Code 2192
-#define CID_config_Proj 2193
-#define CID_config_GlobalOnly 2194
-#define CID_config_Hit 2195
-#define CID_glob_parse_TLit 2196
-#define CID_glob_parse_TAny 2197
-#define CID_glob_parse_TZom 2198
-#define CID_glob_parse_TRPre 2199
-#define CID_glob_parse_TRSuf 2200
-#define CID_glob_parse_TRZom 2201
-#define CID_glob_parse_TCls 2202
-#define CID_glob_parse_St 2203
-#define CID_glob_parse_Br 2204
-#define CID_glob_items_BAny 2205
-#define CID_glob_items_BNotSl 2206
-#define CID_glob_items_BSet 2207
-#define CID_package_source_NpmSrc 2208
-#define CID_tokens_Bg 2209
-#define CID_tokens_Sidebar 2210
-#define CID_tokens_Raised 2211
-#define CID_tokens_Surface 2212
-#define CID_tokens_Hover 2213
-#define CID_tokens_Primary 2214
-#define CID_tokens_Secondary 2215
-#define CID_tokens_Tertiary 2216
-#define CID_tokens_Hairline 2217
-#define CID_tokens_Scrim 2218
-#define CID_tokens_Danger 2219
-#define CID_tokens_Selection 2220
-#define CID_tokens_Scrollbar 2221
-#define CID_tokens_ShadowNear 2222
-#define CID_tokens_ShadowFar 2223
-#define CID_tokens_ShadowDrawer 2224
-#define CID_tokens_ShadowLatest 2225
-#define CID_tokens_Col 2226
-#define CID_limits_Pick 2227
-#define CID_limits_KCost 2228
-#define CID_limits_KTok 2229
-#define CID_limits_KTime 2230
-#define CID_limits_KCalls 2231
-#define CID_limits_KReqs 2232
-#define CID_command_Top 2233
-#define CID_command_Walk 2234
-#define CID_command_Rest 2235
-#define CID_command_OffPath 2236
-#define CID_command_Stray 2237
-#define CID_theme_file_Circular 2238
-#define CID_theme_file_NotFound 2239
-#define CID_theme_file_BadHex 2240
-#define CID_theme_file_BadValue 2241
-#define CID_theme_file_OnPage 2242
-#define CID_theme_file_OnCard 2243
-#define CID_theme_file_OnInfo 2244
-#define CID_theme_file_Th 2245
-#define CID_theme_chase_Ix 2246
-#define CID_theme_reader_All 2247
-#define CID_theme_reader_Stuck 2248
-#define CID_theme_resolve_NoBody 2249
-#define CID_theme_resolve_Body 2250
-#define CID_tools_Part 2251
-#define CID_arg_repair_TBool 2252
-#define CID_arg_repair_TNum 2253
-#define CID_arg_repair_TStr 2254
-#define CID_arg_repair_TOne 2255
-#define CID_arg_repair_TObj 2256
-#define CID_arg_repair_TArr 2257
-#define CID_arg_repair_StepOk 2258
-#define CID_arg_repair_StepNo 2259
-#define CID_shape_Cls 2260
-#define CID_shape_Got 2261
-#define CID_account_Soon 2262
-#define CID_fsmode_WhyLink 2263
-#define CID_fsmode_WhyNotDir 2264
-#define CID_fsmode_WhyOwner 2265
-#define CID_fsmode_WhyMode 2266
-#define CID_wait_any_ToWaiter 2267
-#define CID_wait_any_ToNotice 2268
-#define CID_agent_crown_Load 2269
-#define CID_agent_tree_OpSplit 2270
-#define CID_agent_tree_OpSpend 2271
-#define CID_agent_tree_OpFinish 2272
-#define CID_agent_tree_OpFail 2273
-#define CID_agent_tree_OpCancel 2274
-#define CID_agent_tree_OpRedo 2275
-#define CID_ffi_agent_tree_AtHead 2276
-#define CID_ffi_agent_tree_AtRight 2277
-#define CID_ffi_agent_tree_HLeaf 2278
-#define CID_ffi_agent_tree_HSplit 2279
-#define CID_phrase_Ph 2280
-#define CID_slash_args_LUnl 2281
-#define CID_slash_args_LNum 2282
-#define CID_slash_args_Gates 2283
-#define CID_run_state_Model 2284
-#define CID_run_state_Polls 2285
-#define CID_run_state_Rounds 2286
-#define CID_run_recovery_Pass 2287
-#define CID_run_recovery_Exec 2288
-#define CID_run_recovery_Redo 2289
-#define CID_run_recovery_Quit 2290
-#define CID_run_recovery_Shrink 2291
-#define CID_run_recovery_Lower 2292
-#define CID_run_recovery_Rec 2293
-#define CID_call_lift_Rename 2294
-#define CID_call_lift_Fill 2295
-#define CID_call_lift_Kept 2296
-#define CID_call_lift_Added 2297
-#define CID_call_lift_Renamed 2298
-#define CID_call_lift_Clashed 2299
-#define CID_call_lift_Filled 2300
-#define CID_refine_plan_OInvalid 2301
-#define CID_refine_plan_ORefused 2302
-#define CID_refine_plan_ORemoved 2303
-#define CID_refine_plan_OWritten 2304
-#define CID_semver_D0 2305
-#define CID_semver_D1 2306
-#define CID_semver_D2 2307
-#define CID_semver_D3 2308
-#define CID_semver_D4 2309
-#define CID_semver_D5 2310
-#define CID_semver_D6 2311
-#define CID_semver_D7 2312
-#define CID_semver_D8 2313
-#define CID_semver_D9 2314
-#define CID_semver_Digit 2315
-#define CID_semver_Dot 2316
-#define CID_semver_Other 2317
-#define CID_aws_text_Q0 2318
-#define CID_aws_text_Q1 2319
-#define CID_aws_text_Q2 2320
-#define CID_aws_text_Q3 2321
-#define CID_aws_text_PB 2322
-#define CID_aws_text_P1 2323
-#define CID_aws_text_P2 2324
-#define CID_aws_text_PX 2325
-#define CID_auth_flight_DoLoad 2326
-#define CID_auth_flight_DoCheck 2327
-#define CID_auth_flight_DoFetch 2328
-#define CID_auth_flight_DoStore 2329
-#define CID_auth_flight_DoWait 2330
-#define CID_auth_flight_DoDone 2331
-#define CID_auth_flight_DoFail 2332
-#define CID_tiny_Join 2333
-#define CID_tiny_Replace 2334
-#define CID_tiny_Start 2335
-#define CID_tiny_Broken 2336
-#define CID_tiny_Down 2337
-#define CID_tiny_Spoke 2338
-#define CID_tiny_Cut 2339
-#define CID_tiny_Serving 2340
-#define CID_tiny_Mistagged 2341
-#define CID_tiny_Vacant 2342
-#define CID_tiny_Faulty 2343
-#define CID_tiny_Adopt 2344
-#define CID_tiny_Take 2345
-#define CID_tiny_Fault 2346
-#define CID_text_pat_One 2347
-#define CID_text_pat_Star 2348
-#define CID_child_Inbox 2349
-#define CID_child_Silent 2350
-#define CID_config_Rule 2351
-#define CID_glob_parse_Rg 2352
-#define CID_glob_parse_Open 2353
-#define CID_glob_parse_MNorm 2354
-#define CID_glob_parse_MEsc 2355
-#define CID_glob_parse_MStar1 2356
-#define CID_glob_parse_MStar2 2357
-#define CID_glob_parse_MClsStart 2358
-#define CID_glob_parse_MCls 2359
-#define CID_glob_items_BR 2360
-#define CID_package_source_Refd 2361
-#define CID_theme_file_Ent 2362
-#define CID_theme_chase_VL 2363
-#define CID_theme_chase_VN 2364
-#define CID_theme_chase_SL 2365
-#define CID_theme_chase_SN 2366
-#define CID_theme_reader_Good 2367
-#define CID_theme_reader_Bad 2368
-#define CID_theme_name_Cand 2369
-#define CID_mcp_url_POct 2370
-#define CID_mcp_url_PBig 2371
-#define CID_mcp_url_PNone 2372
-#define CID_shape_Codes 2373
-#define CID_shape_Space 2374
-#define CID_shape_Hit 2375
-#define CID_shape_St 2376
-#define CID_doc_lines_Kept 2377
-#define CID_budget_Fit 2378
-#define CID_budget_NoFit 2379
-#define CID_doc_rows_Go 2380
-#define CID_doc_rows_NotUtf8 2381
-#define CID_doc_rows_Binary 2382
-#define CID_doc_rows_View 2383
-#define CID_phrase_EFree 2384
-#define CID_phrase_EWord 2385
-#define CID_phrase_EText 2386
-#define CID_phrase_One 2387
-#define CID_phrase_Opt 2388
-#define CID_phrase_Star 2389
-#define CID_privacy_ip_Dig 2390
-#define CID_privacy_ip_Hx 2391
-#define CID_privacy_ip_Col 2392
-#define CID_privacy_ip_Dot 2393
-#define CID_privacy_ip_Let 2394
-#define CID_privacy_ip_Und 2395
-#define CID_privacy_ip_Dash 2396
-#define CID_privacy_ip_Oth 2397
-#define CID_privacy_ip_Got 2398
-#define CID_privacy_ip_Bad 2399
-#define CID_privacy_ip_Begin 2400
-#define CID_privacy_ip_Grp 2401
-#define CID_privacy_ip_Long 2402
-#define CID_privacy_ip_Open 2403
-#define CID_privacy_ip_Acc 2404
-#define CID_privacy_ip_QCut 2405
-#define CID_privacy_context_Bl 2406
-#define CID_privacy_context_Eq 2407
-#define CID_privacy_context_Gt 2408
-#define CID_privacy_context_Lt 2409
-#define CID_privacy_context_Ti 2410
-#define CID_privacy_context_Ba 2411
-#define CID_privacy_context_Ca 2412
-#define CID_privacy_context_Pu 2413
-#define CID_privacy_context_Wc 2414
-#define CID_privacy_context_Nl 2415
-#define CID_privacy_context_Ot 2416
-#define CID_slash_args_Cut 2417
-#define CID_text_pat_CLit 2418
-#define CID_text_pat_CAny 2419
-#define CID_text_pat_CDig 2420
-#define CID_text_pat_CDigC 2421
-#define CID_text_pat_CSp 2422
-#define CID_refine_plan_CBad 2423
-#define CID_refine_plan_COk 2424
-#define CID_admission_Tk 2425
-#define CID_autoresearch_line_Parts 2426
-#define CID_retry_Transient 2427
-#define CID_retry_Permanent 2428
-#define CID_retry_Unsure 2429
-#define CID_glob_parse_Took 2430
-#define CID_package_source_Hosted 2431
-#define CID_limits_Gap 2432
-#define CID_limits_In 2433
-#define CID_limits_Fin 2434
-#define CID_theme_reader_BgOk 2435
-#define CID_theme_reader_BgBad 2436
-#define CID_theme_chase_Hit 2437
-#define CID_theme_chase_Miss 2438
-#define CID_mcp_url_One 2439
-#define CID_mcp_url_Two 2440
-#define CID_shape_Rg 2441
-#define CID_doc_rows_Span 2442
-#define CID_doc_rows_Beyond 2443
-#define CID_doc_rows_Remain 2444
-#define CID_doc_rows_RangeBeyond 2445
-#define CID_doc_rows_TooBig 2446
-#define CID_infer_TTip 2447
-#define CID_infer_TLeaf 2448
-#define CID_infer_TNode 2449
-#define CID_infer_TEnd 2450
-#define CID_infer_T0 2451
-#define CID_infer_T1 2452
-#define CID_phrase_CIn 2453
-#define CID_phrase_COut 2454
-#define CID_color_Leaf 2455
-#define CID_color_Node 2456
-#define CID_privacy_ip_Full 2457
-#define CID_privacy_ip_Gap 2458
-#define CID_privacy_ip_Quad 2459
-#define CID_privacy_ip_Cut 2460
-#define CID_slash_args_ROk 2461
-#define CID_slash_args_RErr 2462
-#define CID_screen_Drawn 2463
-#define CID_screen_Error 2464
-#define CID_child_Watches 2465
-#define CID_child_Reports 2466
-#define CID_child_Settles 2467
-#define CID_package_source_Url 2468
-#define CID_theme_chase_FStop 2469
-#define CID_theme_chase_FGo 2470
-#define CID_arg_repair_NRefused 2471
-#define CID_arg_repair_NUnknown 2472
-#define CID_arg_repair_NAs 2473
-#define CID_staging_Split 2474
-#define CID_shape_Want 2475
-#define CID_shape_Have 2476
-#define CID_shape_Nothing 2477
-#define CID_shape_BAt 2478
-#define CID_shape_BAfter 2479
-#define CID_shape_FEnd 2480
-#define CID_shape_FSeq 2481
-#define CID_shape_FCap 2482
-#define CID_shape_FRound 2483
-#define CID_redirect_input_Param 2484
-#define CID_slash_args_Opts 2485
-#define CID_call_lift_St 2486
-#define CID_child_Watch 2487
-#define CID_child_Owe 2488
-#define CID_child_Quiet 2489
-#define CID_rebase_Lands 2490
-#define CID_rebase_Fails 2491
-#define CID_glob_parse_KStar 2492
-#define CID_glob_parse_KAny 2493
-#define CID_glob_parse_KCls 2494
-#define CID_glob_parse_KOpen 2495
-#define CID_glob_parse_KClose 2496
-#define CID_glob_parse_KComma 2497
-#define CID_glob_parse_KEsc 2498
-#define CID_glob_parse_KLit 2499
-#define CID_limits_Next 2500
-#define CID_limits_Stop 2501
-#define CID_theme_token_Req 2502
-#define CID_theme_token_MdBody 2503
-#define CID_theme_token_RefHeader 2504
-#define CID_theme_token_RefSummary 2505
-#define CID_theme_token_Background 2506
-#define CID_theme_token_Foreground 2507
-#define CID_gateway_commands_Spec 2508
-#define CID_rebase_Win 2509
-#define CID_limits_WPreset 2510
-#define CID_limits_WPair 2511
-#define CID_limits_WBad 2512
-#define CID_limits_WEnd 2513
-#define CID_rebase_HNone 2514
-#define CID_rebase_HOne 2515
-#define CID_rebase_HMany 2516
-#define CID_arg_repair_KString 2517
-#define CID_arg_repair_KBoolean 2518
-#define CID_arg_repair_KInteger 2519
-#define CID_arg_repair_KNumber 2520
-#define CID_arg_repair_KObject 2521
-#define CID_arg_repair_KArray 2522
-#define CID_arg_repair_KOther 2523
-#define CID_redirect_input_UChar 2524
-#define CID_redirect_input_UByte 2525
-#define CID_redirect_input_UIdle 2526
-#define CID_redirect_input_UNeed 2527
-#define CID_redirect_input_PPlain 2528
-#define CID_redirect_input_PSign 2529
-#define CID_redirect_input_PDigit 2530
-#define CID_slash_args_VAt 2531
-#define CID_slash_args_VNone 2532
-#define CID_redirect_input_UStep 2533
-#define CID_IO_args 2534
-#define CID_IO_print 2535
+#define CID_autonomous_Ask 1294
+#define CID_autonomous_Finish 1295
+#define CID_cron_Active 1296
+#define CID_cron_Paused 1297
+#define CID_cron_Finished 1298
+#define CID_cron_Cancelled 1299
+#define CID_cron_store_POnce 1300
+#define CID_cron_store_PEvery 1301
+#define CID_cron_store_PRule 1302
+#define CID_strength_Exempt 1303
+#define CID_strength_Waived 1304
+#define CID_strength_Needs 1305
+#define CID_arg_repair_KV 1306
+#define CID_arg_repair_VNull 1307
+#define CID_arg_repair_VBool 1308
+#define CID_arg_repair_VNum 1309
+#define CID_arg_repair_VStr 1310
+#define CID_arg_repair_VArr 1311
+#define CID_arg_repair_VObj 1312
+#define CID_staging_Utf 1313
+#define CID_staging_Raw 1314
+#define CID_staging_KDir 1315
+#define CID_staging_KFile 1316
+#define CID_staging_KOther 1317
+#define CID_log_Whole 1318
+#define CID_log_Torn 1319
+#define CID_log_Odd 1320
+#define CID_account_In 1321
+#define CID_doc_rows_Range 1322
+#define CID_model_roles_Row 1323
+#define CID_worker_Run 1324
+#define CID_worker_Paused 1325
+#define CID_tool_call_Run 1326
+#define CID_tool_call_Missing 1327
+#define CID_tool_call_Unavailable 1328
+#define CID_tool_call_Rerun 1329
+#define CID_tool_call_Interrupted 1330
+#define CID_tool_call_Aborted 1331
+#define CID_tool_call_Abandoned 1332
+#define CID_ffi_orphan_Reply 1333
+#define CID_wait_any_Live 1334
+#define CID_wait_any_Kept 1335
+#define CID_wait_any_Sent 1336
+#define CID_agent_tree_Leaf 1337
+#define CID_agent_tree_Split 1338
+#define CID_agent_crown_Help 1339
+#define CID_agent_tree_EvSplit 1340
+#define CID_agent_tree_EvSpend 1341
+#define CID_agent_tree_EvFinish 1342
+#define CID_agent_tree_EvFail 1343
+#define CID_agent_tree_EvCancel 1344
+#define CID_agent_tree_EvRedo 1345
+#define CID_agent_tree_EvTick 1346
+#define CID_path_policy_Tree 1347
+#define CID_path_policy_Dir 1348
+#define CID_path_policy_Named 1349
+#define CID_path_policy_Judged 1350
+#define CID_auth_flight_Serve 1351
+#define CID_auth_flight_Refresh 1352
+#define CID_auth_flight_Refuse 1353
+#define CID_auth_flight_KeepPeer 1354
+#define CID_auth_flight_Write 1355
+#define CID_kernel_local_Cand 1356
+#define CID_kernel_local_Aside 1357
+#define CID_kernel_local_Foreign 1358
+#define CID_kernel_local_Alive 1359
+#define CID_kernel_local_Dead 1360
+#define CID_progress_Prior 1361
+#define CID_undo_Turn 1362
+#define CID_undo_All 1363
+#define CID_effort_LvMap 1364
+#define CID_revive_Revive 1365
+#define CID_revive_GaveUp 1366
+#define CID_revive_Archived 1367
+#define CID_revive_Leased 1368
+#define CID_revive_NoEvidence 1369
+#define CID_revive_Stale 1370
+#define CID_default_model_Runs 1371
+#define CID_default_model_Nothing 1372
+#define CID_default_model_Refused 1373
+#define CID_retry_note_Call 1374
+#define CID_ffi_retry_note_Three 1375
+#define CID_doc_commit_NotPlaced 1376
+#define CID_doc_commit_Placed 1377
+#define CID_doc_commit_Lands 1378
+#define CID_doc_commit_Fails 1379
+#define CID_refine_plan_ACreate 1380
+#define CID_refine_plan_AUpdate 1381
+#define CID_refine_plan_ADelete 1382
+#define CID_refine_plan_KPrompt 1383
+#define CID_refine_plan_KMemory 1384
+#define CID_refine_plan_KSkill 1385
+#define CID_refine_plan_KSubagent 1386
+#define CID_refine_plan_KFactory 1387
+#define CID_refine_plan_Pyref 1388
+#define CID_refine_plan_Args 1389
+#define CID_gateway_report_Out 1390
+#define CID_headless_exit_Verdict 1391
+#define CID_tree_Kept 1392
+#define CID_tree_Took 1393
+#define CID_tree_Cut 1394
+#define CID_tree_Effects 1395
+#define CID_tree_Nodes 1396
+#define CID_notice_Shown 1397
+#define CID_notice_Noted 1398
+#define CID_selection_Single 1399
+#define CID_selection_Head 1400
+#define CID_selection_Cont 1401
+#define CID_selection_Res 1402
+#define CID_doc_search_Range 1403
+#define CID_doc_search_Opened 1404
+#define CID_doc_search_Skip 1405
+#define CID_doc_glob_Ahead 1406
+#define CID_doc_glob_Twin 1407
+#define CID_doc_glob_Behind 1408
+#define CID_ffi_quirks_Ask 1409
+#define CID_infer_guard_Goes 1410
+#define CID_infer_guard_Cuts 1411
+#define CID_bound_Body 1412
+#define CID_bound_Drop 1413
+#define CID_bound_Store 1414
+#define CID_bound_Trim 1415
+#define CID_bound_Seen 1416
+#define CID_progress_Call 1417
+#define CID_progress_Res 1418
+#define CID_progress_Txt 1419
+#define CID_progress_Think 1420
+#define CID_progress_User 1421
+#define CID_progress_Sys 1422
+#define CID_progress_Read 1423
+#define CID_progress_Again 1424
+#define CID_retry_WakeStall 1425
+#define CID_retry_WakeSleep 1426
+#define CID_auth_flight_DRes 1427
+#define CID_dash_VPaired 1428
+#define CID_dash_VRun 1429
+#define CID_dash_VRefuse 1430
+#define CID_dash_VClosed 1431
+#define CID_tiny_DoPing 1432
+#define CID_tiny_DoShutdown 1433
+#define CID_tiny_DoLaunch 1434
+#define CID_tiny_DoUse 1435
+#define CID_tiny_DoFail 1436
+#define CID_tiny_DoLock 1437
+#define CID_tiny_DoAdopt 1438
+#define CID_tiny_DoTake 1439
+#define CID_tiny_DoFault 1440
+#define CID_tiny_DoNothing 1441
+#define CID_tool_call_Keep 1442
+#define CID_tool_call_Refuse 1443
+#define CID_tool_call_Settle 1444
+#define CID_tool_call_Late 1445
+#define CID_once_Undeclared 1446
+#define CID_once_Lasting 1447
+#define CID_optchat_open_Built 1448
+#define CID_log_FlushParent 1449
+#define CID_log_AppendSide 1450
+#define CID_log_FlushSide 1451
+#define CID_log_FlushDir 1452
+#define CID_log_AppendMain 1453
+#define CID_log_FlushMain 1454
+#define CID_log_Ack 1455
+#define CID_ai_text_Span 1456
+#define CID_cvar_Accept 1457
+#define CID_cvar_Twice 1458
+#define CID_cvar_BadInit 1459
+#define CID_cvar_TgUndeclared 1460
+#define CID_cvar_TgGlobal 1461
+#define CID_cvar_TgNotBool 1462
+#define CID_cvar_TgFlip 1463
+#define CID_cvar_CkUndeclared 1464
+#define CID_cvar_CkGlobal 1465
+#define CID_cvar_CkType 1466
+#define CID_cvar_CkFine 1467
+#define CID_retry_After 1468
+#define CID_retry_Refused 1469
+#define CID_retry_Switch 1470
+#define CID_headless_task_Stands 1471
+#define CID_headless_task_Incomplete 1472
+#define CID_headless_task_Unjudged 1473
+#define CID_headless_task_Ask 1474
+#define CID_task_life_Ended 1475
+#define CID_task_life_Held 1476
+#define CID_task_life_NotRunning 1477
+#define CID_task_life_NotHeld 1478
+#define CID_dash_policy_ForSession 1479
+#define CID_dash_policy_ForCatalog 1480
+#define CID_dash_policy_NotRun 1481
+#define CID_loop_Satisfied 1482
+#define CID_loop_CheckBroke 1483
+#define CID_loop_OutOfTurns 1484
+#define CID_loop_OutOfTime 1485
+#define CID_loop_TurnsFailed 1486
+#define CID_loop_OutOfBudget 1487
+#define CID_loop_Stopped 1488
+#define CID_loop_Rest 1489
+#define CID_loop_Submit 1490
+#define CID_loop_Adopt 1491
+#define CID_loop_Judge 1492
+#define CID_loop_Resume 1493
+#define CID_loop_Report 1494
+#define CID_loop_Defer 1495
+#define CID_loop_Confirmed 1496
+#define CID_loop_Refuted 1497
+#define CID_loop_Broken 1498
+#define CID_loop_Unjudged 1499
+#define CID_stream_failure_Http 1500
+#define CID_stream_failure_Named 1501
+#define CID_stream_failure_Repeat 1502
+#define CID_screen_Active 1503
+#define CID_screen_Final 1504
+#define CID_screen_Comm 1505
+#define CID_screen_Chunk 1506
+#define CID_screen_Frame 1507
+#define CID_screen_Rect 1508
+#define CID_fallback_Failed 1509
+#define CID_fallback_Login 1510
+#define CID_fallback_Quota 1511
+#define CID_fallback_Unset 1512
+#define CID_fallback_Keep 1513
+#define CID_fallback_Switch 1514
+#define CID_fallback_Hold 1515
+#define CID_fallback_End 1516
+#define CID_stop_Stands 1517
+#define CID_stop_Goes 1518
+#define CID_stop_Drops 1519
+#define CID_stop_Facts 1520
+#define CID_child_W 1521
+#define CID_child_Completed 1522
+#define CID_child_Failed 1523
+#define CID_child_Cancelled 1524
+#define CID_child_Stalled 1525
+#define CID_child_Unreachable 1526
+#define CID_tool_result_Keep 1527
+#define CID_tool_result_Omit 1528
+#define CID_launcher_Wk 1529
+#define CID_launcher_Adopt 1530
+#define CID_launcher_Replace 1531
+#define CID_goal_text_Host 1532
+#define CID_runners_ToolReg 1533
+#define CID_rebase_Edit 1534
+#define CID_facts_Fit 1535
+#define CID_facts_Dynamic 1536
+#define CID_facts_Tokens 1537
+#define CID_facts_Unordered 1538
+#define CID_ffi_facts_P2 1539
+#define CID_server_peer_Served 1540
+#define CID_server_peer_OtherUid 1541
+#define CID_server_peer_NoRecord 1542
+#define CID_server_peer_OtherPid 1543
+#define CID_gateway_width_Display 1544
+#define CID_gateway_width_Chars 1545
+#define CID_wire_flat_Start 1546
+#define CID_wire_flat_Mid 1547
+#define CID_config_Num 1548
+#define CID_config_Malformed 1549
+#define CID_config_Refused 1550
+#define CID_config_Wrote 1551
+#define CID_config_Unlimited 1552
+#define CID_config_Cap 1553
+#define CID_doc_publish_Place 1554
+#define CID_doc_publish_Rebase 1555
+#define CID_doc_publish_Refuse 1556
+#define CID_glob_parse_EClass 1557
+#define CID_glob_parse_ERange 1558
+#define CID_glob_parse_EUnopened 1559
+#define CID_glob_parse_EUnclosed 1560
+#define CID_glob_parse_EEscape 1561
+#define CID_glob_items_Opts 1562
+#define CID_scan_Begin 1563
+#define CID_scan_Refuse 1564
+#define CID_scan_NoId 1565
+#define CID_scan_UseId 1566
+#define CID_scan_RefuseId 1567
+#define CID_compactor_Ends 1568
+#define CID_compactor_Asks 1569
+#define CID_compactor_W1 1570
+#define CID_compactor_W2 1571
+#define CID_compactor_W3 1572
+#define CID_compactor_W4 1573
+#define CID_skill_load_Checked 1574
+#define CID_package_source_Parsed 1575
+#define CID_package_source_Refused 1576
+#define CID_package_source_NoGit 1577
+#define CID_package_source_IsGit 1578
+#define CID_package_source_BadGit 1579
+#define CID_package_source_NpmSpec 1580
+#define CID_doc_tags_Tagged 1581
+#define CID_doc_tags_OverLimit 1582
+#define CID_doc_tags_NotUtf8 1583
+#define CID_supervise_Relaunch 1584
+#define CID_supervise_GiveUp 1585
+#define CID_supervise_Decision 1586
+#define CID_supervise_St 1587
+#define CID_sandbox_Serve 1588
+#define CID_sandbox_Duplicate 1589
+#define CID_sandbox_Oversize 1590
+#define CID_sandbox_Kindless 1591
+#define CID_sandbox_NotServed 1592
+#define CID_job_Exited 1593
+#define CID_job_Killed 1594
+#define CID_job_Out 1595
+#define CID_job_Quit 1596
+#define CID_job_Kill 1597
+#define CID_job_Tick 1598
+#define CID_ffi_tokens_Block 1599
+#define CID_limits_Filled 1600
+#define CID_limits_Told 1601
+#define CID_budget_Cost 1602
+#define CID_budget_Tok 1603
+#define CID_budget_Time 1604
+#define CID_budget_Calls 1605
+#define CID_budget_Reqs 1606
+#define CID_limits_Read 1607
+#define CID_limits_Refused 1608
+#define CID_command_Ent 1609
+#define CID_theme_palette_Rejected 1610
+#define CID_theme_palette_Painted 1611
+#define CID_theme_resolve_Resolved 1612
+#define CID_doc_seen_Check 1613
+#define CID_verify_Rest 1614
+#define CID_verify_Run 1615
+#define CID_verify_Return 1616
+#define CID_verify_End 1617
+#define CID_autonomous_ByChecks 1618
+#define CID_autonomous_ByBudget 1619
+#define CID_kin_Admit 1620
+#define CID_kin_Refuse 1621
+#define CID_kin_Queue 1622
+#define CID_kin_Deliver 1623
+#define CID_kin_WakeThenDeliver 1624
+#define CID_workflow_Ended 1625
+#define CID_workflow_Reattach 1626
+#define CID_workflow_Reuse 1627
+#define CID_workflow_Spawn 1628
+#define CID_workflow_Refused 1629
+#define CID_workflow_Limits 1630
+#define CID_cron_store_Keep 1631
+#define CID_cron_store_Roll 1632
+#define CID_cron_store_Claimed 1633
+#define CID_cron_store_Kept 1634
+#define CID_cron_store_Interrupted 1635
+#define CID_cron_store_Refire 1636
+#define CID_cron_store_Untouched 1637
+#define CID_cron_store_Ran 1638
+#define CID_cron_store_Skipped 1639
+#define CID_cron_store_Same 1640
+#define CID_cron_store_Cut 1641
+#define CID_cron_store_Resumed 1642
+#define CID_cron_store_Ended 1643
+#define CID_cron_store_NotRecurring 1644
+#define CID_cron_store_Locked 1645
+#define CID_cron_store_Edited 1646
+#define CID_cron_store_Made 1647
+#define CID_strength_Verified 1648
+#define CID_strength_Failed 1649
+#define CID_strength_Unverified 1650
+#define CID_strength_Passed 1651
+#define CID_strength_Uncertified 1652
+#define CID_tools_Runs 1653
+#define CID_tools_Refused 1654
+#define CID_arg_repair_SPlain 1655
+#define CID_arg_repair_SBrace 1656
+#define CID_arg_repair_SBracket 1657
+#define CID_arg_repair_Repaired 1658
+#define CID_arg_repair_Rejected 1659
+#define CID_staging_Moved 1660
+#define CID_staging_Taken 1661
+#define CID_staging_MKeep 1662
+#define CID_staging_MDescend 1663
+#define CID_staging_MLeftover 1664
+#define CID_staging_MOrphan 1665
+#define CID_staging_PKeep 1666
+#define CID_staging_PRmDir 1667
+#define CID_staging_PRmDirLock 1668
+#define CID_staging_PRmFile 1669
+#define CID_listing_PSkip 1670
+#define CID_listing_PStore 1671
+#define CID_listing_PLegacy 1672
+#define CID_listing_Row 1673
+#define CID_job_notice_Drops 1674
+#define CID_job_notice_Wakes 1675
+#define CID_shape_Shape 1676
+#define CID_account_Free 1677
+#define CID_account_Until 1678
+#define CID_account_Dead 1679
+#define CID_account_Use 1680
+#define CID_account_Hold 1681
+#define CID_account_Quota 1682
+#define CID_account_Login 1683
+#define CID_strength_Measure 1684
+#define CID_strength_End 1685
+#define CID_strength_Strong 1686
+#define CID_strength_Weak 1687
+#define CID_strength_Unshown 1688
+#define CID_strength_Free 1689
+#define CID_rlm_query_Waves 1690
+#define CID_rlm_query_Refused 1691
+#define CID_rlm_query_Fits 1692
+#define CID_rlm_query_CutAt 1693
+#define CID_doc_lines_Seps 1694
+#define CID_doc_lines_Proj 1695
+#define CID_infer_force_Hit 1696
+#define CID_infer_force_Again 1697
+#define CID_infer_force_Fails 1698
+#define CID_budget_Granted 1699
+#define CID_budget_Refused 1700
+#define CID_budget_Carved 1701
+#define CID_budget_Kept 1702
+#define CID_budget_Closed 1703
+#define CID_budget_Busy 1704
+#define CID_path_own_Judged 1705
+#define CID_path_own_Own 1706
+#define CID_model_roles_Chat 1707
+#define CID_model_roles_Memory 1708
+#define CID_model_roles_Auxiliary 1709
+#define CID_model_roles_Image 1710
+#define CID_model_roles_Subagent 1711
+#define CID_model_roles_Worker 1712
+#define CID_model_roles_Gateway 1713
+#define CID_model_roles_Query 1714
+#define CID_model_roles_Titles 1715
+#define CID_model_roles_Judge 1716
+#define CID_model_roles_Translate 1717
+#define CID_model_roles_Speech 1718
+#define CID_model_roles_Dictation 1719
+#define CID_model_roles_Own 1720
+#define CID_model_roles_All 1721
+#define CID_model_roles_Default 1722
+#define CID_submission_Stays 1723
+#define CID_submission_Moves 1724
+#define CID_submission_Refused 1725
+#define CID_worker_Go 1726
+#define CID_worker_Hold 1727
+#define CID_worker_Release 1728
+#define CID_worker_Kept 1729
+#define CID_worker_Pass 1730
+#define CID_worker_Ack 1731
+#define CID_worker_Pick 1732
+#define CID_fsmode_Seen 1733
+#define CID_fsmode_Accept 1734
+#define CID_fsmode_Drop 1735
+#define CID_fsmode_Mode 1736
+#define CID_fsmode_Opened 1737
+#define CID_fsmode_NeedsCwd 1738
+#define CID_fsmode_Gone 1739
+#define CID_fsmode_NotDir 1740
+#define CID_fsmode_NoCwd 1741
+#define CID_fsmode_GoneCwd 1742
+#define CID_fsmode_FileCwd 1743
+#define CID_fsmode_DirCwd 1744
+#define CID_redirect_input_Pasted 1745
+#define CID_redirect_input_Failed 1746
+#define CID_dash_Hex 1747
+#define CID_dash_Blank 1748
+#define CID_dash_Junk 1749
+#define CID_dash_Mint 1750
+#define CID_dash_Reuse 1751
+#define CID_dash_Restrict 1752
+#define CID_dash_Unreadable 1753
+#define CID_dash_Tokenless 1754
+#define CID_orphan_Shut 1755
+#define CID_orphan_Handover 1756
+#define CID_cron_file_Swept 1757
+#define CID_cron_file_Closed 1758
+#define CID_irreversible_New 1759
+#define CID_irreversible_Known 1760
+#define CID_wait_any_Waits 1761
+#define CID_wait_any_Takes 1762
+#define CID_wait_any_NoWork 1763
+#define CID_wait_any_Capped 1764
+#define CID_wait_any_Stopped 1765
+#define CID_wait_any_Out 1766
+#define CID_infer_Fits 1767
+#define CID_infer_Over 1768
+#define CID_gateway_commands_OCommand 1769
+#define CID_gateway_commands_OAnswer 1770
+#define CID_gateway_commands_OPrompt 1771
+#define CID_agent_tree_Info 1772
+#define CID_agent_tree_Running 1773
+#define CID_agent_tree_Finished 1774
+#define CID_agent_tree_Failed 1775
+#define CID_agent_tree_Cancelled 1776
+#define CID_agent_tree_Unlimited 1777
+#define CID_agent_tree_Value 1778
+#define CID_agent_crown_CTook 1779
+#define CID_agent_crown_CRefused 1780
+#define CID_agent_tree_ReadMessage 1781
+#define CID_agent_tree_Integrate 1782
+#define CID_agent_tree_WorkOwn 1783
+#define CID_agent_tree_Waits 1784
+#define CID_aux_fallback_Stay 1785
+#define CID_aux_fallback_Went 1786
+#define CID_aux_fallback_Sub 1787
+#define CID_aux_fallback_Note 1788
+#define CID_kernel_local_FetchUv 1789
+#define CID_kernel_local_FetchPython 1790
+#define CID_kernel_local_MakeEnv 1791
+#define CID_kernel_local_Run 1792
+#define CID_kernel_local_Got 1793
+#define CID_kernel_local_Busy 1794
+#define CID_kernel_local_Freed 1795
+#define CID_kernel_local_Crash 1796
+#define CID_kernel_local_Free 1797
+#define CID_kernel_local_Live 1798
+#define CID_kernel_local_Gone 1799
+#define CID_slash_args_AStatus 1800
+#define CID_slash_args_AOn 1801
+#define CID_slash_args_AOff 1802
+#define CID_slash_args_AErr 1803
+#define CID_slash_args_ATask 1804
+#define CID_run_decision_DoAnswer 1805
+#define CID_run_decision_DoTools 1806
+#define CID_run_decision_DoPoll 1807
+#define CID_run_decision_DoRetry 1808
+#define CID_run_decision_DoNote 1809
+#define CID_run_decision_DoCompact 1810
+#define CID_run_decision_DoFail 1811
+#define CID_run_decision_DoLate 1812
+#define CID_run_decision_Waits 1813
+#define CID_run_decision_Sends 1814
+#define CID_run_decision_EndStop 1815
+#define CID_run_decision_EndReset 1816
+#define CID_run_decision_EndCapped 1817
+#define CID_run_decision_EndNext 1818
+#define CID_run_decision_Runs 1819
+#define CID_run_decision_Redoes 1820
+#define CID_run_decision_Quits 1821
+#define CID_run_decision_Compacts 1822
+#define CID_run_decision_Lowers 1823
+#define CID_undo_Took 1824
+#define CID_undo_Restore 1825
+#define CID_undo_Refused 1826
+#define CID_undo_Compare 1827
+#define CID_undo_NoSnapshot 1828
+#define CID_undo_Keep 1829
+#define CID_undo_Remove 1830
+#define CID_undo_Write 1831
+#define CID_undo_Same 1832
+#define CID_undo_Differs 1833
+#define CID_undo_Skipped 1834
+#define CID_tools_Schema 1835
+#define CID_tools_Join 1836
+#define CID_tools_Quit 1837
+#define CID_tools_Turn 1838
+#define CID_tools_Sess 1839
+#define CID_call_lift_Fam 1840
+#define CID_effort_Missing 1841
+#define CID_effort_Null 1842
+#define CID_effort_Wire 1843
+#define CID_effort_Mdl 1844
+#define CID_ffi_effort_P2 1845
+#define CID_infer_threshold_Plan 1846
+#define CID_catalog_union_TNil 1847
+#define CID_catalog_union_TNode 1848
+#define CID_default_model_Saved 1849
+#define CID_default_model_Other 1850
+#define CID_default_model_Kept 1851
+#define CID_default_model_Swapped 1852
+#define CID_default_model_K 1853
+#define CID_facts_RThinking 1854
+#define CID_facts_RNested 1855
+#define CID_doc_commit_NoWarn 1856
+#define CID_doc_commit_SyncWarn 1857
+#define CID_doc_commit_RemoveWarn 1858
+#define CID_doc_commit_Go 1859
+#define CID_doc_commit_Stop 1860
+#define CID_doc_commit_Failure 1861
+#define CID_doc_commit_Summary 1862
+#define CID_doc_commit_Proceed 1863
+#define CID_doc_commit_Unseen 1864
+#define CID_doc_commit_Stale 1865
+#define CID_refine_plan_VMissing 1866
+#define CID_refine_plan_VNull 1867
+#define CID_refine_plan_VObject 1868
+#define CID_refine_plan_VOther 1869
+#define CID_refine_plan_Plan 1870
+#define CID_refine_plan_Back 1871
+#define CID_refine_plan_Texts 1872
+#define CID_refine_plan_TTry 1873
+#define CID_refine_plan_TOk 1874
+#define CID_refine_plan_TNo 1875
+#define CID_replace_Same 1876
+#define CID_replace_Older 1877
+#define CID_replace_Newer 1878
+#define CID_replace_Other 1879
+#define CID_replace_Replace 1880
+#define CID_replace_Keep 1881
+#define CID_work_list_Finished 1882
+#define CID_work_list_Stopped 1883
+#define CID_tree_Start 1884
+#define CID_tree_Stop 1885
+#define CID_tree_Restore 1886
+#define CID_doc_search_Binary 1887
+#define CID_doc_search_Unreadable 1888
+#define CID_doc_search_Excluded 1889
+#define CID_doc_search_Link 1890
+#define CID_doc_search_Broken 1891
+#define CID_doc_search_Ent 1892
+#define CID_doc_search_Out 1893
+#define CID_infer_Query 1894
+#define CID_bound_Span 1895
+#define CID_bound_Win 1896
+#define CID_auth_flight_Acts 1897
+#define CID_auth_flight_Joined 1898
+#define CID_auth_flight_Off 1899
+#define CID_dash_Admit 1900
+#define CID_dash_Refuse 1901
+#define CID_tiny_WhyIo 1902
+#define CID_tiny_WhyProtocol 1903
+#define CID_tiny_WhyMistagged 1904
+#define CID_tiny_WhyVacant 1905
+#define CID_tiny_WhySpawn 1906
+#define CID_wait_Arrive 1907
+#define CID_wait_Tick 1908
+#define CID_wait_Cancel 1909
+#define CID_tool_call_Finished 1910
+#define CID_tool_call_Failed 1911
+#define CID_tool_call_Cancelled 1912
+#define CID_optchat_state_Msg 1913
+#define CID_optchat_state_Build 1914
+#define CID_optchat_state_Start 1915
+#define CID_optchat_state_Free 1916
+#define CID_autoresearch_state_Took 1917
+#define CID_autoresearch_state_Refuse 1918
+#define CID_privacy_token_Toks 1919
+#define CID_once_Skip 1920
+#define CID_once_Launch 1921
+#define CID_once_Adopt 1922
+#define CID_once_Interrupt 1923
+#define CID_once_Abandon 1924
+#define CID_once_Settled 1925
+#define CID_infer_Fine 1926
+#define CID_infer_Unheard 1927
+#define CID_infer_ClashAt 1928
+#define CID_ai_text_DPre 1929
+#define CID_ai_text_DMime 1930
+#define CID_ai_text_DMark 1931
+#define CID_ai_text_DData 1932
+#define CID_ai_text_DFail 1933
+#define CID_director_Dec 1934
+#define CID_doc_search_Scope 1935
+#define CID_stop_LengthStop 1936
+#define CID_stop_EmptyStop 1937
+#define CID_stop_MarkupStop 1938
+#define CID_stop_PendingWork 1939
+#define CID_runners_Ungated 1940
+#define CID_runners_EachStep 1941
+#define CID_runners_EachCall 1942
+#define CID_rebase_Rebased 1943
+#define CID_rebase_Conflict 1944
+#define CID_ffi_rebase_Cut 1945
+#define CID_bound_Slice 1946
+#define CID_bound_AtEnd 1947
+#define CID_bound_AtStart 1948
+#define CID_slash_suggest_Near 1949
+#define CID_config_Item 1950
+#define CID_glob_parse_Glob 1951
+#define CID_glob_items_One 1952
+#define CID_glob_items_Star 1953
+#define CID_glob_queries_IGlob 1954
+#define CID_glob_queries_IAll 1955
+#define CID_glob_queries_ISkip 1956
+#define CID_compactor_Whole 1957
+#define CID_compactor_CutReply 1958
+#define CID_compactor_CutBest 1959
+#define CID_compactor_CutInput 1960
+#define CID_compactor_Errored 1961
+#define CID_compactor_Lst 1962
+#define CID_package_source_SrcNpm 1963
+#define CID_package_source_SrcGit 1964
+#define CID_package_source_SrcLocal 1965
+#define CID_package_source_GitSrc 1966
+#define CID_package_source_Cut 1967
+#define CID_job_Code 1968
+#define CID_tokens_Entry 1969
+#define CID_tokens_Light 1970
+#define CID_tokens_Dark 1971
+#define CID_tokens_Step 1972
+#define CID_limits_Srcs 1973
+#define CID_limits_UntilFinished 1974
+#define CID_limits_Set 1975
+#define CID_limits_LimitsProfile 1976
+#define CID_limits_Profile 1977
+#define CID_limits_Preset 1978
+#define CID_limits_KV 1979
+#define CID_limits_Cut 1980
+#define CID_ffi_command_RunsW 1981
+#define CID_ffi_command_OpensW 1982
+#define CID_ffi_command_UnknownW 1983
+#define CID_ffi_command_NoCmdW 1984
+#define CID_command_Runs 1985
+#define CID_command_Opens 1986
+#define CID_command_Unknown 1987
+#define CID_command_NoCmd 1988
+#define CID_ffi_command_NamesW 1989
+#define CID_ffi_command_KidsW 1990
+#define CID_ffi_command_ShutW 1991
+#define CID_command_Names 1992
+#define CID_command_Kids 1993
+#define CID_command_Shut 1994
+#define CID_ffi_command_OutW 1995
+#define CID_command_Out 1996
+#define CID_theme_file_Unknown 1997
+#define CID_theme_file_InColor 1998
+#define CID_theme_file_Missing 1999
+#define CID_theme_file_InExport 2000
+#define CID_theme_file_Dflt 2001
+#define CID_theme_file_Idx 2002
+#define CID_theme_file_Hex 2003
+#define CID_theme_reader_Loaded 2004
+#define CID_theme_reader_Failed 2005
+#define CID_theme_name_Res 2006
+#define CID_theme_choice_FailedAt 2007
+#define CID_theme_choice_NoTheme 2008
+#define CID_theme_choice_Clash 2009
+#define CID_theme_resolve_OLoaded 2010
+#define CID_theme_resolve_OFaulty 2011
+#define CID_theme_resolve_ONone 2012
+#define CID_theme_resolve_Seen 2013
+#define CID_theme_choice_Pick 2014
+#define CID_theme_choice_Fine 2015
+#define CID_theme_choice_Broke 2016
+#define CID_doc_seen_Show 2017
+#define CID_kin_Parent 2018
+#define CID_kin_Child 2019
+#define CID_kin_SelfMessage 2020
+#define CID_kin_NotKin 2021
+#define CID_cron_store_NNone 2022
+#define CID_cron_store_NAt 2023
+#define CID_cron_store_NRoll 2024
+#define CID_cron_Win 2025
+#define CID_cron_Loss 2026
+#define CID_cron_Skip 2027
+#define CID_arg_repair_Out 2028
+#define CID_arg_repair_RAlias 2029
+#define CID_arg_repair_RCoerce 2030
+#define CID_arg_repair_Refused 2031
+#define CID_arg_repair_Unknown 2032
+#define CID_arg_repair_Ambiguous 2033
+#define CID_arg_repair_Seen 2034
+#define CID_mcp_url_V4No 2035
+#define CID_mcp_url_V4Bad 2036
+#define CID_mcp_url_V4Quad 2037
+#define CID_shape_AtStart 2038
+#define CID_shape_Anywhere 2039
+#define CID_shape_Lit 2040
+#define CID_shape_Fold 2041
+#define CID_shape_Run 2042
+#define CID_shape_Cap 2043
+#define CID_shape_Opt 2044
+#define CID_shape_Alt 2045
+#define CID_shape_Many 2046
+#define CID_shape_Ahead 2047
+#define CID_shape_Same 2048
+#define CID_shape_Bound 2049
+#define CID_shape_Begin 2050
+#define CID_shape_End 2051
+#define CID_shape_Found 2052
+#define CID_shape_Fit 2053
+#define CID_sandbox_Keep 2054
+#define CID_sandbox_Clash 2055
+#define CID_sandbox_Take 2056
+#define CID_sandbox_Drop 2057
+#define CID_rlm_query_OverBudget 2058
+#define CID_rlm_query_Full 2059
+#define CID_doc_lines_Line 2060
+#define CID_dash_access_HostPort 2061
+#define CID_dash_access_NoAuthority 2062
+#define CID_dash_access_Cut 2063
+#define CID_budget_Short 2064
+#define CID_budget_Held 2065
+#define CID_budget_Stopped 2066
+#define CID_submission_NotQueued 2067
+#define CID_submission_NotPlacedInput 2068
+#define CID_fsmode_Create 2069
+#define CID_fsmode_Use 2070
+#define CID_fsmode_Refuse 2071
+#define CID_redirect_input_Cut 2072
+#define CID_gateway_commands_CHelp 2073
+#define CID_gateway_commands_CSessions 2074
+#define CID_gateway_commands_CUse 2075
+#define CID_gateway_commands_CLatest 2076
+#define CID_gateway_commands_CNew 2077
+#define CID_gateway_commands_CStop 2078
+#define CID_gateway_commands_CStatus 2079
+#define CID_gateway_commands_CMemory 2080
+#define CID_gateway_commands_CModel 2081
+#define CID_gateway_commands_CReasoning 2082
+#define CID_gateway_commands_CModelAll 2083
+#define CID_gateway_commands_CRestart 2084
+#define CID_gateway_commands_CEffects 2085
+#define CID_gateway_commands_CUndo 2086
+#define CID_gateway_commands_CDiff 2087
+#define CID_agent_tree_NoNode 2088
+#define CID_agent_tree_NotRunning 2089
+#define CID_agent_tree_NotLeaf 2090
+#define CID_agent_tree_TooDeep 2091
+#define CID_agent_tree_TooMany 2092
+#define CID_agent_tree_BadScopes 2093
+#define CID_agent_tree_NoBudget 2094
+#define CID_agent_tree_Unsettled 2095
+#define CID_agent_tree_NotRedoable 2096
+#define CID_agent_tree_Took 2097
+#define CID_agent_tree_Refused 2098
+#define CID_agent_crown_HOk 2099
+#define CID_agent_crown_HNo 2100
+#define CID_slash_args_Conf 2101
+#define CID_slash_args_Tok 2102
+#define CID_run_state_Prepare 2103
+#define CID_run_state_Call 2104
+#define CID_run_state_Compact 2105
+#define CID_run_state_Tools 2106
+#define CID_run_state_Answered 2107
+#define CID_run_state_Aborted 2108
+#define CID_run_state_Failed 2109
+#define CID_run_state_St 2110
+#define CID_run_state_Cfg 2111
+#define CID_run_state_Goes 2112
+#define CID_run_state_Stops 2113
+#define CID_run_state_Resets 2114
+#define CID_run_recovery_Dec 2115
+#define CID_run_recovery_Leak 2116
+#define CID_run_recovery_Ran 2117
+#define CID_run_recovery_Noted 2118
+#define CID_run_recovery_Said 2119
+#define CID_run_recovery_Answer 2120
+#define CID_run_recovery_Other 2121
+#define CID_run_recovery_Empty 2122
+#define CID_run_recovery_Think 2123
+#define CID_call_lift_Step 2124
+#define CID_call_lift_Unknown 2125
+#define CID_call_lift_Current 2126
+#define CID_call_lift_Stranded 2127
+#define CID_call_lift_Lifted 2128
+#define CID_infer_Defaults 2129
+#define CID_infer_threshold_Under 2130
+#define CID_infer_threshold_Early 2131
+#define CID_infer_threshold_Blocks 2132
+#define CID_default_model_NotInCatalog 2133
+#define CID_default_model_NoCredentials 2134
+#define CID_default_model_NotInScope 2135
+#define CID_doc_commit_Changed 2136
+#define CID_doc_commit_Taken 2137
+#define CID_doc_commit_Untouched 2138
+#define CID_doc_commit_Written 2139
+#define CID_doc_commit_Unwritten 2140
+#define CID_doc_commit_Skipped 2141
+#define CID_refine_plan_Row 2142
+#define CID_refine_plan_Touch 2143
+#define CID_refine_plan_Pick 2144
+#define CID_refine_plan_Scan 2145
+#define CID_semver_Ver 2146
+#define CID_tui_color_Frac 2147
+#define CID_aws_text_St 2148
+#define CID_admission_Holding 2149
+#define CID_admission_Waiting 2150
+#define CID_doc_search_NoMatch 2151
+#define CID_doc_search_Shown 2152
+#define CID_doc_search_PagedOut 2153
+#define CID_doc_search_Unsearched 2154
+#define CID_doc_search_Skipped 2155
+#define CID_infer_Best 2156
+#define CID_auth_flight_To 2157
+#define CID_autoresearch_state_Nothing 2158
+#define CID_autoresearch_state_Commit 2159
+#define CID_autoresearch_state_Reset 2160
+#define CID_privacy_token_Mapped 2161
+#define CID_privacy_token_OneWay 2162
+#define CID_privacy_token_Step 2163
+#define CID_optchat_fit_Last 2164
+#define CID_optchat_fit_First 2165
+#define CID_stream_failure_Test 2166
+#define CID_text_pat_Pat 2167
+#define CID_screen_Put 2168
+#define CID_screen_Fresh 2169
+#define CID_screen_Kept 2170
+#define CID_ffi_fallback_Parts 2171
+#define CID_stop_Pass 2172
+#define CID_stop_Continue 2173
+#define CID_stop_Yield 2174
+#define CID_stop_Drop 2175
+#define CID_child_Busy 2176
+#define CID_child_PollFailed 2177
+#define CID_child_Answered 2178
+#define CID_child_Broke 2179
+#define CID_child_Gone 2180
+#define CID_child_Submit 2181
+#define CID_child_Await 2182
+#define CID_child_Resubmit 2183
+#define CID_child_Delivered 2184
+#define CID_rebase_Invalid 2185
+#define CID_rebase_Moved 2186
+#define CID_rebase_Ambiguous 2187
+#define CID_rebase_Crossed 2188
+#define CID_rebase_TooLarge 2189
+#define CID_config_Pref 2190
+#define CID_config_Limit 2191
+#define CID_config_Prompt 2192
+#define CID_config_Credential 2193
+#define CID_config_Code 2194
+#define CID_config_Proj 2195
+#define CID_config_GlobalOnly 2196
+#define CID_config_Hit 2197
+#define CID_glob_parse_TLit 2198
+#define CID_glob_parse_TAny 2199
+#define CID_glob_parse_TZom 2200
+#define CID_glob_parse_TRPre 2201
+#define CID_glob_parse_TRSuf 2202
+#define CID_glob_parse_TRZom 2203
+#define CID_glob_parse_TCls 2204
+#define CID_glob_parse_St 2205
+#define CID_glob_parse_Br 2206
+#define CID_glob_items_BAny 2207
+#define CID_glob_items_BNotSl 2208
+#define CID_glob_items_BSet 2209
+#define CID_package_source_NpmSrc 2210
+#define CID_tokens_Bg 2211
+#define CID_tokens_Sidebar 2212
+#define CID_tokens_Raised 2213
+#define CID_tokens_Surface 2214
+#define CID_tokens_Hover 2215
+#define CID_tokens_Primary 2216
+#define CID_tokens_Secondary 2217
+#define CID_tokens_Tertiary 2218
+#define CID_tokens_Hairline 2219
+#define CID_tokens_Scrim 2220
+#define CID_tokens_Danger 2221
+#define CID_tokens_Selection 2222
+#define CID_tokens_Scrollbar 2223
+#define CID_tokens_ShadowNear 2224
+#define CID_tokens_ShadowFar 2225
+#define CID_tokens_ShadowDrawer 2226
+#define CID_tokens_ShadowLatest 2227
+#define CID_tokens_Col 2228
+#define CID_limits_Pick 2229
+#define CID_limits_KCost 2230
+#define CID_limits_KTok 2231
+#define CID_limits_KTime 2232
+#define CID_limits_KCalls 2233
+#define CID_limits_KReqs 2234
+#define CID_command_Top 2235
+#define CID_command_Walk 2236
+#define CID_command_Rest 2237
+#define CID_command_OffPath 2238
+#define CID_command_Stray 2239
+#define CID_theme_file_Circular 2240
+#define CID_theme_file_NotFound 2241
+#define CID_theme_file_BadHex 2242
+#define CID_theme_file_BadValue 2243
+#define CID_theme_file_OnPage 2244
+#define CID_theme_file_OnCard 2245
+#define CID_theme_file_OnInfo 2246
+#define CID_theme_file_Th 2247
+#define CID_theme_chase_Ix 2248
+#define CID_theme_reader_All 2249
+#define CID_theme_reader_Stuck 2250
+#define CID_theme_resolve_NoBody 2251
+#define CID_theme_resolve_Body 2252
+#define CID_tools_Part 2253
+#define CID_arg_repair_TBool 2254
+#define CID_arg_repair_TNum 2255
+#define CID_arg_repair_TStr 2256
+#define CID_arg_repair_TOne 2257
+#define CID_arg_repair_TObj 2258
+#define CID_arg_repair_TArr 2259
+#define CID_arg_repair_StepOk 2260
+#define CID_arg_repair_StepNo 2261
+#define CID_shape_Cls 2262
+#define CID_shape_Got 2263
+#define CID_account_Soon 2264
+#define CID_fsmode_WhyLink 2265
+#define CID_fsmode_WhyNotDir 2266
+#define CID_fsmode_WhyOwner 2267
+#define CID_fsmode_WhyMode 2268
+#define CID_wait_any_ToWaiter 2269
+#define CID_wait_any_ToNotice 2270
+#define CID_agent_crown_Load 2271
+#define CID_agent_tree_OpSplit 2272
+#define CID_agent_tree_OpSpend 2273
+#define CID_agent_tree_OpFinish 2274
+#define CID_agent_tree_OpFail 2275
+#define CID_agent_tree_OpCancel 2276
+#define CID_agent_tree_OpRedo 2277
+#define CID_ffi_agent_tree_AtHead 2278
+#define CID_ffi_agent_tree_AtRight 2279
+#define CID_ffi_agent_tree_HLeaf 2280
+#define CID_ffi_agent_tree_HSplit 2281
+#define CID_phrase_Ph 2282
+#define CID_slash_args_LUnl 2283
+#define CID_slash_args_LNum 2284
+#define CID_slash_args_Gates 2285
+#define CID_run_state_Model 2286
+#define CID_run_state_Polls 2287
+#define CID_run_state_Rounds 2288
+#define CID_run_recovery_Pass 2289
+#define CID_run_recovery_Exec 2290
+#define CID_run_recovery_Redo 2291
+#define CID_run_recovery_Quit 2292
+#define CID_run_recovery_Shrink 2293
+#define CID_run_recovery_Lower 2294
+#define CID_run_recovery_Rec 2295
+#define CID_call_lift_Rename 2296
+#define CID_call_lift_Fill 2297
+#define CID_call_lift_Kept 2298
+#define CID_call_lift_Added 2299
+#define CID_call_lift_Renamed 2300
+#define CID_call_lift_Clashed 2301
+#define CID_call_lift_Filled 2302
+#define CID_refine_plan_OInvalid 2303
+#define CID_refine_plan_ORefused 2304
+#define CID_refine_plan_ORemoved 2305
+#define CID_refine_plan_OWritten 2306
+#define CID_semver_D0 2307
+#define CID_semver_D1 2308
+#define CID_semver_D2 2309
+#define CID_semver_D3 2310
+#define CID_semver_D4 2311
+#define CID_semver_D5 2312
+#define CID_semver_D6 2313
+#define CID_semver_D7 2314
+#define CID_semver_D8 2315
+#define CID_semver_D9 2316
+#define CID_semver_Digit 2317
+#define CID_semver_Dot 2318
+#define CID_semver_Other 2319
+#define CID_aws_text_Q0 2320
+#define CID_aws_text_Q1 2321
+#define CID_aws_text_Q2 2322
+#define CID_aws_text_Q3 2323
+#define CID_aws_text_PB 2324
+#define CID_aws_text_P1 2325
+#define CID_aws_text_P2 2326
+#define CID_aws_text_PX 2327
+#define CID_auth_flight_DoLoad 2328
+#define CID_auth_flight_DoCheck 2329
+#define CID_auth_flight_DoFetch 2330
+#define CID_auth_flight_DoStore 2331
+#define CID_auth_flight_DoWait 2332
+#define CID_auth_flight_DoDone 2333
+#define CID_auth_flight_DoFail 2334
+#define CID_tiny_Join 2335
+#define CID_tiny_Replace 2336
+#define CID_tiny_Start 2337
+#define CID_tiny_Broken 2338
+#define CID_tiny_Down 2339
+#define CID_tiny_Spoke 2340
+#define CID_tiny_Cut 2341
+#define CID_tiny_Serving 2342
+#define CID_tiny_Mistagged 2343
+#define CID_tiny_Vacant 2344
+#define CID_tiny_Faulty 2345
+#define CID_tiny_Adopt 2346
+#define CID_tiny_Take 2347
+#define CID_tiny_Fault 2348
+#define CID_text_pat_One 2349
+#define CID_text_pat_Star 2350
+#define CID_child_Inbox 2351
+#define CID_child_Silent 2352
+#define CID_config_Rule 2353
+#define CID_glob_parse_Rg 2354
+#define CID_glob_parse_Open 2355
+#define CID_glob_parse_MNorm 2356
+#define CID_glob_parse_MEsc 2357
+#define CID_glob_parse_MStar1 2358
+#define CID_glob_parse_MStar2 2359
+#define CID_glob_parse_MClsStart 2360
+#define CID_glob_parse_MCls 2361
+#define CID_glob_items_BR 2362
+#define CID_package_source_Refd 2363
+#define CID_theme_file_Ent 2364
+#define CID_theme_chase_VL 2365
+#define CID_theme_chase_VN 2366
+#define CID_theme_chase_SL 2367
+#define CID_theme_chase_SN 2368
+#define CID_theme_reader_Good 2369
+#define CID_theme_reader_Bad 2370
+#define CID_theme_name_Cand 2371
+#define CID_mcp_url_POct 2372
+#define CID_mcp_url_PBig 2373
+#define CID_mcp_url_PNone 2374
+#define CID_shape_Codes 2375
+#define CID_shape_Space 2376
+#define CID_shape_Hit 2377
+#define CID_shape_St 2378
+#define CID_doc_lines_Kept 2379
+#define CID_budget_Fit 2380
+#define CID_budget_NoFit 2381
+#define CID_doc_rows_Go 2382
+#define CID_doc_rows_NotUtf8 2383
+#define CID_doc_rows_Binary 2384
+#define CID_doc_rows_View 2385
+#define CID_phrase_EFree 2386
+#define CID_phrase_EWord 2387
+#define CID_phrase_EText 2388
+#define CID_phrase_One 2389
+#define CID_phrase_Opt 2390
+#define CID_phrase_Star 2391
+#define CID_privacy_ip_Dig 2392
+#define CID_privacy_ip_Hx 2393
+#define CID_privacy_ip_Col 2394
+#define CID_privacy_ip_Dot 2395
+#define CID_privacy_ip_Let 2396
+#define CID_privacy_ip_Und 2397
+#define CID_privacy_ip_Dash 2398
+#define CID_privacy_ip_Oth 2399
+#define CID_privacy_ip_Got 2400
+#define CID_privacy_ip_Bad 2401
+#define CID_privacy_ip_Begin 2402
+#define CID_privacy_ip_Grp 2403
+#define CID_privacy_ip_Long 2404
+#define CID_privacy_ip_Open 2405
+#define CID_privacy_ip_Acc 2406
+#define CID_privacy_ip_QCut 2407
+#define CID_privacy_context_Bl 2408
+#define CID_privacy_context_Eq 2409
+#define CID_privacy_context_Gt 2410
+#define CID_privacy_context_Lt 2411
+#define CID_privacy_context_Ti 2412
+#define CID_privacy_context_Ba 2413
+#define CID_privacy_context_Ca 2414
+#define CID_privacy_context_Pu 2415
+#define CID_privacy_context_Wc 2416
+#define CID_privacy_context_Nl 2417
+#define CID_privacy_context_Ot 2418
+#define CID_slash_args_Cut 2419
+#define CID_text_pat_CLit 2420
+#define CID_text_pat_CAny 2421
+#define CID_text_pat_CDig 2422
+#define CID_text_pat_CDigC 2423
+#define CID_text_pat_CSp 2424
+#define CID_refine_plan_CBad 2425
+#define CID_refine_plan_COk 2426
+#define CID_admission_Tk 2427
+#define CID_autoresearch_line_Parts 2428
+#define CID_retry_Transient 2429
+#define CID_retry_Permanent 2430
+#define CID_retry_Unsure 2431
+#define CID_glob_parse_Took 2432
+#define CID_package_source_Hosted 2433
+#define CID_limits_Gap 2434
+#define CID_limits_In 2435
+#define CID_limits_Fin 2436
+#define CID_theme_reader_BgOk 2437
+#define CID_theme_reader_BgBad 2438
+#define CID_theme_chase_Hit 2439
+#define CID_theme_chase_Miss 2440
+#define CID_mcp_url_One 2441
+#define CID_mcp_url_Two 2442
+#define CID_shape_Rg 2443
+#define CID_doc_rows_Span 2444
+#define CID_doc_rows_Beyond 2445
+#define CID_doc_rows_Remain 2446
+#define CID_doc_rows_RangeBeyond 2447
+#define CID_doc_rows_TooBig 2448
+#define CID_infer_TTip 2449
+#define CID_infer_TLeaf 2450
+#define CID_infer_TNode 2451
+#define CID_infer_TEnd 2452
+#define CID_infer_T0 2453
+#define CID_infer_T1 2454
+#define CID_phrase_CIn 2455
+#define CID_phrase_COut 2456
+#define CID_color_Leaf 2457
+#define CID_color_Node 2458
+#define CID_privacy_ip_Full 2459
+#define CID_privacy_ip_Gap 2460
+#define CID_privacy_ip_Quad 2461
+#define CID_privacy_ip_Cut 2462
+#define CID_slash_args_ROk 2463
+#define CID_slash_args_RErr 2464
+#define CID_screen_Drawn 2465
+#define CID_screen_Error 2466
+#define CID_child_Watches 2467
+#define CID_child_Reports 2468
+#define CID_child_Settles 2469
+#define CID_package_source_Url 2470
+#define CID_theme_chase_FStop 2471
+#define CID_theme_chase_FGo 2472
+#define CID_arg_repair_NRefused 2473
+#define CID_arg_repair_NUnknown 2474
+#define CID_arg_repair_NAs 2475
+#define CID_staging_Split 2476
+#define CID_shape_Want 2477
+#define CID_shape_Have 2478
+#define CID_shape_Nothing 2479
+#define CID_shape_BAt 2480
+#define CID_shape_BAfter 2481
+#define CID_shape_FEnd 2482
+#define CID_shape_FSeq 2483
+#define CID_shape_FCap 2484
+#define CID_shape_FRound 2485
+#define CID_redirect_input_Param 2486
+#define CID_slash_args_Opts 2487
+#define CID_call_lift_St 2488
+#define CID_child_Watch 2489
+#define CID_child_Owe 2490
+#define CID_child_Quiet 2491
+#define CID_rebase_Lands 2492
+#define CID_rebase_Fails 2493
+#define CID_glob_parse_KStar 2494
+#define CID_glob_parse_KAny 2495
+#define CID_glob_parse_KCls 2496
+#define CID_glob_parse_KOpen 2497
+#define CID_glob_parse_KClose 2498
+#define CID_glob_parse_KComma 2499
+#define CID_glob_parse_KEsc 2500
+#define CID_glob_parse_KLit 2501
+#define CID_limits_Next 2502
+#define CID_limits_Stop 2503
+#define CID_theme_token_Req 2504
+#define CID_theme_token_MdBody 2505
+#define CID_theme_token_RefHeader 2506
+#define CID_theme_token_RefSummary 2507
+#define CID_theme_token_Background 2508
+#define CID_theme_token_Foreground 2509
+#define CID_gateway_commands_Spec 2510
+#define CID_rebase_Win 2511
+#define CID_limits_WPreset 2512
+#define CID_limits_WPair 2513
+#define CID_limits_WBad 2514
+#define CID_limits_WEnd 2515
+#define CID_rebase_HNone 2516
+#define CID_rebase_HOne 2517
+#define CID_rebase_HMany 2518
+#define CID_arg_repair_KString 2519
+#define CID_arg_repair_KBoolean 2520
+#define CID_arg_repair_KInteger 2521
+#define CID_arg_repair_KNumber 2522
+#define CID_arg_repair_KObject 2523
+#define CID_arg_repair_KArray 2524
+#define CID_arg_repair_KOther 2525
+#define CID_redirect_input_UChar 2526
+#define CID_redirect_input_UByte 2527
+#define CID_redirect_input_UIdle 2528
+#define CID_redirect_input_UNeed 2529
+#define CID_redirect_input_PPlain 2530
+#define CID_redirect_input_PSign 2531
+#define CID_redirect_input_PDigit 2532
+#define CID_slash_args_VAt 2533
+#define CID_slash_args_VNone 2534
+#define CID_redirect_input_UStep 2535
+#define CID_IO_args 2536
+#define CID_IO_print 2537
 #define FID_autoresearch_line_trail_all 0
 #define FID_autoresearch_line_trail_all_k1 1
 #define FID_autoresearch_line_pl_trail 2
@@ -8634,7 +8636,7 @@ typedef struct { u8 ar, hot; u16 spine; } Cid;
 #define FID_EXIT 5785
 #define FID_ENTER 5786
 CONSTV Fid FID_T[] = { { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 5, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 40, 0, 0, 1 }, { 39, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 3, 0, 1 }, { 3, 1, 0, 1 }, { 4, 3, 0, 1 }, { 3, 1, 0, 1 }, { 4, 3, 0, 1 }, { 3, 1, 0, 1 }, { 4, 3, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 42, 0, 0, 1 }, { 20, 20, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 13, 0, 0, 1 }, { 14, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 6, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 2, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 0, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 12, 0, 0, 1 }, { 1, 1, 0, 1 }, { 12, 1, 0, 1 }, { 13, 1, 0, 1 }, { 13, 1, 0, 1 }, { 3, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 2, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 9, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 13, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 4, 3, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 15, 0, 0, 1 }, { 16, 1, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 45, 0, 0, 1 }, { 45, 1, 0, 1 }, { 46, 1, 0, 1 }, { 46, 1, 0, 1 }, { 48, 2, 0, 1 }, { 1, 1, 0, 1 }, { 48, 1, 0, 1 }, { 48, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 42, 21, 0, 1 }, { 42, 21, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 12, 1, 0, 1 }, { 12, 1, 0, 1 }, { 2, 1, 0, 1 }, { 11, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 11, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 12, 1, 0, 1 }, { 13, 1, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 13, 1, 0, 1 }, { 13, 1, 0, 1 }, { 12, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 12, 1, 0, 1 }, { 13, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 12, 6, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 1, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 12, 6, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 9, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 13, 6, 0, 1 }, { 13, 0, 0, 1 }, { 13, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 7, 4, 0, 1 }, { 8, 0, 0, 1 }, { 13, 5, 0, 1 }, { 9, 0, 0, 1 }, { 4, 4, 0, 1 }, { 11, 2, 0, 1 }, { 9, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 12, 0, 0, 1 }, { 8, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 3, 0, 1 }, { 7, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 22, 0, 0, 1 }, { 25, 1, 0, 1 }, { 26, 1, 0, 1 }, { 16, 2, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 0, 0, 1 }, { 7, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 3, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 8, 0, 0, 1 }, { 5, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 8, 1, 0, 1 }, { 12, 6, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 2, 0, 1 }, { 7, 3, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 9, 1, 0, 1 }, { 12, 3, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 2, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 19, 0, 0, 1 }, { 13, 1, 0, 1 }, { 12, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 9, 0, 0, 1 }, { 8, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 0, 0, 1 }, { 7, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 0, 0, 1 }, { 8, 4, 0, 1 }, { 9, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 44, 42, 0, 1 }, { 45, 1, 0, 1 }, { 42, 21, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 10, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 10, 0, 0, 1 }, { 17, 9, 0, 1 }, { 10, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 12, 1, 0, 1 }, { 12, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 10, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 2, 0, 1 }, { 11, 0, 0, 1 }, { 10, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 9, 5, 0, 1 }, { 17, 6, 0, 1 }, { 11, 1, 0, 1 }, { 16, 6, 0, 1 }, { 16, 6, 0, 1 }, { 18, 6, 0, 1 }, { 18, 6, 0, 1 }, { 8, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 7, 2, 0, 1 }, { 7, 2, 0, 1 }, { 13, 6, 0, 1 }, { 6, 2, 0, 1 }, { 12, 6, 0, 1 }, { 13, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 5, 2, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 2, 0, 1 }, { 3, 0, 0, 1 }, { 6, 3, 0, 1 }, { 4, 1, 0, 1 }, { 40, 0, 0, 1 }, { 35, 1, 0, 1 }, { 8, 0, 0, 1 }, { 8, 6, 0, 1 }, { 2, 0, 0, 1 }, { 5, 5, 0, 1 }, { 5, 0, 0, 1 }, { 6, 5, 0, 1 }, { 10, 5, 0, 1 }, { 8, 5, 0, 1 }, { 8, 5, 0, 1 }, { 8, 5, 0, 1 }, { 4, 0, 0, 1 }, { 10, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 9, 6, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 8, 0, 0, 1 }, { 5, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 2, 1, 0, 1 }, { 4, 1, 0, 1 }, { 6, 3, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 9, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 21, 0, 0, 1 }, { 17, 0, 0, 1 }, { 11, 4, 0, 1 }, { 10, 4, 0, 1 }, { 7, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 2, 0, 1 }, { 4, 0, 0, 1 }, { 8, 4, 0, 1 }, { 7, 3, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 22, 0, 0, 1 }, { 21, 0, 0, 1 }, { 28, 13, 0, 1 }, { 15, 1, 0, 1 }, { 16, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 20, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 12, 0, 0, 1 }, { 1, 0, 0, 1 }, { 8, 0, 0, 1 }, { 7, 1, 0, 1 }, { 9, 2, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 7, 0, 0, 1 }, { 4, 4, 0, 1 }, { 10, 1, 0, 1 }, { 8, 4, 0, 1 }, { 5, 1, 0, 1 }, { 5, 0, 0, 1 }, { 7, 5, 0, 1 }, { 10, 5, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 8, 4, 0, 1 }, { 8, 1, 0, 1 }, { 4, 0, 0, 1 }, { 9, 4, 0, 1 }, { 9, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 7, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 42, 42, 0, 1 }, { 23, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 7, 0, 0, 1 }, { 5, 1, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 6, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 8, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 10, 1, 0, 1 }, { 10, 1, 0, 1 }, { 1, 0, 0, 1 }, { 11, 1, 0, 1 }, { 11, 1, 0, 1 }, { 2, 0, 0, 1 }, { 9, 2, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 4, 2, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 0, 0, 1 }, { 7, 6, 0, 1 }, { 1, 0, 0, 1 }, { 14, 6, 0, 1 }, { 9, 0, 0, 1 }, { 9, 0, 0, 1 }, { 7, 7, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 1, 0, 1 }, { 13, 0, 0, 1 }, { 13, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 14, 0, 0, 1 }, { 14, 3, 0, 1 }, { 13, 2, 0, 1 }, { 16, 6, 0, 1 }, { 13, 3, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 7, 3, 0, 1 }, { 5, 0, 0, 1 }, { 3, 0, 0, 1 }, { 20, 20, 0, 1 }, { 4, 0, 0, 1 }, { 9, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 9, 2, 0, 1 }, { 7, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 9, 0, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 11, 5, 0, 1 }, { 5, 0, 0, 1 }, { 10, 5, 0, 1 }, { 6, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 10, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 5, 5, 0, 1 }, { 7, 5, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 7, 0, 0, 1 }, { 7, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 6, 0, 1 }, { 6, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 2, 0, 1 }, { 7, 2, 0, 1 }, { 8, 3, 0, 1 }, { 10, 2, 0, 1 }, { 12, 3, 0, 1 }, { 12, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 22, 0, 0, 1 }, { 17, 16, 0, 1 }, { 18, 17, 0, 1 }, { 20, 0, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 11, 4, 0, 1 }, { 19, 0, 0, 1 }, { 11, 4, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 0, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 2, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 9, 4, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 17, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 3, 2, 0, 1 }, { 4, 2, 0, 1 }, { 4, 2, 0, 1 }, { 5, 0, 0, 1 }, { 10, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 7, 0, 0, 1 }, { 13, 13, 0, 1 }, { 2, 0, 0, 1 }, { 14, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 5, 0, 1 }, { 3, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 29, 0, 0, 1 }, { 29, 3, 0, 1 }, { 28, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 8, 0, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 2, 0, 0, 1 }, { 8, 4, 0, 1 }, { 7, 0, 0, 1 }, { 9, 4, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 3, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 1, 0, 1 }, { 5, 3, 0, 1 }, { 6, 1, 0, 1 }, { 5, 3, 0, 1 }, { 9, 6, 0, 1 }, { 9, 6, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 9, 0, 0, 1 }, { 8, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 7, 3, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 10, 0, 0, 1 }, { 10, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 7, 1, 0, 1 }, { 6, 2, 0, 1 }, { 4, 1, 0, 1 }, { 24, 0, 0, 1 }, { 30, 7, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 4, 1, 0, 1 }, { 5, 2, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 7, 0, 0, 1 }, { 12, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 10, 0, 0, 1 }, { 10, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 8, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 22, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 19, 0, 0, 1 }, { 37, 19, 0, 1 }, { 10, 0, 0, 1 }, { 7, 5, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 5, 0, 1 }, { 5, 0, 0, 1 }, { 10, 5, 0, 1 }, { 14, 5, 0, 1 }, { 5, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 9, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 6, 0, 1 }, { 9, 1, 0, 1 }, { 13, 6, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 0, 0, 1 }, { 6, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 3, 0, 1 }, { 5, 4, 0, 1 }, { 5, 3, 0, 1 }, { 2, 1, 0, 1 }, { 5, 4, 0, 1 }, { 4, 0, 0, 1 }, { 10, 6, 0, 1 }, { 15, 6, 0, 1 }, { 15, 6, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 3, 0, 1 }, { 7, 4, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 3, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 6, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 17, 0, 0, 1 }, { 17, 16, 0, 1 }, { 21, 0, 0, 1 }, { 17, 17, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 3, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 4, 2, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 7, 0, 0, 1 }, { 6, 1, 0, 1 }, { 11, 0, 0, 1 }, { 10, 1, 0, 1 }, { 13, 3, 0, 1 }, { 4, 2, 0, 1 }, { 7, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 10, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 9, 0, 0, 1 }, { 13, 4, 0, 1 }, { 12, 1, 0, 1 }, { 15, 0, 0, 1 }, { 11, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 14, 1, 0, 1 }, { 11, 0, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 8, 8, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 10, 0, 0, 1 }, { 11, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 7, 0, 0, 1 }, { 11, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 10, 0, 0, 1 }, { 11, 1, 0, 1 }, { 10, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 7, 0, 0, 1 }, { 4, 0, 0, 1 }, { 4, 2, 0, 1 }, { 8, 0, 0, 1 }, { 4, 2, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 2, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 9, 0, 0, 1 }, { 10, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 29, 0, 0, 1 }, { 31, 2, 0, 1 }, { 33, 2, 0, 1 }, { 34, 3, 0, 1 }, { 33, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 0, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 4, 1, 0, 1 }, { 0, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 10, 1, 0, 1 }, { 10, 1, 0, 1 }, { 11, 1, 0, 1 }, { 11, 1, 0, 1 }, { 12, 1, 0, 1 }, { 12, 1, 0, 1 }, { 12, 1, 0, 1 }, { 13, 1, 0, 1 }, { 13, 1, 0, 1 }, { 14, 1, 0, 1 }, { 14, 1, 0, 1 }, { 14, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 16, 1, 0, 1 }, { 16, 1, 0, 1 }, { 16, 1, 0, 1 }, { 17, 1, 0, 1 }, { 17, 1, 0, 1 }, { 18, 1, 0, 1 }, { 20, 2, 0, 1 }, { 21, 1, 0, 1 }, { 21, 1, 0, 1 }, { 22, 1, 0, 1 }, { 22, 1, 0, 1 }, { 23, 1, 0, 1 }, { 23, 1, 0, 1 }, { 24, 1, 0, 1 }, { 24, 1, 0, 1 }, { 24, 1, 0, 1 }, { 25, 1, 0, 1 }, { 25, 1, 0, 1 }, { 25, 1, 0, 1 }, { 26, 1, 0, 1 }, { 28, 2, 0, 1 }, { 29, 1, 0, 1 }, { 29, 1, 0, 1 }, { 30, 1, 0, 1 }, { 30, 1, 0, 1 }, { 30, 1, 0, 1 }, { 31, 1, 0, 1 }, { 31, 1, 0, 1 }, { 31, 1, 0, 1 }, { 33, 2, 0, 1 }, { 35, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 7, 0, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 8, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 2, 0, 0, 1 }, { 8, 4, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 8, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 10, 10, 0, 1 }, { 10, 10, 0, 1 }, { 11, 3, 0, 1 }, { 14, 0, 0, 1 }, { 22, 12, 0, 1 }, { 13, 3, 0, 1 }, { 23, 12, 0, 1 }, { 13, 3, 0, 1 }, { 1, 0, 0, 1 }, { 10, 9, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 8, 8, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 11, 2, 0, 1 }, { 12, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 13, 1, 0, 1 }, { 12, 1, 0, 1 }, { 10, 0, 0, 1 }, { 14, 1, 0, 1 }, { 15, 1, 0, 1 }, { 16, 1, 0, 1 }, { 4, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 2, 0, 1 }, { 12, 2, 0, 1 }, { 12, 2, 0, 1 }, { 8, 0, 0, 1 }, { 15, 1, 0, 1 }, { 1, 0, 0, 1 }, { 8, 1, 0, 1 }, { 3, 0, 0, 1 }, { 11, 1, 0, 1 }, { 14, 1, 0, 1 }, { 15, 1, 0, 1 }, { 14, 1, 0, 1 }, { 14, 1, 0, 1 }, { 13, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 11, 1, 0, 1 }, { 10, 1, 0, 1 }, { 9, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 6, 2, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 27, 3, 0, 1 }, { 45, 20, 0, 1 }, { 2, 0, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 10, 4, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 9, 0, 0, 1 }, { 7, 6, 0, 1 }, { 3, 3, 0, 1 }, { 15, 6, 0, 1 }, { 9, 0, 0, 1 }, { 10, 3, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 11, 7, 0, 1 }, { 5, 0, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 4, 3, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 9, 3, 0, 1 }, { 10, 0, 0, 1 }, { 17, 9, 0, 1 }, { 10, 3, 0, 1 }, { 7, 0, 0, 1 }, { 7, 3, 0, 1 }, { 9, 0, 0, 1 }, { 6, 2, 0, 1 }, { 5, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 16, 0, 0, 1 }, { 15, 2, 0, 1 }, { 2, 0, 0, 1 }, { 13, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 10, 0, 0, 1 }, { 10, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 22, 0, 0, 1 }, { 24, 21, 0, 1 }, { 4, 0, 0, 1 }, { 10, 6, 0, 1 }, { 11, 5, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 9, 0, 0, 1 }, { 9, 7, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 7, 7, 0, 1 }, { 9, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 7, 3, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 17, 0, 0, 1 }, { 17, 16, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 7, 3, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 9, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 0, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 5, 4, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 0, 0, 1 }, { 8, 1, 0, 1 }, { 11, 3, 0, 1 }, { 12, 0, 0, 1 }, { 7, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 9, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 19, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 8, 4, 0, 1 }, { 10, 4, 0, 1 }, { 9, 1, 0, 1 }, { 2, 0, 0, 1 }, { 15, 1, 0, 1 }, { 2, 0, 0, 1 }, { 18, 4, 0, 1 }, { 2, 0, 0, 1 }, { 18, 4, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 9, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 9, 1, 0, 1 }, { 16, 13, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 1, 0, 1 }, { 9, 0, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 17, 0, 0, 1 }, { 18, 2, 0, 1 }, { 10, 1, 0, 1 }, { 10, 1, 0, 1 }, { 10, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 8, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 14, 0, 0, 1 }, { 7, 1, 0, 1 }, { 14, 2, 0, 1 }, { 15, 1, 0, 1 }, { 9, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 8, 0, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 5, 0, 1 }, { 10, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 10, 1, 0, 1 }, { 4, 0, 0, 1 }, { 8, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 10, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 2, 0, 1 }, { 5, 2, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 4, 0, 1 }, { 4, 3, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 2, 0, 1 }, { 6, 2, 0, 1 }, { 7, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 35, 5, 0, 1 }, { 14, 5, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 26, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 6, 2, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 16, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 14, 1, 0, 1 }, { 14, 1, 0, 1 }, { 9, 0, 0, 1 }, { 20, 3, 0, 1 }, { 18, 0, 0, 1 }, { 20, 2, 0, 1 }, { 19, 0, 0, 1 }, { 21, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 2, 0, 1 }, { 20, 0, 0, 1 }, { 21, 3, 0, 1 }, { 21, 0, 0, 1 }, { 22, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 8, 0, 0, 1 }, { 9, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 6, 4, 0, 1 }, { 5, 1, 0, 1 }, { 9, 4, 0, 1 }, { 5, 2, 0, 1 }, { 3, 1, 0, 1 }, { 3, 2, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 21, 0, 0, 1 }, { 13, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 7, 6, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 11, 10, 0, 1 }, { 11, 1, 0, 1 }, { 12, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 13, 12, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 9, 2, 0, 1 }, { 3, 0, 0, 1 }, { 9, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 10, 0, 0, 1 }, { 10, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 7, 0, 0, 1 }, { 12, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 7, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 2, 0, 1 }, { 6, 2, 0, 1 }, { 7, 2, 0, 1 }, { 8, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 9, 6, 0, 1 }, { 7, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 7, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 15, 8, 0, 1 }, { 13, 5, 0, 1 }, { 6, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 7, 6, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 24, 21, 0, 1 }, { 25, 0, 0, 1 }, { 47, 24, 0, 1 }, { 25, 3, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 27, 26, 0, 1 }, { 27, 1, 0, 1 }, { 21, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 18, 0, 0, 1 }, { 20, 3, 0, 1 }, { 24, 5, 0, 1 }, { 21, 1, 0, 1 }, { 20, 5, 0, 1 }, { 20, 5, 0, 1 }, { 17, 5, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 8, 0, 0, 1 }, { 13, 7, 0, 1 }, { 8, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 2, 0, 1 }, { 13, 7, 0, 1 }, { 10, 6, 0, 1 }, { 10, 6, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 2, 0, 1 }, { 9, 7, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 8, 7, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 8, 5, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 5, 4, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 7, 4, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 16, 16, 0, 1 }, { 16, 16, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 5, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 3, 0, 1 }, { 6, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 3, 0, 1 }, { 8, 0, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 7, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 2, 0, 1 }, { 6, 1, 0, 1 }, { 4, 3, 0, 1 }, { 4, 1, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 9, 2, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 11, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 10, 0, 0, 1 }, { 10, 3, 0, 1 }, { 5, 0, 0, 1 }, { 8, 1, 0, 1 }, { 7, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 10, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 8, 3, 0, 1 }, { 9, 3, 0, 1 }, { 10, 3, 0, 1 }, { 19, 0, 0, 1 }, { 23, 4, 0, 1 }, { 27, 4, 0, 1 }, { 28, 1, 0, 1 }, { 30, 2, 0, 1 }, { 24, 1, 0, 1 }, { 20, 1, 0, 1 }, { 14, 1, 0, 1 }, { 1, 1, 0, 1 }, { 32, 0, 0, 1 }, { 32, 2, 0, 1 }, { 20, 1, 0, 1 }, { 15, 1, 0, 1 }, { 14, 1, 0, 1 }, { 1, 1, 0, 1 }, { 21, 5, 0, 1 }, { 16, 1, 0, 1 }, { 25, 4, 0, 1 }, { 1, 1, 0, 1 }, { 25, 1, 0, 1 }, { 8, 4, 0, 1 }, { 1, 1, 0, 1 }, { 21, 2, 0, 1 }, { 1, 1, 0, 1 }, { 10, 0, 0, 1 }, { 9, 1, 0, 1 }, { 15, 0, 0, 1 }, { 14, 8, 0, 1 }, { 15, 1, 0, 1 }, { 15, 0, 0, 1 }, { 14, 8, 0, 1 }, { 15, 1, 0, 1 }, { 10, 1, 0, 1 }, { 11, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 8, 0, 0, 1 }, { 8, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 18, 0, 0, 1 }, { 15, 1, 0, 1 }, { 16, 1, 0, 1 }, { 17, 1, 0, 1 }, { 18, 1, 0, 1 }, { 8, 8, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 14, 0, 0, 1 }, { 15, 1, 0, 1 }, { 10, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 2, 0, 1 }, { 6, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 8, 4, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 5, 0, 1 }, { 5, 0, 0, 1 }, { 10, 5, 0, 1 }, { 8, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 8, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 2, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 7, 0, 0, 1 }, { 6, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 5, 2, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 9, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 12, 0, 0, 1 }, { 12, 2, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 21, 21, 0, 1 }, { 22, 22, 0, 1 }, { 10, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 9, 0, 0, 1 }, { 2, 1, 0, 1 }, { 20, 0, 0, 1 }, { 7, 7, 0, 1 }, { 8, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 6, 0, 0, 1 }, { 9, 5, 0, 1 }, { 6, 3, 0, 1 }, { 3, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 21, 21, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 22, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 2, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 12, 0, 0, 1 }, { 11, 3, 0, 1 }, { 11, 1, 0, 1 }, { 9, 2, 0, 1 }, { 9, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 10, 1, 0, 1 }, { 8, 2, 0, 1 }, { 8, 2, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 3, 2, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 8, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 11, 1, 0, 1 }, { 10, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 2, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 3, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 8, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 29, 0, 0, 1 }, { 30, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 6, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 19, 3, 0, 1 }, { 23, 0, 0, 1 }, { 24, 1, 0, 1 }, { 27, 4, 0, 1 }, { 26, 1, 0, 1 }, { 43, 0, 0, 1 }, { 44, 1, 0, 1 }, { 44, 7, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 4, 2, 0, 1 }, { 6, 4, 0, 1 }, { 9, 4, 0, 1 }, { 7, 1, 0, 1 }, { 2, 0, 0, 1 }, { 5, 4, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 0, 0, 1 }, { 3, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 2, 0, 1 }, { 4, 0, 0, 1 }, { 6, 2, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 10, 9, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 7, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 8, 0, 0, 1 }, { 8, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 1, 0, 1 }, { 19, 0, 0, 1 }, { 20, 2, 0, 1 }, { 21, 2, 0, 1 }, { 22, 2, 0, 1 }, { 20, 2, 0, 1 }, { 22, 2, 0, 1 }, { 22, 2, 0, 1 }, { 22, 2, 0, 1 }, { 20, 2, 0, 1 }, { 18, 2, 0, 1 }, { 19, 2, 0, 1 }, { 17, 2, 0, 1 }, { 18, 2, 0, 1 }, { 16, 2, 0, 1 }, { 17, 2, 0, 1 }, { 17, 2, 0, 1 }, { 18, 2, 0, 1 }, { 18, 2, 0, 1 }, { 19, 2, 0, 1 }, { 17, 2, 0, 1 }, { 19, 2, 0, 1 }, { 19, 2, 0, 1 }, { 21, 2, 0, 1 }, { 22, 2, 0, 1 }, { 20, 2, 0, 1 }, { 21, 2, 0, 1 }, { 22, 2, 0, 1 }, { 20, 2, 0, 1 }, { 21, 2, 0, 1 }, { 19, 2, 0, 1 }, { 20, 2, 0, 1 }, { 18, 2, 0, 1 }, { 19, 2, 0, 1 }, { 20, 2, 0, 1 }, { 18, 2, 0, 1 }, { 19, 2, 0, 1 }, { 19, 2, 0, 1 }, { 20, 2, 0, 1 }, { 21, 2, 0, 1 }, { 19, 2, 0, 1 }, { 18, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 7, 0, 0, 1 }, { 8, 2, 0, 1 }, { 6, 1, 0, 1 }, { 3, 1, 0, 1 }, { 10, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 2, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 25, 24, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 8, 7, 0, 1 }, { 8, 1, 0, 1 }, { 9, 1, 0, 1 }, { 18, 0, 0, 1 }, { 15, 15, 0, 1 }, { 14, 1, 0, 1 }, { 14, 1, 0, 1 }, { 17, 3, 0, 1 }, { 20, 4, 0, 1 }, { 20, 0, 0, 1 }, { 1, 1, 0, 1 }, { 20, 1, 0, 1 }, { 20, 1, 0, 1 }, { 21, 1, 0, 1 }, { 22, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 5, 0, 1 }, { 6, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 33, 0, 0, 1 }, { 37, 4, 0, 1 }, { 19, 0, 0, 1 }, { 17, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 0, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 7, 0, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 2, 0, 1 }, { 4, 3, 0, 1 }, { 6, 2, 0, 1 }, { 2, 1, 0, 1 }, { 8, 7, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 4, 3, 0, 1 }, { 9, 0, 0, 1 }, { 4, 4, 0, 1 }, { 2, 0, 0, 1 }, { 6, 3, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 8, 0, 0, 1 }, { 10, 2, 0, 1 }, { 4, 2, 0, 1 }, { 7, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 13, 0, 0, 1 }, { 9, 1, 0, 1 }, { 9, 1, 0, 1 }, { 5, 2, 0, 1 }, { 9, 0, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 5, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 1, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 25, 0, 0, 1 }, { 7, 2, 0, 1 }, { 8, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 6, 0, 0, 1 }, { 6, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 0, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 9, 1, 0, 1 }, { 7, 1, 0, 1 }, { 6, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 6, 3, 0, 1 }, { 4, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 3, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 6, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 11, 0, 0, 1 }, { 13, 2, 0, 1 }, { 13, 1, 0, 1 }, { 8, 8, 0, 1 }, { 12, 2, 0, 1 }, { 13, 1, 0, 1 }, { 9, 8, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 0, 0, 1 }, { 7, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 6, 0, 0, 1 }, { 5, 1, 0, 1 }, { 6, 0, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 8, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 5, 0, 0, 1 }, { 8, 4, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 3, 1, 0, 1 }, { 7, 4, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 9, 0, 0, 1 }, { 6, 5, 0, 1 }, { 6, 1, 0, 1 }, { 5, 5, 0, 1 }, { 5, 1, 0, 1 }, { 12, 0, 0, 1 }, { 12, 1, 0, 1 }, { 14, 2, 0, 1 }, { 10, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 2, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 8, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 15, 0, 0, 1 }, { 9, 5, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 6, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 9, 0, 0, 1 }, { 10, 3, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 5, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 6, 0, 0, 1 }, { 4, 1, 0, 1 }, { 9, 0, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 8, 2, 0, 1 }, { 5, 1, 0, 1 }, { 5, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 0, 0, 1 }, { 1, 0, 0, 1 }, { 6, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 12, 1, 0, 1 }, { 24, 0, 0, 1 }, { 25, 2, 0, 1 }, { 4, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 1, 0, 1 }, { 3, 0, 0, 1 }, { 5, 0, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 28, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 6, 5, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 6, 0, 0, 1 }, { 7, 1, 0, 1 }, { 5, 5, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 8, 3, 0, 1 }, { 3, 0, 0, 1 }, { 5, 4, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 4, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 6, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 4, 0, 0, 1 }, { 4, 3, 0, 1 }, { 15, 0, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 12, 12, 0, 1 }, { 8, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 2, 0, 0, 1 }, { 6, 3, 0, 1 }, { 13, 0, 0, 1 }, { 7, 1, 0, 1 }, { 8, 1, 0, 1 }, { 8, 1, 0, 1 }, { 12, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 1, 1, 0, 1 }, { 4, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 5, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 8, 7, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 3, 0, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 2, 0, 1 }, { 10, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 4, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 2, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 12, 12, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 6, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 7, 7, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 4, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 8, 7, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 4, 2, 0, 1 }, { 5, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 13, 3, 0, 1 }, { 14, 3, 0, 1 }, { 1, 0, 0, 1 }, { 22, 22, 0, 1 }, { 22, 22, 0, 1 }, { 22, 22, 0, 1 }, { 1, 0, 0, 1 }, { 6, 5, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 2, 0, 1 }, { 8, 2, 0, 1 }, { 8, 2, 0, 1 }, { 9, 2, 0, 1 }, { 1, 0, 0, 1 }, { 7, 4, 0, 1 }, { 14, 9, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 6, 0, 1 }, { 1, 0, 0, 1 }, { 6, 3, 0, 1 }, { 6, 2, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 7, 7, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 25, 20, 0, 1 }, { 32, 20, 0, 1 }, { 20, 20, 0, 1 }, { 38, 20, 0, 1 }, { 25, 20, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 8, 3, 0, 1 }, { 3, 0, 0, 1 }, { 5, 3, 0, 1 }, { 5, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 10, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 9, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 3, 2, 0, 1 }, { 3, 0, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 5, 3, 0, 1 }, { 6, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 0, 0, 1 }, { 12, 6, 0, 1 }, { 8, 6, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 20, 20, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 16, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 5, 3, 0, 1 }, { 35, 20, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 4, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 7, 6, 0, 1 }, { 8, 3, 0, 1 }, { 3, 0, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 7, 3, 0, 1 }, { 1, 0, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 10, 3, 0, 1 }, { 11, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 5, 4, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 21, 0, 0, 1 }, { 35, 16, 0, 1 }, { 41, 22, 0, 1 }, { 20, 1, 0, 1 }, { 16, 0, 0, 1 }, { 15, 1, 0, 1 }, { 16, 1, 0, 1 }, { 17, 1, 0, 1 }, { 18, 1, 0, 1 }, { 16, 9, 0, 1 }, { 15, 1, 0, 1 }, { 17, 2, 0, 1 }, { 15, 9, 0, 1 }, { 16, 2, 0, 1 }, { 15, 9, 0, 1 }, { 16, 2, 0, 1 }, { 15, 9, 0, 1 }, { 22, 8, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 16, 2, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 15, 1, 0, 1 }, { 5, 0, 0, 1 }, { 4, 4, 0, 1 }, { 4, 1, 0, 1 }, { 5, 0, 0, 1 }, { 5, 5, 0, 1 }, { 3, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 0, 0, 1 }, { 5, 5, 0, 1 }, { 3, 1, 0, 1 }, { 7, 0, 0, 1 }, { 11, 6, 0, 1 }, { 10, 10, 0, 1 }, { 9, 0, 0, 1 }, { 11, 3, 0, 1 }, { 5, 0, 0, 1 }, { 4, 4, 0, 1 }, { 3, 0, 0, 1 }, { 4, 3, 0, 1 }, { 8, 0, 0, 1 }, { 4, 1, 0, 1 }, { 6, 3, 0, 1 }, { 7, 1, 0, 1 }, { 9, 0, 0, 1 }, { 11, 3, 0, 1 }, { 13, 5, 0, 1 }, { 12, 0, 0, 1 }, { 17, 7, 0, 1 }, { 19, 19, 0, 1 }, { 11, 1, 0, 1 }, { 4, 0, 0, 1 }, { 5, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 0, 0, 1 }, { 8, 7, 0, 1 }, { 3, 3, 0, 1 }, { 5, 0, 0, 1 }, { 11, 8, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 2, 0, 1 }, { 3, 1, 0, 1 }, { 7, 0, 0, 1 }, { 5, 5, 0, 1 }, { 6, 1, 0, 1 }, { 4, 0, 0, 1 }, { 4, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 2, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 13, 13, 0, 1 }, { 11, 1, 0, 1 }, { 11, 1, 0, 1 }, { 11, 1, 0, 1 }, { 16, 10, 0, 1 }, { 15, 1, 0, 1 }, { 1, 0, 0, 1 }, { 5, 5, 0, 1 }, { 1, 0, 0, 1 }, { 6, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 4, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 1, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 3, 3, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 22, 0, 0, 1 }, { 4, 4, 0, 1 }, { 7, 7, 0, 1 }, { 4, 4, 0, 1 }, { 5, 5, 0, 1 }, { 3, 3, 0, 1 }, { 4, 4, 0, 1 }, { 12, 12, 0, 1 }, { 9, 9, 0, 1 }, { 8, 8, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 9, 9, 0, 1 }, { 7, 7, 0, 1 }, { 4, 4, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 5, 5, 0, 1 }, { 16, 16, 0, 1 }, { 21, 21, 0, 1 }, { 3, 3, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 2, 2, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 10, 10, 0, 1 }, { 3, 3, 0, 1 }, { 5, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 11, 11, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 8, 8, 0, 1 }, { 4, 4, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 19, 19, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 8, 8, 0, 1 }, { 3, 3, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 3, 3, 0, 1 }, { 7, 7, 0, 1 }, { 4, 4, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 4, 2, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 3, 2, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 8, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 8, 8, 0, 1 }, { 4, 4, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 2, 2, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 7, 7, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 5, 5, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 4, 4, 0, 1 }, { 7, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 36, 36, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 18, 18, 0, 1 }, { 4, 4, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 1, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 21, 21, 0, 1 }, { 19, 19, 0, 1 }, { 28, 28, 0, 1 }, { 29, 1, 0, 1 }, { 30, 1, 0, 1 }, { 31, 1, 0, 1 }, { 12, 1, 0, 1 }, { 11, 1, 0, 1 }, { 9, 1, 0, 1 }, { 7, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 4, 3, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 7, 7, 0, 1 }, { 2, 2, 0, 1 }, { 13, 13, 0, 1 }, { 5, 5, 0, 1 }, { 2, 1, 0, 1 }, { 6, 6, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 7, 7, 0, 1 }, { 2, 2, 0, 1 }, { 9, 9, 0, 1 }, { 4, 4, 0, 1 }, { 8, 8, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 7, 7, 0, 1 }, { 5, 5, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 10, 10, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 7, 3, 0, 1 }, { 5, 1, 0, 1 }, { 5, 5, 0, 1 }, { 3, 2, 0, 1 }, { 5, 5, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 3, 3, 0, 1 }, { 5, 5, 0, 1 }, { 3, 3, 0, 1 }, { 11, 11, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 9, 9, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 4, 3, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 4, 4, 0, 1 }, { 4, 4, 0, 1 }, { 6, 4, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 46, 46, 0, 1 }, { 26, 26, 0, 1 }, { 7, 1, 0, 1 }, { 18, 18, 0, 1 }, { 19, 1, 0, 1 }, { 1, 1, 0, 1 }, { 19, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 9, 4, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 6, 6, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 6, 6, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 11, 11, 0, 1 }, { 7, 7, 0, 1 }, { 6, 1, 0, 1 }, { 4, 1, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 7, 7, 0, 1 }, { 2, 2, 0, 1 }, { 6, 6, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 4, 4, 0, 1 }, { 15, 15, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 3, 3, 0, 1 }, { 7, 7, 0, 1 }, { 2, 2, 0, 1 }, { 4, 4, 0, 1 }, { 1, 1, 0, 1 }, { 11, 11, 0, 1 }, { 6, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 4, 4, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 3, 2, 0, 1 }, { 1, 1, 0, 1 }, { 6, 6, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 22, 22, 0, 1 }, { 1, 1, 0, 1 }, { 22, 22, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 22, 22, 0, 1 }, { 22, 22, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 3, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 3, 3, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 25, 25, 0, 1 }, { 8, 8, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 9, 8, 0, 1 }, { 1, 1, 0, 1 }, { 10, 8, 0, 1 }, { 2, 2, 0, 1 }, { 14, 14, 0, 1 }, { 3, 3, 0, 1 }, { 26, 26, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 1, 1, 0, 1 }, { 8, 8, 0, 1 }, { 1, 1, 0, 1 }, { 22, 22, 0, 1 }, { 2, 2, 0, 1 }, { 8, 8, 0, 1 }, { 3, 3, 0, 1 }, { 3, 3, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 1, 1, 0, 1 }, { 13, 13, 0, 1 }, { 1, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 2, 0, 1 }, { 2, 1, 0, 1 }, { 3, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 5, 0, 1 }, { 5, 1, 0, 1 }, { 1, 1, 0, 1 }, { 2, 1, 0, 1 }, { 4, 4, 0, 1 }, { 3, 3, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 5, 5, 0, 1 }, { 4, 1, 0, 1 }, { 6, 4, 0, 1 }, { 1, 1, 0, 1 }, { 5, 4, 0, 1 }, { 4, 3, 0, 1 }, { 5, 1, 0, 1 }, { 2, 1, 0, 1 }, { 2, 1, 0, 1 }, { 5, 4, 0, 1 }, { 8, 4, 0, 1 }, { 1, 1, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 4, 4, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 2, 2, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 4, 4, 0, 1 }, { 9, 9, 0, 1 }, { 5, 5, 0, 1 }, { 5, 5, 0, 1 }, { 9, 9, 0, 1 }, { 7, 7, 0, 1 }, { 4, 4, 0, 1 }, { 16, 16, 0, 1 }, { 4, 4, 0, 1 }, { 3, 3, 0, 1 }, { 12, 12, 0, 1 }, { 3, 3, 0, 1 }, { 22, 0, 0, 1 }, { 22, 22, 0, 1 }, { 21, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 1, 0, 1 }, { 2, 0, 0, 1 }, { 2, 0, 0, 1 }, { 22, 22, 0, 1 }, { 23, 0, 0, 1 }, { 2, 1, 0, 1 }, { 24, 22, 0, 1 }, { 2, 1, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 5, 2, 0, 1 }, { 1, 1, 0, 1 }, { 23, 22, 0, 1 }, { 1, 1, 0, 1 }, { 3, 0, 0, 1 }, { 3, 0, 0, 1 }, { 2, 1, 0, 1 }, { 0, 0, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 2, 0, 1 }, { 1, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 }, { 1, 0, 0, 1 }, { 2, 0, 0, 1 } };
-CONSTV Cid CID_T[] = { { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 11, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 15, 1, 0 }, { 20, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 0, 1, 0 }, { 19, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 19, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 13, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 11, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 25, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 9, 1, 0 }, { 13, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 13, 1, 0 }, { 3, 1, 0 }, { 22, 1, 0 }, { 14, 1, 0 }, { 14, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 5, 1, 0 }, { 8, 1, 0 }, { 24, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 20, 1, 0 }, { 33, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 18, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 19, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 9, 1, 0 }, { 6, 1, 0 }, { 7, 1, 0 }, { 7, 1, 0 }, { 8, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 8, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 43, 1, 0 }, { 23, 1, 0 }, { 30, 1, 0 }, { 36, 1, 0 }, { 23, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 28, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 12, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 11, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 13, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 20, 1, 0 }, { 21, 1, 0 }, { 22, 1, 0 }, { 12, 1, 0 }, { 24, 1, 0 }, { 2, 1, 0 }, { 9, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 19, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 10, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 13, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 9, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 16, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 22, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 20, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 11, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 18, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 12, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 11, 1, 0 }, { 7, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 19, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 3, 0, 0 }, { 7, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 20, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 28, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 3, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 25, 1, 0 }, { 3, 1, 0 }, { 36, 0, 0 }, { 2, 0, 0 }, { 36, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 21, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 0, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 21, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 10, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 14, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 1 }, { 2, 1, 1 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 21, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 7, 0, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 0, 0 }, { 3, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 16, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 20, 1, 0 }, { 2, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 12, 1, 0 }, { 12, 1, 0 }, { 8, 1, 0 }, { 9, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 3, 0, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 9, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 0, 0 }, { 7, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 17, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 20, 1, 0 }, { 1, 1, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 4, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 1 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 20, 1, 0 }, { 2, 1, 0 }, { 4, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 6, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
+CONSTV Cid CID_T[] = { { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 11, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 15, 1, 0 }, { 20, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 0, 1, 0 }, { 19, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 19, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 13, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 11, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 25, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 9, 1, 0 }, { 13, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 13, 1, 0 }, { 3, 1, 0 }, { 22, 1, 0 }, { 14, 1, 0 }, { 14, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 5, 1, 0 }, { 8, 1, 0 }, { 24, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 20, 1, 0 }, { 33, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 18, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 19, 1, 0 }, { 6, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 9, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 9, 1, 0 }, { 6, 1, 0 }, { 7, 1, 0 }, { 7, 1, 0 }, { 8, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 8, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 43, 1, 0 }, { 23, 1, 0 }, { 30, 1, 0 }, { 36, 1, 0 }, { 23, 1, 0 }, { 6, 1, 0 }, { 8, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 28, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 12, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 11, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 13, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 20, 1, 0 }, { 21, 1, 0 }, { 22, 1, 0 }, { 12, 1, 0 }, { 24, 1, 0 }, { 2, 1, 0 }, { 9, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 19, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 10, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 8, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 13, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 9, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 16, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 22, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 7, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 20, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 11, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 18, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 12, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 8, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 11, 1, 0 }, { 7, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 5, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 10, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 19, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 3, 0, 0 }, { 7, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 20, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 18, 1, 0 }, { 28, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 0, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 4, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 3, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 25, 1, 0 }, { 3, 1, 0 }, { 36, 0, 0 }, { 2, 0, 0 }, { 36, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 1, 0, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 21, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 8, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 3, 0, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 3, 0, 0 }, { 2, 0, 0 }, { 2, 0, 0 }, { 21, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 4, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 3, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 10, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 14, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 26, 1, 0 }, { 7, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 10, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 7, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 1 }, { 2, 1, 1 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 21, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 7, 0, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 5, 0, 0 }, { 3, 0, 0 }, { 2, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 0, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 5, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 16, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 14, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 20, 1, 0 }, { 2, 0, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 12, 1, 0 }, { 12, 1, 0 }, { 8, 1, 0 }, { 9, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 6, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 4, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 6, 1, 0 }, { 5, 1, 0 }, { 3, 0, 0 }, { 6, 1, 0 }, { 1, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 9, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 0, 0 }, { 7, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 17, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 3, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 6, 1, 0 }, { 7, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 20, 1, 0 }, { 1, 1, 0 }, { 2, 0, 0 }, { 1, 0, 0 }, { 4, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 5, 1, 0 }, { 5, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 2, 1, 1 }, { 0, 1, 0 }, { 3, 1, 0 }, { 4, 1, 0 }, { 4, 1, 0 }, { 2, 1, 0 }, { 20, 1, 0 }, { 2, 1, 0 }, { 4, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 2, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 2, 1, 0 }, { 4, 1, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 3, 1, 0 }, { 5, 1, 0 }, { 1, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 1, 1, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 4, 1, 0 }, { 0, 1, 0 }, { 0, 1, 0 }, { 2, 1, 0 }, { 2, 1, 0 }, { 0, 1, 0 }, { 6, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 } };
 #define STAT_LEN 41634
 #define WL_RESW 46
 #define BANGS 0
@@ -10983,6 +10985,7 @@ INLINE Term spin_cron_store_pause(Env e, THR Term* o, Term r0, Term r1);
 INLINE Term spin_cron_later(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_workflow_get_sts_go(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_workflow_get_pool_go(Env e, THR Term* o, u32 r0, Term r1, Term r2);
+INLINE Term spin_autonomous_passed(Env e, THR Term* o, u32 r0, u32 r1);
 INLINE Term spin_ffi_timeouts_get_tm_wterm(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5, u32 r6, Term r7, Term r8);
 INLINE Term spin_ffi_verify_get_verdict(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_verify_get_slot_verdict(Env e, THR Term* o, u32 r0, u32 r1, Term r2);
@@ -11517,6 +11520,7 @@ INLINE Term spin_ffi_workflow_get_req_pool(Env e, THR Term* o, u32 r0, u32 r1, T
 INLINE Term spin_workflow_take(Env e, THR Term* o, Term r0, Term r1);
 INLINE Term spin_ffi_kin_get_admit_parents(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_kin_decide_down(Env e, THR Term* o, u32 r0);
+INLINE Term spin_autonomous_ended_working(Env e, THR Term* o, u32 r0, u32 r1);
 INLINE Term spin_ffi_timeouts_get_tm_harness(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, u32 r5, Term r6, Term r7);
 INLINE Term spin_ffi_verify_get_slot_tag(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_verify_get_slot(Env e, THR Term* o, Term r0);
@@ -12172,7 +12176,10 @@ INLINE Term spin_workflow_serves(Env e, THR Term* o, u32 r0);
 INLINE Term spin_workflow_found_at(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Term r3);
 INLINE Term spin_workflow_can_take(Env e, THR Term* o, Term r0, Term r1);
 INLINE Term spin_workflow_admit_take(Env e, THR Term* o, u32 r0, Term r1, Term r2);
+INLINE Term spin_ffi_autonomous_get_reading(Env e, THR Term* o, u32 r0, Term r1, Term r2);
+INLINE Term spin_ffi_autonomous_get_facts_reading(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6, Term r7);
 INLINE Term spin_autonomous_go(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3);
+INLINE Term spin_autonomous_ended(Env e, THR Term* o, u32 r0, u32 r1, u32 r2);
 INLINE Term spin_ffi_timeouts_get_tm_kverify(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, u32 r4, Term r5, Term r6);
 INLINE Term spin_ffi_timeouts_fit_put(Env e, THR Term* o, u32 r0, Term r1);
 INLINE Term spin_ffi_verify_get_req_claims_e(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, Term r6);
@@ -12913,7 +12920,7 @@ INLINE Term spin_ffi_autonomous_get_label(Env e, THR Term* o, u32 r0, Term r1, T
 INLINE Term spin_ffi_autonomous_get_checks_ended(Env e, THR Term* o, u32 r0, u32 r1, Term r2);
 INLINE Term spin_ffi_autonomous_get_budget(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_autonomous_get_facts_budget(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, Term r6);
-INLINE Term spin_autonomous_settled(Env e, THR Term* o, u32 r0, u32 r1, u32 r2);
+INLINE Term spin_autonomous_settled(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3);
 INLINE Term spin_ffi_autonomous_put_label(Env e, THR Term* o, u32 r0, Term r1);
 INLINE Term spin_ffi_timeouts_get_tm_kterm(Env e, THR Term* o, Term r0, Term r1, Term r2, u32 r3, Term r4, Term r5);
 INLINE Term spin_ffi_timeouts_every_cons(Env e, THR Term* o, Term r0, u32 r1, Term r2);
@@ -13569,7 +13576,7 @@ INLINE Term spin_kin_land(Env e, THR Term* o, u32 r0);
 INLINE Term spin_ffi_kin_put_landing(Env e, THR Term* o, u32 r0);
 INLINE Term spin_ffi_autonomous_get_checks(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_autonomous_get_facts_checks(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, Term r5);
-INLINE Term spin_autonomous_answered(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3);
+INLINE Term spin_autonomous_answered(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4);
 INLINE Term spin_ffi_autonomous_put_cause(Env e, THR Term* o, u32 r0, u32 r1, Term r2);
 INLINE Term spin_ffi_timeouts_get_tm_kstep(Env e, THR Term* o, Term r0, Term r1, u32 r2, Term r3, Term r4);
 INLINE Term spin_ffi_verify_get_req_claims_g(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, Term r4);
@@ -13972,7 +13979,7 @@ INLINE Term spin_ffi_cron_answer(Env e, THR Term* o, u32 r0, Term r1, u32 r2, Te
 INLINE Term spin_ffi_cron_fail(Env e, THR Term* o);
 INLINE Term spin_ffi_autonomous_get_answer(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_autonomous_get_facts_answer(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, Term r3);
-INLINE Term spin_autonomous_decide(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4);
+INLINE Term spin_autonomous_decide(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5);
 INLINE Term spin_ffi_autonomous_put_step(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, Term r3);
 INLINE Term spin_ffi_timeouts_get_tm_host(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3);
 INLINE Term spin_ffi_tiny_get_req_up(Env e, THR Term* o, Term r0, u32 r1, Term r2, Term r3);
@@ -14181,7 +14188,7 @@ INLINE Term spin_ffi_attack_get_req_outcome(Env e, THR Term* o, u32 r0, u32 r1, 
 INLINE Term spin_ffi_cron_get_ask_go(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_cron_run_end(Env e, THR Term* o, u32 r0, u32 r1, Term r2, u32 r3, Term r4, u32 r5, Term r6, Term r7, Term r8, Term r9, Term r10);
 INLINE Term spin_ffi_autonomous_get_facts_on(Env e, THR Term* o, u32 r0, u32 r1, Term r2);
-INLINE Term spin_ffi_autonomous_ffi_done(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5);
+INLINE Term spin_ffi_autonomous_ffi_done(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6);
 INLINE Term spin_ffi_timeouts_get_tm_snap(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_verify_get_req_command(Env e, THR Term* o, u32 r0, Term r1, Term r2);
 INLINE Term spin_ffi_verify_get_req_until(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3);
@@ -14306,7 +14313,7 @@ INLINE Term spin_ffi_job_notice_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 
 INLINE Term spin_ffi_cron_get_ask(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_cron_run(Env e, THR Term* o, u32 r0, u32 r1, Term r2, u32 r3, Term r4, u32 r5, Term r6, Term r7, Term r8, Term r9, Term r10, Term r11);
 INLINE Term spin_ffi_autonomous_get_facts(Env e, THR Term* o, Term r0);
-INLINE Term spin_ffi_autonomous_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, Term r6);
+INLINE Term spin_ffi_autonomous_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6, Term r7);
 INLINE Term spin_ffi_timeouts_get_tm(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_headless_settle_get_facts(Env e, THR Term* o, Term r0);
 INLINE Term spin_ffi_headless_settle_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, Term r2, Term r3, Term r4, Term r5, Term r6, u32 r7, u32 r8, Term r9);
@@ -59040,6 +59047,33 @@ INLINE Term spin_ffi_workflow_get_pool_go(Env e, THR Term* o, u32 r0, Term r1, T
   return 1;
 }
 
+INLINE Term spin_autonomous_passed(Env e, THR Term* o, u32 r0, u32 r1) {
+  u32 wpoll = 0;
+  u32 _l_0 = r0;
+  u32 _r_0 = r1;
+  WL_SPIN
+    if (_r_0 == 0) {
+      o[0] = 4;
+      o[1] = 0;
+      o[2] = 0;
+    } else if (_r_0 == 1) {
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = _l_0;
+    } else if (_r_0 == 2) {
+      o[0] = 5;
+      o[1] = 0;
+      o[2] = 0;
+    } else {
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = _l_0;
+    }
+  break;
+  }
+  return 1;
+}
+
 INLINE Term spin_ffi_timeouts_get_tm_wterm(Env e, THR Term* o, Term r0, Term r1, Term r2, Term r3, Term r4, Term r5, u32 r6, Term r7, Term r8) {
   u32 wpoll = 0;
   Term _snap_0 = r0;
@@ -74942,6 +74976,41 @@ INLINE Term spin_kin_decide_down(Env e, THR Term* o, u32 r0) {
     } else {
       o[0] = 1;
       o[1] = 1;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_autonomous_ended_working(Env e, THR Term* o, u32 r0, u32 r1) {
+  u32 wpoll = 0;
+  u32 _l_0 = r0;
+  u32 _r_0 = r1;
+  WL_SPIN
+    if (_l_0 == 0) {
+      Term _o_0[3];
+      if (spin_autonomous_passed(e, _o_0, 0, _r_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = (u32)_o_0[2];
+    } else if (_l_0 == 1) {
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = 1;
+    } else if (_l_0 == 2) {
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = 2;
+    } else {
+      Term _o_1[3];
+      if (spin_autonomous_passed(e, _o_1, 3, _r_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_1[0];
+      o[1] = (u32)_o_1[1];
+      o[2] = (u32)_o_1[2];
     }
   break;
   }
@@ -94924,6 +94993,80 @@ INLINE Term spin_workflow_admit_take(Env e, THR Term* o, u32 r0, Term r1, Term r
   return 1;
 }
 
+INLINE Term spin_ffi_autonomous_get_reading(Env e, THR Term* o, u32 r0, Term r1, Term r2) {
+  u32 wpoll = 0;
+  u32 _r_0 = r0;
+  Term _r_1 = r1;
+  Term _r_2 = r2;
+  WL_SPIN
+    if (_r_0 == 0) {
+      if (_r_1 == 0) {
+        o[0] = 0;
+        o[1] = 0;
+        o[2] = _r_2;
+      } else if (_r_1 == 1) {
+        o[0] = 0;
+        o[1] = 1;
+        o[2] = _r_2;
+      } else if (_r_1 == 2) {
+        o[0] = 0;
+        o[1] = 2;
+        o[2] = _r_2;
+      } else if (_r_1 == 3) {
+        o[0] = 0;
+        o[1] = 3;
+        o[2] = _r_2;
+      } else {
+        term_sink(e, _r_2);
+        o[0] = 1;
+        o[1] = 0;
+        o[2] = 0;
+      }
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_ffi_autonomous_get_facts_reading(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6, Term r7) {
+  u32 wpoll = 0;
+  u32 _on_0 = r0;
+  u32 _a_0 = r1;
+  u32 _c_0 = r2;
+  u32 _c_1 = r3;
+  u32 _b_0 = r4;
+  u32 _d_0 = r5;
+  u32 _d_1 = r6;
+  Term _d_2 = r7;
+  WL_SPIN
+    if (_d_0 == 0) {
+      o[0] = 0;
+      o[1] = _on_0;
+      o[2] = _a_0;
+      o[3] = _c_0;
+      o[4] = _c_1;
+      o[5] = _b_0;
+      o[6] = _d_1;
+      o[7] = _d_2;
+    } else {
+      o[0] = 1;
+      o[1] = 0;
+      o[2] = 0;
+      o[3] = 0;
+      o[4] = 0;
+      o[5] = 0;
+      o[6] = 0;
+      o[7] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
 INLINE Term spin_autonomous_go(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3) {
   u32 wpoll = 0;
   u32 _s_0 = r0;
@@ -94939,6 +95082,30 @@ INLINE Term spin_autonomous_go(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r
       o[0] = 3;
       o[1] = 1;
       o[2] = 0;
+    }
+  break;
+  }
+  return 1;
+}
+
+INLINE Term spin_autonomous_ended(Env e, THR Term* o, u32 r0, u32 r1, u32 r2) {
+  u32 wpoll = 0;
+  u32 _l_0 = r0;
+  u32 _b_0 = r1;
+  u32 _r_0 = r2;
+  WL_SPIN
+    if (_b_0 == 0) {
+      Term _o_0[3];
+      if (spin_autonomous_ended_working(e, _o_0, _l_0, _r_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_0[0];
+      o[1] = (u32)_o_0[1];
+      o[2] = (u32)_o_0[2];
+    } else {
+      o[0] = 3;
+      o[1] = 0;
+      o[2] = _l_0;
     }
   break;
   }
@@ -120203,13 +120370,26 @@ INLINE Term spin_ffi_autonomous_get_facts_budget(Env e, THR Term* o, u32 r0, u32
   Term _d_2 = r6;
   WL_SPIN
     if (_d_0 == 0) {
-      o[0] = 0;
-      o[1] = _on_0;
-      o[2] = _a_0;
-      o[3] = _c_0;
-      o[4] = _c_1;
-      o[5] = _d_1;
-      o[6] = _d_2;
+      Term _o_0[3];
+      if (spin_wire_get_nat(e, _o_0, _d_2) == 0) {
+        return 0;
+      }
+      Term _o_1[3];
+      if (spin_ffi_autonomous_get_reading(e, _o_1, (u32)_o_0[0], _o_0[1], _o_0[2]) == 0) {
+        return 0;
+      }
+      Term _o_2[8];
+      if (spin_ffi_autonomous_get_facts_reading(e, _o_2, _on_0, _a_0, _c_0, _c_1, _d_1, (u32)_o_1[0], (u32)_o_1[1], _o_1[2]) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_2[0];
+      o[1] = (u32)_o_2[1];
+      o[2] = (u32)_o_2[2];
+      o[3] = (u32)_o_2[3];
+      o[4] = (u32)_o_2[4];
+      o[5] = (u32)_o_2[5];
+      o[6] = (u32)_o_2[6];
+      o[7] = _o_2[7];
     } else {
       o[0] = 1;
       o[1] = 0;
@@ -120218,17 +120398,19 @@ INLINE Term spin_ffi_autonomous_get_facts_budget(Env e, THR Term* o, u32 r0, u32
       o[4] = 0;
       o[5] = 0;
       o[6] = 0;
+      o[7] = 0;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_autonomous_settled(Env e, THR Term* o, u32 r0, u32 r1, u32 r2) {
+INLINE Term spin_autonomous_settled(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3) {
   u32 wpoll = 0;
   u32 _c_0 = r0;
   u32 _c_1 = r1;
   u32 _b_0 = r2;
+  u32 _r_0 = r3;
   WL_SPIN
     if (_c_0 == 0) {
       Term _o_0[3];
@@ -120247,9 +120429,13 @@ INLINE Term spin_autonomous_settled(Env e, THR Term* o, u32 r0, u32 r1, u32 r2) 
       o[1] = (u32)_o_1[1];
       o[2] = (u32)_o_1[2];
     } else {
-      o[0] = 3;
-      o[1] = 0;
-      o[2] = _c_1;
+      Term _o_2[3];
+      if (spin_autonomous_ended(e, _o_2, _c_1, _b_0, _r_0) == 0) {
+        return 0;
+      }
+      o[0] = (u32)_o_2[0];
+      o[1] = (u32)_o_2[1];
+      o[2] = (u32)_o_2[2];
     }
   break;
   }
@@ -143508,7 +143694,7 @@ INLINE Term spin_ffi_autonomous_get_facts_checks(Env e, THR Term* o, u32 r0, u32
       if (spin_ffi_autonomous_get_budget(e, _o_1, (u32)_o_0[0], _o_0[1], _o_0[2]) == 0) {
         return 0;
       }
-      Term _o_2[7];
+      Term _o_2[8];
       if (spin_ffi_autonomous_get_facts_budget(e, _o_2, _on_0, _a_0, _d_1, _d_2, (u32)_o_1[0], (u32)_o_1[1], _o_1[2]) == 0) {
         return 0;
       }
@@ -143518,7 +143704,8 @@ INLINE Term spin_ffi_autonomous_get_facts_checks(Env e, THR Term* o, u32 r0, u32
       o[3] = (u32)_o_2[3];
       o[4] = (u32)_o_2[4];
       o[5] = (u32)_o_2[5];
-      o[6] = _o_2[6];
+      o[6] = (u32)_o_2[6];
+      o[7] = _o_2[7];
     } else {
       o[0] = 1;
       o[1] = 0;
@@ -143527,22 +143714,24 @@ INLINE Term spin_ffi_autonomous_get_facts_checks(Env e, THR Term* o, u32 r0, u32
       o[4] = 0;
       o[5] = 0;
       o[6] = 0;
+      o[7] = 0;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_autonomous_answered(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3) {
+INLINE Term spin_autonomous_answered(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4) {
   u32 wpoll = 0;
   u32 _a_0 = r0;
   u32 _c_0 = r1;
   u32 _c_1 = r2;
   u32 _b_0 = r3;
+  u32 _r_0 = r4;
   WL_SPIN
     if (_a_0 == 0) {
       Term _o_0[3];
-      if (spin_autonomous_settled(e, _o_0, _c_0, _c_1, _b_0) == 0) {
+      if (spin_autonomous_settled(e, _o_0, _c_0, _c_1, _b_0, _r_0) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -158760,7 +158949,7 @@ INLINE Term spin_ffi_autonomous_get_facts_answer(Env e, THR Term* o, u32 r0, u32
       if (spin_ffi_autonomous_get_checks(e, _o_1, (u32)_o_0[0], _o_0[1], _o_0[2]) == 0) {
         return 0;
       }
-      Term _o_2[7];
+      Term _o_2[8];
       if (spin_ffi_autonomous_get_facts_checks(e, _o_2, _on_0, _d_1, (u32)_o_1[0], (u32)_o_1[1], (u32)_o_1[2], _o_1[3]) == 0) {
         return 0;
       }
@@ -158770,7 +158959,8 @@ INLINE Term spin_ffi_autonomous_get_facts_answer(Env e, THR Term* o, u32 r0, u32
       o[3] = (u32)_o_2[3];
       o[4] = (u32)_o_2[4];
       o[5] = (u32)_o_2[5];
-      o[6] = _o_2[6];
+      o[6] = (u32)_o_2[6];
+      o[7] = _o_2[7];
     } else {
       o[0] = 1;
       o[1] = 0;
@@ -158779,23 +158969,25 @@ INLINE Term spin_ffi_autonomous_get_facts_answer(Env e, THR Term* o, u32 r0, u32
       o[4] = 0;
       o[5] = 0;
       o[6] = 0;
+      o[7] = 0;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_autonomous_decide(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4) {
+INLINE Term spin_autonomous_decide(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5) {
   u32 wpoll = 0;
   u32 _f_0 = r0;
   u32 _f_1 = r1;
   u32 _f_2 = r2;
   u32 _f_3 = r3;
   u32 _f_4 = r4;
+  u32 _f_5 = r5;
   WL_SPIN
     if (_f_0 == 1) {
       Term _o_0[3];
-      if (spin_autonomous_answered(e, _o_0, _f_1, _f_2, _f_3, _f_4) == 0) {
+      if (spin_autonomous_answered(e, _o_0, _f_1, _f_2, _f_3, _f_4, _f_5) == 0) {
         return 0;
       }
       o[0] = (u32)_o_0[0];
@@ -158836,7 +159028,7 @@ INLINE Term spin_ffi_autonomous_put_step(Env e, THR Term* o, u32 r0, u32 r1, u32
         return 0;
       }
       o[0] = _o_2[0];
-    } else {
+    } else if (_t_0 == 3) {
       Term _o_3[1];
       if (spin_ffi_autonomous_put_cause(e, _o_3, _t_1, _t_2, _rest_0) == 0) {
         return 0;
@@ -158846,6 +159038,18 @@ INLINE Term spin_ffi_autonomous_put_step(Env e, THR Term* o, u32 r0, u32 r1, u32
         return 0;
       }
       o[0] = _o_4[0];
+    } else if (_t_0 == 4) {
+      Term _o_5[1];
+      if (spin_wire_put_nat(e, _o_5, 4ull, _rest_0) == 0) {
+        return 0;
+      }
+      o[0] = _o_5[0];
+    } else {
+      Term _o_6[1];
+      if (spin_wire_put_nat(e, _o_6, 5ull, _rest_0) == 0) {
+        return 0;
+      }
+      o[0] = _o_6[0];
     }
   break;
   }
@@ -166983,7 +167187,7 @@ INLINE Term spin_ffi_autonomous_get_facts_on(Env e, THR Term* o, u32 r0, u32 r1,
       if (spin_ffi_autonomous_get_answer(e, _o_1, (u32)_o_0[0], _o_0[1], _o_0[2]) == 0) {
         return 0;
       }
-      Term _o_2[7];
+      Term _o_2[8];
       if (spin_ffi_autonomous_get_facts_answer(e, _o_2, _d_1, (u32)_o_1[0], (u32)_o_1[1], _o_1[2]) == 0) {
         return 0;
       }
@@ -166993,7 +167197,8 @@ INLINE Term spin_ffi_autonomous_get_facts_on(Env e, THR Term* o, u32 r0, u32 r1,
       o[3] = (u32)_o_2[3];
       o[4] = (u32)_o_2[4];
       o[5] = (u32)_o_2[5];
-      o[6] = _o_2[6];
+      o[6] = (u32)_o_2[6];
+      o[7] = _o_2[7];
     } else {
       o[0] = 1;
       o[1] = 0;
@@ -167002,24 +167207,26 @@ INLINE Term spin_ffi_autonomous_get_facts_on(Env e, THR Term* o, u32 r0, u32 r1,
       o[4] = 0;
       o[5] = 0;
       o[6] = 0;
+      o[7] = 0;
     }
   break;
   }
   return 1;
 }
 
-INLINE Term spin_ffi_autonomous_ffi_done(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5) {
+INLINE Term spin_ffi_autonomous_ffi_done(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6) {
   u32 wpoll = 0;
   u32 _f_0 = r0;
   u32 _f_1 = r1;
   u32 _f_2 = r2;
   u32 _f_3 = r3;
   u32 _f_4 = r4;
-  u32 _end_0 = r5;
+  u32 _f_5 = r5;
+  u32 _end_0 = r6;
   WL_SPIN
     if (_end_0 == 1) {
       Term _o_0[3];
-      if (spin_autonomous_decide(e, _o_0, _f_0, _f_1, _f_2, _f_3, _f_4) == 0) {
+      if (spin_autonomous_decide(e, _o_0, _f_0, _f_1, _f_2, _f_3, _f_4, _f_5) == 0) {
         return 0;
       }
       Term _o_1[1];
@@ -171533,7 +171740,7 @@ INLINE Term spin_ffi_autonomous_get_facts(Env e, THR Term* o, Term r0) {
     if (spin_wire_get_bool(e, _o_0, _s_0) == 0) {
       return 0;
     }
-    Term _o_1[7];
+    Term _o_1[8];
     if (spin_ffi_autonomous_get_facts_on(e, _o_1, (u32)_o_0[0], (u32)_o_0[1], _o_0[2]) == 0) {
       return 0;
     }
@@ -171543,13 +171750,14 @@ INLINE Term spin_ffi_autonomous_get_facts(Env e, THR Term* o, Term r0) {
     o[3] = (u32)_o_1[3];
     o[4] = (u32)_o_1[4];
     o[5] = (u32)_o_1[5];
-    o[6] = _o_1[6];
+    o[6] = (u32)_o_1[6];
+    o[7] = _o_1[7];
   break;
   }
   return 1;
 }
 
-INLINE Term spin_ffi_autonomous_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, Term r6) {
+INLINE Term spin_ffi_autonomous_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 r2, u32 r3, u32 r4, u32 r5, u32 r6, Term r7) {
   u32 wpoll = 0;
   u32 _r_0 = r0;
   u32 _r_1 = r1;
@@ -171557,15 +171765,16 @@ INLINE Term spin_ffi_autonomous_ffi_got(Env e, THR Term* o, u32 r0, u32 r1, u32 
   u32 _r_3 = r3;
   u32 _r_4 = r4;
   u32 _r_5 = r5;
-  Term _r_6 = r6;
+  u32 _r_6 = r6;
+  Term _r_7 = r7;
   WL_SPIN
     if (_r_0 == 0) {
       Term _o_0[1];
-      if (spin_wire_end(e, _o_0, _r_6) == 0) {
+      if (spin_wire_end(e, _o_0, _r_7) == 0) {
         return 0;
       }
       Term _o_1[1];
-      if (spin_ffi_autonomous_ffi_done(e, _o_1, _r_1, _r_2, _r_3, _r_4, _r_5, (u32)_o_0[0]) == 0) {
+      if (spin_ffi_autonomous_ffi_done(e, _o_1, _r_1, _r_2, _r_3, _r_4, _r_5, _r_6, (u32)_o_0[0]) == 0) {
         return 0;
       }
       o[0] = _o_1[0];
@@ -174437,12 +174646,12 @@ INLINE Term spin_ffi_autonomous_ffi(Env e, THR Term* o, Term r0) {
   u32 wpoll = 0;
   Term _input_0 = r0;
   WL_SPIN
-    Term _o_0[7];
+    Term _o_0[8];
     if (spin_ffi_autonomous_get_facts(e, _o_0, _input_0) == 0) {
       return 0;
     }
     Term _o_1[1];
-    if (spin_ffi_autonomous_ffi_got(e, _o_1, (u32)_o_0[0], (u32)_o_0[1], (u32)_o_0[2], (u32)_o_0[3], (u32)_o_0[4], (u32)_o_0[5], _o_0[6]) == 0) {
+    if (spin_ffi_autonomous_ffi_got(e, _o_1, (u32)_o_0[0], (u32)_o_0[1], (u32)_o_0[2], (u32)_o_0[3], (u32)_o_0[4], (u32)_o_0[5], (u32)_o_0[6], _o_0[7]) == 0) {
       return 0;
     }
     o[0] = _o_1[0];

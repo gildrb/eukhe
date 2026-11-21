@@ -4803,3 +4803,5 @@ import ./proof/account/account_entry_is_model.bend as PAccountEntryIsModel
 import ./proof/account/account_entry_exact.bend as PAccountEntryExact
 import ./proof/account/account_entry_refuses.bend as PAccountEntryRefuses
 import ./proof/account/account_entry_example.bend as PAccountEntryExample
+import ./proof/autonomous/autonomous_asks_iff.bend as PAutonomousAsksIff
+import ./proof/autonomous/autonomous_finishes_iff.bend as PAutonomousFinishesIff

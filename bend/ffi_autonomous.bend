@@ -5,9 +5,12 @@
 #   request  whether the run is autonomous (a Bool), the answer: 0 settled
 #            | 1 broken, the checks: 0 none | 1 returned | 2 ended then
 #            the label (0 verified | 1 failed | 2 unverified | 3 passed),
-#            the budget: 0 working | 1 short
+#            the budget: 0 working | 1 short, the final-answer judge's
+#            reading: 0 not read | 1 no work left | 2 work left | 3 no
+#            verdict
 #   reply    the step: 0 off | 1 hold | 2 continue | 3 stop then the
-#            cause: 0 checks then the label | 1 budget
+#            cause: 0 checks then the label | 1 budget | 4 ask the judge
+#            | 5 finish (go on with the work left)
 #
 # Malformed input, or input left after the request, answers
 # `E autonomous: malformed request`, never a default.
@@ -17,6 +20,7 @@ import Base
 import ./wire.bend as W
 import ./verify.bend as V
 import ./autonomous.bend as Au
+import ./work_left.bend as Wl
 
 # Requests
 # --------
@@ -86,10 +90,34 @@ def get_budget(r: W.Dec<Nat>) -> W.Dec<Au.Budget>:
     case W.Bad{}:
       W.Bad{}
 
+def get_reading(r: W.Dec<Nat>) -> W.Dec<Wl.Reading>:
+  match r:
+    case W.Got{t, s}:
+      match t:
+        case 0n:
+          W.Got{Wl.Unread{}, s}
+        case 1n:
+          W.Got{Wl.Finished{}, s}
+        case 2n:
+          W.Got{Wl.Left{}, s}
+        case 3n:
+          W.Got{Wl.Unjudged{}, s}
+        case 4n+u:
+          W.Bad{}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_facts.reading(on: Bool, a: Au.Answer, c: Au.Checks, b: Au.Budget, d: W.Dec<Wl.Reading>) -> W.Dec<Au.Facts>:
+  match d:
+    case W.Got{r, s}:
+      W.Got{Au.Facts{on, a, c, b, r}, s}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_facts.budget(on: Bool, a: Au.Answer, c: Au.Checks, d: W.Dec<Au.Budget>) -> W.Dec<Au.Facts>:
   match d:
     case W.Got{b, s}:
-      W.Got{Au.Facts{on, a, c, b}, s}
+      get_facts.reading(on, a, c, b, get_reading(W.get_nat(s)))
     case W.Bad{}:
       W.Bad{}
 
@@ -150,6 +178,10 @@ def put_step(t: Au.Step, rest: String) -> String:
       W.put_nat(2n, rest)
     case Au.Stop{c}:
       W.put_nat(3n, put_cause(c, rest))
+    case Au.Ask{}:
+      W.put_nat(4n, rest)
+    case Au.Finish{}:
+      W.put_nat(5n, rest)
 
 def ffi.done(f: Au.Facts, end: Bool) -> String:
   match end:

@@ -22,7 +22,7 @@ def au.ended_false(-l: V.Label, -G: Type, e: {True{} == False{} : Bool}) -> G:
   %e : au.BI(_, G)
   Unit{}
 
-def Autonomous.autonomous_short_stops(c, h):
+def Autonomous.autonomous_short_stops(c, r, h):
   match c:
     case Au.Unchecked{}:
       {==}
