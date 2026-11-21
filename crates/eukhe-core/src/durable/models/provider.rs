@@ -560,8 +560,9 @@ async fn run_request(
     let mut backup_failures: Vec<(String, String)> = Vec::new();
     // The configured models the request moved to after its own model could
     // not go on, in order (`laws/fallback.bend`); after the first move the
-    // sibling walk is over.
+    // sibling walk is over. `left_for`: why the request left its own model.
     let mut moved: Vec<Model> = Vec::new();
+    let mut left_for: Option<Why> = None;
     loop {
         // Each attempt opens with its own `start`, which drops the failed
         // attempt's partial downstream (the event protocol). A provider
@@ -659,9 +660,12 @@ async fn run_request(
             }
             if failed {
                 // The model cannot go on: the request moves to another model
-                // the user configured, unless its provider keeps every send
-                // (failover off). A wait or an end surfaces the failure; the
-                // park of a usage limit is `finish_failure`'s.
+                // the user configured or another signed-in provider's
+                // default, unless its provider keeps every send (failover
+                // off). A wait or an end surfaces the failure; an end with
+                // a fix surfaces its report in place of the failure's text;
+                // the park of a usage limit is `finish_failure`'s.
+                let mut report = None;
                 if failover.enabled {
                     let (failing, failure) = match (&primary_failure, moved.is_empty()) {
                         (Some(primary_failure), true) => (&primary, primary_failure),
@@ -672,32 +676,48 @@ async fn run_request(
                         moved: &moved,
                         images: context_has_images(&context),
                     };
-                    if let Some((model, reason)) =
-                        model_move(&inner, &settings, &carried, &request, failing, failure).await
+                    match model_move(&inner, &settings, &carried, &request, failing, failure).await
                     {
-                        switches += 1;
-                        let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
-                            attempt: switches,
-                            max_attempts: failover.max_switches,
-                            delay_ms: 0,
-                            error_message: reason,
-                            backup_model: model_reference(&model),
-                        });
-                        dispatch = original_dispatch(&inner, &model, carried.clone(), simple);
-                        serving = model.clone();
-                        moved.push(model);
-                        continue;
+                        Move::To { model, reason, why } => {
+                            switches += 1;
+                            let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
+                                attempt: switches,
+                                max_attempts: failover.max_switches,
+                                delay_ms: 0,
+                                error_message: reason,
+                                backup_model: model_reference(&model),
+                            });
+                            dispatch = original_dispatch(&inner, &model, carried.clone(), simple);
+                            serving = (*model).clone();
+                            if moved.is_empty() {
+                                left_for = Some(why);
+                            }
+                            moved.push(*model);
+                            continue;
+                        }
+                        Move::Stays => {}
+                        Move::Ends(text) => report = Some(text),
                     }
                 }
                 // A failure after a backup failed surfaces the primary's
                 // latest failure, as the primary's, with the backups named;
                 // a failure that never left the primary surfaces as it is.
-                let (message, backups) = match primary_failure {
+                let (mut message, backups) = match primary_failure {
                     Some(primary_failure) if !backup_failures.is_empty() => {
                         (primary_failure, failover_note(&backup_failures))
                     }
                     Some(_) | None => (message, None),
                 };
+                // A request that left its own model and found no other to
+                // answer ends on the reason it left, reported with its fix.
+                let report = report.or_else(|| {
+                    left_for.filter(|_| backups.is_some()).and_then(|why| {
+                        fallback::end_report(why, &primary, &final_error_of(&message))
+                    })
+                });
+                if let Some(report) = report {
+                    message.error_message = Some(report);
+                }
                 finish_failure(inner, out, timing_clock, message, backups, &settings).await;
                 return;
             }
@@ -1101,12 +1121,29 @@ struct MoveRequest<'a> {
     images: bool,
 }
 
-/// The configured model a request moves to after `failing` failed with
-/// `failure` ([`fallback::step`], `laws/fallback.bend`), with why `failing`
-/// could not go on; the move is recorded for the run's report. `None` when
-/// the request stays: the run's own retries go on, a usage limit waits
-/// (`finish_failure` parks it), no candidate is left, or no other model
-/// cures the failure.
+/// What a failed request does next ([`model_move`]).
+enum Move {
+    /// It goes on with `model`, for `reason` (recorded for the run's
+    /// report), because its model failed for `why`.
+    To {
+        model: Box<Model>,
+        reason: String,
+        why: Why,
+    },
+    /// Its failure stands: the run's own retries go on, a usage limit
+    /// waits (`finish_failure` parks it), no other model cures the
+    /// failure, or no model is left and the failure names no fix.
+    Stays,
+    /// It ends with this report: the cause and the one command that fixes
+    /// it ([`fallback::end_report`]).
+    Ends(String),
+}
+
+/// What a request does after `failing` failed with `failure`
+/// ([`fallback::step`], `laws/fallback.bend`): it moves to the first
+/// untried model the user configured, then to the first untried default
+/// model of another signed-in provider, or it stays, or it ends with a
+/// report.
 async fn model_move(
     inner: &Inner,
     settings: &SettingsManager,
@@ -1114,25 +1151,50 @@ async fn model_move(
     request: &MoveRequest<'_>,
     failing: &Model,
     failure: &AssistantMessage,
-) -> Option<(Model, String)> {
-    let why = failure_why(inner, settings, request, failure)?;
+) -> Move {
+    let Some(why) = failure_why(inner, settings, request, failure) else {
+        return Move::Stays;
+    };
     let available = credentialed_models(inner, carried, failing).await;
-    let mut candidates: Vec<Model> = fallback::configured_models(settings, &available)
+    let serves = |model: &Model| {
+        allowlist_allows(settings, model)
+            && (!request.images || model.input.contains(&Modality::Image))
+    };
+    let candidates: Vec<Model> = fallback::configured_models(settings, &available)
         .into_iter()
-        .filter(|model| allowlist_allows(settings, model))
-        .filter(|model| !request.images || model.input.contains(&Modality::Image))
+        .filter(|model| serves(model))
+        .collect();
+    // A provider whose login just failed is not signed in: its default is
+    // no way on.
+    let defaults: Vec<Model> = fallback::signed_in_defaults(&available)
+        .into_iter()
+        .filter(|model| serves(model))
+        .filter(|model| match why {
+            Why::Login => model.provider != failing.provider,
+            Why::Failed { .. } | Why::Quota { .. } | Why::Unset => true,
+        })
         .collect();
     let tried: Vec<Model> = std::iter::once(request.primary.clone())
         .chain(request.moved.iter().cloned())
         .collect();
-    match fallback::step(why, &candidates, &tried) {
+    let error = final_error_of(failure);
+    match fallback::step(why, &candidates, &defaults, &tried) {
         Step::Switch(at) => {
-            let model = candidates.swap_remove(at);
-            let reason = fallback::reason(why, failing, &final_error_of(failure));
+            let Some(model) = candidates.into_iter().chain(defaults).nth(at) else {
+                return Move::Stays;
+            };
+            let reason = fallback::reason(why, failing, &error);
             record_move(inner, request.primary, &model, &reason);
-            Some((model, reason))
+            Move::To {
+                model: Box::new(model),
+                reason,
+                why,
+            }
         }
-        Step::Keep | Step::Hold { .. } | Step::End => None,
+        Step::End(cause) => {
+            fallback::end_report(cause, failing, &error).map_or(Move::Stays, Move::Ends)
+        }
+        Step::Keep | Step::Hold { .. } => Move::Stays,
     }
 }
 

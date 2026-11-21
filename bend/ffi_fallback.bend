@@ -3,10 +3,12 @@
 # eukhe-bend rules/fallback.rs). Grammar: crates/eukhe-bend/WIRE.md.
 #
 #   request  one List<Nat>: the failure, then the count of candidates, the
-#            candidates in order, then the tried models
+#            candidates in order, the count of signed-in defaults, the
+#            defaults in order, then the tried models
 #            failure  0, n, retries (Failed) | 1 (Login) | 2, until
 #                     (Quota) | 3 (Unset)
-#   reply    0 (keep) | 1, m (switch) | 2, until (wait) | 3 (end)
+#   reply    0 (keep) | 1, m (switch) | 2, until (wait) | 3, failure (end,
+#            with the failure it carries)
 #
 # Malformed input, or input left after the request, answers
 # `E fallback: malformed request`, never a default.
@@ -44,16 +46,34 @@ def split(n: Nat, xs: List<&2, Nat>) -> Maybe<&2, Parts>:
         case x <> t:
           split.cons(x, split(p, t))
 
+def parse.cut_defaults(k: F.Why, cands: List<&2, Nat>, r: Maybe<&2, Parts>) -> Maybe<&2, F.In>:
+  match r:
+    case None{}:
+      None{}
+    case Some{p}:
+      match p:
+        case Parts{defaults, tried}:
+          Some{F.In{k, cands, defaults, tried}}
+
+# the signed-in defaults (their count first), then the tried models
+def parse.defaults(k: F.Why, cands: List<&2, Nat>, xs: List<&2, Nat>) -> Maybe<&2, F.In>:
+  match xs:
+    case Nil{}:
+      None{}
+    case n <> t:
+      parse.cut_defaults(k, cands, split(n, t))
+
 def parse.cut(k: F.Why, r: Maybe<&2, Parts>) -> Maybe<&2, F.In>:
   match r:
     case None{}:
       None{}
     case Some{p}:
       match p:
-        case Parts{cands, tried}:
-          Some{F.In{k, cands, tried}}
+        case Parts{cands, rest}:
+          parse.defaults(k, cands, rest)
 
-# the candidates (their count first), then the tried models
+# the candidates (their count first), then the defaults and the tried
+# models
 def parse.lists(k: F.Why, xs: List<&2, Nat>) -> Maybe<&2, F.In>:
   match xs:
     case Nil{}:
@@ -107,6 +127,18 @@ def get_req(s: String) -> W.Dec<List<&2, Nat>>:
 # The entry
 # ---------
 
+# the spelling of a failure, then rest
+def put_why(k: F.Why, rest: String) -> String:
+  match k:
+    case F.Failed{n, retries}:
+      W.put_nat(0n, W.put_nat(n, W.put_nat(retries, rest)))
+    case F.Login{}:
+      W.put_nat(1n, rest)
+    case F.Quota{until}:
+      W.put_nat(2n, W.put_nat(until, rest))
+    case F.Unset{}:
+      W.put_nat(3n, rest)
+
 # the reply's spelling of a choice
 def put_choice(c: F.Choice) -> String:
   match c:
@@ -116,8 +148,8 @@ def put_choice(c: F.Choice) -> String:
       W.put_nat(1n, W.put_nat(m, ""))
     case F.Hold{until}:
       W.put_nat(2n, W.put_nat(until, ""))
-    case F.End{}:
-      W.put_nat(3n, "")
+    case F.End{k}:
+      W.put_nat(3n, put_why(k, ""))
 
 def ffi.parsed(r: Maybe<&2, F.In>) -> String:
   match r:
