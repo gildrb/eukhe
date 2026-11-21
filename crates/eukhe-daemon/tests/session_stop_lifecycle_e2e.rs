@@ -1,5 +1,5 @@
 //! End-to-end verifier for the stop/delete lifecycle (the zombie fix):
-//! stopping a session must cancel its goals' continuation paths AND its
+//! stopping a session must cancel its autonomous continuation AND its
 //! scheduled jobs (heartbeats), and no wake pass — the boot re-arm, the
 //! descriptor adoption, the schedule delivery — may revive the stopped
 //! session. The TS contract (daemon-mode `closeSessionOnce("killed")` ->
@@ -9,7 +9,7 @@
 //! file archives; a CRASHED session's jobs survive and it revives.
 //!
 //! The flow: two faux-scripted sessions over one real daemon — A with an
-//! active goal and a heartbeat (the zombie-orchestrator shape), B with a
+//! autonomous run and a heartbeat (the zombie-orchestrator shape), B with a
 //! heartbeat. A is killed through the wire `kill` (the stop path); both
 //! workers are then hard-crashed with the supervisor (the adoption +
 //! re-arm window), the supervisor restarts, and a tombstoned stop
@@ -58,7 +58,7 @@ mod process;
 use daemon::supervisor_command;
 use process::Daemon;
 
-const OBJECTIVE: &str = "keep the lane alive until merged";
+const TASK: &str = "keep the lane alive until merged";
 
 fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
     std::fs::create_dir_all(agent_dir).expect("agent dir");
@@ -231,10 +231,10 @@ impl Session {
             .unwrap_or_default()
     }
 
-    /// The main conversation's `eukhe.goal` document as JSON (the durable
-    /// goal record the continuation loop writes), read through the
+    /// The main conversation's `eukhe.autonomous` document (the durable
+    /// run state the continuation loop writes), read through the
     /// read-only storage view.
-    fn goal_record(&self) -> Option<String> {
+    fn autonomous_record(&self) -> Option<Value> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -248,13 +248,13 @@ impl Session {
                 .main;
             eukhe_core::durable::read_session_document(
                 &location,
-                &eukhe_core::durable::goals::GOAL_DOC,
+                &eukhe_core::durable::goals::AUTONOMOUS_DOC,
                 main,
                 cx,
             )
             .await
-            .expect("goal document readable")
-            .map(|goal| serde_json::to_string(&goal).expect("goal json"))
+            .expect("autonomous document readable")
+            .map(|run| serde_json::to_value(run).expect("autonomous json"))
         })
     }
 
@@ -275,15 +275,15 @@ impl Session {
     }
 }
 
-/// A killed session with a goal and a heartbeat stays dead across the
-/// supervisor restart: its scheduled jobs cancel at the kill (durable
-/// store rows), its session file archives, the boot re-arm never wakes
-/// it, the tombstoned-stop adoption finishes the stop instead of
-/// relaunching the killed worker, and its goal record freezes (no
+/// A killed session with an autonomous run and a heartbeat stays dead
+/// across the supervisor restart: its scheduled jobs cancel at the kill
+/// (durable store rows), its session file archives, the boot re-arm never
+/// wakes it, the tombstoned-stop adoption finishes the stop instead of
+/// relaunching the killed worker, and its autonomous run state freezes (no
 /// continuation). The crashed sibling (no stop) comes back — the wake
 /// model survives crashes; only the stop kills it.
 #[test]
-fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
+fn kill_cancels_auto_and_heartbeat_and_no_wake_revives_the_session() {
     let root = tempfile::TempDir::new().expect("temp dir");
     let dir = root.path().to_path_buf();
     let agent_dir = dir.join("agent");
@@ -308,7 +308,7 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
     )
     .expect("write faux script");
 
-    // The first daemon generation: sessions A (goal + heartbeat) and B
+    // The first daemon generation: sessions A (`/auto` + heartbeat) and B
     // (heartbeat) over one supervisor.
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -337,20 +337,21 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
     };
     let descriptor_dir = eukhe_daemon::descriptor::descriptor_dir(&agent_dir, &socket);
 
-    // A: the zombie-orchestrator shape — an active goal plus a
+    // A: the zombie-orchestrator shape — an autonomous run plus a
     // lane-liveness heartbeat.
     let started = client.request(
-        "a-goal",
+        "a-auto",
         &json!({
             "type": "prompt_and_wait",
             "activeSessionId": a.active_id,
-            "message": format!("/goal {OBJECTIVE}"),
+            "message": format!("/auto {TASK}"),
         }),
     );
-    assert_eq!(started["success"], true, "goal start failed: {started}");
+    assert_eq!(started["success"], true, "/auto start failed: {started}");
     assert!(
-        a.goal_record().is_some(),
-        "the started goal persisted its record"
+        a.autonomous_record()
+            .is_some_and(|run| run["enabled"] == true),
+        "the started run persisted its state"
     );
     let heartbeat = client.request(
         "a-hb",
@@ -404,7 +405,7 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(a.session_state(), "archived");
-    let goal_at_kill = a.goal_record();
+    let run_at_kill = a.autonomous_record();
     let file_rows_at_kill = a.file_rows();
 
     // The crash window: both workers hard-crash with the supervisor, with
@@ -510,13 +511,13 @@ fn kill_cancels_goal_and_heartbeat_and_no_wake_revives_the_session() {
         );
         std::thread::sleep(Duration::from_millis(500));
     }
-    // No continuation for the stopped session: the goal record froze at
-    // the kill (a revived goal loop would have written more rows), and
-    // no new file rows landed after the kill.
+    // No continuation for the stopped session: the run state froze at the
+    // kill (a revived continuation loop would have committed more), and no
+    // new file rows landed after the kill.
     assert_eq!(
-        a.goal_record(),
-        goal_at_kill,
-        "the stopped session's goal churned on"
+        a.autonomous_record(),
+        run_at_kill,
+        "the stopped session's autonomous run churned on"
     );
     assert_eq!(
         a.file_rows(),

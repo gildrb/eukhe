@@ -474,3 +474,53 @@ fn autonomous_limit_reached_stops_the_run_without_a_row() {
         harness.client.events
     );
 }
+
+/// `/goal` is removed: typed with a task it notes the removal, then does
+/// what `/auto <task>` does — autonomous mode on and the task sent as the
+/// user's message — and the run continues (the default three
+/// continuations) until its limit stops it.
+#[test]
+fn goal_notes_its_removal_then_runs_the_task_as_auto() {
+    let mut harness = setup(
+        "goal-alias",
+        &json!([
+            { "text": "step 1" },
+            { "text": "step 2" },
+            { "text": "step 3" },
+            { "text": "step 4" },
+        ]),
+    );
+    // The command answers once its task is submitted; the run goes on.
+    harness.prompt("goal", "/goal build the feature");
+    harness.client.send_command(
+        "idle",
+        &json!({ "type": "wait_for_idle", "activeSessionId": harness.session_id }),
+    );
+    let idle = harness.client.request("idle");
+    assert_eq!(idle["success"], true, "never went idle: {idle}");
+    harness.client.drain_events(Duration::from_secs(1));
+
+    assert_eq!(
+        harness.custom_texts("session_slash_command_result"),
+        vec!["/goal is removed: use /auto".to_string()]
+    );
+    assert_eq!(
+        durable_autonomous_rows(&harness, "[autonomous-status: on]").len(),
+        1,
+        "the run turned on once"
+    );
+    let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
+    assert_eq!(user_texts, ["build the feature"]);
+    let assistants: Vec<String> = harness
+        .message_ends("assistant")
+        .iter()
+        .map(text_of)
+        .collect();
+    assert_eq!(assistants, ["step 1", "step 2", "step 3", "step 4"]);
+    let continuations = harness
+        .message_ends("custom")
+        .into_iter()
+        .filter(|message| message["customType"] == "autonomous_continuation")
+        .count();
+    assert_eq!(continuations, 3, "events: {:?}", harness.client.events);
+}

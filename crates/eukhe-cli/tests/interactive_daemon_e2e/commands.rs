@@ -336,8 +336,8 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
     let plan = eukhe_tui::interactive::HeadlessPlan {
         steps: vec![
             // A session command runs in the worker and its durable rows
-            // render (echo + result).
-            eukhe_tui::interactive::HeadlessStep::Submit("/goal status".to_string()),
+            // render (echo + status).
+            eukhe_tui::interactive::HeadlessStep::Submit("/auto status".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
             // Unknown command: the exact TS suggestion error.
             eukhe_tui::interactive::HeadlessStep::Submit("/modle".to_string()),
@@ -348,10 +348,10 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
             // request materializes (the dropdown opens) before Enter, the
             // state the terminal loop reaches after one input-idle tick.
             eukhe_tui::interactive::HeadlessStep::SettleIdle,
-            eukhe_tui::interactive::HeadlessStep::Type("goa".to_string()),
+            eukhe_tui::interactive::HeadlessStep::Type("aut".to_string()),
             eukhe_tui::interactive::HeadlessStep::SettleIdle,
             // With the dropdown open, Enter completes the selected
-            // suggestion (`/goal `); the second Enter submits it.
+            // suggestion (`/auto `); the second Enter submits it.
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::Type("\n".to_string()),
             eukhe_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
@@ -379,12 +379,12 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
     }
     let rendered = outcome.frames.join("\n");
     assert!(
-        rendered.contains("/goal status"),
+        rendered.contains("/auto status"),
         "the session-command echo row rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("No active goal."),
-        "the session-command result row rendered:\n{rendered}"
+        rendered.contains("[autonomous-status: off]"),
+        "the session-command status row rendered:\n{rendered}"
     );
     assert!(
         rendered.contains("Unknown command: /modle. Did you mean /model?"),
@@ -398,8 +398,8 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         rendered.contains("Enter choose - Backspace/x clear - Esc close"),
         "the hub's hint rendered:\n{rendered}"
     );
-    // The menu: the first registry entry is selected at `/`, and `/goa`
-    // fuzzy-matches to the goal command.
+    // The menu: the first registry entry is selected at `/`, and `/aut`
+    // matches the auto command best.
     assert!(
         rendered.contains("> settings"),
         "the slash menu rendered with the selected first entry:\n{rendered}"
@@ -409,12 +409,12 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         "the selected item's description rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("> goal"),
-        "the fuzzy best match for /goa rendered selected:\n{rendered}"
+        rendered.contains("> auto "),
+        "the best match for /aut rendered selected:\n{rendered}"
     );
 
     // The durable rows persisted: the session's storage carries the echo
-    // and result custom entries.
+    // and status custom entries.
     let storages = session_dirs(&session_dir);
     assert_eq!(storages.len(), 1, "one session storage: {storages:?}");
     let transcript = read_transcript(&storages[0]);
@@ -424,10 +424,8 @@ async fn tui_dispatches_slash_commands_menu_and_suggestions() {
         transcript.entries
     );
     assert!(
-        !transcript
-            .custom_rows("session_slash_command_result")
-            .is_empty(),
-        "the session persisted the session_slash_command_result rows: {:?}",
+        !transcript.custom_rows("autonomous_status").is_empty(),
+        "the session persisted the autonomous_status rows: {:?}",
         transcript.entries
     );
     drop(supervisor);
