@@ -1,10 +1,9 @@
-//! End-to-end verifier for the runs the supervisor ends itself: a worker
-//! that stopped answering (stopped by a signal mid-turn) is killed and
-//! restarted, and a worker that crashes past the restart budget is given
-//! up. Either way the session's turn ends with the notice row that says
-//! why (no client waits on a run that will not answer), the run the
-//! storage holds does not go on, and the next prompt in the same session
-//! is answered.
+//! End-to-end verifier for the runs the supervisor interrupts itself: a
+//! worker that stopped answering (stopped by a signal mid-turn) is killed
+//! and restarted, and a worker that crashes past the restart budget is
+//! relaunched once more by itself. Either way the reopen stops the run the
+//! storage holds, writes the notice row that says why, and continues the
+//! turn with no client prompting it.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -88,7 +87,7 @@ fn text(message: &Value) -> String {
 /// One session over a faux script whose generation holds its run open for
 /// ten minutes.
 struct Session {
-    dir: tempfile::TempDir,
+    _dir: tempfile::TempDir,
     socket: std::path::PathBuf,
     agent_dir: std::path::PathBuf,
     script: std::path::PathBuf,
@@ -96,9 +95,6 @@ struct Session {
     client: WireClient,
     /// The selector commands address: the active session id.
     id: String,
-    /// The session's storage: a client reopens it from here (with the
-    /// faux script, which a bare wake by id would not carry).
-    storage: String,
 }
 
 impl Session {
@@ -136,41 +132,15 @@ impl Session {
             .as_str()
             .expect("active session id")
             .to_string();
-        let storage = created["data"]["sessionFile"]
-            .as_str()
-            .expect("session storage")
-            .to_string();
         Session {
-            dir,
+            _dir: dir,
             socket,
             agent_dir,
             script,
             _supervisor: supervisor,
             client,
             id,
-            storage,
         }
-    }
-
-    /// Reopen the session from its storage, as a client's resume does:
-    /// commands address the worker the open launches.
-    fn reopen(&mut self) {
-        let created = self.client.request(
-            &json!({
-                "type": "create",
-                "sessionPath": self.storage,
-                "config": {
-                    "cwd": self.dir.path().to_string_lossy(),
-                    "script": self.script.to_string_lossy(),
-                },
-            }),
-            ROUTE,
-        );
-        assert_eq!(created["success"], true, "reopen failed: {created}");
-        created["data"]["activeSessionId"]
-            .as_str()
-            .expect("active session id")
-            .clone_into(&mut self.id);
     }
 
     fn request(&mut self, mut command: Value) -> Value {
@@ -221,11 +191,20 @@ impl Session {
         .is_ok_and(|log| log.contains(needle))
     }
 
-    /// The turn ended with the notice and no run goes on; then the next
-    /// prompt in the session is answered.
-    fn assert_ended_then_answers(&mut self, notice: &str) {
-        let idle = self.request(json!({ "type": "wait_for_idle" }));
-        assert_eq!(idle["success"], true, "never went idle: {idle}");
+    /// The reopen wrote one notice row and continued the turn by itself:
+    /// the continuation is answered after the row, with no prompt.
+    fn assert_continued(&mut self, notice: &str) {
+        wait_until("the continued turn's answer", || {
+            let messages = self.messages();
+            messages
+                .iter()
+                .position(|message| message["customType"] == NOTICE)
+                .is_some_and(|row| {
+                    messages[row..]
+                        .iter()
+                        .any(|message| message["role"] == "assistant" && text(message) == "done")
+                })
+        });
         let messages = self.messages();
         let notices: Vec<String> = messages
             .iter()
@@ -237,30 +216,11 @@ impl Session {
             [notice.to_string()],
             "one notice row: {messages:?}"
         );
-        assert!(
-            !messages
-                .iter()
-                .any(|message| message["role"] == "assistant" && text(message) == "done"),
-            "the interrupted run did not resume: {messages:?}"
-        );
-        let prompted = self.request(json!({ "type": "prompt", "message": "again" }));
-        assert_eq!(prompted["success"], true, "prompt failed: {prompted}");
-        wait_until("the next prompt's answer", || {
-            let messages = self.messages();
-            messages
-                .iter()
-                .position(|message| message["role"] == "user" && text(message) == "again")
-                .is_some_and(|again| {
-                    messages[again..]
-                        .iter()
-                        .any(|message| message["role"] == "assistant" && text(message) == "done")
-                })
-        });
     }
 }
 
 #[test]
-fn a_worker_that_stops_answering_is_restarted_and_its_turn_ends() {
+fn a_worker_that_stops_answering_is_restarted_and_its_turn_continues() {
     let mut session = Session::open("hung-worker");
     session.start_hung_turn();
     let hung = session.worker_pid();
@@ -270,8 +230,8 @@ fn a_worker_that_stops_answering_is_restarted_and_its_turn_ends() {
         session.log_contains("did not answer for 60s; killing it to restart it")
     });
     wait_until("the hung worker's exit", || !process_alive(hung));
-    session.assert_ended_then_answers(
-        "The session worker stopped responding for 60s; Eukhe restarted it and stopped the turn. Send the message again to retry.",
+    session.assert_continued(
+        "The session worker stopped responding for 60s; Eukhe restarted it and continued the turn (automatic continue 1 of this turn).",
     );
     assert_ne!(
         session.worker_pid(),
@@ -301,37 +261,27 @@ fn a_worker_paused_inside_the_window_keeps_its_run() {
 }
 
 #[test]
-fn a_crash_loop_past_the_restart_budget_ends_the_turn() {
+fn a_crash_loop_past_the_restart_budget_continues_its_turn() {
     let mut session = Session::open("crash-loop");
     session.start_hung_turn();
-    // A client following the session through the supervisor.
-    let attached = session.request(json!({ "type": "attach" }));
-    assert_eq!(attached["success"], true, "attach failed: {attached}");
     // Each relaunch replays the create and resumes the run: kill every
-    // worker the supervisor brings up until it gives the session up.
-    for _ in 0..6 {
+    // worker the supervisor brings up until the restart budget runs out.
+    for kill in 0..6 {
+        if kill == 5 {
+            session.answer_at_once();
+        }
         let pid = session.worker_pid();
         signal(pid, "KILL");
         wait_until("the killed worker's exit", || !process_alive(pid));
     }
-    wait_until("the give-up", || {
-        session.log_contains("failed after 6 failures in the restart window")
+    // Nobody reopens the session: the supervisor relaunches the worker by
+    // itself, and its reopen continues the turn.
+    wait_until("the relaunch past the budget", || {
+        session.log_contains(
+            "failed 6 times in the restart window; relaunching it to continue its turn",
+        )
     });
-    session.answer_at_once();
-    let notice = "The session worker crashed 6 times in a row; Eukhe stopped restarting it and stopped the turn. Send the message again to retry.";
-    // The follower sees the turn end with the notice, then the run end.
-    session
-        .client
-        .wait_line(DEADLINE, "the turn's end", |line| {
-            line["type"] == "session_event"
-                && line["event"]["type"] == "turn_end"
-                && line["event"]["error"] == notice
-        });
-    session.client.wait_line(DEADLINE, "the run's end", |line| {
-        line["type"] == "session_event" && line["event"]["type"] == "agent_end"
-    });
-    // No worker hosts the session now: the client reopens it from its
-    // storage (the way a resume does).
-    session.reopen();
-    session.assert_ended_then_answers(notice);
+    session.assert_continued(
+        "The session worker crashed 6 times in a row; Eukhe restarted it and continued the turn (automatic continue 1 of this turn).",
+    );
 }

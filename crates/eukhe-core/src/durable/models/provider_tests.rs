@@ -85,7 +85,6 @@ fn fixture_wired(
                 crate::mcp::McpManagerOptions {
                     auth_storage: crate::auth::AuthStorage::create(&agent_dir),
                     get_user_servers: Box::new(|| None),
-                    begin_login: None,
                     agent_dir: None,
                     get_catalog_sources: None,
                     probe_override: None,

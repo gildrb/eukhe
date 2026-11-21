@@ -29,6 +29,9 @@ pub enum InputOrigin {
     /// The prompt that resumes a turn a manual compaction interrupted
     /// (the auto-continue prompt).
     CompactionResume,
+    /// The prompt that continues a turn the supervisor ended (its worker
+    /// stopped answering or kept crashing) once the session reopened.
+    RestartResume,
     /// A report of work outside this conversation.
     Report { report: Report },
 }
@@ -50,6 +53,7 @@ impl InputOrigin {
             Self::Director => Some("director_continuation"),
             Self::QuotaResume => Some("quota_resume"),
             Self::CompactionResume => Some("compaction_resume"),
+            Self::RestartResume => Some("restart_resume"),
         }
     }
 }
@@ -427,6 +431,7 @@ mod tests {
             (InputOrigin::Director, "director_continuation"),
             (InputOrigin::QuotaResume, "quota_resume"),
             (InputOrigin::CompactionResume, "compaction_resume"),
+            (InputOrigin::RestartResume, "restart_resume"),
         ];
         for (origin, custom_type) in hidden {
             assert_eq!(origin.hidden_custom_type(), Some(custom_type), "{origin:?}");

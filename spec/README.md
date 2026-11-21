@@ -120,6 +120,7 @@ Law areas outside the pillars above, with what their laws state. An anchor (`*_e
 - [`mcp_url`](../laws/mcp_url.bend) (16): an MCP endpoint whose host is a literal loopback, private, link-local or unspecified address or a `localhost` name is refused, with no DNS lookup.
 - [`orphan`](../laws/orphan.bend) (28): a worker whose supervisor is lost never aborts resumable work and exits when its window is due.
 - [`package_source`](../laws/package_source/) (22): a package source with a stated defect (empty, leading dash, control char, backslash, dot segment, drive prefix) is refused; the others parse as git, local or npm.
+- [`restart_turn`](../laws/restart_turn.bend) (10): a run the supervisor interrupted (a hung worker killed, a crash loop past the restart budget) continues its turn by itself, at most 3 times a turn, then ends with its report; a give-up relaunches the worker unless its last relaunch never opened the session or ended the turn at the cap.
 - [`revive`](../laws/revive.bend) (11): the boot revival's veto reads the age of a run's busy evidence as the model does.
 - [`sandbox`](../laws/sandbox.bend) (45): the host answers every sandbox frame once, in order, and runs only frames it accepted; a child's copy-on-write workspace merges back keeping the parent's changes and reporting real conflicts.
 - [`scan`](../laws/scan.bend) (14): a storage scan starts fresh, continues after its cursor's id in the cursor's order, or refuses a cursor that does not fit.

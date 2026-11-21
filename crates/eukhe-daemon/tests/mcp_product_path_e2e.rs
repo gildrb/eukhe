@@ -330,13 +330,11 @@ fn settings_declared_stdio_server_round_trips_through_the_kernel_mcp_client() {
     );
 }
 
-/// The `begin_login` host request is live in the daemon worker product path:
-/// the kernel reaches the session's real MCP manager, which answers with
-/// the TS wording for unknown servers (the full login flow is verified
-/// against the fixture OAuth transport in the `mcp_login` unit tests — a
-/// real login needs a live HTTPS provider, so this e2e pins the wiring).
+/// A run never starts an interactive login: the kernel's `begin_login`
+/// host request in the daemon worker product path is refused at once with
+/// the text that names the user's `/mcp login`, and the cell goes on.
 #[test]
-fn begin_login_host_request_is_live_in_the_worker() {
+fn begin_login_host_request_is_refused_in_the_worker() {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let sessions_dir = agent_dir.join("sessions");
@@ -442,12 +440,12 @@ fn begin_login_host_request_is_live_in_the_worker() {
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    // The manager answered with the TS wording: unknown integration, then
-    // the missing-server error.
+    // The worker refused the login at once, then the missing server.
     let outcomes = outcomes.as_array().expect("outcomes array");
     assert_eq!(outcomes.len(), 2, "probe outcomes: {outcomes:?}");
     assert_eq!(
-        outcomes[0]["error"], "Unknown MCP integration: unknown-e2e",
+        outcomes[0]["error"],
+        "MCP server unknown-e2e is not signed in; the final answer names /mcp login unknown-e2e",
         "probe outcomes: {outcomes:?}"
     );
     assert_eq!(

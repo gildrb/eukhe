@@ -226,3 +226,4 @@ import ./laws/attack.bend as Attack
 import ./laws/irreversible.bend as Irreversible
 import ./laws/path_own.bend as PathOwn
 import ./laws/undo.bend as Undo
+import ./laws/restart_turn.bend as RestartTurn

@@ -95,6 +95,7 @@ import ./ffi_rebase.bend as ffi_rebase
 import ./ffi_redirect_input.bend as ffi_redirect_input
 import ./ffi_refine_plan.bend as ffi_refine_plan
 import ./ffi_replace.bend as ffi_replace
+import ./ffi_restart_turn.bend as ffi_restart_turn
 import ./ffi_retry.bend as ffi_retry
 import ./ffi_retry_idle.bend as ffi_retry_idle
 import ./ffi_retry_note.bend as ffi_retry_note
@@ -394,6 +395,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_attack.ffi(input)
     case 467:
       ffi_undo.ffi(input)
+    case 468:
+      ffi_restart_turn.ffi(input)
     case 469:
       ffi_irreversible.ffi(input)
     case 471:

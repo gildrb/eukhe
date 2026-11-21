@@ -53,8 +53,8 @@ pub mod workflow;
 pub use admission_gate::AdmissionStateSink;
 pub use deps::{
     EditorPermissionSink, HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry,
-    JobSettledSink, LateAgentMessageSink, McpLogin, ModelRequest, OpenedSession, ParentLink,
-    PromptConfig, ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
+    JobSettledSink, LateAgentMessageSink, ModelRequest, OpenedSession, ParentLink, PromptConfig,
+    ServiceStart, ServiceStop, SessionConfig, SessionHost, SessionRole, SessionShape,
     SessionStorage, StoredWork, SummaryDeltaSink,
 };
 pub use discovery::{

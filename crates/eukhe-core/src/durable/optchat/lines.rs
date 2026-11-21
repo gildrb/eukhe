@@ -179,7 +179,8 @@ fn user_input_line(message: &Message, origin: &InputOrigin) -> SessionResult<Opt
         | InputOrigin::Autonomous { .. }
         | InputOrigin::Director
         | InputOrigin::QuotaResume
-        | InputOrigin::CompactionResume => None,
+        | InputOrigin::CompactionResume
+        | InputOrigin::RestartResume => None,
         InputOrigin::Report { report } => {
             let body = report.body(&text).map_err(SessionError::other)?;
             Some((Kind::Work, report_line(report, body), Vec::new()))

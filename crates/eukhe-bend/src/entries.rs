@@ -276,6 +276,8 @@ pub enum Entry {
     Attack = 466,
     /// `bend/ffi_undo.bend`: a call.
     Undo = 467,
+    /// `bend/ffi_restart_turn.bend`: a call.
+    RestartTurn = 468,
     /// `bend/ffi_irreversible.bend`: a call.
     Irreversible = 469,
     /// `bend/ffi_gateway_report.bend`: a call.
@@ -424,6 +426,7 @@ impl Entry {
         Entry::Strength,
         Entry::Attack,
         Entry::Undo,
+        Entry::RestartTurn,
         Entry::Irreversible,
         Entry::GatewayReport,
         Entry::Fallback,
