@@ -13,7 +13,10 @@
 # R4 the palette: a token's value in a file is its first entry's
 #    (theme_tok_get_append, theme_tok_get_one); the tokens are 0 to 58 in
 #    order (theme_toks_range); the fallbacks are the first set value and a
-#    value's default (theme_or_base, theme_concrete_of_base); token k of a
+#    value's default (theme_or_base, theme_concrete_of_base); a written
+#    value paints its color: "" none, an index its xterm-256 color, a
+#    #rrggbb color itself (theme_concrete_cases, anchor
+#    theme_export_page_example); token k of a
 #    table is its k-th color (theme_at_index); the palette fills, completes
 #    and reads its tokens one by one, in order (theme_fill_map_each,
 #    theme_complete_each, theme_vals_each).
@@ -70,11 +73,20 @@ law theme_or_base:
   for d: A
   {TPalette.or(A, a, b) == Maybe.or(&2, A, a, b) : Maybe<&2, A>} & {TPalette.or_else(A, a, d) == Maybe.default(&2, A, a, d) : A}
 
-# LAW theme_concrete_of_base (R4): the color an optional value paints is none when unset, else the color of the value (TToken.concrete; spec/theme/rules.bend concrete): Base Maybe.bind
+# LAW theme_concrete_of_base (R4): the color an optional value paints is none when unset, else the color of the value (TToken.concrete; theme_concrete_cases): Base Maybe.bind
 # EXCLUDES: an unset value painting a color, a set one ignored
 law theme_concrete_of_base:
   for m: Maybe<&2, TFile.Val>
   {TPalette.concrete.of(m) == Maybe.bind(&2, TFile.Val, Co.Rgb, m, v => TToken.concrete(v)) : Maybe<&2, Co.Rgb>}
+
+# LAW theme_concrete_cases (R4): a written value paints, where the terminal is not asked: the terminal default ("") no color, an xterm-256 index its palette color, a #rrggbb color that color, for every color and index
+# EXCLUDES: a written color dropped (export backgrounds lost, a file's own
+#   background ignored), the terminal default given a color, an index read
+#   as another color
+law theme_concrete_cases:
+  for c: Co.Rgb
+  for i: U32
+  {[TToken.concrete(TFile.Dflt{}), TToken.concrete(TFile.Hex{c}), TToken.concrete(TFile.Idx{i})] == [None{}, Some{c}, Some{Co.ansi256(i)}] : List<&2, Maybe<&2, Co.Rgb>>}
 
 # LAW theme_at_index (R4): token k of a table is the color at place k (counting from 0)
 # EXCLUDES: a color of another token (off by one, from the end)
@@ -159,6 +171,29 @@ def blank() -> TFile.RFile:
 # EXCLUDES: a reading of the laws above the human did not mean
 law theme_valid_example:
   {Maybe.is_some(&2, TFile.Th, TReader.load(blank())) == True{} : Bool} & {TToken.valid(TFile.Th{"e", [], None{}, None{}, None{}}) == False{} : Bool} & {[TPalette.complete([Some{TFile.Dflt{}}, None{}]), TPalette.complete([Some{TFile.Dflt{}}])] == [False{}, True{}] : List<&2, Bool>}
+
+# the page background and the mode of a parse (none and dark when rejected)
+def painted.page(p: TPalette.Parsed) -> Maybe<&2, Co.Rgb>:
+  match p:
+    case TPalette.Rejected{f}:
+      None{}
+    case TPalette.Painted{vs, l, d, pg, cd, io}:
+      pg
+
+def painted.light(p: TPalette.Parsed) -> Bool:
+  match p:
+    case TPalette.Rejected{f}:
+      False{}
+    case TPalette.Painted{vs, l, d, pg, cd, io}:
+      l
+
+def blank.paged() -> TFile.RFile:
+  TFile.RFile{"paged", [], blank.cols(TToken.toks()), Some{TFile.JStr{"#ffffff", None{}}}, None{}, None{}}
+
+# LAW theme_export_page_example (R4): anchor: a file that writes no background and the export page "#ffffff" exports that white page and is light
+# EXCLUDES: an export background dropped, its file then read as dark
+law theme_export_page_example:
+  {painted.page(TPalette.parse(blank.paged())) == Some{Co.Rgb{255, 255, 255}} : Maybe<&2, Co.Rgb>} & {painted.light(TPalette.parse(blank.paged())) == True{} : Bool}
 
 # LAW theme_required_spec (R3): a token is required exactly when it is none of refinementHeader,
 # refinementSummary, mdBody, background, foreground, for every token
