@@ -6,12 +6,14 @@
 //! exact decimals, as text.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context as _;
 use eukhe_bend::rules::autoresearch::{
     Config, Direction, Effect, Event, Metric, Mode, RunRow, Snapshot, Status,
 };
+use eukhe_shell::Steps;
 use serde_json::{json, Value};
 
 use super::git::{self, ensure_branch, Branch, Workspace};
@@ -145,13 +147,17 @@ impl Autoresearch {
     }
 
     /// Run the benchmark once (`Start`, a `Line` per output line,
-    /// `Finish`). A run whose script was refused stays unfinished: the
-    /// next run abandons it.
+    /// `Finish`), each step through `steps`. A run whose script was
+    /// refused stays unfinished: the next run abandons it.
     ///
     /// # Errors
     ///
     /// [`super::Refused`] (no session yet), a store, run or core failure.
-    pub(crate) async fn run(&self, timeout: Duration) -> anyhow::Result<Reply> {
+    pub(crate) async fn run(
+        &self,
+        timeout: Duration,
+        steps: Arc<impl Steps + Send + 'static>,
+    ) -> anyhow::Result<Reply> {
         let mut session = self.session().await?;
         let started = session.opened()?.lab.snapshot()?.runs.len();
         let run = u32::try_from(started)
@@ -162,7 +168,7 @@ impl Autoresearch {
         let log = session.opened()?.store.run_dir(run)?.join("benchmark.log");
         let gate = (self.gate)();
         let root = session.workspace.root.clone();
-        let end = runner::run(gate, root, &log, timeout, |text| {
+        let end = runner::run(gate, steps, root, &log, timeout, |text| {
             session
                 .accept(&Event::Line { text }, Durability::Buffered)
                 .map(drop)
