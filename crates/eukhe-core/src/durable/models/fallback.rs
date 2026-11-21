@@ -1,12 +1,16 @@
 //! Model fallback on the durable path: when a request's model cannot go on
 //! (its retries ran out, its provider's login expired, its usage limit
 //! holds), the provider runtime ([`super::provider`]) moves the request to
-//! another model the user configured whose provider has credentials. This
-//! module gathers those candidates ([`configured_models`]) and asks the
-//! compiled core which one ([`step`]: `bend/fallback.bend`,
-//! `eukhe_bend::rules::fallback`; laws `laws/fallback.bend`). Eukhe never
-//! signs in by itself: a provider without credentials is no candidate.
+//! another model the user configured whose provider has credentials, else
+//! to the default model of another provider the user is signed in to. This
+//! module gathers those candidates ([`configured_models`]) and defaults
+//! ([`signed_in_defaults`]), asks the compiled core which one ([`step`]:
+//! `bend/fallback.bend`, `eukhe_bend::rules::fallback`; laws
+//! `laws/fallback.bend`), and writes the report of a run that ends
+//! ([`end_report`]). Eukhe never signs in by itself: a provider without
+//! credentials is no candidate.
 
+use eukhe_ai::quirks::provider_defaults;
 use eukhe_bend::rules::fallback::{self as rules, Choice, Why};
 use eukhe_bend::{expect_core, Entry};
 use eukhe_types::ai::Model as RegistryModel;
@@ -23,12 +27,13 @@ use crate::settings::SettingsManager;
 pub enum Step {
     /// The run's own retry goes on with the model.
     Keep,
-    /// The request goes on with the candidate at this place.
+    /// The request goes on with the model at this place of the candidates,
+    /// then the defaults.
     Switch(usize),
     /// The request waits for the usage limit's reset at `until_ms`.
     Hold { until_ms: u64 },
-    /// The request ends with the failure.
-    End,
+    /// The request ends with this failure: the cause its report names.
+    End(Why),
 }
 
 /// The models the user configured, in the order a failed request tries
@@ -90,14 +95,34 @@ pub fn configured_references(
     references
 }
 
-/// What a request does after its model failed for `why`, with the
-/// `candidates` in order and the models it already `tried` (its own model
-/// first) (`rules::choose`). Each model is named by its first place in
-/// `candidates`, then in `tried`.
+/// The default model of each provider the user is signed in to, in
+/// provider id order: each is one of `available` (its provider has
+/// credentials) and the provider's default
+/// ([`eukhe_ai::quirks::provider_defaults`]).
 #[must_use]
-pub fn step(why: Why, candidates: &[Model], tried: &[Model]) -> Step {
-    let ids: Vec<String> = candidates
+pub fn signed_in_defaults(available: &[Model]) -> Vec<Model> {
+    provider_defaults()
+        .filter_map(|(provider, id)| {
+            available
+                .iter()
+                .find(|model| model.provider == provider && model.id == id)
+                .cloned()
+        })
+        .collect()
+}
+
+/// What a request does after its model failed for `why`, with the
+/// configured `candidates` in order, the signed-in `defaults` in order,
+/// and the models it already `tried` (its own model first)
+/// (`rules::choose`). Each model is named by its first place in
+/// `candidates`, then `defaults`, then `tried`; a switch names its place
+/// in `candidates` then `defaults`.
+#[must_use]
+pub fn step(why: Why, candidates: &[Model], defaults: &[Model], tried: &[Model]) -> Step {
+    let offered: Vec<&Model> = candidates.iter().chain(defaults).collect();
+    let ids: Vec<String> = offered
         .iter()
+        .copied()
         .chain(tried)
         .map(model_reference)
         .collect();
@@ -110,18 +135,39 @@ pub fn step(why: Why, candidates: &[Model], tried: &[Model]) -> Step {
         u64::try_from(at).unwrap_or(u64::MAX)
     };
     let candidate_ids: Vec<u64> = candidates.iter().map(id).collect();
+    let default_ids: Vec<u64> = defaults.iter().map(id).collect();
     let tried_ids: Vec<u64> = tried.iter().map(id).collect();
     match expect_core(
         Entry::Fallback,
-        rules::choose(why, &candidate_ids, &tried_ids),
+        rules::choose(why, &candidate_ids, &default_ids, &tried_ids),
     ) {
         Choice::Keep => Step::Keep,
         Choice::Switch(at) => usize::try_from(at)
             .ok()
-            .filter(|at| *at < candidates.len())
-            .map_or(Step::End, Step::Switch),
+            .filter(|at| *at < offered.len())
+            .map_or(Step::End(why), Step::Switch),
         Choice::Hold { until_ms } => Step::Hold { until_ms },
-        Choice::End => Step::End,
+        Choice::End(cause) => Step::End(cause),
+    }
+}
+
+/// The fix an end report on a provider without a usable login names,
+/// before the provider's id.
+pub(crate) const LOGIN_FIX: &str = "Fix: run eukhe and type /login";
+
+/// The report of a request that ended because `from` failed for `cause`
+/// ([`Step::End`]) and no other model could take it: the cause and the
+/// one command that fixes it. `None` for a cause with no such command
+/// (the provider's own failure stands).
+#[must_use]
+pub fn end_report(cause: Why, from: &Model, error: &str) -> Option<String> {
+    match cause {
+        Why::Login => Some(format!(
+            "The run ended: {}, and no other signed-in provider can take the run. {LOGIN_FIX} {}",
+            reason(cause, from, error),
+            from.provider
+        )),
+        Why::Failed { .. } | Why::Quota { .. } | Why::Unset => None,
     }
 }
 
@@ -209,19 +255,45 @@ mod tests {
         );
     }
 
-    /// The core's choice names a candidate model by its place: past the
-    /// tried ones.
+    /// The default model of every provider with credentials, in provider
+    /// id order: another model of a signed-in provider is none, nor is the
+    /// default of a provider without credentials.
     #[test]
-    fn the_step_names_the_first_untried_candidate() {
+    fn defaults_are_the_signed_in_providers_default_models() {
+        let default = |provider: &str| {
+            model(
+                provider,
+                eukhe_ai::quirks::provider_default_model(provider).unwrap(),
+            )
+        };
+        let available = [
+            model("openai-codex", "not-the-default"),
+            default("openai-codex"),
+            default("anthropic"),
+            model("faux", "f-1"),
+        ];
+        assert_eq!(
+            signed_in_defaults(&available),
+            [default("anthropic"), default("openai-codex")]
+        );
+    }
+
+    /// The core's choice names a model by its place: past the tried ones,
+    /// the candidates first, then the defaults; an end carries its cause.
+    #[test]
+    fn the_step_names_the_first_untried_candidate_then_default() {
         let candidates = [model("p", "a"), model("q", "b"), model("r", "c")];
         let [a, b, c] = &candidates;
+        let defaults = [b.clone(), model("s", "d")];
         assert_eq!(
             [
-                step(Why::Login, &candidates, &candidates[..1]),
-                step(Why::Login, &candidates, &candidates),
+                step(Why::Login, &candidates, &[], &candidates[..1]),
+                step(Why::Login, &candidates, &[], &candidates),
+                step(Why::Login, &candidates, &defaults, &candidates),
                 step(
                     Why::Quota { until_ms: 7 },
                     &candidates,
+                    &[],
                     &[c.clone(), a.clone(), b.clone()]
                 ),
                 step(
@@ -230,14 +302,44 @@ mod tests {
                         retries: 3
                     },
                     &candidates,
+                    &defaults,
                     &candidates[..1]
                 ),
             ],
             [
                 Step::Switch(1),
-                Step::End,
+                Step::End(Why::Login),
+                Step::Switch(4),
                 Step::Hold { until_ms: 7 },
                 Step::Keep
+            ]
+        );
+    }
+
+    /// An end on a provider without a usable login names the cause and
+    /// the command that signs in again; every other end keeps the
+    /// provider's own failure.
+    #[test]
+    fn an_end_on_a_login_names_the_login_command() {
+        let from = model("anthropic", "claude-haiku-4-5");
+        assert_eq!(
+            [
+                end_report(Why::Login, &from, "OAuth refresh failed for anthropic: 400"),
+                end_report(
+                    Why::Failed {
+                        failures: 4,
+                        retries: 3
+                    },
+                    &from,
+                    "overloaded"
+                ),
+            ],
+            [
+                Some(
+                    "The run ended: anthropic has no usable login (OAuth refresh failed for anthropic: 400), and no other signed-in provider can take the run. Fix: run eukhe and type /login anthropic"
+                        .to_owned()
+                ),
+                None,
             ]
         );
     }

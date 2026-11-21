@@ -22,8 +22,8 @@ def fbr.answer_ok(c: Fb.Choice) -> {LawsBase.wire_opens_err(FFb.put_choice(c)) =
       Wire.wire_nat_not_err(1n, Wr.put_nat(m, ""))
     case Fb.Hold{until}:
       Wire.wire_nat_not_err(2n, Wr.put_nat(until, ""))
-    case Fb.End{}:
-      Wire.wire_nat_not_err(3n, "")
+    case Fb.End{k}:
+      Wire.wire_nat_not_err(3n, FFb.put_why(k, ""))
 
 def fbr.parsed(r: Maybe<&2, Fb.In>, bad: {LawsBase.wire_opens_err(FFb.ffi.parsed(r)) == True{} : Bool}) -> {FFb.ffi.parsed(r) == Wr.err("fallback: malformed request") : String}:
   match r:
