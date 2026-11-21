@@ -1,6 +1,5 @@
 //! The shell's effect vocabulary (S7): the effects of one step of a
-//! `bash` script (a set). [`AutoSet`] and [`ShellAnswer`] stay only for
-//! the compiled core's approval wrappers, which go with them.
+//! `bash` script (a set).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -160,46 +159,6 @@ impl<'de> Deserialize<'de> for ShellEffects {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Self::of(&Vec::<ShellEffect>::deserialize(deserializer)?))
     }
-}
-
-/// The effects the user lets run without asking (`shell.autoEffects`);
-/// every effect may sit in it. The gate (`eukhe_bend::rules::shell`)
-/// decides with it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct AutoSet(ShellEffects);
-
-impl AutoSet {
-    /// The auto set of `effects`.
-    pub fn new(effects: impl IntoIterator<Item = ShellEffect>) -> Self {
-        Self(
-            effects
-                .into_iter()
-                .fold(ShellEffects::NONE, ShellEffects::with),
-        )
-    }
-
-    /// The effects the set holds.
-    #[must_use]
-    pub fn effects(self) -> ShellEffects {
-        self.0
-    }
-}
-
-/// How an approval question of the compiled core's approval desk ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellAnswer {
-    /// A client approved the step, or the session runs only from the
-    /// phone gateway and the step is not guarded: it runs.
-    Approve,
-    /// A client denied the step.
-    Deny,
-    /// No session up the chain had a client that answered: a denial.
-    Unanswered,
-    /// The session runs only from the phone gateway, and the step writes a
-    /// protected path ([`ShellEffect::Protected`]) that the narrowed auto
-    /// set does not run: refused at once.
-    GatewayRefused,
 }
 
 #[cfg(test)]

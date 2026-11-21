@@ -9,32 +9,27 @@ import ./base.bend as LawsBase
 
 # ---- shell ----
 
-# LAWS (G2, compiled core): the approval gate of a shell step runs as the
+# LAWS (G2, compiled core): the verdict of a shell step runs as the
 # compiled model (bend/ffi_shell.bend over bend/tools.bend part 4; Rust:
 # crates/eukhe-bend/src/rules/shell.rs, called by crates/eukhe-shell/src/
-# run.rs for each step and by the document tools' gate). The entry laws
-# are open claims about FSh.ffi, stated with spec spellers built only from
-# the wire primitives of bend/wire.bend and bend/wire_flat.bend (their
-# round trips: laws/wire.bend); the decision laws (R3-R5) state what the
-# model's decision is, by properties written from the requirement, never
-# by a copy of the model.
+# run.rs for each step). The entry laws are open claims about FSh.ffi,
+# stated with spec spellers built only from the wire primitives of
+# bend/wire.bend and bend/wire_flat.bend (their round trips:
+# laws/wire.bend); the decision laws (R3, R7, R8) state what the model's
+# decision is, by properties written from the requirement, never by a
+# copy of the model.
 #
 # R1: a request Rust writes reads back whole and the entry answers it with
-#     the model's decision: a step's effects (`Tl.join` of its parts'
-#     effects) and whether it runs unasked (`Tl.within`), whether effects
-#     run unasked, and what an answer to a gated step does (`Tl.gate`).
-# R2: every other input (an unknown tag, a part with no flag or a flag
-#     past 1, a number past the wire, a short list, input left over)
-#     answers exactly the error form "shell: malformed request".
+#     the model's decision: a step's effects (`Tl.pieces.effs`) and
+#     whether it runs (`Tl.verdict`).
+# R2: every other input (an unknown tag, tags 0 to 2 included, a part
+#     with no flag or a flag past 1, a number past the wire, a short list,
+#     input left over) answers exactly the error form "shell: malformed
+#     request".
 # R3: a step's effects are, part by part in order, the secret effect (6)
 #     when the part names a path that is or holds a secret, then the
 #     part's own codes other than 6, in order (only a named secret path
 #     gives 6).
-# R4: effects run unasked exactly when each is an effect code (0 read, 1
-#     write, 2 exec, 3 net, 4 outside, 5 protected, 6 secret: an auto set
-#     may hold any of them) and is in the auto set.
-# R5: the answer yes to a gated step lets it run (0); no stops the script
-#     at it (1, its id).
 # R6: the parts of a step travel as one flat list of Nats (bend/
 #     wire_flat.bend): each inner list's items as 1 + item, then the end
 #     mark 0; a flat list is read back exactly when it is such a spelling,
@@ -42,17 +37,14 @@ import ./base.bend as LawsBase
 # R7 (spec/README.md I2, I3): a step (tag 3, `verdict`) runs exactly when
 #     no part of it writes an own path (eukhe's own config and
 #     credentials, the session record, a protected file of a check); no
-#     auto set, answer or setting enters the verdict; its effects are
-#     those of R3. R4 and R5 are the approval gate's, kept until its last
-#     caller goes.
+#     setting enters the verdict; its effects are those of R3.
 # R8 (spec/README.md I3): a script runs its steps in order up to the first
 #     step that writes an own path; that step and every later one do not
 #     run, and the script ends stopped at that step's id; a script with no
 #     such step runs every step. A step planned from its parts carries the
 #     parts' effects (R3) and writes an own path exactly when its verdict
 #     (R7) refuses it.
-# Every input is free: any auto set, any parts, any effects, any step id,
-# any answer, any text.
+# Every input is free: any parts, any effects, any step id, any text.
 
 # Spec spellers
 # -------------
@@ -66,19 +58,6 @@ def spell_flag(b: Bool) -> Nat:
       1n
     case False{}:
       0n
-
-# a part as Rust writes it: its flag, then its own codes
-def spell_part(p: Tl.Part) -> List<&2, Nat>:
-  match p:
-    case Tl.Part{o, s}:
-      spell_flag(s) <> o
-
-def spell_parts(ps: List<&2, Tl.Part>) -> List<&2, List<&2, Nat>>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case p <> rest:
-      spell_part(p) <> spell_parts(rest)
 
 # a part as the verdict question spells it: its secret flag, its own-write
 # flag, then its own codes
@@ -97,12 +76,6 @@ def spell_pieces(ps: List<&2, Tl.Piece>) -> List<&2, List<&2, Nat>>:
 # the request q as Rust writes it, then rest
 def spell_req(q: FSh.Req, rest: String) -> String:
   match q:
-    case FSh.QStep{a, ps}:
-      Wr.put_nat(0n, spell_ns(a, spell_ns(Fl.flat(spell_parts(ps)), rest)))
-    case FSh.QAllows{a, es}:
-      Wr.put_nat(1n, spell_ns(a, spell_ns(es, rest)))
-    case FSh.QAnswer{i, y}:
-      Wr.put_nat(2n, Wr.put_nat(i, Wr.put_bool(y, rest)))
     case FSh.QVerdict{ps}:
       Wr.put_nat(3n, spell_ns(Fl.flat(spell_pieces(ps)), rest))
 
@@ -113,12 +86,6 @@ def ns_fit(+xs: List<&2, Nat>) -> Bool:
 # every number of a request fits the wire
 def req_fits(q: FSh.Req) -> Bool:
   match q:
-    case FSh.QStep{a, ps}:
-      Bool.and(ns_fit(a), ns_fit(Fl.flat(spell_parts(ps))))
-    case FSh.QAllows{a, es}:
-      Bool.and(ns_fit(a), ns_fit(es))
-    case FSh.QAnswer{i, y}:
-      LawsBase.wire_fits(i)
     case FSh.QVerdict{ps}:
       ns_fit(Fl.flat(spell_pieces(ps)))
 
@@ -151,26 +118,9 @@ def pieces_parts(ps: List<&2, Tl.Piece>) -> List<&2, Tl.Part>:
     case p <> rest:
       piece_part(p) <> pieces_parts(rest)
 
-# what an answer does: the step runs (0), or the script stops at it (1, id)
-def spell_end(e: Tl.End) -> String:
-  match e:
-    case Tl.Finished{}:
-      Wr.put_nat(0n, "")
-    case Tl.Denied{i}:
-      Wr.put_nat(1n, Wr.put_nat(i, ""))
-
 # the model's decision on q, spelled: a step's effects and whether it runs
-# unasked; whether effects run unasked; what the user's answer y to the
-# gated step i does
 def spell_answer(q: FSh.Req) -> String:
   match q:
-    case FSh.QStep{+a, ps}:
-      +es = Tl.join(Tl.parts.effs(ps))
-      spell_ns(es, Wr.put_bool(Tl.within(es, a), ""))
-    case FSh.QAllows{+a, es}:
-      Wr.put_bool(Tl.within(es, a), "")
-    case FSh.QAnswer{i, y}:
-      spell_end(Tl.Ran.end(Tl.gate(y, Tl.Step{i, Nil{}}, Tl.Ran{Nil{}, Tl.Finished{}})))
     case FSh.QVerdict{+ps}:
       spell_ns(Tl.pieces.effs(ps), Wr.put_nat(spell_verdict(Tl.verdict(ps)), ""))
 
@@ -178,8 +128,8 @@ def spell_answer(q: FSh.Req) -> String:
 def malformed() -> String:
   SCon{'E', SCon{' ', "shell: malformed request"}}
 
-# Laws: the entry (R1, R2, R5)
-# ----------------------------
+# Laws: the entry (R1, R2)
+# ------------------------
 
 # LAW shell_ffi_answers: every request Rust writes (every number within the wire) gets the model's decision
 # EXCLUDES: a request Rust writes refused or misread (the reader and the
@@ -199,9 +149,9 @@ law shell_ffi_left_over:
   {FSh.ffi(spell_req(q, more)) == malformed() : String}
 
 # LAW shell_ffi_reads_only_requests (R2): every input the entry does not answer with an error is exactly one request Rust writes (spelled by spell_req from the wire primitives, nothing after it) whose every number fits the wire
-# EXCLUDES: an answer for input that is no request: an unknown tag (4 or
-#   more), a part with no flag or a flag past 1, a short list, a number
-#   past the wire, a Bool that is no T or F, input left over
+# EXCLUDES: an answer for input that is no request: an unknown tag (0 to
+#   2, 4 or more), a part with no flag or a flag past 1, a short list, a
+#   number past the wire, input left over
 law shell_ffi_reads_only_requests:
   for +s: String
   for ok: {LawsBase.wire_opens_err(FSh.ffi(s)) == False{} : Bool}
@@ -215,23 +165,13 @@ law shell_ffi_refuses:
   for bad: {LawsBase.wire_opens_err(FSh.ffi(s)) == True{} : Bool}
   {FSh.ffi(s) == malformed() : String}
 
-# LAW shell_answer_ends (R5): the entry answers the user's yes to the gated step i (i within the wire) with 0 (the step runs), and a no with 1 then i (the script stops at step i)
-# EXCLUDES: a yes that stops the script, a no that lets the step run, a
-#   stop at another step than the one asked
-law shell_answer_ends:
-  for +i: Nat
-  for fits: {LawsBase.wire_fits(i) == True{} : Bool}
-  {FSh.ffi(spell_req(FSh.QAnswer{i, True{}}, "")) == Wr.put_nat(0n, "") : String} &
-  {FSh.ffi(spell_req(FSh.QAnswer{i, False{}}, "")) == Wr.put_nat(1n, Wr.put_nat(i, "")) : String}
-
-# LAW shell_ffi_example: anchor: the strings Rust sends: a step of a part {read, exec} and a part {read} that names a secret, under the auto set {write}; effects {read} under {read}; a denied and an approved answer to step 4; a part with flag 2 and an unknown tag are refused
-# EXCLUDES: another spelling of a request or a reply
+# LAW shell_ffi_example: anchor: the strings Rust sends: a part {read} runs; a part {write, protected} that writes an own path is refused; the tags 0 to 2 (the approval gate's) and 4, and a part with own-write flag 2, are refused
+# EXCLUDES: another spelling of a request or a reply, an approval gate
+#   question answered
 law shell_ffi_example:
-  {FSh.ffi("0,1,1,7,1,1,3,0,2,1,0,") == "4,0,2,6,0,F" : String} &
-  {FSh.ffi("1,1,0,1,0,") == "T" : String} &
-  {FSh.ffi("2,4,F") == "1,4," : String} &
-  {FSh.ffi("2,4,T") == "0," : String} &
-  {FSh.ffi("0,0,2,3,0,") == malformed() : String} &
+  {FSh.ffi("0,1,1,7,1,1,3,0,2,1,0,") == malformed() : String} &
+  {FSh.ffi("1,1,0,1,0,") == malformed() : String} &
+  {FSh.ffi("2,4,T") == malformed() : String} &
   {FSh.ffi("4,") == malformed() : String} &
   {FSh.ffi("3,4,1,1,1,0,") == "1,0,0," : String} &
   {FSh.ffi("3,5,1,2,2,6,0,") == "2,1,5,1," : String} &
@@ -242,9 +182,9 @@ law shell_ffi_example:
 # The entry answers Tl.verdict(ps) for a step of parts ps
 # (shell_ffi_answers). These laws fix it for every ps: a step with no
 # part runs; one part is refused exactly when it writes an own path;
-# parts in a row are refused exactly when one of them is. No auto set, no
-# answer and no setting enters it: every other step runs unasked (I2), a
-# step that writes an own path is refused (I3).
+# parts in a row are refused exactly when one of them is. No setting
+# enters it: every other step runs unasked (I2), a step that writes an
+# own path is refused (I3).
 
 # LAW shell_verdict_none (R7): a step with no part runs
 # EXCLUDES: an empty step refused
@@ -338,7 +278,8 @@ law shell_script_stops:
 # Laws: a step's effects (R3)
 # ---------------------------
 # The effects the entry answers for a step of parts ps are
-# Tl.join(Tl.parts.effs(ps)) (shell_ffi_answers). These five laws fix that
+# Tl.join(Tl.parts.effs(ps)) of the parts without their own-write fact
+# (shell_ffi_answers, shell_verdict_effects). These five laws fix that
 # list for every ps: the effects of parts in a row are each part's in turn;
 # a part's are 6 first when it names a secret path, then its own codes'
 # effects, which are code by code each code other than 6.
@@ -378,49 +319,6 @@ law shell_effects_own_code:
 law shell_effects_own_six:
   {Tl.join(Tl.parts.effs([Tl.Part{[6n], False{}}])) == Nil{} : List<&2, Nat>} &
   {Tl.join(Tl.parts.effs([Tl.Part{Nil{}, False{}}])) == Nil{} : List<&2, Nat>}
-
-# Laws: whether effects run unasked (R4)
-# --------------------------------------
-# The entry answers Tl.within(es, auto) (shell_ffi_answers). These laws
-# fix it for every es and auto: no effect runs unasked; effects in a row
-# run unasked when each part of the row does; one effect c runs unasked
-# exactly when c is a code 0 to 6 and auto holds c somewhere.
-
-# LAW shell_within_concat (R4): the effects es then fs run unasked exactly when es runs unasked and fs runs unasked
-# EXCLUDES: one effect outside the auto set run unasked when others are
-#   inside, only the first or last effect checked
-law shell_within_concat:
-  for +es: List<&2, Nat>
-  for +fs: List<&2, Nat>
-  for +auto: List<&2, Nat>
-  {Tl.within(List.append(&2, Nat, es, fs), auto) == Bool.and(Tl.within(es, auto), Tl.within(fs, auto)) : Bool}
-
-# LAW shell_within_none (R4): no effect runs unasked under every auto set
-# EXCLUDES: a step with no effect asked
-law shell_within_none:
-  for auto: List<&2, Nat>
-  {Tl.within(Nil{}, auto) == True{} : Bool}
-
-# LAW shell_within_one_in (R4): an effect code c from 0 to 6 that the auto set holds (at any place: auto is pre, c, post) runs unasked
-# EXCLUDES: an effect in the auto set asked, an auto set read only up to
-#   its first or from its last item, a code 4 to 6 never granted
-law shell_within_one_in:
-  for +c: Nat
-  for +pre: List<&2, Nat>
-  for +post: List<&2, Nat>
-  for code: {Nat.is_lt(c, 7n) == True{} : Bool}
-  {Tl.within([c], List.append(&2, Nat, pre, c <> post)) == True{} : Bool}
-
-# LAW shell_within_one_out (R4): an effect c that runs unasked is an effect code (below 7) that the auto set holds: auto is pre, c, post for some pre and post
-# EXCLUDES: an effect outside the auto set run unasked, an unknown code (7
-#   or more) run unasked though an auto set holds it
-law shell_within_one_out:
-  for +c: Nat
-  for +auto: List<&2, Nat>
-  for runs: {Tl.within([c], auto) == True{} : Bool}
-  exs pre: List<&2, Nat>
-  exs post: List<&2, Nat>
-  {auto == List.append(&2, Nat, pre, c <> post) : List<&2, Nat>} & {Nat.is_lt(c, 7n) == True{} : Bool}
 
 # Laws: the flat parts (R6)
 # -------------------------

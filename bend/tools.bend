@@ -17,8 +17,7 @@
 #    a part of which writes an own path (eukhe's own config and
 #    credentials, the session record, a protected file of a check): it is
 #    refused, and the script stops at it: it and no later step runs
-#    (`verdict`, `script`). The approval gate of the auto set (`within`,
-#    `exec`) stays only for the callers that still ask it.
+#    (`verdict`, `script`).
 #
 # A recursive scan takes the test of its first item as a parameter (Bend
 # matches only parameters); `*.at` computes that test.
@@ -211,59 +210,13 @@ def stays(segs: List<&2, Seg>, d: Nat) -> Bool:
             case 1n+e:
               stays(rest, e)
 
-# 4. The approval gate
-# --------------------
+# 4. The shell step
+# -----------------
 
 # Effect codes: 0 read, 1 write, 2 exec, 3 net, 4 outside, 5 protected,
-# 6 secret (an auto set may hold every effect; the names the setting
-# lists decide). A step: its id and its effects.
+# 6 secret. A step: its id and its effects.
 type Step is Data:
   Step{id: Nat, effs: List<&2, Nat>}
-
-def Step.effs(s: Step) -> List<&2, Nat>:
-  match s:
-    case Step{i, e}:
-      e
-
-# an auto set may hold effect c: every effect
-def grantable(c: Nat) -> Bool:
-  match c:
-    case 0n:
-      True{}
-    case 1n+a:
-      match a:
-        case 0n:
-          True{}
-        case 1n+b:
-          match b:
-            case 0n:
-              True{}
-            case 1n+d:
-              match d:
-                case 0n:
-                  True{}
-                case 1n+e:
-                  match e:
-                    case 0n:
-                      True{}
-                    case 1n+f:
-                      match f:
-                        case 0n:
-                          True{}
-                        case 1n+g:
-                          match g:
-                            case 0n:
-                              True{}
-                            case 1n+h:
-                              False{}
-
-# every effect of effs may be in an auto set and is in auto
-def within(effs: List<&2, Nat>, +auto: List<&2, Nat>) -> Bool:
-  match effs:
-    case Nil{}:
-      True{}
-    case +c <> rest:
-      Bool.and(Bool.and(grantable(c), elem(auto, c)), within(rest, auto))
 
 # the effects of a step made of parts: every effect of every part
 def join(ps: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
@@ -328,66 +281,6 @@ def parts.secret(ps: List<&2, Part>) -> Bool:
       False{}
     case p <> rest:
       Bool.or(Part.secret(p), parts.secret(rest))
-
-type End is Data:
-  Finished{}       # every step ran
-  Denied{at: Nat}  # the user denied step `at`; it and later steps did not run
-
-# How a script ran: the steps that ran, in order, and how it ended
-type Ran is Data:
-  Ran{steps: List<&2, Step>, end: End}
-
-def Ran.steps(r: Ran) -> List<&2, Step>:
-  match r:
-    case Ran{s, e}:
-      s
-
-def ran.add(+s: Step, r: Ran) -> Ran:
-  match r:
-    case Ran{ss, e}:
-      Ran{s <> ss, e}
-
-# the step runs without a question: its effects are within the auto set
-def auto.at(+auto: List<&2, Nat>, +s: Step) -> Bool:
-  within(Step.effs(s), auto)
-
-# a gated step with answer a (True: the user approves), then the rest
-def gate(a: Bool, +s: Step, rest: Ran) -> Ran:
-  match a:
-    case True{}:
-      ran.add(s, rest)
-    case False{}:
-      match s:
-        case Step{i, e}:
-          Ran{Nil{}, Denied{i}}
-
-# the first step of ss has an effect in the auto set
-def free.at(+ss: List<&2, Step>, +auto: List<&2, Nat>) -> Bool:
-  match ss:
-    case Nil{}:
-      False{}
-    case s <> rest:
-      auto.at(auto, s)
-
-# run steps with the auto set; free is free.at(ss, auto); answers are the
-# user's answers to the gated steps, in order (no answer left: a denial)
-def exec.go(ss: List<&2, Step>, +auto: List<&2, Nat>, free: Bool, answers: List<&2, Bool>) -> Ran:
-  match ss:
-    case Nil{}:
-      Ran{Nil{}, Finished{}}
-    case +s <> +rest:
-      match free:
-        case True{}:
-          ran.add(s, exec.go(rest, auto, free.at(rest, auto), answers))
-        case False{}:
-          match answers:
-            case Nil{}:
-              gate(False{}, s, Ran{Nil{}, Finished{}})
-            case a <> more:
-              gate(a, s, exec.go(rest, auto, free.at(rest, auto), more))
-
-def exec(+ss: List<&2, Step>, +auto: List<&2, Nat>, answers: List<&2, Bool>) -> Ran:
-  exec.go(ss, auto, free.at(ss, auto), answers)
 
 # A part of a step as its verdict reads it: its own effect codes, whether
 # it names a path that is or holds a secret, and whether it writes an own
@@ -474,69 +367,3 @@ def script(ss: List<&2, Planned>) -> Did:
               Did{Nil{}, StoppedAt{i}}
             case False{}:
               did.add(Step{i, e}, script(rest))
-
-# What the laws speak of
-# ----------------------
-
-def Ran.end(r: Ran) -> End:
-  match r:
-    case Ran{s, e}:
-      e
-
-def Step.id(s: Step) -> Nat:
-  match s:
-    case Step{i, e}:
-      i
-
-def step.eq(a: Step, b: Step) -> Bool:
-  match a:
-    case Step{i, e}:
-      match b:
-        case Step{j, f}:
-          Bool.and(Nat.is_eq(i, j), ids.eq(e, f))
-
-# xs is a prefix of ys
-def prefix(xs: List<&2, Step>, ys: List<&2, Step>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case x <> xr:
-      match ys:
-        case Nil{}:
-          False{}
-        case y <> yr:
-          Bool.and(step.eq(x, y), prefix(xr, yr))
-
-# the number of approvals among the answers
-def yeses(xs: List<&2, Bool>) -> Nat:
-  match xs:
-    case Nil{}:
-      0n
-    case x <> rest:
-      match x:
-        case True{}:
-          1n+yeses(rest)
-        case False{}:
-          yeses(rest)
-
-def gated.one(free: Bool) -> Nat:
-  match free:
-    case True{}:
-      0n
-    case False{}:
-      1n
-
-# the number of steps of ss whose effect is not in the auto set
-def gated(ss: List<&2, Step>, +auto: List<&2, Nat>) -> Nat:
-  match ss:
-    case Nil{}:
-      0n
-    case +s <> rest:
-      Nat.add(gated.one(auto.at(auto, s)), gated(rest, auto))
-
-def End.finished(e: End) -> Bool:
-  match e:
-    case Finished{}:
-      True{}
-    case Denied{i}:
-      False{}
