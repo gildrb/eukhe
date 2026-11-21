@@ -49,16 +49,18 @@
 #                                     command_ffi_menu_reads_spelled,
 #                                     command_ffi_out_reads_spelled,
 #                                     command_ffi_reply_example
-#   R14i the entry's own encoders write exactly the grammar's spelling of
-#        every request and reply they are given, fitting the wire or not
-#        (an encoder never rewrites what it is given: a place past the
-#        wire is written as it is, and the reader refuses it); every
-#        request and reply that fits reads back whole, the rest untouched;
-#        a request with input after it is refused
+#   R14i the entry's own encoders never rewrite what they are given,
+#        fitting the wire or not: the request, resolve and menu encoders
+#        write exactly the grammar's spelling (a place past the wire is
+#        written as it is, and the reader refuses it), and every key reply
+#        the key encoder writes reads back as itself when it fits and as
+#        no reply otherwise, never as another reply; every request and
+#        reply that fits reads back whole, the rest untouched; a request
+#        with input after it is refused
 #                                     command_ffi_req_spells,
 #                                     command_ffi_res_spells,
 #                                     command_ffi_menu_spells,
-#                                     command_ffi_out_spells,
+#                                     command_ffi_out_back,
 #                                     command_ffi_round_trip,
 #                                     command_ffi_left_over,
 #                                     command_ffi_res_round_trip,
@@ -147,6 +149,11 @@ def cmd_out_fits(o: FCmd.OutW) -> Bool:
   match o:
     case FCmd.OutW{l, a, b}:
       LawsBase.wire_fits(String.length(l))
+
+# what the key reply reader gives back for the key reply x, then rest: x
+# and the rest when x fits the wire, no reply otherwise
+def cmd_out_back(+x: FCmd.OutW, rest: String) -> Wr.Dec<FCmd.OutW>:
+  Bool.pick(Wr.Dec<FCmd.OutW>, cmd_out_fits(x), Wr.Got{x, rest}, Wr.Bad{})
 
 # the menu reader's answer is a menu, not Bad
 def cmd_menu_got(d: Wr.Dec<FCmd.MenuW>) -> Bool:
@@ -427,15 +434,17 @@ law command_ffi_menu_spells:
   for +rest: String
   {FCmd.put_menu(x, rest) == cmd_spell_menuw(x, rest) : String}
 
-# LAW command_ffi_out_spells: the entry's key reply encoder (put_out)
-# writes the grammar's spelling of every key reply, fitting the wire or
-# not, then the rest
+# LAW command_ffi_out_back: every key reply the entry's key encoder
+# (put_out) writes, then any rest, reads back with the key reply reader
+# as itself and the rest when it fits the wire, and as no reply when it
+# does not: never as another key reply
 # EXCLUDES: an encoder that rewrites a key reply past the wire into
-#   another one (a long line cut or emptied)
-law command_ffi_out_spells:
+#   another one (a long line cut or emptied, read back as a reply the
+#   model did not give)
+law command_ffi_out_back:
   for +x: FCmd.OutW
   for +rest: String
-  {FCmd.put_out(x, rest) == cmd_spell_outw(x, rest) : String}
+  {FCmd.get_out(FCmd.put_out(x, rest)) == cmd_out_back(x, rest) : Wr.Dec<FCmd.OutW>}
 
 # Laws: the spelled entry
 # -----------------------
