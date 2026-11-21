@@ -299,6 +299,10 @@ pub struct AcceptanceEnd {
     pub at: u64,
     /// When it ended (ms since the epoch).
     pub ended_at: u64,
+    /// The returns in a row to the worker the claim made before it ended
+    /// (an end clears the count the state carries).
+    #[serde(default)]
+    pub returns: u64,
 }
 
 /// The acceptance of one conversation as every surface reads it (the

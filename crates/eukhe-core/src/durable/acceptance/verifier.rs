@@ -58,7 +58,7 @@ use futures::FutureExt;
 use serde_json::json;
 
 use super::docs::{mark_of, strength_of, AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
-use super::evidence::{Gatherer, DEFAULT_CHECK_TIMEOUT_MS};
+use super::evidence::{Gatherer, Round, DEFAULT_CHECK_TIMEOUT_MS};
 use super::ops::{core_error, doc_parts, doc_state, label_of};
 use super::strength::{Breaker, Pass, Probe};
 use super::ACCEPTANCE_CUSTOM_TYPE;
@@ -133,7 +133,7 @@ enum Step {
         revision: u64,
         index: usize,
         check: Box<AcceptanceCheck>,
-        round: Vec<AcceptanceCheck>,
+        round: Round,
     },
     /// Every check passed: measure this check's strength on the state
     /// `at`, then record the mark for `revision`.
@@ -299,7 +299,11 @@ impl Verifier {
                                     revision: doc.revision,
                                     index,
                                     check: Box::new(check.clone()),
-                                    round: doc.checks.clone(),
+                                    round: Round {
+                                        checks: doc.checks.clone(),
+                                        at: now,
+                                        baseline: doc.baseline.clone(),
+                                    },
                                 }
                             }
                             Action::Rest => {
@@ -349,11 +353,15 @@ impl Verifier {
                                     }
                                     StrengthStep::End(label) => label_of(label),
                                 };
+                                // The end clears the tries: the returns the
+                                // claim made are read before it.
+                                let returns = doc.tries;
                                 doc.adopt(&next, None)?;
                                 doc.last_end = Some(AcceptanceEnd {
                                     label,
                                     at: now,
                                     ended_at: now_millis(),
+                                    returns,
                                 });
                                 doc.yield_record = Some(YieldRecord {
                                     task_id,
@@ -400,7 +408,7 @@ impl Verifier {
             runs += 1;
             let (verdict, mut result) = self
                 .gatherer
-                .check(conversation, &check, &round, now, cx)
+                .check(conversation, &check, &round, cx)
                 .await?;
             // The run itself may have written to the workspace (a build's
             // output, new at every run when a link fails): with no new

@@ -56,6 +56,9 @@ use crate::durable::goals::{goal_state, goals_extension, read_doc};
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::GoalStatus;
 
+mod commits;
+mod returns;
+
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
 }
@@ -160,20 +163,34 @@ impl GateCommandRunner for ScriptedRunner {
 struct ScriptedJudge {
     replies: Mutex<VecDeque<JudgeReply>>,
     requests: Mutex<Vec<JudgeRequest>>,
+    /// When set, the judge reads the evidence instead of its script: PASS
+    /// exactly when the evidence holds this text, else FAIL.
+    reads_for: Mutex<Option<String>>,
 }
 
 impl Judge for ScriptedJudge {
     fn judge(&self, request: JudgeRequest, _cx: &Context) -> BoxFuture<'_, JudgeReply> {
+        let reads_for = self
+            .reads_for
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let reply = match reads_for {
+            Some(text) if request.evidence.contains(&text) => {
+                JudgeReply::Text(format!("PASS\nthe evidence holds {text}"))
+            }
+            Some(text) => JudgeReply::Text(format!("FAIL\nthe evidence lacks {text}")),
+            None => self
+                .replies
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop_front()
+                .unwrap_or_else(|| JudgeReply::Unavailable("no scripted reply".to_owned())),
+        };
         self.requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request);
-        let reply = self
-            .replies
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pop_front()
-            .unwrap_or_else(|| JudgeReply::Unavailable("no scripted reply".to_owned()));
         async move { reply }.boxed()
     }
 }
@@ -627,6 +644,7 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
                 label: AcceptanceLabel::ChecksPassedUnconfined,
                 at,
                 ended_at: 0,
+                returns: 0,
             }),
         }
     );
@@ -723,95 +741,6 @@ async fn a_passing_check_that_catches_no_break_ends_not_certified() {
             .await
             .expect("exit"),
         1
-    );
-    harness.close(cx()).await.expect("close");
-}
-
-/// V7, V10: a refuted claim takes its evidence back to the worker while
-/// returns remain, then ends failed; the run never ends as success. A
-/// check that judged the state is not run again while the state stands.
-#[tokio::test]
-async fn a_refuted_claim_returns_its_evidence_then_ends_failed() {
-    let setup = setup();
-    let (harness, root) = setup.memory().await;
-    setup
-        .accept(&harness, &root, vec![command("cargo test")], Some(2))
-        .await;
-    setup.runner.script(vec![exited(1, "2 tests failed")]);
-    setup.faux.set_responses(vec![
-        answer("done"),
-        answer("it is done, really"),
-        answer("nothing to fix"),
-    ]);
-
-    run(&harness, &root, "do it").await;
-
-    let entries = entries(&root).await;
-    let texts = user_texts(&entries);
-    assert_eq!(texts.len(), 3, "{texts:?}");
-    assert_eq!(
-        texts[1],
-        "[acceptance: not verified] The harness checked your claim that the task is done: an acceptance check failed or could not judge the current state (return 1 of 2).\n\n1. command `cargo test` (expect exit 0): refuted: exited with code 1\n\n<evidence>\n2 tests failed\n</evidence>\n\nFix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. Every check runs again on the final state; only the task's owner sets checks."
-    );
-    assert!(texts[2].contains("(return 2 of 2)"), "{}", texts[2]);
-    assert_eq!(
-        user_origins(&entries),
-        vec![
-            InputOrigin::User,
-            InputOrigin::Director,
-            InputOrigin::Director
-        ]
-    );
-    let rows: Vec<String> = verdict_rows(&entries)
-        .into_iter()
-        .map(|(text, _, _)| text)
-        .collect();
-    assert_eq!(
-        rows,
-        vec![
-            "Acceptance not verified: check 1 refuted (exited with code 1). Returned to the worker (1 of 2).".to_owned(),
-            "Acceptance not verified: check 1 refuted (exited with code 1). Returned to the worker (2 of 2).".to_owned(),
-            "Acceptance failed: check 1 refuted (exited with code 1).".to_owned(),
-        ]
-    );
-    let got = state(&harness, &root).await;
-    assert_eq!(
-        (
-            got.label,
-            got.claimed,
-            got.tries,
-            got.last_end.map(|end| end.label)
-        ),
-        (
-            AcceptanceLabel::Failed,
-            false,
-            0,
-            Some(AcceptanceLabel::Failed)
-        )
-    );
-    // The state never moved: the check ran once.
-    assert_eq!(setup.runner.commands(), vec!["cargo test".to_owned()]);
-    assert_eq!(
-        acceptance_exit_code(&harness, root.id(), 0, cx())
-            .await
-            .expect("exit"),
-        1
-    );
-    // A new message of the user moves the state: the next final answer is
-    // a new claim, judged again on that state.
-    setup.runner.script(vec![exited(1, "2 tests failed")]);
-    setup.faux.set_responses(vec![
-        answer("you are welcome"),
-        answer("still nothing to fix"),
-        answer("still nothing to fix"),
-    ]);
-    run(&harness, &root, "thanks anyway").await;
-    let texts = user_texts(&self::entries(&root).await);
-    assert_eq!(texts[3], "thanks anyway");
-    assert_eq!(state(&harness, &root).await.label, AcceptanceLabel::Failed);
-    assert_eq!(
-        setup.runner.commands(),
-        vec!["cargo test".to_owned(), "cargo test".to_owned()]
     );
     harness.close(cx()).await.expect("close");
 }

@@ -5,10 +5,7 @@
 
 use std::path::Path;
 
-use super::super::workspace::git;
-
-/// git's empty tree: the baseline of a repository with no commit yet.
-const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+use super::super::workspace::{git, EMPTY_TREE};
 
 /// One file the task changed and its changed lines (from 1, as the file
 /// is now), in order.

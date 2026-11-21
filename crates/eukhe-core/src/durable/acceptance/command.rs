@@ -261,7 +261,9 @@ pub(crate) fn parse_accept_command(args: &str) -> Option<AcceptCommand> {
 }
 
 /// The acceptance as text: the label, then each check with its last
-/// verdict and, for a check with code to break, its strength.
+/// verdict and, for a check with code to break, its strength. The returns
+/// are those the last claim made before it ended while that end stands,
+/// else those of the claim now.
 ///
 /// # Errors
 ///
@@ -274,7 +276,10 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
         "Acceptance: {} (revision {}, returns {} of {}{}).",
         state.label.text(),
         state.revision,
-        state.tries,
+        state
+            .last_end
+            .as_ref()
+            .map_or(state.tries, |end| end.returns),
         state.max_returns,
         if state.claimed {
             ", a claim waits for its verdict"
