@@ -10,6 +10,7 @@
 use eukhe_bend::wire::{Reader, WireError, Writer};
 use eukhe_bend::{call, expect_core, Entry, Error};
 use eukhe_types::slash_commands::SESSION_SLASH_COMMAND_NAMES;
+use eukhe_types::undo::DiffScope;
 
 /// A phone command (case-insensitive name, exact argument count).
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +33,13 @@ pub(crate) enum PhoneCommand {
     ModelAll(Option<String>),
     /// `/restart`: start the gateway again on the installed build.
     Restart,
+    /// `/effects`: the session's ledger of irreversible effects.
+    Effects,
+    /// `/undo`: restore the workspace to the start of the last prompt.
+    Undo,
+    /// `/diff` (since the last prompt started) or `/diff all` (since the
+    /// session's first prompt).
+    Diff(DiffScope),
 }
 
 /// What one text message means to the gateway.
@@ -82,7 +90,7 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
     let reply = call(Entry::GatewayCommands, &request.finish()?)?;
     let mut reader = Reader::reply(&reply)?;
     let parsed = match reader.tag_of(3, "a message meaning")? {
-        0 => Parsed::Command(match reader.tag_of(12, "a phone command")? {
+        0 => Parsed::Command(match reader.tag_of(15, "a phone command")? {
             0 => PhoneCommand::Help,
             1 => PhoneCommand::Sessions,
             2 => PhoneCommand::Use(reader.str()?.to_owned()),
@@ -94,7 +102,13 @@ fn parse_call(text: &str) -> Result<Parsed, Error> {
             8 => PhoneCommand::Model(maybe_str(&mut reader)?),
             9 => PhoneCommand::Reasoning(maybe_str(&mut reader)?),
             10 => PhoneCommand::ModelAll(maybe_str(&mut reader)?),
-            11.. => PhoneCommand::Restart,
+            11 => PhoneCommand::Restart,
+            12 => PhoneCommand::Effects,
+            13 => PhoneCommand::Undo,
+            14.. => PhoneCommand::Diff(match reader.tag_of(2, "a diff scope")? {
+                0 => DiffScope::Turn,
+                1.. => DiffScope::All,
+            }),
         }),
         1 => Parsed::Answer(reader.str()?.to_owned()),
         2.. => Parsed::Prompt,
@@ -189,6 +203,38 @@ mod tests {
                 Parsed::Answer(
                     "Usage: /restart - Restart the gateway on the installed eukhe version (applies a downloaded update)."
                         .to_string()
+                ),
+            ]
+        );
+    }
+
+    /// `/effects` and `/undo` take no argument, `/diff` none or `all` as
+    /// written; other words get the usage line.
+    #[test]
+    fn effects_undo_and_diff_parse() {
+        let diff_usage = "Usage: /diff [all] - Show what changed since the last prompt started; all: since the first prompt.";
+        assert_eq!(
+            [
+                parse("/effects"),
+                parse("/Undo"),
+                parse("/diff"),
+                parse("/diff all"),
+                parse("/diff ALL"),
+                parse("/undo now"),
+                parse("/effects x"),
+            ],
+            [
+                Parsed::Command(PhoneCommand::Effects),
+                Parsed::Command(PhoneCommand::Undo),
+                Parsed::Command(PhoneCommand::Diff(DiffScope::Turn)),
+                Parsed::Command(PhoneCommand::Diff(DiffScope::All)),
+                Parsed::Answer(diff_usage.to_string()),
+                Parsed::Answer(
+                    "Usage: /undo - Restore the workspace to the start of the last prompt."
+                        .to_string()
+                ),
+                Parsed::Answer(
+                    "Usage: /effects - Show the irreversible effects this session ran.".to_string()
                 ),
             ]
         );

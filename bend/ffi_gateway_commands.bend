@@ -10,7 +10,8 @@
 #              | 7 memory | 8 model, then its argument (Maybe<String>)
 #              | 9 reasoning, then its argument (Maybe<String>)
 #              | 10 model all, then its argument (Maybe<String>)
-#              | 11 restart)
+#              | 11 restart | 12 effects | 13 undo
+#              | 14 diff, then its scope (0 since the last prompt | 1 all))
 #            | 1 an answer: its text (String)
 #            | 2 a prompt
 #
@@ -55,6 +56,14 @@ def put_arg(m: Maybe<&2, String>) -> String:
     case Some{a}:
       W.put_nat(1n, W.put_str(a, ""))
 
+# the scope of `/diff`, encoded: 0 since the last prompt, 1 all
+def put_scope(all: Bool) -> String:
+  match all:
+    case False{}:
+      W.put_nat(0n, "")
+    case True{}:
+      W.put_nat(1n, "")
+
 # a command, encoded
 def put_cmd(c: Gc.Cmd) -> String:
   match c:
@@ -82,6 +91,12 @@ def put_cmd(c: Gc.Cmd) -> String:
       W.put_nat(10n, put_arg(m))
     case Gc.CRestart{}:
       W.put_nat(11n, "")
+    case Gc.CEffects{}:
+      W.put_nat(12n, "")
+    case Gc.CUndo{}:
+      W.put_nat(13n, "")
+    case Gc.CDiff{all}:
+      W.put_nat(14n, put_scope(all))
 
 # what the message means, encoded
 def put_out(o: Gc.Out) -> String:
