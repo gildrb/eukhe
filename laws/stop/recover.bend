@@ -192,6 +192,22 @@ law stop_empty_capped_at_three:
   for +x: Nat
   {RnDecision.decide.recover(rc, RnDecision.Emptied{}, RnRecovery.Empties{}, 3n+x) == RnDecision.Quits{} : RnDecision.Help}
 
+# LAW stop_empty_row_starts_at_one (R4): in the recoveries' model, under any caps, after a
+# request whose note is no empty note (any row, any rounds in a row, any
+# last calls' hash), an empty reply is retried with empty note 1, the
+# rounds in a row and the last calls' hash kept
+# EXCLUDES: an empty row that starts at another note than 1, or fails the
+#   run at once, after no note or another recovery's note; a row start
+#   that drops the rounds in a row or the last hash
+law stop_empty_row_starts_at_one:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for other: {empty_note(k) == False{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Empties{}, 1n, same, last}} : RnRecovery.Dec}
+
 # Laws: a length stop (R7)
 # ------------------------
 # A length stop here is one that LengthStop continues (laws/stop.bend R7,
@@ -242,6 +258,46 @@ law stop_think_ladder_climbs:
   for +row: Nat
   for other: {length_note(k) == False{} : Bool}
   {climb(1n+RnRecovery.RCfg.long(rc), rc, RnDecision.Thought{w, c, p, o, False{}, lower}, RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, o, False{}, lower}, k, row)) == ups(RnRecovery.RCfg.long(rc), 0n, ladder_end(lower, RnRecovery.RCfg.long(rc))) : List<&2, RnDecision.Help>}
+
+# LAW stop_think_capped_past_the_ladder (R7): after a length note of row
+# long + 1 or more (the lower rung, or any row past it a stored note may
+# hold: one from an older build or kept under a cap since lowered), under
+# any caps, a length stop with no compaction to run (any window, catalog
+# cap, prompt and output; a level below or none) fails the run: there is
+# never a length note past the last rung
+# EXCLUDES: a ladder capped only up to its last rung (a row past it read
+#   as no row and the ladder started over at note 1, or nudged again)
+law stop_think_capped_past_the_ladder:
+  for +rc: RnRecovery.RCfg
+  for +w: Nat
+  for +c: Nat
+  for +p: Nat
+  for +o: Nat
+  for +lower: Bool
+  for +x: Nat
+  {RnDecision.decide.recover(rc, RnDecision.Thought{w, c, p, o, False{}, lower}, RnRecovery.Longs{}, 1n+Nat.add(RnRecovery.RCfg.long(rc), x)) == RnDecision.Quits{} : RnDecision.Help}
+
+# LAW stop_think_row_starts_at_one (R7): in the recoveries' model, under a length cap of at
+# least one note (any other caps), after a request whose note is no
+# length note (any row, any rounds in a row, any last calls' hash), a
+# length stop with no compaction to run (a level below or none) is
+# retried with length note 1 at the agent's level, the rounds in a row
+# and the last calls' hash kept
+# EXCLUDES: a ladder that starts at another note than 1, lowers the level
+#   or fails the run at once after no note or another recovery's note; a
+#   row start that drops the rounds in a row or the last hash
+law stop_think_row_starts_at_one:
+  for +lg: Nat
+  for +lk: Nat
+  for +rd: Nat
+  for +rp: Nat
+  for +lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for other: {length_note(k) == False{} : Bool}
+  {RnRecovery.Rec.step(RnRecovery.RCfg{1n+lg, lk, rd, rp}, RnRecovery.Think{False{}, lower}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n, same, last}} : RnRecovery.Dec}
 
 # LAW stop_think_compacts_when_window_ran_out (R7, spec S7): a length stop
 # whose known window ran out (the output is below the model's catalog
@@ -401,3 +457,21 @@ law stop_repeat_row_restarts:
   for other: {Nat.is_eq(h, h2) == False{} : Bool}
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h2, kept}, RnRecovery.Rec{k, row, same, h})) == RnRecovery.Exec{} : RnRecovery.Act} &
   {RnRecovery.Rec.same(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Ran{h2, kept}, RnRecovery.Rec{k, row, same, h}))) == 1n : Nat}
+
+# LAW stop_repeat_progress_restarts (R9): under any caps, after any note
+# and any row, calls that run (the rounds in a row they would make are
+# below the repeat cap) whose results changed since the last round (not
+# kept; the same hash or not) run, the next request carries no note, and
+# they start a new row of 1 with their hash: only the same calls with the
+# same results count as a repeat
+# EXCLUDES: a row that goes on across calls whose results changed (a
+#   polled job that makes progress redirected, then failed, as a repeat)
+law stop_repeat_progress_restarts:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for fresh: {RnRecovery.below(RnRecovery.again(same, last, h), RnRecovery.RCfg.repeat(rc)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, False{}}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Exec{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, 1n, h}} : RnRecovery.Dec}

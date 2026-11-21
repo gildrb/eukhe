@@ -158,6 +158,52 @@ law rec_leak_rebuilt_is_calls:
   for r: RnRecovery.Rec
   {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, r) == RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, r) : RnRecovery.Dec}
 
+# LAW rec_leak_row_starts_at_one (H4.8): in the recoveries' model, under a leak cap of at least
+# one note (any other caps), after a request whose note is no leak note
+# (any row, any rounds in a row, any last calls' hash), leaked calls that
+# were not rebuilt (any hash, kept or not) are retried with leak note 1,
+# the rounds in a row and the last calls' hash kept
+# EXCLUDES: a leak row that starts at another note than 1, or fails the
+#   run at once, after no note or another recovery's note; a row start
+#   that drops the rounds in a row or the last hash
+law rec_leak_row_starts_at_one:
+  for +lg: Nat
+  for +lk: Nat
+  for +rd: Nat
+  for +rp: Nat
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for other: {leak_note(k) == False{} : Bool}
+  {RnRecovery.Rec.step(RnRecovery.RCfg{lg, 1n+lk, rd, rp}, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Leaks{}, 1n, same, last}} : RnRecovery.Dec}
+
+# LAW rec_redirect_row_starts_at_one (H4.8): in the recoveries' model, under a redirect cap of
+# at least one note (any other caps), after a request whose note is no
+# redirect note (any row, any rounds in a row, any last calls' hash),
+# calls that would make `repeat` or more rounds in a row (not below the
+# repeat cap) never run: they are retried with redirect note 1, the
+# rounds in a row and the last calls' hash kept
+# EXCLUDES: a repeat row that starts at another note than 1, runs the
+#   calls, or fails the run at once, after no note or another recovery's
+#   note; a row start that drops the rounds in a row or the last hash
+law rec_redirect_row_starts_at_one:
+  for +lg: Nat
+  for +lk: Nat
+  for +rd: Nat
+  for +rp: Nat
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for rep: {RnRecovery.below(RnRecovery.again(same, last, h), rp) == False{} : Bool}
+  for other: {loop_note(k) == False{} : Bool}
+  {RnRecovery.Rec.step(RnRecovery.RCfg{lg, lk, 1n+rd, rp}, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n, same, last}} : RnRecovery.Dec}
+
 # LAW rec_user_breaks_the_row (H4.8): in the recoveries' model, a user
 # message (Said) sets the rounds in a row the model counts (Rec.same) to
 # none and keeps the note's recovery, its row and the last calls' hash
@@ -168,6 +214,27 @@ law rec_user_breaks_the_row:
   for same: Nat
   for +last: Nat
   {RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Said{}, RnRecovery.Rec{k, row, same, last})) == RnRecovery.Rec{k, row, 0n, last} : RnRecovery.Rec}
+
+# LAW rec_other_replies_pass (H4.7, H4.8): in the recoveries' model, under any caps, from any
+# record, a reply no recovery reads passes on as it is (Pass): a noted
+# reply, whose retry carries its own note and no recovery's, ends the row
+# of notes and keeps the rounds in a row and the last calls' hash; a user
+# message keeps the row of notes and ends the rounds in a row; an answer
+# ends both; any other reply keeps the record
+# EXCLUDES: a passed reply retried, run or failed; a row of notes that
+#   goes on across a noted retry (a recovery's next note counted from a
+#   note the request no longer carries); a record changed by a reply that
+#   changes nothing
+law rec_other_replies_pass:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Rec.step(rc, RnRecovery.Noted{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Pass{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last}} : RnRecovery.Dec} &
+  {RnRecovery.Rec.step(rc, RnRecovery.Said{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Pass{}, RnRecovery.Rec{k, row, 0n, last}} : RnRecovery.Dec} &
+  {RnRecovery.Rec.step(rc, RnRecovery.Answer{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Pass{}, RnRecovery.Rec{RnRecovery.Free{}, 0n, 0n, last}} : RnRecovery.Dec} &
+  {RnRecovery.Rec.step(rc, RnRecovery.Other{}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Pass{}, RnRecovery.Rec{k, row, same, last}} : RnRecovery.Dec}
 
 # LAW rec_user_message_lets_calls_run (H4.8): in the recoveries' model,
 # under a repeat cap past one round, after a user message any calls run

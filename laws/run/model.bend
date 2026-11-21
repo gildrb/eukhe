@@ -21,6 +21,10 @@
 # H4: every run ends: after bound(cfg) inputs, whatever they are, the run
 #     has ended (answered, aborted or failed); an ended run stays as it
 #     ended; an abort ends a live run at once.
+# N1 (spec/README.md, pillar attention): no state of a run waits on a
+#     person: every input moves a live run to another state, and the run's
+#     inputs (a reply, a round end, a compaction result, an abort) hold no
+#     answer of a person.
 # H4.1: a message with a tool call is never the run's answer: its calls
 #     run, whatever its text and its stop reason (vLLM, llama.cpp and
 #     Ollama send the stop reason stop with tool calls); a message with
@@ -115,6 +119,23 @@ law run_abort_ends_now:
   for +s: RnState.St
   for live: {RnState.done(s) == False{} : Bool}
   {RnState.St.ph(RnStep.step(cfg, s, RnState.Abort{})) == RnState.Aborted{} : RnState.Ph}
+
+# LAW run_live_never_waits (N1): no live state of a run waits: every
+# input, whatever it is, moves a live run to another state. With run_ends
+# (every run has ended after bound(cfg) inputs) a run never sits in a state,
+# or in a row of states, until a person answers; the inputs (`Ev`) have no
+# variant for a person's answer, and the entry reads only the requests
+# Rust spells (run_ffi_reads_only_requests)
+# EXCLUDES: an input that leaves a live state exactly as it was (a tools
+#   round that stays put while it waits for an approval, a call that
+#   stays put on a deferred reply, a compaction result that keeps the run
+#   where it was)
+law run_live_never_waits:
+  for +cfg: RnState.Cfg
+  for +s: RnState.St
+  for live: {RnState.done(s) == False{} : Bool}
+  for +e: RnState.Ev
+  {RnStep.step(cfg, s, e) == s : RnState.St} -> Empty
 
 # LAW run_rounds_capped: a run that has made max(cap, 1) tool rounds has failed
 law run_rounds_capped:
@@ -682,6 +703,34 @@ law run_counts_within_witness:
   exs l: RnDecision.Lim
   exs t: RnDecision.At
   {rust.within(l, t) == True{} : Bool}
+
+# LAW run_limits_terms_exact (H4.4, H4.7, H4.9): the limits' accessors the decision laws
+# read (run_retry_budget, run_note_budget, run_message_reply,
+# run_deferred_polls_until_deadline, the round laws, the recoveries) are
+# its fields: maxToolRounds, the job's ms, retry.maxRetries and MAX_NOTES,
+# each the one Rust sends
+# EXCLUDES: MAX_NOTES read as retry.maxRetries (or any limit read as
+#   another), which every decision law stated through the accessors lets
+#   through
+law run_limits_terms_exact:
+  for +r: Nat
+  for +w: Nat
+  for +a: Nat
+  for +n: Nat
+  {RnDecision.Lim.rounds(RnDecision.Lim{r, w, a, n}) == r : Nat} & {RnDecision.Lim.wait(RnDecision.Lim{r, w, a, n}) == w : Nat} & {RnDecision.Lim.retries(RnDecision.Lim{r, w, a, n}) == a : Nat} & {RnDecision.Lim.notes(RnDecision.Lim{r, w, a, n}) == n : Nat}
+
+# LAW run_counts_terms_exact (H4.4, H4.7, H4.9): the counters' accessors the decision laws
+# read are its fields: the attempt, the noted retries, the ms waited and
+# whether the generation compacted, each the one Rust sends
+# EXCLUDES: the noted retries read as the attempt (or any counter read as
+#   another), which every decision law stated through the accessors lets
+#   through
+law run_counts_terms_exact:
+  for +a: Nat
+  for +n: Nat
+  for +w: Nat
+  for +c: Bool
+  {RnDecision.At.attempt(RnDecision.At{a, n, w, c}) == a : Nat} & {RnDecision.At.notes(RnDecision.At{a, n, w, c}) == n : Nat} & {RnDecision.At.waited(RnDecision.At{a, n, w, c}) == w : Nat} & {RnDecision.At.compacted(RnDecision.At{a, n, w, c}) == c : Bool}
 
 # LAW run_rounds_lossless: the rounds left lose nothing: below the cap, the rounds made come
 # back from the rounds left

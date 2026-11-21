@@ -784,6 +784,7 @@ import ./proof/run/base.bend as LARun
 import ./proof/run/run_ends.bend as PRunEnds
 import ./proof/run/run_end_stays.bend as PRunEndStays
 import ./proof/run/run_abort_ends_now.bend as PRunAbortEndsNow
+import ./proof/run/run_live_never_waits.bend as PRunLiveNeverWaits
 import ./proof/run/run_rounds_capped.bend as PRunRoundsCapped
 import ./proof/run/run_rounds_fail_at_cap.bend as PRunRoundsFailAtCap
 import ./proof/run/run_polls_need_defers.bend as PRunPollsNeedDefers
@@ -803,6 +804,8 @@ import ./proof/run/run_retry_premise_witness.bend as PRunRetryPremiseWitness
 import ./proof/run/run_retry_keeps_the_notes.bend as PRunRetryKeepsTheNotes
 import ./proof/run/run_counts_lossless.bend as PRunCountsLossless
 import ./proof/run/run_counts_within_witness.bend as PRunCountsWithinWitness
+import ./proof/run/run_limits_terms_exact.bend as PRunLimitsTermsExact
+import ./proof/run/run_counts_terms_exact.bend as PRunCountsTermsExact
 import ./proof/run/run_rounds_lossless.bend as PRunRoundsLossless
 import ./proof/run/run_rounds_within_witness.bend as PRunRoundsWithinWitness
 import ./proof/run/run_failed_poll_is_the_job_model.bend as PRunFailedPollIsTheJobModel
@@ -826,9 +829,12 @@ import ./proof/run/run_round_control_stops.bend as PRunRoundControlStops
 import ./proof/run/run_round_capped_at_max.bend as PRunRoundCappedAtMax
 import ./proof/run/run_round_goes_on_below_max.bend as PRunRoundGoesOnBelowMax
 import ./proof/run/rec_leak_rebuilt_is_calls.bend as PRecLeakRebuiltIsCalls
+import ./proof/run/rec_leak_row_starts_at_one.bend as PRecLeakRowStartsAtOne
+import ./proof/run/rec_redirect_row_starts_at_one.bend as PRecRedirectRowStartsAtOne
 import ./proof/run/rec_calls_run.bend as PRecCallsRun
 import ./proof/run/rec_repeat_redirects.bend as PRecRepeatRedirects
 import ./proof/run/rec_user_breaks_the_row.bend as PRecUserBreaksTheRow
+import ./proof/run/rec_other_replies_pass.bend as PRecOtherRepliesPass
 import ./proof/run/rec_notes_capped.bend as PRecNotesCapped
 import ./proof/run/rec_never_runs_a_repeat.bend as PRecNeverRunsARepeat
 import ./proof/run/rec_stuck_gets_help.bend as PRecStuckGetsHelp
@@ -860,6 +866,7 @@ import ./proof/run/run_ffi_reads_only_requests.bend as PRunFfiReadsOnlyRequests
 import ./proof/run/run_ffi_malformed_unless_request.bend as PRunFfiMalformedUnlessRequest
 import ./proof/run/run_ffi_tags_example.bend as PRunFfiTagsExample
 import ./proof/run/run_ffi_errors_example.bend as PRunFfiErrorsExample
+import ./proof/run/run_ffi_limits_example.bend as PRunFfiLimitsExample
 import ./proof/run/run_entry_example.bend as PRunEntryExample
 import ./proof/run/run_step_exact.bend as PRunStepExact
 import ./proof/run/run_fold_exact.bend as PRunFoldExact
@@ -4085,8 +4092,11 @@ import ./proof/stop/stop_entry_malformed_example.bend as PStopEntryMalformedExam
 import ./proof/stop/base/recover.bend as LAStopRecover
 import ./proof/stop/stop_empty_three_notes_then_fails.bend as PStopEmptyThreeNotesThenFails
 import ./proof/stop/stop_empty_capped_at_three.bend as PStopEmptyCappedAtThree
+import ./proof/stop/stop_empty_row_starts_at_one.bend as PStopEmptyRowStartsAtOne
 import ./proof/stop/stop_think_entry_follows_the_cap.bend as PStopThinkEntryFollowsTheCap
 import ./proof/stop/stop_think_ladder_climbs.bend as PStopThinkLadderClimbs
+import ./proof/stop/stop_think_capped_past_the_ladder.bend as PStopThinkCappedPastTheLadder
+import ./proof/stop/stop_think_row_starts_at_one.bend as PStopThinkRowStartsAtOne
 import ./proof/stop/stop_think_compacts_when_window_ran_out.bend as PStopThinkCompactsWhenWindowRanOut
 import ./proof/stop/stop_think_unknown_window_or_catalog_cut.bend as PStopThinkUnknownWindowOrCatalogCut
 import ./proof/stop/stop_think_room_left_never_compacts.bend as PStopThinkRoomLeftNeverCompacts
@@ -4097,6 +4107,7 @@ import ./proof/stop/stop_act_never_answers.bend as PStopActNeverAnswers
 import ./proof/stop/stop_capped_past_the_cap.bend as PStopCappedPastTheCap
 import ./proof/stop/stop_repeat_row_counts.bend as PStopRepeatRowCounts
 import ./proof/stop/stop_repeat_row_restarts.bend as PStopRepeatRowRestarts
+import ./proof/stop/stop_repeat_progress_restarts.bend as PStopRepeatProgressRestarts
 import ./proof/stop/base/cut.bend as LAStopCut
 import ./proof/stop/stop_cut_empty_never_stands.bend as PStopCutEmptyNeverStands
 import ./proof/stop/stop_cut_text_stands_with_room.bend as PStopCutTextStandsWithRoom
