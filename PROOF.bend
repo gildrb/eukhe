@@ -2735,7 +2735,7 @@ import ./proof/command/command_ffi_req_example.bend as PCommandFfiReqExample
 import ./proof/command/command_ffi_req_spells.bend as PCommandFfiReqSpells
 import ./proof/command/command_ffi_res_spells.bend as PCommandFfiResSpells
 import ./proof/command/command_ffi_menu_spells.bend as PCommandFfiMenuSpells
-import ./proof/command/command_ffi_out_spells.bend as PCommandFfiOutSpells
+import ./proof/command/command_ffi_out_back.bend as PCommandFfiOutBack
 import ./proof/command/base/space.bend as LACommandSpace
 import ./proof/command/base/named.bend as LACommandNamed
 import ./proof/command/command_named_example.bend as PCommandNamedExample
