@@ -64,6 +64,7 @@ use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::GoalStatus;
 
 mod commits;
+mod ran;
 mod returns;
 
 fn cx() -> &'static Context {
@@ -400,6 +401,37 @@ fn work_tool() -> Arc<ToolRegistration> {
     ))
 }
 
+/// `bash`: a stand-in for the shell tool that records its run as the shell
+/// does (`bash@1` details): one step running `script`, exiting with
+/// `status`, its output `output`.
+fn bash_tool() -> Arc<ToolRegistration> {
+    let schema = Type::object([
+        ("script", Type::string()),
+        ("status", Type::integer()),
+        ("output", Type::string()),
+    ]);
+    define_tool(ToolRegistration::new(
+        "bash",
+        "test tool",
+        schema,
+        move |args: Value, _, _| async move {
+            let script = args["script"].as_str().unwrap_or_default();
+            let status = args["status"].as_i64().unwrap_or_default();
+            Ok(ToolExecutionResult {
+                output: Some(vec![UserContentBlock::Text(TextContent::new(
+                    args["output"].as_str().unwrap_or_default(),
+                ))]),
+                details: Some(eukhe_chord::json::JsonValue::from(json!({
+                    "version": crate::durable::shell::VERSION,
+                    "steps": [{ "step": 1, "command": script, "effects": ["exec"], "approval": "auto", "status": status }],
+                    "end": { "kind": "finished", "status": status },
+                }))),
+                ..ToolExecutionResult::default()
+            })
+        },
+    ))
+}
+
 fn setup() -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
@@ -444,6 +476,7 @@ fn setup() -> Setup {
                 host_tool("finish", "goal.complete", requests.clone()),
                 host_tool("drop_checks", "acceptance.set", requests.clone()),
                 work_tool(),
+                bash_tool(),
             ],
             ..Extension::default()
         }))

@@ -161,8 +161,9 @@ pub const SHELL_EXTENSION: &str = "eukhe.shell";
 /// The tool's name.
 const NAME: &str = "bash";
 
-/// The tool's durable identity, in each result's details.
-const VERSION: &str = "bash@1";
+/// The tool's durable identity, in each result's details; the intent
+/// judge reads the runs whose details carry it.
+pub(crate) const VERSION: &str = "bash@1";
 
 const DESCRIPTION: &str = "Run a bash script in the cwd. Steps: simple commands joined by `;`, \
 newlines, `&&`, `||`, `|`, with redirections. Every step runs at once; a step that writes \
