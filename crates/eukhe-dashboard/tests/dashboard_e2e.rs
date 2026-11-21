@@ -6,8 +6,9 @@
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
 //! runs daemon commands for the bound session, hears the end-of-run
-//! message and resyncs, words the replies of `/effects`, reads the memory
-//! tree, and keeps events flowing while a request waits.
+//! message and resyncs, words the replies of `/effects`, `/undo` and
+//! `/diff`, reads the memory tree, and keeps events flowing while a
+//! request waits.
 #![cfg(unix)]
 
 use std::future::Future;
@@ -305,6 +306,10 @@ fn daemon_answer(command: &Value) -> Value {
         }
         "get_ran_effects" => json!({ "effects": [ran_effect()] }),
         "get_unknown_effects" => json!({ "effects": [] }),
+        "undo_turn" => json!({
+            "restored": ["a.txt"], "turn": 2, "left": 0, "notUndone": [ran_effect()],
+        }),
+        "get_turn_diff" => json!({ "diff": "", "paths": [], "skipped": [] }),
         _ => json!({}),
     }
 }
@@ -1429,10 +1434,11 @@ async fn a_socket_without_the_current_token_runs_nothing() {
 
 /// A root run's end-of-run message reaches the tab once, in the words
 /// every surface shows, beside its event; a report with nothing in it
-/// carries none. `/effects` reaches the daemon for the bound session, and
-/// each reply carries its words: the ledger, then the unknown steps.
+/// carries none. `/effects`, `/undo` and `/diff all` reach the daemon for
+/// the bound session, and each reply carries its words: the ledger, and
+/// what `/undo` could not take back.
 #[tokio::test]
-async fn a_tab_hears_the_end_of_run_message_and_effects_answers_in_words() {
+async fn a_tab_hears_the_end_of_run_message_and_effects_undo_diff_answer_in_words() {
     let dir = tempfile::tempdir().expect("tempdir");
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
@@ -1459,6 +1465,8 @@ async fn a_tab_hears_the_end_of_run_message_and_effects_answers_in_words() {
     for (id, command) in [
         (2, json!({ "type": "get_ran_effects" })),
         (3, json!({ "type": "get_unknown_effects" })),
+        (4, json!({ "type": "undo_turn" })),
+        (5, json!({ "type": "get_turn_diff", "scope": "all" })),
     ] {
         let mut sent = command.clone();
         sent["activeSessionId"] = json!("someone-else");
@@ -1482,6 +1490,13 @@ async fn a_tab_hears_the_end_of_run_message_and_effects_answers_in_words() {
                 true
             ),
             (json!(""), true),
+            (
+                json!(
+                    "Restored the workspace to the start of prompt 2 (1 path).\n  a.txt\nNothing more to undo.\nNot undone (irreversible):\n- e1 git push origin main (net)"
+                ),
+                true
+            ),
+            (json!("No changes."), true),
         ]
     );
 }

@@ -23,6 +23,7 @@ use eukhe_types::daemon::{
 use eukhe_types::effects::{
     ledger_text, run_report_text, RanEffectsReply, RunReport, UnknownEffect, UnknownEffectsReply,
 };
+use eukhe_types::undo::{diff_text, undo_text, TurnDiffReply, UndoReply};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -976,7 +977,7 @@ fn report_text(event: &SessionEvent) -> Option<String> {
     })
 }
 
-/// A reply the tab shows as text (`/effects`) gets
+/// A reply the tab shows as text (`/effects`, `/undo`, `/diff`) gets
 /// `text`: the words every surface shows. Any other reply goes as it came.
 fn with_text(kind: &str, data: Value) -> anyhow::Result<Value> {
     let read = |what: &str| format!("read the {what} reply");
@@ -995,6 +996,16 @@ fn with_text(kind: &str, data: Value) -> anyhow::Result<Value> {
                 .map(UnknownEffect::line)
                 .collect::<Vec<_>>()
                 .join("\n")
+        }
+        "undo_turn" => {
+            let reply: UndoReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            undo_text(&reply).trim_end().to_owned()
+        }
+        "get_turn_diff" => {
+            let reply: TurnDiffReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            diff_text(&reply).trim_end().to_owned()
         }
         _ => return Ok(data),
     };
