@@ -1031,6 +1031,14 @@ impl SessionUi {
             "effects" => {
                 self.handle_effects_command(sub, &resolved.args, view).await;
             }
+            // `/undo`, `/diff [all]`: the session's per-prompt workspace
+            // snapshots.
+            "undo" => {
+                self.handle_undo_command(&resolved.args, view).await;
+            }
+            "diff" => {
+                self.handle_diff_command(&resolved.args, view).await;
+            }
             // `/budget [set|add <key=value>.. | audit]`: the session's
             // budget -- its report line, a new budget, added budget, or
             // the ledger's audit; the daemon owns the ledger.

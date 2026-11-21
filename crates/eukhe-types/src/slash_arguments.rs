@@ -497,6 +497,14 @@ const GRAMMARS: &[(&str, &Grammar)] = &[
     ("effects ran", &EFFECT_ID),
     ("effects not-run", &EFFECT_ID),
     (
+        "diff",
+        &words(&[word(
+            "all",
+            "What changed since the session's first prompt",
+            &NOTHING,
+        )]),
+    ),
+    (
         "factory",
         &words(&[
             word("on", "Open the agent factory gate", &NOTHING),
