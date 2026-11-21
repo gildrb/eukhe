@@ -823,44 +823,42 @@ fn payment_402_settles_once_with_the_disclosure() {
     );
 }
 
-/// THE GOAL-SIDE 402 REGRESSION (the diagnosis's repro contract): a goal
-/// whose continuation turn dies on the wallet-drain 402 refuses the NEXT
-/// continuation and finishes the goal — the pre-fix behavior minted a
-/// fresh continuation into the dead provider every boundary (the
-/// operator's 64-cycle hot loop). The turn's disclosure row still fires
-/// (BUG 1), and exactly ONE provider request runs: the loop is dead at
-/// the first failed boundary.
+/// THE AUTONOMOUS-SIDE 402 REGRESSION (the diagnosis's repro contract): an
+/// autonomous run whose turn dies on the wallet-drain 402 refuses the NEXT
+/// continuation — the pre-fix behavior minted a fresh continuation into
+/// the dead provider every boundary (the operator's 64-cycle hot loop).
+/// The turn's disclosure row still fires (BUG 1), and exactly ONE provider
+/// request runs: the loop is dead at the first failed boundary.
 #[test]
-fn goal_continuation_refuses_after_the_402_corpse() {
+fn auto_continuation_refuses_after_the_402_corpse() {
     let (dir, mock, _supervisor, mut client, session_id) = setup_with_rejection(
-        "p402goal",
+        "p402auto",
         5,
         "never reached",
         MockRejection::PaymentRequired,
     );
-    // Arm the goal through the session command path (no model call),
-    // like the operator's live session: the initial continuation row
-    // queues and drives the first turn.
+    // Start the run through the session command path, like the operator's
+    // live session: `/auto <task>` turns autonomous mode on and submits the
+    // task, which drives the first turn.
     client.send_command(
         "g1",
         &json!({
             "type": "prompt_and_wait",
             "activeSessionId": session_id,
-            "message": "/goal start Ship the feature end to end."
+            "message": "/auto Ship the feature end to end."
         }),
     );
     let done = client.request("g1");
-    // The durable `/goal` command answers once the goal is set and its
-    // continuation submitted: the goal loop runs in-run (pi-durable's
-    // `on_yield` continuation), so a waited answer would only come when
-    // the whole goal ends; the turn's failure is observed after the answer.
-    assert_eq!(done["success"], true, "the goal command answers: {done}");
+    // The durable `/auto` command answers once the run is on and its task
+    // submitted: the run continues in-run (pi-durable's `on_yield`
+    // continuation), so the turn's failure is observed after the answer.
+    assert_eq!(done["success"], true, "the /auto command answers: {done}");
     let is_outcome_start = |event: &Value| {
         event.get("type").and_then(Value::as_str) == Some("message_start")
             && event["message"]["role"] == "custom"
             && event["message"]["customType"] == "provider_retry_outcome"
     };
-    client.wait_for_event("the goal turn's disclosure row", is_outcome_start);
+    client.wait_for_event("the task turn's disclosure row", is_outcome_start);
     client.drain_events(Duration::from_secs(1));
     let failure = client
         .events
@@ -870,7 +868,7 @@ fn goal_continuation_refuses_after_the_402_corpse() {
                 && event["message"]["role"] == "assistant"
                 && event["message"]["stopReason"] == "error"
         })
-        .expect("the goal turn's failed assistant message_end");
+        .expect("the task turn's failed assistant message_end");
     assert!(
         failure["message"]["errorMessage"]
             .as_str()
@@ -879,26 +877,27 @@ fn goal_continuation_refuses_after_the_402_corpse() {
         "the failure is the turn's 402: {failure}"
     );
 
-    // The single failed continuation turn: ONE provider request (the
-    // 402 is permanent), NO re-minted continuation after it.
+    // The single failed turn: ONE provider request (the 402 is
+    // permanent), NO continuation after it.
     assert_eq!(mock.count(), 1, "no continuation loop: one request total");
 
-    // The durable goal state: the errored turn finished the goal. The
-    // durable store keeps the goal as the main conversation's `eukhe.goal`
-    // document (the old `thread_goal_state` rows' payload).
+    // The durable run state: the run is on, and the errored turn spent no
+    // continuation.
     let storage = durable_store::session_dirs(&dir.path().join("agent").join("sessions"));
     assert_eq!(storage.len(), 1, "one session storage: {storage:?}");
-    let latest = stored_goal(&storage[0]);
+    let run = stored_autonomous(&storage[0]);
     assert_eq!(
-        latest["status"], "error",
-        "the goal finished on the errored turn: {latest}"
+        (&run["enabled"], &run["continuationsUsed"]),
+        (&json!(true), &json!(0)),
+        "the errored turn minted no continuation: {run}"
     );
     assert!(
-        latest["lastError"]
-            .as_str()
-            .expect("last error text")
-            .contains("Insufficient balance"),
-        "the goal's error is the turn's 402: {latest}"
+        !client.events.iter().any(|event| {
+            event.get("type").and_then(Value::as_str) == Some("message_start")
+                && event["message"]["customType"] == "autonomous_continuation"
+        }),
+        "a continuation followed the 402: {:?}",
+        event_types(&client.events)
     );
 
     // The failure-scoped disclosure row still fired (BUG 1).
@@ -911,18 +910,11 @@ fn goal_continuation_refuses_after_the_402_corpse() {
         outcome_rows, 1,
         "one disclosure row: the silent arm is gone"
     );
-
-    // The failed continuation pair left the live loop context (BUG 2
-    // (c)): the transcript keeps the rows, the loop context does not.
-    // Re-read the session messages: the goal_context row and the corpse
-    // remain durable (the transcript's full fidelity) — the CONTEXT
-    // effect is asserted by the one-request count above (a re-minted
-    // continuation would have re-prompted).
 }
 
-/// The main conversation's stored `eukhe.goal` document in the durable
-/// storage `dir`.
-fn stored_goal(dir: &Path) -> Value {
+/// The main conversation's stored `eukhe.autonomous` document in the
+/// durable storage `dir`.
+fn stored_autonomous(dir: &Path) -> Value {
     use eukhe_core::durable::{read_main_transcript, read_session_document, SessionLocation};
     let location = SessionLocation::Durable(dir.to_path_buf());
     let cx = &eukhe_chord::context::BACKGROUND_CONTEXT;
@@ -930,16 +922,21 @@ fn stored_goal(dir: &Path) -> Value {
         .enable_all()
         .build()
         .expect("runtime");
-    let goal = runtime.block_on(async {
+    let run = runtime.block_on(async {
         let main = read_main_transcript(&location, cx)
             .await
             .expect("transcript readable")
             .main;
-        read_session_document(&location, &eukhe_core::durable::goals::GOAL_DOC, main, cx)
-            .await
-            .expect("goal document readable")
+        read_session_document(
+            &location,
+            &eukhe_core::durable::goals::AUTONOMOUS_DOC,
+            main,
+            cx,
+        )
+        .await
+        .expect("autonomous document readable")
     });
-    serde_json::to_value(goal).expect("goal JSON")
+    serde_json::to_value(run).expect("autonomous JSON")
 }
 
 /// A direct-transport client (thin-supervisor stage 2): ticket from the: ticket from the
