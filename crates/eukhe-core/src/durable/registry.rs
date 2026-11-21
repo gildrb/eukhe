@@ -1,5 +1,6 @@
 //! The extension registry of an eukhe session, installed in prompt order:
-//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
+//! `eukhe.prompt`, `eukhe.settings`, `eukhe.undo` (a top-level session
+//! with durable storage), `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.acceptance`, `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
@@ -95,6 +96,11 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let [prompt_extension, closing_extension] = prompt::extensions(deps);
     install(prompt_extension)?;
     install(settings::extension(deps))?;
+    // A top-level session's turn snapshots start at the first request
+    // preparation and hold its tools until taken.
+    if let Some(snapshots) = &deps.turn_snapshots {
+        install(crate::undo::extension(deps, snapshots))?;
+    }
     install(rlm::extension(deps))?;
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;

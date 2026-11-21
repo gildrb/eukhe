@@ -48,6 +48,8 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
+        DaemonCommand::UndoTurn { .. } => "undo_turn",
+        DaemonCommand::GetTurnDiff { .. } => "get_turn_diff",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",
         DaemonCommand::GetCommands { .. } => "get_commands",
         DaemonCommand::GetResourceSnapshot { .. } => "get_resource_snapshot",

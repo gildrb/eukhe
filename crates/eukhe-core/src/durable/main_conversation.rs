@@ -9,7 +9,9 @@ use eukhe_durable::documents::{DocDefinition, SessionDoc};
 use eukhe_durable::harness::json::assign_json;
 use eukhe_durable::harness::{Conversation, Harness};
 use eukhe_durable::session::{SessionError, SessionResult, Tx};
-use eukhe_durable::types::{ConversationId, DocumentReaderExt, ROOT_CONVERSATION_ID};
+use eukhe_durable::types::{
+    ConversationId, DocumentReader, DocumentReaderExt, ROOT_CONVERSATION_ID,
+};
 use serde::{Deserialize, Serialize};
 
 /// The `eukhe.session` document value: `{main?}`; absent `main` is the root.
@@ -43,16 +45,17 @@ pub async fn set_main_conversation(tx: &Tx, conversation_id: ConversationId) -> 
     Ok(())
 }
 
-/// The id of the session's main conversation (the root when unset).
+/// The id of the session's main conversation (the root when unset), read
+/// through `reader` (the harness, a hook's view).
 ///
 /// # Errors
 ///
 /// The document cannot be read or decoded.
 pub async fn main_conversation_id(
-    harness: &Harness,
+    reader: &(impl DocumentReader + ?Sized),
     cx: &Context,
 ) -> SessionResult<ConversationId> {
-    let Some(value) = harness.snapshot(&SESSION_DOC, (), cx).await? else {
+    let Some(value) = reader.snapshot(&SESSION_DOC, (), cx).await? else {
         return Ok(ROOT_CONVERSATION_ID);
     };
     let state: SessionState = from_json(&JsonValue::Object(value)).map_err(SessionError::other)?;

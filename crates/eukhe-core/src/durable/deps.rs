@@ -636,6 +636,9 @@ pub struct HostDeps {
     /// checks (start, each interval while one runs, end), for the
     /// frontends' status ([`super::EukheSession::checks`]).
     pub checks: tokio::sync::broadcast::Sender<eukhe_types::daemon::agent_tree::CheckProgress>,
+    /// The workspace snapshots of `/undo` and `/diff`: a top-level session
+    /// with durable storage keeps them; `None` for any other.
+    pub turn_snapshots: Option<Arc<crate::undo::TurnSnapshots>>,
 }
 
 /// A barrier through a commit observer's queue.
@@ -663,6 +666,12 @@ pub(crate) struct ResolvedServices {
 impl HostDeps {
     pub(crate) fn new(config: &SessionConfig, services: ResolvedServices) -> Self {
         let harness = HarnessCell::default();
+        let turn_snapshots = (config.role.is_root() && services.storage_dir.is_some())
+            .then(|| {
+                crate::undo::TurnSnapshots::open(&config.agent_dir, &config.session_id, &config.cwd)
+            })
+            .flatten()
+            .map(Arc::new);
         Self {
             run_pause: Arc::new(super::children::RunPause::new(harness.clone())),
             agent_dir: config.agent_dir.clone(),
@@ -709,6 +718,7 @@ impl HostDeps {
             semantic_edges: services.semantic_edges,
             budget: services.budget,
             checks: tokio::sync::broadcast::Sender::new(CHECK_FEED_CAPACITY),
+            turn_snapshots,
         }
     }
 

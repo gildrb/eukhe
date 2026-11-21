@@ -618,6 +618,14 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "audit_budget", "activeSessionId": "sess"}"#,
     ),
     (
+        "undo_turn",
+        r#"{"type": "undo_turn", "activeSessionId": "sess"}"#,
+    ),
+    (
+        "get_turn_diff",
+        r#"{"type": "get_turn_diff", "activeSessionId": "sess", "scope": "all"}"#,
+    ),
+    (
         "set_acceptance",
         r#"{"type": "set_acceptance", "activeSessionId": "sess", "checks": [{"kind": "command", "command": "true"}]}"#,
     ),
@@ -682,6 +690,8 @@ fn known_command_types_match_the_ts_list() {
                     | "set_budget_limits"
                     | "add_budget"
                     | "audit_budget"
+                    | "undo_turn"
+                    | "get_turn_diff"
                     | "set_acceptance"
                     | "get_acceptance"
                     | "refresh_models"
