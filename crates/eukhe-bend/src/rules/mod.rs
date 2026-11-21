@@ -46,6 +46,7 @@ pub mod once;
 pub mod optchat;
 pub mod overflow;
 pub mod package_source;
+pub mod path_own;
 pub mod privacy;
 pub mod quirks;
 pub mod rebase;
