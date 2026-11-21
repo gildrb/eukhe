@@ -11,7 +11,7 @@ use super::{MemoryUpdate, SessionActionSnapshot};
 use crate::acceptance::AcceptanceState;
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::budget::BudgetReport;
-use crate::effects::UnknownEffect;
+use crate::effects::{RanEffect, UnknownEffect};
 use crate::goal::GoalState;
 use crate::loop_mode::LoopStatus;
 use crate::output::OmittedOutput;
@@ -153,6 +153,18 @@ pub enum SessionEvent {
     UnknownEffectsUpdate {
         effects: Vec<UnknownEffect>,
     },
+    /// The root session's ledger of irreversible effects that ran changed
+    /// (one recorded): the whole ledger, by id.
+    RanEffectsUpdate {
+        effects: Vec<RanEffect>,
+    },
+    /// A root run ended (after its `agent_end`): the irreversible effects
+    /// that ran in it, in order, and the unknown effects it treated as not
+    /// run. Never sent with both empty.
+    RunReport {
+        ran: Vec<RanEffect>,
+        unknown: Vec<UnknownEffect>,
+    },
     /// The session's `/loop` changed: its whole status.
     LoopUpdate {
         r#loop: LoopStatus,
@@ -251,6 +263,8 @@ impl SessionEvent {
             | Self::SessionActionUpdate { .. }
             | Self::GoalUpdate { .. }
             | Self::UnknownEffectsUpdate { .. }
+            | Self::RanEffectsUpdate { .. }
+            | Self::RunReport { .. }
             | Self::LoopUpdate { .. }
             | Self::BudgetUpdate { .. }
             | Self::PlanUsage { .. }
@@ -433,6 +447,17 @@ mod tests {
         rt::<SessionEvent>(
             r#"{"type":"unknown_effects_update","effects":[{"id":"tool:c1","kind":"tool","what":"bash: make deploy","at":1700000000000.5,"resolution":"ran"},{"id":"job:7","kind":"job","what":"cargo build","at":1700000000001.5}]}"#,
         );
+    }
+
+    #[test]
+    fn ran_effect_events_roundtrip() {
+        let effect = r#"{"id":"e1","key":"s1:c1:0","run":1,"kind":"shellStep","command":"git push","classes":["net"],"agent":"fix-tests","sessionId":"s2","atMs":5}"#;
+        rt::<SessionEvent>(&format!(
+            r#"{{"type":"ran_effects_update","effects":[{effect}]}}"#
+        ));
+        rt::<SessionEvent>(&format!(
+            r#"{{"type":"run_report","ran":[{effect}],"unknown":[]}}"#
+        ));
     }
 
     /// `loop_update` carries the whole loop status under `loop`.

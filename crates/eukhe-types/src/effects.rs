@@ -1,16 +1,22 @@
-//! Exactly-once effects on the wire: a step whose outcome a restart could
-//! not tell and that was not safe to repeat, which Eukhe treats as not run
+//! Effects on the wire: a step whose outcome a restart could not tell and
+//! that was not safe to repeat, which Eukhe treats as not run
 //! ([`UnknownEffect`], why: [`UnknownCause`]), how a person may correct
 //! that afterwards ([`EffectResolution`]), the run's end-of-run lines of
-//! such steps ([`UnknownEffect::report_line`], [`treated_not_run`]), and
-//! the replies of the daemon commands `get_unknown_effects`
-//! ([`UnknownEffectsReply`]) and `resolve_unknown_effect`
-//! ([`ResolvedEffectReply`]). The session keeps them in its durable
-//! `eukhe.effects` ledger (`eukhe_durable::harness::effects`); the
-//! `unknown_effects_update` session event carries the whole ledger after
-//! each change.
+//! such steps ([`UnknownEffect::report_line`], [`treated_not_run`]); an
+//! irreversible effect that ran ([`RanEffect`], its classes
+//! [`EffectClass`]), the end-of-run report ([`RunReport`],
+//! [`run_report_text`]), an attached editor's permission question
+//! ([`EditorPermissionRequest`], [`EditorVerdict`]); and the replies of
+//! the daemon commands `get_unknown_effects` ([`UnknownEffectsReply`]),
+//! `resolve_unknown_effect` ([`ResolvedEffectReply`]) and
+//! `get_ran_effects` ([`RanEffectsReply`]). The session keeps them in its
+//! durable `eukhe.effects` ledger (`eukhe_durable::harness::effects`); the
+//! `unknown_effects_update` and `ran_effects_update` session events carry
+//! the whole ledger after each change.
 
 use serde::{Deserialize, Serialize};
+
+use crate::shell::{ShellEffect, ShellEffects};
 
 /// What kind of effect it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -268,6 +274,219 @@ pub struct ResolvedEffectReply {
     pub effect: UnknownEffect,
 }
 
+impl EffectClass {
+    /// The classes of a shell step's effects, in code order (one class per
+    /// effect, same code).
+    #[must_use]
+    pub fn of_shell(effects: ShellEffects) -> Vec<Self> {
+        effects.iter().map(Self::of_shell_effect).collect()
+    }
+
+    fn of_shell_effect(effect: ShellEffect) -> Self {
+        match effect {
+            ShellEffect::Read => Self::Read,
+            ShellEffect::Write => Self::Write,
+            ShellEffect::Exec => Self::Exec,
+            ShellEffect::Net => Self::Net,
+            ShellEffect::Outside => Self::Outside,
+            ShellEffect::Protected => Self::Protected,
+            ShellEffect::Secret => Self::Secret,
+        }
+    }
+
+    /// The classes' names joined by `+` (`exec+net`).
+    #[must_use]
+    pub fn names(classes: &[Self]) -> String {
+        classes
+            .iter()
+            .map(|class| class.as_str())
+            .collect::<Vec<_>>()
+            .join("+")
+    }
+}
+
+/// What ran an irreversible effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RanKind {
+    /// One step of a `bash` script (or of a cell's `bash()`).
+    ShellStep,
+    /// A document tool's or kernel `fs.*` access.
+    DocumentAccess,
+    /// An MCP tool call not declared read-only.
+    McpCall,
+}
+
+/// An irreversible effect that ran, as its root session's ledger keeps it
+/// (spec I4, I5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RanEffect {
+    /// `e<N>`: per root session, from 1, never reused.
+    pub id: String,
+    /// The effect's stable id (`<session>:<tool call>:<step>`): recording
+    /// the same key again changes nothing.
+    pub key: String,
+    /// The root session's run it ran in.
+    pub run: u64,
+    pub kind: RanKind,
+    /// What ran, for people.
+    pub command: String,
+    /// Every class of it, in code order.
+    pub classes: Vec<EffectClass>,
+    /// The subagent that ran it; `None` for the root agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The session that ran it.
+    pub session_id: String,
+    /// When it was recorded, in ms since the epoch.
+    pub at_ms: u64,
+}
+
+impl RanEffect {
+    /// The effect's line in the end-of-run message: `- e3 git push origin
+    /// main (net)`, `- e4 curl -X POST https://x (exec+net; subagent
+    /// fix-tests)`.
+    #[must_use]
+    pub fn report_line(&self) -> String {
+        let classes = EffectClass::names(&self.classes);
+        match &self.agent {
+            Some(agent) => format!(
+                "- {} {} ({classes}; subagent {agent})",
+                self.id, self.command
+            ),
+            None => format!("- {} {} ({classes})", self.id, self.command),
+        }
+    }
+
+    /// What the model reads in the tool result that caused it:
+    /// `[irreversible: e3 git push origin main (net)]`.
+    #[must_use]
+    pub fn tool_note(&self) -> String {
+        format!(
+            "[irreversible: {} {} ({})]",
+            self.id,
+            self.command,
+            EffectClass::names(&self.classes)
+        )
+    }
+}
+
+/// An irreversible effect that ran, before its root's ledger numbered it
+/// (the ledger sets `id` and `run`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RanEffectDraft {
+    /// The effect's stable id (`<session>:<tool call>:<step>`).
+    pub key: String,
+    pub kind: RanKind,
+    pub command: String,
+    pub classes: Vec<EffectClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    pub session_id: String,
+    pub at_ms: u64,
+}
+
+impl RanEffectDraft {
+    /// The effect as the ledger records it: `e<number>` in run `run`.
+    #[must_use]
+    pub fn recorded(self, number: u64, run: u64) -> RanEffect {
+        RanEffect {
+            id: format!("e{number}"),
+            key: self.key,
+            run,
+            kind: self.kind,
+            command: self.command,
+            classes: self.classes,
+            agent: self.agent,
+            session_id: self.session_id,
+            at_ms: self.at_ms,
+        }
+    }
+}
+
+/// The end of one root run (spec I6): the irreversible effects that ran in
+/// it, in order, and the effects a crash left unknown that it treated as
+/// not run.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunReport {
+    pub ran: Vec<RanEffect>,
+    pub unknown: Vec<UnknownEffect>,
+}
+
+/// The one end-of-run message of `report`; `None` when both of its lists
+/// are empty.
+#[must_use]
+pub fn run_report_text(report: &RunReport) -> Option<String> {
+    let ran = (!report.ran.is_empty()).then(|| {
+        std::iter::once("Irreversible effects ran this run:".to_owned())
+            .chain(report.ran.iter().map(RanEffect::report_line))
+    });
+    let unknown = (!report.unknown.is_empty()).then(|| {
+        std::iter::once("Unknown after a crash, treated as not run:".to_owned())
+            .chain(report.unknown.iter().map(UnknownEffect::report_line))
+    });
+    let lines: Vec<String> = ran
+        .into_iter()
+        .flatten()
+        .chain(unknown.into_iter().flatten())
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// The whole ledger for people (`/effects`, `eukhe effects`, spec I7): one
+/// [`RanEffect::report_line`] per effect, by id.
+#[must_use]
+pub fn ledger_text(ran: &[RanEffect]) -> String {
+    if ran.is_empty() {
+        return "No irreversible effect ran in this session.".to_owned();
+    }
+    std::iter::once("Irreversible effects ran in this session:".to_owned())
+        .chain(ran.iter().map(RanEffect::report_line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The `get_ran_effects` response data: the root session's whole ledger
+/// of irreversible effects that ran, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RanEffectsReply {
+    pub effects: Vec<RanEffect>,
+}
+
+/// The daemon asks an attached editor whether one irreversible effect may
+/// run (the `editor_permission` frame, spec I12).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPermissionRequest {
+    /// Unique within the session; the answer names it.
+    pub request_id: String,
+    /// The tool call of the session that runs the effect; none outside a
+    /// tool call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// What runs, for people.
+    pub command: String,
+    /// Every class of it, in code order.
+    pub classes: Vec<EffectClass>,
+    /// The subagent that runs it; `None` for the root agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// The editor's answer to one [`EditorPermissionRequest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorVerdict {
+    /// It runs.
+    Allow,
+    /// It does not run (rejected or cancelled in the editor).
+    Reject,
+    /// The editor has no permission method: it runs.
+    Unsupported,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +610,130 @@ mod tests {
         );
     }
 
+    fn ran(id: &str, command: &str, classes: &[EffectClass], agent: Option<&str>) -> RanEffect {
+        RanEffect {
+            id: id.to_owned(),
+            key: format!("s1:{id}:0"),
+            run: 2,
+            kind: RanKind::ShellStep,
+            command: command.to_owned(),
+            classes: classes.to_vec(),
+            agent: agent.map(str::to_owned),
+            session_id: "s1".to_owned(),
+            at_ms: 5,
+        }
+    }
+
+    /// The wire form: camelCase fields and classes, no `agent` for the
+    /// root.
+    #[test]
+    fn a_ran_effect_round_trips_its_wire_form() {
+        let wire = serde_json::json!({
+            "id": "e1",
+            "key": "s1:e1:0",
+            "run": 2,
+            "kind": "shellStep",
+            "command": "git push origin main",
+            "classes": ["net"],
+            "sessionId": "s1",
+            "atMs": 5,
+        });
+        let effect = ran("e1", "git push origin main", &[EffectClass::Net], None);
+        assert_eq!(serde_json::to_value(&effect).expect("encodes"), wire);
+        assert_eq!(
+            serde_json::from_value::<RanEffect>(wire).expect("decodes"),
+            effect
+        );
+    }
+
+    #[test]
+    fn the_report_line_names_the_classes_and_the_subagent() {
+        assert_eq!(
+            ran("e3", "git push origin main", &[EffectClass::Net], None).report_line(),
+            "- e3 git push origin main (net)"
+        );
+        assert_eq!(
+            ran(
+                "e4",
+                "curl -X POST https://x",
+                &[EffectClass::Exec, EffectClass::Net],
+                Some("fix-tests")
+            )
+            .report_line(),
+            "- e4 curl -X POST https://x (exec+net; subagent fix-tests)"
+        );
+    }
+
+    #[test]
+    fn the_tool_note_names_the_effect() {
+        assert_eq!(
+            ran("e3", "git push origin main", &[EffectClass::Net], None).tool_note(),
+            "[irreversible: e3 git push origin main (net)]"
+        );
+    }
+
+    /// One message: the ran section, then the unknown section; a section
+    /// without entries is left out; nothing when both are empty.
+    #[test]
+    fn the_run_report_text_has_a_section_per_list() {
+        let push = ran("e1", "git push", &[EffectClass::Net], None);
+        let unknown = job(Some(UnknownCause::NotRepeatSafe), Some(2));
+        assert_eq!(
+            [
+                run_report_text(&RunReport::default()),
+                run_report_text(&RunReport {
+                    ran: vec![push.clone()],
+                    unknown: Vec::new(),
+                }),
+                run_report_text(&RunReport {
+                    ran: Vec::new(),
+                    unknown: vec![unknown.clone()],
+                }),
+                run_report_text(&RunReport {
+                    ran: vec![push],
+                    unknown: vec![unknown],
+                }),
+            ],
+            [
+                None,
+                Some("Irreversible effects ran this run:\n- e1 git push (net)".to_owned()),
+                Some(
+                    "Unknown after a crash, treated as not run:\n- background job: cargo build \
+                     (cut by a crash; not safe to repeat)"
+                        .to_owned()
+                ),
+                Some(
+                    "Irreversible effects ran this run:\n- e1 git push (net)\nUnknown after a \
+                     crash, treated as not run:\n- background job: cargo build (cut by a crash; \
+                     not safe to repeat)"
+                        .to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_ledger_text_lists_every_effect() {
+        let remove = ran(
+            "e2",
+            "rm -rf /tmp/x",
+            &[EffectClass::Write, EffectClass::Outside],
+            Some("cleaner"),
+        );
+        assert_eq!(
+            [
+                ledger_text(&[]),
+                ledger_text(&[ran("e1", "git push", &[EffectClass::Net], None), remove]),
+            ],
+            [
+                "No irreversible effect ran in this session.".to_owned(),
+                "Irreversible effects ran in this session:\n- e1 git push (net)\n- e2 rm -rf /tmp/x \
+                 (write+outside; subagent cleaner)"
+                    .to_owned(),
+            ]
+        );
+    }
+
     /// A run's report holds the steps it settled, oldest first, and no
     /// model request.
     #[test]
@@ -417,6 +760,14 @@ mod tests {
         assert_eq!(
             treated_not_run(&ledger, 2).cloned().collect::<Vec<_>>(),
             [first, second]
+        );
+    }
+
+    #[test]
+    fn shell_effects_map_to_their_classes() {
+        assert_eq!(
+            EffectClass::of_shell(ShellEffects::of(&ShellEffect::ALL)),
+            EffectClass::ALL[..7].to_vec()
         );
     }
 }

@@ -46,6 +46,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "tail_kernel_bash"
         | "kill_kernel_bash"
         | "answer_shell_approval"
+        | "answer_editor_permission"
         | "cancel_rlm_child"
         | "delete_rlm_subagent"
         | "wait_for_idle"
@@ -116,6 +117,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_tool_definition"
         | "set_session_entry_label"
         | "get_unknown_effects"
+        | "get_ran_effects"
         | "resolve_unknown_effect"
         | "set_acceptance"
         | "get_acceptance" => Session,
@@ -146,6 +148,8 @@ mod tests {
             "get_last_assistant_text",
             "start_side_question",
             "answer_shell_approval",
+            "answer_editor_permission",
+            "get_ran_effects",
             "get_budget",
             "set_budget",
             "set_budget_limits",
