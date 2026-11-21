@@ -4,10 +4,11 @@
 //! The served surface is exactly what the TS product serves: `initialize`,
 //! `session/new`, `session/prompt`, `session/close` (requests),
 //! `session/cancel` (notification), `session/set_config_option` (the
-//! model/effort pickers, TS #2455), and the outgoing `session/update`
-//! notification. ACP-spec methods the TS product does not serve
-//! (`session/load`, `session/read`, `session/clone`, cwd adoption) are not
-//! invented here.
+//! model/effort pickers, TS #2455), the outgoing `session/update`
+//! notification, and the outgoing `session/request_permission` request
+//! (the editor's say on an irreversible effect, `permission.rs`).
+//! ACP-spec methods the TS product does not serve (`session/load`,
+//! `session/read`, `session/clone`, cwd adoption) are not invented here.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
