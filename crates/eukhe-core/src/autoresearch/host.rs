@@ -26,6 +26,7 @@ use crate::durable::goals::{
     autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState,
 };
 use crate::durable::rlm::session_env;
+use crate::durable::shell::CallSteps;
 use crate::durable::{HostCall, HostDeps};
 use crate::kernel::manager::local_env;
 
@@ -114,6 +115,10 @@ pub(crate) fn register_host_requests(deps: &Arc<HostDeps>) {
 async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyhow::Result<Value> {
     let lab = of(deps);
     let data = &call.data;
+    let conversation = match &call.call {
+        Some(api) => api.conversation_id(),
+        None => deps.harness.root().context("the Harness is closed")?.id(),
+    };
     let reply = match request {
         Request::Init => lab.init(init_args(data)?).await?,
         Request::Run => {
@@ -125,7 +130,8 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
                     .map(Duration::from_secs_f64)
                     .context("autoresearch.run timeout_s must be a positive number")?,
             };
-            lab.run(timeout).await?
+            lab.run(timeout, Arc::new(run_steps(deps, &call, conversation)))
+                .await?
         }
         Request::Log => lab.log(log_args(data)?).await?,
         Request::Flag => {
@@ -138,12 +144,23 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
         }
         Request::State => lab.state().await?,
     };
-    let conversation = match &call.call {
-        Some(api) => api.conversation_id(),
-        None => deps.harness.root().context("the Harness is closed")?.id(),
-    };
     follow_mode(deps, conversation, &reply).await?;
     Ok(reply.value)
+}
+
+/// What a benchmark run does around each step, as a `bash` call does
+/// (spec I4, I12): an attached editor is asked before an irreversible
+/// step, which goes to the ledger once it ran. Its steps are named
+/// `<call>:autoresearch-<unique>:<step>` (`kernel` for `<call>` outside a
+/// tool call), so a cell's second run is recorded as its own.
+fn run_steps(deps: &Arc<HostDeps>, call: &HostCall, conversation: ConversationId) -> CallSteps {
+    let tool_call = call.call.as_ref().map(|api| api.call_id().to_owned());
+    let name = format!(
+        "{}:autoresearch-{}",
+        tool_call.as_deref().unwrap_or("kernel"),
+        uuid::Uuid::new_v4().simple()
+    );
+    CallSteps::new(Arc::clone(deps), conversation, name, tool_call)
 }
 
 /// Make the autoresearch continuation follow the Lab's mode after an
