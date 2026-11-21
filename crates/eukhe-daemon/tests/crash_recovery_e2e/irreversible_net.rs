@@ -1,11 +1,12 @@
 //! An irreversible network call cut by a crash (spec O4, O13): a `bash`
 //! call POSTs to a host, then runs on; the worker is killed (`SIGKILL`)
-//! once the host has the request. Nothing tells whether the call finished
-//! and a repeat would POST again, so the restart treats it as not run: the
-//! host sees one POST, the call's result says it was interrupted, the
-//! ledger lists it once under the run in flight with its cause, the run
-//! goes on to its answer with nobody asked, and the run's end-of-run
-//! report lists it (spec I6).
+//! once the POST step ended and is in the ledger, while the script still
+//! runs. Nothing tells whether the call finished and a repeat would POST
+//! again, so the restart treats it as not run: the host sees one POST, the
+//! call's result says it was interrupted, the ledger lists it once under
+//! the run in flight with its cause, the run goes on to its answer with
+//! nobody asked, and the run's end-of-run report lists the POST as ran and
+//! the call as treated as not run (spec I6).
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -58,15 +59,14 @@ fn a_post_cut_by_a_crash_is_treated_as_not_run_and_never_sent_again() {
     let worker = worker_pid(&mut client, &session_id);
     let message = prompt("net", &[TAG], 0);
     client.send(&json!({ "type": "prompt", "activeSessionId": session_id, "message": message }));
-    let deadline = Instant::now() + WAIT;
-    while posts.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-        assert!(
-            Instant::now() < deadline,
-            "the POST never reached the host\n{}",
-            world.diagnostics()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    // The POST step is recorded at its own end; the kill comes after it,
+    // while the script waits on.
+    client.wait_event_from(0, WAIT, "the POST recorded", |event| {
+        event["type"] == "ran_effects_update"
+            && event["effects"]
+                .as_array()
+                .is_some_and(|effects| !effects.is_empty())
+    });
     sigkill(worker);
     wait_dead(worker);
     drop(client);
