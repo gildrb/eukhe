@@ -3,7 +3,8 @@
 //! One JSON object per line. Requests carry `method` + `params` + `id`;
 //! responses carry exactly one of `result` / `error`; notifications omit
 //! `id`. Parse failures answer with the JSON-RPC error codes so a client
-//! never sees a dropped line.
+//! never sees a dropped line. A response is the editor's answer to a
+//! request this agent sent it (`session/request_permission`).
 
 use serde_json::{json, Value};
 
@@ -29,6 +30,12 @@ pub enum Incoming {
     Notification {
         method: String,
         params: Value,
+    },
+    /// The editor's answer to a request this agent sent: `Ok` carries its
+    /// `result`, `Err` its `error` object.
+    Response {
+        id: Value,
+        reply: Result<Value, Value>,
     },
 }
 
@@ -56,9 +63,18 @@ pub fn parse_line(line: &str) -> Result<Incoming, Value> {
         return Err(bad_request());
     }
     let Some(method) = object.get("method").and_then(Value::as_str) else {
-        // A bare response (no method) is client traffic; it is not an error,
-        // but it is also not a message the server can act on.
-        return Err(bad_request());
+        let id = object.get("id").filter(|id| !id.is_null());
+        return match (id, object.get("result"), object.get("error")) {
+            (Some(id), Some(result), None) => Ok(Incoming::Response {
+                id: id.clone(),
+                reply: Ok(result.clone()),
+            }),
+            (Some(id), None, Some(error)) => Ok(Incoming::Response {
+                id: id.clone(),
+                reply: Err(error.clone()),
+            }),
+            _ => Err(bad_request()),
+        };
     };
     let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
     match object.get("id") {
@@ -86,6 +102,12 @@ pub fn error_response(id: &Value, code: i64, message: &str, data: Option<&Value>
         None => json!({ "code": code, "message": message }),
     };
     json!({ "jsonrpc": "2.0", "id": id, "error": error })
+}
+
+/// A request frame this agent sends the editor; its answer comes back as
+/// an [`Incoming::Response`] with the same `id`.
+pub fn request(id: &Value, method: &str, params: &Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
 /// A notification frame (no id, no response expected).
@@ -124,6 +146,32 @@ mod tests {
         assert_eq!(parse_error["error"]["code"], PARSE_ERROR);
         let invalid = parse_line(r#"{"id":3,"result":null}"#).unwrap_err();
         assert_eq!(invalid["error"]["code"], INVALID_REQUEST);
+        let both = parse_line(r#"{"jsonrpc":"2.0","id":3,"result":{},"error":{}}"#).unwrap_err();
+        assert_eq!(both["error"]["code"], INVALID_REQUEST);
+        let no_id = parse_line(r#"{"jsonrpc":"2.0","result":{}}"#).unwrap_err();
+        assert_eq!(no_id["error"]["code"], INVALID_REQUEST);
+    }
+
+    #[test]
+    fn parses_the_editor_answers() {
+        assert_eq!(
+            parse_line(
+                r#"{"jsonrpc":"2.0","id":"p-1","result":{"outcome":{"outcome":"cancelled"}}}"#
+            )
+            .unwrap(),
+            Incoming::Response {
+                id: json!("p-1"),
+                reply: Ok(json!({"outcome":{"outcome":"cancelled"}})),
+            }
+        );
+        assert_eq!(
+            parse_line(r#"{"jsonrpc":"2.0","id":"p-2","error":{"code":-32601,"message":"no"}}"#)
+                .unwrap(),
+            Incoming::Response {
+                id: json!("p-2"),
+                reply: Err(json!({"code":-32601,"message":"no"})),
+            }
+        );
     }
 
     #[test]
