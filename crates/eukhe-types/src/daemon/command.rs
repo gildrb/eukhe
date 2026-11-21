@@ -850,6 +850,30 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: restore the workspace to its snapshot at the start of
+    /// the newest turn not undone (reply: [`crate::undo::UndoReply`]).
+    /// Refused while a run is going (`run_in_progress`) and when no
+    /// snapshot is left (`nothing_to_undo`).
+    UndoTurn {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: the workspace's changes since the start of the newest
+    /// turn not undone, or of the session's first turn (reply:
+    /// [`crate::undo::TurnDiffReply`]; `nothing_to_diff` before the first
+    /// turn).
+    GetTurnDiff {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default)]
+        scope: crate::undo::DiffScope,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     GetContextTree {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

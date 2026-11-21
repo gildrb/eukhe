@@ -170,6 +170,9 @@ pub(crate) enum RpcCommandError {
     /// A message's `/b` prefix did not read or its run did not begin.
     #[error(transparent)]
     Message(#[from] eukhe_core::durable::budget::MessageError),
+    /// `/undo` or `/diff` refused or failed.
+    #[error(transparent)]
+    Undo(#[from] eukhe_core::undo::UndoError),
     /// A budget ledger call on the blocking pool did not finish.
     #[error("the budget ledger call did not finish: {0}")]
     BudgetTask(#[from] tokio::task::JoinError),

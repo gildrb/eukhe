@@ -35,6 +35,7 @@ use super::reads::{
 };
 use super::session::{RpcEngineRequest, RpcSession};
 use super::session_commands;
+use super::undo_commands;
 use super::LineWriter;
 use crate::compaction::durable::{
     interrupt_turn, resumes_interrupted_turn, run_manual_compaction, submit_auto_continue,
@@ -100,6 +101,8 @@ pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand
         "set_budget" => budget_commands::set_budget(state, &payload).await,
         "add_budget" => budget_commands::add_budget(state, &payload).await,
         "audit_budget" => budget_commands::audit_budget(state).await,
+        "undo_turn" => undo_commands::undo_turn(state).await,
+        "get_turn_diff" => undo_commands::get_turn_diff(state, &payload).await,
         // TS `abortRetry` always answers success (it aborts only an
         // in-flight retry; the durable retry backoff ends with the abort
         // of its run).
@@ -573,6 +576,67 @@ mod tests {
         .expect("the abort never paused the loop");
         assert_eq!(state_loop(&state).await["phase"], paused);
         assert_eq!(loop_sends(&main).await, resent);
+        state.session.dispose().await;
+    }
+
+    /// The answer `handle_command` writes for `command` with `payload`.
+    async fn answer(state: &Arc<RpcState>, command: &str, payload: Value) -> Value {
+        handle_command(
+            state,
+            protocol::RpcCommand {
+                id: None,
+                command: command.to_owned(),
+                payload,
+            },
+        )
+        .await
+    }
+
+    /// Headless RPC serves `undo_turn` and `get_turn_diff`: while a run is
+    /// going the undo is refused (the daemon wire's and the SDK's refusal)
+    /// and the diff answers; once the run ends the undo restores the
+    /// turn's start, and the next one has nothing left.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn undo_turn_is_refused_during_the_run_and_get_turn_diff_answers() {
+        let fixture = Fixture::new();
+        let (running, mut reached) = stuck();
+        fixture.faux.append_responses(vec![running]);
+        let (state, _frames) = rpc_state(&fixture).await;
+
+        prompt_commands::prompt(&state, &json!({ "message": "go" }))
+            .await
+            .expect("prompt");
+        reached
+            .wait_for(|reached| *reached)
+            .await
+            .expect("the turn runs");
+        let refused = answer(&state, "undo_turn", json!({})).await;
+        let diff = answer(&state, "get_turn_diff", json!({ "scope": "all" })).await;
+        let bad_scope = answer(&state, "get_turn_diff", json!({ "scope": "week" })).await;
+
+        state.session.abort().await.expect("abort");
+        let session = state.session.session().await;
+        tokio::time::timeout(DEADLINE, session.main().wait_for_idle(&rpc_context()))
+            .await
+            .expect("the run ends")
+            .expect("idle");
+        let undone = answer(&state, "undo_turn", json!({})).await;
+        let none_left = answer(&state, "undo_turn", json!({})).await;
+        assert_eq!(
+            (refused, diff, bad_scope, undone, none_left),
+            (
+                json!({ "type": "response", "command": "undo_turn", "success": false,
+                    "error": "A run is going: /undo is refused until it ends" }),
+                json!({ "type": "response", "command": "get_turn_diff", "success": true,
+                    "data": { "diff": "", "paths": [], "skipped": [] } }),
+                json!({ "type": "response", "command": "get_turn_diff", "success": false,
+                    "error": "get_turn_diff requires scope" }),
+                json!({ "type": "response", "command": "undo_turn", "success": true,
+                    "data": { "restored": [], "turn": 1, "left": 0, "notUndone": [] } }),
+                json!({ "type": "response", "command": "undo_turn", "success": false,
+                    "error": "Nothing to undo" }),
+            )
+        );
         state.session.dispose().await;
     }
 

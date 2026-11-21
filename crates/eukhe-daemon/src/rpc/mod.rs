@@ -28,6 +28,7 @@ pub mod protocol;
 mod reads;
 pub mod session;
 pub mod session_commands;
+mod undo_commands;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

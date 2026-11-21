@@ -10,7 +10,7 @@ use crate::settings::types::{
     ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
     Settings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
     TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
-    TransportSetting, TtsSettings, UpdateSettings, WarningSettings,
+    TransportSetting, TtsSettings, UndoSettings, UpdateSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -45,6 +45,7 @@ fn populated() -> Settings {
         idle_eviction_minutes: Some(Value::from(1)),
         session_archive_max_age_days: Some(Value::from(1)),
         session_archive_max_sessions: Some(Value::from(1)),
+        undo: Some(UndoSettings { keep_days: Some(1) }),
         transport: Some(TransportSetting::Sse),
         steering_mode: Some(QueueModeSetting::All),
         follow_up_mode: Some(QueueModeSetting::All),

@@ -181,6 +181,13 @@ impl EukheSession {
         self.deps.checks.subscribe()
     }
 
+    /// The session's workspace snapshots (`/undo`, `/diff`); `None` for a
+    /// session that keeps none (a subagent, a session without storage).
+    #[must_use]
+    pub fn turn_snapshots(&self) -> Option<Arc<crate::undo::TurnSnapshots>> {
+        self.deps.turn_snapshots.clone()
+    }
+
     /// Begin closing ([`HostDeps::begin_close`]), stop the session's
     /// services (reverse start order), then close the Harness after its
     /// running tasks settle. Idempotent: a later call stops nothing and

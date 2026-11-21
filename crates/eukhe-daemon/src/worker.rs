@@ -34,6 +34,8 @@ pub(crate) use run_gate::RunAdmission;
 mod state_tree;
 mod summary;
 mod title;
+mod undo;
+pub(crate) use undo::diff_scope;
 
 mod connection;
 

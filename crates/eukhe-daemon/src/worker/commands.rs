@@ -82,6 +82,8 @@ impl Worker {
             "set_budget_limits" => self.handle_set_budget_limits(payload).await,
             "add_budget" => self.handle_add_budget(payload).await,
             "audit_budget" => self.handle_audit_budget().await,
+            "undo_turn" => self.handle_undo_turn().await,
+            "get_turn_diff" => self.handle_get_turn_diff(payload).await,
             "get_model_catalog" => self.handle_get_model_catalog(),
             "refresh_models" => self.handle_refresh_models(payload).await,
             "get_queue" => self.handle_get_queue(),
