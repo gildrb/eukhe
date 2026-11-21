@@ -1,11 +1,6 @@
-# Eukhe (εὐχή)
+# Eukhe
 
-Eukhe (εὐχή: a wish, a prayer) is a harness and embeddable core for agents that work a task through on their own, within limits, until the specified checks pass, and report at the end.
-
-- Task: the work to be done.
-- Limits: money, time, tokens. Each model request and tool call reserves its worst case first; spend passes a limit only when a provider reports more than the reserve.
-- Checks: commands that decide when the work is done, such as `cargo test` or `bend PROOF.bend --verdict`.
-- Report: the agent's final answer, and each check's verdict with its output.
+Eukhe is an agent harness that works a task with no person watching and gives a report at the end. A task is done only when the user's checks pass on the final code.
 
 ## Install
 
@@ -13,52 +8,63 @@ Eukhe (εὐχή: a wish, a prayer) is a harness and embeddable core for agents 
 curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64)
 ```
 
-- Nix: `nix run github:gildrb/eukhe`
-- Home Manager: `programs.eukhe.enable = true;` (module `inputs.eukhe.homeManagerModules.default`)
-
 ## Use
 
 ```sh
-cd /path/to/project
-eukhe         # start; /login on the first run
-eukhe agents  # find and open sessions
-eukhe update  # install the latest release
-eukhe --help  # all commands
+cd project
+eukhe                                                     # start; /login at the first start
+eukhe -p --accept-cmd 'npm test' "fix the failing tests"  # script; exit 0 only when all checks pass
 ```
 
-Eukhe follows your project's `AGENTS.md`. Type `/` in a session for the slash commands.
+In a session, `/accept cmd --protect tests/app.test.js npm test` sets a check. Then type the task. `eukhe --help` shows all commands.
 
-`/restart to apply the downloaded update` appears when a newer release has downloaded and verified in the background; `/restart` switches to it and reopens the session.
+## Checks
 
-## Capabilities
+<p align="center"><b>Task:</b> "sort the list"<br><img src="media/sort-1.gif" width="640" alt="Sixteen bars sort in four rounds; the agent says done; the check fills each bar blue from left to right: checks passed"><br><i>The agent says done. The check passes.</i></p>
 
-- Budgets: runs go until finished by default, their spend shown live and in the report. `/budget set cost=5 time=2h` caps a task and its subagents at $5 and 2 hours; `/b quick fix the test` caps one message. Caps cover money, tokens, tool calls, model requests and time. `/budget on` (or `eukhe budget on`) turns on limits for every run: 4 hours, 4,000 tool calls and 3,200 requests per message, and 80 % of each plan window. The agent is told when a budget runs low and still gives a final answer when it runs out. `eukhe usage` shows each plan login's quota.
-- Checks: `/accept cmd cargo test` makes the task done only when `cargo test`, run by Eukhe on the final result, passes; the result is labelled `checks passed, unconfined`. Only the task's owner sets checks. A failed check returns to the agent with its output.
-- Loops: `/loop 20 --until 'cargo test' fix the failing tests` resends the prompt until the command passes or 20 repeats have run. `/loop --until the README explains every flag` states the condition in words: it is also the prompt, and after each turn a separate model judge decides whether it is met; none of its words runs as a command.
-- Crash recovery: a session killed with `kill -9` reopens from its log. A tool call, job or subagent of unknown outcome is reported interrupted and is not run again; `eukhe effects` lists them.
-- Memory: a long session keeps every message. Older ones become summaries the agent can reopen.
-- Python: a REPL for the agent that keeps its state between calls (variables up to 16 MiB each survive a compaction or restart) and can start subagents.
-- Background sessions: a daemon runs them. The terminal, `eukhe dashboard` (browser) and `eukhe gateway` (Signal) attach to the same sessions.
-- Embedding: [`eukhe-sdk`](crates/eukhe-sdk/) runs sessions inside a Rust program, and [`eukhe-client`](crates/eukhe-client/) connects one to the daemon. Rust only, not on crates.io, API unstable.
+<p align="center"><b>Next task:</b> "make the sort faster"<br><img src="media/sort-2.gif" width="640" alt="The faster sort takes two rounds and leaves two bars swapped; the agent says done; the check stops red at the pair; the agent swaps them back"><br><i>Two values are out of order. The task goes back to the agent.</i></p>
+
+<p align="center"><b>Before a pass counts:</b><br><img src="media/sort-3.gif" width="640" alt="Eukhe drops the last merge round on purpose; the check stops red where the two halves meet; the break is undone and the check passes"><br><i>Eukhe breaks the code on purpose. The check finds the break.</i></p>
+
+The agent cannot set, change, skip or remove a check. A check that finds less than 80 % of the breaks is weak, and the task ends `checks passed, not certified`. After 3 failed checks in sequence, the task ends `failed`.
+
+## Limits
+
+<p align="center"><img src="media/sort-limit.gif" width="640" alt="A $5 budget with $1 kept for the report; each round reserves its cost, spends, frees the rest; the third round would need the kept money and does not start; the report says two rounds done, two left"><br><i><code>/budget set cost=5 time=2h</code>: a step that needs the money kept for the report does not start.</i></p>
+
+Each step reserves its maximum cost before it starts. The report gives the work done, the work not done and the limit that stopped it.
+
+## Crash recovery
+
+<p align="center"><img src="media/sort-crash.gif" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
+
+Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is recorded as not run, and the run continues. `/effects` shows these steps.
+
+## Parallel work
+
+<p align="center"><img src="media/sort-split.gif" width="640" alt="The agent gives each half of the list to a child; both children sort their half at the same time; the halves come back and the agent merges them; the check passes"><br><i>Two child agents each sort one half at the same time. The parent agent merges the halves.</i></p>
+
+Each child works on its own files in its own copy. A parent can set the checks of a child.
+
+## Report
+
+At the end, one report gives the agent's final answer and the result of each check.
+
+**Target:** each step runs without a question in the terminal, the browser, the phone and a script; one message at the end lists each irreversible effect. **Status:** being built.
+
+**Target:** `/undo` puts the files back to their state before a prompt and names the irreversible effects that it cannot undo. **Status:** being built.
+
+## Components
+
+`eukhe` is the terminal app and command line.
 
 ## Limitations
 
-```
-- No sandbox: model-written code runs with the user's permissions and can change check inputs and the session's files.
-- A model request cut by a crash is not sent again (unless its provider declares lasting deduplication; no shipped provider does): it is reported interrupted, its reserved spend stays counted until its usage is known, and the run continues with a new request.
-- A limit left unset is unlimited.
-- No Windows.
-- A passing check can be gamed, for example by a hard-coded answer or an edited test. Eukhe refuses the agent's changes to the check list and fails a check whose `--protect` file changed.
-```
+There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break, for example a hard-coded answer. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
 
 ## Credits
 
-- Fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi).
-- Victor Taelin: the chat memory design, OptChat, and its predecessor [OptMem](https://github.com/VictorTaelin/OptMem).
-- [oh-my-pi](https://github.com/can1357/oh-my-pi): the edit tools, the tokenizers and the harness design.
-- Sander Land's [ctok](https://github.com/sanderland/ctok): the Claude tokenizer vocabulary.
-- Not affiliated with Prime Intellect, Victor Taelin or Earendil.
-- Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+Eukhe is a fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent), built on Mario Zechner's [pi](https://github.com/earendil-works/pi). The memory design is Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449) and [OptMem](https://github.com/VictorTaelin/OptMem). The edit tools, the tokenizers and the harness design come from [oh-my-pi](https://github.com/can1357/oh-my-pi), and the Claude tokenizer vocabulary from Sander Land's [ctok](https://github.com/sanderland/ctok). Made by [Gil Rodrigues](https://gildrb.com). Notices: [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 ## License
 
