@@ -12,9 +12,11 @@
 //!   rename, the file still holds its old bytes and its writer is dead:
 //!   run again, the line appended once. Cut after its result: done, the
 //!   line appended once.
-//! - `write` of a known content: the docs `write` tool creates a file.
-//!   Cut before its probe, nothing tells, and its repeat is safe: run
-//!   again (spec O13 step 2); at every point it lands once and is done.
+//! - `tool` that repeats safely: the docs `read` tool reads that file (no
+//!   probe; a read leaves the world as it was). Cut after its intent or
+//!   before it runs, nothing tells, and its repeat is safe: run again
+//!   (spec O13 step 2); cut after its result, done. At every point its one
+//!   result is the file's text.
 //! - `tool`: `bash` appends a line (no probe, never replayed). Cut before
 //!   it ran: treated as not run, nothing appended. Cut after its result:
 //!   done, one line.
@@ -25,22 +27,19 @@
 use super::*;
 
 /// The prompt tags the script answers: a docs `edit` that appends a line
-/// (after a `read` of the file), a `bash` command that appends a line.
+/// (after a `read` of the file), a docs `read` of the file, a `bash`
+/// command that appends a line.
 pub(crate) const WRITE_TAG: &str = "[docs-append]";
-pub(crate) const WRITE_FILE_TAG: &str = "[docs-write]";
+pub(crate) const READ_TAG: &str = "[docs-read]";
 pub(crate) const BASH_TAG: &str = "[bash-append]";
 
-/// The file the docs edit appends to, in the session's cwd, and its text
-/// before the edit.
+/// The file the docs edit appends to and the docs read reads, in the
+/// session's cwd, and its text before the edit.
 const NOTES: &str = "notes.txt";
 const NOTES_TEXT: &str = "one\ntwo\n";
 
 /// The file the bash command appends a line to, once per run.
 const APPENDS: &str = "bash-appends";
-
-/// The file the docs write creates, and its content.
-const FRESH: &str = "written.txt";
-const WRITTEN: &str = "one\ntwo\nthree\nfour\n";
 
 /// The script's reply to a turn tagged here (`prompt` its name) until its
 /// call has a result; `None` then (the shared script answers the turn), and
@@ -63,12 +62,8 @@ pub(crate) fn reply(request: &Request, prompt: &str, release: &Path) -> Option<R
         );
         return Some(Reply::tool_call(call, "edit", json!({ "input": input })));
     }
-    if request.prompt.contains(WRITE_FILE_TAG) {
-        return Some(Reply::tool_call(
-            call,
-            "write",
-            json!({ "path": FRESH, "content": WRITTEN }),
-        ));
+    if request.prompt.contains(READ_TAG) {
+        return Some(Reply::tool_call(call, "read", json!({ "path": NOTES })));
     }
     if request.prompt.contains(BASH_TAG) {
         let appends = release.with_file_name(APPENDS);
@@ -88,9 +83,9 @@ enum Said {
 /// Prompt one turn tagged `tag` in a world whose worker dies at
 /// `kind:point`, wait until it died there, reattach to its replacement and
 /// let the turn finish: the turn is answered once and every call has one
-/// result. Answers the world and what the transcript says of the turn's
-/// call `call-t1` of `tool`.
-fn cut_at(kind: &str, point: &str, tag: &str, tool: &str) -> (World, Said) {
+/// result. Answers the world, what the transcript says of the turn's call
+/// `call-t1` of `tool`, and that call's result text.
+fn cut_at(kind: &str, point: &str, tag: &str, tool: &str) -> (World, Said, String) {
     let marks = tempfile::tempdir().expect("marker dir");
     let marker = marks.path().join("killed");
     let world = World::with_env(
@@ -176,13 +171,13 @@ fn cut_at(kind: &str, point: &str, tag: &str, tool: &str) -> (World, Said) {
         Said::Done => Vec::new(),
     };
     assert_eq!(noted, expected, "the steps treated as not run: {listed}");
-    (world, said)
+    (world, said, result.clone())
 }
 
 /// `(what the transcript says, the notes file)` after a docs append cut at
 /// `point`.
 fn docs_append_cut_at(point: &str) -> (Said, String) {
-    let (world, said) = cut_at("write", point, WRITE_TAG, "edit");
+    let (world, said, _) = cut_at("write", point, WRITE_TAG, "edit");
     let notes = std::fs::read_to_string(world.dir.path().join(NOTES)).expect("the notes file");
     (said, notes)
 }
@@ -190,17 +185,18 @@ fn docs_append_cut_at(point: &str) -> (Said, String) {
 /// `(what the transcript says, the appends file)` after a bash append cut
 /// at `point`.
 fn bash_append_cut_at(point: &str) -> (Said, Option<String>) {
-    let (world, said) = cut_at("tool", point, BASH_TAG, "bash");
+    let (world, said, _) = cut_at("tool", point, BASH_TAG, "bash");
     let appends = std::fs::read_to_string(world.dir.path().join(APPENDS)).ok();
     (said, appends)
 }
 
-/// `(what the transcript says, the created file)` after a docs write of a
-/// known content cut at `point`.
-fn docs_write_cut_at(point: &str) -> (Said, String) {
-    let (world, said) = cut_at("write", point, WRITE_FILE_TAG, "write");
-    let written = std::fs::read_to_string(world.dir.path().join(FRESH)).expect("the written file");
-    (said, written)
+/// `(what the transcript says, the call's result shows the file's text,
+/// the file)` after a docs read cut at `point`.
+fn docs_read_cut_at(point: &str) -> (Said, bool, String) {
+    let (world, said, result) = cut_at("tool", point, READ_TAG, "read");
+    let notes = std::fs::read_to_string(world.dir.path().join(NOTES)).expect("the notes file");
+    let shown = NOTES_TEXT.lines().all(|line| result.contains(line));
+    (said, shown, notes)
 }
 
 #[test]
@@ -212,26 +208,26 @@ fn a_docs_append_cut_before_its_probe_is_treated_as_not_run_and_never_applied() 
 }
 
 #[test]
-fn a_docs_write_cut_before_its_probe_runs_again_and_lands_once() {
+fn a_docs_read_cut_after_its_intent_runs_again_and_reads_once() {
     assert_eq!(
-        docs_write_cut_at("intended"),
-        (Said::Done, WRITTEN.to_owned())
+        docs_read_cut_at("intended"),
+        (Said::Done, true, NOTES_TEXT.to_owned())
     );
 }
 
 #[test]
-fn a_docs_write_cut_before_its_rename_runs_again_and_lands_once() {
+fn a_docs_read_cut_before_it_runs_runs_again_and_reads_once() {
     assert_eq!(
-        docs_write_cut_at("started"),
-        (Said::Done, WRITTEN.to_owned())
+        docs_read_cut_at("started"),
+        (Said::Done, true, NOTES_TEXT.to_owned())
     );
 }
 
 #[test]
-fn a_docs_write_cut_after_its_result_is_done_and_lands_once() {
+fn a_docs_read_cut_after_its_result_is_done() {
     assert_eq!(
-        docs_write_cut_at("finished"),
-        (Said::Done, WRITTEN.to_owned())
+        docs_read_cut_at("finished"),
+        (Said::Done, true, NOTES_TEXT.to_owned())
     );
 }
 
