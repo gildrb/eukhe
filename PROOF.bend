@@ -4645,6 +4645,7 @@ import ./proof/undo/undo_takes_newest.bend as PUndoTakesNewest
 import ./proof/undo/undo_refused_changes_nothing.bend as PUndoRefusedChangesNothing
 import ./proof/undo/undo_refusal_keeps_state.bend as PUndoRefusalKeepsState
 import ./proof/undo/undo_diff_compares.bend as PUndoDiffCompares
+import ./proof/undo/undo_diff_any_state.bend as PUndoDiffAnyState
 import ./proof/undo/undo_diff_keeps.bend as PUndoDiffKeeps
 import ./proof/undo/undo_example.bend as PUndoExample
 import ./proof/undo/undo_restores_rows.bend as PUndoRestoresRows
