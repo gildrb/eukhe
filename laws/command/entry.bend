@@ -30,14 +30,16 @@
 #                                     command_ffi_example
 #   R14f a reply tag the reply grammar does not name reads as no reply,
 #        and whatever a reply reader accepts is exactly the grammar's
-#        spelling of the reply it reads, then the rest (one spelling per
-#        answer; a cut or malformed reply is no reply)
+#        spelling of the reply it reads, then the rest, and fits the wire
+#        (one spelling per answer; a cut or malformed reply, or one past
+#        the wire's 14 digits, is no reply)
 #                                     command_ffi_unknown_res,
 #                                     command_ffi_unknown_menu,
 #                                     command_ffi_res_exact,
 #                                     command_ffi_menu_exact,
 #                                     command_ffi_out_exact,
-#                                     command_ffi_cut_reply_example
+#                                     command_ffi_cut_reply_example,
+#                                     command_ffi_long_reply_example
 #   R14g the reply readers read every reply the reply grammar spells
 #                                     command_ffi_res_reads_spelled,
 #                                     command_ffi_menu_reads_spelled,
@@ -504,42 +506,45 @@ law command_ffi_out_reads_spelled:
 
 # LAW command_ffi_res_exact: whatever the resolve reply reader accepts is
 # exactly the reply grammar's spelling of the resolution it reads, then
-# the rest: any other reply is no reply
+# the rest, and that resolution fits the wire: any other reply is no reply
 # EXCLUDES: a reply cut before its text, word or path read as an answer
 #   (`0,1,6,memory`, its text missing, read as running /memory with no
 #   text), a default for a malformed reply, a second spelling of one
-#   answer, a reader of another grammar
+#   answer, a reader of another grammar, a name, text or count of 15
+#   digits or more read
 law command_ffi_res_exact:
   for +s: String
   for +x: FCmd.ResW
   for +rest: String
   for h: {FCmd.get_res(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
-  {s == cmd_spell_resw(x, rest) : String}
+  {(s, cmd_res_fits(x)) == (cmd_spell_resw(x, rest), True{}) : String & Bool}
 
 # LAW command_ffi_menu_exact: whatever the menu reply reader accepts is
 # exactly the reply grammar's spelling of the menu it reads, then the
-# rest: any other reply is no reply
+# rest, and that menu fits the wire: any other reply is no reply
 # EXCLUDES: a children reply cut before its places or path read as a
-#   menu, a default for a malformed reply, a second spelling of one menu
+#   menu, a default for a malformed reply, a second spelling of one menu,
+#   a place, name or count of 15 digits or more read
 law command_ffi_menu_exact:
   for +s: String
   for +x: FCmd.MenuW
   for +rest: String
   for h: {FCmd.get_menu(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
-  {s == cmd_spell_menuw(x, rest) : String}
+  {(s, cmd_menu_fits(x)) == (cmd_spell_menuw(x, rest), True{}) : String & Bool}
 
 # LAW command_ffi_out_exact: whatever the key reply reader accepts is
 # exactly the reply grammar's spelling of the key reply it reads (the
-# line, then open, then submit), then the rest: any other reply is no
-# reply
+# line, then open, then submit), then the rest, and that reply fits the
+# wire: any other reply is no reply
 # EXCLUDES: a key reply cut before its submit or open flag read with a
-#   default flag, a short line accepted, a second spelling of one reply
+#   default flag, a short line accepted, a second spelling of one reply, a
+#   line whose length has 15 digits or more read
 law command_ffi_out_exact:
   for +s: String
   for +x: FCmd.OutW
   for +rest: String
   for h: {FCmd.get_out(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
-  {s == cmd_spell_outw(x, rest) : String}
+  {(s, cmd_out_fits(x)) == (cmd_spell_outw(x, rest), True{}) : String & Bool}
 
 # LAW command_ffi_cut_reply_example: anchor: replies cut short are no
 # reply: a resolve run of /memory with its text missing, a children menu
@@ -560,6 +565,16 @@ law command_ffi_cut_reply_example:
 #   another order
 law command_ffi_reply_example:
   {(FCmd.get_res("0,2,6,memory5,model0,"), (FCmd.get_menu("1,1,6,memory2,1,2,"), FCmd.get_out("7,memory TF"))) == (Wr.Got{FCmd.RunsW{["memory", "model"], ""}, ""}, (Wr.Got{FCmd.KidsW{["memory"], [1n, 2n]}, ""}, Wr.Got{FCmd.OutW{"memory ", True{}, False{}}, ""})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
+
+# LAW command_ffi_long_reply_example: anchor: replies with a count, place
+# or length of 15 digits are no reply: a resolve run whose path count has
+# 15 digits, a children menu whose place has 15 digits, a key reply whose
+# line length has 15 digits
+# EXCLUDES: a reply reader that reads a Nat past the wire's 14 digits
+#   (`1,0,1,100000000000000,` read as a menu at place 10^14; a 15-digit
+#   place past 2^48-1 aborts the runtime)
+law command_ffi_long_reply_example:
+  {(FCmd.get_res("0,100000000000000,"), (FCmd.get_menu("1,0,1,100000000000000,"), FCmd.get_out("100000000000000,"))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
 
 # LAW command_ffi_example: anchor: in the spelling of the example table of
 # crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are
