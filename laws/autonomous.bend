@@ -33,6 +33,19 @@ import ../spec/autonomous/autonomous.bend as SpA
 #     request with anything but the error form, and answers any input
 #     that is not exactly one request with exactly
 #     `E autonomous: malformed request`.
+#
+# Not pinned here (Rust, so the gate is tests): AU1, that turning a run on
+# gives it the intent check when it has none and that each command of the
+# removed gates becomes a command check that must exit 0
+# (crates/eukhe-core/src/durable/goals/tests.rs::
+# turning_an_autonomous_run_on_gives_it_the_intent_check); AU5's mapping
+# of the removed options, `maxTurns`, `maxTokens`, `timeoutMs` onto the
+# run's budget and `maxContinuations` and the gate retries onto the checks'
+# return cap (crates/eukhe-core/src/autonomous/mod.rs::
+# removed_options_map_onto_the_budget_and_the_checks,
+# crates/eukhe-core/src/durable/goals/tests.rs::
+# the_removed_max_turns_is_the_runs_request_limit,
+# an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it).
 
 # Laws: the step (R1-R5)
 # ----------------------
