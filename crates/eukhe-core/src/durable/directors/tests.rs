@@ -96,6 +96,7 @@ async fn a_goal_is_a_director_layer_and_hands_back_when_it_completes() {
                 left: max - 2,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -145,6 +146,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
                 left: 0,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     // The continuation the global budget refused was not charged.
@@ -205,6 +207,7 @@ async fn a_reminder_leads_the_next_continuation_and_leaves() {
                 left: limits.max_steps - 1,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -293,6 +296,7 @@ async fn a_forced_tool_layer_forces_the_requests_until_the_model_calls_it() {
                 left: DirectorLimits::default().max_steps,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -395,6 +399,7 @@ async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
                 left: limits.max_steps,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
 
@@ -430,6 +435,7 @@ async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
                 left: limits.max_steps - 1,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -493,6 +499,7 @@ async fn the_goal_keeps_its_place_on_a_full_stack() {
                 left: limits.max_steps - 1,
                 end: Some(End::Hand),
             }),
+            work_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -556,6 +563,7 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
                 left: max - 1,
                 end: None,
             }),
+            work_left: None,
         }
     );
     let at_input = root

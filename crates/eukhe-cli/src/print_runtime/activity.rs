@@ -6,17 +6,14 @@
 
 use eukhe_bend::rules::headless::Activity;
 use eukhe_chord::context::Context;
+use eukhe_core::durable::directors::tool_acted;
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery};
 use eukhe_durable::session::SessionError;
 use eukhe_durable::types::EntryId;
-use eukhe_types::pi_ai::{Message, ToolResultMessage};
+use eukhe_types::pi_ai::Message;
 
 /// The transcript read's page size.
 const PAGE: usize = 64;
-
-/// The tools that only read: the documents' read tools and the chat
-/// memory's.
-const READ_TOOLS: [&str; 5] = ["read", "grep", "glob", "zoom", "date"];
 
 /// The newest entry of `conversation` before the run: the run's entries
 /// are the ones after it.
@@ -58,29 +55,5 @@ pub(super) async fn run_activity(
             Some(next) => cursor = Some(next),
             None => return Ok(Activity::ReadOnly),
         }
-    }
-}
-
-/// Whether the call behind `result` had an effect: every tool but the
-/// read-only ones; a `bash` call when a step has an effect other than
-/// reading, or when its steps are not recorded.
-pub(super) fn tool_acted(result: &ToolResultMessage) -> bool {
-    match result.tool_name.as_str() {
-        name if READ_TOOLS.contains(&name) => false,
-        "bash" => result
-            .details
-            .as_ref()
-            .and_then(|details| details.get("steps"))
-            .and_then(serde_json::Value::as_array)
-            .is_none_or(|steps| {
-                steps.iter().any(|step| {
-                    step.get("effects")
-                        .and_then(serde_json::Value::as_array)
-                        .is_none_or(|effects| {
-                            effects.iter().any(|effect| effect.as_str() != Some("read"))
-                        })
-                })
-            }),
-        _ => true,
     }
 }

@@ -4641,3 +4641,13 @@ import ./proof/autonomous/autonomous_example.bend as PAutonomousExample
 import ./proof/autonomous/autonomous_holds_iff.bend as PAutonomousHoldsIff
 import ./proof/autonomous/autonomous_off_iff.bend as PAutonomousOffIff
 import ./proof/autonomous/autonomous_short_stops.bend as PAutonomousShortStops
+import ./proof/work_left/base.bend as LAWorkLeft
+import ./proof/work_left/work_left_continues_iff_left.bend as PWorkLeftContinuesIffLeft
+import ./proof/work_left/work_left_asks_iff_unread.bend as PWorkLeftAsksIffUnread
+import ./proof/work_left/work_left_continue_costs_one_step.bend as PWorkLeftContinueCostsOneStep
+import ./proof/work_left/work_left_example.bend as PWorkLeftExample
+import ./proof/work_left/work_left_entry_answers.bend as PWorkLeftEntryAnswers
+import ./proof/work_left/work_left_entry_exact.bend as PWorkLeftEntryExact
+import ./proof/work_left/work_left_entry_refuses.bend as PWorkLeftEntryRefuses
+import ./proof/work_left/work_left_entry_left_over.bend as PWorkLeftEntryLeftOver
+import ./proof/work_left/work_left_entry_example.bend as PWorkLeftEntryExample

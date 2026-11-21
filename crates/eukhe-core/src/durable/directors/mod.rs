@@ -8,13 +8,20 @@
 //! rewindable `eukhe.directors` document ([`DIRECTORS_DOC`]): each step
 //! commits it, a resume reads it back, and a fork or a branch move starts
 //! from the stack as of its fork entry. The goal extension's `on_yield`
-//! hook runs the steps (`goals/hooks.rs`).
+//! hook runs the steps (`goals/hooks.rs`); after it, the work-left
+//! Director's extension (`work_left.rs`) continues a run whose final
+//! answer leaves task work undone, and records its decision in the same
+//! document.
 
 mod pending;
+mod progress;
 mod stack;
+mod work_left;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod work_left_tests;
 
 use eukhe_chord::context::Context;
 use eukhe_durable::documents::{DocDefinition, RewindableConversationDoc};
@@ -25,7 +32,12 @@ use eukhe_durable::types::{ConversationId, DocumentReader, RewindableFork, Submi
 use serde::{Deserialize, Serialize};
 
 pub(crate) use pending::pending_work_hook;
+pub(crate) use progress::{compared, stall_check, Last, Stall};
 pub use stack::{End, Layer, LayerKind, Loop, Verdict};
+pub(crate) use work_left::read_work;
+pub use work_left::{
+    extension as work_left_extension, tool_acted, WorkLeftOutcome, WorkLeftRecord,
+};
 
 use super::goals::{conversation_of, open_doc, read_doc, write_doc};
 use crate::settings::Settings;
@@ -47,13 +59,13 @@ pub const DIRECTOR_NOTICE_CUSTOM_TYPE: &str = "eukhe.director";
 /// `directors.maxSteps` setting is unset or `0`.
 pub const DEFAULT_MAX_STEPS: u64 = 200;
 
-/// The goal continuations in a row with no new work before the goal pauses
-/// when the `directors.stallSteps` setting is unset or `0`
-/// (`crate::durable::goals`). The first continuation can be an answer that
-/// only states a plan; the second carries the no-progress note that asks
-/// for one concrete step; the third shows that the model did not act on
-/// that note. Each one is a request with the full context, and a model
-/// that ignored an explicit note does not start to act with more of them.
+/// The continuations in a row with no new work at which the progress check
+/// (`progress.rs`) stops a chain, when the `directors.stallSteps` setting
+/// is unset or `0`. The first continuation can be an answer that only
+/// states a plan; the second carries the no-progress note that asks for
+/// one concrete step; the third shows that the model did not act on that
+/// note. Each one is a request with the full context, and a model that
+/// ignored an explicit note does not start to act with more of them.
 pub const DEFAULT_STALL_STEPS: u64 = 3;
 
 /// The Director stack of one conversation.
@@ -72,8 +84,8 @@ pub static DIRECTORS_DOC: RewindableConversationDoc<DirectorState> =
         Err(_) => panic!("eukhe.directors has a valid version"),
     };
 
-/// `eukhe.directors`: the stack (bottom first) and the loop of the
-/// conversation's last run.
+/// `eukhe.directors`: the stack (bottom first), the loop of the
+/// conversation's last run, and the work-left Director's last decision.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectorState {
@@ -81,6 +93,8 @@ pub struct DirectorState {
     pub stack: Vec<Layer>,
     #[serde(default, rename = "loop", skip_serializing_if = "Option::is_none")]
     pub run: Option<RunLoop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_left: Option<WorkLeftRecord>,
 }
 
 /// The loop of one run: the run's first input, the steps left, and how it

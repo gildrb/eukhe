@@ -43,6 +43,7 @@ pub(crate) use command::{parse_accept_command, AcceptCommand, ACCEPT_USAGE};
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
 pub(crate) use ops::{autonomous_checks, checks_at, claim, label_of, Claimed};
+pub(crate) use report::answer_judge;
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;
 pub use watch::{watch_acceptance_updates, AcceptanceUpdates};

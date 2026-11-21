@@ -274,6 +274,8 @@ pub enum Entry {
     HeadlessTask = 464,
     /// `bend/ffi_autonomous.bend`: a call.
     Autonomous = 465,
+    /// `bend/ffi_work_left.bend`: a call.
+    WorkLeft = 470,
 }
 
 impl Entry {
@@ -413,6 +415,7 @@ impl Entry {
         Entry::WorkList,
         Entry::HeadlessTask,
         Entry::Autonomous,
+        Entry::WorkLeft,
     ];
 
     /// The id `bend/core.bend` dispatches on.

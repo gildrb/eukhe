@@ -223,3 +223,4 @@ import ./laws/verify.bend as Verify
 import ./laws/server_peer.bend as ServerPeer
 import ./laws/work_list.bend as WorkList
 import ./laws/autonomous.bend as Autonomous
+import ./laws/work_left.bend as WorkLeft

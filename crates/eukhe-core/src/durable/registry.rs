@@ -25,8 +25,8 @@ use eukhe_types::daemon::agent_tree::TreeRole;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    acceptance, budget, children, codemode, compaction, documents, goals, optchat, prompt,
-    retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
+    acceptance, budget, children, codemode, compaction, directors, documents, goals, optchat,
+    prompt, retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
 };
 
 /// A registry with every eukhe extension of the session installed and its
@@ -104,6 +104,9 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(super::loop_mode::extension(deps))?;
     install(acceptance::extension(deps))?;
     install(goals::extension(deps))?;
+    // After the Director stack's step: the work-left Director decides only
+    // a final answer the stack did not continue.
+    install(directors::work_left_extension(deps))?;
     install(children::extension(deps))?;
     // After a paused child run's wait: the notices due are written just
     // before the request reads its context.

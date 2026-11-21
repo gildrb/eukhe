@@ -738,6 +738,7 @@ async fn remind_and_force_put_their_layers_on_the_director_stack() {
                 Layer::force_tool("lookup".to_owned(), 2),
             ],
             run: None,
+            work_left: None,
         }
     );
     fixture.close().await;
@@ -801,12 +802,12 @@ async fn a_forced_call_never_made_fails_once_and_the_next_ask_is_not_forced() {
         }]
     );
     let main = fixture.session.main();
-    assert_eq!(
-        director_state(fixture.session.harness(), main.id(), cx())
-            .await
-            .expect("read"),
-        DirectorState::default()
-    );
+    // The forced call left the stack and the loop; the work-left
+    // Director's record of the final answer stays beside them.
+    let state = director_state(fixture.session.harness(), main.id(), cx())
+        .await
+        .expect("read");
+    assert_eq!((state.stack, state.run), (Vec::new(), None));
     fixture.close().await;
 }
 

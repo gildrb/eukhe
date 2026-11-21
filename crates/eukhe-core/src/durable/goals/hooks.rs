@@ -37,7 +37,7 @@
 //! as its goal, autonomous and stack changes, so a rerun after a crash
 //! repeats the decision.
 
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use eukhe_bend::rules::autonomous::Checks;
 use eukhe_chord::context::Context;
@@ -50,7 +50,7 @@ use eukhe_durable::harness::{
     Conversation, ConversationEntryQuery, ForcedToolError, GENERATION_TASK, LIVE_DOC,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::types::{EntryDraft, EntryRecord, ScanOrder, SubmissionId, TaskId};
+use eukhe_durable::types::{EntryDraft, EntryRecord, SubmissionId, TaskId};
 use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
@@ -66,15 +66,15 @@ use super::docs::{
 use super::host::GoalsHost;
 use super::ops::{budget_report, goal_context, submit_goal_context, user_input_queued};
 use super::state::{
-    accounted, budget_limited, compared, ended, mint, owns_continuation_wakeup, paused, run_end,
-    served, spends_limits, stall_check, stamp, Last, RunEnd, Stall, UsageOutcome,
+    accounted, budget_limited, ended, mint, owns_continuation_wakeup, paused, run_end, served,
+    spends_limits, stamp, RunEnd, UsageOutcome,
 };
 use crate::autonomous::{now_millis, SessionBudget};
 use crate::durable::acceptance::checks_at;
-use crate::durable::children::{has_unsettled_children, WorkLedger};
+use crate::durable::children::has_unsettled_children;
 use crate::durable::directors::{
-    DirectorLimits, DirectorState, End, Layer, LayerKind, Loop, RunLoop, Verdict, DIRECTORS_DOC,
-    DIRECTOR_NOTICE_CUSTOM_TYPE,
+    compared, read_work, stall_check, DirectorLimits, DirectorState, End, Last, Layer, LayerKind,
+    Loop, RunLoop, Stall, Verdict, DIRECTORS_DOC, DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::workflow::unsettled_runs;
@@ -82,9 +82,6 @@ use crate::goals::{GoalContextKind, GoalState, GoalStatus, GoalTokens};
 
 /// How many of the newest entries the failed-run check reads.
 const RECENT_ENTRIES: usize = 16;
-
-/// How many entries one read of the goal's progress check takes.
-const WORK_PAGE: usize = 256;
 
 /// The goal extension's hook registration on `pi.generation`.
 pub(crate) fn generation_hooks(host: &GoalsHost) -> HookRegistration {
@@ -347,34 +344,7 @@ impl GoalsHost {
         // The work the session did so far, for the goal's progress check:
         // the cache reads the entries it did not read yet.
         let conversation = self.conversation(conversation_id, cx).await?;
-        let read = self
-            .work
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&conversation_id)
-            .and_then(WorkLedger::last);
-        let mut cursor = None;
-        let work = loop {
-            let page = conversation
-                .entries(
-                    ConversationEntryQuery {
-                        min_entry_id: read,
-                        max_entry_id: None,
-                        order: Some(ScanOrder::Ascending),
-                    },
-                    WORK_PAGE,
-                    cursor,
-                    cx,
-                )
-                .await?;
-            let mut cache = self.work.lock().unwrap_or_else(PoisonError::into_inner);
-            let ledger = cache.entry(conversation_id).or_default();
-            ledger.read_page(&page.items);
-            match page.next {
-                Some(next) => cursor = Some(next),
-                None => break ledger.count(),
-            }
-        };
+        let work = read_work(&self.work, &conversation, cx).await?;
         // What the session's budget admits now, and what the checks did
         // with this answer (the verifier ran before this hook).
         let budget = SessionBudget::of(budget_report(&self.budget).await?.as_ref());
@@ -804,7 +774,7 @@ struct StepInput {
     seen: Seen,
     answer: AnswerAt,
     limits: DirectorLimits,
-    /// The session's work now ([`WorkLedger::count`]).
+    /// The session's work now (`WorkLedger::count`).
     work: u64,
     /// The session's budget at the step.
     session: SessionTerms,
