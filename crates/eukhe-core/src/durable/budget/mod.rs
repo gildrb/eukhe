@@ -53,7 +53,7 @@ pub(crate) use notices::extension;
 pub use notices::{BUDGET_NOTICE_CUSTOM_TYPE, BUDGET_STATUS_CUSTOM_TYPE};
 pub use prefix::MessageError;
 pub use rows::wrap_models_with_budget;
-pub use runs::{active_profile, RunError, RunFacts, RunFactsFn, RunStart};
+pub use runs::{active_profile, BelowFloor, RunError, RunFacts, RunFactsFn, RunStart};
 
 /// Why a budget operation failed. Every failure refuses the spend.
 pub type BudgetError = LedgerError;

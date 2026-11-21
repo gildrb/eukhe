@@ -287,6 +287,12 @@ fn report(limits: BudgetLimits) -> BudgetReport {
     }
 }
 
+/// A side request whose input alone (over 10k tokens) is more than a
+/// budget of 9000 tokens holds.
+fn long_chat() -> PiContext {
+    chat(&"summarize ".repeat(10_000))
+}
+
 /// A side request: no tools.
 fn chat(text: &str) -> PiContext {
     PiContext {
@@ -371,8 +377,8 @@ fn started_then_failed(text: &str, reported: Usage) -> Vec<AssistantMessageEvent
 #[tokio::test]
 async fn a_request_that_does_not_fit_is_not_sent_and_spends_nothing() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(1_000)).unwrap();
-    let reply = fixture.request(chat("summarize")).await;
+    fixture.gate.set(tokens(9_000)).unwrap();
+    let reply = fixture.request(long_chat()).await;
     assert_eq!(
         (
             reply.error_message,
@@ -380,17 +386,14 @@ async fn a_request_that_does_not_fit_is_not_sent_and_spends_nothing() {
             fixture.gate.report()
         ),
         (
-            Some(
-                "Budget exhausted (tokens): the request was not sent. Add budget to continue."
-                    .to_owned()
-            ),
+            Some("Budget exhausted (tokens): the request was not sent.".to_owned()),
             0,
             Some(BudgetReport {
                 free: BudgetAmounts {
-                    tokens: 1_000,
+                    tokens: 9_000,
                     ..BudgetAmounts::default()
                 },
-                ..report(tokens(1_000))
+                ..report(tokens(9_000))
             })
         )
     );
@@ -802,7 +805,7 @@ async fn a_work_turn_stopped_at_its_granted_time_gives_the_final_answer() {
         .unwrap();
     let reply = fixture.send(agent("build it")).await;
     // The ledger's clock stands still: the notice shows the whole budget.
-    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is left, and that the time limit ended the work. At most 2048 output tokens.";
     let received = received.lock().unwrap().clone();
     assert_eq!(
         (
@@ -899,12 +902,13 @@ async fn kept_for_the_final_answer(
 /// 10 s, twice that but at least 20 s, so the next work request is
 /// stopped at 160 s; a 10-minute budget keeps 120 s at most, and after a
 /// 70 s request still 120 s; a 1-minute budget keeps 20 s from the start
-/// (a quarter is less); a 32-second budget keeps half of it, 16 s, from
-/// the start. (A 10-minute budget's stalled request meets the stream's
-/// idle deadline first: only its reserves are compared.) Before, every
-/// budget kept 120 s: a 3-minute budget wrapped up after a minute of work;
-/// then, before any request ended, a quarter of the budget: a 1-minute
-/// budget kept 15 s, a 32-second one 8 s.
+/// (a quarter is less). (A 10-minute budget's stalled request meets the
+/// stream's idle deadline first: only its reserves are compared.) Before,
+/// every budget kept 120 s: a 3-minute budget wrapped up after a minute
+/// of work; then, before any request ended, a quarter of the budget: a
+/// 1-minute budget kept 15 s. (Half the budget caps the reserve only
+/// below 40 s, under the floor of one request a limit is refused at,
+/// B17.)
 #[tokio::test(start_paused = true)]
 async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
     let reserves = |(first, next, _): (u64, u64, Option<std::time::Duration>)| (first, next);
@@ -914,14 +918,12 @@ async fn the_final_answers_time_follows_the_budget_and_the_longest_request() {
             reserves(kept_for_the_final_answer(600_000, 10_000).await),
             reserves(kept_for_the_final_answer(600_000, 70_000).await),
             reserves(kept_for_the_final_answer(60_000, 10_000).await).0,
-            reserves(kept_for_the_final_answer(32_000, 10_000).await).0,
         ),
         (
             (45_000, 20_000, Some(std::time::Duration::from_secs(160))),
             (120_000, 20_000),
             (120_000, 120_000),
             20_000,
-            16_000,
         )
     );
 }
@@ -1046,7 +1048,7 @@ async fn a_work_turn_stopped_at_the_deadline_leaves_the_agent_wrapping_up() {
         deadline_ms: Some(NOW_MS + 180_000),
         ..report(limits)
     };
-    let notice = "[budget] The time budget of this task is used up for work: 45s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The time budget of this task is used up for work: 45s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is left, and that the time limit ended the work. At most 2048 output tokens.";
     assert_eq!(
         (
             stopped_at_the_deadline(false, 0, 180_000).await,
@@ -1265,7 +1267,7 @@ async fn a_work_turn_stopped_after_it_streamed_gives_the_final_answer_after_it()
         Some(AssistantMessageEvent::Done { message, .. }) => Some(message.content.clone()),
         Some(_) | None => None,
     };
-    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The time budget of this task is used up for work: 3m 0s left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is left, and that the time limit ended the work. At most 2048 output tokens.";
     let received = received.lock().unwrap().clone();
     assert_eq!(
         (
@@ -1324,8 +1326,8 @@ async fn a_work_turn_stopped_after_it_streamed_gives_the_final_answer_after_it()
 #[tokio::test]
 async fn a_refused_request_is_typed_and_never_retried() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(10)).unwrap();
-    let refused = fixture.request(chat("summarize")).await;
+    fixture.gate.set(tokens(9_000)).unwrap();
+    let refused = fixture.request(long_chat()).await;
     assert_eq!(
         (
             refused
@@ -1349,11 +1351,11 @@ async fn a_refused_request_is_typed_and_never_retried() {
 #[tokio::test]
 async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(6_000)).unwrap();
-    // The parent's last turn kept 5000 tokens for its final answer.
+    fixture.gate.set(tokens(9_000)).unwrap();
+    // The parent's last turn kept 8000 tokens for its final answer.
     let parent = fixture.gate.ledger();
     let parent_keep = BudgetAmounts {
-        tokens: 5_000,
+        tokens: 8_000,
         ..BudgetAmounts::default()
     };
     let Reserved::Granted { reservation, .. } = parent
@@ -1395,14 +1397,11 @@ async fn a_shared_child_cannot_take_its_parents_final_answer_reserve() {
     assert_eq!(
         (
             reply.error_message,
-            smallest <= 6_000,
+            smallest <= 9_000,
             fixture.faux.state().call_count,
         ),
         (
-            Some(
-                "Budget exhausted (tokens): the request was not sent. Add budget to continue."
-                    .to_owned()
-            ),
+            Some("Budget exhausted (tokens): the request was not sent.".to_owned()),
             true,
             0,
         )
@@ -1498,7 +1497,7 @@ async fn a_deferred_response_settles_when_its_fetch_ends() {
 #[tokio::test]
 async fn a_provider_registered_after_the_wrap_is_gated() {
     let fixture = Fixture::new();
-    fixture.gate.set(tokens(1_000)).unwrap();
+    fixture.gate.set(tokens(9_000)).unwrap();
     let late = faux_provider(RegisterFauxProviderOptions {
         provider: Some("late".to_owned()),
         ..RegisterFauxProviderOptions::default()
@@ -1508,30 +1507,49 @@ async fn a_provider_registered_after_the_wrap_is_gated() {
         .models
         .complete_simple(
             &late.get_model(),
-            chat("summarize"),
+            long_chat(),
             ModelsSimpleStreamOptions::from(SimpleStreamOptions::default()),
         )
         .await;
     assert_eq!(
         (reply.error_message, late.state().call_count),
         (
-            Some(
-                "Budget exhausted (tokens): the request was not sent. Add budget to continue."
-                    .to_owned()
-            ),
+            Some("Budget exhausted (tokens): the request was not sent.".to_owned()),
             0
         )
     );
 }
 
 /// B17, B19: the run's first work turn goes out under a roomy budget (a
-/// run whose first request does not fit its limits sends nothing), then
-/// the principal sets the run's token limit so that exactly `free` tokens
-/// are free beside what the run spent. What the provider received and the
-/// notices given so far are forgotten. The run's new token limit.
+/// run whose first request does not fit its limits sends nothing), the
+/// run spends 90k tokens more, then the principal sets the run's token
+/// limit so that exactly `free` tokens are free beside what the run spent
+/// (a limit above the floor of one request, B17). What the provider
+/// received and the notices given so far are forgotten. The run's new
+/// token limit.
 async fn worked_then_left(fixture: &Fixture, free: u64) -> u64 {
     fixture.gate.set(tokens(100_000)).unwrap();
     fixture.request(agent("look around")).await;
+    let spend = BudgetAmounts {
+        tokens: 90_000,
+        ..BudgetAmounts::default()
+    };
+    let ledger = fixture.gate.ledger();
+    let Reserved::Granted { reservation, .. } = ledger
+        .reserve(
+            "session",
+            Use::Work,
+            "model:turn",
+            BudgetAmounts::default(),
+            BudgetAmounts::default(),
+            &[spend],
+            REQUEST_MIN_MS,
+        )
+        .unwrap()
+    else {
+        panic!("90k of 100k tokens fit");
+    };
+    ledger.settle(reservation.id, spend).unwrap();
     let limit = free + fixture.gate.report().unwrap().spent.tokens;
     fixture.gate.set(tokens(limit)).unwrap();
     fixture.received.lock().unwrap().clear();
@@ -1547,7 +1565,7 @@ async fn an_agent_turn_refused_as_work_is_sent_as_the_final_answer() {
     // No work cap fits 4000 tokens; a final answer of 2048 does.
     let limit = worked_then_left(&fixture, 4_000).await;
     let reply = fixture.request(agent("build it")).await;
-    let notice = "[budget] The tokens budget of this task is used up for work: 4.0k tokens left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is not, and how to continue. At most 2048 output tokens.";
+    let notice = "[budget] The tokens budget of this task is used up for work: 4.0k tokens left, too little for another step beside the final answer. Tools are no longer available. Give your final answer now: what is done, what is left, and that the tokens limit ended the work. At most 2048 output tokens.";
     assert_eq!(
         (
             reply.error_message,
@@ -1618,10 +1636,7 @@ async fn an_exhausted_budget_sends_nothing_until_budget_is_added() {
             fixture.gate.phase()
         ),
         (
-            Some(
-                "Budget exhausted (tokens): the request was not sent. Add budget to continue."
-                    .to_owned()
-            ),
+            Some("Budget exhausted (tokens): the request was not sent.".to_owned()),
             0,
             Some(BudgetPhase::Exhausted)
         )
@@ -1943,14 +1958,17 @@ async fn a_budget_without_tokens_for_the_next_turn_funds_no_further_turn() {
 /// may run, so no turn is funded; added time funds one again.
 #[tokio::test]
 async fn a_budget_without_time_for_a_request_funds_no_turn() {
-    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    let _clock = MOVING_CLOCK_OWNER.lock().await;
+    MOVING_MS.store(NOW_MS, Ordering::SeqCst);
+    let fixture = Fixture::build(Answer::Faux, Clock::Moving);
     fixture
         .gate
         .set(BudgetLimits {
-            time_ms: Some(20_000),
+            time_ms: Some(60_000),
             ..BudgetLimits::default()
         })
         .unwrap();
+    MOVING_MS.fetch_add(40_000, Ordering::SeqCst);
     let short = (fixture.gate.phase(), fixture.gate.funds_turn());
     fixture
         .gate
@@ -1966,18 +1984,22 @@ async fn a_budget_without_time_for_a_request_funds_no_turn() {
 }
 
 /// Time: a budget with a deadline cancels a tool call at its granted time
-/// (the time left before the deadline): the call's context is cancelled
-/// exactly then, and the model reads the budget's tool error.
+/// (the time left before the deadline, 20 s of a minute's budget): the
+/// call's context is cancelled exactly then, and the model reads the
+/// budget's tool error.
 #[tokio::test(start_paused = true)]
 async fn a_tool_call_is_stopped_at_its_granted_time() {
-    let fixture = Fixture::build(Answer::Faux, Clock::Fixed);
+    let _clock = MOVING_CLOCK_OWNER.lock().await;
+    MOVING_MS.store(NOW_MS, Ordering::SeqCst);
+    let fixture = Fixture::build(Answer::Faux, Clock::Moving);
     fixture
         .gate
         .set(BudgetLimits {
-            time_ms: Some(20_000),
+            time_ms: Some(60_000),
             ..BudgetLimits::default()
         })
         .unwrap();
+    MOVING_MS.fetch_add(40_000, Ordering::SeqCst);
     let stopped_at = Arc::new(Mutex::new(None));
     let seen = Arc::clone(&stopped_at);
     let outcome = fixture
