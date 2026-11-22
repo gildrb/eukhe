@@ -500,7 +500,13 @@ async fn a_remote_model_edits_a_stylesheet_through_the_scrub_without_corrupting_
     // A caller-supplied collection stays unwrapped at open; the session's
     // own collection gets the provider runtime, whose dispatch scrubs a
     // remote model's requests and restores its answers.
-    let _runtime = ProviderRuntime::install(&session.deps().models, session.deps());
+    let _runtime = ProviderRuntime::install(
+        &session.deps().models,
+        session.deps(),
+        Arc::new(crate::durable::AccountBook::new(
+            session.deps().agent_dir.join(crate::auth::AUTH_FILE_NAME),
+        )),
+    );
     ask(
         &session,
         "mark the origin as staging and give the card an arrow",

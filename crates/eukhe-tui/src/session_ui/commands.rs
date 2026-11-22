@@ -514,27 +514,41 @@ impl SessionUi {
             // `/login` (TS `showConfigurationMenu("providers")`): the
             // providers selector this build ports of that tab (the full
             // configuration menu stays unported; the panel is the same
-            // TS `OAuthSelectorComponent` the tab mounts).
+            // TS `OAuthSelectorComponent` the tab mounts). `/login
+            // <provider>` starts that provider's login at once; every
+            // login adds an account.
             "login" => {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Login, view)
                         .await?;
-                } else {
+                } else if resolved.args.contains(char::is_whitespace) {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
-                    self.error_row("Usage: /login", view);
+                    self.error_row("Usage: /login [provider]", view);
+                } else {
+                    self.login_provider(&resolved.args, view).await;
                 }
             }
-            // `/logout` (TS `showLogoutSelector`): the stored-credential
-            // selector; an empty store answers the TS status directly.
+            // `/logout`: the stored-account selector (an empty store
+            // answers the TS status directly); `/logout <provider>
+            // [n|identity]` removes that one account.
             "logout" => {
                 if resolved.args.is_empty() {
                     self.open_provider_auth(AuthSelectorKind::Logout, view)
                         .await?;
                 } else {
+                    self.logout_account(&resolved.args, view).await;
+                }
+            }
+            // `/accounts`: each provider's stored accounts, the one this
+            // session uses, and their usage limits.
+            "accounts" => {
+                if resolved.args.is_empty() {
+                    self.show_accounts(view).await;
+                } else {
                     view.editor
                         .set_text(&format!("/{} {}", resolved.original_name, resolved.args));
-                    self.error_row("Usage: /logout", view);
+                    self.error_row("Usage: /accounts", view);
                 }
             }
             // `/import <path.jsonl>` (TS `handleImportCommand`): the

@@ -102,6 +102,92 @@ impl SessionUi {
             let kb = view.editor.keybindings();
             selector.handle_key(&id, kb)
         };
+        self.apply_provider_auth_action(action, view).await;
+        Ok(())
+    }
+
+    /// `/login <provider>`: the provider's login started as Enter on its
+    /// row would (the API-key prompt opens, a panel flow runs); a provider
+    /// without a login row is one error row naming the known ids.
+    pub(crate) async fn login_provider(&mut self, provider_id: &str, view: &mut AgentView) {
+        let Some(auth) = self.provider_auth.clone() else {
+            self.note("/login is not available in this client yet", view);
+            return;
+        };
+        let rows = auth.0.login_options().await;
+        let mut known: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+        known.sort();
+        known.dedup();
+        let mut selector =
+            crate::provider_auth::ProviderAuthSelector::new(AuthSelectorKind::Login, rows);
+        let Some(action) = selector.start_login(provider_id) else {
+            self.error_row(
+                &format!(
+                    "Unknown provider '{provider_id}'. Known: {}",
+                    known.join(", ")
+                ),
+                view,
+            );
+            return;
+        };
+        view.editor.set_text("");
+        view.provider_auth = Some(selector);
+        self.apply_provider_auth_action(action, view).await;
+    }
+
+    /// `/logout <provider> [n|identity]`: remove that one account (the
+    /// provider's only one when none is named).
+    pub(crate) async fn logout_account(&mut self, args: &str, view: &mut AgentView) {
+        let Some(auth) = self.provider_auth.clone() else {
+            self.note("/logout is not available in this client yet", view);
+            return;
+        };
+        let (provider, account) = match args.split_once(char::is_whitespace) {
+            Some((provider, account)) => (provider, Some(account.trim())),
+            None => (args, None),
+        };
+        let outcome = auth.0.logout(provider, account).await;
+        self.apply_auth_outcome(outcome, provider, view).await;
+        self.dirty = true;
+    }
+
+    /// `/accounts`: each provider's stored accounts, the one this session
+    /// uses marked, in the read-only info panel.
+    pub(crate) async fn show_accounts(&mut self, view: &mut AgentView) {
+        let Some(auth) = self.provider_auth.clone() else {
+            self.note("/accounts is not available in this client yet", view);
+            return;
+        };
+        let providers = auth.0.accounts().await;
+        let text = crate::provider_auth::accounts_text(&providers, &self.own_accounts());
+        if providers.is_empty() {
+            self.note(&text, view);
+            return;
+        }
+        let rows = text
+            .lines()
+            .map(|line| {
+                vec![crate::info_commands::ClientSpan {
+                    text: line.to_string(),
+                    color: None,
+                }]
+            })
+            .collect();
+        self.open_info_panel(
+            view,
+            Some("Accounts".to_string()),
+            crate::info_panel::InfoContent::Rows(rows),
+        );
+    }
+
+    /// Run one selector action: close the selector for a flow, store a
+    /// prompted key, start a panel login, or remove a logout row's
+    /// account.
+    async fn apply_provider_auth_action(
+        &mut self,
+        action: AuthSelectorAction,
+        view: &mut AgentView,
+    ) {
         match action {
             AuthSelectorAction::None => {}
             AuthSelectorAction::Cancel => {
@@ -159,12 +245,14 @@ impl SessionUi {
                 // (`apply_auth_outcome` consumes it), so a logout never
                 // leaves a model waiting on the credential it removed.
                 let auth = self.provider_auth.clone().expect("the selector was open");
-                let outcome = auth.0.logout(&provider).await;
+                let outcome = auth
+                    .0
+                    .logout(&provider.id, provider.account.as_deref())
+                    .await;
                 self.apply_auth_outcome(outcome, &provider.id, view).await;
             }
         }
         self.dirty = true;
-        Ok(())
     }
 
     /// Enter on a panel-driven login row (the MCP OAuth logins, the

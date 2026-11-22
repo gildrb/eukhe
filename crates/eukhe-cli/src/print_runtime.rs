@@ -731,11 +731,11 @@ async fn run_exit(
             }
         }
     }
-    // Each model move of the run: the request went on with another model
-    // the user configured, and why.
+    // Each switch of the run: the request went on with another account of
+    // its provider, or another model the user configured, and why.
     if let Some(runtime) = session.deps().provider_runtime.get() {
-        for model_move in runtime.model_moves() {
-            eprintln!("eukhe: {}", model_move.text());
+        for line in runtime.switch_report() {
+            eprintln!("eukhe: {line}");
         }
     }
     match exit.cause {

@@ -229,11 +229,12 @@ async fn login_stores_an_api_key_and_logout_removes_it() {
         flow: AuthFlow::ApiKeyPrompt,
         configured: false,
         available: true,
+        account: None,
     };
     match auth.login(&row, Some("sk-test")).await {
         ProviderAuthOutcome::Status(message) => {
             assert!(
-                message.starts_with("Saved API key for OpenAI. Credentials saved to "),
+                message.starts_with("Saved API key for OpenAI as key. Credentials saved to "),
                 "the store status names the credential path: {message}"
             );
         }
@@ -246,16 +247,19 @@ async fn login_stores_an_api_key_and_logout_removes_it() {
             "Failed to save API key for OpenAI: API key cannot be empty.".to_string()
         )
     );
-    // The logout lists the stored credential and removes it.
+    // The logout lists the stored account and removes it.
     let stored = auth.logout_options().await;
-    assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].id, "openai");
     assert_eq!(
-            auth.logout(&stored[0]).await,
-            ProviderAuthOutcome::Status(
-                "Removed stored API key for OpenAI. Environment variables and models.json config are unchanged."
-                    .to_string()
-            )
-        );
+        stored
+            .iter()
+            .map(|row| (row.id.as_str(), row.name.as_str(), row.account.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![("openai", "OpenAI: key", Some("key"))]
+    );
+    assert_eq!(
+        auth.logout(&stored[0].id, stored[0].account.as_deref())
+            .await,
+        ProviderAuthOutcome::Status("Removed key from openai (0 left).".to_string())
+    );
     assert!(auth.logout_options().await.is_empty());
 }

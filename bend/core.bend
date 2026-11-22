@@ -2,6 +2,7 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_account.bend as ffi_account
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
@@ -9,7 +10,6 @@ import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
-import ./ffi_autonomous.bend as ffi_autonomous
 import ./ffi_autoresearch.bend as ffi_autoresearch
 import ./ffi_aux_fallback.bend as ffi_aux_fallback
 import ./ffi_aws_text.bend as ffi_aws_text
@@ -135,7 +135,6 @@ import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
 import ./ffi_wire.bend as ffi_wire
 import ./ffi_work.bend as ffi_work
-import ./ffi_work_left.bend as ffi_work_left
 import ./ffi_work_list.bend as ffi_work_list
 import ./ffi_worker.bend as ffi_worker
 import ./ffi_workflow.bend as ffi_workflow
@@ -390,12 +389,10 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_task.ffi(input)
     case 465:
       ffi_strength.ffi(input)
-    case 470:
-      ffi_work_left.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
-    case 473:
-      ffi_autonomous.ffi(input)
+    case 481:
+      ffi_account.ffi(input)
     case _:
       W.err("unknown entry")
 

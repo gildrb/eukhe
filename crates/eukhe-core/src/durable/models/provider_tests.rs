@@ -121,7 +121,10 @@ fn fixture_wired(
             kernel_unavailable: None,
         },
     ));
-    let runtime = ProviderRuntime::install(&models, &deps);
+    let accounts = Arc::new(crate::durable::AccountBook::new(
+        agent_dir.join(crate::auth::AUTH_FILE_NAME),
+    ));
+    let runtime = ProviderRuntime::install(&models, &deps, accounts);
     Fixture {
         dir,
         models,
@@ -1271,4 +1274,145 @@ async fn prompt_progress_goes_to_the_wire_and_the_caller() {
         ProviderWireEvent::PromptProgress(progress)
     );
     assert!(events.try_recv().is_err());
+}
+
+/// `faux-a` with two stored API-key accounts (`key ...111111` first).
+fn two_faux_a_accounts(fixture: &Fixture) {
+    std::fs::write(
+        fixture
+            .dir
+            .path()
+            .join("agent")
+            .join(crate::auth::AUTH_FILE_NAME),
+        serde_json::json!({ "faux-a": { "accounts": [
+            { "type": "api_key", "key": "sk-aaaa-111111", "identity": "key ...111111" },
+            { "type": "api_key", "key": "sk-bbbb-222222", "identity": "key ...222222" },
+        ] } })
+        .to_string(),
+    )
+    .expect("auth.json");
+}
+
+/// The switches recorded, with each cause cut at the reset time it names
+/// (the clock's).
+fn account_switches_cut(fixture: &Fixture) -> Vec<(String, String, String)> {
+    fixture
+        .runtime
+        .account_switches()
+        .into_iter()
+        .map(|switch| {
+            let cause = switch
+                .cause
+                .split(" holds until ")
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            (switch.provider, switch.to, cause)
+        })
+        .collect()
+}
+
+/// Owner decision 2026-11-21: a limited account hands the request to
+/// another account of the same provider and the same model, before any
+/// other configured model; the session sticks to that account and the
+/// switch is in the run's report.
+#[tokio::test]
+async fn a_limited_account_hands_the_request_to_its_sibling() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    two_faux_a_accounts(&fixture);
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![
+        quota_step(3_600_000),
+        FauxResponseStep::Message(Box::new(faux_assistant_message(
+            "sibling answer",
+            FauxAssistantMessageOptions::default(),
+        ))),
+    ]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("other model", FauxAssistantMessageOptions::default()),
+        ))]);
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            answer_text(&message),
+            account_switches_cut(&fixture),
+            fixture.runtime.model_moves(),
+            fixture.runtime.pinned_accounts().get("faux-a").cloned(),
+        ),
+        (
+            "faux-a",
+            "sibling answer".to_owned(),
+            vec![(
+                "faux-a".to_owned(),
+                "key ...222222".to_owned(),
+                "the usage limit of key ...111111".to_owned()
+            )],
+            Vec::new(),
+            Some("key ...222222".to_owned()),
+        )
+    );
+}
+
+/// Every account limited past the wait: the request goes to the model
+/// fallback with the earliest reset, after the account switch.
+#[tokio::test]
+async fn every_account_limited_hands_the_request_to_the_model_fallback() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    two_faux_a_accounts(&fixture);
+    let model = fixture.faux_a.get_model();
+    fixture
+        .faux_a
+        .set_responses(vec![quota_step(3_600_000), quota_step(7_200_000)]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("fallback answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    let moves: Vec<(String, String, bool)> = fixture
+        .runtime
+        .model_moves()
+        .into_iter()
+        .map(|moved| {
+            let quota = moved
+                .reason
+                .starts_with("the usage limit of faux-a holds until ");
+            (moved.from, moved.to, quota)
+        })
+        .collect();
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            answer_text(&message),
+            account_switches_cut(&fixture),
+            moves,
+        ),
+        (
+            "faux-b",
+            "fallback answer".to_owned(),
+            vec![(
+                "faux-a".to_owned(),
+                "key ...222222".to_owned(),
+                "the usage limit of key ...111111".to_owned()
+            )],
+            vec![(
+                "faux-a/shared-1".to_owned(),
+                "faux-b/solo-1".to_owned(),
+                true
+            )],
+        )
+    );
 }

@@ -8,6 +8,9 @@ use std::sync::Arc;
 
 use eukhe_bend::rules::config;
 
+use super::accounts::{
+    entry_of, keeps_accounts, migrated_entries, with_account, Account, AccountSelector,
+};
 use super::refresh_error::{OAuthRefreshError, RefreshFailed};
 use super::resolve_config_value::{resolve_config_value, resolve_config_value_uncached};
 use super::storage::{edit_storage_data, parse_storage_data, AuthStorageBackend};
@@ -399,14 +402,20 @@ impl AuthStorage {
         std::mem::take(&mut self.errors)
     }
 
-    /// Reload credentials from storage.
+    /// Reload credentials from storage. A document with entries written
+    /// before accounts is rewritten with each as a one-account list, in
+    /// one locked write ([`migrated_entries`]).
     pub fn reload(&mut self) {
         // The pure-read arm: a locked protocol read on any cache miss, the
         // process-cached copy on a hit (see `AuthStorageBackend::read`).
         let result = self.storage.read();
         match result.and_then(|content| parse_storage_data(content.as_deref())) {
             Ok(data) => {
-                self.data = data;
+                self.data = if migrated_entries(&data.0).is_empty() {
+                    data
+                } else {
+                    self.migrate().unwrap_or(data)
+                };
                 self.load_error = None;
             }
             Err(error) => {
@@ -415,6 +424,31 @@ impl AuthStorage {
                 self.errors.push(AuthStorageError::Load(error));
             }
         }
+    }
+
+    /// Rewrite every entry written before accounts as a one-account list
+    /// (under the document lock, so a peer's write in between stands) and
+    /// answer the document written; `None` when the write fails (the
+    /// entries still read as one account each).
+    fn migrate(&self) -> Option<AuthStorageData> {
+        let mut written = None;
+        self.storage
+            .with_lock(&mut |current| {
+                let mut content = current;
+                let document = parse_storage_data(content.as_deref())?;
+                for (provider, entry) in migrated_entries(&document.0) {
+                    let edited = edit_storage_data(content.as_deref(), |_| {
+                        Some(config::Edit::Set(provider.clone(), entry.clone()))
+                    })?;
+                    if let Some(edited) = edited {
+                        content = Some(serde_json::to_string_pretty(&edited.0)?);
+                    }
+                }
+                written = Some(parse_storage_data(content.as_deref())?);
+                Ok(((), content))
+            })
+            .ok()?;
+        written
     }
 
     /// Runtime API-key override (CLI `--api-key`); not persisted.
@@ -761,30 +795,99 @@ impl AuthStorage {
         }
     }
 
-    /// Store a credential for a provider.
+    /// Store a credential as the provider's only account (an MCP server's
+    /// one credential).
     ///
     /// # Errors
     ///
-    /// Returns an error when the auth document failed to load, cannot be
-    /// read or parsed now, or cannot be written. Then nothing is written.
+    /// Returns an error when the credential does not serialize, the auth
+    /// document failed to load, cannot be read or parsed now, or cannot be
+    /// written. Then nothing is written.
     pub fn set(
         &mut self,
         provider: &str,
         credential: AuthCredential,
     ) -> Result<(), AuthWriteError> {
-        self.persist_provider_change(provider, Some(credential))
+        let object = self.credential_object(credential)?;
+        let entry = if keeps_accounts(provider) {
+            entry_of(&[Account::new(provider, object)])
+        } else {
+            serde_json::Value::Object(object)
+        };
+        self.persist_entry(provider, |_| Some(entry.clone()))
     }
 
-    /// Remove a provider's stored credential.
+    /// Add a login of `provider` as an account named `identity` (empty:
+    /// the credential's own identity, [`super::accounts::identity_of`]):
+    /// it replaces the account of the same identity, else it comes last
+    /// and the others stay. Answers the account's label.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::set`].
+    pub fn add_account(
+        &mut self,
+        provider: &str,
+        credential: AuthCredential,
+        identity: &str,
+    ) -> Result<String, AuthWriteError> {
+        let mut account = Account::new(provider, self.credential_object(credential)?);
+        if !identity.is_empty() {
+            identity.clone_into(&mut account.identity);
+        }
+        self.persist_entry(provider, |data| {
+            Some(entry_of(&with_account(
+                data.accounts(provider),
+                account.clone(),
+            )))
+        })?;
+        let place = self
+            .data
+            .accounts(provider)
+            .iter()
+            .position(|known| known.identity == account.identity)
+            .map_or(1, |at| at + 1);
+        Ok(account.label(place))
+    }
+
+    /// Remove one account of `provider`; the provider's entry goes with its
+    /// last account. Answers the removed account's label, `None` when no
+    /// account matches (nothing is written).
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::set`].
+    pub fn remove_account(
+        &mut self,
+        provider: &str,
+        selector: &AccountSelector,
+    ) -> Result<Option<String>, AuthWriteError> {
+        let accounts = self.data.accounts(provider);
+        let Some(at) = selector.index(&accounts) else {
+            return Ok(None);
+        };
+        let removed = accounts[at].clone();
+        self.persist_entry(provider, |data| {
+            let rest: Vec<Account> = data
+                .accounts(provider)
+                .into_iter()
+                .filter(|account| account.identity != removed.identity)
+                .collect();
+            (!rest.is_empty()).then(|| entry_of(&rest))
+        })?;
+        Ok(Some(removed.label(at + 1)))
+    }
+
+    /// Remove a provider's stored credentials (every account).
     ///
     /// # Errors
     ///
     /// Returns the same errors as [`Self::set`].
     pub fn remove(&mut self, provider: &str) -> Result<(), AuthWriteError> {
-        self.persist_provider_change(provider, None)
+        self.persist_entry(provider, |_| None)
     }
 
-    /// Remove a provider's stored credential.
+    /// Remove a provider's stored credentials (every account).
     ///
     /// # Errors
     ///
@@ -793,28 +896,43 @@ impl AuthStorage {
         self.remove(provider)
     }
 
-    /// Write one provider's change into the document as it is on disk now
-    /// (the compiled core decides the write: [`edit_storage_data`]). The
-    /// other credentials keep their values. A document that failed to load
-    /// reads as broken.
-    fn persist_provider_change(
-        &mut self,
-        provider: &str,
-        credential: Option<AuthCredential>,
-    ) -> Result<(), AuthWriteError> {
-        let value = credential
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| AuthWriteError {
+    /// The stored object of `credential`.
+    fn credential_object(
+        &self,
+        credential: AuthCredential,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, AuthWriteError> {
+        match serde_json::to_value(credential) {
+            Ok(serde_json::Value::Object(object)) => Ok(object),
+            Ok(other) => Err(AuthWriteError {
+                location: self.storage.location(),
+                cause: AuthWriteCause::Serialize(<serde_json::Error as serde::de::Error>::custom(
+                    format!("a credential serialized as {other}"),
+                )),
+            }),
+            Err(error) => Err(AuthWriteError {
                 location: self.storage.location(),
                 cause: AuthWriteCause::Serialize(error),
-            })?;
-        let edit = match value {
-            Some(value) => config::Edit::Set(provider.to_string(), value),
-            None => config::Edit::Delete(provider.to_string()),
-        };
+            }),
+        }
+    }
+
+    /// Write one provider's entry into the document as it is on disk now:
+    /// `next` computes it from that document (`None`: the entry goes); the
+    /// compiled core decides the write ([`edit_storage_data`]). The other
+    /// entries keep their values. A document that failed to load reads as
+    /// broken.
+    fn persist_entry(
+        &mut self,
+        provider: &str,
+        next: impl Fn(&AuthStorageData) -> Option<serde_json::Value>,
+    ) -> Result<(), AuthWriteError> {
         if let Some(load_error) = &self.load_error {
-            if config::rmw(config::Read::Broken, edit.clone()).is_none() {
+            if config::rmw(
+                config::Read::<String, serde_json::Value>::Broken,
+                config::Edit::Delete(provider.to_string()),
+            )
+            .is_none()
+            {
                 return Err(AuthWriteError {
                     location: self.storage.location(),
                     cause: AuthWriteCause::Unloaded(load_error.clone()),
@@ -823,7 +941,12 @@ impl AuthStorage {
         }
         self.storage
             .with_lock(&mut |current| {
-                let data = edit_storage_data(current.as_deref(), |_| Some(edit.clone()))?;
+                let data = edit_storage_data(current.as_deref(), |data| {
+                    Some(match next(data) {
+                        Some(entry) => config::Edit::Set(provider.to_string(), entry),
+                        None => config::Edit::Delete(provider.to_string()),
+                    })
+                })?;
                 let content = data
                     .map(|data| serde_json::to_string_pretty(&data.0))
                     .transpose()?;

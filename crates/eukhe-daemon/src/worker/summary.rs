@@ -150,6 +150,7 @@ impl Worker {
         summary.worker_instance_id = (!self.config.worker_instance_id.is_empty())
             .then(|| self.config.worker_instance_id.clone());
         summary.model_fallback_message = model_moves(&self.session);
+        summary.accounts = pinned_accounts(&self.session);
         summary
     }
 
@@ -394,19 +395,36 @@ fn quota_park(session: &SessionSlot) -> Option<QuotaPark> {
     })
 }
 
-/// The report of the session's model moves (the provider runtime's
-/// [`eukhe_core::durable::ModelMove`]s, one line each, oldest first);
-/// `None` when its requests stayed on their models or no session is
+/// The report of the session's switches (the provider runtime's account
+/// switches, then its model moves, one line each, oldest first,
+/// [`eukhe_core::durable::ProviderRuntime::switch_report`]); `None` when
+/// its requests stayed on their accounts and models or no session is
 /// hosted.
 fn model_moves(session: &SessionSlot) -> Option<String> {
-    let moves = session.get()?.deps().provider_runtime.get()?.model_moves();
-    (!moves.is_empty()).then(|| {
-        moves
-            .iter()
-            .map(eukhe_core::durable::ModelMove::text)
-            .collect::<Vec<String>>()
-            .join("\n")
-    })
+    let lines = session
+        .get()?
+        .deps()
+        .provider_runtime
+        .get()?
+        .switch_report();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// The account each provider's requests of the session use (identity by
+/// provider, [`eukhe_core::durable::ProviderRuntime::pinned_accounts`]);
+/// empty before the session sent to a provider or without a hosted
+/// session.
+fn pinned_accounts(session: &SessionSlot) -> std::collections::BTreeMap<String, String> {
+    session
+        .get()
+        .and_then(|hosted| {
+            hosted
+                .deps()
+                .provider_runtime
+                .get()
+                .map(|runtime| runtime.pinned_accounts())
+        })
+        .unwrap_or_default()
 }
 
 /// What the session waits on now, as the summary carries it: the running
@@ -493,6 +511,7 @@ pub(crate) async fn push_roster_delta(context: &RosterPushContext) {
             quota_park(&context.session),
         );
         summary.model_fallback_message = model_moves(&context.session);
+        summary.accounts = pinned_accounts(&context.session);
         // The embedded counter is the pre-stamp value: every sequence
         // stamped before the snapshot is at or below it.
         summary.roster_delta_sequence = Some(
@@ -789,6 +808,7 @@ pub(crate) fn session_summary(
         worker_instance_id: None,
         model,
         model_fallback_message: None,
+        accounts: std::collections::BTreeMap::new(),
         runtime_kind: Some(core.runtime_kind.clone()),
         unfinished_action_count: Some(0),
         anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),

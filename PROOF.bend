@@ -4766,3 +4766,14 @@ import ./proof/autonomous/autonomous_example.bend as PAutonomousExample
 import ./proof/autonomous/autonomous_holds_iff.bend as PAutonomousHoldsIff
 import ./proof/autonomous/autonomous_off_iff.bend as PAutonomousOffIff
 import ./proof/autonomous/autonomous_short_stops.bend as PAutonomousShortStops
+import ./proof/account/base.bend as LAAccount
+import ./proof/account/account_uses_first_usable.bend as PAccountUsesFirstUsable
+import ./proof/account/account_waits_for_earliest.bend as PAccountWaitsForEarliest
+import ./proof/account/account_hands_on_past_wait.bend as PAccountHandsOnPastWait
+import ./proof/account/account_login_when_all_dead.bend as PAccountLoginWhenAllDead
+import ./proof/account/account_example.bend as PAccountExample
+import ./proof/account/account_entry_parses.bend as PAccountEntryParses
+import ./proof/account/account_entry_is_model.bend as PAccountEntryIsModel
+import ./proof/account/account_entry_exact.bend as PAccountEntryExact
+import ./proof/account/account_entry_refuses.bend as PAccountEntryRefuses
+import ./proof/account/account_entry_example.bend as PAccountEntryExample

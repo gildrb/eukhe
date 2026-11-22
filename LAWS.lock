@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "a8e0f94f26fe3eddf47f3ee16356a41fb8d849a34566a77521cf6f019c508e4f",
+      "spec/README.md": "0e0542bea0d3c268c149730e712a7dced682fb9300676f5176254a40392cba95",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -67,6 +67,16 @@
     ]
   },
   "laws": {
+    "laws/account.bend::account_entry_exact": "37940a263b8f943228c3f42d9e3b3a9a0e1fa305ddaec9e71ebb41131ea298b9",
+    "laws/account.bend::account_entry_example": "d5b8200653acf375bdf7584953d19f7e249d143a535666e43845ad52b108b8e7",
+    "laws/account.bend::account_entry_is_model": "9ca0cf111b9e68b6a04794d08c20e554ea6de090306a9ff451642de7f9784e4c",
+    "laws/account.bend::account_entry_parses": "e33f87dc62d76b9232ceab4197a46b78d3769286423f21eb1ecce1b68ceaa1cc",
+    "laws/account.bend::account_entry_refuses": "a5fa6665ae0ca60d487a75e2299e77179e9d90bee7901854fd536346a887fce5",
+    "laws/account.bend::account_example": "62826b66e60bec534ffbca6593b4f264a0b44e40f7b275a8dea59ff325596dcc",
+    "laws/account.bend::account_hands_on_past_wait": "47bfb27c53c68dde3e257a710654e51612469940d75cda367ebb65da30f004cc",
+    "laws/account.bend::account_login_when_all_dead": "985a26b60ff01149333cb435f7a6b2bb394987a467713fe5a5c4d4c030030f2d",
+    "laws/account.bend::account_uses_first_usable": "4862b05605f687425e1a1f6a6e31e9c00fad474fa1d2a0f47ff47c2fe55a0177",
+    "laws/account.bend::account_waits_for_earliest": "1971cd561319b3fcfabd30fed4d3238b807b4af967426577631467d0a575b7f3",
     "laws/admission.bend::admission_admit_appends": "d5373b4e9f55aded2156ec004686f0b4d4e033c573583802f877797a526bb955",
     "laws/admission.bend::admission_background_admit_idle": "ab4fc6542953c65271e94db7196ff2d546619acaef68a0ebe347dc403ee94f25",
     "laws/admission.bend::admission_background_yields": "3404fc8f323b9ab212d741f64917cb7394e0b2d22c34bff5e75eef35c4a87754",
@@ -4340,6 +4350,18 @@
     "site/laws/vim/screen.bend::scrolloff_any": "1c7a975f05a07f7d55913fa6a92006275ec1437ce71f82ab2e9dd2e1476cd6bd"
   },
   "spec": {
+    "laws/account.bend::ac_all_after": "367df7b2e9f00d34322a3bcf3313daf2afe2218c9cbeeb05898c1c3f11003266",
+    "laws/account.bend::ac_all_dead": "8abb057dcacca3b2dc7e85336c8fae00b08e18d227d25833d52eb293976b76a0",
+    "laws/account.bend::ac_all_from": "2adce1174054e8d28a430b9d94314a58bd216b115bcd0bd3e191a88926c54df7",
+    "laws/account.bend::ac_fits": "0ab3a3e4fb98d4ee86e0e1396122757cc13f7f7cdfac6c64a1315de224a6e591",
+    "laws/account.bend::ac_mark_nats": "8386619a1471cdf9484ad533efc2c2b8d3718ad31b4328c625ac2991d40c59c3",
+    "laws/account.bend::ac_marks_nats": "c3af4e358fa64bf5640120ac990da70b42c742a0ea06f67b9070c258b9a13f93",
+    "laws/account.bend::ac_may_wait": "831676bd8ef1e4a88d9094d2dc3218d37fc132f0b6897abf8d3a1852e33cecf2",
+    "laws/account.bend::ac_nats": "0e1e56f284eb2e84407d340781ad14728c249efc333f7acd98ac05bf30ce778d",
+    "laws/account.bend::ac_none_usable": "40d3e14e683edec472b3e66da4ee8d2a88b3bd484c5f963e5720bbad3db50329",
+    "laws/account.bend::ac_reply": "37931d35d2914fd61f48ec973017049ce6cd2bfc66ba1f64703e8284fdf9cb33",
+    "laws/account.bend::ac_req": "f46376e13687b09b047c0986cf476ec10348c66052d0f3f3603e0d54c53d490a",
+    "laws/account.bend::ac_usable": "f546d7d41679bd570855a058a22a3b88b4eff5ab35c9ff471eaa5ca5f92e2962",
     "laws/admission.bend::adl_keep": "86f9948f318c0e454b97b28f6fe03600eba3f3f93901f8aa134f613ce2c0e519",
     "laws/admission.bend::adl_live": "1ce5abcabdc9ca5071eebcfe55095ee2c02878d1c4c451957d9e519574b43339",
     "laws/admission.bend::adl_lives": "6c25c7bf83e430847ea9b463f51d6f96c1287c6601b8bd73f0a0f5e26dbb3220",
