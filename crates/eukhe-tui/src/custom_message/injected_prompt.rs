@@ -27,18 +27,14 @@
 use super::custom_content_text;
 use super::render::{spacer, text_rows, truncate_text};
 use crate::chat::Detail;
+use crate::rows::Gutter;
 use crate::theme::{Theme, ThemeColor};
-use crate::width::{pad_line, str_width, truncate_to_width, wrap_text};
+use crate::width::{str_width, truncate_to_width, wrap_text};
 use crate::{Line, Span};
 use eukhe_types::ai::UserContent;
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::input_origin::{AutonomousNudge, InputOrigin};
 use serde_json::Value;
-
-/// The column a continuation row's label starts at, and the column its
-/// wrapped rows hang at: the step gutter of a turn.
-const STEP_COLUMN: usize = 3;
-const HANG_COLUMN: usize = 5;
 
 /// One injected prompt row (TS `InjectedPromptMessageComponent`); the kind
 /// picks the header shape, `body` renders as markdown when expanded.
@@ -248,6 +244,7 @@ pub(crate) fn render_injected_prompt(
             &header,
             row.body.as_deref().unwrap_or_default(),
             detail,
+            theme,
             width,
         ));
         return out;
@@ -265,16 +262,22 @@ pub(crate) fn render_injected_prompt(
 }
 
 /// A continuation's rows on the step gutter, in the label's style: the
-/// label at the step column, then the body's first line past its bracketed
+/// label as the step mark, then the body's first line past its bracketed
 /// headers, cut to the width (`...` when more lines follow); at `all`
-/// every body line, wrapped rows hanging at the step's text column.
-fn continuation_rows(label: &Line, body: &str, detail: Detail, width: usize) -> Vec<Line> {
+/// every body line, wrapped rows hanging at the step's body column.
+fn continuation_rows(
+    label: &Line,
+    body: &str,
+    detail: Detail,
+    theme: &Theme,
+    width: usize,
+) -> Vec<Line> {
     let Some(label) = label.first() else {
         return Vec::new();
     };
-    let lead_width = STEP_COLUMN + str_width(&label.content) + 1;
+    let lead_width = Gutter::Step.mark_col() + str_width(&label.content) + 1;
     let first_width = width.saturating_sub(lead_width + 1).max(1);
-    let hang_width = width.saturating_sub(HANG_COLUMN + 1).max(1);
+    let hang_width = Gutter::Step.body_width(width);
     let lines: Vec<&str> = body
         .lines()
         .map(str::trim_end)
@@ -307,22 +310,14 @@ fn continuation_rows(label: &Line, body: &str, detail: Detail, width: usize) -> 
             crate::glyphs::ELLIPSIS,
         )]
     };
-    let mut rows = text.into_iter();
-    let lead = vec![
-        Span::raw(" ".repeat(STEP_COLUMN)),
-        label.clone(),
-        Span::raw(" "),
-        Span::styled(rows.next().unwrap_or_default(), label.style),
-    ];
-    std::iter::once(lead)
-        .chain(rows.map(|row| {
-            vec![
-                Span::raw(" ".repeat(HANG_COLUMN)),
-                Span::styled(row, label.style),
-            ]
-        }))
-        .map(|row| pad_line(row, width))
-        .collect()
+    let mut rows: Vec<Line> = text
+        .into_iter()
+        .map(|row| vec![Span::styled(row, label.style)])
+        .collect();
+    if rows.is_empty() {
+        rows.push(Vec::new());
+    }
+    Gutter::Step.place(Some(label.clone()), rows, theme, width)
 }
 
 fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {

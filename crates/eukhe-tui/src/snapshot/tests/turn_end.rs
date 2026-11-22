@@ -269,6 +269,25 @@ fn a_turn_that_used_tokens_folds_its_footer_last() {
     assert!(matches!(entries[footer + 1], ChatEntry::User { .. }));
 }
 
+/// The footer counts the calls their cards mark `x`: a bash script that
+/// exited nonzero is no error result, and still counts as failed.
+#[test]
+fn a_nonzero_exit_counts_as_failed_as_its_card_marks_it() {
+    let [call, mut result] = tool_round();
+    result["details"] =
+        json!({ "version": "bash@1", "steps": [], "end": { "kind": "finished", "status": 2 } });
+    let entries = ended([
+        user("list"),
+        used(call, 100, 0),
+        result,
+        used(answer("done"), 20, 0),
+    ]);
+    assert!(entries.iter().any(
+        |entry| matches!(entry, ChatEntry::Tool(card) if crate::tool_card::marks_failed(card))
+    ));
+    assert_eq!(footers(&entries), ["-- 1 tool, 1 failed - in 120 - out 20"]);
+}
+
 /// A tool round followed by another prompt may go on past it (a steering
 /// prompt): its usage carries into the one footer of the turn that ends.
 #[test]

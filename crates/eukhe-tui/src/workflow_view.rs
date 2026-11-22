@@ -220,10 +220,10 @@ impl WorkflowView {
 pub fn agent_glyph(status: WorkflowAgentStatus) -> &'static str {
     match status {
         WorkflowAgentStatus::Queued => crate::glyphs::DOT_HALF,
-        WorkflowAgentStatus::Running => "▶",
-        WorkflowAgentStatus::Done => "✓",
-        WorkflowAgentStatus::Cached => "↺",
-        WorkflowAgentStatus::Failed => "✗",
-        WorkflowAgentStatus::Cancelled => "⊘",
+        WorkflowAgentStatus::Running => crate::glyphs::DOT_ON,
+        WorkflowAgentStatus::Done => crate::glyphs::DONE,
+        WorkflowAgentStatus::Cached => crate::glyphs::CACHED,
+        WorkflowAgentStatus::Failed => crate::glyphs::FAIL,
+        WorkflowAgentStatus::Cancelled => crate::glyphs::CANCELLED,
     }
 }

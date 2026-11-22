@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use eukhe_types::ai::{AssistantContentBlock, AssistantMessage, StopReason};
 
-use crate::glyphs::{DASH, ELLIPSIS, SEP};
+use crate::glyphs::{ELLIPSIS, MARK_FOOTER, SEP};
+use crate::rows::Gutter;
 use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
@@ -109,7 +110,7 @@ impl TurnUsage {
     /// the cache and the cost drop out while they are unknown or zero.
     #[must_use]
     pub fn row_text(&self) -> String {
-        format!("{DASH} {}", self.figures())
+        format!("{MARK_FOOTER} {}", self.figures())
     }
 
     /// The footer's figures after its mark.
@@ -141,19 +142,20 @@ impl TurnUsage {
     }
 }
 
-/// The footer row: the `--` mark at the turn's step column and the
-/// turn's figures, all in the chrome tier, cut at `width`.
+/// The footer row: the `--` mark in the step gutter and the turn's
+/// figures, all in the chrome tier, cut at `width`.
 #[must_use]
 pub fn render_turn_footer(usage: &TurnUsage, theme: &Theme, width: usize) -> Vec<Line> {
     let dim = theme.fg_style(ThemeColor::Dim);
+    let lead = Gutter::Step.mark_col() + crate::width::str_width(MARK_FOOTER) + 1;
     let figures =
-        crate::width::truncate_to_width(&usage.figures(), width.saturating_sub(7), ELLIPSIS);
-    vec![vec![
-        Span::raw("   "),
-        Span::styled(DASH, dim),
-        Span::raw(" "),
-        Span::styled(figures, dim),
-    ]]
+        crate::width::truncate_to_width(&usage.figures(), width.saturating_sub(lead + 1), ELLIPSIS);
+    Gutter::Step.place(
+        Some(Span::styled(MARK_FOOTER, dim)),
+        vec![vec![Span::styled(figures, dim)]],
+        theme,
+        width,
+    )
 }
 
 /// Tokens: the count under 1000, then one decimal of thousands (`1.9k`,
