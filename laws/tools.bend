@@ -512,6 +512,28 @@ law tools_ffi_example:
 # a part gives the secret effect. Every input is free: any parts, any
 # effects.
 
+# LAW elem_finds_a_member: c is an element of any list that holds c,
+# wherever it stands
+# EXCLUDES: a membership test that misses the first or a later element,
+#   or one that stops early
+law elem_finds_a_member:
+  for +pre: List<&2, Nat>
+  for +c: Nat
+  for +post: List<&2, Nat>
+  {Tl.elem(List.append(&2, Nat, pre, c <> post), c) == True{} : Bool}
+
+# LAW elem_only_members: c is an element of xs only when xs holds c: some
+# entries, then c, then some more
+# EXCLUDES: a membership test that answers yes for a list without c (the
+#   empty list, a constant yes, a code next to c)
+law elem_only_members:
+  for +xs: List<&2, Nat>
+  for +c: Nat
+  for has: {Tl.elem(xs, c) == True{} : Bool}
+  exs pre: List<&2, Nat>
+  exs post: List<&2, Nat>
+  {xs == List.append(&2, Nat, pre, c <> post) : List<&2, Nat>}
+
 # LAW step_holds_every_part: a step made of parts has every effect of every part
 law step_holds_every_part:
   for +pre: List<&2, List<&2, Nat>>
@@ -539,24 +561,39 @@ law step_holds_only_its_parts:
   for has: {Tl.elem(Tl.join(xs), c) == True{} : Bool}
   {tools_some_has(xs, c) == True{} : Bool}
 
+# some part of ps names a path that is or holds a secret: its secret
+# field is True
+def tools_some_secret(ps: List<&2, Tl.Part>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case p <> rest:
+      match p:
+        case Tl.Part{o, s}:
+          Bool.or(s, tools_some_secret(rest))
+
 # LAW secret_needs_a_secret_path: a step has the secret effect (6) only when one of its parts names
 # a path that is or holds a secret (an operand, an option value, a
 # redirection target, the working directory of a command that reads it
-# because it names no path): a step whose parts name none has no secret
-# effect, whatever else they hold
+# because it names no path): a step whose parts name none (each part's
+# secret field False) has no secret effect, whatever else they hold
+# EXCLUDES: a secret effect from a part's own codes, from a part that
+#   names no secret path, or from nowhere
 law secret_needs_a_secret_path:
   for +ps: List<&2, Tl.Part>
   for has: {Tl.elem(Tl.join(Tl.parts.effs(ps)), 6n) == True{} : Bool}
-  {Tl.parts.secret(ps) == True{} : Bool}
+  {tools_some_secret(ps) == True{} : Bool}
 
-# LAW secret_path_gives_secret: a part that names a path that is or holds a secret gives its step
-# the secret effect (6)
+# LAW secret_path_gives_secret: a part that names a path that is or holds a secret (its secret field
+# True), with any own codes, anywhere among the parts, gives its step the
+# secret effect (6)
+# EXCLUDES: a secret path that gives no secret effect (in the first, a
+#   middle or the last part; with or without own codes)
 law secret_path_gives_secret:
   for +pre: List<&2, Tl.Part>
-  for +p: Tl.Part
+  for +o: List<&2, Nat>
   for +post: List<&2, Tl.Part>
-  for named: {Tl.Part.secret(p) == True{} : Bool}
-  {Tl.elem(Tl.join(Tl.parts.effs(List.append(&2, Tl.Part, pre, p <> post))), 6n) == True{} : Bool}
+  {Tl.elem(Tl.join(Tl.parts.effs(List.append(&2, Tl.Part, pre, Tl.Part{o, True{}} <> post))), 6n) == True{} : Bool}
 
 # ys, with y in front unless y is the tool that quits (hit)
 def tr_keep(hit: Bool, y: Nat, ys: List<&2, Nat>) -> List<&2, Nat>:

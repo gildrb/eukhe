@@ -27,8 +27,9 @@ import ./base.bend as LawsBase
 # R3 (I4): recording a key the ledger holds answers Known with the id of
 #     its entry (its place, from 1) and changes nothing.
 # R4 (I4): over any history of records, every earlier entry stays as it
-#     was, each key recorded appears, each key once, and the ids answered
-#     New are 1, 2, ... in order, one per entry.
+#     was, each key recorded appears, each key once, each new entry holds
+#     the key and the run of the record that added it (any run), and the
+#     ids answered New are 1, 2, ... in order, one per entry.
 # R5 (I6): the end-of-run list of run r is the ids of the entries
 #     recorded in r, in ledger order; empty when none.
 # R6 (I13): the entry answers each request Rust writes (every number
@@ -116,6 +117,15 @@ def ir_in_run(hit: Bool, n: Nat) -> List<&2, Nat>:
       [n]
     case False{}:
       Nil{}
+
+# R4: what the record of key k in run r adds to a ledger: nothing when the
+# ledger holds k (held), else the one entry k in run r
+def ir_added(held: Bool, k: Nat, r: Nat) -> List<&2, Ir.Entry>:
+  match held:
+    case True{}:
+      Nil{}
+    case False{}:
+      [Ir.Entry{k, r}]
 
 # R6: a list of Nats, spelled, then rest
 def sp_ir_ns(xs: List<&2, Nat>, rest: String) -> String:
@@ -288,6 +298,31 @@ law irreversible_history_ids:
 law irreversible_history_example:
   {ir_answers([Ir.Entry{5n, 1n}, Ir.Entry{8n, 1n}, Ir.Entry{5n, 2n}, Ir.Entry{2n, 2n}], Nil{}) == [Ir.New{1n}, Ir.New{2n}, Ir.Known{1n}, Ir.New{3n}] : List<&2, Ir.Recorded>} & {Ir.history([Ir.Entry{5n, 1n}, Ir.Entry{8n, 1n}, Ir.Entry{5n, 2n}, Ir.Entry{2n, 2n}], Nil{}) == [Ir.Entry{5n, 1n}, Ir.Entry{8n, 1n}, Ir.Entry{2n, 2n}] : List<&2, Ir.Entry>}
 
+# LAW irreversible_history_last (R2, R4): after any records ops, one more
+# record, key k in run r, adds to the ledger ops left exactly the entry k
+# in run r when that ledger lacks k, and nothing when it holds k: every
+# new entry of a history keeps the key and the run it was recorded with,
+# whatever the run and wherever the record falls in the history
+# EXCLUDES: a new entry filed under another run (run 0 as run 1, a run
+#   taken modulo some number, the run of an earlier record), a record of a
+#   later run moving an entry, the last record dropped, appended twice or
+#   under another key
+law irreversible_history_last:
+  for ops: List<&2, Ir.Entry>
+  for +es: List<&2, Ir.Entry>
+  for +k: Nat
+  for +r: Nat
+  {Ir.history(List.append(&2, Ir.Entry, ops, [Ir.Entry{k, r}]), es) == List.append(&2, Ir.Entry, Ir.history(ops, es), ir_added(ir_has(Ir.history(ops, es), k), k, r)) : List<&2, Ir.Entry>}
+
+# LAW irreversible_history_runs_example (R2, R4, R5): anchor: records of
+# key 5 in run 0, key 3 in run 0, key 5 in run 7 (a replay) and key 8 in
+# run 7 leave the ledger 5 in run 0, 3 in run 0, 8 in run 7; run 0 lists
+# e1 and e2, run 7 lists e3
+# EXCLUDES: run 0 filed as another run, a run past 2 changed, the replay
+#   moved to run 7
+law irreversible_history_runs_example:
+  {Ir.history([Ir.Entry{5n, 0n}, Ir.Entry{3n, 0n}, Ir.Entry{5n, 7n}, Ir.Entry{8n, 7n}], Nil{}) == [Ir.Entry{5n, 0n}, Ir.Entry{3n, 0n}, Ir.Entry{8n, 7n}] : List<&2, Ir.Entry>} & {[Ir.report(Ir.history([Ir.Entry{5n, 0n}, Ir.Entry{3n, 0n}, Ir.Entry{5n, 7n}, Ir.Entry{8n, 7n}], Nil{}), 0n), Ir.report(Ir.history([Ir.Entry{5n, 0n}, Ir.Entry{3n, 0n}, Ir.Entry{5n, 7n}, Ir.Entry{8n, 7n}], Nil{}), 7n)] == [[1n, 2n], [3n]] : List<&2, List<&2, Nat>>}
+
 # Laws: the end of a run (R5)
 # ---------------------------
 
@@ -347,6 +382,25 @@ law irreversible_entry_exact:
   for ok: {LawsBase.wire_opens_err(FIr.ffi(s)) == False{} : Bool}
   exs q: FIr.Req
   {s == sp_ir_req(q, "") : String} & {ir_req_fits(q) == True{} : Bool}
+
+# LAW irreversible_entry_req_exact (R6): the entry's decoder reads a
+# request only from a spelled one: whatever it decodes is a request whose
+# every number fits the wire, spelled, then the input after it
+# EXCLUDES: a decoder that invents a request (a default request for an
+#   unknown tag, empty or short input), reads a number with a leading zero
+#   or past the wire, or reads a ledger of odd length
+law irreversible_entry_req_exact:
+  for +s: String
+  for +q: FIr.Req
+  for +rest: String
+  for +h: {FIr.get_req(s) == Wr.Got{q, rest} : Wr.Dec<FIr.Req>}
+  {s == sp_ir_req(q, rest) : String} & {ir_req_fits(q) == True{} : Bool}
+
+# LAW irreversible_entry_req_example (R6): anchor: an unknown tag, a tag
+# with a leading zero and empty input are no request
+# EXCLUDES: a default request for an unknown tag or empty input
+law irreversible_entry_req_example:
+  {[FIr.get_req("3,"), FIr.get_req("01,"), FIr.get_req("")] == [Wr.Bad{}, Wr.Bad{}, Wr.Bad{}] : List<&2, Wr.Dec<FIr.Req>>}
 
 # LAW irreversible_entry_refuses (R6): every error the entry answers is
 # exactly `E irreversible: malformed request`

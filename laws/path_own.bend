@@ -295,6 +295,25 @@ law path_own_entry_exact:
   exs q: FPo.Req
   {s == sp_po_req(q, "") : String} & {po_req_fits(q) == True{} : Bool}
 
+# LAW path_own_entry_req_exact (R6): the entry's decoder reads a request
+# only from a spelled one: whatever it decodes is a request whose every
+# number fits the wire, spelled, then the input after it
+# EXCLUDES: a decoder that invents a request (a default request for empty
+#   or short input, an unknown class code), reads a number with a leading
+#   zero or past the wire
+law path_own_entry_req_exact:
+  for +s: String
+  for +q: FPo.Req
+  for +rest: String
+  for +h: {FPo.get_req(s) == Wr.Got{q, rest} : Wr.Dec<FPo.Req>}
+  {s == sp_po_req(q, rest) : String} & {po_req_fits(q) == True{} : Bool}
+
+# LAW path_own_entry_req_example (R6): anchor: empty input, a count with a
+# leading zero and a list shorter than its count are no request
+# EXCLUDES: a default request for empty or short input
+law path_own_entry_req_example:
+  {[FPo.get_req(""), FPo.get_req("01,"), FPo.get_req("1,")] == [Wr.Bad{}, Wr.Bad{}, Wr.Bad{}] : List<&2, Wr.Dec<FPo.Req>>}
+
 # LAW path_own_entry_refuses (R6): every error the entry answers is
 # exactly `E path_own: malformed request`
 # EXCLUDES: an error text that varies with the input, a second error form
