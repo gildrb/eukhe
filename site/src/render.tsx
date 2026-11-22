@@ -22,7 +22,7 @@ type Doc = { path: string; title: string; description: string; markdown: string 
 
 const home: Doc = {
   path: "/",
-  title: "Eukhe (εὐχή: a wish, a prayer)",
+  title: "index.md | Eukhe",
   description: `${summary}. ${install}`,
   markdown: source,
 };
@@ -31,19 +31,19 @@ const home: Doc = {
 const docs: readonly Doc[] = [
   {
     path: "/about",
-    title: "About | Eukhe",
+    title: "about.md | Eukhe",
     description: "What Eukhe is, what is proven today and what is planned, and who makes it.",
     markdown: about,
   },
   {
     path: "/contact",
-    title: "Contact | Eukhe",
+    title: "contact.md | Eukhe",
     description: "How to reach Eukhe's author and report a bug or a security problem.",
     markdown: contact,
   },
   {
     path: "/privacy",
-    title: "Privacy | Eukhe",
+    title: "privacy.md | Eukhe",
     description: "What eukhe.com and the Eukhe program store and send.",
     markdown: privacy,
   },
@@ -51,7 +51,7 @@ const docs: readonly Doc[] = [
 
 const missing: Doc = {
   path: "/404",
-  title: "Not found | Eukhe",
+  title: "404.md | Eukhe",
   description: "No page here.",
   markdown: notFound,
 };
@@ -424,7 +424,7 @@ function folderDoc(folder: string, paths: readonly string[]): Doc {
   );
   return {
     path: `/${folder}`,
-    title: `${folder} | Eukhe`,
+    title: `/${folder} | Eukhe`,
     description: `Eukhe's ${folder}: ${sorted.join(", ")}.`,
     markdown: [
       "EUKHE",
