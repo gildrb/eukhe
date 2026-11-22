@@ -7,7 +7,7 @@ holds the laws as they are (the bend skill's `gate.py --lock-only`;
 BEND_SKILL: the skill directory, default the commit
 ../.github/scripts/toolchain.env pins, ../.github/scripts/pinned_skill.py).
 
-Usage (in site/, `npm run laws`): python3 scripts/laws.py
+Usage (in site/, `vp run laws`): python3 scripts/laws.py
 """
 
 from __future__ import annotations

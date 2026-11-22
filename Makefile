@@ -280,18 +280,18 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-# The website (site/, eukhe.com; site/README.md): apart from eukhe but for
+# The website (site/, eukhe.com; site/AGENTS.md): apart from eukhe but for
 # reading the repository's files (README.md and what it links to) when it
-# builds. Its own toolchain (npm, site/package-lock.json), laws
+# builds. Its own toolchain (Vite+ `vp`, site/package-lock.json), laws
 # (site/LAWS.bend, site/LAWS.lock) and check; no gate, hook, nightly run or
 # release runs these. site-check: install, format/lint/types, the site's
 # laws, the build. site-deploy: install, the build, then `wrangler deploy`
 # (site/wrangler.jsonc: the eukhe-site Worker on eukhe.com and
 # www.eukhe.com). A deploy happens only here, by hand.
 site-check:
-	cd site && npm ci --no-audit --no-fund && npm run check && npm run laws && npm run build
+	cd site && vp install --frozen-lockfile && vp check && vp run laws && vp run build
 
 site-deploy:
-	cd site && npm ci --no-audit --no-fund && npm run deploy
+	cd site && vp install --frozen-lockfile && vp run deploy
 
 .PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check nix-vendor laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
