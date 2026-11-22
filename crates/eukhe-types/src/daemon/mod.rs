@@ -16,14 +16,17 @@ use crate::JsonMap;
 
 pub const DAEMON_PROTOCOL_NAME: &str = "eukhe.daemon";
 pub const DAEMON_PROTOCOL_VERSION: u64 = 7;
-/// Revision 32: the acceptance label gains `checks_passed_not_certified`
-/// (every check confirmed, but not shown to catch broken code); a command
-/// and an until check gain `strength` (the share of deliberate breaks it
-/// must catch, percent); each check gains `strength`, the verifier's last
-/// measurement (`caught`, `ran`, `planned`, `at`, `survivors`, `note`,
-/// `measuredAt`).
-pub const DAEMON_SCHEMA_REVISION: u64 = 32;
-pub const DAEMON_SCHEMA_ID: &str = "protocol-7-schema-32-6e4abce56683";
+/// Revision 33: the acceptance gains `attacks`, the blind attacks on the
+/// checks made on the newest state the verifier attacked (`outcome`
+/// survived, clean or unrun, `at`, `path`, `witness`, `required`, `got`,
+/// `note`, `attackedAt`). Revision 32: the acceptance label gains
+/// `checks_passed_not_certified` (every check confirmed, but not shown to
+/// catch broken code); a command and an until check gain `strength` (the
+/// share of deliberate breaks it must catch, percent); each check gains
+/// `strength`, the verifier's last measurement (`caught`, `ran`,
+/// `planned`, `at`, `survivors`, `note`, `measuredAt`).
+pub const DAEMON_SCHEMA_REVISION: u64 = 33;
+pub const DAEMON_SCHEMA_ID: &str = "protocol-7-schema-33-683bc1f7dffc";
 /// The server capability that advertises `shutdown` with `ifIdle`: the
 /// supervisor stops only when every session is idle, and refuses a busy
 /// daemon with [`DaemonErrorInfo::DaemonBusy`]. A daemon without it does
@@ -207,7 +210,7 @@ mod tests {
     fn protocol_constants_match_ts() {
         assert_eq!(DAEMON_PROTOCOL_NAME, "eukhe.daemon");
         assert_eq!(DAEMON_PROTOCOL_VERSION, 7);
-        assert_eq!(DAEMON_SCHEMA_REVISION, 32);
-        assert_eq!(DAEMON_SCHEMA_ID, "protocol-7-schema-32-6e4abce56683");
+        assert_eq!(DAEMON_SCHEMA_REVISION, 33);
+        assert_eq!(DAEMON_SCHEMA_ID, "protocol-7-schema-33-683bc1f7dffc");
     }
 }

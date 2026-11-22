@@ -105,7 +105,7 @@ impl Gauge {
         }
     }
 
-    fn write(self, request: &mut Writer) {
+    pub(super) fn write(self, request: &mut Writer) {
         match self.bar {
             Bar::Exempt => request.tag(0),
             Bar::Waived => request.tag(1),
@@ -177,7 +177,7 @@ pub enum Label {
 }
 
 impl Label {
-    fn read(reader: &mut Reader<'_>) -> Result<Self, WireError> {
+    pub(super) fn read(reader: &mut Reader<'_>) -> Result<Self, WireError> {
         Ok(match reader.tag_of(5, "a label")? {
             0 => Label::Verified,
             1 => Label::Failed,

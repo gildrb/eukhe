@@ -7,6 +7,7 @@ import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
 import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
+import ./ffi_attack.bend as ffi_attack
 import ./ffi_auth_flight.bend as ffi_auth_flight
 import ./ffi_auth_read.bend as ffi_auth_read
 import ./ffi_autoresearch.bend as ffi_autoresearch
@@ -388,6 +389,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_headless_task.ffi(input)
     case 465:
       ffi_strength.ffi(input)
+    case 466:
+      ffi_attack.ffi(input)
     case 472:
       ffi_fallback.ffi(input)
     case _:

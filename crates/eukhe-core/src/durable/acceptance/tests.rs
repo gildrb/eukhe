@@ -28,8 +28,8 @@ use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness, Root
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{EntryRecord, Storage};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, AcceptanceState, CheckResult, CheckSpec,
-    CheckVerdict, ProtectedFile, StrengthMark, Survivor,
+    AcceptanceCheck, AcceptanceEnd, AcceptanceLabel, AcceptanceState, AttackMark, AttackOutcome,
+    CheckResult, CheckSpec, CheckVerdict, ProtectedFile, StrengthMark, Survivor,
 };
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{JsonObject, StopReason, TextContent, UserContent, UserContentBlock};
@@ -41,11 +41,11 @@ use tokio::sync::watch;
 
 use super::docs::ACCEPTANCE_DOC;
 use super::evidence::{judge_prompt, ModelJudge};
-use super::strength::{Measurement, Probe};
+use super::strength::{AttackProbe, Measurement, Probe};
 use super::{
     acceptance_exit_code, acceptance_extension, acceptance_state, set_acceptance,
-    watch_acceptance_updates, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services,
-    ACCEPTANCE_CUSTOM_TYPE,
+    watch_acceptance_updates, Attacker, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest,
+    Services, ACCEPTANCE_CUSTOM_TYPE,
 };
 use crate::autonomous::{ChildProcessResult, GateCommandRunner};
 use crate::durable::budget::BudgetGate;
@@ -254,6 +254,61 @@ impl Breaker for ScriptedBreaker {
     }
 }
 
+/// An attacker whose outcomes are scripted in order, then unrun (an
+/// attack that could not run); it records each probe.
+#[derive(Default)]
+struct ScriptedAttacker {
+    script: Mutex<VecDeque<AttackOutcome>>,
+    probes: Mutex<Vec<AttackProbe>>,
+}
+
+impl ScriptedAttacker {
+    /// The next attacks end as `outcomes`, in order.
+    fn script(&self, outcomes: &[AttackOutcome]) {
+        self.script
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(outcomes.iter().copied());
+    }
+
+    fn probes(&self) -> Vec<AttackProbe> {
+        self.probes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Attacker for ScriptedAttacker {
+    fn attack<'a>(
+        &'a self,
+        probe: AttackProbe,
+        _cx: &'a Context,
+    ) -> BoxFuture<'a, eukhe_durable::session::SessionResult<AttackMark>> {
+        let outcome = self
+            .script
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front()
+            .unwrap_or(AttackOutcome::Unrun);
+        let mark = AttackMark {
+            outcome,
+            at: probe.at,
+            path: "src/lib.rs".to_owned(),
+            witness: "./answer 7".to_owned(),
+            required: "49".to_owned(),
+            got: "0".to_owned(),
+            note: format!("scripted attack {}", probe.number),
+            attacked_at: 0,
+        };
+        self.probes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(probe);
+        async move { Ok(mark) }.boxed()
+    }
+}
+
 /// Models, registry and services that survive a close and reopen.
 struct Setup {
     faux: FauxProviderHandle,
@@ -264,6 +319,7 @@ struct Setup {
     runner: Arc<ScriptedRunner>,
     judge: Arc<ScriptedJudge>,
     breaker: Arc<ScriptedBreaker>,
+    attacker: Arc<ScriptedAttacker>,
     /// The session cwd: protected files live here.
     dir: tempfile::TempDir,
 }
@@ -328,6 +384,7 @@ fn setup() -> Setup {
     let runner = Arc::new(ScriptedRunner::default());
     let judge = Arc::new(ScriptedJudge::default());
     let breaker = Arc::new(ScriptedBreaker::default());
+    let attacker = Arc::new(ScriptedAttacker::default());
     let dir = tempfile::tempdir().expect("tempdir");
     // The product order: the verifier's hooks before the goal's.
     registry
@@ -337,6 +394,7 @@ fn setup() -> Setup {
                 runner: Arc::clone(&runner) as Arc<dyn GateCommandRunner>,
                 judge: Arc::clone(&judge) as Arc<dyn Judge>,
                 breaker: Arc::clone(&breaker) as Arc<dyn Breaker>,
+                attacker: Arc::clone(&attacker) as Arc<dyn Attacker>,
             },
             dir.path().to_path_buf(),
             &requests,
@@ -373,6 +431,7 @@ fn setup() -> Setup {
         runner,
         judge,
         breaker,
+        attacker,
         dir,
     }
 }
@@ -545,6 +604,9 @@ fn timeless(mut state: AcceptanceState) -> AcceptanceState {
     if let Some(end) = &mut state.last_end {
         end.ended_at = 0;
     }
+    for attack in &mut state.attacks {
+        attack.attacked_at = 0;
+    }
     state
 }
 
@@ -582,6 +644,20 @@ fn strong(mut check: AcceptanceCheck, at: u64) -> AcceptanceCheck {
         measured_at: 0,
     });
     check
+}
+
+/// The scripted attacker's mark of attack `number` on the state `at`.
+fn attacked(outcome: AttackOutcome, at: u64, number: usize) -> AttackMark {
+    AttackMark {
+        outcome,
+        at,
+        path: "src/lib.rs".to_owned(),
+        witness: "./answer 7".to_owned(),
+        required: "49".to_owned(),
+        got: "0".to_owned(),
+        note: format!("scripted attack {number}"),
+        attacked_at: 0,
+    }
 }
 
 /// V3, V4: a final answer is a claim; with every check confirmed on the
@@ -628,6 +704,12 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
                 at,
                 ended_at: 0,
             }),
+            // With a strong check, the two attacks that could not run
+            // change nothing.
+            attacks: vec![
+                attacked(AttackOutcome::Unrun, at, 1),
+                attacked(AttackOutcome::Unrun, at, 2),
+            ],
         }
     );
     let entries = entries(&root).await;
@@ -652,6 +734,34 @@ async fn a_claim_whose_checks_pass_on_the_final_state_is_verified() {
             .map(|probe| (probe.command.as_str(), probe.at, probe.workspace.as_path()))
             .collect::<Vec<_>>(),
         vec![("cargo test", at, setup.cwd())]
+    );
+    // Then two blind attacks on that state: each reads the user's words
+    // and must pass the gauged check; none sees the worker's transcript.
+    let attacks = setup.attacker.probes();
+    assert_eq!(
+        attacks
+            .iter()
+            .map(|probe| (
+                probe.number,
+                probe.at,
+                probe.messages.clone(),
+                probe
+                    .gauged
+                    .iter()
+                    .map(|gauged| gauged.command.clone())
+                    .collect::<Vec<_>>(),
+                probe.workspace.as_path()
+            ))
+            .collect::<Vec<_>>(),
+        (1..=2)
+            .map(|number| (
+                number,
+                at,
+                vec!["do it".to_owned()],
+                vec!["cargo test".to_owned()],
+                setup.cwd()
+            ))
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         acceptance_exit_code(&harness, root.id(), 0, cx())
@@ -723,6 +833,181 @@ async fn a_passing_check_that_catches_no_break_ends_not_certified() {
             .await
             .expect("exit"),
         1
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// S8: a blind attack whose wrong code passed every check, with a witness
+/// the judge agreed shows it wrong, keeps done from being certified even
+/// past a strong check: the claim ends `checks passed, not certified`
+/// naming the survivor, and the run exits 3. A change of the checks drops
+/// the attacks made on the old ones.
+#[tokio::test]
+async fn a_blind_attack_that_survives_ends_not_certified() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![command("cargo test")], None)
+        .await;
+    setup.runner.script(vec![exited(0, "3 passed")]);
+    setup
+        .attacker
+        .script(&[AttackOutcome::Clean, AttackOutcome::Survived]);
+    setup
+        .faux
+        .set_responses(vec![call("work", "w1"), answer("done")]);
+
+    run(&harness, &root, "do it").await;
+
+    let got = timeless(state(&harness, &root).await);
+    let at = got.state;
+    assert_eq!(
+        (
+            got.label,
+            got.last_end.as_ref().map(|end| end.label),
+            got.checks[0]
+                .strength
+                .as_ref()
+                .map(|mark| (mark.caught, mark.ran)),
+            got.attacks.clone()
+        ),
+        (
+            AcceptanceLabel::ChecksPassedNotCertified,
+            Some(AcceptanceLabel::ChecksPassedNotCertified),
+            Some((4, 4)),
+            vec![
+                attacked(AttackOutcome::Clean, at, 1),
+                attacked(AttackOutcome::Survived, at, 2),
+            ]
+        )
+    );
+    let rows = verdict_rows(&entries(&root).await);
+    assert_eq!(
+        (rows.len(), rows[0].0.as_str(), &rows[0].2["outcome"]),
+        (
+            1,
+            "Acceptance checks passed, not certified: 1 acceptance check confirmed; blind attack 2 survived: scripted attack 2.",
+            &json!("checks_passed_not_certified")
+        )
+    );
+    assert_eq!(
+        user_texts(&entries(&root).await),
+        vec!["do it".to_owned()],
+        "nothing went back to the worker"
+    );
+    assert_eq!(
+        acceptance_exit_code(&harness, root.id(), 0, cx())
+            .await
+            .expect("exit"),
+        3
+    );
+
+    let changed = setup
+        .accept(&harness, &root, vec![command("cargo test")], None)
+        .await;
+    assert_eq!(
+        (changed.label, changed.attacks),
+        (AcceptanceLabel::Unverified, Vec::new())
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// S8, S2: a task whose only check is a judge is certified once two blind
+/// attacks ran clean and none survived: the run exits 0.
+#[tokio::test]
+async fn a_judge_only_task_with_two_clean_attacks_is_certified() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![CheckSpec::intent()], None)
+        .await;
+    setup
+        .judge
+        .replies
+        .lock()
+        .expect("replies")
+        .push_back(JudgeReply::Text("PASS\nhello.txt exists".to_owned()));
+    setup
+        .attacker
+        .script(&[AttackOutcome::Clean, AttackOutcome::Clean]);
+    setup
+        .faux
+        .set_responses(vec![call("work", "w1"), answer("hello.txt written")]);
+
+    run(&harness, &root, "write hello.txt").await;
+
+    let got = state(&harness, &root).await;
+    assert_eq!(
+        (got.label, got.last_end.map(|end| end.label)),
+        (
+            AcceptanceLabel::ChecksPassedUnconfined,
+            Some(AcceptanceLabel::ChecksPassedUnconfined)
+        )
+    );
+    // A judge has no command: the wrong code has no check to pass.
+    assert!(setup
+        .attacker
+        .probes()
+        .iter()
+        .all(|probe| probe.gauged.is_empty()));
+    let rows = verdict_rows(&entries(&root).await);
+    assert_eq!(
+        (rows.len(), rows[0].0.as_str()),
+        (
+            1,
+            "Acceptance checks passed, unconfined: 1 acceptance check confirmed, 2 blind attacks ran clean."
+        )
+    );
+    assert_eq!(
+        acceptance_exit_code(&harness, root.id(), 0, cx())
+            .await
+            .expect("exit"),
+        0
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// S8: an attack that could not run shows nothing: a judge-only task with
+/// one clean attack and one that could not run is not certified, and the
+/// end says what certifying it takes; the run exits 3.
+#[tokio::test]
+async fn an_attack_that_could_not_run_certifies_nothing() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .accept(&harness, &root, vec![CheckSpec::intent()], None)
+        .await;
+    setup
+        .judge
+        .replies
+        .lock()
+        .expect("replies")
+        .push_back(JudgeReply::Text("PASS\nhello.txt exists".to_owned()));
+    setup
+        .attacker
+        .script(&[AttackOutcome::Clean, AttackOutcome::Unrun]);
+    setup
+        .faux
+        .set_responses(vec![call("work", "w1"), answer("hello.txt written")]);
+
+    run(&harness, &root, "write hello.txt").await;
+
+    let got = state(&harness, &root).await;
+    assert_eq!(got.label, AcceptanceLabel::ChecksPassedNotCertified);
+    assert_eq!(setup.attacker.probes().len(), 2, "two attacks per state");
+    let rows = verdict_rows(&entries(&root).await);
+    assert_eq!(
+        (rows.len(), rows[0].0.as_str()),
+        (
+            1,
+            "Acceptance checks passed, not certified: 1 acceptance check confirmed; no check was shown to catch broken code (a judge or a waived check certifies nothing without 2 blind attacks that ran clean; 1 did)."
+        )
+    );
+    assert_eq!(
+        acceptance_exit_code(&harness, root.id(), 0, cx())
+            .await
+            .expect("exit"),
+        3
     );
     harness.close(cx()).await.expect("close");
 }
@@ -1438,6 +1723,9 @@ fn intent_messages(request: &JudgeRequest) -> Vec<String> {
             panic!("a condition, not the intent: {condition}")
         }
         JudgeQuestion::Report => panic!("a final answer, not the intent"),
+        JudgeQuestion::Attack(_) | JudgeQuestion::Witness { .. } => {
+            panic!("a blind attack, not the intent")
+        }
     }
 }
 
@@ -1990,6 +2278,7 @@ async fn a_change_of_the_checks_discards_every_verdict() {
             tries: 0,
             max_returns: 3,
             last_end: None,
+            attacks: Vec::new(),
         }
     );
     let too_many = set_acceptance(

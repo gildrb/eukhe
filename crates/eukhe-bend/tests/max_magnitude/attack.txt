@@ -1,0 +1,29 @@
+# Every number at the largest Rust writes (eukhe_bend::rules::attack, its
+# gauges as eukhe_bend::rules::strength writes them): the states and the
+# run's code at {MAX}; a share at SHARE_MAX (101) and the break counts at
+# COUNT_MAX (999999999999), so the strength's products stay below 2^48-1.
+# An outcome: 0 survived, 1 clean, 2 unrun.
+# outcome: three Bools, then the judge's verdict (0 none, 1 then a Bool)
+call 0,TTT1,T
+call 0,TTT1,F
+call 0,TTT0,
+call 0,FFF0,
+# label: a passed claim with a strong check and two clean attacks, a
+# survivor; judges only with two clean attacks; a failed claim
+call 1,3,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},2,1,1,
+call 1,3,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},2,1,0,
+call 1,3,{MAX},2,0,0,1,0,2,1,1,
+call 1,1,{MAX},1,2,101,1,999999999999,999999999999,999999999999,{MAX},1,2,
+# exit: the run's own code at {MAX} (kept), then 0 with a confirmed slot
+# judged on the state now, a strong check and a clean attack or a
+# survivor
+call 2,{MAX},{MAX},1,1,0,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},1,1,
+call 2,0,{MAX},1,1,0,{MAX},1,2,100,1,999999999999,999999999999,999999999999,{MAX},1,1,
+call 2,0,{MAX},1,1,0,{MAX},1,2,101,1,999999999999,999999999999,999999999999,{MAX},1,0,
+# a number past the wire, an unknown tag or outcome, input left over:
+# refused, never a stop
+refuse 1,3,{LONG},0,0,
+refuse 2,{LONG},0,0,0,0,
+refuse 1,3,0,0,1,3,
+refuse 3,
+refuse 0,TTT0,x

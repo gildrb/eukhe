@@ -78,9 +78,12 @@ async def acceptance() -> dict[str, Any]:
     `checks_passed_not_certified`, `failed` or `unverified`), `checks` (each
     with its `spec` and, once judged, its `result`: `verdict`, `summary`,
     `evidence`; once measured, its `strength`: `caught`, `ran`, `planned`,
-    `survivors`), `claimed`, `tries` and `maxReturns`.
+    `survivors`), `attacks` (the blind attacks on the checks: `outcome`
+    `survived`, `clean` or `unrun`, `path`, `witness`, `required`, `got`,
+    `note`), `claimed`, `tries` and `maxReturns`.
     `checks_passed_not_certified`: the checks passed but none was shown to
-    catch deliberate breaks of the changed code, so the task is not done.
+    catch deliberate breaks of the changed code, or a blind attack's wrong
+    code passed them too, so the task is not done.
     Only the task's owner sets the checks.
     """
     return await host_request("acceptance.get")

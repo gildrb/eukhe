@@ -8,14 +8,15 @@
 
 use std::path::PathBuf;
 
+use eukhe_bend::rules::attack::Outcome;
 use eukhe_bend::rules::strength::{self, Bar, Gauge, Mark};
 use eukhe_bend::rules::verify::{self, Slot, Verdict};
 use eukhe_durable::documents::{ConversationDoc, DocDefinition};
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{LatestFork, TaskId};
 use eukhe_types::acceptance::{
-    AcceptanceCheck, AcceptanceEnd, CheckResult, CheckVerdict, StrengthBar, StrengthMark,
-    DEFAULT_MAX_RETURNS,
+    AcceptanceCheck, AcceptanceEnd, AttackMark, AttackOutcome, CheckResult, CheckVerdict,
+    StrengthBar, StrengthMark, DEFAULT_MAX_RETURNS,
 };
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +80,10 @@ pub(crate) struct AcceptanceDoc {
     /// workspace against it. `None`: no git repository there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub baseline: Option<String>,
+    /// The blind attacks on the checks made on the newest state the
+    /// verifier attacked; only the verifier records them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attacks: Vec<AttackMark>,
 }
 
 impl Default for AcceptanceDoc {
@@ -94,6 +99,7 @@ impl Default for AcceptanceDoc {
             yield_record: None,
             workspace: None,
             baseline: None,
+            attacks: Vec::new(),
         }
     }
 }
@@ -149,6 +155,28 @@ impl AcceptanceDoc {
             claimed: self.claimed,
             tries: self.tries,
         }
+    }
+
+    /// The outcomes of the attacks made on the state `now`, as the
+    /// compiled core reads them; an attack of another state counts for
+    /// nothing.
+    pub(crate) fn outcomes(&self, now: u64) -> Vec<Outcome> {
+        self.attacks
+            .iter()
+            .filter(|attack| attack.at == now)
+            .map(|attack| match attack.outcome {
+                AttackOutcome::Survived => Outcome::Survived,
+                AttackOutcome::Clean => Outcome::Clean,
+                AttackOutcome::Unrun => Outcome::Unrun,
+            })
+            .collect()
+    }
+
+    /// Keep `mark`, the verifier's record of an attack: the attacks of
+    /// other states go.
+    pub(crate) fn add_attack(&mut self, mark: AttackMark) {
+        self.attacks.retain(|attack| attack.at == mark.at);
+        self.attacks.push(mark);
     }
 
     /// The gauges of the checks (the owner's bar and the verifier's last

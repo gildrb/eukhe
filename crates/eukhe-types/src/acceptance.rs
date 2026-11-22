@@ -210,6 +210,49 @@ impl AcceptanceLabel {
     }
 }
 
+/// How one blind attack on the checks ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttackOutcome {
+    /// Its wrong code passed every gauged check, its witness showed the
+    /// code wrong, and the judge agreed: the checks let it through.
+    Survived,
+    /// The checks caught it, its witness did not show it wrong, or the
+    /// judge rejected it.
+    Clean,
+    /// It did not run (the budget, the time, a reply that did not read, no
+    /// verdict of the judge): it shows nothing.
+    Unrun,
+}
+
+/// One blind attack on the checks: an attacker that never saw the
+/// worker's transcript wrote wrong code for the task and a witness, a
+/// command and the output the task requires of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttackMark {
+    pub outcome: AttackOutcome,
+    /// The state the attack was made on.
+    pub at: u64,
+    /// The file the attack replaced, relative to the workspace (empty
+    /// when none was written).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    /// The witness command.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub witness: String,
+    /// The output the task requires of the witness.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub required: String,
+    /// What the witness printed on the wrong code, cut to a bound.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub got: String,
+    /// Why it ended as it did, in one line.
+    pub note: String,
+    /// When the attack ended (ms since the epoch).
+    pub attacked_at: u64,
+}
+
 /// One deliberate break of the changed code that the check let through.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,6 +368,10 @@ pub struct AcceptanceState {
     /// by a change of the checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_end: Option<AcceptanceEnd>,
+    /// The blind attacks on the checks made on the newest state the
+    /// verifier attacked; only the verifier records them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attacks: Vec<AttackMark>,
 }
 
 impl Default for AcceptanceState {
@@ -338,6 +385,7 @@ impl Default for AcceptanceState {
             tries: 0,
             max_returns: DEFAULT_MAX_RETURNS,
             last_end: None,
+            attacks: Vec::new(),
         }
     }
 }
