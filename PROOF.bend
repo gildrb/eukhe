@@ -3094,7 +3094,6 @@ import ./proof/slash_args/base/entry.bend as LASlashArgsEntry
 import ./proof/slash_args/slash_args_auto_errors_example.bend as PSlashArgsAutoErrorsExample
 import ./proof/slash_args/slash_args_words_example.bend as PSlashArgsWordsExample
 import ./proof/slash_args/slash_args_entry_answers.bend as PSlashArgsEntryAnswers
-import ./proof/slash_args/slash_args_entry_goal_pointer.bend as PSlashArgsEntryGoalPointer
 import ./proof/slash_args/slash_args_entry_left_over.bend as PSlashArgsEntryLeftOver
 import ./proof/slash_args/slash_args_entry_exact.bend as PSlashArgsEntryExact
 import ./proof/slash_args/slash_args_entry_refuses.bend as PSlashArgsEntryRefuses
