@@ -314,6 +314,20 @@ law run_note_is_never_logged:
   for q: RnRequest.Req
   {RnRequest.logged(RnRequest.Req.lines(q)) == RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{RnRequest.Req.ctx(q), 0n})) : List<&2, RnRequest.Line>}
 
+# LAW run_note_is_read (H4.7): in the model of the requests, a request
+# with the note of attempt n (n >= 1, any context) is read by the model as
+# its context, then that note: the retry reads differently from the
+# request it cut; a request with no note is read as its context alone
+# EXCLUDES: a note dropped from what the model reads (the retry reads as
+#   the request it cut, and a greedy model answers it the same way), a
+#   note naming another attempt, a note before the context, a note on a
+#   request that has none
+law run_note_is_read:
+  for ctx: Nat
+  for k: Nat
+  {RnRequest.Req.lines(RnRequest.Req{ctx, 1n+k}) == [RnRequest.Context{ctx}, RnRequest.Note{1n+k}] : List<&2, RnRequest.Line>} &
+  {RnRequest.Req.lines(RnRequest.Req{ctx, 0n}) == [RnRequest.Context{ctx}] : List<&2, RnRequest.Line>}
+
 # the requests a and b name the same context and the same note
 def same_req(a: RnRequest.Req, b: RnRequest.Req) -> Bool:
   match a b:
