@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use eukhe_ai::utils::text::MessageContent;
 use eukhe_ai::utils::transcript::{
     declarations_equal, get_current_tools, get_initial_system_message, to_tool_declaration,
+    TranscriptMessage,
 };
 use eukhe_chord::context::Context;
 use eukhe_types::pi_ai::{IndexMap, Message, SystemContent, SystemMessage, Tool, ToolReference};
@@ -18,10 +19,10 @@ use crate::types::{ContextEdit, ContextEditAction, NoData, TypedEntryDraft};
 /// Sections in effect after replaying system messages in order: set in
 /// place, `None` deletes, re-adding appends.
 #[must_use]
-pub fn replay_sections(messages: &[Message]) -> IndexMap<String, String> {
+pub fn replay_sections<M: TranscriptMessage>(messages: &[M]) -> IndexMap<String, String> {
     let mut shown = IndexMap::new();
     for message in messages {
-        let Message::System(message) = message else {
+        let Some(message) = message.as_system_message() else {
             continue;
         };
         let Some(sections) = &message.sections else {
@@ -92,9 +93,9 @@ pub async fn render_sections(
 /// [`PromptSection::shared`]. `None` when the message has content of its
 /// own or its first section is not shared.
 #[must_use]
-pub(crate) fn system_cache_breakpoint(
+pub(crate) fn system_cache_breakpoint<M: TranscriptMessage>(
     sections: &[std::sync::Arc<PromptSection>],
-    messages: &[Message],
+    messages: &[M],
 ) -> Option<String> {
     let system = get_initial_system_message(messages)?;
     if !system.content.content_text("").is_empty() {
@@ -145,12 +146,12 @@ pub fn plan_system_entries(
         let later_system = view
             .entries
             .iter()
-            .any(|entry| SYSTEM_ENTRY.is(Some(entry)) && entry.id > head.id);
+            .any(|entry| SYSTEM_ENTRY.is(Some(entry.as_ref())) && entry.id > head.id);
         if !later_system {
             let edits: Vec<ContextEdit> = view
                 .entries
                 .iter()
-                .filter(|entry| SYSTEM_ENTRY.is(Some(entry)))
+                .filter(|entry| SYSTEM_ENTRY.is(Some(entry.as_ref())))
                 .map(|entry| ContextEdit {
                     target: entry.id,
                     action: ContextEditAction::Omit,

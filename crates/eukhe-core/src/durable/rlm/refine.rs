@@ -377,11 +377,11 @@ pub(crate) async fn session_refinement_history(
 /// The conversation's model context in the session message shape the
 /// refinement planner serializes (system markers carry no content).
 pub(crate) fn transcript(
-    messages: &[Message],
+    messages: &[Arc<Message>],
 ) -> anyhow::Result<Vec<eukhe_types::session::AgentMessage>> {
     messages
         .iter()
-        .filter(|message| !matches!(message, Message::System(_)))
+        .filter(|message| !matches!(message.as_ref(), Message::System(_)))
         .map(|message| {
             let value = serde_json::to_value(message)?;
             Ok(serde_json::from_value(value)?)

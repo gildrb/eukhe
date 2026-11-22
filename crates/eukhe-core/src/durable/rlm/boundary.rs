@@ -153,13 +153,18 @@ async fn live(runtime: &RlmRuntime, id: ConversationId, cx: &Context) -> anyhow:
 fn context_size(view: &ContextView, tokenizer: &Tokenizer) -> Option<u64> {
     let compacted = view
         .head
-        .as_ref()
+        .as_deref()
         .is_some_and(|head| COMPACTION_ENTRY.is(Some(head)));
     if compacted {
-        let measured_after = view.contributions.iter().skip(1).flatten().any(|message| {
-            matches!(message, Message::Assistant(assistant)
+        let measured_after = view
+            .contributions
+            .iter()
+            .skip(1)
+            .flat_map(|contribution| contribution.iter())
+            .any(|message| {
+                matches!(message.as_ref(), Message::Assistant(assistant)
                     if calculate_context_tokens(&assistant.usage) > 0)
-        });
+            });
         if !measured_after {
             return None;
         }
@@ -249,7 +254,7 @@ fn compact_run(
         let compacted_tail = view.entries.len() == usize::from(view.head.is_some())
             && view
                 .head
-                .as_ref()
+                .as_deref()
                 .is_some_and(|head| COMPACTION_ENTRY.is(Some(head)));
         if compacted_tail {
             return Ok(json!({ "scheduled": false, "reason": "already compacted" }));

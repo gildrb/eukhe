@@ -297,7 +297,7 @@ async fn show(
         "\n{label}: {} messages in context, {stored} entries stored",
         view.messages.len()
     )?;
-    if COMPACTION_ENTRY.is(view.head.as_ref()) {
+    if COMPACTION_ENTRY.is(view.head.as_deref()) {
         if let Some(reason) = view
             .head
             .as_ref()
@@ -308,10 +308,10 @@ async fn show(
         }
     }
     for message in &view.messages {
-        let shown = if matches!(message, Message::System(_)) {
+        let shown = if matches!(message.as_ref(), Message::System(_)) {
             "(system prompt)".to_owned()
         } else {
-            text(Some(message)).chars().take(70).collect()
+            text(Some(message.as_ref())).chars().take(70).collect()
         };
         writeln!(out, "  {:<9} {shown}", message.role())?;
     }

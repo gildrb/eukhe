@@ -7,6 +7,7 @@
 //! this module counts the tokens and finds the places a cut may keep from.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use eukhe_ai::utils::context_tokens::{calculate_context_tokens, message_tokens};
 use eukhe_bend::rules::infer_threshold::{whole, Compaction, Over, Range};
@@ -82,7 +83,7 @@ pub(crate) fn plan(
         .map(|contribution| {
             contribution
                 .iter()
-                .filter(|message| !matches!(message, Message::System(_)))
+                .filter(|message| !matches!(message.as_ref(), Message::System(_)))
                 .map(|message| message_tokens(tokenizer, message))
                 .sum()
         })
@@ -128,8 +129,8 @@ pub(super) fn js_number(tokens: u64) -> f64 {
     tokens as f64
 }
 
-fn is_candidate(contributions: &[Vec<Message>], index: usize) -> bool {
-    match contributions[index].first() {
+fn is_candidate(contributions: &[Arc<[Arc<Message>]>], index: usize) -> bool {
+    match contributions[index].first().map(AsRef::as_ref) {
         Some(Message::Assistant(_)) => return true,
         Some(Message::User(_)) => {}
         Some(Message::System(_) | Message::ToolResult(_)) | None => return false,
@@ -138,14 +139,13 @@ fn is_candidate(contributions: &[Vec<Message>], index: usize) -> bool {
     // before the next assistant, belongs before it.
     let mut calls: HashSet<&str> = HashSet::new();
     for before in (0..index).rev() {
-        let Some(assistant) =
-            contributions[before]
-                .iter()
-                .rev()
-                .find_map(|message| match message {
-                    Message::Assistant(assistant) => Some(assistant),
-                    Message::System(_) | Message::User(_) | Message::ToolResult(_) => None,
-                })
+        let Some(assistant) = contributions[before]
+            .iter()
+            .rev()
+            .find_map(|message| match message.as_ref() {
+                Message::Assistant(assistant) => Some(assistant),
+                Message::System(_) | Message::User(_) | Message::ToolResult(_) => None,
+            })
         else {
             continue;
         };
@@ -164,7 +164,7 @@ fn is_candidate(contributions: &[Vec<Message>], index: usize) -> bool {
     }
     for (after, contribution) in contributions.iter().enumerate().skip(index) {
         for (position, message) in contribution.iter().enumerate() {
-            match message {
+            match message.as_ref() {
                 Message::Assistant(_) if after > index || position > 0 => return true,
                 Message::ToolResult(result) if calls.contains(result.tool_call_id.as_str()) => {
                     return false;
@@ -183,12 +183,14 @@ fn is_candidate(contributions: &[Vec<Message>], index: usize) -> bool {
 /// ordered like model context (spec §2.1).
 #[must_use]
 pub fn summarized_messages(view: &ContextView, cut: usize) -> Vec<Message> {
-    let flat: Vec<Message> = view.contributions[..cut]
+    let flat: Vec<Arc<Message>> = view.contributions[..cut]
         .iter()
-        .flatten()
-        .cloned()
+        .flat_map(|contribution| contribution.iter().cloned())
         .collect();
     order_tool_results(&flat)
+        .into_iter()
+        .map(Arc::unwrap_or_clone)
+        .collect()
 }
 
 /// Size of a request over `view` followed by `extra` (spec §8.3): the usage
@@ -198,23 +200,23 @@ pub fn summarized_messages(view: &ContextView, cut: usize) -> Vec<Message> {
 /// of every message.
 ///
 /// TS locates the measured message in `view.messages` by object identity
-/// (`lastIndexOf`); the Rust view holds copies, so the last equal message is
-/// taken, which is the same message: an assistant carries its own usage and
-/// timestamp.
+/// (`lastIndexOf`); the last equal message is taken, which is the same
+/// message: an assistant carries its own usage and timestamp.
 #[must_use]
 pub fn context_tokens(view: &ContextView, extra: &[Message], tokenizer: &Tokenizer) -> u64 {
     let measured = last_turn(view);
     let from = measured.map_or(0, |measured| {
         view.messages
             .iter()
-            .rposition(
-                |message| matches!(message, Message::Assistant(assistant) if assistant == measured),
-            )
+            .rposition(|message| {
+                matches!(message.as_ref(), Message::Assistant(assistant) if assistant == measured)
+            })
             .map_or(0, |index| index + 1)
     });
     let counted = measured.map_or(0, |measured| calculate_context_tokens(&measured.usage));
     let trailing: u64 = view.messages[from..]
         .iter()
+        .map(AsRef::as_ref)
         .chain(extra)
         .map(|message| message_tokens(tokenizer, message))
         .sum();
@@ -238,14 +240,19 @@ fn last_turn(view: &ContextView) -> Option<&AssistantMessage> {
         .rev()
         .filter(|(entry, _)| after.is_none_or(|after| entry.id > after))
         .find_map(|(_, contribution)| {
-            contribution.iter().rev().find_map(|message| match message {
-                Message::Assistant(assistant) if calculate_context_tokens(&assistant.usage) > 0 => {
-                    Some(assistant)
-                }
-                Message::Assistant(_)
-                | Message::System(_)
-                | Message::User(_)
-                | Message::ToolResult(_) => None,
-            })
+            contribution
+                .iter()
+                .rev()
+                .find_map(|message| match message.as_ref() {
+                    Message::Assistant(assistant)
+                        if calculate_context_tokens(&assistant.usage) > 0 =>
+                    {
+                        Some(assistant)
+                    }
+                    Message::Assistant(_)
+                    | Message::System(_)
+                    | Message::User(_)
+                    | Message::ToolResult(_) => None,
+                })
         })
 }

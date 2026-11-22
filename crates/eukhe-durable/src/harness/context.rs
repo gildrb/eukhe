@@ -2,6 +2,7 @@
 //! transcript range of one conversation, its edits, and the messages the next
 //! provider request sends.
 
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -51,7 +52,7 @@ fn is_excluded(message: &Message) -> bool {
 #[derive(Clone, Debug)]
 pub(crate) struct ContextBounds {
     /// The newest visible head marker at or before the tail; its `head` is set.
-    pub(crate) head: Option<EntryRecord>,
+    pub(crate) head: Option<Arc<EntryRecord>>,
     pub(crate) tail: EntryId,
 }
 
@@ -86,34 +87,36 @@ pub(crate) async fn capture_context_bounds(
     };
     let head = storage
         .find_latest_head_marker(conversation_id, Some(tail), cx)
-        .await?;
+        .await?
+        .map(Arc::new);
     Ok(Some(ContextBounds { head, tail }))
 }
 
 /// One context read: the visible entries it scanned, from the head marker's
 /// head, or transcript start, through `bounds.tail`, oldest first, and the
 /// view derived from them. Entries at or below the tail never change, so a
-/// later read with the same head marker extends both.
+/// later read with the same head marker extends both. Every field shares the
+/// entries and messages of the view: extending a range copies pointers.
 #[derive(Debug)]
 pub(crate) struct ContextRange {
     pub(crate) bounds: ContextBounds,
-    entries: Vec<EntryRecord>,
+    entries: Vec<Arc<EntryRecord>>,
     view: ContextView,
     /// Targets of the edits in `entries`.
     edited: HashSet<EntryId>,
     /// `view.messages` from the contributed messages before the last
     /// assistant message. Tool results are ordered within the messages up to
     /// the next assistant message, so later entries cannot change these.
-    settled: Vec<Message>,
+    settled: Vec<Arc<Message>>,
     /// Contributed messages from the last assistant message on, before tool
     /// result ordering.
-    open: Vec<Message>,
+    open: Vec<Arc<Message>>,
 }
 
 /// [`read_context`] that reuses `previous`, an earlier range of the same
 /// conversation: with the same head marker, only entries after its tail are
 /// scanned. Returns the view and the range to pass to the next read. A range
-/// outlives the read; the returned view is the caller's own copy.
+/// outlives the read; the returned view shares its entries and messages.
 pub(crate) async fn read_context_from(
     session: &Session,
     conversation_id: ConversationId,
@@ -226,27 +229,37 @@ fn empty_view() -> ContextView {
 /// every visible entry, oldest first, as a context read scans them. The
 /// newest head marker bounds the range, as `capture_context_bounds` finds
 /// it. A worker derives the context it shows from its event mirror with
-/// this, without a storage read.
+/// this, without a storage read. Plain records are copied into the view;
+/// shared ones are shared.
 #[must_use]
-pub fn derive_view(entries: &[EntryRecord]) -> ContextView {
-    let head = entries.iter().rev().find(|entry| entry.head.is_some());
+pub fn derive_view<E>(entries: &[E]) -> ContextView
+where
+    E: Borrow<EntryRecord> + Clone + Into<Arc<EntryRecord>>,
+{
+    let head = entries
+        .iter()
+        .rposition(|entry| entry.borrow().head.is_some());
     let from = head
-        .and_then(|head| head.head)
-        .map_or(0, |start| entries.partition_point(|entry| entry.id < start));
-    derive(head, &entries[from..]).view
+        .and_then(|head| entries[head].borrow().head)
+        .map_or(0, |start| {
+            entries.partition_point(|entry| entry.borrow().id < start)
+        });
+    let head: Option<Arc<EntryRecord>> = head.map(|head| entries[head].clone().into());
+    let range: Vec<Arc<EntryRecord>> = entries[from..].iter().cloned().map(Into::into).collect();
+    derive(head.as_ref(), &range).view
 }
 
 /// What [`derive`] gives a [`ContextRange`].
 struct Derived {
     view: ContextView,
     edited: HashSet<EntryId>,
-    settled: Vec<Message>,
-    open: Vec<Message>,
+    settled: Vec<Arc<Message>>,
+    open: Vec<Arc<Message>>,
 }
 
 /// Derive the view from the visible `entries` of one range under the head
 /// marker `head`.
-fn derive(head: Option<&EntryRecord>, entries: &[EntryRecord]) -> Derived {
+fn derive(head: Option<&Arc<EntryRecord>>, entries: &[Arc<EntryRecord>]) -> Derived {
     let mut edits: HashMap<EntryId, &ContextEdit> = HashMap::new();
     // Edits of every entry in the range count, including older head markers
     // that `select_active()` drops.
@@ -255,20 +268,26 @@ fn derive(head: Option<&EntryRecord>, entries: &[EntryRecord]) -> Derived {
             edits.insert(edit.target, edit);
         }
     }
-    let active: Vec<EntryRecord> = select_active_refs(head, entries).cloned().collect();
-    let contributions: Vec<Vec<Message>> = active
+    let active: Vec<Arc<EntryRecord>> = select_active_refs(head, entries).cloned().collect();
+    let contributions: Vec<Arc<[Arc<Message>]>> = active
         .iter()
         .map(|entry| contribute(entry, edits.get(&entry.id).copied()))
         .collect();
     let edited = edits.into_keys().collect();
-    let (settled, open) = settle(Vec::new(), contributions.concat());
+    let (settled, open) = settle(
+        Vec::new(),
+        contributions
+            .iter()
+            .flat_map(|contribution| contribution.iter().cloned())
+            .collect(),
+    );
     let messages = lead_with_system(
         settled
             .iter()
             .cloned()
             .chain(order_tool_results(&open))
             .collect(),
-        head,
+        head.map(AsRef::as_ref),
     );
     Derived {
         view: ContextView {
@@ -284,7 +303,7 @@ fn derive(head: Option<&EntryRecord>, entries: &[EntryRecord]) -> Derived {
 }
 
 /// Derive the context view from the entries scanned within `bounds`.
-fn derive_range(bounds: ContextBounds, entries: Vec<EntryRecord>) -> ContextRange {
+fn derive_range(bounds: ContextBounds, entries: Vec<Arc<EntryRecord>>) -> ContextRange {
     let Derived {
         view,
         edited,
@@ -308,7 +327,7 @@ fn derive_range(bounds: ContextBounds, entries: Vec<EntryRecord>) -> ContextRang
 fn extend_range(
     previous: &ContextRange,
     bounds: ContextBounds,
-    added: Vec<EntryRecord>,
+    added: Vec<Arc<EntryRecord>>,
 ) -> ContextRange {
     let rederive = added.iter().any(|entry| {
         entry.edits.is_some() || entry.head.is_some() || previous.edited.contains(&entry.id)
@@ -318,10 +337,14 @@ fn extend_range(
         entries.extend(added);
         return derive_range(bounds, entries);
     }
-    let contributions: Vec<Vec<Message>> =
+    let contributions: Vec<Arc<[Arc<Message>]>> =
         added.iter().map(|entry| contribute(entry, None)).collect();
     let mut open = previous.open.clone();
-    open.extend(contributions.iter().flatten().cloned());
+    open.extend(
+        contributions
+            .iter()
+            .flat_map(|contribution| contribution.iter().cloned()),
+    );
     let (settled, open) = settle(previous.settled.clone(), open);
     let messages = lead_with_system(
         settled
@@ -329,7 +352,7 @@ fn extend_range(
             .cloned()
             .chain(order_tool_results(&open))
             .collect(),
-        bounds.head.as_ref(),
+        bounds.head.as_deref(),
     );
     let mut view_entries = previous.view.entries.clone();
     view_entries.extend(added.iter().cloned());
@@ -364,15 +387,18 @@ fn extend_range(
 /// messages precede leads, and under `head` the first system message does:
 /// the prompt and tools are the same request prefix before and after a
 /// compaction.
-fn lead_with_system(mut messages: Vec<Message>, head: Option<&EntryRecord>) -> Vec<Message> {
-    let Some(index) = messages.iter().position(|message| match message {
+fn lead_with_system(
+    mut messages: Vec<Arc<Message>>,
+    head: Option<&EntryRecord>,
+) -> Vec<Arc<Message>> {
+    let Some(index) = messages.iter().position(|message| match message.as_ref() {
         Message::System(_) => true,
         Message::User(_) => false,
         Message::Assistant(_) | Message::ToolResult(_) => head.is_none(),
     }) else {
         return messages;
     };
-    if index > 0 && matches!(messages[index], Message::System(_)) {
+    if index > 0 && matches!(messages[index].as_ref(), Message::System(_)) {
         let system = messages.remove(index);
         messages.insert(0, system);
     }
@@ -381,9 +407,9 @@ fn lead_with_system(mut messages: Vec<Message>, head: Option<&EntryRecord>) -> V
 
 /// One active entry's model messages after its edit and excluded stop
 /// reasons, before tool result ordering.
-fn contribute(entry: &EntryRecord, edit: Option<&ContextEdit>) -> Vec<Message> {
+fn contribute(entry: &EntryRecord, edit: Option<&ContextEdit>) -> Arc<[Arc<Message>]> {
     let contributed: &[Message] = match edit.map(|edit| &edit.action) {
-        Some(ContextEditAction::Omit) => return Vec::new(),
+        Some(ContextEditAction::Omit) => return Arc::new([]),
         Some(ContextEditAction::Replace { messages }) => messages,
         None => entry.model.as_deref().unwrap_or_default(),
     };
@@ -391,16 +417,20 @@ fn contribute(entry: &EntryRecord, edit: Option<&ContextEdit>) -> Vec<Message> {
         .iter()
         .filter(|message| !is_excluded(message))
         .cloned()
+        .map(Arc::new)
         .collect()
 }
 
 /// Move the ordered messages before the last assistant message of `open` to
 /// `settled`. `order_tool_results()` of a sequence equals the concatenation
 /// over its parts when each later part starts with an assistant message.
-fn settle(mut settled: Vec<Message>, mut open: Vec<Message>) -> (Vec<Message>, Vec<Message>) {
+fn settle(
+    mut settled: Vec<Arc<Message>>,
+    mut open: Vec<Arc<Message>>,
+) -> (Vec<Arc<Message>>, Vec<Arc<Message>>) {
     let last = open
         .iter()
-        .rposition(|message| matches!(message, Message::Assistant(_)));
+        .rposition(|message| matches!(message.as_ref(), Message::Assistant(_)));
     match last {
         Some(last) if last > 0 => {
             let rest = open.split_off(last);
@@ -424,7 +454,9 @@ pub(crate) async fn active_entries(
     };
     let (min_entry_id, max_entry_id) = range_bounds(bounds);
     let range = scan_range(storage, conversation_id, min_entry_id, max_entry_id, cx).await?;
-    Ok(select_active(bounds.head.as_ref(), range))
+    Ok(select_active_refs(bounds.head.as_ref(), &range)
+        .map(|entry| EntryRecord::clone(entry))
+        .collect())
 }
 
 /// The visible range of `bounds`: from the head marker's head, or transcript
@@ -440,7 +472,7 @@ async fn scan_range(
     min_entry_id: Option<EntryId>,
     max_entry_id: EntryId,
     cx: &Context,
-) -> SessionResult<Vec<EntryRecord>> {
+) -> SessionResult<Vec<Arc<EntryRecord>>> {
     let query = EntryQuery {
         conversation_id,
         min_entry_id,
@@ -453,7 +485,7 @@ async fn scan_range(
         let page = storage
             .scan_entries(&query, SCAN_PAGE_SIZE, cursor.as_ref(), cx)
             .await?;
-        range.extend(page.items);
+        range.extend(page.items.into_iter().map(Arc::new));
         cursor = page.next;
         if cursor.is_none() {
             break;
@@ -465,20 +497,10 @@ async fn scan_range(
 
 /// The head marker followed by the range's non-head entries, or the whole
 /// range without a marker.
-fn select_active(head: Option<&EntryRecord>, range: Vec<EntryRecord>) -> Vec<EntryRecord> {
-    match head {
-        None => range,
-        Some(head) => std::iter::once(head.clone())
-            .chain(range.into_iter().filter(|entry| entry.head.is_none()))
-            .collect(),
-    }
-}
-
-/// [`select_active`] by reference.
 fn select_active_refs<'a>(
-    head: Option<&'a EntryRecord>,
-    range: &'a [EntryRecord],
-) -> impl Iterator<Item = &'a EntryRecord> {
+    head: Option<&'a Arc<EntryRecord>>,
+    range: &'a [Arc<EntryRecord>],
+) -> impl Iterator<Item = &'a Arc<EntryRecord>> {
     let marker = head.is_some();
     head.into_iter().chain(
         range
@@ -494,14 +516,14 @@ fn select_active_refs<'a>(
 /// a call's lift depends on that call alone, so the order of a sequence is
 /// still the concatenation of the order of its parts.
 #[must_use]
-pub fn order_tool_results(messages: &[Message]) -> Vec<Message> {
+pub fn order_tool_results(messages: &[Arc<Message>]) -> Vec<Arc<Message>> {
     let mut ordered = Vec::with_capacity(messages.len());
     for (index, message) in messages.iter().enumerate() {
-        if matches!(message, Message::ToolResult(_)) {
+        if matches!(message.as_ref(), Message::ToolResult(_)) {
             continue;
         }
-        ordered.push(message.clone());
-        let Message::Assistant(assistant) = message else {
+        ordered.push(Arc::clone(message));
+        let Message::Assistant(assistant) = message.as_ref() else {
             continue;
         };
         let calls: Vec<&ToolCall> = assistant
@@ -517,7 +539,7 @@ pub fn order_tool_results(messages: &[Message]) -> Vec<Message> {
         }
         let mut results: HashMap<&str, usize> = HashMap::new();
         for (next, candidate) in messages.iter().enumerate().skip(index + 1) {
-            match candidate {
+            match candidate.as_ref() {
                 Message::Assistant(_) => break,
                 Message::ToolResult(result) => {
                     results.entry(result.tool_call_id.as_str()).or_insert(next);
@@ -527,8 +549,8 @@ pub fn order_tool_results(messages: &[Message]) -> Vec<Message> {
         }
         for call in calls {
             ordered.push(match results.get(call.id.as_str()) {
-                Some(&result) => messages[result].clone(),
-                None => missing_result(call, assistant.timestamp),
+                Some(&result) => Arc::clone(&messages[result]),
+                None => Arc::new(missing_result(call, assistant.timestamp)),
             });
         }
     }

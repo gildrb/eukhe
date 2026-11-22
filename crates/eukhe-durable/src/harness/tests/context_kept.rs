@@ -59,8 +59,11 @@ fn expect_eq<T: PartialEq + Debug>(actual: &T, expected: &T, what: &str) -> Sess
     }
 }
 
-fn described(messages: &[Message]) -> Vec<String> {
-    messages.iter().map(describe_message).collect()
+fn described(messages: &[Arc<Message>]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| describe_message(message))
+        .collect()
 }
 
 fn message(model: impl Into<Message>) -> EntryDraft {

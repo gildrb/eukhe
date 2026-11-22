@@ -1,6 +1,7 @@
 //! Transcript history and model context.
 //! Run from the workspace:
 //!   cargo run -p eukhe-durable --example 09-context
+use std::borrow::Borrow;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -130,13 +131,19 @@ fn show(message: &Message) -> Result<String, BoxError> {
     })
 }
 
-fn show_all(messages: &[Message]) -> Result<String, BoxError> {
-    let shown = messages.iter().map(show).collect::<Result<Vec<_>, _>>()?;
+fn show_all(messages: &[Arc<Message>]) -> Result<String, BoxError> {
+    let shown = messages
+        .iter()
+        .map(|message| show(message))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::to_string(&shown)?)
 }
 
-fn kinds(entries: &[EntryRecord]) -> Result<String, BoxError> {
-    let kinds: Vec<&str> = entries.iter().map(|entry| entry.kind.as_str()).collect();
+fn kinds<E: Borrow<EntryRecord>>(entries: &[E]) -> Result<String, BoxError> {
+    let kinds: Vec<&str> = entries
+        .iter()
+        .map(|entry| entry.borrow().kind.as_str())
+        .collect();
     Ok(serde_json::to_string(&kinds)?)
 }
 

@@ -313,7 +313,7 @@ async fn compacts_a_fork_whose_cut_falls_on_a_parent_entry() {
     assert_eq!(
         view.messages[1..]
             .iter()
-            .map(|message| user_text(Some(message)))
+            .map(|message| user_text(Some(message.as_ref())))
             .collect::<Vec<_>>(),
         [text("u3", 100), text("a3", 100)]
     );
@@ -364,7 +364,7 @@ async fn settles_stale_in_a_fork_reset_while_it_summarizes() {
             .await
             .unwrap()
             .head
-            .map(|head| head.kind),
+            .map(|head| head.kind.clone()),
         Some("pi.reset".to_owned())
     );
     chat.harness.close(context()).await.unwrap();

@@ -1,6 +1,7 @@
 //! Port of `test/chat-support.ts`: a faux-model chat setup that survives a
 //! close/reopen, and helpers over its conversations.
 
+use std::borrow::Borrow;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -152,9 +153,9 @@ pub(crate) async fn all_entries(
     Ok(page.items.into_iter().rev().collect())
 }
 
-/// Text of the first text content of a message.
-pub(crate) fn text_of(message: Option<&Message>) -> Option<String> {
-    match message? {
+/// Text of the first text content of a message, plain or shared.
+pub(crate) fn text_of<M: Borrow<Message>>(message: Option<&M>) -> Option<String> {
+    match message?.borrow() {
         Message::System(_) => None,
         Message::User(message) => match &message.content {
             UserContent::Text(text) => Some(text.clone()),

@@ -277,19 +277,21 @@ pub struct ContextOptions {
     pub at: Option<EntryId>,
 }
 
-/// Raw active transcript and derived model context.
+/// Raw active transcript and derived model context. Entries and messages are
+/// shared: a clone of the view, and the next read of the same context,
+/// copies pointers, not the transcript.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextView {
     /// Newest applicable head marker, if any.
-    pub head: Option<EntryRecord>,
+    pub head: Option<Arc<EntryRecord>>,
     /// Raw active entries: the head marker followed by non-head entries from
     /// its head through the tail.
-    pub entries: Vec<EntryRecord>,
+    pub entries: Vec<Arc<EntryRecord>>,
     /// Per entry of `entries`, its model messages after edits and excluded
     /// stop reasons, before tool result ordering.
-    pub contributions: Vec<Vec<Message>>,
+    pub contributions: Vec<Arc<[Arc<Message>]>>,
     /// Model context for the next provider request.
-    pub messages: Vec<Message>,
+    pub messages: Vec<Arc<Message>>,
 }
 
 /// `entry_id` of a blocking compaction's summary, or the `submission_id` of
