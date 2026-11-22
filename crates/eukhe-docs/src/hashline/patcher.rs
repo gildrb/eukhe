@@ -16,8 +16,7 @@ use super::{
     messages::{
         already_landed_message, anchored_context_lines, file_op_tag_message,
         missing_snapshot_tag_message, path_recovered_from_tag_message, unseen_lines_message,
-        RevealedLine, UnseenLinesReveal,
-        HEADTAIL_DRIFT_WARNING, RECOVERY_REBASE_WARNING,
+        RevealedLine, UnseenLinesReveal, HEADTAIL_DRIFT_WARNING, RECOVERY_REBASE_WARNING,
     },
     mismatch::{mismatch_error, MismatchDetails},
     recovery::try_recover,
@@ -596,7 +595,9 @@ fn require_live_tag(
         FileOp::Move { dest } => format!("MV {dest}"),
     };
     let known = store.by_hash(canonical, tag).is_some();
-    Err(EditError::apply(file_op_tag_message(display, tag, &op, known)))
+    Err(EditError::apply(file_op_tag_message(
+        display, tag, &op, known,
+    )))
 }
 
 /// Stage every section atomically, in payload order.

@@ -836,7 +836,11 @@ fn foreign_tag(ops: &str, same: bool) -> (String, Option<String>, Option<String>
     let error = fixture
         .edit(&format!("{header}\n{ops}"), &NoFaults, &[])
         .unwrap_err();
-    (error.to_string(), fixture.read("a.txt"), fixture.read("b.txt"))
+    (
+        error.to_string(),
+        fixture.read("a.txt"),
+        fixture.read("b.txt"),
+    )
 }
 
 /// A tag read from one file never addresses another, whatever the op,
