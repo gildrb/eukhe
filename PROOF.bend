@@ -837,7 +837,6 @@ import ./proof/run/run_rounds_spend_the_budget.bend as PRunRoundsSpendTheBudget
 import ./proof/run/run_defers_spend_the_polls.bend as PRunDefersSpendThePolls
 import ./proof/run/run_resent_cut_is_not_fresh.bend as PRunResentCutIsNotFresh
 import ./proof/run/run_bound_exact.bend as PRunBoundExact
-import ./proof/run/run_steps_exact.bend as PRunStepsExact
 import ./proof/run/run_reqs_step_exact.bend as PRunReqsStepExact
 import ./proof/run/rec_terms_exact.bend as PRecTermsExact
 import ./proof/run/rec_capped_reads_the_row.bend as PRecCappedReadsTheRow
