@@ -245,9 +245,9 @@ impl FakeSignalCli {
             })
     }
 
-    /// Wait until the run `said` started has ended and everything it sends
-    /// reached the phone; every message the phone got since `said`, in
-    /// order.
+    /// Wait until the run `said` started has ended and every event the
+    /// daemon sent by the end of a session read after it reached the phone;
+    /// every message the phone got since `said`, in order.
     ///
     /// The run ended when the gateway stopped the typing indicator (it
     /// does at the run's `agent_end`). Messages of the run's end may still
@@ -259,6 +259,11 @@ impl FakeSignalCli {
     /// came in, so the second blank message's read receipt means every
     /// event before the status read reached the phone. The status reply
     /// itself is left out.
+    ///
+    /// The end-of-run message of irreversible effects is not among them:
+    /// the daemon's run service reports a run's end on its own time, after
+    /// `agent_end`, so the status read can come first. A run that sends it
+    /// waits for it ([`Self::wait_reply`]) before settling.
     pub fn settle_run(&self, said: &Said) -> Vec<String> {
         self.shared.wait_for("the run ends", |state| {
             state.seen[said.from..]

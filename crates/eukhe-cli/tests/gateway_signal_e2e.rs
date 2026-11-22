@@ -199,8 +199,12 @@ fn an_irreversible_step_runs_unasked_and_the_phone_hears_it_once_at_the_end() {
     let phone = &setup.phone;
 
     // The push runs unasked; the run's messages are the answer, then the
-    // end-of-run message, once.
+    // end-of-run message, once. That message comes from the daemon's run
+    // service, which reads the run's end after `agent_end` and on its own
+    // time: the `/status` barrier of `settle_run` does not cover it, so the
+    // phone waits for it first.
     let prompt = phone.say("Push the commit.");
+    phone.wait_reply(&prompt, "Irreversible effects ran this run:");
     assert_eq!(
         phone.settle_run(&prompt),
         vec![
