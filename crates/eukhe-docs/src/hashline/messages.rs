@@ -573,6 +573,30 @@ pub(crate) fn tag_source_hint(path: &str) -> String {
     )
 }
 
+/// A `REM` or `MV` (`op`, as authored) whose tag does not name the live
+/// text of `path` as this session read it. These ops anchor no line, so
+/// the tag is all that says the model means this file as it is now.
+/// `known`: the tag names an older read of `path` (the file changed since);
+/// otherwise it was never read from `path` (another file's tag, or an
+/// invented one).
+pub(crate) fn file_op_tag_message(path: &str, tag: &str, op: &str, known: bool) -> String {
+    let why = if known {
+        format!(
+            "{path} changed since the read that printed #{tag}, so `{op}` would discard changes \
+             you have not seen"
+        )
+    } else {
+        format!(
+            "#{tag} is not a tag this session read from {path}; a tag addresses only the file \
+             whose output printed it"
+        )
+    };
+    format!(
+        "Edit rejected for {path}: {why}. Nothing was written. To `{op}` this file, {}",
+        tag_source_hint(path)
+    )
+}
+
 /// A retry of a section that already changed the file: the live text is
 /// what the section makes of its tagged snapshot, so nothing is written.
 pub(crate) fn already_landed_message(path: &str) -> String {
