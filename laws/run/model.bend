@@ -414,11 +414,11 @@ def resent(xs: List<&2, RnRequest.Sent>) -> Bool:
     case RnRequest.Cut{q} <> t:
       False{}
 
-# the run goes on from state s with requests t by inputs e then f: when
-# a request is out before e and again after f, the request out after f
-# is the one out before e
-def resends(+cfg: RnState.Cfg, +s: RnState.St, +t: RnRequest.Reqs, +e: RnState.Ev, +f: RnState.Ev) -> Bool:
-  Bool.or(Bool.not(Bool.and(in_call(RnState.St.ph(s)), in_call(RnState.St.ph(RnStep.run.go(e <> f <> Nil{}, cfg, s))))), resent(RnRequest.Reqs.log(RnRequest.reqs.go(e <> f <> Nil{}, cfg, s, t))))
+# the run after inputs evs goes on by inputs e then f: when a request is
+# out after evs and again after f, the request out after f is the one
+# out after evs
+def resends(+cfg: RnState.Cfg, +evs: List<&2, RnState.Ev>, +e: RnState.Ev, +f: RnState.Ev) -> Bool:
+  Bool.or(Bool.not(Bool.and(in_call(RnState.St.ph(RnStep.run(cfg, evs))), in_call(RnState.St.ph(RnStep.run(cfg, List.append(&2, RnState.Ev, evs, e <> f <> Nil{})))))), resent(RnRequest.Reqs.log(RnRequest.reqs(cfg, List.append(&2, RnState.Ev, evs, e <> f <> Nil{})))))
 
 # LAW run_retry_resends_the_request (H4.7): in the model of the requests,
 # after any inputs under any configuration, with a request out, an error
@@ -437,7 +437,7 @@ law run_retry_resends_the_request:
   for reply: RnState.Reply
   for -fin2: RnState.Fin
   for -got2: RnState.Got
-  {resends(cfg, RnStep.run(cfg, evs), RnRequest.reqs(cfg, evs), RnState.Go{RnState.Error{retryable, False{}}, fin, got}, RnState.Go{reply, fin2, got2}) == True{} : Bool}
+  {resends(cfg, evs, RnState.Go{RnState.Error{retryable, False{}}, fin, got}, RnState.Go{reply, fin2, got2}) == True{} : Bool}
 
 # the requests sent in xs
 def sents(xs: List<&2, RnRequest.Sent>) -> Nat:
@@ -1003,3 +1003,172 @@ law rec_redo_is_noted:
   for -pass: RnState.Reply
   {RnRecovery.Act.reply(RnRecovery.Redo{}, pass) == RnState.Error{False{}, True{}} : RnState.Reply}
 
+
+# What the laws read of a run, pinned
+# -----------------------------------
+# The laws above read the run through tests and measures of the code
+# (RnState.done, failed, capped, polled; RnMeasure.rounds, defers, bound;
+# RnRequest.fresh; the fields of a state). Each is pinned here, by its
+# constructors or against the run machine, so that no law holds because
+# a test it reads says nothing.
+
+# LAW run_state_terms_exact (H4): a configuration and a state read back
+# the fields they were built with
+# EXCLUDES: a field read from another field, or a constant (a law stated
+#   through St.r, St.p or Cfg.cap then reads the wrong number)
+law run_state_terms_exact:
+  for +cap: Nat
+  for +polls: Nat
+  for +retries: Nat
+  for +notes: Nat
+  for +ph: RnState.Ph
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {RnState.Cfg.cap(RnState.Cfg{cap, polls, retries, notes}) == cap : Nat} &
+  {RnState.Cfg.polls(RnState.Cfg{cap, polls, retries, notes}) == polls : Nat} &
+  {RnState.Cfg.retries(RnState.Cfg{cap, polls, retries, notes}) == retries : Nat} &
+  {RnState.Cfg.notes(RnState.Cfg{cap, polls, retries, notes}) == notes : Nat} &
+  {RnState.St.ph(RnState.St{ph, r, c, a, n, p}) == ph : RnState.Ph} &
+  {RnState.St.r(RnState.St{ph, r, c, a, n, p}) == r : Nat} &
+  {RnState.St.c(RnState.St{ph, r, c, a, n, p}) == c : Nat} &
+  {RnState.St.a(RnState.St{ph, r, c, a, n, p}) == a : Nat} &
+  {RnState.St.n(RnState.St{ph, r, c, a, n, p}) == n : Nat} &
+  {RnState.St.p(RnState.St{ph, r, c, a, n, p}) == p : Nat}
+
+# LAW run_ends_terms_exact (H4): a run has ended (done) exactly when it
+# answered, was aborted or failed; it failed (failed) exactly in a failed
+# phase; the round cap failed it (capped) exactly when it failed on the
+# rounds, the poll cap (polled) exactly when it failed on the polls
+# EXCLUDES: an end test that is always true or always false (run_ends,
+#   run_live_never_waits, run_rounds_capped, run_rounds_fail_at_cap and
+#   run_polls_need_defers then hold vacuously), a failure read as another
+law run_ends_terms_exact:
+  for +over: Bool
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +n: Nat
+  for +p: Nat
+  {RnState.done(RnState.St{RnState.Prepare{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.done(RnState.St{RnState.Call{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.done(RnState.St{RnState.Compact{over}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.done(RnState.St{RnState.Tools{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.done(RnState.St{RnState.Answered{}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.done(RnState.St{RnState.Aborted{}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.done(RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.done(RnState.St{RnState.Failed{RnState.Polls{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.done(RnState.St{RnState.Failed{RnState.Rounds{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Prepare{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Call{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Compact{over}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Tools{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Answered{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Aborted{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Failed{RnState.Polls{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.failed(RnState.St{RnState.Failed{RnState.Rounds{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Prepare{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Call{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Compact{over}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Tools{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Answered{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Aborted{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Failed{RnState.Polls{}}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.capped(RnState.St{RnState.Failed{RnState.Rounds{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Prepare{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Call{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Compact{over}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Tools{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Answered{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Aborted{}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p}) == False{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Failed{RnState.Polls{}}, r, c, a, n, p}) == True{} : Bool} &
+  {RnState.polled(RnState.St{RnState.Failed{RnState.Rounds{}}, r, c, a, n, p}) == False{} : Bool}
+
+# LAW run_round_terms_exact (H4.2): a round's end reads its flags as
+# Rust's RoundEnd does (a control that stops it, else a queued reset,
+# else the round goes on), and the limits Rust sends are the machine's
+# configuration (the round cap, the job's wait as its polls, the
+# retries, the notes)
+# EXCLUDES: a round end read from the wrong flag, limits read into
+#   another field of the configuration
+law run_round_terms_exact:
+  for +reset: Bool
+  for +rounds: Nat
+  for +wait: Nat
+  for +retries: Nat
+  for +notes: Nat
+  {RnDecision.fin.of(True{}, reset) == RnState.Stops{} : RnState.Fin} &
+  {RnDecision.fin.of(False{}, True{}) == RnState.Resets{} : RnState.Fin} &
+  {RnDecision.fin.of(False{}, False{}) == RnState.Goes{} : RnState.Fin} &
+  {RnDecision.Lim.cfg(RnDecision.Lim{rounds, wait, retries, notes}) == RnState.Cfg{rounds, wait, retries, notes} : RnState.Cfg}
+
+# LAW run_reqs_terms_exact (H4.7): the requests of a run and a request
+# read back the fields they were built with
+# EXCLUDES: a log read as empty (run_retry_sends_a_new_request and
+#   run_cut_names_the_last_sent then hold vacuously), a context or note
+#   read from another field
+law run_reqs_terms_exact:
+  for +ctx: Nat
+  for +n: Nat
+  for +note: Nat
+  for +log: List<&2, RnRequest.Sent>
+  {RnRequest.Reqs.ctx(RnRequest.Reqs{ctx, n, note, log}) == ctx : Nat} &
+  {RnRequest.Reqs.n(RnRequest.Reqs{ctx, n, note, log}) == n : Nat} &
+  {RnRequest.Reqs.note(RnRequest.Reqs{ctx, n, note, log}) == note : Nat} &
+  {RnRequest.Reqs.log(RnRequest.Reqs{ctx, n, note, log}) == log : List<&2, RnRequest.Sent>} &
+  {RnRequest.Req.ctx(RnRequest.Req{ctx, note}) == ctx : Nat} &
+  {RnRequest.Req.note(RnRequest.Req{ctx, note}) == note : Nat}
+
+# LAW run_rounds_spend_the_budget (H4.2): after any inputs under any
+# configuration, a run that has not failed has made max(cap, 1) - 1 - r
+# counted tool rounds, r the rounds it has left (St.r, which a counted
+# round spends: run_step_counts_rounds_down): the rounds the laws count
+# (RnMeasure.rounds) are the rounds the run made
+# EXCLUDES: rounds read from the run's outcome (0 unless the cap failed
+#   it: run_rounds_capped and run_rounds_fail_at_cap then hold whatever
+#   the run does), a round counted twice or not at all
+law run_rounds_spend_the_budget:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  Or({RnState.failed(RnStep.run(cfg, evs)) == True{} : Bool}, {Nat.add(RnMeasure.rounds(cfg, evs), 1n+RnState.St.r(RnStep.run(cfg, evs))) == Nat.max(RnState.Cfg.cap(cfg), 1n) : Nat})
+
+# LAW run_defers_spend_the_polls (H4): after any inputs under any
+# configuration, with a request out (the call phase), the deferred
+# replies in a row it has had (RnMeasure.defers) and the polls it has
+# left (St.p, which a deferred reply spends) make the poll cap
+# EXCLUDES: deferred replies read from the run's outcome
+#   (run_polls_need_defers then holds whatever the run does), a deferred
+#   reply counted twice or not at all
+law run_defers_spend_the_polls:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  Or({in_call(RnState.St.ph(RnStep.run(cfg, evs))) == False{} : Bool}, {Nat.add(RnMeasure.defers(cfg, evs), RnState.St.p(RnStep.run(cfg, evs))) == RnState.Cfg.polls(cfg) : Nat})
+
+# LAW run_resent_cut_is_not_fresh (H4.7): a log (newest first) that
+# shows a request sent after a request equal to it was cut, with any
+# entries before, between and after, is not fresh: `fresh`, the test
+# run_retry_sends_a_new_request reads, rejects every resent cut
+# EXCLUDES: a `fresh` that is always true (run_retry_sends_a_new_request
+#   then holds whatever the run sends), a resend missed past other
+#   entries
+law run_resent_cut_is_not_fresh:
+  for xs: List<&2, RnRequest.Sent>
+  for +q: RnRequest.Req
+  for +ys: List<&2, RnRequest.Sent>
+  for +zs: List<&2, RnRequest.Sent>
+  {RnRequest.fresh(List.append(&2, RnRequest.Sent, xs, RnRequest.Sent{q} <> List.append(&2, RnRequest.Sent, ys, RnRequest.Cut{q} <> zs))) == False{} : Bool}
+
+# LAW run_bound_exact (H4): the bound run_ends reads is the number its
+# words give: max(cap, 1)·(2 + (retries + notes + 2)·(polls + 2))
+# EXCLUDES: a larger bound (run_ends then says less than its words)
+law run_bound_exact:
+  for +cap: Nat
+  for +polls: Nat
+  for +retries: Nat
+  for +notes: Nat
+  {RnMeasure.bound(RnState.Cfg{cap, polls, retries, notes}) == Nat.mul(Nat.max(cap, 1n), 2n+Nat.mul(2n+Nat.add(retries, notes), 2n+polls)) : Nat}
