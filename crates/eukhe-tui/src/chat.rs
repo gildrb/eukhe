@@ -1,12 +1,11 @@
 //! Transcript component rendering: status rows, the user-message block,
-//! assistant messages (markdown text, dense italic thinking, and their
-//! error rows), and the working loader line. Ports the TS chat
-//! components' row geometry (`user-message.ts` Box 2x1 on
-//! `userMessageBg`, `loader.ts` `Loader` + `agent-activity.ts` labels);
-//! the blank rows between entries follow the transcript's turn rule
-//! (`crate::view` rows: a blank before a user prompt, before a turn's
-//! first row, and before the reply after tool rows, nowhere else).
-//! Tool-call cards live in `crate::tool_card`.
+//! assistant messages (markdown text, thinking collapsed to one row or
+//! expanded behind a bar, and their error rows), and the working loader
+//! line. Every row of a turn takes its indent and mark from the role
+//! gutter (`crate::rows::Gutter`); the blank rows between entries follow
+//! the transcript's step rule (`crate::view` rows: a blank before a user
+//! prompt, before each step of a turn, and before the reply, none inside
+//! a step). Tool-call cards live in `crate::tool_card`.
 
 mod geometry;
 
@@ -19,11 +18,13 @@ use crate::{Line, Span};
 /// How much detail the conversation shows (TS `setChatDetail` levels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detail {
-    /// `overview`: thinking hidden, tool output and edit diffs collapsed.
+    /// `overview`: thinking collapsed to one row, tool output and edit
+    /// diffs collapsed.
     Overview,
-    /// `details`: thinking visible, edit diffs expanded, tool output collapsed.
+    /// `details`: thinking expanded, edit diffs expanded, tool output
+    /// collapsed.
     Details,
-    /// `all`: thinking visible, edit diffs and tool output expanded.
+    /// `all`: thinking expanded, edit diffs and tool output expanded.
     All,
 }
 
@@ -39,7 +40,8 @@ impl Detail {
         }
     }
 
-    /// Thinking blocks render (TS `hideThinkingBlock = detail === "overview"`).
+    /// Thinking blocks expand; `overview` collapses each to its summary
+    /// row.
     #[must_use]
     pub fn show_thinking(self) -> bool {
         !matches!(self, Detail::Overview)
@@ -65,9 +67,10 @@ impl Detail {
     /// The level for a stored wire name (TS #2709 `getChatDetail`):
     /// an unset or unknown value reads as the `overview` startup level -
     /// the collapse mode, which renders every activity item exactly as
-    /// `details` does with only the thinking blocks hidden (operator
+    /// `details` does with only the thinking blocks collapsed (operator
     /// directive 2026-09-28: "collapse mode should just be details
-    /// mode, but WITHOUT THINKING BLOCKS").
+    /// mode, but WITHOUT THINKING BLOCKS"; since 2026-11-21 each one
+    /// leaves its one summary row).
     #[must_use]
     pub fn from_wire_name(name: &str) -> Self {
         match name {
@@ -173,32 +176,12 @@ pub struct AssistantMessage {
 }
 
 impl AssistantMessage {
-    /// The message contributes rows at `detail`: a visible block (text,
-    /// or thinking when the level shows it) or an error row.
+    /// The message contributes rows: a non-blank block (thinking renders
+    /// at every detail level) or an error row.
     #[must_use]
-    pub fn renders_rows(&self, detail: Detail) -> bool {
-        !geometry::visible_blocks(self, detail).is_empty() || self.error.is_some()
+    pub fn renders_rows(&self) -> bool {
+        !geometry::visible_blocks(self).is_empty() || self.error.is_some()
     }
-}
-
-/// Where an assistant message's rows sit in the transcript. The blank
-/// row before a message marks a boundary the reader needs: the start of
-/// a turn, or the reply that follows the turn's tool rows. Blocks within
-/// a turn (the next thinking or text after an assistant message or a
-/// tool row) stay flush, so the thinking reads as one dense trace, and
-/// a settled reply's text (its last text block) stands one blank row
-/// apart from the thinking that leads it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssistantLead {
-    /// One blank row leads the message's first row (the turn's first
-    /// rows).
-    Spaced,
-    /// The message is the reply after the turn's tool rows: its thinking
-    /// follows the tool rows directly and the one blank row sits before
-    /// its reply text (before its first row when nothing leads the text).
-    Reply,
-    /// The message's first row follows the previous row directly.
-    Flush,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,8 +330,9 @@ pub fn render_text_rows(text: &str, style: Style, width: usize) -> Vec<Line> {
 }
 
 /// The user-message block (TS `UserMessageComponent` on `userMessageBg`
-/// without its blank top and bottom rows, the tight layout), markdown
-/// inside colored `userMessageText`. The
+/// without its blank top and bottom rows, the tight layout): the accent
+/// `>` mark in the user gutter, markdown inside colored
+/// `userMessageText`, the whole row on the band. The
 /// prompt-highlight tokens (the accent command segment of a recognized
 /// leading slash command, the `@path`/`--flag` argument tokens) render in
 /// their own colors: TS masks them to same-width placeholders before the
@@ -361,23 +345,32 @@ pub fn render_user_block(
     code_block_indent: &str,
     width: usize,
 ) -> Vec<Line> {
+    let gutter = crate::rows::Gutter::User;
     let bg = theme.bg_style(ThemeBg::UserMessageBg);
-    let content_width = width.saturating_sub(4).max(1);
+    let content_width = gutter.body_width(width);
     let body = theme.fg_style(ThemeColor::UserMessageText);
+    let mark = Span::styled(
+        crate::glyphs::MARK_USER,
+        bg.patch(theme.fg_style(ThemeColor::Accent)),
+    );
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
     md.code_block_indent = code_block_indent.to_string();
-    let mask = geometry::user_mask(text);
-    let rendered = crate::markdown::render_markdown(&mask.text, content_width, &md);
-    let mut rows: Vec<Line> = Vec::new();
+    let tokens = geometry::user_mask(text);
+    let mut rendered = crate::markdown::render_markdown(&tokens.text, content_width, &md);
     if rendered.is_empty() {
-        let row = vec![
-            Span::styled("  ".to_string(), bg),
-            Span::styled(String::new(), body),
-        ];
-        rows.push(pad_to(row, width, bg));
+        rendered.push(Vec::new());
     }
+    let mut mark = Some(mark);
+    let mut rows: Vec<Line> = Vec::new();
     for line in rendered {
-        let mut row: Line = vec![Span::styled("  ".to_string(), bg)];
+        // The gutter's spaces sit on the band too.
+        let mut row: Line = match mark.take() {
+            Some(mark) => gutter.lead(Some(mark), theme),
+            None => gutter.hang(theme),
+        }
+        .into_iter()
+        .map(|span| Span::styled(span.content, bg.patch(span.style)))
+        .collect();
         // The user block colors everything `userMessageText` on the block
         // background; markdown structure (wrapping) is kept, its own colors
         // are not. The masked placeholders restore to their token colors
@@ -397,7 +390,7 @@ pub fn render_user_block(
                 Span::styled(span.content, style)
             })
             .collect();
-        row.extend(mask.restore_line(theme, &restyled));
+        row.extend(tokens.restore_line(theme, &restyled));
         rows.push(pad_to(row, width, bg));
     }
     // Zone markers: `A` on the first block row, `B`/`C` on the last (TS
@@ -411,22 +404,22 @@ pub fn render_user_block(
     rows
 }
 
-/// One assistant message: its leading blank row when `lead` asks for one
-/// and the message renders anything, then its visible blocks flush
-/// against each other (text as `mdBody` markdown, thinking as dense
-/// italic `thinkingText`
-/// rows) except the one blank row before a settled reply's text when
-/// thinking leads it, then its error row set off by one blank row.
+/// One assistant message: one blank row before it when it renders
+/// anything (it opens a step or the reply), then its visible blocks with
+/// no blank row between them (text as `mdBody` markdown at the agent text
+/// column, thinking as its one dim summary row, or expanded under a
+/// `- thinking` header behind the dim bar) except the one blank row
+/// before a settled reply's text when thinking leads it, then its error
+/// row set off by one blank row.
 pub fn render_assistant(
     message: &AssistantMessage,
     detail: Detail,
     theme: &Theme,
     code_block_indent: &str,
     width: usize,
-    lead: AssistantLead,
     cache: &mut crate::markdown::MarkdownBlockCache,
 ) -> Vec<Line> {
-    let visible_blocks = geometry::visible_blocks(message, detail);
+    let visible_blocks = geometry::visible_blocks(message);
     let has_visible_content = !visible_blocks.is_empty();
     // The reply seam: the visible block index of a settled reply's text
     // when another block (its thinking) leads it.
@@ -439,14 +432,7 @@ pub fn render_assistant(
             .filter(|index| *index > 0)
     };
     let mut out: Vec<Line> = Vec::new();
-    let leads_with_blank = match lead {
-        AssistantLead::Spaced => has_visible_content || message.error.is_some(),
-        AssistantLead::Reply => {
-            reply_seam.is_none() && (has_visible_content || message.error.is_some())
-        }
-        AssistantLead::Flush => false,
-    };
-    if leads_with_blank {
+    if has_visible_content || message.error.is_some() {
         out.push(spacer());
     }
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
@@ -457,17 +443,23 @@ pub fn render_assistant(
         }
         match block {
             MessageBlock::Text(text) => {
-                let rows = render_markdown_block(text, &md, width, cache);
+                let rows = render_text_block(text, &md, theme, width, cache);
                 out.extend(fold_rows(
                     rows,
                     message.has_tool_calls,
                     detail,
                     theme,
                     width,
+                    crate::rows::Gutter::Text.body_col(),
                 ));
             }
-            MessageBlock::Thinking(text) => {
+            MessageBlock::Thinking(text) if detail.show_thinking() => {
                 out.extend(render_thinking_block(text, theme, &md, width, cache));
+            }
+            MessageBlock::Thinking(text) => {
+                let summary = crate::rows::thinking_summary(text, width);
+                let row = vec![Span::styled(summary, theme.fg_style(ThemeColor::Dim))];
+                out.push(pad_to(row, width, Style::default()));
             }
         }
     }
@@ -521,25 +513,32 @@ pub(crate) const FOLD_HEAD: usize = 8;
 
 /// A foldable block (a mid-turn commentary block of a message with tool
 /// calls, a long `Info` status row) folds to its head with a count of
-/// the hidden rows, unless the chat is at `Detail::All`; a block that
-/// never folds (the answer of a turn, a warning, an error) shows in
-/// full.
+/// the hidden rows at column `indent`, unless the chat is at
+/// `Detail::All`; a block that never folds (the answer of a turn, a
+/// warning, an error) shows in full.
 pub(crate) fn fold_rows(
     mut rows: Vec<Line>,
     foldable: bool,
     detail: Detail,
     theme: &Theme,
     width: usize,
+    indent: usize,
 ) -> Vec<Line> {
     if !foldable || detail.tool_output_expanded() || rows.len() <= FOLD_HEAD + 1 {
         return rows;
     }
     let hidden = rows.len() - FOLD_HEAD;
     rows.truncate(FOLD_HEAD);
-    let tail = vec![Span::styled(
-        format!("… +{hidden} lines (Ctrl+O shows all)"),
-        theme.fg_style(ThemeColor::Dim),
-    )];
+    let tail = vec![
+        Span::raw(" ".repeat(indent)),
+        Span::styled(
+            format!(
+                "{} +{hidden} lines (Ctrl+O shows all)",
+                crate::glyphs::ELLIPSIS
+            ),
+            theme.fg_style(ThemeColor::Dim),
+        ),
+    ];
     rows.push(pad_to(tail, width, Style::default()));
     rows
 }
@@ -569,10 +568,32 @@ pub(crate) fn render_markdown_block(
     out
 }
 
-/// The thinking block: markdown with every style collapsed to the
-/// thinking style (`thinkingText`, italic),
-/// dense -- the blank rows markdown puts between its blocks are dropped,
-/// so each paragraph starts on the row after the previous one.
+/// Agent text: markdown wrapped at the agent text column's width, each
+/// row in the gutter's text column. Padding never carries the content
+/// style (see `render_markdown_block`).
+fn render_text_block(
+    text: &str,
+    md: &crate::markdown::MarkdownStyle,
+    theme: &Theme,
+    width: usize,
+    cache: &mut crate::markdown::MarkdownBlockCache,
+) -> Vec<Line> {
+    let gutter = crate::rows::Gutter::Text;
+    let rendered = crate::markdown::render_markdown_tagged(
+        text.trim(),
+        gutter.body_width(width),
+        md,
+        "",
+        cache,
+    );
+    gutter.place(None, rendered, theme, width)
+}
+
+/// The expanded thinking block: a dim `- thinking` header in the step
+/// column, then markdown with every style collapsed to the thinking style
+/// (`thinkingText`, italic) behind the dim bar, dense -- the blank rows
+/// markdown puts between its blocks are dropped, so each paragraph starts
+/// on the row after the previous one.
 fn render_thinking_block(
     text: &str,
     theme: &Theme,
@@ -580,27 +601,27 @@ fn render_thinking_block(
     width: usize,
     cache: &mut crate::markdown::MarkdownBlockCache,
 ) -> Vec<Line> {
+    let dim = theme.fg_style(ThemeColor::Dim);
     let md = geometry::thinking_style(md, theme);
-    let content_width = width.saturating_sub(2).max(1);
+    let quote = crate::rows::Gutter::StepQuote;
     let rendered = crate::markdown::render_markdown_tagged(
         text.trim(),
-        content_width,
+        quote.body_width(width),
         &md,
         geometry::THINKING_CACHE_TAG,
         cache,
     );
-    let mut out = Vec::new();
-    for line in rendered {
-        if geometry::is_blank_row(&line) {
-            continue;
-        }
-        // The markdown margin sits outside the styled content (default fg).
-        let mut row: Line = vec![Span::raw(" ")];
-        row.extend(line);
-        // TS pads with unstyled spaces after the row's closing reset (see
-        // render_markdown_block); padding never carries the thinking style.
-        out.push(pad_to(row, width, Style::default()));
-    }
+    let mut header = crate::rows::Gutter::Step.lead(
+        Some(Span::styled(crate::glyphs::MARK_THINKING_EXPANDED, dim)),
+        theme,
+    );
+    header.push(Span::styled(crate::rows::THINKING_LABEL, dim));
+    let mut out = vec![pad_to(header, width, Style::default())];
+    let body: Vec<Line> = rendered
+        .into_iter()
+        .filter(|line| !geometry::is_blank_row(line))
+        .collect();
+    out.extend(quote.place(None, body, theme, width));
     out
 }
 

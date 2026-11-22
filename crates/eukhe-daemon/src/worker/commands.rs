@@ -32,7 +32,7 @@ impl Worker {
     pub(crate) async fn dispatch(&self, command_type: &str, payload: &Value) -> DaemonResponse {
         match command_type {
             "create" => self.handle_create(payload).await,
-            "attach" => self.handle_attach(payload),
+            "attach" => self.handle_attach(payload, self.run_limit_error().await),
             "detach" => self.handle_detach(payload),
             "prompt" => self.handle_prompt(payload, false).await,
             "prompt_and_wait" => self.handle_prompt(payload, true).await,

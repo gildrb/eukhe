@@ -1,70 +1,26 @@
-//! The per-entry transcript row builders: the leading-blank rules (one
-//! blank row marks a turn boundary or the reply after the turn's tool
-//! rows; the rows within a turn stay flush) and `render_entry` -- the
-//! one producer of a chat entry's rows.
+//! The per-entry transcript row builders: the leading-blank rules and
+//! `render_entry` -- the one producer of a chat entry's rows. A turn
+//! reads as steps (owner ruling 2026-11-21, replacing the 2026-09 "one
+//! dense trace" rule): one blank row between the user header and the
+//! first step, between steps (a step is an assistant message's thinking
+//! and text, then its tool rows), before the reply, and before the
+//! footer; none inside a step.
 
 use super::AgentView;
-use crate::chat::{
-    render_assistant, render_text_rows, render_user_block, AssistantLead, AssistantMessage,
-    ChatEntry,
-};
+use crate::chat::{render_assistant, render_text_rows, render_user_block, ChatEntry};
 use crate::theme::ThemeColor;
 use crate::Line;
 
 impl AgentView {
-    /// The nearest entry above `index` that renders rows: an assistant
-    /// message whose blocks are all hidden at this detail level (and
-    /// that carries no error) contributes nothing, so the scan skips it.
-    fn visible_predecessor(&self, index: usize) -> Option<&ChatEntry> {
-        self.chat[..index].iter().rev().find(|entry| match entry {
-            ChatEntry::Assistant(message) => message.renders_rows(self.detail),
-            ChatEntry::Status { .. }
-            | ChatEntry::User { .. }
-            | ChatEntry::SlashCommand { .. }
-            | ChatEntry::CompactionSummary { .. }
-            | ChatEntry::Tool(_)
-            | ChatEntry::AgentMessage(_)
-            | ChatEntry::SkillInvocation(_)
-            | ChatEntry::InjectedPrompt(_)
-            | ChatEntry::BashExecution(_)
-            | ChatEntry::ShellCompletion(_)
-            | ChatEntry::RefinementOutcome(_)
-            | ChatEntry::CustomPanel(_)
-            | ChatEntry::ChatView(_)
-            | ChatEntry::Swarm(_) => true,
-        })
-    }
-
-    /// The blank row before the assistant message at `index`: the first
-    /// rows of a turn lead with one (nothing or a non-turn row above). A
-    /// settled reply (a message without tool calls) that follows tool
-    /// rows gets the `Reply` lead: its thinking stays flush with the
-    /// rows above and the one blank row sits before its reply text, so
-    /// the answer stands apart from the activity above it. A message
-    /// that follows another assistant message, or that follows tool
-    /// rows while it still streams or carries its own tool calls, stays
-    /// flush: the turn reads as one dense trace.
-    pub(super) fn assistant_lead(&self, index: usize, message: &AssistantMessage) -> AssistantLead {
-        match self.visible_predecessor(index) {
-            Some(ChatEntry::Assistant(_)) => AssistantLead::Flush,
-            Some(preceding) if Self::is_compact_neighbor(preceding) => {
-                if message.has_tool_calls || message.streaming {
-                    AssistantLead::Flush
-                } else {
-                    AssistantLead::Reply
-                }
-            }
-            Some(_) | None => AssistantLead::Spaced,
-        }
-    }
-
     /// The blank row before a tool row (tool card, agent message, shell
-    /// completion) at `index`: only when it opens the turn's visible rows
-    /// (nothing or a non-turn row above); after an assistant message or
-    /// another tool row it stays flush.
+    /// completion) at `index`: a step's tool rows follow its assistant
+    /// message and each other directly, and a tool row that opens a step
+    /// (after a non-turn row, at the top, or after an assistant message
+    /// that renders nothing) leads with one. An assistant message always
+    /// leads with its own (`render_assistant`).
     pub(super) fn conversation_leading(&self, index: usize) -> bool {
-        match self.visible_predecessor(index) {
-            Some(ChatEntry::Assistant(_)) => false,
+        match index.checked_sub(1).map(|above| &self.chat[above]) {
+            Some(ChatEntry::Assistant(message)) => !message.renders_rows(),
             Some(preceding) => !Self::is_compact_neighbor(preceding),
             None => true,
         }
@@ -99,6 +55,7 @@ impl AgentView {
                     detail,
                     &self.theme,
                     width,
+                    1,
                 ));
                 rows
             }
@@ -192,7 +149,6 @@ impl AgentView {
                             &self.theme,
                             &self.code_block_indent,
                             width,
-                            self.assistant_lead(index, message),
                             &mut settled,
                         )
                     }

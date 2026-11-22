@@ -11,6 +11,8 @@ use super::{
 };
 use std::collections::HashMap;
 
+use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_durable::types::{InputSubmission, ScanOrder, SubmissionQuery, SubmissionState};
 use eukhe_types::daemon::{DaemonClientKind, DaemonWorkerCommand, DetachReason};
 use serde::Deserialize as _;
 
@@ -959,7 +961,61 @@ impl Worker {
 }
 
 impl Worker {
-    pub(crate) fn handle_attach(&self, payload: &Value) -> DaemonResponse {
+    /// The failure text of the tool round cap the main conversation's last
+    /// run stopped at (its newest placed input settled `run_limit`): no
+    /// transcript message carries it, so the attach snapshot does.
+    pub(crate) async fn run_limit_error(&self) -> Option<String> {
+        let hosted = self.hosted("attach").ok()?;
+        let main = hosted.main().ok()?.id();
+        let storage = Arc::clone(hosted.harness().storage());
+        let detail = hosted
+            .harness()
+            .read_on_line(async move {
+                let query = SubmissionQuery {
+                    conversation_id: Some(main),
+                    status: None,
+                    order: Some(ScanOrder::Descending),
+                };
+                let mut cursor = None;
+                loop {
+                    let page = storage
+                        .scan_submissions(&query, 8, cursor.as_ref(), &BACKGROUND_CONTEXT)
+                        .await?;
+                    let newest = page
+                        .items
+                        .into_iter()
+                        .find_map(|record| match record.state {
+                            SubmissionState::Input(InputSubmission::Unanswered {
+                                entry: Some(_),
+                                reason,
+                                detail,
+                            }) => Some(detail.filter(|_| reason == "run_limit")),
+                            SubmissionState::Input(
+                                InputSubmission::Placed { .. } | InputSubmission::Done { .. },
+                            ) => Some(None),
+                            SubmissionState::Input(
+                                InputSubmission::Queued
+                                | InputSubmission::Unanswered { entry: None, .. },
+                            )
+                            | SubmissionState::Write(_) => None,
+                        });
+                    match (newest, page.next) {
+                        (Some(detail), _) => return Ok(detail),
+                        (None, Some(next)) => cursor = Some(next),
+                        (None, None) => return Ok(None),
+                    }
+                }
+            })
+            .await
+            .ok()??;
+        detail.as_str().map(str::to_owned)
+    }
+
+    pub(crate) fn handle_attach(
+        &self,
+        payload: &Value,
+        run_limit_error: Option<String>,
+    ) -> DaemonResponse {
         if let Err(response) = self.require_created("attach") {
             return response;
         }
@@ -1086,7 +1142,8 @@ impl Worker {
         if crate::snapshot_stream::wants_image_elision(&client_capabilities) {
             crate::snapshot_stream::elide_snapshot_image_payloads(&mut messages);
         }
-        let state = self.connection_state_locked(&core);
+        let mut state = self.connection_state_locked(&core);
+        state.run_limit_error = run_limit_error;
         let last_event_sequence = core.last_event_sequence;
         let generation = core.generation.clone();
         let active_session_id = core.active_session_id.clone();

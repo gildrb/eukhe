@@ -1268,6 +1268,37 @@ fn turn_end_carries_a_generation_failure_of_its_turn() {
     );
 }
 
+/// A run that fails after its answer's tools ran (the tool round cap)
+/// ends that turn with the answer and the failure; an answer that does
+/// not call tools carries its own outcome, and the stray error goes.
+#[test]
+fn turn_end_keeps_a_failure_after_the_answers_tools() {
+    let mut translator = translator(CoalesceMode::Immediate);
+    let cap = "The run stopped at its tool round cap: 250 rounds (maxToolRounds)";
+    let tool_use = assistant(
+        json!([{ "type": "toolCall", "id": "c1", "name": "bash", "arguments": {} }]),
+        "toolUse",
+        1,
+    );
+    translator.translate_batch_wire(&[
+        event(json!({ "type": "turn_start" })),
+        event(json!({ "type": "message_end", "entry": entry(5, "pi.assistant", Some(tool_use.clone()), None) })),
+        event(json!({ "type": "task_failed", "taskId": 4, "kind": "pi.generation", "message": cap })),
+    ]);
+    let end = translator.translate_wire(&event(json!({ "type": "turn_end" })));
+    assert_eq!(end.last().unwrap()["message"], tool_use);
+    assert_eq!(end.last().unwrap()["error"], cap);
+    let answer = assistant(json!([{ "type": "text", "text": "hi" }]), "stop", 1);
+    translator.translate_batch_wire(&[
+        event(json!({ "type": "turn_start" })),
+        event(json!({ "type": "message_end", "entry": entry(6, "pi.assistant", Some(answer.clone()), None) })),
+        event(json!({ "type": "task_failed", "taskId": 7, "kind": "pi.generation", "message": "late" })),
+    ]);
+    let end = translator.translate_wire(&event(json!({ "type": "turn_end" })));
+    assert_eq!(end.last().unwrap()["message"], answer);
+    assert!(end.last().unwrap().get("error").is_none());
+}
+
 #[test]
 fn run_end_clears_the_live_state() {
     let mut translator = translator(CoalesceMode::Coalesced);

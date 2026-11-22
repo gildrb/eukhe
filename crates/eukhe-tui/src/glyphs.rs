@@ -70,3 +70,15 @@ pub const FIRED: &str = ">>";
 pub const ARROW: &str = "->";
 /// A warning mark.
 pub const WARN: &str = "!";
+/// The transcript's role marks (placed by `crate::rows::Gutter`): the
+/// user header, collapsed and expanded thinking, a tool call's result,
+/// and the turn's usage footer. Agent text has no mark; an injected row's
+/// mark is its `[label]`.
+pub const MARK_USER: &str = ">";
+pub const MARK_THINKING_COLLAPSED: &str = COLLAPSED;
+pub const MARK_THINKING_EXPANDED: &str = EXPANDED;
+pub const MARK_TOOL_OK: &str = OK;
+pub const MARK_TOOL_FAIL: &str = "x ";
+pub const MARK_FOOTER: &str = DASH;
+/// The bar a quoted body (expanded thinking, tool output) hangs behind.
+pub const QUOTE_BAR: &str = "| ";
