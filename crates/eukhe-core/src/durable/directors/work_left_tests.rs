@@ -29,7 +29,8 @@ use futures::FutureExt;
 
 use super::work_left::{work_left_hook, WorkLeftHost};
 use super::{
-    director_state, tool_acted, DirectorLimits, WorkLeftOutcome, DIRECTOR_NOTICE_CUSTOM_TYPE,
+    director_state, run_left, tool_acted, DirectorLimits, WorkLeftOutcome,
+    DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::acceptance::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 use crate::durable::autonomous::tests::{
@@ -281,8 +282,9 @@ async fn a_done_or_unjudged_answer_stands() {
                 user_origins(&entries(&root).await),
                 judge.asked().len(),
                 setup.faux.get_pending_response_count(),
+                run_left(&harness, &root, cx()).await.expect("read"),
             ),
-            (vec![InputOrigin::User], 1, 1),
+            (vec![InputOrigin::User], 1, 1, None),
             "{reply:?}"
         );
         harness.close(cx()).await.expect("close");
@@ -399,6 +401,7 @@ async fn the_chain_ends_after_stall_steps_continuations_without_new_work() {
             user_origins(&entries(&root).await),
             judge.asked().len(),
             setup.faux.get_pending_response_count(),
+            run_left(&harness, &root, cx()).await.expect("read"),
         ),
         (
             vec![
@@ -407,7 +410,87 @@ async fn the_chain_ends_after_stall_steps_continuations_without_new_work() {
                 InputOrigin::Director
             ],
             2,
-            1
+            1,
+            Some(vec![
+                "no progress: 2 continuations in a row made no tool call with a new result"
+                    .to_owned()
+            ]),
+        )
+    );
+    harness.close(cx()).await.expect("close");
+}
+
+/// The run's report tells what the run last found left: an answer read as
+/// leaving work continues the run, and the next one, with the Director
+/// loop out of steps, stands unread and keeps the items. The next run
+/// clears them as it starts. A record written before the run's report
+/// kept them still decodes and tells nothing.
+#[tokio::test]
+async fn the_report_keeps_what_the_run_last_found_left_until_the_next_run() {
+    let WorkLeftSetup { setup, judge, .. } =
+        work_left_setup(vec![verdict("FAIL\n- step 2: migrate the callers")]);
+    *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = DirectorLimits {
+        max_steps: 1,
+        ..DirectorLimits::default()
+    };
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    let during: Arc<Mutex<Option<Option<Vec<String>>>>> = Arc::default();
+    let (reader, conversation, kept) = (harness.clone(), root.clone(), Arc::clone(&during));
+    let read_then_answer = FauxResponseStep::Factory(Arc::new(move |_, _, _, _| {
+        let (harness, root, kept) = (reader.clone(), conversation.clone(), Arc::clone(&kept));
+        async move {
+            let left = run_left(&harness, &root, cx()).await.expect("read");
+            *kept.lock().unwrap_or_else(PoisonError::into_inner) = Some(left);
+            Ok(faux_assistant_message(
+                "You are welcome.",
+                FauxAssistantMessageOptions::default(),
+            ))
+        }
+        .boxed()
+    }));
+    setup.faux.set_responses(vec![
+        write_call(),
+        answer("Step 1 is done. Should I continue with step 2?"),
+        answer("Step 2 is half done."),
+        read_then_answer,
+    ]);
+
+    submit(&root, "migrate the callers in two steps").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+    let after_run = run_left(&harness, &root, cx()).await.expect("read");
+    let mut old = serde_json::to_value(
+        director_state(&harness, root.id(), cx())
+            .await
+            .expect("read")
+            .work_left
+            .expect("a decision"),
+    )
+    .expect("json");
+    let fields = old.as_object_mut().expect("an object");
+    fields.remove("left");
+    fields.remove("newestInput");
+    let old: super::WorkLeftRecord = serde_json::from_value(old).expect("an old record decodes");
+    submit(&root, "thanks").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+    let during = during
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+
+    assert_eq!(
+        (
+            after_run,
+            during,
+            run_left(&harness, &root, cx()).await.expect("read"),
+            (old.left, old.newest_input),
+            judge.asked().len(),
+        ),
+        (
+            Some(vec!["step 2: migrate the callers".to_owned()]),
+            Some(None),
+            None,
+            (Vec::new(), None),
+            1,
         )
     );
     harness.close(cx()).await.expect("close");

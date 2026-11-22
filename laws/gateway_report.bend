@@ -26,7 +26,7 @@ import ./gateway_answer.bend as GatewayAnswer
 # R4: a run end with nothing running holds nothing and sends the run's
 #     last answer as the report; a run whose last answer is nothing
 #     reports nothing.
-# R5: the report carries what the agent reported is left of its goal: a
+# R5: the report carries what the run last found left of its task: a
 #     text gets "\n\nLeft: " and the words of the left text joined by
 #     single spaces (Rust `split_whitespace`); a failure gets "\nLeft: "
 #     and the same words. A missing, empty or whitespace-only left text

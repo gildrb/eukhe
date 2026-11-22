@@ -27,7 +27,7 @@ fn event(value: Value) -> SessionEvent {
 
 /// A run that starts a job, ends while the job runs, and finishes after
 /// the job's wake (a failed request retried on the way) sends the phone
-/// one message: the last text, with what is left of the goal. The events
+/// one message: the last text, with what the run last found left. The events
 /// go from their wire JSON through both entries of the compiled core
 /// (`laws/gateway_answer.bend`, `laws/gateway_report.bend`).
 #[test]

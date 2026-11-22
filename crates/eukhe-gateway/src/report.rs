@@ -26,7 +26,7 @@ pub(crate) enum End {
     /// The event ends no run.
     No,
     /// The run ended: whether work it started still runs, and what the
-    /// agent reported is left of its goal.
+    /// run last found left of its task.
     Run { work: Work, left: Option<String> },
 }
 
@@ -59,8 +59,8 @@ fn read(reader: &mut Reader<'_>) -> Result<Option<Answer>, WireError> {
 
 /// The step of one event of the bound session: the gateway held `held`,
 /// the event answers `answer` (`crate::answer::answer`) and ends the run
-/// or not. Every text is one the daemon sent (a model's output, the goal's
-/// remaining work), far below the wire's `STR_MAX`.
+/// or not. Every text is one the daemon sent (a model's output, what the
+/// run last found left), far below the wire's `STR_MAX`.
 pub(crate) fn step(held: Option<&Answer>, answer: Option<&Answer>, end: &End) -> Step {
     let mut writer = Writer::new();
     put(&mut writer, held);

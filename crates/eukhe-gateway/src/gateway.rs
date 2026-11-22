@@ -1309,8 +1309,9 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The end of a run of the bound session, as its state tells it: whether
-    /// work the run started still runs. A state that cannot be read ends the
-    /// run with nothing running, so the report still goes.
+    /// work the run started still runs, and what the run last found left of
+    /// its task. A state that cannot be read ends the run with nothing
+    /// running and nothing left, so the report still goes.
     #[tracing::instrument(skip_all)]
     async fn run_end(&self) -> End {
         let settled = End::Run {
@@ -1489,18 +1490,30 @@ fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
 }
 
 /// The run end the session state (`get_state`) tells: work still runs
-/// while it has a `waitingOn`. Nothing is left: the removed goal was its
-/// source.
+/// while it has a `waitingOn`; what is left is its `left`, what the run
+/// last found left of its task (the items of its latest reading of work
+/// left, or why it stopped for want of progress), `; ` between items. A
+/// state without `left` (nothing left, or a daemon that predates it) leaves
+/// nothing.
 ///
 /// # Errors
 ///
-/// The state carries a malformed `waitingOn`.
+/// The state carries a malformed `waitingOn` or `left`.
 fn run_end(state: &Value) -> anyhow::Result<End> {
     let work = match waiting_on(state)? {
         Some(_) => Work::Running,
         None => Work::Settled,
     };
-    Ok(End::Run { work, left: None })
+    let left = state
+        .get("left")
+        .cloned()
+        .map(serde_json::from_value::<Vec<String>>)
+        .transpose()
+        .context("the session state has a malformed left")?;
+    Ok(End::Run {
+        work,
+        left: left.map(|items| items.join("; ")),
+    })
 }
 
 #[cfg(test)]
@@ -1602,30 +1615,56 @@ mod tests {
         );
     }
 
-    /// A run end reads whether work still runs from the session state; a
-    /// goal it still carries (an old session's) leaves nothing.
+    /// What the phone hears of a run, from its answers and the session
+    /// state at its end: one report, the run's last text with a `Left:`
+    /// line of what the run last found left (its items, or a stalled run's
+    /// stop reason). A finished run's report has none, and so has one whose
+    /// state predates `left` (an old session's daemon). Work still running
+    /// holds the report.
     #[test]
-    fn the_session_state_tells_the_run_end() {
-        let waiting = json!({
-            "isStreaming": false,
-            "waitingOn": { "jobs": [{ "id": "j1", "label": "sleep 45" }] },
-            "goal": { "status": "active", "remaining": "the release notes" },
-        });
+    fn the_report_tells_what_the_run_last_found_left() {
+        let hears = |state: Value| {
+            let mut held = None;
+            let mut sent = Vec::new();
+            for (answer, end) in [
+                (Some(Answer::Text("Step 1 is done.".to_string())), End::No),
+                (None, run_end(&state).expect("a well-formed state")),
+            ] {
+                let step = report::step(held.as_ref(), answer.as_ref(), &end);
+                held = step.held;
+                sent.extend(step.send);
+            }
+            sent
+        };
+        let stalled = "no progress: 3 continuations in a row made no tool call with a new result";
         assert_eq!(
             [
-                run_end(&waiting).expect("a well-formed state"),
-                run_end(&json!({ "isStreaming": false })).expect("a well-formed state"),
+                hears(json!({
+                    "isStreaming": false,
+                    "left": ["step 2: migrate the callers", "the docs"],
+                })),
+                hears(json!({ "isStreaming": false })),
+                hears(json!({ "isStreaming": false, "left": [stalled] })),
+                hears(json!({
+                    "isStreaming": false,
+                    "goal": { "status": "active", "remaining": "the release notes" },
+                })),
+                hears(json!({
+                    "isStreaming": false,
+                    "waitingOn": { "jobs": [{ "id": "j1", "label": "sleep 45" }] },
+                    "left": ["the docs"],
+                })),
             ],
             [
-                End::Run {
-                    work: Work::Running,
-                    left: None,
-                },
-                End::Run {
-                    work: Work::Settled,
-                    left: None,
-                },
+                vec![Answer::Text(
+                    "Step 1 is done.\n\nLeft: step 2: migrate the callers; the docs".to_string()
+                )],
+                vec![Answer::Text("Step 1 is done.".to_string())],
+                vec![Answer::Text(format!("Step 1 is done.\n\nLeft: {stalled}"))],
+                vec![Answer::Text("Step 1 is done.".to_string())],
+                Vec::new(),
             ]
         );
+        assert!(run_end(&json!({ "left": "the docs" })).is_err());
     }
 }

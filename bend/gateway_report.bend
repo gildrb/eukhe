@@ -11,7 +11,7 @@
 #   again): nothing goes; the gateway holds the run's last answer (the
 #   end's own answer when it says something, else what it held).
 # - A run end with nothing running: the run's last answer goes as the
-#   report, with what the agent reported is left of its goal; nothing is
+#   report, with what the run last found left of its task; nothing is
 #   held after it. A run that said nothing reports nothing.
 # - What is left: a text report gets a blank line, then "Left: " and the
 #   words of the left text on one line (gateway_answer's `line`); a failure
@@ -26,8 +26,8 @@ import ./gateway_answer.bend as Ga
 type End is Data:
   # the event ends no run
   ENone{}
-  # the run ended: whether work it started still runs, and what the agent
-  # reported is left of its goal
+  # the run ended: whether work it started still runs, and what the run
+  # last found left of its task
   ERun{waiting: Bool, left: Maybe<&2, String>}
 
 # What the gateway holds after an event, and what it sends now
