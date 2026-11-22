@@ -409,8 +409,9 @@ pub fn render_user_block(
 
 /// One assistant message: one blank row before it when it renders
 /// anything (it opens a step or the reply), then its visible blocks with
-/// no blank row between them (text as `mdBody` markdown at the agent text
-/// column, thinking as its one dim summary row, or expanded under a
+/// no blank row between them (text as markdown at the agent text column,
+/// `mdBody` for the answer and `muted` for step commentary, thinking as
+/// its one dim summary row, or expanded under a
 /// `- thinking` header behind the dim bar) except the one blank row
 /// before a settled reply's text when thinking leads it, then its error
 /// row set off by one blank row.
@@ -440,13 +441,28 @@ pub fn render_assistant(
     }
     let mut md = crate::markdown::MarkdownStyle::from_theme(theme);
     md.code_block_indent = code_block_indent.to_string();
+    // Step commentary (the text of a message with tool calls) reads in the
+    // secondary tier; the answer keeps the body colour.
+    let commentary = message
+        .has_tool_calls
+        .then(|| geometry::commentary_style(&md, theme));
     for (index, block) in visible_blocks.iter().enumerate() {
         if reply_seam == Some(index) {
             out.push(spacer());
         }
         match block {
             MessageBlock::Text(text) => {
-                let rows = render_text_block(text, &md, theme, width, cache);
+                let rows = match &commentary {
+                    Some(style) => render_text_block(
+                        text,
+                        style,
+                        geometry::COMMENTARY_CACHE_TAG,
+                        theme,
+                        width,
+                        cache,
+                    ),
+                    None => render_text_block(text, &md, "", theme, width, cache),
+                };
                 out.extend(fold_rows(
                     rows,
                     message.has_tool_calls,
@@ -471,14 +487,21 @@ pub fn render_assistant(
             out.push(spacer());
         }
         // TS `createErrorComponent`: an error whose text ends with the
-        // login-recovery suffix renders as one merged inline line.
+        // login-recovery suffix renders as one merged inline line. The rows
+        // hang in the step gutter like every row of the turn: the error
+        // behind its `x` mark, the turn's end report behind the warning
+        // `!`.
         let merged = crate::error_summary::format_inline_login_recovery_message(error);
-        out.extend(crate::error_summary::render_collapsible_error(
-            merged.as_deref().unwrap_or(error),
-            None,
-            detail.tool_output_expanded(),
-            ThemeColor::Error,
-            theme,
+        out.extend(step_marked(
+            crate::error_summary::render_collapsible_error(
+                merged.as_deref().unwrap_or(error),
+                None,
+                detail.tool_output_expanded(),
+                ThemeColor::Error,
+                theme,
+                step_marked_width(width),
+            ),
+            Span::styled(crate::glyphs::FAIL, theme.fg_style(ThemeColor::Error)),
             width,
         ));
         // A failed (not aborted) answer always reports how its turn ended
@@ -486,12 +509,16 @@ pub fn render_assistant(
         // answer, and the row says so.
         if !message.aborted {
             if let Some(report) = crate::error_summary::failure_report(error, None) {
-                out.extend(crate::error_summary::render_collapsible_error(
-                    &report,
-                    None,
-                    true,
-                    ThemeColor::Warning,
-                    theme,
+                out.extend(step_marked(
+                    crate::error_summary::render_collapsible_error(
+                        &report,
+                        None,
+                        true,
+                        ThemeColor::Warning,
+                        theme,
+                        step_marked_width(width),
+                    ),
+                    Span::styled(crate::glyphs::WARN, theme.fg_style(ThemeColor::Warning)),
                     width,
                 ));
             }
@@ -509,6 +536,30 @@ pub fn render_assistant(
         }
     }
     out
+}
+
+/// The width a one-cell-marked step row's body renders at: the step
+/// gutter's body column less the one space the error rows lead with.
+fn step_marked_width(width: usize) -> usize {
+    width.saturating_sub(crate::rows::Gutter::Step.body_col() - 1)
+}
+
+/// Rows rendered at [`step_marked_width`] (each leading with one space)
+/// moved into the step gutter: `mark` at the mark column of the first,
+/// the body at the step body column on every row.
+fn step_marked(rows: Vec<Line>, mark: Span, width: usize) -> Vec<Line> {
+    let gutter = crate::rows::Gutter::Step;
+    let mut mark = Some(mark);
+    rows.into_iter()
+        .map(|line| {
+            let mut row = match mark.take() {
+                Some(mark) => vec![Span::raw(" ".repeat(gutter.mark_col())), mark],
+                None => vec![Span::raw(" ".repeat(gutter.body_col() - 1))],
+            };
+            row.extend(line);
+            pad_to(row, width, Style::default())
+        })
+        .collect()
 }
 
 /// The head rows a foldable block shows before its fold.
@@ -577,6 +628,7 @@ pub(crate) fn render_markdown_block(
 fn render_text_block(
     text: &str,
     md: &crate::markdown::MarkdownStyle,
+    style_tag: &str,
     theme: &Theme,
     width: usize,
     cache: &mut crate::markdown::MarkdownBlockCache,
@@ -586,7 +638,7 @@ fn render_text_block(
         text.trim(),
         gutter.body_width(width),
         md,
-        "",
+        style_tag,
         cache,
     );
     gutter.place(None, rendered, theme, width)

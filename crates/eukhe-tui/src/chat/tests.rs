@@ -527,9 +527,9 @@ fn assistant_error_row_and_spacers() {
 /// TS `createErrorComponent` + `formatInlineLoginRecoveryMessage`: an
 /// error whose text ends with the expired-login report renders as ONE
 /// merged inline line (`{base} - The stored login expired and its refresh failed.`),
-/// error-colored and one-space indented like every other error row, and
-/// identical across detail modes (a plain row, never the collapsible
-/// component).
+/// error-colored behind the step gutter's `x` mark like every other error
+/// row, and identical across detail modes (a plain row, never the
+/// collapsible component).
 #[test]
 fn login_recovery_error_renders_one_merged_inline_line() {
     let theme = theme();
@@ -556,12 +556,14 @@ fn login_recovery_error_renders_one_merged_inline_line() {
                 vec![Span::raw(crate::osc133::ZONE_START)],
                 vec![
                     Span::raw(crate::osc133::ZONE_END_PREFIX),
+                    Span::raw("   "),
+                    Span::styled(crate::glyphs::FAIL, error_style),
                     Span::raw(" "),
                     Span::styled(
                         "Auth failed. - The stored login expired and its refresh failed.",
                         error_style
                     ),
-                    Span::raw(" ".repeat(16)),
+                    Span::raw(" ".repeat(12)),
                 ],
             ]
         );
@@ -601,9 +603,11 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
             vec![Span::raw(crate::osc133::ZONE_START)],
             vec![
                 Span::raw(crate::osc133::ZONE_END_PREFIX),
+                Span::raw("   "),
+                Span::styled(crate::glyphs::FAIL, error_style),
                 Span::raw(" "),
                 Span::styled(merged, error_style),
-                Span::raw(" ".repeat(8)),
+                Span::raw(" ".repeat(4)),
             ],
         ]
     );
@@ -631,14 +635,14 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         flat[1..],
         vec![
             format!(
-                " Authentication failed for \"local-inference\". Credentials{}",
-                " ".repeat(3)
+                "   x Authentication failed for \"local-inference\".{}",
+                " ".repeat(11)
             ),
+            "     Credentials may have expired or network is unavailable.".to_string(),
             format!(
-                " may have expired or network is unavailable. - The stored{}",
-                " ".repeat(3)
+                "     - The stored login expired and its refresh failed.{}",
+                " ".repeat(5)
             ),
-            format!(" login expired and its refresh failed.{}", " ".repeat(22)),
         ]
     );
 }
@@ -665,15 +669,18 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             &mut crate::markdown::MarkdownBlockCache::default(),
         )
     };
-    // No suffix: the raw single-line error row is unchanged (fence); the
-    // failure's report follows it and closes the zone.
+    // No suffix: the raw single-line error row is unchanged (fence) behind
+    // the step gutter's `x`; the failure's report follows it behind the
+    // warning `!` and closes the zone.
     let rows = render("Auth failed.", Detail::Overview);
     assert_eq!(
         rows[1],
         vec![
+            Span::raw("   "),
+            Span::styled(crate::glyphs::FAIL, error_style),
             Span::raw(" "),
             Span::styled("Auth failed.", error_style),
-            Span::raw(" ".repeat(47)),
+            Span::raw(" ".repeat(43)),
         ]
     );
     let next: Vec<String> = rows[2..]
@@ -683,9 +690,9 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
     assert_eq!(
         next,
         vec![format!(
-            "{} No other configured model took the turn.{}",
+            "{}   ! No other configured model took the turn.{}",
             crate::osc133::ZONE_END_PREFIX,
-            " ".repeat(19)
+            " ".repeat(15)
         )]
     );
     assert!(rows[2..]
@@ -701,9 +708,11 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
         render(multi, Detail::Overview)[1],
         vec![
             Span::raw(crate::osc133::ZONE_END_PREFIX),
+            Span::raw("   "),
+            Span::styled(crate::glyphs::FAIL, error_style),
             Span::raw(" "),
             Span::styled("Auth failed ", error_style),
-            Span::raw(" ".repeat(47)),
+            Span::raw(" ".repeat(43)),
         ]
     );
     let flat: Vec<String> = render(multi, Detail::All)
@@ -720,16 +729,16 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
         flat,
         vec![
             String::new(),
-            format!(" Auth failed{}", " ".repeat(48)),
-            format!(" for provider.{}", " ".repeat(46)),
+            format!("   x Auth failed{}", " ".repeat(44)),
+            format!("     for provider.{}", " ".repeat(42)),
             // The error's empty line pads to a full-width spaces row
             // (TS `collapsible-error.ts` renderText: `rawLine || " "`
             // then pad to width); `render_collapsible_error` matches
             // that -- never a truly blank row inside the error body.
             " ".repeat(60),
             format!(
-                " The stored login expired and its refresh failed.{}",
-                " ".repeat(11)
+                "     The stored login expired and its refresh failed.{}",
+                " ".repeat(7)
             ),
         ]
     );
@@ -740,9 +749,11 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
         render(trailing, Detail::Overview)[1],
         vec![
             Span::raw(crate::osc133::ZONE_END_PREFIX),
+            Span::raw("   "),
+            Span::styled(crate::glyphs::FAIL, error_style),
             Span::raw(" "),
             Span::styled("Auth failed. ", error_style),
-            Span::raw(" ".repeat(46)),
+            Span::raw(" ".repeat(42)),
         ]
     );
 }
@@ -1036,6 +1047,35 @@ fn details_expands_thinking_behind_the_bar() {
     assert!(rows[2]
         .iter()
         .any(|span| span.content == "| " && span.style == dim));
+}
+
+/// Step commentary (the text of a message with tool calls) reads in the
+/// secondary tier (`muted`); the answer keeps the body colour (`mdBody`).
+#[test]
+fn step_commentary_is_muted_and_the_answer_is_body() {
+    let theme = theme();
+    let text_style = |message: &AssistantMessage| {
+        let rows = render_assistant(
+            message,
+            Detail::Overview,
+            &theme,
+            "  ",
+            80,
+            &mut crate::markdown::MarkdownBlockCache::default(),
+        );
+        rows.iter()
+            .flatten()
+            .find(|span| span.content.contains("Reading the file."))
+            .expect("the text span")
+            .style
+    };
+    let commentary = thinking_message();
+    assert_eq!(text_style(&commentary), theme.fg_style(ThemeColor::Muted));
+    let answer = AssistantMessage {
+        has_tool_calls: false,
+        ..commentary
+    };
+    assert_eq!(text_style(&answer), theme.fg_style(ThemeColor::MdBody));
 }
 
 /// The user header's `>` mark is the accent on the band.
