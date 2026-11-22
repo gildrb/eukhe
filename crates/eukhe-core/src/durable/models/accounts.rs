@@ -160,6 +160,33 @@ impl AccountBook {
             .cloned()
     }
 
+    /// The identity of the account of `accounts` (the provider's) its
+    /// requests use now: the one its credential store serves
+    /// ([`read_credential`]); empty for a provider with no stored account.
+    pub(super) fn current_identity(&self, provider: &str, accounts: &[Account]) -> String {
+        self.current(provider, accounts)
+            .map(|account| account.identity)
+            .unwrap_or_default()
+    }
+
+    /// Whether this session found the login of the provider's account
+    /// `identity` dead.
+    pub(super) fn is_dead(&self, provider: &str, identity: &str) -> bool {
+        self.dead
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&(provider.to_owned(), identity.to_owned()))
+    }
+
+    /// A new login of the provider's account `identity`: its login is
+    /// usable again.
+    pub(super) fn revive(&self, provider: &str, identity: &str) {
+        self.dead
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(provider.to_owned(), identity.to_owned()));
+    }
+
     /// The first send of the session to a provider with several accounts:
     /// it sticks to the account the core picks (the first usable one, else
     /// the earliest to reset). One account, or a session that already

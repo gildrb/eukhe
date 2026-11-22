@@ -59,10 +59,14 @@ import ./base.bend as LawsBase
 #   `an_expired_login_with_no_model_left_ends_with_the_login_report`; the
 #   report itself: durable/models/fallback.rs
 #   `an_end_on_a_login_names_the_login_command`);
-# - that a login a run found unusable stays so for the rest of the run:
-#   later requests start on the model the run moved to and never refresh
-#   it again (provider_tests.rs `a_dead_login_is_not_tried_again_in_the_run`,
-#   `a_dead_login_is_never_refreshed_until_a_new_login`).
+# - that an account login a run found unusable stays so for the rest of
+#   the run and is never refreshed again until a new login of it; the
+#   provider's requests go on with its next account, and once every
+#   account is dead, later requests start on the model the run moved to
+#   (provider_tests.rs `a_dead_login_is_not_tried_again_in_the_run`,
+#   `a_dead_login_is_never_refreshed_until_a_new_login`,
+#   `a_dead_login_of_one_account_goes_on_with_the_next_account`,
+#   `a_new_login_clears_the_dead_login_of_its_account`).
 
 # Spec helpers
 # ------------
