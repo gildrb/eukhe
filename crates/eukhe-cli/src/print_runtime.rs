@@ -4,6 +4,7 @@
 //! the RPC mode's session factory, and the ACP daemon create.
 
 use std::future::Future;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -27,6 +28,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
+use eukhe_tui::print_trace::PrintTrace;
 use eukhe_types::acceptance::AcceptanceLabel;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
@@ -511,11 +513,19 @@ async fn run_prompts(
         }
     }
     let harness = session.harness();
-    let events = if json_mode {
+    // json mode prints every event on stdout; text mode with stderr on a
+    // terminal traces the run there (stdout keeps the bare answer).
+    let sink = if json_mode {
         println!("{}", session_header(opened));
-        Some(JsonEvents::start(session, &conversation, cx).await?)
+        Some(EventSink::Json)
+    } else if std::io::stderr().is_terminal() {
+        Some(EventSink::Progress(Box::new(PrintTrace::for_terminal())))
     } else {
         None
+    };
+    let events = match sink {
+        Some(sink) => Some(RunEvents::start(session, &conversation, sink, cx).await?),
+        None => None,
     };
     // The run's entries are the ones after this: whether it acted.
     let since = activity::newest_entry(&conversation, cx).await?;
@@ -1140,37 +1150,70 @@ fn header_for(
     serde_json::Value::Object(header)
 }
 
-/// The json mode's event stream: the main conversation's durable events in
-/// today's wire shapes (the daemon worker's translator), one line each,
-/// `message_update` reduced to its change ([`json_line`]).
-struct JsonEvents {
+/// The run's event stream: the main conversation's durable events in
+/// today's wire shapes (the daemon worker's translator), each handed to
+/// the run's [`EventSink`].
+struct RunEvents {
     stream: AgentEventStream,
-    translator: Arc<Mutex<EventTranslator>>,
+    printer: Arc<Mutex<(EventTranslator, EventSink)>>,
 }
 
-impl JsonEvents {
+/// Where a run's events print.
+enum EventSink {
+    /// json mode: one line each on stdout, `message_update` reduced to its
+    /// change ([`json_line`]).
+    Json,
+    /// text mode with stderr on a terminal: the transcript's rows, one
+    /// plain line each on stderr ([`PrintTrace`]).
+    Progress(Box<PrintTrace>),
+}
+
+impl EventSink {
+    fn print(&mut self, event: &SessionEvent) {
+        match self {
+            Self::Json => print_event(event),
+            Self::Progress(trace) => {
+                for line in trace.push(event) {
+                    eprintln!("{line}");
+                }
+            }
+        }
+    }
+
+    /// The progress trace's footer of a run that stopped before its end.
+    fn finish(&mut self) {
+        if let Self::Progress(trace) = self {
+            for line in trace.finish() {
+                eprintln!("{line}");
+            }
+        }
+    }
+}
+
+impl RunEvents {
     async fn start(
         session: &EukheSession,
         conversation: &Conversation,
+        sink: EventSink,
         cx: &Context,
     ) -> Result<Self, SessionError> {
         let stream = watch_events(session.harness(), conversation.id(), cx).await?;
-        let translator = Arc::new(Mutex::new(EventTranslator::new(
-            stream.snapshot(),
-            CoalesceMode::Immediate,
+        let printer = Arc::new(Mutex::new((
+            EventTranslator::new(stream.snapshot(), CoalesceMode::Immediate),
+            sink,
         )));
-        let listener_translator = Arc::clone(&translator);
+        let listener_printer = Arc::clone(&printer);
         stream.start(Arc::new(move |batch, _cx| {
-            let frames = listener_translator
+            let mut printer = listener_printer
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .translate_batch(&batch);
-            for frame in &frames {
-                print_event(frame);
+                .unwrap_or_else(PoisonError::into_inner);
+            let (translator, sink) = &mut *printer;
+            for frame in &translator.translate_batch(&batch) {
+                sink.print(frame);
             }
             futures::future::ready(Ok(())).boxed()
         }))?;
-        Ok(Self { stream, translator })
+        Ok(Self { stream, printer })
     }
 
     /// Let every committed batch reach the listener, print the translator's
@@ -1178,14 +1221,12 @@ impl JsonEvents {
     async fn finish(self) {
         self.stream.delivered().await;
         self.stream.stop().await;
-        let parked = self
-            .translator
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .flush();
-        if let Some(frame) = parked {
-            print_event(&frame);
+        let mut printer = self.printer.lock().unwrap_or_else(PoisonError::into_inner);
+        let (translator, sink) = &mut *printer;
+        if let Some(frame) = translator.flush() {
+            sink.print(&frame);
         }
+        sink.finish();
     }
 }
 

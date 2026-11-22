@@ -58,6 +58,89 @@ fn print_mode_text_output_matches_the_scripted_response() {
     assert!(stderr.is_empty());
 }
 
+/// The audit's faux turn: thinking, a read, a failing bash call, then
+/// thinking and the answer.
+fn traced_script() -> serde_json::Value {
+    serde_json::json!({ "reasoning": true, "responses": [
+        { "content": [
+            { "type": "thinking", "thinking": "The user wants the greeting fixed. First read hello.rs to see what it prints.\n\nThen run the check." },
+            { "type": "text", "text": "Reading the file, then running the check." },
+            { "type": "toolCall", "name": "read", "arguments": { "path": "hello.rs" }, "id": "call-read" },
+            { "type": "toolCall", "name": "bash", "arguments": { "script": "cat missing.txt" }, "id": "call-bash" },
+        ] },
+        { "content": [
+            { "type": "thinking", "thinking": "The read worked and the check failed. Report both." },
+            { "type": "text", "text": "The greeting in hello.rs prints Helo world." },
+        ] },
+    ] })
+}
+
+#[test]
+fn print_mode_piped_stderr_stays_empty_through_thinking_and_tools() {
+    let home = isolated_home();
+    std::fs::write(home.path().join("hello.rs"), "fn greet() {}\n").unwrap();
+    let (stdout, stderr, code) = run_in_home(home.path(), &["-p", "fix it"], &traced_script());
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "The greeting in hello.rs prints Helo world.\n");
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
+/// With stderr on a terminal, text mode traces the run there: a line per
+/// thinking summary and tool row, then the usage footer; stdout keeps
+/// the bare answer.
+#[test]
+fn print_mode_traces_progress_on_a_terminal_stderr() {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let home = isolated_home();
+    std::fs::write(home.path().join("hello.rs"), "fn greet() {}\n").unwrap();
+    let pty = nix::pty::openpty(None, None).expect("open pty");
+    let child = command_in_home(home.path(), &["-p", "fix it"], &traced_script())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(pty.slave))
+        .spawn()
+        .expect("binary present");
+    let output = child.wait_with_output().expect("the run ends");
+    let mut master = std::fs::File::from(pty.master);
+    // A helper the run left may hold the slave open: read what is
+    // buffered, never wait for its close.
+    nix::fcntl::fcntl(
+        std::os::fd::AsRawFd::as_raw_fd(&master),
+        nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK),
+    )
+    .expect("non-blocking master");
+    let mut trace = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while let Ok(read @ 1..) = master.read(&mut chunk) {
+        trace.extend_from_slice(&chunk[..read]);
+    }
+    let trace = String::from_utf8_lossy(&trace).replace("\r\n", "\n");
+    assert_eq!(output.status.code(), Some(0), "{trace}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "The greeting in hello.rs prints Helo world.\n"
+    );
+    let lines: Vec<&str> = trace.lines().collect();
+    let position = |needle: &str| {
+        lines
+            .iter()
+            .position(|line| line.trim_start().starts_with(needle))
+            .unwrap_or_else(|| panic!("no {needle:?} line in {trace}"))
+    };
+    let order = [
+        position("+ thinking: The user wants the greeting fixed."),
+        position("ok read"),
+        position("x  bash"),
+        position("+ thinking: The read worked and the check failed."),
+        position("-- "),
+    ];
+    assert!(order.is_sorted(), "{order:?} in {trace}");
+    assert!(lines[order[4]].contains(" 2 tools - "), "{trace}");
+    assert!(trace.is_ascii(), "{trace}");
+}
+
 #[test]
 fn print_mode_multi_prompt_consumes_responses_in_order() {
     let script = serde_json::json!({ "responses": ["first answer", "second answer"] });
