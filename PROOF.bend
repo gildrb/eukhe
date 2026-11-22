@@ -641,6 +641,8 @@ import ./proof/tools/tools_ffi_tags_example.bend as PToolsFfiTagsExample
 import ./proof/tools/path_resolve_spec.bend as PPathResolveSpec
 import ./proof/tools/tools_ffi_exact.bend as PToolsFfiExact
 import ./proof/tools/tools_ffi_example.bend as PToolsFfiExample
+import ./proof/tools/elem_finds_a_member.bend as PElemFindsAMember
+import ./proof/tools/elem_only_members.bend as PElemOnlyMembers
 import ./proof/tools/step_holds_every_part.bend as PStepHoldsEveryPart
 import ./proof/tools/step_holds_only_its_parts.bend as PStepHoldsOnlyItsParts
 import ./proof/tools/secret_needs_a_secret_path.bend as PSecretNeedsASecretPath
@@ -1987,6 +1989,8 @@ import ./proof/slash_suggest/slash_suggest_entry_example.bend as PSlashSuggestEn
 import ./proof/gateway_commands/base.bend as LAGatewayCommands
 import ./proof/gateway_commands/gateway_commands_entry_answers.bend as PGatewayCommandsEntryAnswers
 import ./proof/gateway_commands/gateway_commands_entry_exact.bend as PGatewayCommandsEntryExact
+import ./proof/gateway_commands/gateway_commands_entry_req_exact.bend as PGatewayCommandsEntryReqExact
+import ./proof/gateway_commands/gateway_commands_entry_req_example.bend as PGatewayCommandsEntryReqExample
 import ./proof/gateway_commands/gateway_commands_entry_example.bend as PGatewayCommandsEntryExample
 import ./proof/gateway_commands/gateway_commands_entry_reads.bend as PGatewayCommandsEntryReads
 import ./proof/gateway_commands/gateway_commands_entry_refuses.bend as PGatewayCommandsEntryRefuses
@@ -2438,6 +2442,8 @@ import ./proof/shell/base.bend as LAShell
 import ./proof/shell/shell_ffi_answers.bend as PShellFfiAnswers
 import ./proof/shell/shell_ffi_left_over.bend as PShellFfiLeftOver
 import ./proof/shell/shell_ffi_reads_only_requests.bend as PShellFfiReadsOnlyRequests
+import ./proof/shell/shell_ffi_req_exact.bend as PShellFfiReqExact
+import ./proof/shell/shell_ffi_req_example.bend as PShellFfiReqExample
 import ./proof/shell/shell_ffi_refuses.bend as PShellFfiRefuses
 import ./proof/shell/shell_ffi_example.bend as PShellFfiExample
 import ./proof/shell/shell_verdict_none.bend as PShellVerdictNone
@@ -4663,12 +4669,16 @@ import ./proof/irreversible/irreversible_history_holds.bend as PIrreversibleHist
 import ./proof/irreversible/irreversible_history_once.bend as PIrreversibleHistoryOnce
 import ./proof/irreversible/irreversible_history_ids.bend as PIrreversibleHistoryIds
 import ./proof/irreversible/irreversible_history_example.bend as PIrreversibleHistoryExample
+import ./proof/irreversible/irreversible_history_last.bend as PIrreversibleHistoryLast
+import ./proof/irreversible/irreversible_history_runs_example.bend as PIrreversibleHistoryRunsExample
 import ./proof/irreversible/irreversible_report_none.bend as PIrreversibleReportNone
 import ./proof/irreversible/irreversible_report_last.bend as PIrreversibleReportLast
 import ./proof/irreversible/irreversible_report_example.bend as PIrreversibleReportExample
 import ./proof/irreversible/irreversible_entry_answers.bend as PIrreversibleEntryAnswers
 import ./proof/irreversible/irreversible_entry_reads.bend as PIrreversibleEntryReads
 import ./proof/irreversible/irreversible_entry_exact.bend as PIrreversibleEntryExact
+import ./proof/irreversible/irreversible_entry_req_exact.bend as PIrreversibleEntryReqExact
+import ./proof/irreversible/irreversible_entry_req_example.bend as PIrreversibleEntryReqExample
 import ./proof/irreversible/irreversible_entry_refuses.bend as PIrreversibleEntryRefuses
 import ./proof/irreversible/irreversible_entry_example.bend as PIrreversibleEntryExample
 import ./proof/path_own/base.bend as LAPathOwn
@@ -4684,6 +4694,8 @@ import ./proof/path_own/path_own_example.bend as PPathOwnExample
 import ./proof/path_own/path_own_entry_answers.bend as PPathOwnEntryAnswers
 import ./proof/path_own/path_own_entry_reads.bend as PPathOwnEntryReads
 import ./proof/path_own/path_own_entry_exact.bend as PPathOwnEntryExact
+import ./proof/path_own/path_own_entry_req_exact.bend as PPathOwnEntryReqExact
+import ./proof/path_own/path_own_entry_req_example.bend as PPathOwnEntryReqExample
 import ./proof/path_own/path_own_entry_refuses.bend as PPathOwnEntryRefuses
 import ./proof/path_own/path_own_entry_example.bend as PPathOwnEntryExample
 import ./proof/undo/base.bend as LAUndo
@@ -4704,5 +4716,7 @@ import ./proof/undo/undo_touches_only_changed.bend as PUndoTouchesOnlyChanged
 import ./proof/undo/undo_diff_rows.bend as PUndoDiffRows
 import ./proof/undo/undo_entry_answers.bend as PUndoEntryAnswers
 import ./proof/undo/undo_entry_exact.bend as PUndoEntryExact
+import ./proof/undo/undo_entry_req_exact.bend as PUndoEntryReqExact
+import ./proof/undo/undo_entry_req_example.bend as PUndoEntryReqExample
 import ./proof/undo/undo_entry_refuses.bend as PUndoEntryRefuses
 import ./proof/undo/undo_entry_example.bend as PUndoEntryExample

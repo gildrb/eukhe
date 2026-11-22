@@ -764,6 +764,26 @@ law gateway_commands_entry_exact:
   exs r: FGc.Req
   {s == gc_w_req(r, "") : String} & {gc_fit_req(r) == True{} : Bool}
 
+# LAW gateway_commands_entry_req_exact (R8): the entry's decoder reads a
+# request only from a spelled one: whatever it decodes is a request whose
+# every length and count fits the wire, spelled, then the input after it
+# EXCLUDES: a decoder that invents a request (a default text or session
+#   list for empty or short input), reads a length with a leading zero or
+#   past the wire
+law gateway_commands_entry_req_exact:
+  for +s: String
+  for +q: FGc.Req
+  for +rest: String
+  for +h: {FGc.get_req(s) == Wr.Got{q, rest} : Wr.Dec<FGc.Req>}
+  {s == gc_w_req(q, rest) : String} & {gc_fit_req(q) == True{} : Bool}
+
+# LAW gateway_commands_entry_req_example (R8): anchor: empty input, a
+# length with a leading zero and a text shorter than its length are no
+# request
+# EXCLUDES: a default request for empty or short input
+law gateway_commands_entry_req_example:
+  {[FGc.get_req(""), FGc.get_req("01,x0,"), FGc.get_req("5,ab")] == [Wr.Bad{}, Wr.Bad{}, Wr.Bad{}] : List<&2, Wr.Dec<FGc.Req>>}
+
 # LAW gateway_commands_entry_refuses (R8): every error the entry answers
 # is exactly `E gateway_commands: malformed request`
 # EXCLUDES: an error text that varies with the input, a second error form

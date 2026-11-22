@@ -560,6 +560,25 @@ law undo_entry_exact:
   exs r: FU.Req
   {s == sp_w_req(r, "") : String} & {sp_fit_req(r) == True{} : Bool}
 
+# LAW undo_entry_req_exact (R8): the entry's decoder reads a request only
+# from a spelled one: whatever it decodes is a request whose every number
+# fits the wire, spelled, then the input after it
+# EXCLUDES: a decoder that invents a request (a default request for an
+#   unknown tag, empty or short input), reads a number with a leading zero
+#   or past the wire
+law undo_entry_req_exact:
+  for +s: String
+  for +q: FU.Req
+  for +rest: String
+  for +h: {FU.get_req(s) == Wr.Got{q, rest} : Wr.Dec<FU.Req>}
+  {s == sp_w_req(q, rest) : String} & {sp_fit_req(q) == True{} : Bool}
+
+# LAW undo_entry_req_example (R8): anchor: an unknown tag, a tag with a
+# leading zero and empty input are no request
+# EXCLUDES: a default request for an unknown tag or empty input
+law undo_entry_req_example:
+  {[FU.get_req("3,"), FU.get_req("01,"), FU.get_req("")] == [Wr.Bad{}, Wr.Bad{}, Wr.Bad{}] : List<&2, Wr.Dec<FU.Req>>}
+
 # LAW undo_entry_refuses (R8): every error the entry answers is exactly
 # `E undo: malformed request`
 # EXCLUDES: an error text that varies with the input, a second error form

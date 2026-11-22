@@ -2,6 +2,7 @@
 
 import Base
 import ../../bend/tools.bend as Tl
+import ../../laws/tools.bend as Tools
 import ../base/logic/logic.bend as LLogicLogic
 
 def tools.pl.absurd(-A: Type, e: {True{} == False{} : Bool}) -> A:
@@ -162,24 +163,27 @@ def ps.plain_no_secret(cs: List<&2, Nat>) -> {Tl.elem(Tl.plain(cs), 6n) == False
     case +c <> +rest:
       ps.plain_head(Nat.is_eq(c, 6n), c, Tl.plain(rest), {==}, ps.plain_no_secret(rest))
 
-# a part has the secret effect exactly when it names a secret path
-def ps.part_secret(p: Tl.Part) -> {Tl.elem(Tl.part.effs(p), 6n) == Tl.Part.secret(p) : Bool}:
-  match p:
-    case Tl.Part{o, s}:
-      match s:
-        case True{}:
-          {==}
-        case False{}:
-          ps.plain_no_secret(o)
+# a part has the secret effect exactly when it names a secret path (its
+# secret field s)
+def ps.part_secret(o: List<&2, Nat>, s: Bool) -> {Tl.elem(Tl.part.effs(Tl.Part{o, s}), 6n) == s : Bool}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      ps.plain_no_secret(o)
 
 # a step has the secret effect exactly when one of its parts names a
 # secret path
-def ps.secret_iff(xs: List<&2, Tl.Part>) -> {Tl.elem(Tl.join(Tl.parts.effs(xs)), 6n) == Tl.parts.secret(xs) : Bool}:
+def ps.secret_iff(xs: List<&2, Tl.Part>) -> {Tl.elem(Tl.join(Tl.parts.effs(xs)), 6n) == Tools.tools_some_secret(xs) : Bool}:
   match xs:
     case Nil{}:
       {==}
     case +p <> +rest:
-      %Equal.sym(Bool, Tl.elem(List.append(&2, Nat, Tl.part.effs(p), Tl.join(Tl.parts.effs(rest))), 6n), Bool.or(Tl.elem(Tl.part.effs(p), 6n), Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n)), ps.elem_app(Tl.part.effs(p), Tl.join(Tl.parts.effs(rest)), 6n)) : {_ == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
-      %Equal.sym(Bool, Tl.elem(Tl.part.effs(p), 6n), Tl.Part.secret(p), ps.part_secret(p)) : {Bool.or(_, Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n)) == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
-      %Equal.sym(Bool, Tl.elem(Tl.join(Tl.parts.effs(rest)), 6n), Tl.parts.secret(rest), ps.secret_iff(rest)) : {Bool.or(Tl.Part.secret(p), _) == Bool.or(Tl.Part.secret(p), Tl.parts.secret(rest)) : Bool}
-      {==}
+      match p:
+        case Tl.Part{+o, +s}:
+          +pe = Tl.part.effs(Tl.Part{o, s})
+          +re = Tl.join(Tl.parts.effs(rest))
+          %Equal.sym(Bool, Tl.elem(List.append(&2, Nat, pe, re), 6n), Bool.or(Tl.elem(pe, 6n), Tl.elem(re, 6n)), ps.elem_app(pe, re, 6n)) : {_ == Bool.or(s, Tools.tools_some_secret(rest)) : Bool}
+          %Equal.sym(Bool, Tl.elem(pe, 6n), s, ps.part_secret(o, s)) : {Bool.or(_, Tl.elem(re, 6n)) == Bool.or(s, Tools.tools_some_secret(rest)) : Bool}
+          %Equal.sym(Bool, Tl.elem(re, 6n), Tools.tools_some_secret(rest), ps.secret_iff(rest)) : {Bool.or(s, _) == Bool.or(s, Tools.tools_some_secret(rest)) : Bool}
+          {==}

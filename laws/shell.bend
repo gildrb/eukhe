@@ -168,6 +168,23 @@ law shell_ffi_reads_only_requests:
   exs q: FSh.Req
   {s == spell_req(q, "") : String} & {req_fits(q) == True{} : Bool}
 
+# LAW shell_ffi_req_exact (R2): the entry's decoder reads a request only from a spelled one: whatever it decodes is a request whose every number fits the wire (spell_req), then the input after it
+# EXCLUDES: a decoder that invents a request (a default request for an
+#   unknown tag, tags 0 to 2 included, empty or short input), reads a
+#   number with a leading zero or past the wire
+law shell_ffi_req_exact:
+  for +s: String
+  for +q: FSh.Req
+  for +rest: String
+  for +h: {FSh.get_req(s) == Wr.Got{q, rest} : Wr.Dec<FSh.Req>}
+  {s == spell_req(q, rest) : String} & {req_fits(q) == True{} : Bool}
+
+# LAW shell_ffi_req_example (R2): anchor: an old tag (0), an unknown tag
+# (4), a tag with a leading zero and empty input are no request
+# EXCLUDES: a default request for an unknown tag or empty input
+law shell_ffi_req_example:
+  {[FSh.get_req("0,"), FSh.get_req("4,"), FSh.get_req("03,"), FSh.get_req("")] == [Wr.Bad{}, Wr.Bad{}, Wr.Bad{}, Wr.Bad{}] : List<&2, Wr.Dec<FSh.Req>>}
+
 # LAW shell_ffi_refuses (R2): every error the entry answers is exactly the error form "shell: malformed request"
 # EXCLUDES: an error text that varies with the input, a second error form
 law shell_ffi_refuses:
