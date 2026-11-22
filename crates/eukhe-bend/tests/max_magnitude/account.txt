@@ -1,0 +1,14 @@
+# every number at its largest: the first usable account, a limit that
+# reset at the largest clock
+call 6,{MAX},{MAX},{MAX},0,1,{MAX},
+call 5,{MAX},{MAX},{MAX},1,{MAX},
+# none usable: a wait to the largest reset, a hand-off with no waits, no
+# login left
+call 7,0,{MAX},{MAX},1,{MAX},1,{MAX},
+call 5,0,{MAX},0,1,{MAX},
+call 4,{MAX},{MAX},{MAX},2,
+# a mark tag past the three, a limit with no reset, a number past the
+# wire: refused
+refuse 4,0,0,0,3,
+refuse 4,0,0,0,1,
+refuse 5,0,0,0,1,{LONG},

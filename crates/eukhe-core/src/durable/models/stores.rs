@@ -17,6 +17,10 @@ use eukhe_types::pi_ai::ProviderEnv;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 
+use super::accounts::{read_credential, AccountBook};
+use crate::auth::accounts::{
+    accounts_of, entry_of, keeps_accounts, with_account, with_credential, Account,
+};
 use crate::auth::resolve_config_value::resolve_config_value;
 use crate::auth::{
     edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
@@ -123,18 +127,19 @@ fn update_document<T>(
     outcome.ok_or(AuthDocumentError::UpdateNotRun)
 }
 
-/// pi-ai [`CredentialStore`] over eukhe's `auth.json`. Writes are
-/// serialized per provider in-process; the file protocol serializes them
-/// across processes.
+/// pi-ai [`CredentialStore`] over eukhe's `auth.json`, for one session: a
+/// provider's credential is the account the session sticks to
+/// ([`AccountBook`]), else its first. Writes are serialized per provider
+/// in-process; the file protocol serializes them across processes.
 pub(super) struct AuthJsonCredentialStore {
-    backend: Arc<FileAuthStorageBackend>,
+    book: Arc<AccountBook>,
     chains: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl AuthJsonCredentialStore {
-    pub(super) fn new(path: impl Into<std::path::PathBuf>) -> Self {
+    pub(super) fn new(book: Arc<AccountBook>) -> Self {
         Self {
-            backend: Arc::new(FileAuthStorageBackend::new(path)),
+            book,
             chains: Mutex::new(HashMap::new()),
         }
     }
@@ -150,8 +155,40 @@ impl AuthJsonCredentialStore {
     }
 
     async fn document(&self) -> Result<Map<String, Value>, Thrown> {
-        let backend = Arc::clone(&self.backend);
+        let backend = Arc::clone(self.book.backend());
         blocking(move || Ok(read_document(&backend)?)).await
+    }
+}
+
+/// The credential this session reads for `provider_id` from its entry
+/// (the pinned account's, else the first account's; an MCP server's own),
+/// with the account's identity.
+fn session_credential(
+    book: &AccountBook,
+    provider_id: &str,
+    entry: Option<&Value>,
+) -> Option<(String, Value)> {
+    read_credential(book, provider_id, entry?)
+        .map(|(identity, credential)| (identity, Value::Object(credential)))
+}
+
+/// The provider's entry with the credential of the account `identity`
+/// replaced by `next` (the entry itself for an MCP server; a new account
+/// when the provider has none).
+fn entry_with(provider_id: &str, entry: Option<&Value>, identity: &str, next: Value) -> Value {
+    let (true, Value::Object(object)) = (keeps_accounts(provider_id), &next) else {
+        return next;
+    };
+    let accounts = entry
+        .map(|entry| accounts_of(provider_id, entry))
+        .unwrap_or_default();
+    if accounts.iter().any(|account| account.identity == identity) {
+        entry_of(&with_credential(accounts, identity, object.clone()))
+    } else {
+        entry_of(&with_account(
+            accounts,
+            Account::new(provider_id, object.clone()),
+        ))
     }
 }
 
@@ -255,10 +292,12 @@ impl CredentialStore for AuthJsonCredentialStore {
             if let Some(signal) = &options.signal {
                 signal.throw_if_aborted()?;
             }
-            let Some(entry) = document.get(provider_id) else {
+            let Some((_, entry)) =
+                session_credential(&self.book, provider_id, document.get(provider_id))
+            else {
                 return Ok(None);
             };
-            let Some(credential) = stored_credential(provider_id, entry)? else {
+            let Some(credential) = stored_credential(provider_id, &entry)? else {
                 return Ok(None);
             };
             // A `!command` key runs a process: off the async workers.
@@ -281,6 +320,7 @@ impl CredentialStore for AuthJsonCredentialStore {
             Ok(document
                 .iter()
                 .filter_map(|(provider_id, entry)| {
+                    let (_, entry) = session_credential(&self.book, provider_id, Some(entry))?;
                     let kind = match entry.get("type").and_then(Value::as_str) {
                         Some("api_key") => AuthType::ApiKey,
                         Some("oauth") => AuthType::OAuth,
@@ -303,7 +343,7 @@ impl CredentialStore for AuthJsonCredentialStore {
     ) -> BoxFuture<'a, Result<Option<Credential>, Thrown>> {
         let signal = operation_signal(options.signal);
         let chain = self.chain(provider_id);
-        let backend = Arc::clone(&self.backend);
+        let book = Arc::clone(&self.book);
         let id = provider_id.to_owned();
         let task_signal = signal.clone();
         let task = async move {
@@ -313,7 +353,7 @@ impl CredentialStore for AuthJsonCredentialStore {
             // a peer process changing this document's credentials (an OAuth
             // refresh) is waited for, and the read below sees what it
             // stored, so `f` refreshes only a credential still expired.
-            let lock_backend = Arc::clone(&backend);
+            let lock_backend = Arc::clone(book.backend());
             let _refresh = blocking(move || {
                 lock_backend
                     .refresh_lock()
@@ -321,11 +361,12 @@ impl CredentialStore for AuthJsonCredentialStore {
             })
             .await?;
             task_signal.throw_if_aborted()?;
-            let read_backend = Arc::clone(&backend);
+            let read_backend = Arc::clone(book.backend());
             let document = blocking(move || Ok(read_document(&read_backend)?)).await?;
-            let previous = document.get(&id).cloned();
+            // The account this session reads: a refresh rewrites only it.
+            let previous = session_credential(&book, &id, document.get(&id));
             let current = match &previous {
-                Some(entry) => stored_credential(&id, entry)?,
+                Some((_, entry)) => stored_credential(&id, entry)?,
                 None => None,
             };
             // `f` (an OAuth refresh: a network round trip) runs outside the
@@ -337,21 +378,34 @@ impl CredentialStore for AuthJsonCredentialStore {
             let entry = credential_entry(&next)?;
             // An entry that stays as stored (a failed refresh that keeps
             // the stored login) is not written back.
-            if previous.as_ref() == Some(&entry) {
+            if previous
+                .as_ref()
+                .is_some_and(|(_, stored)| *stored == entry)
+            {
                 return Ok(Some(next));
             }
             let write_id = id.clone();
+            let write_book = Arc::clone(&book);
             let concurrent = blocking(move || {
-                Ok(update_document(&backend, |document| {
-                    if document.get(&write_id) != previous.as_ref() {
-                        // Another writer changed the entry while `f` ran
+                Ok(update_document(write_book.backend(), |document| {
+                    let now = session_credential(&write_book, &write_id, document.get(&write_id));
+                    let identity = previous
+                        .as_ref()
+                        .map(|(identity, _)| identity.clone())
+                        .unwrap_or_default();
+                    let unchanged = match (&now, &previous) {
+                        (Some((_, now)), Some((_, previous))) => now == previous,
+                        (None, None) => true,
+                        (Some(_), None) | (None, Some(_)) => false,
+                    };
+                    if !unchanged {
+                        // Another writer changed the account while `f` ran
                         // (a peer's refresh): its newer credential stands.
-                        return (None, Some(document.get(&write_id).cloned()));
+                        return (None, Some(now.map(|(_, entry)| entry)));
                     }
-                    (
-                        Some(config::Edit::Set(write_id.clone(), entry.clone())),
-                        None,
-                    )
+                    let written =
+                        entry_with(&write_id, document.get(&write_id), &identity, entry.clone());
+                    (Some(config::Edit::Set(write_id.clone(), written)), None)
                 })?)
             })
             .await?;
@@ -371,18 +425,32 @@ impl CredentialStore for AuthJsonCredentialStore {
     ) -> BoxFuture<'a, Result<(), Thrown>> {
         let signal = operation_signal(options.signal);
         let chain = self.chain(provider_id);
-        let backend = Arc::clone(&self.backend);
+        let book = Arc::clone(&self.book);
         let id = provider_id.to_owned();
         let task_signal = signal.clone();
         let task = async move {
             let _turn = chain.lock_owned().await;
             task_signal.throw_if_aborted()?;
             blocking(move || {
-                Ok(update_document(&backend, |document| {
-                    let edit = document
-                        .contains_key(&id)
-                        .then(|| config::Edit::Delete(id.clone()));
-                    (edit, ())
+                Ok(update_document(book.backend(), |document| {
+                    // The session's account goes; the entry goes with its
+                    // last account.
+                    let Some(entry) = document.get(&id) else {
+                        return (None, ());
+                    };
+                    let Some((identity, _)) = session_credential(&book, &id, Some(entry)) else {
+                        return (Some(config::Edit::Delete(id.clone())), ());
+                    };
+                    let rest: Vec<Account> = accounts_of(&id, entry)
+                        .into_iter()
+                        .filter(|account| account.identity != identity)
+                        .collect();
+                    let edit = if keeps_accounts(&id) && !rest.is_empty() {
+                        config::Edit::Set(id.clone(), entry_of(&rest))
+                    } else {
+                        config::Edit::Delete(id.clone())
+                    };
+                    (Some(edit), ())
                 })?)
             })
             .await
@@ -399,6 +467,10 @@ mod tests {
 
     use super::*;
     use crate::auth::{AuthCredential, AuthStorageData};
+
+    fn store_at(path: &Path) -> AuthJsonCredentialStore {
+        AuthJsonCredentialStore::new(Arc::new(AccountBook::new(path)))
+    }
 
     fn todays_auth_json() -> Value {
         json!({
@@ -451,7 +523,7 @@ mod tests {
         let path = dir.path().join("auth.json");
         let fixture = todays_auth_json();
         write_json(&path, &fixture);
-        let store = AuthJsonCredentialStore::new(&path);
+        let store = store_at(&path);
 
         let read = |id: &'static str| store.read(id, options());
         assert_eq!(
@@ -502,7 +574,7 @@ mod tests {
             })
         );
 
-        // An OAuth refresh rewrites only its entry, in the pi-ai shape.
+        // An OAuth refresh rewrites only its entry, as its one account.
         let refreshed = OAuthCredential::new("rt-new", "sk-ant-oat-new", 1_800_000_000_000.0);
         assert_eq!(
             store
@@ -519,10 +591,10 @@ mod tests {
         let mut expected = fixture.as_object().unwrap().clone();
         expected.insert(
             "anthropic".to_owned(),
-            json!({
+            json!({ "accounts": [{
                 "type": "oauth", "refresh": "rt-new", "access": "sk-ant-oat-new",
                 "expires": 1_800_000_000_000_u64
-            }),
+            }] }),
         );
         assert_eq!(written, expected);
         assert_eq!(
@@ -549,7 +621,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             read_json(&path)["retired"],
-            json!({ "type": "api_key", "key": "pit-key" })
+            json!({ "accounts": [{ "type": "api_key", "key": "pit-key", "identity": "key" }] })
         );
 
         // `None` leaves the entry and resolves the current credential.
@@ -572,7 +644,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.json");
         write_json(&path, &todays_auth_json());
-        let store = AuthJsonCredentialStore::new(&path);
+        let store = store_at(&path);
         let peer_path = path.clone();
         let modify: ModifyFn = Box::new(move |_current| {
             Box::pin(async move {
@@ -618,7 +690,7 @@ mod tests {
         let fresh = OAuthCredential::new("rt-new", "sk-ant-oat-new", 4_102_444_800_000.0);
         let processes: Vec<_> = (0..6)
             .map(|_| {
-                let store = AuthJsonCredentialStore::new(&path);
+                let store = store_at(&path);
                 let refreshes = Arc::clone(&refreshes);
                 let fresh = fresh.clone();
                 tokio::spawn(async move {
@@ -660,7 +732,7 @@ mod tests {
         write_json(&path, &todays_auth_json());
         let before = std::fs::read_to_string(&path).unwrap();
         let keep: ModifyFn = Box::new(|current| Box::pin(async move { Ok(current) }));
-        let kept = AuthJsonCredentialStore::new(&path)
+        let kept = store_at(&path)
             .modify("anthropic", keep, options())
             .await
             .unwrap();
@@ -678,10 +750,7 @@ mod tests {
             &path,
             &json!({ "xai": { "type": "oauth", "access": "a", "refresh": null, "expires": 1 } }),
         );
-        let error = AuthJsonCredentialStore::new(&path)
-            .read("xai", options())
-            .await
-            .unwrap_err();
+        let error = store_at(&path).read("xai", options()).await.unwrap_err();
         assert!(
             error
                 .to_string()

@@ -1,14 +1,18 @@
-//! `eukhe provider`: the provider capability surface.
+//! `eukhe provider`: the provider capability surface and the stored
+//! accounts.
 //!
 //! `caps` prints what each provider's API offers besides chat streaming,
 //! read from the quirks rulebook through `Models::provider_capabilities`; it
 //! sends nothing. `models` asks the named provider's own model-listing
 //! endpoint: the one subcommand that talks to the network, and only to the
 //! provider the user configured. A provider without the operation fails
-//! with a message, never a fallback.
+//! with a message, never a fallback. `accounts` lists each provider's
+//! stored accounts; `logout` removes one.
 
 use eukhe_ai::capabilities::{Capabilities, Capability, ListedModel, Support};
 use eukhe_ai::models::{Models, ModelsCapabilityOptions};
+use eukhe_core::auth::AuthStorage;
+use eukhe_tui::provider_auth::ProviderAuthOutcome;
 
 use crate::list_models::{format_token_count, pad_end};
 
@@ -38,6 +42,15 @@ enum ProviderCommand {
         provider: String,
         output: Output,
     },
+    Accounts {
+        output: Output,
+    },
+    /// Remove one stored account: the one `account` names (a place from 1
+    /// or an identity), else the provider's only one.
+    Logout {
+        provider: String,
+        account: Option<String>,
+    },
 }
 
 /// Why the `provider` arguments do not parse.
@@ -60,6 +73,10 @@ enum ProviderUsageError {
     CapsUsage,
     #[error("Usage: eukhe provider models <provider> [--json]")]
     ModelsUsage,
+    #[error("Usage: eukhe provider accounts [--json]")]
+    AccountsUsage,
+    #[error("Usage: eukhe provider logout <provider> [n|identity]")]
+    LogoutUsage,
 }
 
 /// A provider id no chat model of the collection names.
@@ -113,6 +130,20 @@ fn parse_provider_command(args: &[String]) -> Result<ProviderCommand, ProviderUs
                 output,
             })
         }
+        "accounts" => {
+            if !operands.is_empty() {
+                return Err(ProviderUsageError::AccountsUsage);
+            }
+            Ok(ProviderCommand::Accounts { output })
+        }
+        // An identity may span several words (`a@x.com [org-1]`).
+        "logout" => match (output, operands.split_first()) {
+            (Output::Table, Some((provider, account))) => Ok(ProviderCommand::Logout {
+                provider: provider.clone(),
+                account: (!account.is_empty()).then(|| account.join(" ")),
+            }),
+            (Output::Table, None) | (Output::Json, _) => Err(ProviderUsageError::LogoutUsage),
+        },
         _ => Err(ProviderUsageError::Missing),
     }
 }
@@ -130,6 +161,19 @@ pub fn run_provider_command(args: &[String]) -> i32 {
             return 2;
         }
     };
+    match command {
+        ProviderCommand::Caps { selection, output } => run_caps(&load_models(), &selection, output),
+        ProviderCommand::Models { provider, output } => {
+            run_models(&load_models(), &provider, output)
+        }
+        ProviderCommand::Accounts { output } => run_accounts(output),
+        ProviderCommand::Logout { provider, account } => run_logout(&provider, account.as_deref()),
+    }
+}
+
+/// The model collection of `caps` and `models`: models.json's problems
+/// printed, its requests spending from the daemon's budget account.
+fn load_models() -> Models {
     let loaded = eukhe_core::durable::create_models(&crate::config::get_agent_dir());
     if !loaded.diagnostics.is_empty() {
         eprintln!(
@@ -144,9 +188,54 @@ pub fn run_provider_command(args: &[String]) -> i32 {
         &models,
         &eukhe_core::durable::budget::BudgetGate::daemon(&agent_dir),
     );
-    match command {
-        ProviderCommand::Caps { selection, output } => run_caps(&models, &selection, output),
-        ProviderCommand::Models { provider, output } => run_models(&models, &provider, output),
+    models
+}
+
+/// `provider accounts`: each provider's stored accounts by place and
+/// label, a limit with its local reset time while it lasts.
+fn run_accounts(output: Output) -> i32 {
+    let agent_dir = crate::config::get_agent_dir();
+    let auth = AuthStorage::create(&agent_dir);
+    if let Some(error) = auth.load_error() {
+        eprintln!(
+            "Error: {} could not be loaded: {error}",
+            agent_dir.join(eukhe_core::auth::AUTH_FILE_NAME).display()
+        );
+        return 1;
+    }
+    let stored = crate::provider_accounts::stored_accounts(&auth);
+    match output {
+        Output::Json => print_json(&crate::provider_accounts::listing_json(&stored)),
+        Output::Table => {
+            let listing = crate::provider_accounts::listing(
+                &stored,
+                crate::util_time::now_ms(),
+                &eukhe_daemon::limits_text::local_clock,
+            );
+            println!(
+                "{}",
+                eukhe_tui::provider_auth::accounts_text(
+                    &listing,
+                    &std::collections::BTreeMap::new()
+                )
+            );
+            0
+        }
+    }
+}
+
+/// `provider logout <provider> [n|identity]`: remove one stored account.
+fn run_logout(provider: &str, account: Option<&str>) -> i32 {
+    match crate::provider_accounts::logout(&crate::config::get_agent_dir(), provider, account) {
+        ProviderAuthOutcome::Status(message) => {
+            println!("{message}");
+            0
+        }
+        ProviderAuthOutcome::Error(message) => {
+            eprintln!("Error: {message}");
+            1
+        }
+        ProviderAuthOutcome::Cancelled => 1,
     }
 }
 
@@ -358,6 +447,45 @@ mod tests {
                 provider: "openai".to_string(),
                 output: Output::Json,
             })
+        );
+    }
+
+    #[test]
+    fn parses_accounts_and_logout() {
+        assert_eq!(
+            [
+                parse_provider_command(&arg(&["accounts"])),
+                parse_provider_command(&arg(&["accounts", "--json"])),
+                parse_provider_command(&arg(&["logout", "openai"])),
+                parse_provider_command(&arg(&["logout", "openai", "2"])),
+                parse_provider_command(&arg(&["logout", "anthropic", "a@x.com", "[org-1]"])),
+                parse_provider_command(&arg(&["accounts", "openai"])),
+                parse_provider_command(&arg(&["logout"])),
+                parse_provider_command(&arg(&["logout", "openai", "--json"])),
+            ],
+            [
+                Ok(ProviderCommand::Accounts {
+                    output: Output::Table,
+                }),
+                Ok(ProviderCommand::Accounts {
+                    output: Output::Json,
+                }),
+                Ok(ProviderCommand::Logout {
+                    provider: "openai".to_string(),
+                    account: None,
+                }),
+                Ok(ProviderCommand::Logout {
+                    provider: "openai".to_string(),
+                    account: Some("2".to_string()),
+                }),
+                Ok(ProviderCommand::Logout {
+                    provider: "anthropic".to_string(),
+                    account: Some("a@x.com [org-1]".to_string()),
+                }),
+                Err(ProviderUsageError::AccountsUsage),
+                Err(ProviderUsageError::LogoutUsage),
+                Err(ProviderUsageError::LogoutUsage),
+            ]
         );
     }
 

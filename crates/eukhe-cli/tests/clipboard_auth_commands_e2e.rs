@@ -101,9 +101,9 @@ fn spawn_supervisor(dir: &Path) -> Supervisor {
 use std::sync::{Arc, Mutex};
 
 use eukhe_tui::provider_auth::{
-    AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAuthCommands,
-    ProviderAuthFuture, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
-    ProviderWarningFuture,
+    AccountRow, AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccounts,
+    ProviderAccountsFuture, ProviderAuthCommands, ProviderAuthFuture, ProviderAuthOutcome,
+    ProviderRow, ProviderRowsFuture, ProviderWarningFuture,
 };
 /// The login/logout flows the scripted hook serves: one API-key provider
 /// whose key the hook stores, like the composition root's auth store.
@@ -137,6 +137,7 @@ impl ScriptedProviderAuth {
             flow: AuthFlow::ApiKeyPrompt,
             configured,
             available: true,
+            account: None,
         }
     }
 }
@@ -153,7 +154,7 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
             stored
                 .into_iter()
                 .map(|id| ProviderRow {
-                    name: "OpenAI".to_string(),
+                    name: "OpenAI: key".to_string(),
                     auth_type: AuthType::ApiKey,
                     status: Some(AuthStatusIndicator {
                         style: AuthStatusStyle::Success,
@@ -163,6 +164,7 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
                     flow: AuthFlow::ApiKeyPrompt,
                     configured: true,
                     available: true,
+                    account: Some("key".to_string()),
                 })
                 .collect()
         })
@@ -187,14 +189,33 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
         })
     }
 
-    fn logout(&self, provider: &ProviderRow) -> ProviderAuthFuture {
-        let (id, name) = (provider.id.clone(), provider.name.clone());
-        self.stored_keys.lock().unwrap().remove(&id);
+    fn logout(&self, provider: &str, _account: Option<&str>) -> ProviderAuthFuture {
+        let id = provider.to_string();
+        let removed = self.stored_keys.lock().unwrap().remove(&id).is_some();
         self.calls.lock().unwrap().push(format!("logout:{id}"));
         Box::pin(async move {
-            ProviderAuthOutcome::Status(format!(
-                "Removed stored API key for {name}. Environment variables and models.json config are unchanged."
-            ))
+            if removed {
+                ProviderAuthOutcome::Status(format!("Removed key from {id} (0 left)."))
+            } else {
+                ProviderAuthOutcome::Error(format!("{id} has no stored accounts."))
+            }
+        })
+    }
+
+    fn accounts(&self) -> ProviderAccountsFuture {
+        let stored: Vec<String> = self.stored_keys.lock().unwrap().keys().cloned().collect();
+        Box::pin(async move {
+            stored
+                .into_iter()
+                .map(|provider| ProviderAccounts {
+                    provider,
+                    accounts: vec![AccountRow {
+                        identity: "key".to_string(),
+                        label: "key".to_string(),
+                        limited_until: None,
+                    }],
+                })
+                .collect()
         })
     }
 
@@ -819,7 +840,7 @@ async fn tui_login_and_logout_run_the_provider_flows() {
         "the logout panel renders:\n{rendered}"
     );
     assert!(
-        rendered.contains("Removed stored API key for OpenAI. Environment variables and models.json config are unchanged."),
+        rendered.contains("Removed key from openai (0 left)."),
         "the removal status renders:\n{rendered}"
     );
     assert_eq!(
@@ -859,12 +880,12 @@ async fn tui_login_and_logout_run_the_provider_flows() {
     .expect("interactive run");
     let rendered = rendered_frames(&outcome);
     assert!(
-        rendered.contains("Usage: /login"),
-        "the login usage error renders"
+        rendered.contains("Unknown provider 'arg'. Known: openai"),
+        "an unknown /login provider names the known ones:\n{rendered}"
     );
     assert!(
-        rendered.contains("Usage: /logout"),
-        "the logout usage error renders"
+        rendered.contains("arg has no stored accounts."),
+        "a /logout of a provider without accounts errors:\n{rendered}"
     );
 }
 

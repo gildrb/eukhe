@@ -149,9 +149,14 @@ impl eukhe_tui::provider_auth::ProviderAuthCommands for E2ESubscriptionAuth {
 
     fn logout(
         &self,
-        _provider: &eukhe_tui::provider_auth::ProviderRow,
+        _provider: &str,
+        _account: Option<&str>,
     ) -> eukhe_tui::provider_auth::ProviderAuthFuture {
         Box::pin(async move { eukhe_tui::provider_auth::ProviderAuthOutcome::Cancelled })
+    }
+
+    fn accounts(&self) -> eukhe_tui::provider_auth::ProviderAccountsFuture {
+        Box::pin(async move { Vec::new() })
     }
 
     fn anthropic_subscription_warning(&self) -> eukhe_tui::provider_auth::ProviderWarningFuture {

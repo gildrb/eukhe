@@ -244,8 +244,8 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         // over its provider rows: the rows' request state (the script
         // queue) stays shared, while this session's wrappers never reach
         // another session's requests.
-        let models = if let Some(models) = &config.models {
-            session_local_models(models)
+        let (models, accounts) = if let Some(models) = &config.models {
+            (session_local_models(models), None)
         } else {
             let loaded = create_models(&config.agent_dir);
             // Each bad models.json entry shows on the settings-error row.
@@ -253,7 +253,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
                 scope: SettingsScope::Global,
                 message,
             }));
-            loaded.models
+            (loaded.models, Some(loaded.accounts))
         };
         // Each `mcpServers` entry that does not parse goes on the session's
         // settings error row.
@@ -298,7 +298,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
                 OpenError::Resources(anyhow::anyhow!("opening the budget ledger failed: {error}"))
             })?
         };
-        Ok::<_, OpenError>((models, semantic_edges, loaded, gate))
+        Ok::<_, OpenError>((models, accounts, semantic_edges, loaded, gate))
     };
     // The kernel probe can wait on the network (the first fetch of the
     // pinned Python, until its first answer): it starts first and runs
@@ -307,7 +307,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         kernel_unavailable_notice::probe(config.kernel_python.as_deref(), &manager),
         loading,
     );
-    let (models, semantic_edges, loaded, gate) = loading?;
+    let (models, accounts, semantic_edges, loaded, gate) = loading?;
     let deps = Arc::new(HostDeps::new(
         &config,
         ResolvedServices {
@@ -348,10 +348,10 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
     // The session's own model collection gets the eukhe provider behaviors
     // (failover, quota park, image routing, request timing); a
     // caller-supplied collection (the faux scripts) serves its rows as-is.
-    if config.models.is_none() {
+    if let Some(accounts) = accounts {
         // The runtime registers itself on the deps; the handle it returns
         // is for callers that need it before the deps are reachable.
-        let _ = ProviderRuntime::install(&models, &deps);
+        let _ = ProviderRuntime::install(&models, &deps, accounts);
     }
     // The semantic-edge wrapper rides OUTERMOST (over the provider
     // runtime's timing fn): every model

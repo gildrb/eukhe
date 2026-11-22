@@ -175,6 +175,21 @@ impl SessionUi {
             })
     }
 
+    /// The account each provider's requests of this session use (identity
+    /// by provider), from its own roster row (`accounts`); empty before
+    /// the session sent to a provider.
+    pub(super) fn own_accounts(&self) -> std::collections::BTreeMap<String, String> {
+        self.own_summary()
+            .and_then(|summary| summary.get("accounts"))
+            .and_then(|accounts| {
+                <std::collections::BTreeMap<String, String> as serde::Deserialize>::deserialize(
+                    accounts,
+                )
+                .ok()
+            })
+            .unwrap_or_default()
+    }
+
     /// The dock's feed state: the live counts, the goal row's label, and
     /// the selection/focus the caller owns. The row render, the focus
     /// hand-off, and the arrows' traversal all read this one mapping --

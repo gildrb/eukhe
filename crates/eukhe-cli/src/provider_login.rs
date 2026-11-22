@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use eukhe_core::auth::{AuthCredential, AuthSource, AuthStatus};
 use eukhe_core::models::ModelRegistry;
 use eukhe_tui::provider_auth::{
-    AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAuthCommands,
-    ProviderAuthFuture, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
+    AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccountsFuture,
+    ProviderAuthCommands, ProviderAuthFuture, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
     ProviderWarningFuture,
 };
+use serde_json::Value;
 
 /// The TS OAuth provider rows (`the TS AI library/oauth` registry): the
 /// subscription logins, every flow ported.
@@ -246,8 +247,8 @@ impl ProviderAuthCommands for ProviderAuth {
         })
     }
 
-    /// TS `getLogoutProviderOptions`: one row per stored credential,
-    /// sorted by name.
+    /// The `/logout` rows: one per stored account and per MCP server
+    /// credential.
     fn logout_options(&self) -> ProviderRowsFuture {
         let provider = self.clone();
         Box::pin(async move {
@@ -324,15 +325,37 @@ impl ProviderAuthCommands for ProviderAuth {
         })
     }
 
-    /// TS `runLogout`'s removal: the message matches the credential's
-    /// type; a missing credential is a no-op notice.
-    fn logout(&self, provider: &ProviderRow) -> ProviderAuthFuture {
-        let provider_row = provider.clone();
+    /// `/logout`'s removal of one account
+    /// ([`crate::provider_accounts::logout`]).
+    fn logout(&self, provider: &str, account: Option<&str>) -> ProviderAuthFuture {
         let agent_dir = self.agent_dir.clone();
+        let provider = provider.to_owned();
+        let account = account.map(str::to_owned);
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || logout_blocking(&provider_row, &agent_dir))
-                .await
-                .expect("the logout task ran")
+            // The auth store's file lock stays off the async workers.
+            tokio::task::spawn_blocking(move || {
+                crate::provider_accounts::logout(&agent_dir, &provider, account.as_deref())
+            })
+            .await
+            .expect("the logout task ran")
+        })
+    }
+
+    /// `/accounts`: each provider's stored accounts, a limit shown in the
+    /// local time zone.
+    fn accounts(&self) -> ProviderAccountsFuture {
+        let auth = self.clone();
+        Box::pin(async move {
+            // The auth store's file read stays off the async workers.
+            tokio::task::spawn_blocking(move || {
+                crate::provider_accounts::listing(
+                    &crate::provider_accounts::stored_accounts(&auth.auth_storage()),
+                    crate::util_time::now_ms(),
+                    &eukhe_daemon::limits_text::local_clock,
+                )
+            })
+            .await
+            .expect("the account listing task ran")
         })
     }
 }
@@ -361,6 +384,7 @@ impl ProviderAuth {
                     flow: AuthFlow::TerminalFlow,
                     configured: status.configured,
                     available: true,
+                    account: None,
                 });
             }
 
@@ -394,6 +418,7 @@ impl ProviderAuth {
                     flow: AuthFlow::ApiKeyPrompt,
                     configured: status.configured,
                     available: true,
+                    account: None,
                 });
             }
 
@@ -413,44 +438,81 @@ impl ProviderAuth {
     }
 
     /// The logout row build (blocking: the auth store lock stays off the
-    /// async workers).
+    /// async workers): per provider (by name), one row per account
+    /// (`<provider>: <label>`) in login order, and an MCP server's row.
     fn logout_rows_blocking(self) -> Vec<ProviderRow> {
         let auth = self.auth_storage();
-        let mut rows: Vec<ProviderRow> = Vec::new();
-        for provider_id in auth.list() {
-            let Some(credential) = auth.get_all().credential(&provider_id) else {
-                continue;
-            };
-            let auth_type = match credential {
-                AuthCredential::ApiKey { .. } | AuthCredential::McpStaticToken { .. } => {
-                    AuthType::ApiKey
+        let data = auth.get_all();
+        let mut groups: Vec<(String, Vec<ProviderRow>)> = auth
+            .list()
+            .into_iter()
+            .map(|provider_id| {
+                if let Some(server) = provider_id.strip_prefix("mcp:") {
+                    let row = data
+                        .get(&provider_id)
+                        .and_then(Value::as_object)
+                        .map(|credential| {
+                            stored_row(&provider_id, server.to_owned(), credential, None)
+                        });
+                    (server.to_owned(), row.into_iter().collect())
+                } else {
+                    let name = display_name(&provider_id);
+                    let rows = data
+                        .accounts(&provider_id)
+                        .iter()
+                        .enumerate()
+                        .map(|(at, account)| {
+                            let label = account.label(at + 1);
+                            // The identity names the account; one without
+                            // an identity goes by its place.
+                            let selector = if account.identity.is_empty() {
+                                (at + 1).to_string()
+                            } else {
+                                account.identity.clone()
+                            };
+                            stored_row(
+                                &provider_id,
+                                format!("{name}: {label}"),
+                                &account.credential,
+                                Some(selector),
+                            )
+                        })
+                        .collect();
+                    (name, rows)
                 }
-                AuthCredential::Oauth { .. } => AuthType::Oauth,
-            };
-            let name = match provider_id.strip_prefix("mcp:") {
-                Some(server) => server.to_string(),
-                None => display_name(&provider_id),
-            };
-            rows.push(ProviderRow {
-                id: provider_id,
-                name,
-                auth_type,
-                status: Some(AuthStatusIndicator {
-                    style: AuthStatusStyle::Success,
-                    label: "configured".to_string(),
-                }),
-                flow: AuthFlow::TerminalFlow,
-                // The stored-credential rows exist because the credential
-                // is there (TS `getProviderAuthStatus(id).configured`);
-                // credential removal always runs (an unavailable row's
-                // login never existed; its logout still removes the
-                // stored credential).
-                configured: true,
-                available: true,
-            });
-        }
-        rows.sort_by(|a, b| a.name.cmp(&b.name));
-        rows
+            })
+            .collect();
+        groups.sort_by(|(left, _), (right, _)| left.cmp(right));
+        groups.into_iter().flat_map(|(_, rows)| rows).collect()
+    }
+}
+
+/// One `/logout` row of a stored credential object: its auth type is the
+/// credential's `type`.
+fn stored_row(
+    provider_id: &str,
+    name: String,
+    credential: &serde_json::Map<String, Value>,
+    account: Option<String>,
+) -> ProviderRow {
+    let auth_type = match credential.get("type").and_then(Value::as_str) {
+        Some("oauth") => AuthType::Oauth,
+        Some(_) | None => AuthType::ApiKey,
+    };
+    ProviderRow {
+        id: provider_id.to_owned(),
+        name,
+        auth_type,
+        status: Some(AuthStatusIndicator {
+            style: AuthStatusStyle::Success,
+            label: "configured".to_string(),
+        }),
+        flow: AuthFlow::TerminalFlow,
+        // The stored-credential rows exist because the credential is
+        // there; their removal always runs.
+        configured: true,
+        available: true,
+        account,
     }
 }
 
@@ -479,12 +541,20 @@ fn login_blocking(
             provider_row.name
         ));
     };
+    // A new key adds an account; the same key again replaces it.
     let mut auth = eukhe_core::auth::AuthStorage::create(agent_dir);
-    if let Err(error) = auth.set(&provider_row.id, AuthCredential::ApiKey { key: api_key }) {
-        return ProviderAuthOutcome::Error(format!("could not save the API key: {error}"));
-    }
+    let account = match auth.add_account(
+        &provider_row.id,
+        AuthCredential::ApiKey { key: api_key },
+        "",
+    ) {
+        Ok(account) => account,
+        Err(error) => {
+            return ProviderAuthOutcome::Error(format!("could not save the API key: {error}"));
+        }
+    };
     ProviderAuthOutcome::Status(format!(
-        "Saved API key for {}. Credentials saved to {}",
+        "Saved API key for {} as {account}. Credentials saved to {}",
         provider_row.name,
         agent_dir.join("auth.json").display()
     ))
@@ -554,34 +624,6 @@ fn login_blocking_on_panel(
     // cancel (the session routes only the ported rows here -- never an
     // error wall).
     ProviderAuthOutcome::Cancelled
-}
-
-/// The logout body (blocking: the auth store lock stays off the async
-/// workers).
-fn logout_blocking(provider_row: &ProviderRow, agent_dir: &Path) -> ProviderAuthOutcome {
-    let mut auth = eukhe_core::auth::AuthStorage::create(agent_dir);
-    if let Some(error) = auth.load_error() {
-        return ProviderAuthOutcome::Error(format!(
-            "Logout failed: {} could not be loaded: {error}",
-            agent_dir.join("auth.json").display()
-        ));
-    }
-    if auth.get_all().get(&provider_row.id).is_none() {
-        return ProviderAuthOutcome::Status(format!("{} is not configured.", provider_row.name));
-    }
-    if let Err(error) = auth.logout(&provider_row.id) {
-        return ProviderAuthOutcome::Error(format!("Logout failed: {error}"));
-    }
-    match provider_row.auth_type {
-        AuthType::Oauth => ProviderAuthOutcome::Status(format!(
-            "Logged out of {}",
-            provider_row.name
-        )),
-        AuthType::ApiKey => ProviderAuthOutcome::Status(format!(
-            "Removed stored API key for {}. Environment variables and models.json config are unchanged.",
-            provider_row.name
-        )),
-    }
 }
 
 #[cfg(test)]

@@ -47,6 +47,7 @@ Law areas outside the pillars above, with what their laws state. An anchor (`*_e
 
 ### Providers and models
 
+- [`account`](../laws/account.bend) (10): a run goes on with the first usable account of its provider in login order (free, or a limit that reset); with none usable it waits for the earliest reset (the first account on a tie) when it may still wait and the reset is within the wait limit, else hands the run to the model fallback with that reset; with every login dead none is left.
 - [`ai_text`](../laws/ai_text.bend) (23): the texts the provider clients read (a Gemini id's major version, an API version in a URL path, a base64 data URL, server-sent event boundaries and lines) are found exactly where each rule's plain-words statement says.
 - [`aux_fallback`](../laws/aux_fallback/) (52): a summarizer pass runs on `auxiliaryModel` only when it is set, allowed, found and fits, else on the session model with its reason; a setting that is set but not used is reported.
 - [`aws_text`](../laws/aws_text.bend) (25): the Bedrock client reads a region's partition, the request-id header, a base64 blob, the region of an endpoint host or ARN and a FIPS pseudo-region's real region as stated.

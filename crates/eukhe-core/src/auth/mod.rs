@@ -1,5 +1,6 @@
 //! Auth subsystem: credential storage, resolution priority, stale-marking.
 
+pub(crate) mod accounts;
 pub(crate) mod failure_text;
 pub(crate) mod flight;
 pub(crate) mod manager;
@@ -10,6 +11,7 @@ pub(crate) mod resolve_config_value;
 pub(crate) mod storage;
 pub(crate) mod types;
 
+pub use accounts::{Account, AccountSelector};
 pub use flight::RefreshFlights;
 pub use manager::{
     AuthApiKeyResult, AuthLoadError, AuthStorage, AuthStorageError, AuthWriteCause, AuthWriteError,

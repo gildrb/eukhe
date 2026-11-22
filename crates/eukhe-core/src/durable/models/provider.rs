@@ -80,6 +80,7 @@ use tokio::sync::broadcast;
 use eukhe_bend::rules::fallback::Why;
 use eukhe_bend::rules::retry::{Switch, Tried};
 
+use super::accounts::{AccountBook, AccountFailure, AccountStep};
 use super::failover::{failover_candidates, model_reference, next_switch, ProviderFailoverPolicy};
 use super::fallback::{self, Step};
 use super::image_route::{self, ImageRoute};
@@ -204,6 +205,11 @@ struct Inner {
     logins: Arc<Mutex<HashMap<String, String>>>,
     /// The session's model moves, one per pair of models, oldest first.
     moves: Mutex<Vec<ModelMove>>,
+    /// The session's accounts: the account each provider's requests use
+    /// ([`AccountBook`]).
+    accounts: Arc<AccountBook>,
+    /// The session's account switches, oldest first.
+    switches: Mutex<Vec<AccountSwitch>>,
 }
 
 /// One move of the session's requests from the model they asked for to
@@ -226,12 +232,37 @@ impl ModelMove {
     }
 }
 
+/// One switch of a provider's requests to another of its accounts, and
+/// why the account before could not go on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSwitch {
+    /// The provider.
+    pub provider: String,
+    /// The account that took the requests (its identity, or `account <n>`).
+    pub to: String,
+    /// Why the account before could not go on.
+    pub cause: String,
+}
+
+impl AccountSwitch {
+    /// The report line of the switch.
+    #[must_use]
+    pub fn text(&self) -> String {
+        format!("switched to account {}: {}", self.to, self.cause)
+    }
+}
+
 impl ProviderRuntime {
     /// Wrap every provider of `models` with the eukhe provider behaviors,
     /// register the runtime on `deps` (`HostDeps::provider_runtime`), and
     /// start the open-time service that restores a persisted park.
+    /// `accounts`: the accounts the collection's credential store serves.
     #[must_use]
-    pub fn install(models: &Models, deps: &Arc<HostDeps>) -> Arc<ProviderRuntime> {
+    pub fn install(
+        models: &Models,
+        deps: &Arc<HostDeps>,
+        accounts: Arc<AccountBook>,
+    ) -> Arc<ProviderRuntime> {
         let (events, _) = broadcast::channel(64);
         let runtime = Arc::new(ProviderRuntime {
             inner: Arc::new(Inner {
@@ -245,6 +276,8 @@ impl ProviderRuntime {
                 failures: Mutex::new(HashMap::new()),
                 logins: Arc::new(Mutex::new(HashMap::new())),
                 moves: Mutex::new(Vec::new()),
+                accounts,
+                switches: Mutex::new(Vec::new()),
             }),
         });
         for provider in models.get_providers() {
@@ -357,6 +390,31 @@ impl ProviderRuntime {
         self.inner.moves.lock().unwrap_or_else(poisoned).clone()
     }
 
+    /// The session's account switches, oldest first: the end of a run
+    /// reports each.
+    #[must_use]
+    pub fn account_switches(&self) -> Vec<AccountSwitch> {
+        self.inner.switches.lock().unwrap_or_else(poisoned).clone()
+    }
+
+    /// The identity of the account each provider's requests use, for the
+    /// providers the session chose one of, by provider.
+    #[must_use]
+    pub fn pinned_accounts(&self) -> std::collections::BTreeMap<String, String> {
+        self.inner.accounts.pins()
+    }
+
+    /// The report lines of the session's switches: each account switch,
+    /// then each model move (accounts go before models), oldest first.
+    #[must_use]
+    pub fn switch_report(&self) -> Vec<String> {
+        self.account_switches()
+            .iter()
+            .map(AccountSwitch::text)
+            .chain(self.model_moves().iter().map(ModelMove::text))
+            .collect()
+    }
+
     /// Wake the live park as its scheduled wake does, for an embedding
     /// that runs no scheduler and waited for the reset itself (a headless
     /// run): the park clears and the resume marker continues the
@@ -445,7 +503,7 @@ fn take_login_failure(logins: &Mutex<HashMap<String, String>>, provider: &str) -
 
 /// The diagnostic kind of a request that failed at the provider runtime
 /// because its provider's login expired and its refresh failed.
-const LOGIN_EXPIRED_DIAGNOSTIC: &str = "login_expired";
+pub(super) const LOGIN_EXPIRED_DIAGNOSTIC: &str = "login_expired";
 
 /// The stream of a request whose provider's login expired: its one event
 /// is the failure, with the refresh's `error` and the login diagnostic.
@@ -544,7 +602,7 @@ async fn run_request(
     {
         failover.enabled = false;
     }
-    let primary_dispatch = Arc::clone(&original);
+    let mut primary_dispatch = Arc::clone(&original);
     let mut dispatch = original;
     // The request's chain (the primary, then its failover candidates),
     // built at its first retryable failure, and its failed attempts,
@@ -563,6 +621,13 @@ async fn run_request(
     // sibling walk is over. `left_for`: why the request left its own model.
     let mut moved: Vec<Model> = Vec::new();
     let mut left_for: Option<Why> = None;
+    // The waits for an account's reset the request may still take: the
+    // run's retries.
+    let mut account_waits = if settings.get_retry_enabled() {
+        settings.get_retry_max_retries()
+    } else {
+        0
+    };
     loop {
         // Each attempt opens with its own `start`, which drops the failed
         // attempt's partial downstream (the event protocol). A provider
@@ -626,9 +691,65 @@ async fn run_request(
                 }
             }
         }
+        // Accounts first: a usage or rate limit, or a login that cannot
+        // refresh, moves the request to another account of the same
+        // provider and the same model before any other model
+        // (`laws/account.bend`); with every account out, the model
+        // fallback takes the request for why they are out.
+        let mut accounts_out: Option<Why> = None;
+        if failed {
+            match account_turn(
+                &inner,
+                &settings,
+                &serving.provider,
+                &message,
+                account_waits,
+            ) {
+                AccountTurn::Go {
+                    delay_ms,
+                    switch,
+                    cause,
+                } => {
+                    if delay_ms > 0 {
+                        account_waits = account_waits.saturating_sub(1);
+                    }
+                    switches += 1;
+                    let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
+                        attempt: switches,
+                        max_attempts: failover.max_switches,
+                        delay_ms,
+                        error_message: switch.as_ref().map_or(cause, AccountSwitch::text),
+                        backup_model: model_reference(&serving),
+                    });
+                    if let Some(switch) = switch {
+                        record_switch(&inner, switch);
+                    }
+                    if waited_out(&carried, delay_ms).await {
+                        out.push(AssistantMessageEvent::Error {
+                            reason: ErrorReason::Aborted,
+                            error: AssistantMessage {
+                                stop_reason: StopReason::Aborted,
+                                ..message
+                            },
+                        });
+                        out.end(None);
+                        return;
+                    }
+                    // The account's credential resolves anew; the primary's
+                    // own options carried the account before.
+                    dispatch = original_dispatch(&inner, &serving, carried.clone(), simple);
+                    if model_reference(&serving) == model_reference(&primary) {
+                        primary_dispatch = Arc::clone(&dispatch);
+                    }
+                    continue;
+                }
+                AccountTurn::Out(why) => accounts_out = Some(why),
+                AccountTurn::Stays => {}
+            }
+        }
         let retryable =
             message.stop_reason == StopReason::Error && is_retryable_assistant_error(&message);
-        let next = if retryable && failover.enabled && moved.is_empty() {
+        let next = if retryable && failover.enabled && moved.is_empty() && accounts_out.is_none() {
             if chain.is_empty() {
                 chain = failover_chain(&inner, &primary, &settings, &carried).await;
             }
@@ -675,6 +796,7 @@ async fn run_request(
                         primary: &primary,
                         moved: &moved,
                         images: context_has_images(&context),
+                        accounts_out,
                     };
                     match model_move(&inner, &settings, &carried, &request, failing, failure).await
                     {
@@ -762,28 +884,16 @@ async fn run_request(
         });
         // A return to a provider the request left waits its backoff; an
         // abort during the wait ends the request.
-        if delay_ms > 0 {
-            let cancelled = carried.signal.as_ref().map(AbortSignal::cancellation_token);
-            let aborted = if let Some(cancelled) = cancelled {
-                tokio::select! {
-                    () = tokio::time::sleep(Duration::from_millis(delay_ms)) => false,
-                    () = cancelled.cancelled() => true,
-                }
-            } else {
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                false
-            };
-            if aborted {
-                out.push(AssistantMessageEvent::Error {
-                    reason: ErrorReason::Aborted,
-                    error: AssistantMessage {
-                        stop_reason: StopReason::Aborted,
-                        ..message
-                    },
-                });
-                out.end(None);
-                return;
-            }
+        if waited_out(&carried, delay_ms).await {
+            out.push(AssistantMessageEvent::Error {
+                reason: ErrorReason::Aborted,
+                error: AssistantMessage {
+                    stop_reason: StopReason::Aborted,
+                    ..message
+                },
+            });
+            out.end(None);
+            return;
         }
         // The primary keeps the caller's own request options; a sibling
         // dispatches through its provider's original stream function
@@ -1108,6 +1218,113 @@ async fn credentialed_models(
 }
 
 // ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+/// What a failed request does with the accounts of its provider
+/// ([`account_turn`]).
+enum AccountTurn {
+    /// It goes on after `delay_ms` with another account (`switch`, for the
+    /// run's report) or with the same one after its reset; `cause`: why the
+    /// account before stopped.
+    Go {
+        delay_ms: u64,
+        switch: Option<AccountSwitch>,
+        cause: String,
+    },
+    /// Every account is out: the model fallback takes the request for
+    /// `Why` (the earliest reset of a usage limit, or no login left).
+    Out(Why),
+    /// The failure is not the account's, or the provider has one account.
+    Stays,
+}
+
+/// The account `provider`'s failed request goes on with
+/// ([`AccountBook::step`], `laws/account.bend`): the next usable account,
+/// a wait for the earliest reset while the request has `waits` left and
+/// the reset is within the run's wait limit, else the model fallback.
+fn account_turn(
+    inner: &Inner,
+    settings: &SettingsManager,
+    provider: &str,
+    message: &AssistantMessage,
+    waits: u64,
+) -> AccountTurn {
+    let Some(failure) = AccountFailure::of(message, wait_cap_ms(settings)) else {
+        return AccountTurn::Stays;
+    };
+    let accounts = inner.accounts.accounts(provider);
+    let label = |identity: &str| {
+        accounts
+            .iter()
+            .position(|account| account.identity == identity)
+            .map_or_else(|| identity.to_owned(), |at| accounts[at].label(at + 1))
+    };
+    let from = inner
+        .accounts
+        .current(provider, &accounts)
+        .map(|account| account.identity)
+        .unwrap_or_default();
+    let now = now_millis();
+    let error = final_error_of(message);
+    let cause = match failure {
+        AccountFailure::Limit { until_ms } => format!(
+            "the usage limit of {} holds until {} ({error})",
+            label(&from),
+            crate::session::manager::format_iso(i64::try_from(until_ms).unwrap_or(i64::MAX))
+        ),
+        AccountFailure::Login => format!("{} has no usable login ({error})", label(&from)),
+    };
+    let go = |identity: &str, delay_ms: u64| {
+        inner.accounts.pin(provider, identity);
+        AccountTurn::Go {
+            delay_ms,
+            // A wait for the account that failed is no switch.
+            switch: (identity != from).then(|| AccountSwitch {
+                provider: provider.to_owned(),
+                to: label(identity),
+                cause: cause.clone(),
+            }),
+            cause: cause.clone(),
+        }
+    };
+    match inner
+        .accounts
+        .step(provider, failure, now, wait_cap_ms(settings), waits)
+    {
+        None => AccountTurn::Stays,
+        Some(AccountStep::Use(account)) => go(&account.identity, 0),
+        Some(AccountStep::Hold { account, until_ms }) => {
+            go(&account.identity, until_ms.saturating_sub(now))
+        }
+        Some(AccountStep::Quota { until_ms }) => AccountTurn::Out(Why::Quota { until_ms }),
+        Some(AccountStep::Login) => AccountTurn::Out(Why::Login),
+    }
+}
+
+/// Record an account switch for the run's report.
+fn record_switch(inner: &Inner, switch: AccountSwitch) {
+    inner.switches.lock().unwrap_or_else(poisoned).push(switch);
+}
+
+/// Wait `delay_ms` (none for 0); `true` when the request was aborted
+/// meanwhile.
+async fn waited_out(carried: &CarriedOptions, delay_ms: u64) -> bool {
+    if delay_ms == 0 {
+        return false;
+    }
+    let sleep = tokio::time::sleep(Duration::from_millis(delay_ms));
+    let Some(cancelled) = carried.signal.as_ref().map(AbortSignal::cancellation_token) else {
+        sleep.await;
+        return false;
+    };
+    tokio::select! {
+        () = sleep => false,
+        () = cancelled.cancelled() => true,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Model fallback
 // ---------------------------------------------------------------------------
 
@@ -1119,6 +1336,9 @@ struct MoveRequest<'a> {
     moved: &'a [Model],
     /// It attaches images: only a model that takes images can serve it.
     images: bool,
+    /// Why every account of the failing model's provider is out, when they
+    /// are ([`account_turn`]): the model fallback's failure.
+    accounts_out: Option<Why>,
 }
 
 /// What a failed request does next ([`model_move`]).
@@ -1152,7 +1372,10 @@ async fn model_move(
     failing: &Model,
     failure: &AssistantMessage,
 ) -> Move {
-    let Some(why) = failure_why(inner, settings, request, failure) else {
+    let Some(why) = request
+        .accounts_out
+        .or_else(|| failure_why(inner, settings, request, failure))
+    else {
         return Move::Stays;
     };
     let available = credentialed_models(inner, carried, failing).await;

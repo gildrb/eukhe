@@ -318,7 +318,9 @@ impl World {
         let auth: Value =
             serde_json::from_str(&std::fs::read_to_string(self.agent_dir.join("auth.json")).ok()?)
                 .ok()?;
-        auth["anthropic"]["access"].as_str().map(str::to_string)
+        auth["anthropic"]["accounts"][0]["access"]
+            .as_str()
+            .map(str::to_string)
     }
 }
 

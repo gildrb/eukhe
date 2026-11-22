@@ -2,6 +2,7 @@
 # bend/ffi_*.bend: do not edit (make bend-core).
 import Base
 import ./wire.bend as W
+import ./ffi_account.bend as ffi_account
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
@@ -411,6 +412,8 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_path_own.ffi(input)
     case 474:
       ffi_autonomous.ffi(input)
+    case 481:
+      ffi_account.ffi(input)
     case _:
       W.err("unknown entry")
 
