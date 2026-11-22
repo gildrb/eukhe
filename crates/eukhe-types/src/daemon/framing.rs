@@ -9,6 +9,11 @@ use anyhow::{anyhow, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const FRAME_PREFIX_BYTES: usize = 8;
+/// What [`PrivateFrameReader`] reads from its socket at a time.
+const READ_CHUNK_BYTES: usize = 8192;
+/// Payloads from this size on leave the decoder in the buffer they arrived
+/// in instead of as a copy.
+const MOVED_PAYLOAD_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrivateFrameLimits {
@@ -117,7 +122,14 @@ impl PrivateFrameDecoder {
             }
             let frame_len = FRAME_PREFIX_BYTES + header_len + payload_len;
             if self.buffer.len() - offset < frame_len {
-                break;
+                // The rest of the frame arrives in later chunks: room for
+                // all of it (and the next read's overshoot) in one
+                // allocation, instead of doubling the buffer through a large
+                // payload and keeping the doubled capacity.
+                self.buffer.drain(..offset);
+                self.buffer
+                    .reserve_exact(frame_len + READ_CHUNK_BYTES - self.buffer.len());
+                return Ok(frames);
             }
             let header_start = offset + FRAME_PREFIX_BYTES;
             let payload_start = header_start + header_len;
@@ -127,11 +139,21 @@ impl PrivateFrameDecoder {
             if !header.is_object() {
                 return Err(anyhow!("Invalid private frame routing header"));
             }
-            frames.push(PrivateFrame {
-                header,
-                payload: self.buffer[payload_start..payload_start + payload_len].to_vec(),
-            });
-            offset += frame_len;
+            let payload = if payload_len < MOVED_PAYLOAD_BYTES {
+                let payload = self.buffer[payload_start..payload_start + payload_len].to_vec();
+                offset += frame_len;
+                payload
+            } else {
+                // A large payload (an attach transcript) leaves in the
+                // buffer it arrived in, not as a copy; the bytes after its
+                // frame start the next buffer.
+                let rest = self.buffer.split_off(offset + frame_len);
+                let mut payload = std::mem::replace(&mut self.buffer, rest);
+                payload.drain(..payload_start);
+                offset = 0;
+                payload
+            };
+            frames.push(PrivateFrame { header, payload });
         }
         if offset > 0 {
             self.buffer.drain(..offset);
@@ -251,7 +273,7 @@ impl<R: AsyncRead + Unpin> PrivateFrameReader<R> {
     /// prefix over `limits`, zero header length, or a header that is not a
     /// JSON object).
     pub async fn read_frame(&mut self) -> Result<Option<PrivateFrame>> {
-        let mut chunk = [0u8; 8192];
+        let mut chunk = [0u8; READ_CHUNK_BYTES];
         loop {
             if let Some(frame) = self.queue.pop_front() {
                 return Ok(Some(frame));
@@ -295,6 +317,34 @@ mod tests {
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].header["kind"], "command");
         assert_eq!(frames[0].payload, b"{\"x\":1}");
+    }
+
+    /// A large payload leaves in the buffer it arrived in: it comes out
+    /// whole across socket-sized chunks, the small frames around it too,
+    /// and the decoder keeps no frame-sized buffer after it.
+    #[test]
+    fn a_large_payload_moves_out_whole_between_small_frames() {
+        // `i % 251` is 0..=250: non-negative, fits u8 exactly.
+        #[allow(clippy::cast_sign_loss)]
+        let large: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
+        let mut stream = Vec::new();
+        for payload in [&b"{\"a\":1}"[..], &large[..], &b"{\"b\":2}"[..]] {
+            stream.extend(
+                encode_private_frame(&header("outbound"), payload, DEFAULT_PRIVATE_FRAME_LIMITS)
+                    .unwrap(),
+            );
+        }
+        let mut decoder = PrivateFrameDecoder::new(DEFAULT_PRIVATE_FRAME_LIMITS);
+        let mut payloads = Vec::new();
+        for chunk in stream.chunks(READ_CHUNK_BYTES) {
+            payloads.extend(decoder.push(chunk).unwrap().into_iter().map(|f| f.payload));
+        }
+        assert_eq!(
+            payloads,
+            [b"{\"a\":1}".to_vec(), large, b"{\"b\":2}".to_vec()]
+        );
+        assert_eq!(decoder.buffered_bytes(), 0);
+        assert!(decoder.buffer.capacity() < MOVED_PAYLOAD_BYTES);
     }
 
     #[tokio::test]
