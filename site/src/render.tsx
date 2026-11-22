@@ -5,7 +5,7 @@ import { escape, gutterRows, statusParts, textRows } from "./paint.ts";
 import about from "./content/about.md?raw";
 import contact from "./content/contact.md?raw";
 import privacy from "./content/privacy.md?raw";
-import { desktop, imagesHtml, pageFile, type Sizes, textWidth } from "./rendered.ts";
+import { desktop, imagesHtml, pageFile, type Shown, textWidth } from "./rendered.ts";
 import { install, notFound, source } from "./source.ts";
 import { colors, palette, type } from "./tokens.stylex.ts";
 import Vim, { type BendList, type Buf } from "./vim.mjs";
@@ -231,11 +231,13 @@ function Page({
   doc,
   script,
   screen,
+  shown,
 }: {
   css: string;
   doc: Doc;
   script: string;
   screen: Screen | null;
+  shown: Shown;
 }) {
   const url = `${origin}${doc.path}`;
   const markdownUrl = doc.path === "/" ? "/index.md" : `${doc.path.replace(/\/$/, "")}.md`;
@@ -287,7 +289,7 @@ function Page({
       </head>
       <body {...stylex.props(styles.body)}>
         <main>
-          <Markdown source={doc.markdown} linkHome={doc !== home} />
+          <Markdown source={doc.markdown} linkHome={doc !== home} shown={shown} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div
@@ -447,19 +449,19 @@ export function render(
   css: string,
   script: string,
   files: SourceFile[],
-  sizes: Sizes,
+  shown: Shown,
 ): Record<string, string> {
   // The editor's files: the home page (rendered), the other pages, then eukhe's files.
   // Markdown shows rendered (rendered.ts): the home page, the site's pages, eukhe's Markdown files;
   // eukhe's other files show as they are.
   const editor = [
-    pageFile("index.md", source, sizes, textWidth, desktop, false),
+    pageFile("index.md", source, shown, textWidth, desktop, false),
     ...[...docs, missing].map((doc) =>
-      pageFile(`${doc.path.slice(1)}.md`, doc.markdown, sizes, textWidth, desktop, true),
+      pageFile(`${doc.path.slice(1)}.md`, doc.markdown, shown, textWidth, desktop, true),
     ),
     ...files.map((file) =>
       file.path.endsWith(".md")
-        ? pageFile(file.path, file.text, sizes, textWidth, desktop, false)
+        ? pageFile(file.path, file.text, shown, textWidth, desktop, false)
         : editorFile(file.path, file.text, file.plain, false),
     ),
   ];
@@ -469,7 +471,7 @@ export function render(
     return firstScreen([...own, ...editor.filter((file) => file.path !== path)]);
   };
   const html = (doc: Doc, screen: Screen | null) =>
-    `<!doctype html>\n${renderToString(<Page css={css} doc={doc} script={script} screen={screen} />)}\n`;
+    `<!doctype html>\n${renderToString(<Page css={css} doc={doc} script={script} screen={screen} shown={shown} />)}\n`;
   const pages = Object.fromEntries(
     docs.flatMap((doc) => [
       [`${doc.path.slice(1)}.html`, html(doc, first(`${doc.path.slice(1)}.md`))],

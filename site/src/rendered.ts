@@ -9,8 +9,15 @@
 import { type Copy, copied, type EditorFile, type Hl, type Run } from "./markdown.tsx";
 import { escape } from "./paint.ts";
 
-/** An image in the buffer: the rows it covers from `line`, its file and its alt text. */
-export type Placement = { line: number; rows: number; src: string; alt: string; width: number };
+/** An image in the buffer: the rows it covers from `line`, its file, its alt text and its size. */
+export type Placement = {
+  line: number;
+  rows: number;
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+};
 
 /** The rendered buffer: its lines, each line's highlights, its code blocks' `[copy]`, its images. */
 export type Rendered = { lines: string[]; runs: Run[][]; copies: Copy[]; images: Placement[] };
@@ -21,8 +28,20 @@ export const repository = "https://github.com/gildrb/eukhe";
 /** The widest the text runs, in cells ('textwidth'). */
 export const textWidth = 80;
 
-/** An image's size in pixels, by its `src`. */
-export type Sizes = Readonly<Record<string, readonly [number, number]>>;
+/** A README image as the site serves it, by the path the README names it by: its file and its pixels. */
+export type Shown = Readonly<Record<string, { src: string; width: number; height: number }>>;
+
+/**
+ * An image named `src` at `width` px: the file the site serves for it and its height at that
+ * width. One the build does not serve (another page's, a link) keeps its own path and 16:9.
+ */
+export function served(src: string, width: number, shown: Shown): { src: string; height: number } {
+  const own = shown[src];
+  if (own !== undefined)
+    return { src: own.src, height: Math.round((width * own.height) / own.width) };
+  const path = /^([a-z][a-z0-9+.-]*:|\/)/i.test(src) ? src : `/${src}`;
+  return { src: path, height: Math.round((width * 9) / 16) };
+}
 
 /** A cell's size in CSS pixels. */
 export type Cell = { cw: number; lh: number };
@@ -168,14 +187,16 @@ function joined(runs: readonly Run[]): Run[] {
 }
 
 /**
- * The page's Markdown rendered at w cells. `rowsOf` gives the rows an image covers at width w
- * (snacks.nvim keeps an image's aspect: its height in rows follows its width).
+ * The page's Markdown rendered at w cells, its images as `shown` serves them. `rowsOf` gives the
+ * rows an image covers at width w (snacks.nvim keeps an image's aspect: its height in rows follows
+ * its width).
  */
 export function render(
   source: string,
   w: number,
   linkHome: boolean,
-  rowsOf: (img: { src: string; width: number }) => number,
+  shown: Shown,
+  rowsOf: (img: { width: number; height: number }) => number,
 ): Rendered {
   const lines: string[] = [];
   const runs: Run[][] = [];
@@ -298,9 +319,10 @@ export function render(
       else if (part.$ === "Break") flush();
       else {
         flush();
-        const rows = rowsOf(part);
-        const src = /^([a-z][a-z0-9+.-]*:|\/)/i.test(part.src) ? part.src : `/${part.src}`;
-        images.push({ line: lines.length, rows, src, alt: part.alt, width: part.width });
+        const file = served(part.src, part.width, shown);
+        const img = { src: file.src, alt: part.alt, width: part.width, height: file.height };
+        const rows = rowsOf(img);
+        images.push({ line: lines.length, rows, ...img });
         for (let r = 0; r < rows; r += 1) add({ text: "", runs: [] });
       }
     }
@@ -319,21 +341,15 @@ export function imagePixels(img: { width: number }, w: number, cell: Cell): numb
 }
 
 /** The rows an image covers: its height at that width, in whole lines. */
-export function imageRows(
-  img: { src: string; width: number },
-  w: number,
-  cell: Cell,
-  sizes: Sizes,
-): number {
-  const size = sizes[img.src];
-  const ratio = size === undefined ? 9 / 16 : size[1] / size[0];
-  return Math.ceil((imagePixels(img, w, cell) * ratio) / cell.lh);
+export function imageRows(img: { width: number; height: number }, w: number, cell: Cell): number {
+  return Math.ceil((imagePixels(img, w, cell) * img.height) / img.width / cell.lh);
 }
 
 /**
  * The images of the window from line `top`, `left` columns scrolled, over text w cells wide: one
  * `<img>` each, placed in cells (the layer clips them to the text rows), centred as the README
- * centres them. The build paints the first screen's, the browser every later one's.
+ * centres them. The build paints the first screen's, the browser every later one's. The window's
+ * first image is the page's largest paint: fetched first; the others when they come near.
  */
 export function imagesHtml(
   images: readonly Placement[],
@@ -343,8 +359,8 @@ export function imagesHtml(
 ): string {
   return images
     .map(
-      (img) =>
-        `<a href="${repository}" style="${imageStyle(img, top, left, w)}"><img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" loading="lazy"></a>`,
+      (img, k) =>
+        `<a href="${repository}" style="${imageStyle(img, top, left, w)}"><img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" width="${img.width}" height="${img.height}" ${k === 0 ? 'fetchpriority="high"' : 'loading="lazy"'}></a>`,
     )
     .join("");
 }
@@ -359,18 +375,18 @@ export function imageStyle(img: Placement, top: number, left: number, w: number)
 export function pageFile(
   path: string,
   source: string,
-  sizes: Sizes,
+  shown: Shown,
   w: number,
   cell: Cell,
   linkHome: boolean,
 ): EditorFile {
-  const r = render(source, w, linkHome, (img) => imageRows(img, w, cell, sizes));
+  const r = render(source, w, linkHome, shown, (img) => imageRows(img, w, cell));
   return {
     path,
     lines: r.lines,
     runs: r.runs,
     copies: r.copies,
     images: r.images,
-    page: { source, sizes, width: w, linkHome },
+    page: { source, shown, width: w, linkHome },
   };
 }
