@@ -285,7 +285,7 @@ function yanked(before: Frame | null, copied: string) {
   const { cols } = size();
   const sel = list(before.sel);
   const lines = Math.max(1, copied.split("\n").length - 1);
-  flash =
+  flashed(
     sel.length > 0
       ? sel
       : Array.from({ length: lines }, (_, k): Span => ({
@@ -293,7 +293,23 @@ function yanked(before: Frame | null, copied: string) {
           row: before.cur.row + k,
           col: before.left,
           len: cols,
-        }));
+        })),
+  );
+}
+
+/** A `[copy]` click flashes the command it copied, as a yank does. */
+function copiedAt(copy: CopyAt) {
+  if (shown === null || shown.tgt.$ !== "File") return;
+  const line = files[shown.tgt.i]?.lines[copy.at] ?? "";
+  const from = line.indexOf(copy.text);
+  if (from < 0) return;
+  const col = Array.from(line.slice(0, from)).length;
+  flashed([{ $: "Span", row: copy.at - shown.top, col, len: Array.from(copy.text).length }]);
+  paint(shown);
+}
+
+function flashed(spans: Span[]) {
+  flash = spans;
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => {
     flash = [];
@@ -365,6 +381,7 @@ function tap(row: number, col: number, finger: boolean) {
   const copy = copyUnder(row, col);
   if (copy !== undefined) {
     void navigator.clipboard.writeText(copy.text);
+    copiedAt(copy);
     return;
   }
   const from = place(shown);

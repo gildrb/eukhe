@@ -15,7 +15,7 @@ export const origin = "https://eukhe.com";
 const name = "Eukhe";
 const summary =
   "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
-const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "mail@gildrb.com" };
+const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "g@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
 type Doc = { path: string; title: string; description: string; markdown: string };
@@ -138,7 +138,8 @@ const globalCss = [
   `.muted,.nr,.bd,.dim,.count{color:${colors.tertiary}}`,
   `.heading,.match{color:${colors.primary};font-weight:${type.bold}}`,
   `.link,.copy{text-decoration:underline;text-decoration-color:${colors.tertiary};text-underline-offset:3px}`,
-  // The README's images: in the page under their figure; in the editor in rows of their own.
+  // The README's images: in the page under their figure; in the editor in rows of their own, under
+  // the text layer.
   `main img{display:block;margin:0 auto;max-width:100%;height:auto}`,
   `[data-images]{position:absolute;top:var(--oy);left:calc(var(--ox) + var(--g) * var(--cw));right:0;height:calc(var(--H) - 2 * var(--lh));overflow:hidden;pointer-events:none}`,
   `[data-images]>a{position:absolute;display:block;pointer-events:auto}`,
@@ -300,12 +301,12 @@ function Page({
             dangerouslySetInnerHTML={{ __html: screen?.gutter ?? "" }}
             {...stylex.props(styles.gutter)}
           />
+          <div data-images="" dangerouslySetInnerHTML={{ __html: screen?.images ?? "" }} />
           <div
             data-text=""
             dangerouslySetInnerHTML={{ __html: screen?.text ?? "" }}
             {...stylex.props(styles.text)}
           />
-          <div data-images="" dangerouslySetInnerHTML={{ __html: screen?.images ?? "" }} />
           <div data-status="" {...stylex.props(styles.status)}>
             <span data-status-l="">{screen?.left ?? ""}</span>
             <span data-status-r="">{screen?.right ?? ""}</span>
@@ -569,6 +570,9 @@ const styles = stylex.create({
     width: "calc(var(--W) - var(--g) * var(--cw))",
     height: "calc(var(--H) - 2 * var(--lh))",
     overflow: "hidden",
+    // Over the images (cursorline, selection and a yank's flash cover them, as in a terminal);
+    // a click passes to the image's link under it, and to the editor (client.ts reads the cell).
+    pointerEvents: "none",
   },
   /** laststatus=3: one statusline across the window. */
   status: {

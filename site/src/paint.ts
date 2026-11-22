@@ -140,8 +140,8 @@ function rowHtml(row: Row): string {
   return greekLine(text) ? `<span lang="grc" translate="no">${html}</span>` : html;
 }
 
-/** `[copy]` on screen: its row and cells, and what it copies. */
-export type CopyAt = { row: number; from: number; to: number; text: string };
+/** `[copy]` on screen: its row and cells, what it copies, and the line that command is on. */
+export type CopyAt = { row: number; from: number; to: number; text: string; at: number };
 
 /**
  * The h text rows: the window's lines from `left`, with highlights, search hits and virtual text
@@ -179,7 +179,7 @@ export function textRows(
           const at = cps.length + 2 - left;
           if (at >= 0) {
             put(row, at, "[copy]", "copy");
-            copyAt.push({ row: r, from: g + at, to: g + at + 6, text: copy.text });
+            copyAt.push({ row: r, from: g + at, to: g + at + 6, text: copy.text, at: copy.at });
           }
         }
       }

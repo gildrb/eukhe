@@ -6,7 +6,7 @@
  * (`index.md`); this is the buffer the editor shows. Pure: the build paints it at the desktop width,
  * the browser again at its own when that is narrower.
  */
-import type { Copy, EditorFile, Hl, Run } from "./markdown.tsx";
+import { type Copy, copied, type EditorFile, type Hl, type Run } from "./markdown.tsx";
 import { escape } from "./paint.ts";
 
 /** An image in the buffer: the rows it covers from `line`, its file and its alt text. */
@@ -222,6 +222,7 @@ export function render(
         runs: lang === "" ? [] : [{ from: 0, to: Array.from(lang).length, hl: "muted" }],
       });
       const commands: string[] = [];
+      const rows: number[] = [];
       for (i += 1; i < md.length && !(md[i] ?? "").startsWith("```"); i += 1) {
         const code = md[i] ?? "";
         const comment = /(^|\s)#\s.*$/.exec(code);
@@ -239,10 +240,12 @@ export function render(
                   },
                 ],
         });
-        const command = code.replace(/(^|\s)#\s.*$/, "").trimEnd();
-        if (command !== "") commands.push(command);
+        commands.push(code.replace(/(^|\s)#\s.*$/, "").trimEnd());
+        rows.push(lines.length - 1);
       }
-      if (commands.length > 0) copies.push({ line: at, text: commands.join("\n") });
+      const pick = copied(commands);
+      const row = rows[pick?.index ?? -1];
+      if (pick !== null && row !== undefined) copies.push({ line: at, at: row, text: pick.text });
       continue;
     }
     const heading = /^(#{1,6}) (.*)$/.exec(line);

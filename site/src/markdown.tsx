@@ -2,7 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
 import { greekLine } from "./paint.ts";
 import { type Placement, repository, type Sizes } from "./rendered.ts";
-import { install } from "./source.ts";
 import { colors, type } from "./tokens.stylex.ts";
 
 /**
@@ -205,9 +204,9 @@ function toBlocks(entries: readonly Entry[]): Block[] {
 }
 
 /** The commands of each fenced block, trailing `# comments` dropped, keyed by its opening fence. */
-function fences(entries: readonly Entry[]): Map<number, string[]> {
-  const blocks = new Map<number, string[]>();
-  let open: { n: number; code: string[] } | null = null;
+function fences(entries: readonly Entry[]): Map<number, { n: number; command: string }[]> {
+  const blocks = new Map<number, { n: number; command: string }[]>();
+  let open: { n: number; code: { n: number; command: string }[] } | null = null;
   for (const entry of entries) {
     if (entry.line.$ === "Fence") {
       if (open === null) open = { n: entry.n, code: [] };
@@ -216,7 +215,10 @@ function fences(entries: readonly Entry[]): Map<number, string[]> {
         open = null;
       }
     } else if (open !== null && entry.line.$ === "Code")
-      open.code.push(entry.line.text.replace(commentPattern, "").trimEnd());
+      open.code.push({
+        n: entry.n,
+        command: entry.line.text.replace(commentPattern, "").trimEnd(),
+      });
   }
   return blocks;
 }
@@ -278,7 +280,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         const header = entry.line.$ === "Header";
         const code = entry.line.$ === "Code" || entry.line.$ === "Table" || entry.line.$ === "Raw";
         const text = "text" in entry.line ? entry.line.text : "";
-        const commands = (fenced.get(entry.n) ?? []).filter((c) => c !== "").join("\n");
+        const commands = copied((fenced.get(entry.n) ?? []).map((c) => c.command))?.text ?? "";
         return (
           <span
             {...greek(text)}
@@ -289,9 +291,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
               <button
                 type="button"
                 data-copy={commands}
-                aria-label={
-                  commands.startsWith(install) ? "Copy the install command" : "Copy the commands"
-                }
+                aria-label={`Copy ${commands}`}
                 {...stylex.props(styles.copy)}
               >
                 [copy]
@@ -407,13 +407,27 @@ function lineRuns(item: Line): Run[] {
 }
 
 /** A code block's `[copy]`: after its opening line (0-based), its commands, one a line. */
-export type Copy = { line: number; text: string };
+export type Copy = { line: number; at: number; text: string };
+
+/**
+ * What a block's `[copy]` copies: its first command that is not a `cd` (the reader's own folder),
+ * so the install block gives the install command and the use block `eukhe`; its index in `commands`.
+ */
+export function copied(commands: readonly string[]): { index: number; text: string } | null {
+  const index = commands.findIndex((c) => c !== "" && !/^cd(\s|$)/.test(c));
+  const text = commands[index];
+  return text === undefined ? null : { index, text };
+}
 
 /** Each code block that holds a command: its `[copy]`. */
 function copyFences(entries: readonly Entry[]): Copy[] {
-  return [...fences(entries)]
-    .map(([n, code]) => ({ line: n - 1, text: code.filter((c) => c !== "").join("\n") }))
-    .filter((copy) => copy.text !== "");
+  return [...fences(entries)].flatMap(([n, code]) => {
+    const pick = copied(code.map((c) => c.command));
+    const line = code[pick?.index ?? -1];
+    return pick === null || line === undefined
+      ? []
+      : [{ line: n - 1, at: line.n - 1, text: pick.text }];
+  });
 }
 
 /** A file for the editor: Markdown gets the page's highlights. */

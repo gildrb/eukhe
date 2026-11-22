@@ -5,7 +5,7 @@ CONTACT
 # CONTACT
 
 Eukhe is made by Gil Rodrigues. The best way to reach him is by email
-at [mail@gildrb.com](mailto:mail@gildrb.com).
+at [g@gildrb.com](mailto:g@gildrb.com).
 
 ## ISSUES
 
@@ -17,7 +17,7 @@ Issues are public: leave secrets and private paths out of them.
 ## SECURITY
 
 Report a security problem privately: email
-[mail@gildrb.com](mailto:mail@gildrb.com) with "eukhe security" in the
+[g@gildrb.com](mailto:g@gildrb.com) with "eukhe security" in the
 subject, or open a private security advisory on the GitHub repository.
 Please do not open a public issue for it.
 

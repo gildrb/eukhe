@@ -33,6 +33,6 @@ against its pinned sha256. `eukhe kernel install` fetches them ahead
 of time; `eukhe tiny-models download` fetches local models; `eukhe
 update` fetches a release.
 
-Questions? Write to [mail@gildrb.com](mailto:mail@gildrb.com).
+Questions? Write to [g@gildrb.com](mailto:g@gildrb.com).
 
 More: [about](/about), [contact](/contact), [llms.txt](/llms.txt).
