@@ -42,7 +42,8 @@ pub fn parse_model_groups(json: &'static str) -> ModelGroups {
     serde_json::from_str(json).expect("generated provider data is a JSON object of model groups")
 }
 
-/// The fields a catalog selects a model by.
+/// The fields a catalog selects a model by. A model whose head does not
+/// parse (no type, an unknown type, no string id) is in no catalog.
 #[derive(Deserialize)]
 struct ModelHead<'a> {
     #[serde(rename = "type")]
@@ -59,8 +60,7 @@ fn flatten_model_catalog<T: DeserializeOwned>(
         .values()
         .flat_map(IndexMap::values)
         .filter_map(|model| {
-            let head: ModelHead = serde_json::from_str(model.get())
-                .expect("generated catalog models carry a model type and a string id");
+            let head: ModelHead = serde_json::from_str(model.get()).ok()?;
             (head.model_type == model_type).then(|| {
                 let parsed: T = serde_json::from_str(model.get()).unwrap_or_else(|error| {
                     panic!("generated catalog model {} is invalid: {error}", head.id)
