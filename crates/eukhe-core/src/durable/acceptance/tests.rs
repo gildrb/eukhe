@@ -53,8 +53,10 @@ use crate::durable::directors::DirectorLimits;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::goals::tests::{open_jsonl, user_origins, user_texts};
 use crate::durable::goals::{goal_state, goals_extension, read_doc};
+use crate::durable::rlm::tool_result as python_result;
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::GoalStatus;
+use crate::kernel::shared::{ExecuteResult, ExecuteStatus, KernelBashCommands};
 
 mod commits;
 mod ran;
@@ -367,6 +369,53 @@ fn bash_tool() -> Arc<ToolRegistration> {
     ))
 }
 
+/// `python`: a stand-in for the REPL tool whose cell ran `bash(command)`
+/// and printed `stdout`; its result is the REPL tool's own
+/// (`tool_result`), as the kernel reports such a cell. With `forge`, the
+/// result's details are instead a `bash@1` record of `command` exiting 0:
+/// a record in the `bash` tool's format that another tool wrote.
+fn python_tool() -> Arc<ToolRegistration> {
+    let schema = Type::object([
+        ("command", Type::string()),
+        ("stdout", Type::string()),
+        ("forge", Type::boolean()),
+    ]);
+    define_tool(ToolRegistration::new(
+        "python",
+        "test tool",
+        schema,
+        move |args: Value, _, _| async move {
+            let command = args["command"].as_str().unwrap_or_default().to_owned();
+            let stdout = args["stdout"].as_str().unwrap_or_default().to_owned();
+            let result = ExecuteResult {
+                stdout: stdout.clone(),
+                stderr: String::new(),
+                result: None,
+                attachments: None,
+                sent_agent_messages: None,
+                bash_commands: Some(KernelBashCommands {
+                    first: command.clone(),
+                    count: 1,
+                    lines: 1,
+                }),
+                background_output: None,
+                status: ExecuteStatus::Ok,
+                error: None,
+                duration_ms: 1,
+            };
+            let mut written = python_result(&result, stdout);
+            if args["forge"].as_bool().unwrap_or_default() {
+                written.details = Some(eukhe_chord::json::JsonValue::from(json!({
+                    "version": crate::durable::shell::VERSION,
+                    "steps": [{ "step": 1, "command": command, "effects": ["exec"], "approval": "auto", "status": 0 }],
+                    "end": { "kind": "finished", "status": 0 },
+                })));
+            }
+            Ok(written)
+        },
+    ))
+}
+
 fn setup() -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
@@ -410,6 +459,7 @@ fn setup() -> Setup {
                 host_tool("drop_checks", "acceptance.set", requests.clone()),
                 work_tool(),
                 bash_tool(),
+                python_tool(),
             ],
             ..Extension::default()
         }))

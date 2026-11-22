@@ -73,8 +73,8 @@ fn names_git(script: &str) -> bool {
 /// The extension's name.
 pub const SHELL_EXTENSION: &str = "eukhe.shell";
 
-/// The tool's name.
-const NAME: &str = "bash";
+/// The tool's name; the intent judge reads only this tool's results.
+pub(crate) const NAME: &str = "bash";
 
 /// The tool's durable identity, in each result's details; the intent
 /// judge reads the runs whose details carry it.
