@@ -2,8 +2,9 @@
 //! (`ok bash  <script's first line> - <N lines> - <duration>`, `x` with
 //! `exit N` or the refusal on failure, the working icon while running). A
 //! failed run shows the head and the tail of its output below the row; the
-//! expanded detail hangs the whole script, the other arguments, the whole
-//! output and the truncation warning below the same row.
+//! expanded detail hangs the script (once: the output's `$ <command>` echo
+//! rows show it when present), the other arguments, the whole output and
+//! the truncation warning below the same row.
 
 use serde_json::Value;
 
@@ -42,8 +43,13 @@ pub fn render(
     }
     let mut rows = vec![summary.element(width)];
     if detail.tool_output_expanded() {
+        // `bash@1` output opens every step with its `$ <command>` echo, so
+        // the script shows once: as the output's echo rows when the output
+        // carries them, as rows of its own otherwise (a refusal before the
+        // first step, a pi-era `command` call).
+        let echoed = output.starts_with("$ ");
         for (index, line) in script
-            .filter(|script| !script.is_empty())
+            .filter(|script| !script.is_empty() && !echoed)
             .into_iter()
             .flat_map(|script| script.split('\n'))
             .enumerate()
@@ -386,6 +392,27 @@ mod tests {
         assert_eq!(rows[2], "      | 1");
         assert_eq!(rows[13], "      | 12");
         assert_eq!(rows.len(), 14, "{rows:?}");
+    }
+
+    /// The output's `$ <command>` echo is the script's one showing at the
+    /// expanded detail: a failed card never shows its command twice.
+    #[test]
+    fn the_expanded_detail_shows_an_echoed_command_once() {
+        let mut card = done_card(
+            "cat missing.txt",
+            "$ cat missing.txt\ncat: missing.txt: No such file or directory\n[step 0 exited 1]",
+            finished(1),
+        );
+        card.result.as_mut().expect("result").is_error = true;
+        assert_eq!(
+            flat(&render(&card, 0, Detail::All, &theme(), 100, true)),
+            vec![
+                "   x  bash  cat missing.txt - 3 lines - exit 1 - 120ms",
+                "      | $ cat missing.txt",
+                "      | cat: missing.txt: No such file or directory",
+                "      | [step 0 exited 1]",
+            ]
+        );
     }
 
     #[test]
