@@ -171,18 +171,6 @@ fn serve(
     if content_length > 0 {
         reader.read_exact(&mut body_bytes)?;
     }
-    // The supervisor's chat-memory compactor runs on its own provider,
-    // routed under `/memory` (`setup_with_rejection`): it always succeeds
-    // and never counts, so the counter and the scripted failures stay the
-    // session's provider requests.
-    let memory_request = head
-        .lines()
-        .next()
-        .and_then(|request_line| request_line.split_whitespace().nth(1))
-        .is_some_and(|path| path.starts_with("/memory/"));
-    if memory_request {
-        return write_answer(&mut stream, "user: said hi");
-    }
     let index = {
         let mut requests = requests.lock().expect("mock lock");
         *requests += 1;
@@ -435,25 +423,6 @@ fn setup_with_rejection(
                             "maxTokens": 4096
                         }
                     ]
-                },
-                // The chat-memory compactor's provider: the supervisor
-                // summarizes every logged message, and without
-                // `memory.model` it runs on the default model — this
-                // mock's local-inference route — so its requests would
-                // land in the session's provider accounting.
-                "chat-memory": {
-                    "api": "openai-completions",
-                    "baseUrl": format!("http://127.0.0.1:{}/memory", mock.port),
-                    "apiKey": "sk-memory",
-                    "models": [
-                        {
-                            "id": "summarizer",
-                            "name": "Summarizer",
-                            "api": "openai-completions",
-                            "contextWindow": 128_000,
-                            "maxTokens": 4096
-                        }
-                    ]
                 }
             }
         })
@@ -462,12 +431,16 @@ fn setup_with_rejection(
     .expect("write models.json");
     // A fast retry policy so the test asserts the loop, not the delays.
     // No session title: its background request to the same provider
-    // would add to the request counts the tests assert.
+    // would add to the request counts the tests assert. No chat memory:
+    // its compactor's model would be a configured chat-role model, which
+    // a failed run falls over to (laws/fallback.bend), and its requests
+    // would land in the session's provider accounting; this world has
+    // mock-1 alone, so the failure surfaces.
     std::fs::write(
         agent_dir.join("settings.json"),
         json!({
             "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
-            "memory": { "model": "chat-memory/summarizer" },
+            "memory": { "chat": false },
             "titles": { "generate": false }
         })
         .to_string(),
