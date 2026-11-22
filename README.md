@@ -28,6 +28,8 @@ In a session, `/accept cmd --protect tests/app.test.js npm test` sets a check. T
 
 The agent cannot set, change, skip or remove a check. A check that finds less than 80 % of the breaks is weak, and the task ends `checks passed, not certified`. After 3 failed checks in sequence, the task ends `failed`.
 
+When every check finds enough breaks, up to two attackers each write a version of a changed file that they claim is wrong, and a command that shows it wrong. An attacker is a model request that does not see the agent's reasoning or answer. When such a version passes every check, its command shows it wrong and a separate model request agrees, the task ends `checks passed, not certified`.
+
 ## Limits
 
 <p align="center"><img src="media/sort-limit.gif" width="640" alt="A $5 budget with $1 kept for the report; each round reserves its cost, spends, frees the rest; the third round would need the kept money and does not start; the report says two rounds done, two left"><br><i><code>/budget set cost=5 time=2h</code>: a step that needs the money kept for the report does not start.</i></p>
@@ -60,7 +62,7 @@ At the end, one report gives the agent's final answer and the result of each che
 
 ## Limitations
 
-There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break, for example a hard-coded answer. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
+There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break and that no attacker writes, for example a hard-coded answer. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
 
 ## Credits
 
