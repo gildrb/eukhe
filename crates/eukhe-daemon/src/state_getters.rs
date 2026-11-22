@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use crate::context_tree_cache::WalkRequest;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::wire_messages::{
-    assistant_context_tokens, entry_wire_message_with, transcript_messages, transcript_messages_of,
+    assistant_context_tokens, entry_wire_message_with, transcript_messages, transcript_rows,
 };
 use crate::worker::{model_metadata, HostedSession, Worker};
 
@@ -463,28 +463,26 @@ pub(crate) fn mirror_context_usage(entries: &[EntryRecord], meter: &ContextMeter
 }
 
 /// The active context off the event mirror as wire `AgentMessage` rows (TS
-/// `session.state.messages`): the newest head marker (the compaction
-/// summary), then the visible non-head entries from its head on -- the
-/// entries the Harness derives -- without a Harness read. The summary's
-/// `tokensBefore` is the context the last answer before it measured.
-pub(crate) fn mirror_context_messages(entries: &[EntryRecord]) -> Vec<Value> {
-    let Some(position) = entries.iter().rposition(|entry| entry.head.is_some()) else {
-        return transcript_messages_of(entries);
-    };
-    let marker = &entries[position];
-    let tokens_before = entries[..position]
-        .iter()
-        .rev()
-        .find_map(assistant_context_tokens)
-        .unwrap_or(0);
-    let start = marker.head;
+/// `session.state.messages`), one row at a time: the newest head marker
+/// (the compaction summary), then the visible non-head entries from its
+/// head on -- the entries the Harness derives -- without a Harness read.
+/// The summary's `tokensBefore` is the context the last answer before it
+/// measured. Without a marker every entry is kept.
+pub(crate) fn mirror_context_rows(entries: &[EntryRecord]) -> impl Iterator<Item = Value> + '_ {
+    let marker = entries.iter().rposition(|entry| entry.head.is_some());
+    let summary = marker.and_then(|position| {
+        let tokens_before = entries[..position]
+            .iter()
+            .rev()
+            .find_map(assistant_context_tokens)
+            .unwrap_or(0);
+        entry_wire_message_with(&entries[position], tokens_before)
+    });
+    let start = marker.and_then(|position| entries[position].head);
     let kept = entries
         .iter()
-        .filter(|entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start));
-    entry_wire_message_with(marker, tokens_before)
-        .into_iter()
-        .chain(transcript_messages_of(kept))
-        .collect()
+        .filter(move |entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start));
+    summary.into_iter().chain(transcript_rows(kept))
 }
 
 /// The context usage the clients show (`contextUsage`) of `view` against

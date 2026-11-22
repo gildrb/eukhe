@@ -21,6 +21,114 @@ pub(crate) enum AuthOutcome {
     Failed,
 }
 
+/// A command's answer as the worker writes it to its connection.
+pub(crate) enum WorkerAnswer {
+    /// A response serialized at the write.
+    Typed(DaemonResponse),
+    /// A successful attach, serialized while its transcript was read (no
+    /// tree of the whole transcript is built): the response line's bytes
+    /// and the active session the frame header names.
+    Attached {
+        active_session_id: String,
+        line: Vec<u8>,
+    },
+}
+
+impl WorkerAnswer {
+    fn success(&self) -> bool {
+        match self {
+            WorkerAnswer::Typed(response) => response.success,
+            WorkerAnswer::Attached { .. } => true,
+        }
+    }
+}
+
+impl From<DaemonResponse> for WorkerAnswer {
+    fn from(response: DaemonResponse) -> Self {
+        WorkerAnswer::Typed(response)
+    }
+}
+
+/// Whether the attach transcript keeps its image payloads.
+#[derive(Debug, Clone, Copy)]
+enum ImagePayloads {
+    Kept,
+    /// The client asked for `elide_snapshot_images`.
+    Elided,
+}
+
+impl ImagePayloads {
+    fn applied(self, mut row: Value) -> Value {
+        match self {
+            ImagePayloads::Kept => row,
+            ImagePayloads::Elided => {
+                crate::snapshot_stream::elide_snapshot_image_payloads(std::slice::from_mut(
+                    &mut row,
+                ));
+                row
+            }
+        }
+    }
+}
+
+/// The attach transcript (`messages`), serialized one row at a time: the
+/// active context off the mirror, then the streaming partial.
+struct AttachTranscript<'a> {
+    entries: &'a [eukhe_durable::types::EntryRecord],
+    partial: Option<&'a eukhe_types::pi_ai::AssistantMessage>,
+    images: ImagePayloads,
+}
+
+impl serde::Serialize for AttachTranscript<'_> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let partial = self
+            .partial
+            .and_then(super::durable_host::wire_messages::assistant_wire_message)
+            .and_then(|partial| serde_json::to_value(partial).ok());
+        serializer.collect_seq(
+            crate::state_getters::mirror_context_rows(self.entries)
+                .chain(partial)
+                .map(|row| self.images.applied(row)),
+        )
+    }
+}
+
+/// The attach result in TS `createAttachResult` key order (the wire byte
+/// order): protocol, activeSessionId, state? and messages? (non-slim),
+/// snapshot, replay, lastEventSequence, lastEventCursor, client.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachResult<'a> {
+    protocol: Value,
+    active_session_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<&'a Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    messages: Option<&'a AttachTranscript<'a>>,
+    snapshot: AttachSnapshot<'a>,
+    replay: Value,
+    last_event_sequence: u64,
+    last_event_cursor: &'a Value,
+    client: Value,
+}
+
+/// The attach `snapshot`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachSnapshot<'a> {
+    active_session_id: &'a str,
+    summary: &'a Value,
+    state: &'a Value,
+    messages: &'a AttachTranscript<'a>,
+    last_event_sequence: u64,
+    last_event_cursor: &'a Value,
+    /// RLM child roster; empty for top-level daemon sessions.
+    children: &'a [Value],
+}
+
 /// One outbound frame: the serialized JSON payload plus its private-frame
 /// `outboundType` (`session_event`, `side_question_event`, ...), mirroring the
 /// TS worker frame header. The supervisor fans frames out per its own
@@ -674,7 +782,7 @@ impl Worker {
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let task_request_id = request_id.clone();
                     let task = tokio::spawn(async move {
-                        let response = worker.dispatch(&command_type, &payload).await;
+                        let response = worker.answer(&command_type, &payload).await;
                         worker
                             .write_response_frame(&sink, &task_request_id, response)
                             .await;
@@ -719,10 +827,10 @@ impl Worker {
                     let command_type = command_type.clone();
                     let session = Arc::clone(session);
                     tokio::spawn(async move {
-                        let response = worker.dispatch(&command_type, &payload).await;
+                        let response = worker.answer(&command_type, &payload).await;
                         // The attach/detach bookkeeping reads the outcome
                         // before the write consumes the response.
-                        let success = response.success;
+                        let success = response.success();
                         if success {
                             match command_type.as_str() {
                                 "attach" => session.mark_attached(),
@@ -906,7 +1014,7 @@ impl Worker {
         &self,
         sink: &ConnectionSink,
         request_id: &str,
-        response: DaemonResponse,
+        response: impl Into<WorkerAnswer>,
     ) {
         // Flush barrier: every event frame broadcast before this response
         // reaches the connection's writer first, so a command response
@@ -924,21 +1032,34 @@ impl Worker {
         // by bytes. The header is the worker socket's own routing frame;
         // direct-attach clients read it as a JSON object and ignore fields
         // they do not know.
-        if matches!(response.command.as_str(), "attach" | "reattach") {
-            header["ok"] = json!(response.success);
-            if let Some(active_session_id) = response
-                .data
-                .as_ref()
-                .and_then(|data| data.get("activeSessionId"))
-                .and_then(Value::as_str)
-            {
-                header["activeSessionId"] = json!(active_session_id);
+        let payload = match response.into() {
+            WorkerAnswer::Typed(response) => {
+                if matches!(response.command.as_str(), "attach" | "reattach") {
+                    header["ok"] = json!(response.success);
+                    if let Some(active_session_id) = response
+                        .data
+                        .as_ref()
+                        .and_then(|data| data.get("activeSessionId"))
+                        .and_then(Value::as_str)
+                    {
+                        header["activeSessionId"] = json!(active_session_id);
+                    }
+                }
+                // Serialize the line from the borrowed trees (no
+                // per-response payload clone); the wire bytes are identical
+                // to the tree-built line.
+                crate::protocol::response_line_bytes(&response)
             }
-        }
-        // Serialize the line from the borrowed trees (no per-response
-        // payload clone) and write the frame without re-buffering the
-        // payload; the wire bytes are identical to the tree-built line.
-        let payload = crate::protocol::response_line_bytes(&response);
+            WorkerAnswer::Attached {
+                active_session_id,
+                line,
+            } => {
+                header["ok"] = json!(true);
+                header["activeSessionId"] = json!(active_session_id);
+                line
+            }
+        };
+        // Write the frame without re-buffering the payload.
         if let Err(error) = self
             .write_frame_segments(&sink.writer, &header, &payload)
             .await
@@ -949,9 +1070,28 @@ impl Worker {
 }
 
 impl Worker {
+    /// One command's answer: an attach serialized while its transcript is
+    /// read, every other command typed.
+    pub(crate) async fn answer(&self, command_type: &str, payload: &Value) -> WorkerAnswer {
+        match command_type {
+            "attach" => self.attach_answer(payload),
+            _ => WorkerAnswer::Typed(self.dispatch(command_type, payload).await),
+        }
+    }
+
+    /// The attach as a typed response (the in-process `dispatch` form): the
+    /// line [`Self::attach_answer`] writes, read back.
     pub(crate) fn handle_attach(&self, payload: &Value) -> DaemonResponse {
+        match self.attach_answer(payload) {
+            WorkerAnswer::Typed(response) => response,
+            WorkerAnswer::Attached { line, .. } => serde_json::from_slice(&line)
+                .unwrap_or_else(|error| response_failure(None, "attach", &error.to_string(), None)),
+        }
+    }
+
+    fn attach_answer(&self, payload: &Value) -> WorkerAnswer {
         if let Err(response) = self.require_created("attach") {
-            return response;
+            return WorkerAnswer::Typed(response);
         }
         // Warm the context-tree cache at every (re)attach (the operators'
         // Esc agents-view round trip re-attaches): the background walk
@@ -1049,28 +1189,6 @@ impl Worker {
             }
         }
         let summary = self.summary_locked(&core);
-        // The shown conversation's active context (TS `session.state.messages`:
-        // the compaction summary first, then the kept entries), from the same
-        // mirror (and under the same lock) the event sequence advances with.
-        let mut messages: Vec<Value> = core
-            .view
-            .as_ref()
-            .map(|view| {
-                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
-            })
-            .unwrap_or_default();
-        // A streaming assistant message is part of the attach state: the
-        // client shows the in-flight partial, later `message_update`s
-        // continue it.
-        if let Some(partial) = core
-            .view
-            .as_ref()
-            .and_then(|view| view.translator.mirror().partial.as_ref())
-            .and_then(super::durable_host::wire_messages::assistant_wire_message)
-            .and_then(|partial| serde_json::to_value(partial).ok())
-        {
-            messages.push(partial);
-        }
         // The image-payload elision (the image-heavy session-open fix): a
         // client that advertised `elide_snapshot_images` reads the
         // transcript without the base64 payloads (their fallback-only
@@ -1080,61 +1198,62 @@ impl Worker {
         let client_capabilities = echoed_client_capabilities
             .clone()
             .unwrap_or_else(|| capabilities.clone());
-        if crate::snapshot_stream::wants_image_elision(&client_capabilities) {
-            crate::snapshot_stream::elide_snapshot_image_payloads(&mut messages);
-        }
+        let images = if crate::snapshot_stream::wants_image_elision(&client_capabilities) {
+            ImagePayloads::Elided
+        } else {
+            ImagePayloads::Kept
+        };
         let state = self.connection_state_locked(&core);
         let last_event_sequence = core.last_event_sequence;
         let generation = core.generation.clone();
         let active_session_id = core.active_session_id.clone();
-        drop(core);
         let replay =
             create_daemon_replay_info(resume_cursor.as_ref(), last_event_sequence, &generation);
         let cursor = json!({ "generation": generation, "sequence": last_event_sequence });
         let summary_value = serde_json::to_value(&summary).unwrap_or(Value::Null);
         let state_value = serde_json::to_value(&state).unwrap_or(Value::Null);
-        // The messages move into the snapshot once: the old `json!` build
-        // deep-copied them here and moved the original into the non-slim
-        // top level, holding two message trees per attach.
-        let mut snapshot = json!({
-            "activeSessionId": active_session_id,
-            "summary": summary_value,
-            "state": state_value,
-            "messages": Value::Null,
-            "lastEventSequence": last_event_sequence,
-            "lastEventCursor": cursor,
-            // RLM child roster; empty for top-level daemon sessions.
-            "children": [],
-        });
-        snapshot["messages"] = Value::Array(messages);
+        // The shown conversation's active context (TS `session.state.messages`:
+        // the compaction summary first, then the kept entries), from the same
+        // mirror (and under the same lock) the event sequence advances with.
+        // A streaming assistant message is part of the attach state: the
+        // client shows the in-flight partial, later `message_update`s
+        // continue it.
+        let mirror = core.view.as_ref().map(|view| view.translator.mirror());
+        let transcript = AttachTranscript {
+            entries: mirror.map_or(&[][..], |mirror| mirror.entries.as_slice()),
+            partial: mirror.and_then(|mirror| mirror.partial.as_ref()),
+            images,
+        };
         // Slim clients read summary/messages from the snapshot; duplicating
         // them at the top level would serialize the history twice per attach
         // (port of `createAttachResult`).
         let slim = capabilities.iter().any(|cap| cap == "slim_attach");
-        // TS `createAttachResult` key order: protocol, activeSessionId,
-        // state?, messages? (non-slim), snapshot, replay,
-        // lastEventSequence, lastEventCursor, client. The JSON map
-        // preserves insertion order (the wire byte order), so the
-        // non-slim keys insert at their TS positions, not appended.
-        let mut result = json!({
-            "protocol": { "name": "eukhe.daemon", "version": 7 },
-            "activeSessionId": active_session_id,
-        });
-        if !slim {
-            result["state"] = summary_value;
-            // The non-slim top-level duplication (same wire bytes as
-            // before): one message tree lives in the snapshot, the
-            // duplicate is cloned out of it.
-            result["messages"] = snapshot["messages"].clone();
-        }
-        result["snapshot"] = snapshot;
-        result["replay"] = json!(replay);
-        result["lastEventSequence"] = json!(last_event_sequence);
-        result["lastEventCursor"] = cursor;
-        result["client"] = json!({
-            "id": client_id,
-            "capabilities": echoed_client_capabilities.unwrap_or(capabilities),
-        });
+        let line = crate::protocol::success_line_bytes(
+            "attach",
+            &AttachResult {
+                protocol: json!({ "name": "eukhe.daemon", "version": 7 }),
+                active_session_id: &active_session_id,
+                state: (!slim).then_some(&summary_value),
+                messages: (!slim).then_some(&transcript),
+                snapshot: AttachSnapshot {
+                    active_session_id: &active_session_id,
+                    summary: &summary_value,
+                    state: &state_value,
+                    messages: &transcript,
+                    last_event_sequence,
+                    last_event_cursor: &cursor,
+                    children: &[],
+                },
+                replay: json!(replay),
+                last_event_sequence,
+                last_event_cursor: &cursor,
+                client: json!({
+                    "id": client_id,
+                    "capabilities": echoed_client_capabilities.unwrap_or(capabilities),
+                }),
+            },
+        );
+        drop(core);
         // Client-env adoption (TS `adoptClientEnv`): a pane opening an
         // env-less session (e.g. cron-created) hands its Herdr identity
         // to the reporter — adopt-if-absent, never overwrite: a session
@@ -1184,7 +1303,18 @@ impl Worker {
             }
         }
 
-        response_success(None, "attach", Some(result))
+        match line {
+            Ok(line) => WorkerAnswer::Attached {
+                active_session_id,
+                line,
+            },
+            Err(error) => WorkerAnswer::Typed(response_failure(
+                None,
+                "attach",
+                &format!("Session attach result could not be serialized: {error}"),
+                None,
+            )),
+        }
     }
 
     /// Register one connection's retained attach (the per-connection
