@@ -32,7 +32,6 @@ from pathlib import Path
 from uuid import uuid4
 from typing import Any, Literal
 
-from .factory import require_factory_enabled, validate_factory_spec
 
 if sys.platform == "darwin":
     import fcntl
@@ -346,6 +345,8 @@ def _validate_factory_arguments(entry_name: str, arguments: dict[str, Any]) -> N
         raise ValueError(
             f"factory entry {entry_name!r} rejected: factory entries require a dag or machine object in arguments"
         )
+    from .factory import validate_factory_spec
+
     errors = validate_factory_spec(spec)
     if errors:
         raise ValueError(f"factory entry {entry_name!r} rejected: {'; '.join(errors)}")
@@ -399,6 +400,8 @@ def _validate_entry_shape(
         # store an unusable entry that run() later rejects); an update that
         # omits arguments (None) preserves the stored spec and skips
         # validation, exactly like update_skill treats reference.
+        from .factory import require_factory_enabled
+
         require_factory_enabled()
         if arguments is None and existing is None:
             raise ValueError(
@@ -1146,6 +1149,8 @@ class HarnessState:
     ) -> HarnessEntry:
         # The opt-in gate precedes the dry run, so a disabled factory
         # refuses with the one disabled message whatever the spec looks like.
+        from .factory import require_factory_enabled, validate_factory_spec
+
         require_factory_enabled()
         # Write-time dry run: an invalid spec (either form) never reaches the
         # store. The spec is deep-copied before storing: mutating the caller's
@@ -1183,6 +1188,8 @@ class HarnessState:
         # The opt-in gate precedes the spec and existence checks, so a
         # disabled factory refuses with the one disabled message whatever the
         # update carries.
+        from .factory import require_factory_enabled, validate_factory_spec
+
         require_factory_enabled()
         # Only validate a spec when one is supplied; omitting both preserves the
         # stored arguments (see _upsert) rather than forcing every title/content

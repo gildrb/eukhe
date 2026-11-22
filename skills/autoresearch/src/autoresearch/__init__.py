@@ -10,10 +10,12 @@ decimal strings. They only work inside the Eukhe Python kernel.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rlm import host_request
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 _STATUSES = ("keep", "discard", "crash", "checks_failed")
 _DIRECTIONS = ("lower", "higher")
@@ -37,6 +39,10 @@ def _text(name: str, value: Any, *, optional: bool = False) -> None:
 
 
 def _decimal(value: str | None) -> Decimal | None:
+    # decimal loads at the first comparison: the kernel pre-imports this
+    # skill in every session.
+    from decimal import Decimal, InvalidOperation
+
     if value is None:
         return None
     try:

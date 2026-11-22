@@ -32,7 +32,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from . import factory as factory_module
 from . import pip as pip_module
 from .bash import _kill_live_handles
 
@@ -1773,7 +1772,7 @@ def _handle_request_line(raw: bytes, queue: asyncio.Queue[dict[str, Any]]) -> No
         _handle_bash_activity(req)
         return
     if rtype == "factory_activity":
-        from .factory import ACTIVITY_ACTIONS, ACTIVITY_TIMEOUT_MS_CAP
+        from .factory import ACTIVITY_ACTIONS, ACTIVITY_TIMEOUT_MS_CAP, schedule_activity
 
         if req["action"] not in ACTIVITY_ACTIONS:
             _protocol_error(f"unknown factory activity action: {req['action']!r}")
@@ -1798,7 +1797,7 @@ def _handle_request_line(raw: bytes, queue: asyncio.Queue[dict[str, Any]]) -> No
         # Like bash_activity, this bypasses the cell FIFO: the factory view
         # must answer while a cell runs. The handler schedules the async
         # activity on this loop and replies when it settles.
-        _loop.call_soon_threadsafe(factory_module.schedule_activity, req)
+        _loop.call_soon_threadsafe(schedule_activity, req)
         return
     if rtype in ("execute", "snapshot", "restore"):
         with _interrupt_lock:
