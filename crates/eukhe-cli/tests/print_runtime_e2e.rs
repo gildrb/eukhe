@@ -137,7 +137,7 @@ fn print_mode_traces_progress_on_a_terminal_stderr() {
         position("-- "),
     ];
     assert!(order.is_sorted(), "{order:?} in {trace}");
-    assert!(lines[order[4]].contains(" 2 tools - "), "{trace}");
+    assert!(lines[order[4]].contains(" 2 tools, 1 failed - "), "{trace}");
     assert!(trace.is_ascii(), "{trace}");
 }
 

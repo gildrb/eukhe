@@ -307,23 +307,27 @@ fn fold_turns(messages: &[AgentMessage], tail: TurnTail<'_>) -> (Vec<ChatEntry>,
     let mut turn: Option<TurnFold> = None;
     for message in ordered {
         if let Some(result) = tool_result_message_view(message) {
-            if let (AgentMessage::ToolResult(stored), Some(turn)) = (message, turn.as_mut()) {
-                if stored.is_error {
-                    turn.tool_failed();
-                }
-            }
-            let tool_call_id = result.tool_call_id.clone();
-            if let Some(result) = settle_last_pending(
-                &mut chat,
-                card_index.get(&tool_call_id).map(Vec::as_slice),
-                result,
-            ) {
-                // No pending card took the result (a true orphan, or a
+            let pending = last_pending(
+                &chat,
+                card_index.get(&result.tool_call_id).map(Vec::as_slice),
+            );
+            let index = if let Some(index) = pending {
+                settle(&mut chat[index], result.view);
+                index
+            } else {
+                // No pending card takes the result (a true orphan, or a
                 // leftover settle): it keeps its standalone card AT ITS
                 // OWN WIRE POSITION - exactly the live push path's
                 // semantics (the result never crosses a later reused
                 // invocation, and condensation never spans it).
                 chat.push(orphan_card(result));
+                chat.len() - 1
+            };
+            // The footer counts the calls their cards mark failed.
+            if let (Some(turn), Some(ChatEntry::Tool(card))) = (turn.as_mut(), chat.get(index)) {
+                if crate::tool_card::marks_failed(card) {
+                    turn.tool_failed();
+                }
             }
             continue;
         }
@@ -436,30 +440,17 @@ fn collapse_retry_episode(
     }
 }
 
-/// Settle one result onto the LAST pending card among `indices` (the
-/// live `rposition` semantics). `Some(result)` hands the result back
-/// whole for the caller's deferral or orphan handling; `None` settled
-/// it.
-fn settle_last_pending(
-    chat: &mut [ChatEntry],
-    indices: Option<&[usize]>,
-    result: ToolResultReplay,
-) -> Option<ToolResultReplay> {
-    let Some(indices) = indices else {
-        return Some(result);
-    };
-    let pending = indices.iter().rev().copied().find(
+/// The LAST pending card among `indices` (the live `rposition`
+/// semantics), the one a result settles onto.
+fn last_pending(chat: &[ChatEntry], indices: Option<&[usize]>) -> Option<usize> {
+    indices?.iter().rev().copied().find(
         |&index| matches!(chat.get(index), Some(ChatEntry::Tool(card)) if card.result.is_none()),
-    );
-    let Some(index) = pending else {
-        return Some(result);
-    };
-    let ToolResultReplay {
-        tool_call_id: _,
-        tool_name: _,
-        view,
-    } = result;
-    if let Some(ChatEntry::Tool(card)) = chat.get_mut(index) {
+    )
+}
+
+/// Settle one result onto its pending card.
+fn settle(entry: &mut ChatEntry, view: crate::chat::ToolResultView) {
+    if let ChatEntry::Tool(card) = entry {
         card.started = true;
         // Replayed cards never saw the live execution: the timing
         // collapses to the rebuild instant, so the bash `Took` row
@@ -470,7 +461,6 @@ fn settle_last_pending(
         card.result = Some(view);
         card.result_partial = false;
     }
-    None
 }
 
 /// The standalone card a true orphan result keeps (the live push

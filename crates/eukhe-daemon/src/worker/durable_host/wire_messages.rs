@@ -209,8 +209,9 @@ fn custom_message(entry: &EntryRecord) -> Option<Value> {
 }
 
 /// The wire form of an engine's own input ([`HiddenInput`]): a custom
-/// message with `display: false`, as every client hides it; the model's
-/// copy stays the entry's user message.
+/// message with `display: false`; the TUI shows the engine continuations
+/// among them as one dim labelled row (`[reminder]`, `[auto]`, ...) and
+/// hides the rest. The model's copy stays the entry's user message.
 fn hidden_message(hidden: &HiddenInput<'_>) -> Value {
     json!({
         "role": "custom",

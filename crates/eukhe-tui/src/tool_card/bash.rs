@@ -116,6 +116,18 @@ fn outcome(result: &ToolResultView) -> Outcome {
     }
 }
 
+/// The settled card's `x`: an error result, a nonzero exit, or a refusal.
+pub(super) fn failed(card: &ToolCallCard) -> bool {
+    card.result.as_ref().is_some_and(|result| {
+        result.is_error
+            || match outcome(result) {
+                Outcome::Exited(code) => code != 0,
+                Outcome::Refused(_) => true,
+                Outcome::Detached | Outcome::Unknown => false,
+            }
+    })
+}
+
 /// The one-row summary (the whole card at the default detail).
 fn summary_row<'a>(card: &'a ToolCallCard, script: Option<&str>, output: &str) -> SummaryRow<'a> {
     let argument = match script {

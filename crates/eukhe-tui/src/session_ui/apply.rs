@@ -828,7 +828,15 @@ impl SessionUi {
                 // the aborted run must not rewrite the new turn's activity
                 // label or clear its loader note.
                 if self.apply_tool_result(&tool_call_id, &result, is_error, false, view) {
-                    if is_error {
+                    // The footer counts the calls their cards mark failed;
+                    // the result landed on the newest card with the id.
+                    let failed = view.chat.iter().rev().find_map(|entry| match entry {
+                        ChatEntry::Tool(card) if card.id == tool_call_id => {
+                            Some(crate::tool_card::marks_failed(card))
+                        }
+                        _ => None,
+                    });
+                    if failed == Some(true) {
                         self.turn_usage.tool_failed();
                     }
                     Self::set_working_phase(TurnPhase::Requesting, view);

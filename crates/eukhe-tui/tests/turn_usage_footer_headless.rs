@@ -1,7 +1,8 @@
 //! The turn's usage footer end to end: a mock daemon streams one turn (a
-//! tool round with three calls, one failing, then the answer) with
-//! provider usage and stream timings; the live chat closes the turn with
-//! its footer, the status line shows the running turn's `cache NN%`
+//! tool round with three calls, the test run exiting nonzero, then the
+//! answer) with provider usage and stream timings; the live chat closes
+//! the turn with its footer, which counts the call its card marks `x`
+//! failed, the status line shows the running turn's `cache NN%`
 //! meanwhile, and a re-attach to the stored transcript folds the same
 //! footer.
 #![cfg(unix)]
@@ -85,7 +86,8 @@ fn answer() -> Value {
     )
 }
 
-/// The three tool results: `(id, name, text, is_error)`.
+/// The three tool results: `(id, name, text, is_error)`. The test run is
+/// no error result: its script exits 101 ([`details`]).
 const RESULTS: [(&str, &str, &str, bool); 3] = [
     ("tc-read", "read", "fn greet() {}", false),
     ("tc-edit", "edit", "patched", false),
@@ -93,9 +95,18 @@ const RESULTS: [(&str, &str, &str, bool); 3] = [
         "tc-test",
         "bash",
         "error[E0425]: cannot find function `greet2`",
-        true,
+        false,
     ),
 ];
+
+/// A result's details: the bash script's nonzero exit.
+fn details(name: &str) -> Value {
+    if name == "bash" {
+        json!({ "version": "bash@1", "steps": [], "end": { "kind": "finished", "status": 101 } })
+    } else {
+        Value::Null
+    }
+}
 
 fn attach_data(messages: &Value) -> Value {
     json!({
@@ -130,7 +141,8 @@ fn stored_turn() -> Value {
     messages.extend(RESULTS.iter().map(|(id, name, text, is_error)| {
         json!({
             "role": "toolResult", "toolCallId": id, "toolName": name,
-            "content": [{ "type": "text", "text": text }], "isError": is_error, "timestamp": 2_000,
+            "content": [{ "type": "text", "text": text }], "details": details(name),
+            "isError": is_error, "timestamp": 2_000,
         })
     }));
     messages.push(answer());
@@ -166,7 +178,8 @@ fn stream_turn(writer: &mut UnixStream) {
         send(
             writer,
             json!({ "type": "tool_execution_end", "toolCallId": id, "toolName": name,
-            "result": { "content": [{ "type": "text", "text": text }] }, "isError": is_error }),
+            "result": { "content": [{ "type": "text", "text": text }], "details": details(name) },
+            "isError": is_error }),
         );
     }
     send(
@@ -361,6 +374,7 @@ fn the_live_turn_ends_with_its_usage_footer_and_shows_its_cache_share_meanwhile(
         .position(|row| row.contains("Fixed the greeting in src/hello.rs."))
         .expect("the answer");
     assert!(answer < footer, "{last}");
+    assert!(failed_card(&rows), "the test run's card shows x:\n{last}");
     assert!(
         !last.contains("cache 9"),
         "the idle status line drops the share:\n{last}"
@@ -383,6 +397,14 @@ fn a_reattach_folds_the_same_footer_from_the_stored_turn() {
     let last = frames.last().expect("frames");
     let rows = rows(last);
     let footer = rows.iter().position(|row| *row == FOOTER).expect("footer");
+    assert!(failed_card(&rows), "the test run's card shows x:\n{last}");
     assert!(rows[..=footer].iter().all(|row| row.is_ascii()), "{last}");
     assert!(last.is_ascii(), "{last}");
+}
+
+/// The bash card marks the nonzero exit failed (`x`), the call the
+/// footer's `1 failed` counts.
+fn failed_card(rows: &[&str]) -> bool {
+    rows.iter()
+        .any(|row| row.trim_start().starts_with("x  bash"))
 }

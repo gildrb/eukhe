@@ -163,6 +163,18 @@ pub fn render_tool_card(
     }
 }
 
+/// The settled card marks its call failed (`x`): an error result, and
+/// for `bash` and `python` a nonzero exit or a refusal too. The turn's
+/// usage footer counts its failed calls by the same mark.
+#[must_use]
+pub(crate) fn marks_failed(card: &ToolCallCard) -> bool {
+    match card.name.as_str() {
+        "python" | "ipython" => ipython::failed(card),
+        "bash" => bash::failed(card),
+        _ => card.result.as_ref().is_some_and(|result| result.is_error),
+    }
+}
+
 /// The generic panel status (TS `ToolExecutionComponent.panelStatus`):
 /// the last non-partial result settles the card; error wins even while
 /// streaming; `running` animates until then.

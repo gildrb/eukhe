@@ -27,6 +27,12 @@ pub const DASH: &str = "--";
 /// Status marks.
 pub const OK: &str = "ok";
 pub const FAIL: &str = "x";
+/// One-cell status marks, where the two-cell `ok` does not fit (the
+/// workflow view's phases and agents): done, reused from the cache,
+/// cancelled.
+pub const DONE: &str = "+";
+pub const CACHED: &str = "=";
+pub const CANCELLED: &str = "-";
 /// A filled and an empty state dot (running / idle).
 pub const DOT_ON: &str = "*";
 pub const DOT_OFF: &str = "o";

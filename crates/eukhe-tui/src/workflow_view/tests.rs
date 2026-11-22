@@ -74,10 +74,10 @@ fn a_run_renders_its_phases_agents_and_log() {
             "",
             "  review  medium | 2/10 agents | 1 running | 1 done | 0 failed | running",
             "  run 14  Review the repo",
-            "  ✓ Scan",
-            "    › ✓ scan api  found 2 bugs",
-            "  ▶ Fix",
-            "      ▶ fix api",
+            "  + Scan",
+            "    > + scan api  found 2 bugs",
+            "  * Fix",
+            "      * fix api",
             "    log: phase: Fix",
             "",
             "  up/down move - Enter agents view - c cancel run - Esc close",
@@ -89,7 +89,7 @@ fn a_run_renders_its_phases_agents_and_log() {
 fn the_arrows_walk_the_agents_and_c_then_y_cancels() {
     let mut view = WorkflowView::new(vec![run()], 40);
     assert_eq!(view.handle_key("down", &kb()), WorkflowViewAction::None);
-    assert!(text(&view).contains(&"    › ▶ fix api".to_owned()));
+    assert!(text(&view).contains(&"    > * fix api".to_owned()));
     assert_eq!(
         view.handle_key("enter", &kb()),
         WorkflowViewAction::OpenAgents
@@ -105,6 +105,43 @@ fn the_arrows_walk_the_agents_and_c_then_y_cancels() {
         }
     );
     assert_eq!(view.handle_key("escape", &kb()), WorkflowViewAction::Close);
+}
+
+/// Every status mark, the selection pointer, the cancel prompt and the
+/// error line draw ASCII only, one cell per mark.
+#[test]
+fn every_frame_byte_is_ascii() {
+    let mut run = run();
+    run.phases.push(WorkflowPhase {
+        title: "Ship".to_owned(),
+        state: WorkflowPhaseState::Pending,
+    });
+    run.agents.extend([
+        agent(3, "cached api", "Fix", WorkflowAgentStatus::Cached),
+        agent(4, "failed api", "Fix", WorkflowAgentStatus::Failed),
+        agent(5, "queued api", "Ship", WorkflowAgentStatus::Queued),
+        agent(6, "cancelled api", "Ship", WorkflowAgentStatus::Cancelled),
+        agent(7, "loose api", "None", WorkflowAgentStatus::Running),
+    ]);
+    let mut view = WorkflowView::new(vec![run], 40);
+    view.confirming = Some("14".to_owned());
+    view.error = Some("the daemon went away".to_owned());
+    let rows = text(&view);
+    for row in &rows {
+        assert!(row.is_ascii(), "{row:?}");
+    }
+    for (label, mark) in [
+        ("cached api", "="),
+        ("failed api", "x"),
+        ("queued api", "~"),
+        ("cancelled api", "-"),
+    ] {
+        assert!(
+            rows.contains(&format!("      {mark} {label}")),
+            "{label}: {rows:#?}"
+        );
+    }
+    assert!(rows.contains(&"  ~ Ship".to_owned()), "{rows:#?}");
 }
 
 #[test]
