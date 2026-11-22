@@ -125,7 +125,7 @@ impl TreeStamp {
 /// The not ignored paths under `dir`, or why there are none: past
 /// [`MAX_WORKSPACE_FILES`] the walk stops.
 fn bounded_walk(dir: &Path) -> Result<BTreeSet<PathBuf>, String> {
-    let paths = files::walked(dir, Listing::NotIgnored)
+    let paths = files::walked(dir, Listing::NotIgnored, Vec::new())
         .take(MAX_WORKSPACE_FILES + 1)
         .collect::<io::Result<BTreeSet<PathBuf>>>()
         .map_err(|error| format!("{} cannot be listed: {error}", dir.display()))?;

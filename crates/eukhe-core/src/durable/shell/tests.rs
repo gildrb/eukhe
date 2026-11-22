@@ -421,7 +421,7 @@ async fn the_first_script_naming_git_in_a_childs_copy_shows_the_childs_changes()
     let parent = fixture.dir.path().join("work");
     std::fs::write(parent.join("a.txt"), "a0\n").expect("parent file");
     let workspace = ChildWorkspace::at(fixture.dir.path().join("ws"));
-    workspace.create(&parent).await.expect("child copy");
+    workspace.create(&parent, &[]).await.expect("child copy");
     let tree = workspace.tree();
     std::fs::write(tree.join("a.txt"), "a-child\n").expect("child edit");
     let before = tree.join(".git").exists();

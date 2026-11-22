@@ -270,22 +270,33 @@ impl ChildWorkspace {
     /// workspace already created is kept, a create a crash cut starts
     /// over.
     ///
+    /// `state` names Eukhe's own state directories (the agent dir, the
+    /// work root): the copy never holds one that lies inside `parent` (a
+    /// parent working in the home directory holds `~/.eukhe`), whose
+    /// files the daemon writes and renames while the copy runs.
+    ///
     /// # Errors
     ///
     /// The parent's workspace has more than [`MAX_WORKSPACE_FILES`]
     /// paths, or a path cannot be listed, read or copied.
     #[tracing::instrument(skip(self), fields(root = %self.root.display()))]
-    pub async fn create(&self, parent: &Path) -> anyhow::Result<CopyReport> {
-        self.create_asking(parent, OsStr::new(trust::MISE)).await
+    pub async fn create(&self, parent: &Path, state: &[&Path]) -> anyhow::Result<CopyReport> {
+        self.create_asking(parent, state, OsStr::new(trust::MISE))
+            .await
     }
 
     /// [`Self::create`], asking `mise` (the program) for the parent's
     /// trust.
-    async fn create_asking(&self, parent: &Path, mise: &OsStr) -> anyhow::Result<CopyReport> {
+    async fn create_asking(
+        &self,
+        parent: &Path,
+        state: &[&Path],
+        mise: &OsStr,
+    ) -> anyhow::Result<CopyReport> {
         if let Some(manifest) = read_json::<Manifest>(&self.root.join(MANIFEST))? {
             return Ok(manifest.copy);
         }
-        let paths = files::parent_paths(parent).await?;
+        let paths = files::parent_paths(parent, inside(parent, state)).await?;
         if paths.len() > MAX_WORKSPACE_FILES {
             anyhow::bail!(
                 "{} holds {} files, more than an isolated workspace copies ({MAX_WORKSPACE_FILES}); \
@@ -434,6 +445,27 @@ fn staging_of(root: &Path) -> PathBuf {
     let mut staging = root.as_os_str().to_os_string();
     staging.push(".staging");
     PathBuf::from(staging)
+}
+
+/// The directories of `dirs` that lie inside `parent`, relative to it: as
+/// named, or resolved (symlinks, `..`) when both resolve. A directory
+/// `parent` is, or lies in, is not inside it.
+fn inside(parent: &Path, dirs: &[&Path]) -> Vec<PathBuf> {
+    let resolved = fs::canonicalize(parent).ok();
+    let mut inside = Vec::new();
+    for dir in dirs {
+        let named = dir.strip_prefix(parent).ok().map(Path::to_path_buf);
+        let real = resolved
+            .as_ref()
+            .zip(fs::canonicalize(dir).ok())
+            .and_then(|(parent, dir)| dir.strip_prefix(parent).ok().map(Path::to_path_buf));
+        for relative in [named, real].into_iter().flatten() {
+            if !relative.as_os_str().is_empty() && !inside.contains(&relative) {
+                inside.push(relative);
+            }
+        }
+    }
+    inside
 }
 
 /// Copy `paths` of `parent` into `staging`, after removing what an

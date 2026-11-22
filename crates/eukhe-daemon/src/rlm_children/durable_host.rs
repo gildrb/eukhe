@@ -375,13 +375,22 @@ impl durable::RlmSubagentHost for SupervisorChildSessions {
                 let cwd = match request.workspace {
                     WorkspaceMode::Shared => parent_cwd,
                     // Idempotent: a rerun after a restart keeps the copy
-                    // the child already works in.
+                    // the child already works in. The copy leaves out the
+                    // agent dir and the work root (a parent working in the
+                    // home directory holds both): the daemon writes there,
+                    // and a sibling's copy is staged there meanwhile.
                     WorkspaceMode::Isolated => {
                         let workspace = ChildWorkspace::at(
                             this.workspace_root(&request.child.rlm_child_id, &identity)?,
                         );
+                        let work_root = eukhe_types::platform::dirs::work_root_of(&this.agent_dir);
+                        let state: Vec<&Path> =
+                            [Some(this.agent_dir.as_path()), work_root.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .collect();
                         workspace
-                            .create(Path::new(&parent_cwd))
+                            .create(Path::new(&parent_cwd), &state)
                             .await
                             .context("cannot create the child's isolated workspace")?;
                         workspace.tree().to_string_lossy().into_owned()
