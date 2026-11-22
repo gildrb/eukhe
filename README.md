@@ -1,6 +1,6 @@
 # Eukhe
 
-Eukhe is an agent harness that works a task with no person watching and gives a report at the end. A task is done only when the user's checks pass on the final code.
+Eukhe is an agent harness that works a task with no person watching, counts it done only when the user's checks pass on the final code, and gives a report at the end.
 
 ## Install
 
@@ -25,11 +25,11 @@ In a session, `/accept cmd --protect tests/app.test.js npm test` sets a check. T
 
 ## Checks
 
-<p align="center"><b>Task:</b> "sort the list"<br><img src="media/sort-1.gif" width="640" alt="Sixteen bars sort in four rounds; the agent says done; the check fills each bar blue from left to right: checks passed"><br><i>The agent says done. The check passes.</i></p>
+<p align="center"><b>Task:</b> "sort the list"<br><img src="media/sort-1.webp" width="640" alt="Sixteen bars sort in four rounds; the agent says done; the check fills each bar blue from left to right: checks passed"><br><i>The agent says done. The check passes.</i></p>
 
-<p align="center"><b>Next task:</b> "make the sort faster"<br><img src="media/sort-2.gif" width="640" alt="The faster sort takes two rounds and leaves two bars swapped; the agent says done; the check stops red at the pair; the agent swaps them back"><br><i>Two values are out of order. The task goes back to the agent.</i></p>
+<p align="center"><b>Next task:</b> "make the sort faster"<br><img src="media/sort-2.webp" width="640" alt="The faster sort takes two rounds and leaves two bars swapped; the agent says done; the check stops red at the pair; the agent swaps them back"><br><i>Two values are out of order. The task goes back to the agent.</i></p>
 
-<p align="center"><b>Before a pass counts:</b><br><img src="media/sort-3.gif" width="640" alt="Eukhe drops the last merge round on purpose; the check stops red where the two halves meet; the break is undone and the check passes"><br><i>Eukhe breaks the code on purpose. The check finds the break.</i></p>
+<p align="center"><b>Before a pass counts:</b><br><img src="media/sort-3.webp" width="640" alt="Eukhe drops the last merge round on purpose; the check stops red where the two halves meet; the break is undone and the check passes"><br><i>Eukhe breaks the code on purpose. The check finds the break.</i></p>
 
 The agent cannot set, change, skip or remove a check. A check that finds less than 80 % of the breaks is weak, and the task ends `checks passed, not certified`. After 3 failed checks in sequence, the task ends `failed`.
 
@@ -37,7 +37,7 @@ When every check finds enough breaks, up to two attackers each write a version o
 
 ## Limits
 
-<p align="center"><img src="media/sort-limit.gif" width="640" alt="A $5 budget with $1 kept for the report; each round reserves its cost, spends, frees the rest; the third round would need the kept money and does not start; the report says two rounds done, two left"><br><i><code>/budget set cost=5 time=2h</code>: a step that needs the money kept for the report does not start.</i></p>
+<p align="center"><img src="media/sort-limit.webp" width="640" alt="A $5 budget with $1 kept for the report; each round reserves its cost, spends, frees the rest; the third round would need the kept money and does not start; the report says two rounds done, two left"><br><i><code>/budget set cost=5 time=2h</code>: a step that needs the money kept for the report does not start.</i></p>
 
 Each step reserves its maximum cost before it starts. The report gives the work done, the work not done and the limit that stopped it.
 
@@ -47,13 +47,13 @@ When a model cannot continue because its retries are used up, its login expired 
 
 ## Crash recovery
 
-<p align="center"><img src="media/sort-crash.gif" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
+<p align="center"><img src="media/sort-crash.webp" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
 
 Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is recorded as not run, and the run continues. `/effects` shows these steps.
 
 ## Parallel work
 
-<p align="center"><img src="media/sort-split.gif" width="640" alt="The agent gives each half of the list to a child; both children sort their half at the same time; the halves come back and the agent merges them; the check passes"><br><i>Two child agents each sort one half at the same time. The parent agent merges the halves.</i></p>
+<p align="center"><img src="media/sort-split.webp" width="640" alt="The agent gives each half of the list to a child; both children sort their half at the same time; the halves come back and the agent merges them; the check passes"><br><i>Two child agents each sort one half at the same time. The parent agent merges the halves.</i></p>
 
 Each child works on its own files in its own copy. A parent can set the checks of a child.
 

@@ -17,7 +17,6 @@
     "@stylexjs/unplugin": "^0.19.1",
     "@types/node": "^26.6.2",
     "preact-render-to-string": "^6.7.0",
-    "sharp": "0.35.5",
     "vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000",
     "vite-plus": "1.7.0",
     "wrangler": "4.166.0"

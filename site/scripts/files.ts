@@ -10,7 +10,6 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import sharp from "sharp";
 
 import type { SourceFile } from "../src/render.tsx";
 import type { Shown } from "../src/rendered.ts";
@@ -55,7 +54,7 @@ function reach(blobs: Set<string>, file: string, link: string): string[] {
   return files;
 }
 
-/** An image the README shows (`<img src="media/x.gif">`): its repository path and its bytes. */
+/** An image the README shows (`<img src="media/x.webp">`): its repository path and its bytes. */
 export type Image = { path: string; bytes: Buffer };
 
 /** The repository paths of the README's `<img src>` attributes, in the README's order. */
@@ -82,30 +81,27 @@ export async function images(root: string): Promise<Image[]> {
   );
 }
 
-/** An image's width and height in pixels, from its header (GIF, PNG); another type fails the build. */
+/**
+ * An image's width and height in pixels, from its header (GIF, PNG, extended WebP: every animated
+ * one); another type fails the build.
+ */
 export function imageSize(image: Image): readonly [number, number] {
   const b = image.bytes;
   if (b.subarray(0, 4).toString("latin1") === "GIF8") return [b.readUInt16LE(6), b.readUInt16LE(8)];
   if (b.subarray(1, 4).toString("latin1") === "PNG")
     return [b.readUInt32BE(16), b.readUInt32BE(20)];
-  throw new Error(`${image.path}: not a GIF or a PNG`);
+  if (b.subarray(8, 16).toString("latin1") === "WEBPVP8X")
+    return [b.readUIntLE(24, 3) + 1, b.readUIntLE(27, 3) + 1];
+  throw new Error(`${image.path}: not a GIF, a PNG or an extended WebP`);
 }
 
 /**
- * Where the site serves an image: beside its source, as WebP, named by the source's content, so a
- * changed image is a new file and each file can be cached for good.
+ * Where the site serves an image: beside its source, named by its content, so a changed image is a
+ * new file and each file can be cached for good.
  */
 export function servedPath(image: Image): string {
   const hash = createHash("sha256").update(image.bytes).digest("hex").slice(0, 12);
-  return `${image.path.replace(/\.[^./]+$/, "")}.${hash}.webp`;
-}
-
-/** An image as lossless (animated) WebP: every frame, delay and loop of its source, in fewer bytes. */
-export function webp(image: Image): Promise<Buffer> {
-  // The README's own tracked images: an animation's frames together pass sharp's pixel limit.
-  return sharp(image.bytes, { animated: true, limitInputPixels: false })
-    .webp({ lossless: true, effort: 6 })
-    .toBuffer();
+  return image.path.replace(/(\.[^./]+)$/, `.${hash}$1`);
 }
 
 /** The images as served, by the path the README names them by. */
