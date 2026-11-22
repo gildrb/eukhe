@@ -19,8 +19,10 @@
 #    tokens it does not write, in token order, then the errors of its
 #    export page, card and info backgrounds, in that order. Laws:
 #    theme_read_first_error, theme_required_tokens, theme_read_missing,
-#    theme_read_page, theme_read_card, theme_read_info; a file with no error
-#    reads to its colors: theme_read_loaded, theme_load_valid.
+#    theme_read_page, theme_read_card, theme_read_info; the missing tokens
+#    the reader finds are the required tokens the colors do not write:
+#    theme_missing_absent; a file with no error reads to its colors:
+#    theme_read_loaded, theme_load_valid.
 # R4 a file that reads completes to one value per token: written tokens
 #    keep their value, mdBody falls back to text, the refinement pair and
 #    the foreground to the builtin of the file's mode, the background to
@@ -639,6 +641,15 @@ law theme_read_missing:
   for ok: {th.clean(vars, cols) == True{} : Bool}
   for miss: {th.absent(th.goods(vars, cols)) == t <> ts : List<&2, U32>}
   {TPalette.parse(TFile.RFile{nm, vars, cols, pg, cd, io}) == TPalette.Rejected{TFile.Missing{t <> ts}} : TPalette.Parsed}
+
+# LAW theme_missing_absent (R3): the missing tokens the reader finds in any colors are the
+# required tokens they do not write, in token order (TToken.valid tests this list:
+# laws/theme_model.bend theme_valid_missing)
+# EXCLUDES: a missing list that checks fewer or more tokens than the
+#   required ones, or lists them in another order
+law theme_missing_absent:
+  for +cols: List<&2, TFile.Ent>
+  {TReader.missing(cols) == th.absent(cols) : List<&2, U32>}
 
 # LAW theme_read_page (R3): then an export page that is no color rejects the file with that
 # error

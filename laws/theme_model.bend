@@ -8,8 +8,10 @@
 #
 # Requirements (R<n> of laws/theme.bend (T1)):
 # R3 a file is valid exactly when the reader finds no required token
-#    missing (theme_valid_missing); the required tokens themselves are
-#    theme_required_tokens (laws/theme.bend).
+#    missing (theme_valid_missing; the missing tokens: theme_missing_absent,
+#    laws/theme.bend); the required tokens themselves are
+#    theme_required_tokens (laws/theme.bend). Anchor:
+#    theme_valid_accent_only_example.
 # R4 the palette: a token's value in a file is its first entry's
 #    (theme_tok_get_append, theme_tok_get_one); the tokens are 0 to 58 in
 #    order (theme_toks_range); the fallbacks are the first set value and a
@@ -171,6 +173,12 @@ def blank() -> TFile.RFile:
 # EXCLUDES: a reading of the laws above the human did not mean
 law theme_valid_example:
   {Maybe.is_some(&2, TFile.Th, TReader.load(blank())) == True{} : Bool} & {TToken.valid(TFile.Th{"e", [], None{}, None{}, None{}}) == False{} : Bool} & {[TPalette.complete([Some{TFile.Dflt{}}, None{}]), TPalette.complete([Some{TFile.Dflt{}}])] == [False{}, True{}] : List<&2, Bool>}
+
+# LAW theme_valid_accent_only_example (R3): anchor: a file that writes only the accent (as the
+# terminal default) is not valid: it leaves 53 required tokens unwritten
+# EXCLUDES: valid testing only some of the required tokens
+law theme_valid_accent_only_example:
+  {TToken.valid(TFile.Th{"x", [TFile.Ent{0, TFile.Dflt{}}], None{}, None{}, None{}}) == False{} : Bool}
 
 # the page background and the mode of a parse (none and dark when rejected)
 def painted.page(p: TPalette.Parsed) -> Maybe<&2, Co.Rgb>:

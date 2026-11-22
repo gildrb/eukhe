@@ -969,6 +969,7 @@ import ./proof/theme/theme_entry_invalid.bend as PThemeEntryInvalid
 import ./proof/theme/theme_read_first_error.bend as PThemeReadFirstError
 import ./proof/theme/theme_required_tokens.bend as PThemeRequiredTokens
 import ./proof/theme/theme_read_missing.bend as PThemeReadMissing
+import ./proof/theme/theme_missing_absent.bend as PThemeMissingAbsent
 import ./proof/theme/theme_read_page.bend as PThemeReadPage
 import ./proof/theme/theme_read_card.bend as PThemeReadCard
 import ./proof/theme/theme_read_info.bend as PThemeReadInfo
@@ -2956,6 +2957,7 @@ import ./proof/theme_model/theme_rename_spec.bend as PThemeRenameSpec
 import ./proof/theme_model/theme_valid_example.bend as PThemeValidExample
 import ./proof/theme_model/theme_concrete_cases.bend as PThemeConcreteCases
 import ./proof/theme_model/theme_export_page_example.bend as PThemeExportPageExample
+import ./proof/theme_model/theme_valid_accent_only_example.bend as PThemeValidAccentOnlyExample
 import ./proof/theme_entry/base.bend as LAThemeEntry
 import ./proof/theme_entry/theme_ffi_spelled.bend as PThemeFfiSpelled
 import ./proof/theme_entry/theme_ffi_refuses.bend as PThemeFfiRefuses
