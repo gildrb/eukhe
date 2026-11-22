@@ -1,11 +1,11 @@
 //! The status line under the prompt (omp `statusLine`, ascii preset,
 //! transparent): the model and its thinking level, the cwd, the git
 //! branch, then the segments that show only while they carry something
-//! (a hint, the session name and spend, the session's budget, the
-//! verification of the task's acceptance checks, the running hand-back
-//! checks of the session's children, the detail level, the
-//! chat memory's `mem` gauge, live activity); the context usage sits on
-//! the right.
+//! (a hint, the session name and spend, the running turn's `cache NN%`
+//! hit share, the session's budget, the verification of the task's
+//! acceptance checks, the running hand-back checks of the session's
+//! children, the detail level, the chat memory's `mem` gauge, live
+//! activity); the context usage sits on the right.
 //!
 //! The `mem` gauge is the only place the chat memory's compactor shows
 //! its progress (its live updates never make transcript rows): `mem
@@ -97,6 +97,9 @@ pub fn render_status_line(
         });
     if let Some(cost) = state.cost_usd.filter(|cost| *cost > 0.0) {
         segments.push(vec![theme.fg(ThemeColor::Dim, format!("${cost:.2}"))]);
+    }
+    if let Some(hit) = state.cache_hit {
+        segments.push(vec![theme.fg(ThemeColor::Dim, format!("cache {hit}%"))]);
     }
     // `limits on` while the principal's limits toggle is on.
     if state.limits_on {

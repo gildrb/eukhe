@@ -247,6 +247,16 @@ impl AgentView {
             ChatEntry::Swarm(row) => {
                 crate::swarm_block::render_swarm_row(row, detail, &self.theme, width, !first)
             }
+            // The footer stands one blank row below the turn it closes.
+            ChatEntry::TurnFooter(usage) => {
+                let mut rows = vec![Vec::new()];
+                rows.extend(crate::turn_usage::render_turn_footer(
+                    usage,
+                    &self.theme,
+                    width,
+                ));
+                rows
+            }
         }
     }
 }

@@ -33,7 +33,8 @@ impl AgentView {
             | ChatEntry::RefinementOutcome(_)
             | ChatEntry::CustomPanel(_)
             | ChatEntry::ChatView(_)
-            | ChatEntry::Swarm(_) => true,
+            | ChatEntry::Swarm(_)
+            | ChatEntry::TurnFooter(_) => true,
             // A message settles once it stopped streaming and its pace
             // shows all its text; a failed one only once an entry
             // follows it.

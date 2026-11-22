@@ -138,6 +138,7 @@ pub mod tree_display;
 pub mod tree_list;
 pub mod tree_nodes;
 pub mod tree_selector;
+pub mod turn_usage;
 pub mod user_message_selector;
 pub mod view;
 pub(crate) mod vt;

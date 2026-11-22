@@ -634,6 +634,13 @@ impl SessionUi {
                         None => {}
                     }
                 }
+                // The turn before this prompt ended (its newest message
+                // called no tools): its footer closes it first. A turn
+                // still calling tools goes on past the prompt, like the
+                // rebuild's fold.
+                if !self.turn_usage.continues() {
+                    self.push_turn_footer(view);
+                }
                 self.last_user_text = Some(text.clone());
                 // TS `addMessageToChat`'s user case: a skill block parses
                 // into the skill-invocation card plus the trailing
@@ -785,6 +792,9 @@ impl SessionUi {
                 // the aborted run must not rewrite the new turn's activity
                 // label or clear its loader note.
                 if self.apply_tool_result(&tool_call_id, &result, is_error, false, view) {
+                    if is_error {
+                        self.turn_usage.tool_failed();
+                    }
                     Self::set_working_phase(TurnPhase::Requesting, view);
                     // The tool that owned the loader note finished executing
                     // (TS clears `workingMessage` in the tool's `finally`).
@@ -1035,6 +1045,7 @@ impl SessionUi {
                     }
                     view.push_entry(row);
                 }
+                self.push_turn_footer(view);
                 self.run_open = false;
                 self.run_awaits_turn = false;
                 self.run_interrupted = false;
@@ -1201,6 +1212,16 @@ impl SessionUi {
         }
     }
 
+    /// The ended turn's usage footer, when it used tokens (the row the
+    /// rebuild folds, `snapshot::turn_footer`); the tally starts over and
+    /// the status line's cache figure leaves with it.
+    fn push_turn_footer(&mut self, view: &mut AgentView) {
+        if let Some(footer) = crate::snapshot::turn_footer(std::mem::take(&mut self.turn_usage)) {
+            view.push_entry(footer);
+        }
+        view.chrome.cache_hit = None;
+    }
+
     /// Apply an assistant message frame: an open streaming message is
     /// updated in place; otherwise the message expands into a chat component
     /// plus a card per tool call. `output_tokens` is the worker's count of
@@ -1242,6 +1263,8 @@ impl SessionUi {
             self.working_tokens.settle(usage_output);
             self.record_speed_sample(message, view);
             self.speed_clock.settled(message, std::time::Instant::now());
+            self.turn_usage.add_message(message);
+            view.chrome.cache_hit = self.turn_usage.cache_hit_percent();
         }
         if let Some(text) = blocks.iter().rev().find_map(|block| match block {
             MessageBlock::Text(text) => Some(text.clone()),

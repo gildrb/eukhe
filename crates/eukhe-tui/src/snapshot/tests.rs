@@ -314,10 +314,11 @@ fn reconstructs_slim_attach() {
     let data = attach_data_from_response(slim_attach()).unwrap();
     assert_eq!(data.active_session_id, "abc123def456");
     let view = reconstruct(&data).expect("reconstructs");
-    assert_eq!(view.chat.len(), 2);
+    assert_eq!(view.chat.len(), 3);
     assert!(matches!(&view.chat[0], ChatEntry::User { text } if text == "hello"));
     assert!(matches!(&view.chat[1], ChatEntry::Assistant(m) if m.blocks
         == vec![MessageBlock::Text("hi there".to_string())]));
+    assert!(matches!(&view.chat[2], ChatEntry::TurnFooter(_)));
     assert_eq!(view.session_id, "0199-sess");
     assert_eq!(view.session_name.as_deref(), Some("my session"));
     assert_eq!(view.last_event_sequence, 9);
@@ -1402,8 +1403,13 @@ fn transcript_replay_stacks_provider_failure_rows() {
         failed_attempt(6),
     ];
     let chat = transcript_to_entries(&msgs(transcript));
-    // One user + reply, one user, then one entry per failed attempt.
-    assert_eq!(chat.len(), 6, "chat: {chat:?}");
+    // One user + reply + the reply's usage footer, one user, then one
+    // entry per failed attempt.
+    assert_eq!(chat.len(), 7, "chat: {chat:?}");
+    assert!(
+        matches!(chat[2], ChatEntry::TurnFooter(_)),
+        "chat: {chat:?}"
+    );
     let replies: Vec<&crate::chat::AssistantMessage> = chat
         .iter()
         .filter_map(|entry| match entry {
@@ -2133,7 +2139,8 @@ fn a_hidden_continuation_leaves_no_row_on_attach() {
     let rows = format!("{:?}", view.chat);
     assert!(!rows.contains("autonomous-continuation"), "{rows}");
     assert!(!rows.contains("Autoresearch mode is on"), "{rows}");
-    assert_eq!(view.chat.len(), 3, "{rows}");
+    assert_eq!(view.chat.len(), 4, "{rows}");
+    assert!(matches!(&view.chat[3], ChatEntry::TurnFooter(_)), "{rows}");
     assert!(matches!(&view.chat[0], ChatEntry::User { text } if text == "hello"));
     assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_000));
 }
