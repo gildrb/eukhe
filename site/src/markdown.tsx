@@ -16,7 +16,8 @@ type Line =
   | { $: "Code"; text: string }
   | { $: "Table"; text: string }
   | { $: "Text"; text: string }
-  | { $: "Raw"; text: string };
+  | { $: "Raw"; text: string }
+  | { $: "Art"; text: string; href: string };
 
 /** A line and its 1-based number in the source. */
 type Entry = { n: number; line: Line };
@@ -30,8 +31,22 @@ function classify(source: string, plain: boolean, linkHome: boolean): Entry[] {
   if (plain) return lines.map((text, index): Entry => ({ n: index + 1, line: { $: "Raw", text } }));
   let named = false;
   let fenced = false;
+  // Inside a drawing that links (`<a href="…"><pre>` … `</pre></a>`): where it goes.
+  let art: string | null = null;
   return lines.map((text, index): Entry => {
     const n = index + 1;
+    if (art !== null) {
+      if (text === "</pre></a>") {
+        art = null;
+        return { n, line: { $: "Raw", text } };
+      }
+      return { n, line: { $: "Art", text, href: art } };
+    }
+    const opens = /^<a href="([^"]+)"><pre>$/.exec(text)?.[1];
+    if (opens !== undefined) {
+      art = opens;
+      return { n, line: { $: "Raw", text } };
+    }
     if (text.startsWith("```")) {
       fenced = !fenced;
       return { n, line: { $: "Fence", text } };
@@ -156,6 +171,12 @@ function content(item: Line): ComponentChildren {
       return tableRow(item.text);
     case "Raw":
       return item.text;
+    case "Art":
+      return (
+        <a href={item.href} {...stylex.props(styles.art)}>
+          {item.text}
+        </a>
+      );
     default: {
       const _: never = item;
       return _;
@@ -276,7 +297,11 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         );
       case "One": {
         const { entry } = block;
-        const code = entry.line.$ === "Code" || entry.line.$ === "Table" || entry.line.$ === "Raw";
+        const code =
+          entry.line.$ === "Code" ||
+          entry.line.$ === "Table" ||
+          entry.line.$ === "Raw" ||
+          entry.line.$ === "Art";
         const text = "text" in entry.line ? entry.line.text : "";
         const commands = copied((fenced.get(entry.n) ?? []).map((c) => c.command))?.text ?? "";
         return (
@@ -387,6 +412,10 @@ function lineRuns(item: Line): Run[] {
     }
     case "Raw":
       return [];
+    case "Art": {
+      const to = cellCount(item.text);
+      return to === 0 ? [] : [{ from: 0, to, hl: "heading", href: item.href }];
+    }
     default: {
       const _: never = item;
       return _;
@@ -464,6 +493,8 @@ const styles = stylex.create({
     lineHeight: "inherit",
   },
   code: { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit" },
+  /** A drawing in characters that links: the text's color and weight, no underline. */
+  art: { color: colors.primary, fontWeight: type.bold, textDecoration: "none" },
   /** A block one character wide, a space after the name: drawn, not a glyph (no extra font). */
   deco: {
     display: "inline-block",

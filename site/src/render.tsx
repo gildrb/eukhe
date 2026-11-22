@@ -454,7 +454,7 @@ export function render(
   // eukhe's other files show as they are.
   const editor = [
     pageFile("index.md", source, sizes, textWidth, desktop, false),
-    ...docs.map((doc) =>
+    ...[...docs, missing].map((doc) =>
       pageFile(`${doc.path.slice(1)}.md`, doc.markdown, sizes, textWidth, desktop, true),
     ),
     ...files.map((file) =>
@@ -500,7 +500,9 @@ export function render(
     "index.html": html(home, first("index.md")),
     "index.md": source,
     ...pages,
-    "404.html": html(missing, null),
+    "404.html": html(missing, first("404.md")),
+    // The README at the path GitHub gives it, so a link to it can be shared.
+    "README.md": source,
     "404.md": `${notFound.trimEnd()}\n\nSee [llms.txt](${origin}/llms.txt) for what this site holds.\n`,
     "files.json": JSON.stringify(editor),
     "favicon.svg": favicon,
