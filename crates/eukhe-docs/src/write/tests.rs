@@ -845,7 +845,9 @@ fn foreign_tag(ops: &str, same: bool) -> (String, Option<String>, Option<String>
 
 /// A tag read from one file never addresses another, whatever the op,
 /// and even when both files hold the same text (the tag is a content
-/// hash, so the numbers are equal).
+/// hash, so the numbers are equal): an edit that anchors a line of the
+/// same text is refused by the seen-line guard, since b.txt displayed no
+/// line.
 #[test]
 fn a_tag_read_from_one_file_never_addresses_another() {
     for same in [false, true] {
@@ -870,10 +872,15 @@ fn a_tag_read_from_one_file_never_addresses_another() {
         }
         for ops in ["PUT 1.=1:\n+x", "PUT >$:\n+x", "PUT <1:\n+x"] {
             let (error, a, b_after) = foreign_tag(ops, same);
-            assert!(
-                error.starts_with(&format!(
+            let refusal = if same && ops.starts_with("PUT 1.") {
+                format!("This edit anchors to lines 1 of b.txt that [b.txt#{tag}] never displayed")
+            } else {
+                format!(
                     "Edit rejected for b.txt: #{tag} is not a tag this session holds for this file"
-                )),
+                )
+            };
+            assert!(
+                error.contains(&refusal),
                 "{ops} (same text: {same}): {error}"
             );
             assert_eq!((a, b_after), (Some("a\n".to_owned()), b.clone()), "{ops}");
