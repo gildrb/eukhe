@@ -586,6 +586,59 @@ async fn an_expired_login_goes_on_with_a_signed_in_providers_default() {
     );
 }
 
+/// Regression (`AttentionMeasure` re-measure, six runs on one auth.json):
+/// a request whose login refresh found the credential store's lock held
+/// failed with the store's error, which the fallback did not read, and the
+/// run ended. A login whose credential store failed cannot serve the
+/// request: the run goes on with the signed-in provider's default.
+#[tokio::test]
+async fn a_failed_credential_store_goes_on_with_a_signed_in_providers_default() {
+    let codex = format!("openai-codex/{}", codex_default());
+    let fixture = fixture_second(
+        "openai-codex",
+        codex_default(),
+        &serde_json::json!({
+            "allowedModels": ["faux-a/shared-1", codex],
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let model = fixture.faux_a.get_model();
+    let held = "Credential store modify failed for faux-a: auth.json: Failed to acquire auth storage lock: Lock file is already being held: /agent/auth.json.refresh.lock";
+    fixture.faux_a.set_responses(vec![error_step(held)]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("default answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    let mut events = fixture.runtime.subscribe();
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            message.stop_reason,
+            answer_text(&message),
+            switches(&mut events),
+            fixture.runtime.model_moves(),
+        ),
+        (
+            "openai-codex",
+            StopReason::Stop,
+            "default answer".to_owned(),
+            vec![(codex.clone(), 0)],
+            vec![ModelMove {
+                from: "faux-a/shared-1".to_owned(),
+                to: codex,
+                reason: format!("faux-a has no usable login ({held})"),
+            }],
+        )
+    );
+}
+
 /// Regression (`AttentionMeasure`, expired login with no second model
 /// configured: the run printed only the raw refresh failure): with no
 /// model left (the signed-in provider's default is outside

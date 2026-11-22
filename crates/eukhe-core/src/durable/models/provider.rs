@@ -42,7 +42,7 @@ use eukhe_ai::api::lazy::lazy_stream;
 use eukhe_ai::api::{StreamFn, StreamSimpleFn};
 use eukhe_ai::auth::{
     AuthOperationOptions, AuthResolutionOverrides, LoginOptions, ModelAuth, OAuthAuth,
-    OAuthCredential, ProviderAuthInteraction,
+    OAuthCredential, ProviderAuthInteraction, CREDENTIAL_STORE_FAILED,
 };
 use eukhe_ai::models::Models;
 use eukhe_ai::types::{
@@ -1203,7 +1203,8 @@ const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
 
 /// Why `failure` keeps its model from going on, `None` for a failure no
 /// other model cures: a provider without a usable login (its login
-/// expired and the refresh failed, or it has no key); a usage limit whose
+/// expired and the refresh failed, its credential store failed the
+/// refresh, or it has no key); a usage limit whose
 /// reset is past the bounded wait; else a retryable failure, the
 /// request's model's failures in a row counted against the run's retries
 /// (a request that already moved has none left).
@@ -1220,6 +1221,7 @@ fn failure_why(
         .any(|diagnostic| diagnostic.kind == LOGIN_EXPIRED_DIAGNOSTIC)
         || failure.error_message.as_deref().is_some_and(|error| {
             error.starts_with(MISSING_KEY_PREFIX)
+                || error.contains(CREDENTIAL_STORE_FAILED)
                 || error.contains(crate::models::registry::LOGIN_EXPIRED_REPORT)
         });
     if no_login {
