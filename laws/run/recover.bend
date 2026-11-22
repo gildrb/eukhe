@@ -412,9 +412,10 @@ law rec_never_runs_a_repeat:
 
 # LAW rec_stuck_gets_help: the harness never just watches a stuck model: a stuck reply (a
 # length stop the stop walk continues, leaked tool calls, tool calls, a
-# reply with no text) always gets
-# an act that does something: its calls run (no repeat), a retry with a
-# note, an answer, or the end of the run. It is never passed on as it is
+# reply with no text) always gets an act other than Pass: its calls run,
+# a retry with a note, a compaction, a lower level, or the end of the
+# run. It is never passed on as it is. That calls run are never a repeat
+# is rec_never_runs_a_repeat, not this law
 law rec_stuck_gets_help:
   for +rc: RnRecovery.RCfg
   for o: RnRecovery.Out
