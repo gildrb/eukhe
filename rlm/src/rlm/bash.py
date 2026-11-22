@@ -40,6 +40,11 @@ _COMPLETION_SUFFIX = b"\x1f"
 _CANCEL_TERM_GRACE = 0.5
 _CANCEL_KILL_WAIT = 2.0
 _COMPLETION_NOTICE_COMMAND_CAP = 1000
+# Display MIME of one bash() result a cell read (`await`, `poll()`): its
+# capped command, exit code and output tail. The host keeps these in the
+# cell's tool result, the session's record of the commands the run executed.
+_BASH_EXIT_MIME = "application/vnd.eukhe.bash-exit+json"
+_EXIT_OUTPUT_CAP = 1500
 # Display MIME the host aggregates into a per-cell summary of the bash()
 # commands the cell ran (first capped command, count, line total).
 _BASH_COMMAND_MIME = "application/vnd.eukhe.bash-command+json"
@@ -272,6 +277,8 @@ class BashHandle:
         # The host admitted this handle's completion notice: the notice
         # delivers its result, so a `jobs.wait()` on all work skips it.
         self._noticed = False
+        # This result was recorded in the cell that read it (_BASH_EXIT_MIME).
+        self._exit_reported = False
         # Who asked this command to stop before it settled ("agent": the
         # handle's kill(); "user": the bash view's kill; "interrupt": a
         # cancelled one-shot await). A nonzero exit after a stop request is
@@ -635,6 +642,7 @@ class BashHandle:
             return
         if awaiter is not None and not _creating_cell_waits_for(owner, awaiter):
             return
+        self._report_exit()
         with self._callback_lock:
             if self._result_consumed:
                 return
@@ -642,6 +650,26 @@ class BashHandle:
             notice, self._consumed_notice = self._consumed_notice, None
         if notice is not None:
             notice()
+
+    def _report_exit(self) -> None:
+        """Record the settled result in the live cell reading it, once per
+        handle: the command, its exit code and the tail of its output."""
+        with self._callback_lock:
+            if self._exit_reported or self._result is None:
+                return
+            self._exit_reported = True
+            result = self._result
+        from . import repl
+
+        repl.emit(
+            {
+                _BASH_EXIT_MIME: {
+                    "command": _capped(self.command),
+                    "exitCode": result.exit_code,
+                    "output": result.output[-_EXIT_OUTPUT_CAP:],
+                }
+            }
+        )
 
     def _schedule_background_completion_notice(self) -> None:
         cell_finished = self._creating_cell_finished

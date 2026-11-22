@@ -79,6 +79,13 @@ pub const AGENT_MESSAGE_DISPLAY_MIME: &str = "application/vnd.eukhe.agent-messag
 pub const BASH_ACTIVITY_DISPLAY_MIME: &str = "application/vnd.eukhe.bash-activity+json";
 /// One `bash()` call's command text (capped) and non-blank line count.
 pub const BASH_COMMAND_DISPLAY_MIME: &str = "application/vnd.eukhe.bash-command+json";
+/// One `bash()` result a cell read: its command (capped), exit code and the
+/// tail of its output.
+pub const BASH_EXIT_DISPLAY_MIME: &str = "application/vnd.eukhe.bash-exit+json";
+/// The most `bash()` results one cell's result keeps: its last.
+pub const MAX_CELL_BASH_RUNS: usize = 64;
+/// The most characters of one `bash()` result's output a cell keeps: its tail.
+pub const MAX_BASH_RUN_OUTPUT_CHARS: usize = 1500;
 
 pub const EXECUTE_STATUS_OK: &str = "ok";
 pub const EXECUTE_STATUS_ERROR: &str = "error";
@@ -249,6 +256,15 @@ pub struct KernelBashCommands {
     pub lines: usize,
 }
 
+/// One `bash()` result a cell read (`await`, `poll()`): the process the
+/// cell's command started, its exit code and the tail of its output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KernelBashRun {
+    pub command: String,
+    pub exit_code: i64,
+    pub output: String,
+}
+
 /// A kernel error reported by a failed cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelError {
@@ -270,6 +286,9 @@ pub struct ExecuteResult {
     pub sent_agent_messages: Option<Vec<KernelSentAgentMessage>>,
     /// The `bash()` commands this cell started, summarized for display.
     pub bash_commands: Option<KernelBashCommands>,
+    /// The `bash()` results this cell read, in order (the last
+    /// [`MAX_CELL_BASH_RUNS`]).
+    pub bash_runs: Option<Vec<KernelBashRun>>,
     pub background_output: Option<BackgroundOutput>,
     pub status: ExecuteStatus,
     pub error: Option<KernelError>,

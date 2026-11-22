@@ -69,6 +69,9 @@ pub use self::activity::{
 };
 pub use self::boundary::{BoundaryState, PendingRefine, BOUNDARY_DOC};
 pub use self::refine::{refine_now, RefineRequest};
+#[cfg(test)]
+pub(crate) use self::tool::tool_result;
+pub(crate) use self::tool::PYTHON_VERSION;
 pub use self::tool::{python_parameters, PYTHON_TOOL_NAME};
 
 /// The extension name.

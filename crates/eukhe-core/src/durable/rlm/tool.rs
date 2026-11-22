@@ -83,8 +83,9 @@ const PYTHON_TOOL_DESCRIPTION: &str = "Run Python in a persistent REPL (not IPyt
 /// Mime types the model context accepts as images.
 const IMAGE_MIME_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-/// The durable identity of the tool's contract.
-const PYTHON_VERSION: &str = "python@1";
+/// The durable identity of the tool's contract; the intent judge reads the
+/// `bashRuns` of the results that carry it.
+pub(crate) const PYTHON_VERSION: &str = "python@1";
 
 /// The `python` tool schema: the shared `i`, then `code`.
 #[must_use]
@@ -781,6 +782,16 @@ pub(crate) fn tool_result(result: &ExecuteResult, text: String) -> ToolExecution
             "count": bash.count,
             "lines": bash.lines,
         });
+    }
+    if let Some(runs) = &result.bash_runs {
+        details["bashRuns"] = json!(runs
+            .iter()
+            .map(|run| json!({
+                "command": run.command,
+                "exitCode": run.exit_code,
+                "output": run.output,
+            }))
+            .collect::<Vec<_>>());
     }
     if let Some(error) = &result.error {
         details["error"] = json!({

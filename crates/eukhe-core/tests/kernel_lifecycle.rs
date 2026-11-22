@@ -590,6 +590,41 @@ async fn cell_result_summarizes_the_bash_commands_it_ran() {
         .expect("shutdown");
 }
 
+/// Each `bash()` result a cell reads is recorded in the cell's execute
+/// result, once per process: its command, exit code and output tail, in
+/// the order the cell read them; a process the cell never read is not.
+#[tokio::test]
+async fn cell_result_records_the_bash_results_it_read() {
+    let options = test_options(None);
+    let manager = started_manager(options).await;
+    execute(&manager, "from rlm import bash").await;
+
+    let result = execute(
+        &manager,
+        "h = bash('true')\nawait bash('echo one; exit 3')\nawait h\nawait h\nh.poll()\nunread = bash('sleep 0.1')",
+    )
+    .await;
+
+    assert_eq!(result.status, ExecuteStatus::Ok, "{}", result.stderr);
+    let runs: Vec<(String, i64, String)> = result
+        .bash_runs
+        .unwrap_or_default()
+        .into_iter()
+        .map(|run| (run.command, run.exit_code, run.output.trim().to_owned()))
+        .collect();
+    assert_eq!(
+        runs,
+        vec![
+            ("echo one; exit 3".to_owned(), 3, "one".to_owned()),
+            ("true".to_owned(), 0, String::new()),
+        ]
+    );
+    manager
+        .shutdown(KernelShutdownOptions::default())
+        .await
+        .expect("shutdown");
+}
+
 #[tokio::test]
 async fn graceful_shutdown_flushes_the_final_snapshot() {
     let dir = tempfile::tempdir().expect("tempdir");

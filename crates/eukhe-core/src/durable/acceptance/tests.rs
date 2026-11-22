@@ -53,8 +53,10 @@ use crate::durable::directors::DirectorLimits;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 use crate::durable::goals::tests::{open_jsonl, user_origins, user_texts};
 use crate::durable::goals::{goal_state, goals_extension, read_doc};
+use crate::durable::rlm::tool_result as python_result;
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
 use crate::goals::GoalStatus;
+use crate::kernel::shared::{ExecuteResult, ExecuteStatus, KernelBashRun};
 
 mod commits;
 mod ran;
@@ -367,6 +369,43 @@ fn bash_tool() -> Arc<ToolRegistration> {
     ))
 }
 
+/// `python`: a stand-in for the REPL tool whose cell read one `bash()`
+/// result: `command` exited with `exit_code`, printing `output`. Its result
+/// is the REPL tool's own (`tool_result`), as the kernel reports such a
+/// cell.
+fn python_tool() -> Arc<ToolRegistration> {
+    let schema = Type::object([
+        ("command", Type::string()),
+        ("exit_code", Type::integer()),
+        ("output", Type::string()),
+    ]);
+    define_tool(ToolRegistration::new(
+        "python",
+        "test tool",
+        schema,
+        move |args: Value, _, _| async move {
+            let result = ExecuteResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                result: None,
+                attachments: None,
+                sent_agent_messages: None,
+                bash_commands: None,
+                bash_runs: Some(vec![KernelBashRun {
+                    command: args["command"].as_str().unwrap_or_default().to_owned(),
+                    exit_code: args["exit_code"].as_i64().unwrap_or_default(),
+                    output: args["output"].as_str().unwrap_or_default().to_owned(),
+                }]),
+                background_output: None,
+                status: ExecuteStatus::Ok,
+                error: None,
+                duration_ms: 1,
+            };
+            Ok(python_result(&result, String::new()))
+        },
+    ))
+}
+
 fn setup() -> Setup {
     let faux = faux_provider(RegisterFauxProviderOptions::default());
     let models = create_models(CreateModelsOptions::default());
@@ -410,6 +449,7 @@ fn setup() -> Setup {
                 host_tool("drop_checks", "acceptance.set", requests.clone()),
                 work_tool(),
                 bash_tool(),
+                python_tool(),
             ],
             ..Extension::default()
         }))

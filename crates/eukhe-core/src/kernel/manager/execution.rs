@@ -142,6 +142,8 @@ impl Inner {
                 sent_agent_messages: (!buffers.sent_agent_messages.is_empty())
                     .then(|| std::mem::take(&mut buffers.sent_agent_messages)),
                 bash_commands: buffers.bash_commands.take(),
+                bash_runs: (!buffers.bash_runs.is_empty())
+                    .then(|| std::mem::take(&mut buffers.bash_runs)),
                 background_output: (!background_output.is_empty() || background_dropped.bytes > 0)
                     .then_some(BackgroundOutput {
                         text: background_output,

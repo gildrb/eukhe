@@ -3,10 +3,11 @@
 
 use super::{
     append_capped, lock, parse_attachment_display, parse_sent_agent_message, ActiveExecution, Arc,
-    Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands, KernelError, OutputSink,
-    StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME, ATTACHMENT_DISPLAY_MIME,
-    BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME, MAX_ATTACHMENT_DATA_CHARS,
-    MAX_BACKGROUND_OUTPUT_CHARS,
+    Event, ExecBuffers, ExecuteStatus, Guarded, Inner, KernelBashCommands, KernelBashRun,
+    KernelError, OutputSink, StreamName, Value, AGENT_MESSAGE_DISPLAY_MIME,
+    ATTACHMENT_DISPLAY_MIME, BASH_ACTIVITY_DISPLAY_MIME, BASH_COMMAND_DISPLAY_MIME,
+    BASH_EXIT_DISPLAY_MIME, MAX_ATTACHMENT_DATA_CHARS, MAX_BACKGROUND_OUTPUT_CHARS,
+    MAX_BASH_RUN_OUTPUT_CHARS, MAX_CELL_BASH_RUNS,
 };
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,27 @@ impl Inner {
                         lines,
                     });
                 }
+            }
+        }
+        if let Some(payload) = data.get(BASH_EXIT_DISPLAY_MIME) {
+            if let (Some(command), Some(exit_code)) = (
+                payload.get("command").and_then(Value::as_str),
+                payload.get("exitCode").and_then(Value::as_i64),
+            ) {
+                let output = payload.get("output").and_then(Value::as_str).unwrap_or("");
+                let count = output.chars().count();
+                let output: String = output
+                    .chars()
+                    .skip(count.saturating_sub(MAX_BASH_RUN_OUTPUT_CHARS))
+                    .collect();
+                if buffers.bash_runs.len() == MAX_CELL_BASH_RUNS {
+                    buffers.bash_runs.remove(0);
+                }
+                buffers.bash_runs.push(KernelBashRun {
+                    command: command.to_string(),
+                    exit_code,
+                    output,
+                });
             }
         }
     }
