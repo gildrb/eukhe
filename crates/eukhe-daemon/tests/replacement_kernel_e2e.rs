@@ -6,7 +6,7 @@
 //! `session.disposeAsync()`: the old session's kernel disposes (a final
 //! namespace snapshot flush, then the `python -m rlm.repl` process exits)
 //! and a FRESH runtime builds onto the replacement file, whose kernel
-//! starts cold (the prewarm fires again; the namespace is empty unless
+//! starts cold at its first python call (the namespace is empty unless
 //! the moved-to session carries its own snapshot). The tree moves
 //! (`navigateTree`) are NOT replacements: TS rebuilds the branch context
 //! in place on the live session and the kernel stays warm.
@@ -14,8 +14,8 @@
 //! Verified per flow against a live kernel process:
 //!
 //! 1. `new_session`: the old kernel process dies, a new one boots (the
-//!    replacement prewarm), and the new session's namespace is COLD (a
-//!    variable set before the replacement is gone).
+//!    replacement session's first python call), and the new session's
+//!    namespace is COLD (a variable set before the replacement is gone).
 //! 2. `switch_session`: same dispose+cold ruling on a prepared target -
 //!    and a MISSING target never tears the live session down (the
 //!    prepare precedes the teardown; the kernel survives the failed
@@ -84,16 +84,16 @@ fn await_new_kernel(supervisor: u32, budget: Duration) -> Vec<u32> {
 
 /// Poll until the old kernel pids are gone AND a fresh kernel exists: a
 /// replacement flow disposed the old session's kernel and its fresh
-/// session prewarmed a new one. The new kernel may boot before the old
-/// one finishes its final snapshot flush, so any ordering passes - only
-/// the end state (old gone, new alive) is the contract.
-fn await_kernel_turnover(supervisor: u32, old: &[u32], budget: Duration) -> Vec<u32> {
+/// session's python call booted a new one. The new kernel may boot before
+/// the old one finishes its final snapshot flush, so any ordering passes -
+/// only the end state (old gone, new alive) is the contract.
+fn await_kernel_turnover(supervisor: u32, old: &[u32], budget: Duration) {
     let deadline = Instant::now() + budget;
     loop {
         let fresh = kernel_pids(supervisor);
         let old_gone = old.iter().all(|pid| !fresh.contains(pid));
         if old_gone && !fresh.is_empty() {
-            return fresh;
+            return;
         }
         assert!(
             Instant::now() < deadline,
@@ -346,7 +346,7 @@ fn first_user_entry_id(client: &mut Client, session_id: &str, id: &str) -> Strin
 
 /// `new_session` (TS `AgentSessionRuntime.newSession` ->
 /// `teardownForReplacement`): the old session's kernel process dies with
-/// the session, the replacement session's kernel prewarm boots a fresh
+/// the session, the replacement session's first python call boots a fresh
 /// process, and the fresh kernel's namespace is COLD - a variable set in
 /// the old session's kernel does not survive into the new session.
 #[test]
@@ -372,7 +372,6 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
     );
     let replaced = client.read_response("n1");
     assert_eq!(replaced["success"], true, "new_session failed: {replaced}");
-    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 
     // The fresh session's kernel executes the probe on a cold namespace.
     run_turn(&mut client, &session_id, "probe the marker", "t2");
@@ -381,6 +380,7 @@ fn new_session_disposes_the_kernel_and_starts_cold() {
         "cold",
         "the new session's kernel kept the old session's namespace"
     );
+    await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 }
 
 /// `switch_session` (TS `AgentSessionRuntime.switchSession` ->
@@ -457,13 +457,13 @@ fn switch_session_disposes_the_kernel_and_a_failed_target_keeps_it() {
         switched["success"], true,
         "switch_session failed: {switched}"
     );
-    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
     run_turn(&mut client, &session_id, "probe the marker", "t2");
     assert_eq!(
         await_receipt(dir.path(), "probe"),
         "cold",
         "the switched-to session's kernel kept the old session's namespace"
     );
+    await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 }
 
 /// `fork` (TS `AgentSessionRuntime.fork` -> `teardownForReplacement`):
@@ -504,7 +504,6 @@ fn fork_disposes_the_kernel_and_starts_cold() {
         forked["data"]["cancelled"], false,
         "fork cancelled: {forked}"
     );
-    let _replacement = await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 
     // The fork's kernel executes the probe on a cold namespace.
     run_turn(&mut client, &session_id, "probe the marker", "t2");
@@ -513,6 +512,7 @@ fn fork_disposes_the_kernel_and_starts_cold() {
         "cold",
         "the forked session's kernel kept the source session's namespace"
     );
+    await_kernel_turnover(supervisor, &first, Duration::from_mins(2));
 }
 
 /// The switch cwd rebind (TS `switchSession` -> `createRuntime({ cwd:

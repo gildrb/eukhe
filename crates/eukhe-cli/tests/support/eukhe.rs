@@ -22,7 +22,7 @@ pub fn eukhe_command() -> Command {
 }
 
 /// The environment every test `eukhe` (and the daemon it starts) gets, for
-/// a command that runs a binary passed in as a path. Its sessions prewarm
+/// a command that runs a binary passed in as a path. Its sessions boot
 /// kernels on this checkout's runtime: without the interpreter they would
 /// fetch Eukhe's pinned Python into the user's `~/.eukhe/kernel`.
 pub fn eukhe_env(command: &mut Command) -> &mut Command {

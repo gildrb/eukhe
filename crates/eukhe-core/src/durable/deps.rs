@@ -313,10 +313,11 @@ pub struct SessionConfig {
     /// ledger keeps every effect either way).
     pub run_report: Option<super::ran_effects::RunReportSink>,
     /// Boot the main conversation's Python kernel in the background at open
-    /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
-    /// daemon's sessions): honored for top-level sessions only (the TS
-    /// `rlmDepth === 0` gate), so subagents keep the lazy first-call start.
-    /// A resumed conversation with a namespace snapshot prewarms regardless.
+    /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`):
+    /// honored for top-level sessions only (the TS `rlmDepth === 0` gate),
+    /// so subagents keep the lazy first-call start. The daemon leaves it
+    /// off. A resumed conversation with a namespace snapshot prewarms
+    /// regardless.
     pub prewarm_kernel: bool,
     /// The kernel interpreter; `None` resolves the `EUKHE_KERNEL_PYTHON`
     /// override or Eukhe's pinned Python (`~/.eukhe/kernel`). Tests set

@@ -18,7 +18,7 @@ among every process mapping it, other users of the same files included
 
 Scenarios (all by default):
 - idle-daemon: the supervisor alone.
-- idle-session: one created session (its kernel prewarmed), no prompt.
+- idle-session: one created session, no prompt.
 - turns-50: one session after 50 turns, each a python or read tool call
   and a ~1.5 KB answer.
 - sessions-5: five sessions, one turn each.
@@ -372,7 +372,7 @@ def idle_daemon(home, _args):
 def idle_session(home, _args):
     session = home.create("s", [{"text": "unused"}])
     home.label_workers({session})
-    return home.measure(["daemon", "worker", "kernel (worker)"])
+    return home.measure(["daemon", "worker"])
 
 
 def turns_50(home, _args):
@@ -388,7 +388,7 @@ def sessions_5(home, _args):
         home.turn(session, "hello")
         sessions.add(session)
     home.label_workers(sessions)
-    return home.measure(["worker", "kernel (worker)"])
+    return home.measure(["worker"])
 
 
 def python_cell(home, _args):
