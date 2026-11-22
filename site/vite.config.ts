@@ -89,7 +89,7 @@ function contentType(name: string): string {
 }
 
 export default defineConfig({
-  // No `staged` (vp's git hooks): the repository's hooks are Eukhe's; `npm run check` is the site's.
+  // No `staged` (vp's git hooks): the repository's hooks are Eukhe's; `vp check` is the site's.
   fmt: { ignorePatterns: ["src/content/**", "public/**", "src/vim.mjs"] },
   lint: {
     ignorePatterns: ["public/**", "src/vim.mjs"],
