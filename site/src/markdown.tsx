@@ -10,8 +10,7 @@ import { colors, type } from "./tokens.stylex.ts";
  * `[data-l]` span (the vim cursor in `client.ts` counts on them). Left of a line, its number.
  */
 type Line =
-  | { $: "Header"; text: string; first: boolean }
-  | { $: "Heading"; marker: string; text: string; title: boolean }
+  | { $: "Heading"; marker: string; text: string; title: boolean; home: boolean }
   | { $: "Quote"; text: string }
   | { $: "Fence"; text: string }
   | { $: "Code"; text: string }
@@ -23,20 +22,16 @@ type Line =
 type Entry = { n: number; line: Line };
 
 /**
- * Markdown: headings, `>` quotes, fences, tables, text. `header`: the site's own pages (all but the
- * home page) start with a header, the lines before the first blank one, whose first line (the
- * page's name) links home. A page without one (the home page: eukhe's README) is named by its
- * first `# ` heading.
+ * Markdown: headings, `>` quotes, fences, tables, text. A page is named by its first `# ` heading;
+ * on the site's own pages (`linkHome`: all but the home page) the name links home.
  */
-function classify(source: string, plain: boolean, header: boolean): Entry[] {
+function classify(source: string, plain: boolean, linkHome: boolean): Entry[] {
   const lines = source.split("\n");
   if (plain) return lines.map((text, index): Entry => ({ n: index + 1, line: { $: "Raw", text } }));
-  const headerEnd = header ? lines.indexOf("") : 0;
-  let named = header;
+  let named = false;
   let fenced = false;
   return lines.map((text, index): Entry => {
     const n = index + 1;
-    if (index < headerEnd) return { n, line: { $: "Header", text, first: index === 0 } };
     if (text.startsWith("```")) {
       fenced = !fenced;
       return { n, line: { $: "Fence", text } };
@@ -46,7 +41,16 @@ function classify(source: string, plain: boolean, header: boolean): Entry[] {
     if (heading?.[1] !== undefined && heading[2] !== undefined) {
       const title = !named && heading[1] === "# ";
       if (title) named = true;
-      return { n, line: { $: "Heading", marker: heading[1], text: heading[2], title } };
+      return {
+        n,
+        line: {
+          $: "Heading",
+          marker: heading[1],
+          text: heading[2],
+          title,
+          home: title && linkHome,
+        },
+      };
     }
     if (text.startsWith("> ")) return { n, line: { $: "Quote", text: text.slice(2) } };
     if (text.startsWith("|")) return { n, line: { $: "Table", text } };
@@ -123,17 +127,6 @@ function deco(): ComponentChildren {
 
 function content(item: Line): ComponentChildren {
   switch (item.$) {
-    case "Header":
-      return item.first
-        ? [
-            <h1 {...stylex.props(styles.title)}>
-              <a href="/" {...stylex.props(styles.link)}>
-                {item.text}
-              </a>
-            </h1>,
-            deco(),
-          ]
-        : item.text;
     case "Text":
       return inline(item.text);
     case "Heading": {
@@ -142,7 +135,13 @@ function content(item: Line): ComponentChildren {
       const heading = (
         <Tag {...stylex.props(styles.heading)}>
           <span {...stylex.props(styles.muted)}>{item.marker}</span>
-          {item.text}
+          {item.home ? (
+            <a href="/" {...stylex.props(styles.link)}>
+              {item.text}
+            </a>
+          ) : (
+            item.text
+          )}
         </Tag>
       );
       return item.title ? [heading, deco()] : heading;
@@ -165,7 +164,7 @@ function content(item: Line): ComponentChildren {
 }
 
 /**
- * What the page shows as one block: a source line as it is (header, heading, code, table), or
+ * What the page shows as one block: a source line as it is (heading, code, table), or
  * prose lines joined into one that wraps at the screen's width: a paragraph, a list item with its
  * indented continuation lines, a quote's sentence (a quote line ending in ".", ";" or "·" ends it).
  * The editor shows each source line whole; a phone wraps the blocks at its width.
@@ -277,15 +276,11 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
         );
       case "One": {
         const { entry } = block;
-        const header = entry.line.$ === "Header";
         const code = entry.line.$ === "Code" || entry.line.$ === "Table" || entry.line.$ === "Raw";
         const text = "text" in entry.line ? entry.line.text : "";
         const commands = copied((fenced.get(entry.n) ?? []).map((c) => c.command))?.text ?? "";
         return (
-          <span
-            {...greek(text)}
-            {...stylex.props(styles.row, header && styles.header, code && styles.hang)}
-          >
+          <span {...greek(text)} {...stylex.props(styles.row, code && styles.hang)}>
             {content(entry.line)}
             {commands !== "" ? (
               <button
@@ -312,7 +307,7 @@ function body(entries: readonly Entry[]): ComponentChildren[] {
 export type Hl = "title" | "muted" | "heading" | "link" | "bold" | "italic" | "code";
 
 /** Characters from..to (code points, end exclusive) of a line drawn in a group. */
-/** `href`: where a link run goes when it is not its own text (the header's link home). */
+/** `href`: where a link run goes when it is not its own text (a page's name, linking home). */
 export type Run = { from: number; to: number; hl: Hl; href?: string };
 
 /**
@@ -326,7 +321,7 @@ export type EditorFile = {
   copies: Copy[];
   images: Placement[];
   /** The home page: its Markdown and its images' sizes, to render again at a narrower width. */
-  page: { source: string; sizes: Sizes; width: number; header: boolean } | null;
+  page: { source: string; sizes: Sizes; width: number; linkHome: boolean } | null;
 };
 
 /** Code points in a string: the editor's columns. */
@@ -361,22 +356,15 @@ function inlineRuns(text: string, offset: number): Run[] {
 /** The highlights of one line: the same rules as the page's styles. */
 function lineRuns(item: Line): Run[] {
   switch (item.$) {
-    case "Header": {
-      const to = cellCount(item.text);
-      return item.first
-        ? [
-            { from: 0, to, hl: "title" },
-            { from: 0, to, hl: "link", href: "/" },
-          ]
-        : [{ from: 0, to, hl: "title" }];
-    }
     case "Text":
       return inlineRuns(item.text, 0);
     case "Heading": {
       const marker = cellCount(item.marker);
+      const to = marker + cellCount(item.text);
       return [
         { from: 0, to: marker, hl: "muted" },
-        { from: marker, to: marker + cellCount(item.text), hl: "heading" },
+        { from: marker, to, hl: "heading" },
+        ...(item.home ? [{ from: marker, to, hl: "link" as const, href: "/" }] : []),
       ];
     }
     case "Quote":
@@ -435,10 +423,10 @@ export function editorFile(
   path: string,
   source: string,
   plain: boolean,
-  header: boolean,
+  linkHome: boolean,
 ): EditorFile {
   const text = source.replace(/\n$/, "");
-  const entries = classify(text, plain, header);
+  const entries = classify(text, plain, linkHome);
   return {
     path,
     lines: text.split("\n"),
@@ -450,14 +438,10 @@ export function editorFile(
 }
 
 /** The page (and the 404 page) as Markdown, for phones and browsers without the script. */
-export function Markdown({ source, header }: { source: string; header: boolean }) {
-  const entries = classify(source.replace(/\n$/, ""), false, header);
-  const headerChars = Math.max(
-    0,
-    ...entries.map((entry) => (entry.line.$ === "Header" ? entry.line.text.length + 2 : 0)),
-  );
+export function Markdown({ source, linkHome }: { source: string; linkHome: boolean }) {
+  const entries = classify(source.replace(/\n$/, ""), false, linkHome);
   return (
-    <pre style={{ "--header-chars": headerChars }} {...stylex.props(styles.pre)}>
+    <pre {...stylex.props(styles.pre)}>
       <code {...stylex.props(styles.code)}>{body(entries)}</code>
     </pre>
   );
@@ -480,17 +464,6 @@ const styles = stylex.create({
     lineHeight: "inherit",
   },
   code: { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit" },
-  /**
-   * Header lines never wrap: on a screen narrower than the longest (`--header-chars`, 0.6em each)
-   * their type shrinks to fit the column (`main` is the container); their lines stay 20px.
-   */
-  header: {
-    whiteSpace: "pre",
-    fontSize: `min(${type.size}, 100cqi / (0.6 * var(--header-chars)))`,
-    color: colors.primary,
-  },
-  /** The page's name, an <h1> set as the line it sits on. */
-  title: { display: "inline", margin: 0, fontSize: "inherit", fontWeight: "inherit" },
   /** A block one character wide, a space after the name: drawn, not a glyph (no extra font). */
   deco: {
     display: "inline-block",

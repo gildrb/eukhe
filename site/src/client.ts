@@ -452,7 +452,7 @@ async function start() {
     const w = Math.min(textWidth, cols - pageGutter);
     return w === home.width && cw === desktop.cw && lh === desktop.lh
       ? file
-      : pageFile(file.path, home.source, home.sizes, w, { cw, lh }, home.header);
+      : pageFile(file.path, home.source, home.sizes, w, { cw, lh }, home.linkHome);
   });
   const bufs = cons(
     files.map((file): Buf => ({ $: "Buf", path: file.path, lines: cons(file.lines) })),
