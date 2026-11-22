@@ -203,7 +203,7 @@ law runners_ffi_left_over:
 # LAW runners_ffi_example: anchor, strings spelled by hand from the WIRE.md grammar (no Rust test vector holds them): the registry; main's roster with chat memory
 # EXCLUDES: another spelling of a request or a reply
 law runners_ffi_example:
-  {FRu.ffi("2,") == "13,6,python1,2,2,4,zoom0,0,4,date0,0,8,workflow0,0,4,read0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
+  {FRu.ffi("2,") == "14,6,python1,2,2,4,zoom0,0,4,date0,0,8,workflow0,0,4,read0,0,5,write0,0,4,edit0,0,4,grep0,0,4,glob0,0,4,bash7,0,1,2,3,4,5,6,1,3,dyn0,0,8,codemode0,0,27,pi.codemode.models.classify0,0,33,pi.codemode.models.generateImages0,0," : String} &
   {FRu.ffi("3,T") == "8,4,zoom0,0,4,date0,0,13,worker_assign0,0,14,worker_forward0,0,13,worker_status0,0,4,read0,0,4,grep0,0,4,glob0,0," : String}
 
 # ---- runners: the decision, pinned to the requirement ----
@@ -216,7 +216,7 @@ law runners_ffi_example:
 #
 # R5: a session installs, in order: `python` (caps exec, gated at each
 #     call), `zoom` and `date` (with or without chat memory), `workflow`,
-#     `read`, `edit`, `grep`, `glob`, `bash` (caps 0 to 6, gated at each
+#     `read`, `write`, `edit`, `grep`, `glob`, `bash` (caps 0 to 6, gated at each
 #     step), `dyn`, `codemode`, `pi.codemode.models.classify`,
 #     `pi.codemode.models.generateImages` (each of these but `python` and
 #     `bash` runs no code of its own: no caps, ungated).
@@ -243,7 +243,7 @@ def ru_names(ts: List<&2, Ru.ToolReg>) -> List<&2, String>:
 # in this order (the R5 list; crates/eukhe-core/src/durable/registry.rs)
 # EXCLUDES: a tool lost, added, renamed or moved
 law runners_registry_names:
-  {ru_names(Ru.registry()) == ["python", "zoom", "date", "workflow", "read", "edit", "grep", "glob", "bash", "dyn", "codemode", "pi.codemode.models.classify", "pi.codemode.models.generateImages"] : List<&2, String>}
+  {ru_names(Ru.registry()) == ["python", "zoom", "date", "workflow", "read", "write", "edit", "grep", "glob", "bash", "dyn", "codemode", "pi.codemode.models.classify", "pi.codemode.models.generateImages"] : List<&2, String>}
 
 # LAW runners_registry_quiet (R5): every tool a session installs other than
 # `python` and `bash` runs no code of its own: no caps, ungated
@@ -316,7 +316,7 @@ def ru_main_roster(chat: Bool) -> List<&2, Ru.ToolReg>:
 
 # R5: every tool a session installs
 def ru_registry() -> List<&2, Ru.ToolReg>:
-  [Ru.ToolReg{"python", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
+  [Ru.ToolReg{"python", [2n], Ru.EachCall{}}, ru_plain("zoom"), ru_plain("date"), ru_plain("workflow"), ru_plain("read"), ru_plain("write"), ru_plain("edit"), ru_plain("grep"), ru_plain("glob"), Ru.ToolReg{"bash", [0n, 1n, 2n, 3n, 4n, 5n, 6n], Ru.EachStep{}}, ru_plain("dyn"), ru_plain("codemode"), ru_plain("pi.codemode.models.classify"), ru_plain("pi.codemode.models.generateImages")]
 
 # the reply R5, R6 give a request
 def ru_reply(q: FRu.Req) -> String:

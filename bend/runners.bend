@@ -89,6 +89,7 @@ def registry() -> List<&2, ToolReg>:
     plain("date"),
     plain("workflow"),
     plain("read"),
+    plain("write"),
     plain("edit"),
     plain("grep"),
     plain("glob"),
