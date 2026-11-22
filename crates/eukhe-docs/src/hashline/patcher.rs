@@ -461,12 +461,16 @@ fn rebase_stale(
 /// A tag addresses only the path it was read from: the live text matches
 /// the section when this session recorded it for `canonical` under the
 /// section tag (the 16-bit tag is a content hash, so another file's tag,
-/// or a colliding one, can equal it). A matching section applies directly;
-/// a stale one (its tag names an older snapshot of this path) with only
-/// head/tail inserts applies with a warning; any other stale section goes
-/// through [`recover_stale`] or is rejected, as is a tag this path never
-/// had. Block locators (`N*`) are rejected up front: there is no block
-/// resolver.
+/// or a colliding one, can equal it), or, for a section that anchors a
+/// line, when the live text hashes to a tag this path holds no other
+/// snapshot under: the seen-line guard then admits only lines this path
+/// displayed, so an evicted snapshot or an earlier process's read still
+/// edits, and another file's tag does not. A matching section applies
+/// directly; a stale one (its tag names an older snapshot of this path)
+/// with only head/tail inserts applies with a warning; any other stale
+/// section goes through [`recover_stale`] or is rejected, as is a
+/// head/tail-only section under a tag this path never had. Block locators
+/// (`N*`) are rejected up front: there is no block resolver.
 #[allow(
     clippy::too_many_arguments,
     reason = "omp's apply_with_recovery contract: section identity, live text, edits, batch clipboard, store, policy"
@@ -483,8 +487,10 @@ fn apply_with_recovery(
 ) -> Result<ApplyResult, EditError> {
     reject_block_edits(edits)?;
     let anchor_lines = collect_anchor_lines(edits);
+    let anchored = has_anchor_scoped_edit(edits);
+    let stored = store.by_hash(canonical, tag);
     let live_matches = file_hash(normalized).eq_ignore_ascii_case(tag)
-        && store.by_content(canonical, normalized).is_some();
+        && (store.by_content(canonical, normalized).is_some() || (anchored && stored.is_none()));
     validate_clipboard_sequence(edits, clipboard)?;
     if live_matches {
         if enforce_seen_lines {
@@ -492,8 +498,7 @@ fn apply_with_recovery(
         }
         return apply_edits(normalized, edits, clipboard);
     }
-    let stored = store.by_hash(canonical, tag);
-    if let (false, Some(base)) = (has_anchor_scoped_edit(edits), stored) {
+    if let (false, Some(base)) = (anchored, stored) {
         // A retry of a head/tail insert that already landed: the edits
         // applied to the tagged snapshot give the live text.
         let landed = apply_edits(&base.text, edits, &mut clipboard.fork())
