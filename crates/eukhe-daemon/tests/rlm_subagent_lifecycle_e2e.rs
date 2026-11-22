@@ -738,15 +738,21 @@ const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in awa
 /// it returns at once (a cancelled agent is settled for every waiter), and
 /// `jobs.cancel` deletes it.
 ///
-/// A loaded machine can take the kid's start past the wait cell's
-/// blocking budget: the cell detaches before the abort, the abort reaches
-/// the kid through the agent tree, and the detached cell settles after
-/// it, a `job_settled` notice whose wake turn is then the parent's next
-/// cell. Otherwise the parent's next prompt runs that cell.
+/// The wait cell's blocking budget is the collect's own half hour: the
+/// cell blocks its turn until the abort however long the kid takes to
+/// start. Under the default 30 s a loaded machine detached the cell before
+/// the Esc: the turn went on without the wait the Esc is meant to abort,
+/// and the detached cell's late `job_settled` wake turn took the script's
+/// read cell.
 #[test]
 fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
     const SLEEP_SECS: u32 = 1796;
     let lane = Lane::new();
+    std::fs::write(
+        lane.agent_dir().join("settings.json"),
+        json!({ "toolBlockingBudgetMs": 1_800_000 }).to_string(),
+    )
+    .expect("write settings.json");
     let sleeping = lane.path().join("kid-sleeping");
     let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
     let parent_script = lane.script(
@@ -782,15 +788,7 @@ fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
             .then_some(())
     });
 
-    let detached = client.messages(&parent.active).iter().any(|message| {
-        message["role"] == "toolResult" && message["details"]["status"] == "detached"
-    });
-    if detached {
-        lane.receipt("read");
-        client.wait_idle(&parent.active);
-    } else {
-        client.run_turn(&parent.active, "list the jobs");
-    }
+    client.run_turn(&parent.active, "list the jobs");
     assert_eq!(
         lane.receipt("read"),
         json!({
