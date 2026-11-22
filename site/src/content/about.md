@@ -2,137 +2,21 @@ EUKHE
 ABOUT
 2026
 
-# ABOUT EUKHE
+# About Eukhe
 
-Eukhe is a harness and embeddable core for agents that work toward a
-goal, within limits, until checks pass. The name is εὐχή, Greek for
-wish.
+Eukhe is an agent harness that works a task with no person watching and gives a report at the end. The name is εὐχή, Greek for wish.
 
 > διὸ δὴ καὶ ὄκνος τις αὐτῶν ἅπτεσθαι, μὴ εὐχὴ δοκῇ εἶναι ὁ λόγος,
 > ὦ φίλε ἑταῖρε.
 > So there is some hesitation to touch these things, lest the
 > argument seem a mere wish, my dear friend. (Plato, Republic 5.450d)
 
-You write the wish as rules in `AGENTS.md`, as a goal and as commands
-that must pass. When one of those commands fails, Eukhe gives its
-output to the agent and runs another turn, and it repeats this until
-every command passes or the run reaches a limit. A session is an
-append-only log on disk, so it survives a crash and
-`eukhe --continue` reopens it.
+## Maker
 
-[spec/](spec/README.md) numbers what Eukhe's session log, memory,
-subagents and tool calls must do. A law is a theorem that the core,
-the part of Eukhe written in [Bend](https://bend-lang.com), meets
-one of those requirements. In a checkout, `bend PROOF.bend` checks
-the proof of every law, and the checked core is the code compiled
-into the binary you install.
+Eukhe is made by Gil Rodrigues ([gildrb.com](https://gildrb.com)), a designer and developer. The source is at [github.com/gildrb/eukhe](https://github.com/gildrb/eukhe) under the MIT license. The releases for macOS (Apple Silicon) and Linux (x64, arm64) are built from it.
 
-The `eukhe` command runs a coding agent on this core in your
-terminal. The `eukhe-sdk` Rust crate runs sessions on it inside your
-own process.
+## This site
 
-## WISH
-
-Eukhe reads `AGENTS.md` in your project and puts it in the system
-prompt.
-
-`eukhe --goal "objective"` keeps running turns until the goal
-completes (with acceptance checks: when they all pass) or its
-responses reach `--goal-token-budget` tokens; the agent then wraps
-up and the run ends at its next final answer.
-
-`eukhe --autonomous --autonomous-gate "cargo test"` runs `cargo test`
-after each turn. If it fails, Eukhe gives the agent its output and
-runs another turn. The run stops when the command passes or a limit
-is reached; `eukhe --help` lists the limits and their defaults.
-
-## LAWS
-
-The tables in [spec/README.md](spec/README.md) number the
-requirements and name the laws of each. A spec file such as
-[`spec/durable/log.bend`](spec/durable/log.bend) restates a
-requirement in Bend. It calls none of the shipped code, so a law
-compares two separately written definitions.
-
-A law is a theorem that the core does what a spec file says, and
-`PROOF.bend` holds a proof of every law. `LAWS.lock` holds a hash of
-each law and spec file; the pre-push hook and the nightly gate check
-the laws against it. Rust does the IO and calls
-the compiled core wherever a requirement has a law.
-
-The proofs cover the Bend core and say nothing about what the model
-writes. The Bend compiler, the C shim that links the core into the
-binary and the Rust IO are trusted without proof.
-
-## SDK
-
-[`eukhe-sdk`](crates/eukhe-sdk/) is a Rust crate that runs sessions
-inside your process. Its main calls are `open_session`, `prompt` and
-`watch`.
-
-[`eukhe-client`](crates/eukhe-client/) is a Rust crate that connects
-to the Eukhe daemon (`eukhe --mode daemon`) over its socket. The
-terminal UI and the web dashboard use it.
-
-A program in any language starts `eukhe --mode <json|rpc|acp>` and
-talks to it over stdio.
-
-The SDK crates are Rust only and are not on crates.io. Their API may
-change with any release.
-
-## COMPONENTS
-
-[Durable](spec/durable/) syncs every write of the session log to disk
-before acknowledging it. A resumed session keeps every checkpoint and
-has no task left running.
-
-[Memory](spec/memory/) never deletes a message. In a root session,
-each request to the model holds the newest messages in full and
-one-line summaries of older blocks of messages; the agent can read
-the full text of any summarized message. A message is summarized only
-once a request needs it: a compaction moved it out of the transcript,
-or a subagent starts from the view. Until then `/memory` lists it as
-not summarized yet.
-
-[RLM](spec/rlm/) (recursive language model) gives the agent a Python
-REPL in which the conversation so far is a variable. The agent starts
-a subagent there with a function call, and Eukhe refuses a call that
-gives no reason.
-
-[Autoresearch](spec/autoresearch/) improves a metric of the code,
-such as its speed or size. The agent writes the benchmark script;
-Eukhe runs it for each experiment, commits a change only when its
-metric beats the best kept run, and resets the others.
-
-Loop is the code behind `--autonomous` and `--goal`. It has no
-requirements, spec files or laws yet.
-
-Planned and not built: confinement of the programs the agent runs,
-checks the agent never sees, review of the process for gaming,
-capability security, replayable record, orchestration at scale,
-stable SDK contract.
-
-[spec/README.md](spec/README.md) also lists requirements and laws for
-tool calls, the tree of agents and subagents, settings and themes.
-
-## WHO MAKES IT
-
-Eukhe is made by Gil Rodrigues ([gildrb.com](https://gildrb.com)), a
-designer and developer. Its chat memory follows Victor Taelin's OptChat
-and [OptMem](https://github.com/VictorTaelin/OptMem).
-
-## SOURCE
-
-The source is public at
-[github.com/gildrb/eukhe](https://github.com/gildrb/eukhe) under the MIT
-license. Releases for macOS (Apple Silicon) and Linux (x64, arm64) are
-built from it and published there.
-
-## THIS SITE
-
-eukhe.com shows the install command and Eukhe's README as it is on
-GitHub, with Greek epigraphs of the site's own. On a computer the
-page is a read-only Neovim whose core is written in Bend, with proven
-laws; on a phone it is the same terminal, scrolled by touch.
+eukhe.com shows Eukhe's README, with Greek epigraphs of its own, in an editor that works as Neovim does. Visual mode selects and a yank copies; the files stay as they are. On a phone, the same editor scrolls by touch.
 
 More: [contact](/contact), [privacy](/privacy), [llms.txt](/llms.txt).
