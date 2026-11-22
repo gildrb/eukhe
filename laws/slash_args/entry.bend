@@ -141,17 +141,6 @@ law slash_args_entry_answers:
   for fit: {sae_fits(q) == True{} : Bool}
   {FSa.ffi(sae_req(q, "")) == sae_reply(q) : String}
 
-# LAW slash_args_entry_goal_pointer (R13): for every text a within the
-# wire, the `/goal a` request replies only the pointer
-# `/goal is removed: use /auto`
-# EXCLUDES: `/goal` read as `/auto` (a task, the status, on, off), its
-#   words read as a budget or a keyword, a pointer that varies with the
-#   text, an `/auto` answer after the pointer, `/goal` refused
-law slash_args_entry_goal_pointer:
-  for +a: String
-  for +fit: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
-  {FSa.ffi(sae_req(FSa.QGoal{a}, "")) == Wr.put_str("/goal is removed: use /auto", "") : String}
-
 # LAW slash_args_entry_left_over (R10): a spelled request followed by more
 # input answers the error form
 # EXCLUDES: the input after the request ignored or read into the text
