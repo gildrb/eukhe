@@ -737,6 +737,12 @@ const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in awa
 /// the roster and `rlm.collect` read it cancelled and settled, a wait on
 /// it returns at once (a cancelled agent is settled for every waiter), and
 /// `jobs.cancel` deletes it.
+///
+/// A loaded machine can take the kid's start past the wait cell's
+/// blocking budget: the cell detaches before the abort, the abort reaches
+/// the kid through the agent tree, and the detached cell settles after
+/// it, a `job_settled` notice whose wake turn is then the parent's next
+/// cell. Otherwise the parent's next prompt runs that cell.
 #[test]
 fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
     const SLEEP_SECS: u32 = 1796;
@@ -776,7 +782,15 @@ fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
             .then_some(())
     });
 
-    client.run_turn(&parent.active, "list the jobs");
+    let detached = client.messages(&parent.active).iter().any(|message| {
+        message["role"] == "toolResult" && message["details"]["status"] == "detached"
+    });
+    if detached {
+        lane.receipt("read");
+        client.wait_idle(&parent.active);
+    } else {
+        client.run_turn(&parent.active, "list the jobs");
+    }
     assert_eq!(
         lane.receipt("read"),
         json!({
