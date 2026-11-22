@@ -338,12 +338,17 @@ export function imagesHtml(
   w: number,
 ): string {
   return images
-    .map((img) => {
-      const width = `min(${img.width}px,${w} * var(--cw))`;
-      const style = `top:calc(${img.line - top} * var(--lh));left:calc((${w} * var(--cw) - ${width}) / 2 - ${left} * var(--cw));width:${width}`;
-      return `<a href="${repository}" style="${style}"><img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" loading="lazy"></a>`;
-    })
+    .map(
+      (img) =>
+        `<a href="${repository}" style="${imageStyle(img, top, left, w)}"><img src="${escape(img.src)}" alt="${escape(img.alt).replaceAll('"', "&quot;")}" loading="lazy"></a>`,
+    )
     .join("");
+}
+
+/** Where an image shows in the window from line `top`, `left` columns scrolled, text w cells wide. */
+export function imageStyle(img: Placement, top: number, left: number, w: number): string {
+  const width = `min(${img.width}px,${w} * var(--cw))`;
+  return `top:calc(${img.line - top} * var(--lh));left:calc((${w} * var(--cw) - ${width}) / 2 - ${left} * var(--cw));width:${width}`;
 }
 
 /** The home page's editor file at w cells: rendered, with what the browser needs to render it again. */

@@ -7,7 +7,7 @@
  */
 import type { EditorFile, Run } from "./markdown.tsx";
 import { type CopyAt, cells, floatRows, gutterRows, list, statusParts, textRows } from "./paint.ts";
-import { desktop, imagesHtml, pageFile, textWidth } from "./rendered.ts";
+import { desktop, imageStyle, imagesHtml, pageFile, textWidth } from "./rendered.ts";
 import Vim, { type BendList, type Buf, type Ev, type Frame, type Span, type St } from "./vim.mjs";
 
 /** A touch screen (a phone): no keyboard, a smaller font, the finger scrolls. */
@@ -212,21 +212,30 @@ function setVar(name: string, value: number) {
 /** The cells left of the page's text: the sign column (2), the number column (4), one to spare. */
 const pageGutter = 7;
 
-/** The images over the text rows (rendered.ts), painted again only when they change. */
+/**
+ * The images over the text rows (rendered.ts): made once per set of images, then only moved, so a
+ * GIF keeps playing while the text scrolls; one outside the window is not drawn.
+ */
 const imageLayer = element("[data-images]", HTMLElement);
-let imagesPainted = imageLayer.innerHTML;
 
 function paintImages(frame: Frame) {
   const file = frame.tgt.$ === "File" ? files[frame.tgt.i] : undefined;
   const page = file?.page ?? null;
-  const html =
-    file === undefined || page === null || frame.float.$ === "Some"
-      ? ""
-      : imagesHtml(file.images, frame.top, frame.left, page.width);
-  if (html !== imagesPainted) {
-    imageLayer.innerHTML = html;
-    imagesPainted = html;
-  }
+  imageLayer.hidden = file === undefined || page === null || frame.float.$ === "Some";
+  if (file === undefined || page === null) return;
+  const links = [...imageLayer.children];
+  const same =
+    links.length === file.images.length &&
+    file.images.every((img, k) => links[k]?.querySelector("img")?.getAttribute("src") === img.src);
+  if (!same) imageLayer.innerHTML = imagesHtml(file.images, frame.top, frame.left, page.width);
+  const h = size().rows - 2;
+  file.images.forEach((img, k) => {
+    const link = imageLayer.children[k];
+    if (!(link instanceof HTMLElement)) return;
+    const seen = img.line - frame.top < h && img.line + img.rows > frame.top;
+    link.style.cssText = imageStyle(img, frame.top, frame.left, page.width);
+    link.style.display = seen ? "" : "none";
+  });
 }
 
 function paint(frame: Frame) {
@@ -419,9 +428,8 @@ function cellAt(event: MouseEvent): { row: number; col: number } {
 }
 
 /**
- * The editor starts at the first input (a key, a click, a touch, the wheel), not at load: the page
- * already shows its first screen, and loading stays free of long tasks. The files come over the
- * network meanwhile; inputs made while the editor starts run once it has.
+ * The editor starts as soon as its files arrive, after the page shows its first screen (painted at
+ * build), so the first scroll waits for nothing; inputs made before it has started run once it has.
  */
 let filesText: Promise<string> | null = null;
 let booting: Promise<void> | null = null;
@@ -486,8 +494,11 @@ function listen() {
     if (!response.ok) throw new Error(`/files.json: ${response.status}`);
     return response.text();
   });
-  // Until the first input reads it; a failure is reported then.
-  filesText.catch(() => undefined);
+  // A failure is reported by the first input that waits for the editor.
+  filesText.then(
+    () => ready(() => undefined),
+    () => undefined,
+  );
   document.addEventListener("keydown", (event) => {
     // Cmd-C or Ctrl-C with text selected copies it, as anywhere else (y in visual mode).
     const selected = shown !== null && shown.sel.$ === "Con";
