@@ -48,7 +48,14 @@
 #     transient error retries the request it retries and spends a retry
 #     (retry.maxRetries), never a note; an error the retry policy cannot
 #     cure fails the run; the note is never logged (decide.rs `retry_note`,
-#     note.rs).
+#     note.rs). The logging itself is Rust's (generation.rs), which no
+#     law reads: the laws of the note's lines (run_note_is_never_logged,
+#     run_context_is_logged, run_note_is_read) are of the model of
+#     bend/run/request.bend. What gates the shipped log is the test
+#     `a_retry_after_a_repeating_stream_ends_its_request_with_a_note_and_answers`
+#     (crates/eukhe-durable/src/harness/generation/tests/retry_note.rs):
+#     the retry is sent with its note and the session log holds no note
+#     line.
 # H4.8: a stuck model gets a recovery, each with a cap (decide.rs
 #     `recover`; the laws are in laws/run/recover.bend): leaked tool
 #     calls the harness could not rebuild get leak notes 1 to `leak`, then
@@ -308,8 +315,8 @@ law run_cut_names_the_request:
 # LAW run_note_is_never_logged (H4.7): in the model of the requests, the
 # lines the model says the run logs of a request (`logged` of its
 # `Req.lines`) are those of its context with no note: the note changes
-# what the model reads, never what the model logs (the log of
-# generation.rs is not modelled here)
+# what the model reads, never what the model logs. A model only: Rust's
+# generation.rs logs, and the test named under H4.7 gates its log
 law run_note_is_never_logged:
   for q: RnRequest.Req
   {RnRequest.logged(RnRequest.Req.lines(q)) == RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{RnRequest.Req.ctx(q), 0n})) : List<&2, RnRequest.Line>}
@@ -317,7 +324,8 @@ law run_note_is_never_logged:
 # LAW run_context_is_logged (H4.7): in the model of the requests, what
 # the run logs of a request it sends (`logged` of its `Req.lines`) is its
 # context, with a note of any attempt or with none: the run logs every
-# request's context, never its note
+# request's context, never its note. A model only: Rust's generation.rs
+# logs, and the test named under H4.7 gates its log
 # EXCLUDES: a run that logs nothing (a `logged` that drops every line
 #   passes run_note_is_never_logged), logs the note, or logs another
 #   context
