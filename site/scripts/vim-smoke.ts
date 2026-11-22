@@ -18,7 +18,7 @@ const page = fs.readFileSync(new URL("../../README.md", import.meta.url), "utf8"
 const files = cons<Buf>([
   { $: "Buf", path: "index.md", lines: cons(page.replace(/\n$/, "").split("\n")) },
   { $: "Buf", path: "docs/install.md", lines: cons(["# Install", "", "curl it"]) },
-  { $: "Buf", path: "LICENSE", lines: cons(["MIT License", "", "Copyright"]) },
+  { $: "Buf", path: "LICENSE", lines: cons(["Apache License", "", "Version 2.0, January 2004"]) },
 ]);
 let st = Vim["Vim.init"](files, 40, 120);
 const show = (label: string) => {

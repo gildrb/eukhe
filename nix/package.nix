@@ -63,7 +63,7 @@ stdenv.mkDerivation {
   meta = {
     description = "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
     homepage = "https://github.com/gildrb/eukhe";
-    license = lib.licenses.mit;
+    license = lib.licenses.asl20;
     mainProgram = "eukhe";
     platforms = builtins.attrNames release.assets;
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
