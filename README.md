@@ -49,7 +49,7 @@ When a model cannot continue because its retries are used up, its login expired 
 
 <p align="center"><img src="media/sort-crash.webp" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
 
-Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is treated as not run, and the run continues. The message at the end of the run lists these steps with their cause, and `/effects` shows them.
+Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is treated as not run, and the run continues. The message at the end of the run lists these steps with their cause, and `/effects` shows them. When the process that runs a session hangs or keeps crashing, Eukhe restarts it and the run continues by itself; the agent is told to check the step that was running before it repeats it. This happens at most 3 times a turn; then the run ends with its report.
 
 ## Parallel work
 
