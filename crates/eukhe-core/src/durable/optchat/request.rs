@@ -122,14 +122,14 @@ async fn shape(
             Some(call) => call,
             None => pin(chat, &harness, conversation, Pinned::Subagent, cx).await?,
         };
-        let mut state_rows: Vec<Message> = Vec::new();
+        let mut state_rows: Vec<&Message> = Vec::new();
         for (entry, contributed) in view.entries.iter().zip(&view.contributions) {
             if lead_of(entry) == Lead::State {
-                state_rows.extend(contributed.iter().cloned());
+                state_rows.extend(contributed.iter().map(AsRef::as_ref));
             }
         }
         return Ok(request_messages(&call, messages, 0, |message| {
-            state_rows.contains(message)
+            state_rows.contains(&message)
         }));
     };
     let head = view.head.as_ref().map(|head| head.id);
@@ -174,7 +174,7 @@ async fn shape(
 /// context entries the log holds (through the logger's cursor `logged`;
 /// before a run pins, the logger holds the run's own entries back). The
 /// view keeps only the lines before these.
-fn verbatim_lines(entries: &[EntryRecord], logged: Option<EntryId>) -> SessionResult<u64> {
+fn verbatim_lines(entries: &[Arc<EntryRecord>], logged: Option<EntryId>) -> SessionResult<u64> {
     let mut lines = 0u64;
     for entry in entries {
         if logged.is_some_and(|through| entry.id <= through) {

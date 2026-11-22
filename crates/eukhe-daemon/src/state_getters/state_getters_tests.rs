@@ -300,7 +300,7 @@ async fn the_footer_counts_a_cjk_prompt_with_the_session_models_tokenizer() {
         .await
         .messages
         .iter()
-        .filter(|message| matches!(message, Message::System(_)))
+        .filter(|message| matches!(message.as_ref(), Message::System(_)))
         .map(|message| message_tokens(&tokenizer, message))
         .sum();
     let tokens = system + u64::from(Encoding::ClaudeV5Sonnet.count(&prompt));

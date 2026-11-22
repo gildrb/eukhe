@@ -252,7 +252,7 @@ pub(crate) struct Request {
     cutoff: EntryId,
     /// Committed model context through `cutoff`, when the phase already
     /// derived it.
-    pub(crate) messages: Option<Vec<Message>>,
+    pub(crate) messages: Option<Vec<Arc<Message>>>,
     /// When the request went out (the harness clock, ms).
     sent_at: f64,
     /// When the request's deferred job's time ends (H4.4): the end of the
@@ -756,7 +756,11 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     // The hooks see and may replace the messages and the forced tool; the
     // settings' forced tool is the first value.
     let shaped = Mutex::new(RequestMessages {
-        messages: view.messages.clone(),
+        messages: view
+            .messages
+            .iter()
+            .map(|message| Message::clone(message))
+            .collect(),
         force_tool: stream_options.force_tool.clone(),
     });
     let api = runtime.hook_api();
@@ -1177,7 +1181,13 @@ async fn provider_tokens(
     planned: &[SystemDraft],
 ) -> u64 {
     let extra = planned_messages(planned);
-    let messages = view.messages.iter().chain(&extra).cloned().collect();
+    let messages = view
+        .messages
+        .iter()
+        .map(AsRef::as_ref)
+        .chain(&extra)
+        .cloned()
+        .collect();
     // The count request reaches the provider: it reads pseudonyms too.
     // Nothing of its answer is restored, so its scrub numbers the values
     // in a map of its own, which goes with the count.

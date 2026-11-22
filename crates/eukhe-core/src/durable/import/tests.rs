@@ -130,8 +130,9 @@ fn jsonl(rows: &[Value]) -> String {
 }
 
 /// The legacy session's model context for `content`: the default leaf's
-/// session context through `convert_to_llm`, in pi-ai shapes.
-fn old_context(content: &str) -> Vec<Message> {
+/// session context through `convert_to_llm`, in pi-ai shapes, shared as a
+/// context view holds them.
+fn old_context(content: &str) -> Vec<Arc<Message>> {
     let mut entries = parse_session_entries(content);
     migrate_to_current_version(&mut entries);
     let leaf = SessionTree::build(&entries).default_leaf(&entries);

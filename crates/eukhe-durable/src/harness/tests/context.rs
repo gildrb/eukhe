@@ -1,5 +1,6 @@
 //! Port of `test/harness-context.test.ts`.
 
+use std::borrow::Borrow;
 use std::sync::Arc;
 
 use eukhe_types::pi_ai::{IndexMap, Message};
@@ -63,12 +64,15 @@ async fn setup() -> Setup {
     }
 }
 
-fn ids(entries: &[EntryRecord]) -> Vec<EntryId> {
+fn ids(entries: &[Arc<EntryRecord>]) -> Vec<EntryId> {
     entries.iter().map(|entry| entry.id).collect()
 }
 
-fn described(messages: &[Message]) -> Vec<String> {
-    messages.iter().map(describe_message).collect()
+fn described<M: Borrow<Message>>(messages: &[M]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| describe_message(message.borrow()))
+        .collect()
 }
 
 fn sections(pairs: &[(&str, &str)]) -> IndexMap<String, Option<String>> {
@@ -342,7 +346,7 @@ async fn leads_with_a_system_message_that_only_user_messages_precede_and_keeps_l
         ]
     );
     // Stored order and contributions stay as committed.
-    let contributions: Vec<Message> = view.contributions.concat();
+    let contributions: Vec<Arc<Message>> = view.contributions.concat();
     assert_eq!(
         described(&contributions)[..3],
         ["user:first", "user:steered", "system:preamble"]
@@ -409,7 +413,7 @@ async fn synthesizes_missing_tool_results_after_a_fork_and_drops_results_cut_fro
             "result:y:error",
         ]
     );
-    let Message::ToolResult(missing) = &child_view.messages[2] else {
+    let Message::ToolResult(missing) = child_view.messages[2].as_ref() else {
         panic!("expected a tool result");
     };
     assert_eq!(missing.tool_name, "tool-x");

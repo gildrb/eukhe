@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use crate::context_tree_cache::WalkRequest;
 use crate::protocol::{response_failure, response_success, DaemonResponse};
 use crate::worker::durable_host::wire_messages::{
-    assistant_context_tokens, entry_wire_message_with, transcript_messages, transcript_messages_of,
+    assistant_context_tokens, entry_wire_message_with, transcript_messages_of,
 };
 use crate::worker::{model_metadata, HostedSession, Worker};
 
@@ -410,7 +410,9 @@ impl Worker {
 /// `session.state.messages`).
 async fn context_messages(conversation: &Conversation, cx: &Context) -> SessionResult<Vec<Value>> {
     let view = conversation.context(cx, ContextOptions::default()).await?;
-    Ok(transcript_messages(&view.entries))
+    Ok(transcript_messages_of(
+        view.entries.iter().map(AsRef::as_ref),
+    ))
 }
 
 /// What the context usage the clients show measures against: the session

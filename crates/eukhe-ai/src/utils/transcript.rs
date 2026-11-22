@@ -22,6 +22,13 @@ impl TranscriptMessage for Message {
     }
 }
 
+/// A shared transcript entry reads as the entry.
+impl<M: TranscriptMessage> TranscriptMessage for std::sync::Arc<M> {
+    fn as_system_message(&self) -> Option<&SystemMessage> {
+        M::as_system_message(self)
+    }
+}
+
 /// Build the leading system message for a prompt and tool set. `None` when
 /// both are empty, so an empty transcript stays empty.
 #[must_use]

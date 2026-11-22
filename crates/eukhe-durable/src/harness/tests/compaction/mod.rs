@@ -12,6 +12,7 @@ mod outcomes;
 mod provider_count;
 mod recovery;
 
+use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -561,17 +562,17 @@ pub(super) async fn input_tokens(chat: &Chat) -> u64 {
     usage(chat).await.models["faux/faux-1"].input
 }
 
-pub(super) fn user_text(message: Option<&Message>) -> String {
+pub(super) fn user_text<M: Borrow<Message>>(message: Option<&M>) -> String {
     text_of(message).unwrap_or_default()
 }
 
 /// Text of the first user message; a leading baseline system message comes
 /// before it.
-pub(super) fn first_user_text(messages: &[Message]) -> String {
+pub(super) fn first_user_text<M: Borrow<Message>>(messages: &[M]) -> String {
     user_text(
         messages
             .iter()
-            .find(|message| matches!(message, Message::User(_))),
+            .find(|message| matches!((*message).borrow(), Message::User(_))),
     )
 }
 

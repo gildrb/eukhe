@@ -159,7 +159,7 @@ async fn select(task: Current, runtime: Runtime, cx: Context) -> SessionResult<(
     } = task.input;
     let compaction = CompactionRequest {
         reason,
-        entries: view.entries[..cut].to_vec(),
+        entries: view.entries[..cut].iter().map(|e| (**e).clone()).collect(),
         messages: summarized_messages(&view, cut),
         first_kept,
         instructions,

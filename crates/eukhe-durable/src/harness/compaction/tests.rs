@@ -2,6 +2,8 @@
 //! "range selection" and "serialization"), and the counted sizes the cut
 //! and the threshold read.
 
+use std::sync::Arc;
+
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_text, faux_thinking, faux_tool_call, FauxAssistantMessageOptions,
 };
@@ -127,8 +129,13 @@ fn is_excluded(message: &Message) -> bool {
 /// A view over `entries` whose contributions are their models, with excluded
 /// assistants removed.
 fn view(entries: Vec<EntryRecord>, head: Option<EntryRecord>) -> ContextView {
-    let all: Vec<EntryRecord> = head.iter().cloned().chain(entries).collect();
-    let contributions: Vec<Vec<Message>> = all
+    let head = head.map(Arc::new);
+    let all: Vec<Arc<EntryRecord>> = head
+        .iter()
+        .cloned()
+        .chain(entries.into_iter().map(Arc::new))
+        .collect();
+    let contributions: Vec<Arc<[Arc<Message>]>> = all
         .iter()
         .map(|record| {
             record
@@ -137,10 +144,14 @@ fn view(entries: Vec<EntryRecord>, head: Option<EntryRecord>) -> ContextView {
                 .flatten()
                 .filter(|message| !is_excluded(message))
                 .cloned()
+                .map(Arc::new)
                 .collect()
         })
         .collect();
-    let flat: Vec<Message> = contributions.iter().flatten().cloned().collect();
+    let flat: Vec<Arc<Message>> = contributions
+        .iter()
+        .flat_map(|c| c.iter().cloned())
+        .collect();
     ContextView {
         head,
         entries: all,
@@ -269,19 +280,22 @@ fn follows_edited_contributions_an_omitted_entry_adds_nothing_and_is_no_candidat
     ];
     let plain = view(entries, None);
     assert_eq!(cut(&plain, 250.0), Some(2));
-    let contributions: Vec<Vec<Message>> = plain
+    let contributions: Vec<Arc<[Arc<Message>]>> = plain
         .contributions
         .iter()
         .enumerate()
         .map(|(index, messages)| {
             if index == 2 {
-                Vec::new()
+                Arc::from([])
             } else {
-                messages.clone()
+                Arc::clone(messages)
             }
         })
         .collect();
-    let flat: Vec<Message> = contributions.iter().flatten().cloned().collect();
+    let flat: Vec<Arc<Message>> = contributions
+        .iter()
+        .flat_map(|c| c.iter().cloned())
+        .collect();
     let omitted = ContextView {
         messages: order_tool_results(&flat),
         contributions,
@@ -338,8 +352,7 @@ fn summarizes_an_earlier_summary_marker_first() {
     assert_eq!(cut(&selected, 250.0), Some(3));
     let prefix: Vec<Message> = selected.contributions[..3]
         .iter()
-        .flatten()
-        .cloned()
+        .flat_map(|contribution| contribution.iter().map(|message| Message::clone(message)))
         .collect();
     assert!(serialize_conversation(&prefix).starts_with("[User]: EARLIER"));
 }
@@ -437,7 +450,7 @@ fn a_compaction_counts_pastes_exactly_and_keeps_the_context_within_the_target() 
     // What the cut keeps stays within the target (27808).
     let kept: u64 = view.contributions[7..]
         .iter()
-        .flatten()
+        .flat_map(|contribution| contribution.iter())
         .map(|message| message_tokens(&tokenizer, message))
         .sum();
     assert!(kept <= 27_808, "{kept}");

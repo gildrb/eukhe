@@ -367,6 +367,7 @@ async fn kept_tail_anchor(
         .entries
         .iter()
         .skip_while(|entry| entry.id != request.first_kept)
+        .map(AsRef::as_ref)
         .collect();
     Ok(head::recent_state_anchor(&head::flattened_models(&kept)))
 }

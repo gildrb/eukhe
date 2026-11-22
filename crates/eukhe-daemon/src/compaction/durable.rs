@@ -62,7 +62,7 @@ impl ManualCompactionError {
 /// summary retains was appended before it, so only an entry appended after
 /// the summary makes the context compactable again.
 fn already_compacted(view: &ContextView) -> bool {
-    view.head.as_ref().is_some_and(|head| {
+    view.head.as_deref().is_some_and(|head| {
         COMPACTION_ENTRY.is(Some(head)) && view.entries.iter().all(|entry| entry.id <= head.id)
     })
 }

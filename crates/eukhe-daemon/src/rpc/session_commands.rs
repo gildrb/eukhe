@@ -31,7 +31,7 @@ use crate::acceptance_commands::AcceptanceRequest;
 use crate::session_export::durable::export_html as export_session_html;
 use crate::state_getters::{context_usage, ContextMeter};
 use crate::worker::durable_host::meta::set_session_name as persist_session_name;
-use crate::worker::durable_host::wire_messages::transcript_messages;
+use crate::worker::durable_host::wire_messages::transcript_messages_of;
 
 /// Handle one session-level command.
 ///
@@ -447,7 +447,7 @@ async fn get_session_stats(state: &Arc<RpcState>) -> Result<ResponseData, RpcCom
         .main()
         .context(&cx, ContextOptions::default())
         .await?;
-    let messages = transcript_messages(&view.entries);
+    let messages = transcript_messages_of(view.entries.iter().map(AsRef::as_ref));
     let agent = main_agent(session, &cx).await?;
     let mut session_stats = json!({
         "sessionFile": deps

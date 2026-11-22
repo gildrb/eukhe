@@ -43,7 +43,8 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+# rc: a shared (`Arc`) entry or message serializes as the value it holds.
+serde = { version = "1", features = ["derive", "rc"] }
 # preserve_order: serde_json::Map keeps insertion order (IndexMap) so every
 # wire/durable JSON surface serializes in construction order — the JS object
 # model the TS daemon and session files byte-emit. Without it the Map is a

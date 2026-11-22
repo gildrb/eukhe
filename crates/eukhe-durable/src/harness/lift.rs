@@ -17,6 +17,8 @@
 //! current calls are untouched. Only the derived view changes: the stored
 //! entries keep what was stored.
 
+use std::sync::Arc;
+
 use eukhe_bend::rules::call_lift::{self, Arg, Lift, Receipt, StoredCall};
 use eukhe_types::pi_ai::{AssistantContentBlock, JsonObject, JsonValue, Message};
 use serde_json::json;
@@ -53,12 +55,13 @@ enum PlaceError {
 
 /// Lift every stamped call of `messages`, ordered as
 /// [`super::context::order_tool_results`] leaves them: each assistant
-/// message followed by its tool results in call order.
-pub(crate) fn lift_calls(messages: &mut [Message]) {
+/// message followed by its tool results in call order. A message the lift
+/// changes is copied first; the others stay shared.
+pub(crate) fn lift_calls(messages: &mut [Arc<Message>]) {
     let mut sites = Vec::new();
     let mut stored = Vec::new();
     for (index, message) in messages.iter().enumerate() {
-        let Message::Assistant(assistant) = message else {
+        let Message::Assistant(assistant) = message.as_ref() else {
             continue;
         };
         let mut result = index + 1;
@@ -68,7 +71,7 @@ pub(crate) fn lift_calls(messages: &mut [Message]) {
             };
             let at = result;
             result += 1;
-            let Some(Message::ToolResult(tool_result)) = messages.get(at) else {
+            let Some(Message::ToolResult(tool_result)) = messages.get(at).map(AsRef::as_ref) else {
                 continue;
             };
             if tool_result.tool_call_id != tool_call.id {
@@ -104,7 +107,7 @@ fn stamp(details: Option<&JsonValue>) -> Option<(&str, &str)> {
     details?.get("version")?.as_str()?.rsplit_once('@')
 }
 
-fn apply(messages: &mut [Message], site: &Site, lift: Lift) {
+fn apply(messages: &mut [Arc<Message>], site: &Site, lift: Lift) {
     let (receipt, rev) = match lift {
         Lift::Unknown | Lift::Current => return,
         Lift::Stranded => (json!({ "outcome": "stranded" }), None),
@@ -133,8 +136,12 @@ fn apply(messages: &mut [Message], site: &Site, lift: Lift) {
 }
 
 /// The call at `site` with the arguments the lift placed.
-fn lift_arguments(messages: &mut [Message], site: &Site, args: Vec<Arg>) -> Result<(), PlaceError> {
-    let tool_call = match messages.get_mut(site.assistant) {
+fn lift_arguments(
+    messages: &mut [Arc<Message>],
+    site: &Site,
+    args: Vec<Arg>,
+) -> Result<(), PlaceError> {
+    let tool_call = match messages.get_mut(site.assistant).map(Arc::make_mut) {
         Some(Message::Assistant(assistant)) => match assistant.content.get_mut(site.block) {
             Some(AssistantContentBlock::ToolCall(tool_call)) => tool_call,
             Some(AssistantContentBlock::Text(_) | AssistantContentBlock::Thinking(_)) | None => {
@@ -151,7 +158,7 @@ fn lift_arguments(messages: &mut [Message], site: &Site, args: Vec<Arg>) -> Resu
 
 /// The `lift` receipt in the result's details, after the stamp it was
 /// lifted from; a lifted call's result is stamped with the current `rev`.
-fn record(messages: &mut [Message], site: &Site, receipt: JsonValue, rev: Option<&str>) {
+fn record(messages: &mut [Arc<Message>], site: &Site, receipt: JsonValue, rev: Option<&str>) {
     let Some(details) = details_mut(messages, site) else {
         return;
     };
@@ -178,8 +185,8 @@ fn receipt_json(receipt: &Receipt) -> JsonValue {
     }
 }
 
-fn details_mut<'a>(messages: &'a mut [Message], site: &Site) -> Option<&'a mut JsonObject> {
-    match messages.get_mut(site.result)? {
+fn details_mut<'a>(messages: &'a mut [Arc<Message>], site: &Site) -> Option<&'a mut JsonObject> {
+    match Arc::make_mut(messages.get_mut(site.result)?) {
         Message::ToolResult(result) => match result.details.as_mut()? {
             JsonValue::Object(details) => Some(details),
             JsonValue::Null
