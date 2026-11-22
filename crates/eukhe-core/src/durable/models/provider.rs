@@ -203,9 +203,8 @@ struct Inner {
     /// refreshed, with the refresh's error ([`LoginWatch`]): the next
     /// request to one fails without leaving and goes to another model.
     logins: Arc<Mutex<HashMap<String, String>>>,
-    /// The providers whose login this run found unusable, by provider id
-    /// ([`DeadLogin`]).
-    dead_logins: Arc<Mutex<HashMap<String, DeadLogin>>>,
+    /// The account logins this run found unusable ([`DeadLogin`]).
+    dead_logins: DeadLogins,
     /// The session's model moves, one per pair of models, oldest first.
     moves: Mutex<Vec<ModelMove>>,
     /// The session's accounts: the account each provider's requests use
@@ -215,17 +214,65 @@ struct Inner {
     switches: Mutex<Vec<AccountSwitch>>,
 }
 
-/// A provider login a request of this run found unusable ([`Why::Login`])
-/// and left. It stays unusable for the rest of the run: a later request
-/// on that provider starts on the model the run went on with, and its
-/// login is never refreshed again ([`LoginWatch`]), so no request pays
-/// another failed refresh. A new login of the provider clears it.
+/// An account's login: its provider id and the account's identity (the
+/// account the provider's credential store serves,
+/// [`AccountBook::current_identity`]; empty for a provider with no stored
+/// account).
+type LoginKey = (String, String);
+
+/// The account logins a run found unusable, by account.
+type DeadLogins = Arc<Mutex<HashMap<LoginKey, DeadLogin>>>;
+
+/// An account login a request of this run found unusable ([`Why::Login`])
+/// and left. It stays unusable for the rest of the run, and is never
+/// refreshed again ([`LoginWatch`]), so no request pays another failed
+/// refresh. The provider's requests go on with its next account
+/// (`laws/account.bend`); once every account of the provider is dead, a
+/// later request on it starts on the model the run went on with. A new
+/// login of the account clears it.
 #[derive(Clone)]
 struct DeadLogin {
     /// The login's failure, as the request that left it read it.
     error: String,
     /// The model the run went on with: the latest that answered.
     moved_to: Model,
+}
+
+/// The dead login of `provider`'s current account, when every account of
+/// the provider (or the one login of a provider with no stored account)
+/// is dead for the run: the provider has no login left.
+fn provider_dead_login(inner: &Inner, provider: &str) -> Option<DeadLogin> {
+    let accounts = inner.accounts.accounts(provider);
+    let current = inner.accounts.current_identity(provider, &accounts);
+    let dead = inner.dead_logins.lock().unwrap_or_else(poisoned);
+    let is_dead = |identity: &str| dead.contains_key(&(provider.to_owned(), identity.to_owned()));
+    let every = if accounts.is_empty() {
+        is_dead(&current)
+    } else {
+        accounts.iter().all(|account| is_dead(&account.identity))
+    };
+    if !every {
+        return None;
+    }
+    dead.get(&(provider.to_owned(), current)).cloned()
+}
+
+/// Record `provider`'s login found unusable: the account a request just
+/// failed on, and each account this session's account rotation found
+/// dead ([`AccountBook::is_dead`]).
+fn mark_dead_login(inner: &Inner, provider: &str, dead: &DeadLogin) {
+    let accounts = inner.accounts.accounts(provider);
+    let mut identities = vec![inner.accounts.current_identity(provider, &accounts)];
+    identities.extend(
+        accounts
+            .into_iter()
+            .map(|account| account.identity)
+            .filter(|identity| inner.accounts.is_dead(provider, identity)),
+    );
+    let mut dead_logins = inner.dead_logins.lock().unwrap_or_else(poisoned);
+    for identity in identities {
+        dead_logins.insert((provider.to_owned(), identity), dead.clone());
+    }
 }
 
 /// One move of the session's requests from the model they asked for to
@@ -368,6 +415,7 @@ impl ProviderRuntime {
                     provider: provider.id.clone(),
                     logins: Arc::clone(&runtime.inner.logins),
                     dead: Arc::clone(&runtime.inner.dead_logins),
+                    accounts: Arc::clone(&runtime.inner.accounts),
                 }));
             }
             models.set_provider(provider);
@@ -451,14 +499,17 @@ impl ProviderRuntime {
 /// credential stands, so the request reaches the runtime, which fails it
 /// there without sending it ([`take_login_failure`]) and moves it to
 /// another model the user configured. A refresh that succeeds clears the
-/// record; an aborted refresh fails as before. A login the run found
-/// unusable ([`DeadLogin`]) is not refreshed again: its failure is
-/// recorded at once. A new login clears both.
+/// record; an aborted refresh fails as before. An account login the run
+/// found unusable ([`DeadLogin`]) is not refreshed again: its failure is
+/// recorded at once. A new login of the account clears both.
 struct LoginWatch {
     oauth: Arc<dyn OAuthAuth>,
     provider: String,
     logins: Arc<Mutex<HashMap<String, String>>>,
-    dead: Arc<Mutex<HashMap<String, DeadLogin>>>,
+    dead: DeadLogins,
+    /// The session's accounts: a refresh is of the account the provider's
+    /// credential store serves ([`AccountBook::current_identity`]).
+    accounts: Arc<AccountBook>,
 }
 
 impl OAuthAuth for LoginWatch {
@@ -481,10 +532,13 @@ impl OAuthAuth for LoginWatch {
     ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
         Box::pin(async move {
             let credential = self.oauth.login(interaction, options).await?;
+            // The account the login signs in as is alive again.
+            let identity = eukhe_ai::auth::oauth::oauth_identity(&self.provider, &credential);
+            self.accounts.revive(&self.provider, &identity);
             self.dead
                 .lock()
                 .unwrap_or_else(poisoned)
-                .remove(&self.provider);
+                .remove(&(self.provider.clone(), identity));
             self.logins
                 .lock()
                 .unwrap_or_else(poisoned)
@@ -499,11 +553,16 @@ impl OAuthAuth for LoginWatch {
         signal: AbortSignal,
     ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
         Box::pin(async move {
+            let account = (
+                self.provider.clone(),
+                self.accounts
+                    .current_identity(&self.provider, &self.accounts.accounts(&self.provider)),
+            );
             let dead = self
                 .dead
                 .lock()
                 .unwrap_or_else(poisoned)
-                .get(&self.provider)
+                .get(&account)
                 .map(|dead| dead.error.clone());
             if let Some(error) = dead {
                 self.logins
@@ -679,19 +738,14 @@ async fn run_request(
     } else {
         0
     };
-    // A login this run found unusable is not tried again: the request
-    // starts on the model the run went on with, as one whose login just
-    // failed would move there ([`DeadLogin`]).
-    let dead = inner
-        .dead_logins
-        .lock()
-        .unwrap_or_else(poisoned)
-        .get(&primary.provider)
-        .cloned()
-        .filter(|dead| {
-            failover.enabled
-                && (!context_has_images(&context) || dead.moved_to.input.contains(&Modality::Image))
-        });
+    // A provider whose every account login this run found unusable is not
+    // tried again: the request starts on the model the run went on with,
+    // as one whose login just failed would move there ([`DeadLogin`]). A
+    // provider with an account left goes on with it (`laws/account.bend`).
+    let dead = provider_dead_login(&inner, &primary.provider).filter(|dead| {
+        failover.enabled
+            && (!context_has_images(&context) || dead.moved_to.input.contains(&Modality::Image))
+    });
     if let Some(dead) = dead {
         let _recorded = take_login_failure(&inner.logins, &primary.provider);
         primary_failure = Some(login_failed_message(&primary, &dead.error));
@@ -875,9 +929,10 @@ async fn run_request(
                         Move::To { model, reason, why } => {
                             // A login found unusable stays so for the run.
                             if why == Why::Login {
-                                inner.dead_logins.lock().unwrap_or_else(poisoned).insert(
-                                    failing.provider.clone(),
-                                    DeadLogin {
+                                mark_dead_login(
+                                    &inner,
+                                    &failing.provider,
+                                    &DeadLogin {
                                         error: final_error_of(failure),
                                         moved_to: (*model).clone(),
                                     },
@@ -948,11 +1003,12 @@ async fn run_request(
                     .unwrap_or_else(poisoned)
                     .remove(&model_reference(&primary));
             } else if left_for == Some(Why::Login) {
-                if let Some(dead) = inner
+                for (_, dead) in inner
                     .dead_logins
                     .lock()
                     .unwrap_or_else(poisoned)
-                    .get_mut(&primary.provider)
+                    .iter_mut()
+                    .filter(|((provider, _), _)| *provider == primary.provider)
                 {
                     dead.moved_to = serving.clone();
                 }

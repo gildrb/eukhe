@@ -813,15 +813,10 @@ async fn a_dead_login_is_never_refreshed_until_a_new_login() {
         refreshes: std::sync::atomic::AtomicUsize::new(0),
         credential: fresh.clone(),
     });
-    let watch = LoginWatch {
-        oauth: Arc::clone(&oauth) as Arc<dyn OAuthAuth>,
-        provider: "faux-a".to_owned(),
-        logins: Arc::clone(&inner.logins),
-        dead: Arc::clone(&inner.dead_logins),
-    };
+    let watch = login_watch(inner, &oauth);
     let error = "OAuth refresh failed for faux-a: invalid_grant";
     inner.dead_logins.lock().unwrap_or_else(poisoned).insert(
-        "faux-a".to_owned(),
+        ("faux-a".to_owned(), String::new()),
         DeadLogin {
             error: error.to_owned(),
             moved_to: fixture.faux_b.get_model(),
@@ -848,10 +843,167 @@ async fn a_dead_login_is_never_refreshed_until_a_new_login() {
                 .dead_logins
                 .lock()
                 .unwrap_or_else(poisoned)
-                .contains_key("faux-a"),
+                .contains_key(&("faux-a".to_owned(), String::new())),
             refreshes(),
         ),
         ((true, Some(error.to_owned()), 0), true, true, false, 1)
+    );
+}
+
+/// The `faux-a` [`LoginWatch`] of the fixture's runtime over `oauth`.
+fn login_watch(inner: &Inner, oauth: &Arc<CountingOAuth>) -> LoginWatch {
+    LoginWatch {
+        oauth: Arc::clone(oauth) as Arc<dyn OAuthAuth>,
+        provider: "faux-a".to_owned(),
+        logins: Arc::clone(&inner.logins),
+        dead: Arc::clone(&inner.dead_logins),
+        accounts: Arc::clone(&inner.accounts),
+    }
+}
+
+/// A subscription login of `faux-a` that signs in as `email`.
+fn oauth_login(email: &str) -> OAuthCredential {
+    OAuthCredential::new(
+        format!("rt-{email}"),
+        format!("at-{email}"),
+        4_102_444_800_000.0,
+    )
+    .with_extra(
+        eukhe_ai::auth::oauth::EMAIL_EXTRA,
+        serde_json::Value::String(email.to_owned()),
+    )
+}
+
+/// Multi-account: a dead login is its account's. A new login clears the
+/// dead login of the account it signs in as, for the run and for the
+/// account rotation, and only that one: the account's next refresh is
+/// the provider's own, and the other account stays dead.
+#[tokio::test]
+async fn a_new_login_clears_the_dead_login_of_its_account() {
+    let fixture = fixture(/*text_only*/ false);
+    let inner = &fixture.runtime.inner;
+    let (first, second) = (oauth_login("a@x.com"), oauth_login("b@x.com"));
+    std::fs::write(
+        fixture
+            .dir
+            .path()
+            .join("agent")
+            .join(crate::auth::AUTH_FILE_NAME),
+        serde_json::json!({ "faux-a": { "accounts": [first, second] } }).to_string(),
+    )
+    .expect("auth.json");
+    let identity =
+        |credential: &OAuthCredential| eukhe_ai::auth::oauth::oauth_identity("faux-a", credential);
+    let oauth = Arc::new(CountingOAuth {
+        refreshes: std::sync::atomic::AtomicUsize::new(0),
+        credential: first.clone(),
+    });
+    let watch = login_watch(inner, &oauth);
+    let error = "OAuth refresh failed for faux-a: invalid_grant";
+    for credential in [&first, &second] {
+        inner.dead_logins.lock().unwrap_or_else(poisoned).insert(
+            ("faux-a".to_owned(), identity(credential)),
+            DeadLogin {
+                error: error.to_owned(),
+                moved_to: fixture.faux_b.get_model(),
+            },
+        );
+    }
+    // The account rotation found the first account's login dead.
+    let _step = inner
+        .accounts
+        .step("faux-a", AccountFailure::Login, now_millis(), 0, 0);
+    let signal = || eukhe_chord::context::AbortController::new().signal();
+    let refreshes = || oauth.refreshes.load(std::sync::atomic::Ordering::SeqCst);
+    let dead = |credential: &OAuthCredential| {
+        (
+            inner
+                .dead_logins
+                .lock()
+                .unwrap_or_else(poisoned)
+                .contains_key(&("faux-a".to_owned(), identity(credential))),
+            inner.accounts.is_dead("faux-a", &identity(credential)),
+        )
+    };
+    let before = (dead(&first), dead(&second));
+    let _kept = watch.refresh(first.clone(), signal()).await.unwrap();
+    let dead_refresh = (take_login_failure(&inner.logins, "faux-a"), refreshes());
+    let login = ProviderAuthInteraction::new(Arc::new(Unasked), signal());
+    let _logged_in = watch.login(login, None).await.unwrap();
+    let after = (dead(&first), dead(&second));
+    let _refreshed = watch.refresh(first.clone(), signal()).await.unwrap();
+    assert_eq!(
+        (before, dead_refresh, after, refreshes()),
+        (
+            ((true, true), (true, false)),
+            (Some(error.to_owned()), 0),
+            ((false, false), (true, false)),
+            1
+        )
+    );
+}
+
+/// Multi-account: a dead login is its account's, not its provider's. With
+/// the first account's login dead for the run, the request goes on with
+/// the provider's second account on the same model, before any other
+/// model, and the run stays on it.
+#[tokio::test]
+async fn a_dead_login_of_one_account_goes_on_with_the_next_account() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    two_faux_a_accounts(&fixture);
+    let model = fixture.faux_a.get_model();
+    let answer = |text: &str| {
+        FauxResponseStep::Message(Box::new(faux_assistant_message(
+            text,
+            FauxAssistantMessageOptions::default(),
+        )))
+    };
+    fixture
+        .faux_a
+        .set_responses(vec![answer("second account"), answer("still second")]);
+    fixture.faux_b.set_responses(vec![answer("other model")]);
+    fixture
+        .runtime
+        .inner
+        .dead_logins
+        .lock()
+        .unwrap_or_else(poisoned)
+        .insert(
+            ("faux-a".to_owned(), "key ...111111".to_owned()),
+            DeadLogin {
+                error: "OAuth refresh failed for faux-a: invalid_grant".to_owned(),
+                moved_to: fixture.faux_b.get_model(),
+            },
+        );
+    // The dead login's refresh records its failure at once (`LoginWatch`).
+    expire_faux_a(&fixture);
+    let hello = || vec![user_message(UserContent::Text("hello".to_owned()))];
+    let first = drive(&fixture.models, &model, hello()).await;
+    let second = drive(&fixture.models, &model, hello()).await;
+    let account_switches: Vec<(String, String, bool)> = account_switches_cut(&fixture)
+        .into_iter()
+        .map(|(provider, to, cause)| {
+            let login = cause.starts_with("key ...111111 has no usable login");
+            (provider, to, login)
+        })
+        .collect();
+    assert_eq!(
+        (
+            (first.provider.as_str(), answer_text(&first)),
+            (second.provider.as_str(), answer_text(&second)),
+            account_switches,
+            fixture.runtime.model_moves(),
+            fixture.runtime.pinned_accounts().get("faux-a").cloned(),
+            fixture.faux_b.get_pending_response_count(),
+        ),
+        (
+            ("faux-a", "second account".to_owned()),
+            ("faux-a", "still second".to_owned()),
+            vec![("faux-a".to_owned(), "key ...222222".to_owned(), true)],
+            Vec::new(),
+            Some("key ...222222".to_owned()),
+            1,
+        )
     );
 }
 
