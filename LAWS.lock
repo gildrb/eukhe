@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "c760852db00c4aa3eacb90f1b1d33324cff040bd77cc99f5a924b32b819b2ad3",
-      "spec/README.md": "6c427cc7bad34d32f483bdf641df822563634f842f9405041a4e40401e1f92c9",
+      "spec/README.md": "f12cf715c766088d3162be6b126cb6e43496fe4890e53c0083b77fbaaa0a7ad1",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3711,6 +3711,7 @@
     "laws/theme.bend::theme_light_example": "dbd1842b7f50e81d2d7776189e208d3b315881a513ec3481895ec7a954eb9a30",
     "laws/theme.bend::theme_light_spec": "1b93d78e5daaa78dfff3310f981575d256638c791014c801af1bd30c368e6192",
     "laws/theme.bend::theme_load_valid": "5a414cbb8e846f3367cf0dcd4cf7e3a5e60d66bfdbea3c8738df3732a39fc8d8",
+    "laws/theme.bend::theme_missing_absent": "44f1d960c375b6a5aeb732779a9295874c40df00990174663ebdfdf15b30664e",
     "laws/theme.bend::theme_mode_background": "fab6952e085de7efb23c969af51be145ef9ff351c3c40cb160a15afd32a3d4e5",
     "laws/theme.bend::theme_mode_name_free": "6e9e077825508a4b69c84e791b9b3f01f50f9defe61e1e06cf854ef7a3db90fe",
     "laws/theme.bend::theme_pairs_cover": "6969a071b098026670547e5c635eba40ecbc6817ff959063efc6e06d013e47e8",
@@ -3756,6 +3757,7 @@
     "laws/theme_model.bend::theme_tok_get_append": "268d8362aa11295e01d049cb4699612085c6afb54535c41c653abbd81bb5bcb7",
     "laws/theme_model.bend::theme_tok_get_one": "95e74abbc3d55491f0414aef0ffe4bf15e2d2bcb0fa1397be66f79c92503c26f",
     "laws/theme_model.bend::theme_toks_range": "d505c66089c20d0001c50d100b4e296ef85f5869efca6e480820c3d0c31d27eb",
+    "laws/theme_model.bend::theme_valid_accent_only_example": "85193e432447592b5e8117f1d4ebc6bc7474e111cbc6f6f5af203b6ce1674545",
     "laws/theme_model.bend::theme_valid_example": "c2f0496a24f3299fe49769a3afe65a4e57da708322556a2191f1e59871873476",
     "laws/theme_model.bend::theme_valid_missing": "4624b2e03f754c8e0785fb6ae5ea12902859cd2f98f37973eb2e7adb36fcd015",
     "laws/theme_model.bend::theme_vals_each": "a27d6870be2fbf9e0883814db1434629d725ed1c83490150cbfaf6fbe999967d",
