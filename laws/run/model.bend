@@ -1149,6 +1149,80 @@ law run_defers_spend_the_polls:
   for +evs: List<&2, RnState.Ev>
   Or({in_call(RnState.St.ph(RnStep.run(cfg, evs))) == False{} : Bool}, {Nat.add(RnMeasure.defers(cfg, evs), RnState.St.p(RnStep.run(cfg, evs))) == RnState.Cfg.polls(cfg) : Nat})
 
+# k after an input that adds one (when adds): k + 1, else k
+def one_more(adds: Bool, +k: Nat) -> Nat:
+  match adds:
+    case True{}:
+      1n+k
+    case False{}:
+      k
+
+# LAW run_rounds_count_each_round (H4.2): under any configuration the
+# rounds the laws count (RnMeasure.rounds) start at none, and after any
+# inputs, failed or not, one more input adds one exactly when it ends a
+# round that no control stops (counted_round of the run's phase before
+# it): the count is the run's rounds whatever the run's outcome
+# EXCLUDES: rounds read from the run's outcome (0 for a run that failed
+#   on the model or at its job's deadline: blind adversary RunAdv23,
+#   attack-run-21; run_rounds_spend_the_budget reads only runs that did
+#   not fail), a round counted twice, a control's round counted
+law run_rounds_count_each_round:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  for +e: RnState.Ev
+  {RnMeasure.rounds(cfg, Nil{}) == 0n : Nat} &
+  {RnMeasure.rounds(cfg, List.append(&2, RnState.Ev, evs, e <> Nil{})) == one_more(counted_round(RnState.St.ph(RnStep.run(cfg, evs)), e), RnMeasure.rounds(cfg, evs)) : Nat}
+
+# the deferred replies in a row after input e at phase ph, from k before
+# it: with a request out, one more for a deferred reply, none after any
+# other reply or an abort; none in a live run with no request out (a
+# new request starts its own count); an ended run keeps its count
+def defers_after(ph: RnState.Ph, e: RnState.Ev, +k: Nat) -> Nat:
+  match ph:
+    case RnState.Call{}:
+      match e:
+        case RnState.Abort{}:
+          0n
+        case RnState.Go{reply, fin, got}:
+          match reply:
+            case RnState.Deferred{}:
+              1n+k
+            case RnState.Plain{}:
+              0n
+            case RnState.Calls{}:
+              0n
+            case RnState.Error{retryable, noted}:
+              0n
+            case RnState.Overflow{cut}:
+              0n
+    case RnState.Prepare{}:
+      0n
+    case RnState.Compact{over}:
+      0n
+    case RnState.Tools{}:
+      0n
+    case RnState.Answered{}:
+      k
+    case RnState.Aborted{}:
+      k
+    case RnState.Failed{why}:
+      k
+
+# LAW run_defers_count_each_reply (H4.4): under any configuration the
+# deferred replies in a row the laws count (RnMeasure.defers) start at
+# none, and after any inputs, in any phase, one more input moves them as
+# defers_after says: the count is the run's whatever its phase or outcome
+# EXCLUDES: deferred replies read from the run's outcome or phase outside
+#   a call (run_defers_spend_the_polls reads only the call phase,
+#   run_polls_need_defers only a run the poll cap failed), a deferred
+#   reply counted twice or not at all, a count kept across requests
+law run_defers_count_each_reply:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  for +e: RnState.Ev
+  {RnMeasure.defers(cfg, Nil{}) == 0n : Nat} &
+  {RnMeasure.defers(cfg, List.append(&2, RnState.Ev, evs, e <> Nil{})) == defers_after(RnState.St.ph(RnStep.run(cfg, evs)), e, RnMeasure.defers(cfg, evs)) : Nat}
+
 # LAW run_resent_cut_is_not_fresh (H4.7): a log (newest first) that
 # shows a request sent after a request equal to it was cut, with any
 # entries before, between and after, is not fresh: `fresh`, the test

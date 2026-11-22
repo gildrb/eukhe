@@ -347,6 +347,160 @@ law rec_repeat_never_runs:
   {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == repeat_help(RnRecovery.RCfg.redirect(rc), k, row, same, last) : RnRecovery.Dec} &
   {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == repeat_help(RnRecovery.RCfg.redirect(rc), k, row, same, last) : RnRecovery.Dec}
 
+# the leak, empty and length notes in a row the next request's note
+# makes: its row after a note of that recovery, else none
+def leak_notes(k: RnRecovery.Rk, +row: Nat) -> Nat:
+  match k:
+    case RnRecovery.Free{}:
+      0n
+    case RnRecovery.Longs{}:
+      0n
+    case RnRecovery.Leaks{}:
+      row
+    case RnRecovery.Loops{}:
+      0n
+    case RnRecovery.Empties{}:
+      0n
+
+def empty_notes(k: RnRecovery.Rk, +row: Nat) -> Nat:
+  match k:
+    case RnRecovery.Free{}:
+      0n
+    case RnRecovery.Longs{}:
+      0n
+    case RnRecovery.Leaks{}:
+      0n
+    case RnRecovery.Loops{}:
+      0n
+    case RnRecovery.Empties{}:
+      row
+
+def length_notes(k: RnRecovery.Rk, +row: Nat) -> Nat:
+  match k:
+    case RnRecovery.Free{}:
+      0n
+    case RnRecovery.Longs{}:
+      row
+    case RnRecovery.Leaks{}:
+      0n
+    case RnRecovery.Loops{}:
+      0n
+    case RnRecovery.Empties{}:
+      0n
+
+# what a stuck reply of recovery t gets after n notes of t in a row
+# (under: n is below t's cap): the next note of t, the rounds in a row and
+# the last calls' hash kept; else the failed run, the record as it was
+def note_help.go(under: Bool, +t: RnRecovery.Rk, +n: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  match under:
+    case True{}:
+      RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{t, 1n+n, same, last}}
+    case False{}:
+      RnRecovery.Dec{RnRecovery.Quit{}, RnRecovery.Rec{k, row, same, last}}
+
+def note_help(+cap: Nat, +t: RnRecovery.Rk, +n: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  note_help.go(Nat.is_lt(n, cap), t, n, k, row, same, last)
+
+# LAW rec_leak_never_runs (H4.8): in the recoveries' model, under any caps
+# (a leak cap of 0 included), after any note of any row (any rounds in a
+# row, any last calls' hash), leaked calls the harness could not rebuild
+# (any hash, kept or not) never run and are never answered: while leak
+# notes are left they get the next leak note; with none left (a leak note
+# of row `leak` or more, or a leak cap of 0 after any note) the run fails
+# at once
+# EXCLUDES: markup run (Exec) under a leak cap of 0 after another note
+#   (blind adversary RunAdv24, attack-run-22), whatever the act reads as
+#   through Help.of; a leak note past the cap; a row that skips or
+#   restarts a note
+law rec_leak_never_runs:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == note_help(RnRecovery.RCfg.leak(rc), RnRecovery.Leaks{}, leak_notes(k, row), k, row, same, last) : RnRecovery.Dec}
+
+# LAW rec_empty_gets_its_rung (H4.8; R4 of laws/stop.bend): in the
+# recoveries' model, under any caps, after any note of any row (any
+# rounds in a row, any last calls' hash), an empty reply gets the next
+# empty note while fewer than three are in a row, else the run fails at
+# once (three reminders, the fourth empty stop ends the turn)
+# EXCLUDES: an empty reply run on, passed or compacted, or a decision
+#   that reads right only through Help.of; a fourth empty note; a row
+#   that skips or restarts a note
+law rec_empty_gets_its_rung:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}) == note_help(3n, RnRecovery.Empties{}, empty_notes(k, row), k, row, same, last) : RnRecovery.Dec}
+
+# what a length stop gets after n length notes in a row (under: n is
+# below the length cap; lowers: a level below exists and n is the cap):
+# a compaction when the window ran out and one can run, the record as it
+# was; else the next length note; else at the last rung the next note one
+# level lower; else the failed run, the record as it was
+def think_help.go(shrink: Bool, under: Bool, lowers: Bool, +n: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  match shrink:
+    case True{}:
+      RnRecovery.Dec{RnRecovery.Shrink{}, RnRecovery.Rec{k, row, same, last}}
+    case False{}:
+      match under:
+        case True{}:
+          RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+n, same, last}}
+        case False{}:
+          match lowers:
+            case True{}:
+              RnRecovery.Dec{RnRecovery.Lower{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+n, same, last}}
+            case False{}:
+              RnRecovery.Dec{RnRecovery.Quit{}, RnRecovery.Rec{k, row, same, last}}
+
+def think_help(+shrink: Bool, +lower: Bool, +long: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  think_help.go(shrink, Nat.is_lt(length_notes(k, row), long), Bool.and(lower, Nat.is_eq(length_notes(k, row), long)), length_notes(k, row), k, row, same, last)
+
+# LAW rec_think_gets_its_rung (H4.8; R7 of laws/stop.bend): in the
+# recoveries' model, under any caps (a length cap of 0 included), after
+# any note of any row (any rounds in a row, any last calls' hash), a
+# length stop the stop walk continues compacts when its window ran out
+# and a compaction can run; else it gets the next length note while
+# fewer than `long` are in a row; else, at the last rung with a level
+# below, the next note one level lower; else the run fails at once
+# EXCLUDES: a length stop run on, passed, or failed or lowered early, or
+#   a decision that reads right only through Help.of; a rung skipped or
+#   repeated, a row that restarts
+law rec_think_gets_its_rung:
+  for +rc: RnRecovery.RCfg
+  for +shrink: Bool
+  for +lower: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnRecovery.Rec.step(rc, RnRecovery.Think{shrink, lower}, RnRecovery.Rec{k, row, same, last}) == think_help(shrink, lower, RnRecovery.RCfg.long(rc), k, row, same, last) : RnRecovery.Dec}
+
+# LAW rec_help_reads_the_act (H4.8): the help Rust gets of a decision
+# (Help.of, which decide.recover and the ladder laws read) is its act:
+# calls run, a note of the record's row, the failed run (also for a
+# Pass, which no stuck reply gets: rec_stuck_never_passes), a
+# compaction, a note of the record's row one level lower
+# EXCLUDES: a Help.of that reads the record's recovery (an Exec read as
+#   the failed run after a redirect or leak note: the ladder laws then
+#   hold while the calls run), or a row other than the record's
+law rec_help_reads_the_act:
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Exec{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Runs{} : RnDecision.Help} &
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Redoes{row} : RnDecision.Help} &
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Quit{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Quits{} : RnDecision.Help} &
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Pass{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Quits{} : RnDecision.Help} &
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Shrink{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Compacts{} : RnDecision.Help} &
+  {RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Lower{}, RnRecovery.Rec{k, row, same, last}}) == RnDecision.Lowers{row} : RnDecision.Help}
+
 # LAW rec_notes_keep_the_rounds (H4.8; R4 of laws/stop.bend): in the
 # recoveries' model, under any caps, after any note of any row (any
 # rounds in a row, any last calls' hash), the record a stuck reply leaves
