@@ -12,6 +12,8 @@
 #   user's last message (a tool call with an effect), the session's budget
 #   admits more work, the progress check (bend/progress.bend `judge`,
 #   directors.stallSteps) goes on, and the Director loop has a step left.
+#   Rust sends the check's steer (at the cap) as a stop: the work-left
+#   chain has no other approach to ask, so it ends there.
 # - Such an answer not read yet: the core answers Ask, and Rust asks the
 #   final-answer judge (one model request, no tools, the answer alone),
 #   then decides again with its reading.
@@ -45,7 +47,7 @@ type Reading is Data:
 # progress check's verdict; the steps the Director loop has left; the
 # judge's reading
 type Facts is Data:
-  Facts{driven: Bool, queued: Bool, acted: Bool, funded: Bool, stall: Pg.Goal, left: Nat, reading: Reading}
+  Facts{driven: Bool, queued: Bool, acted: Bool, funded: Bool, stall: Pg.Run, left: Nat, reading: Reading}
 
 # what the run does: go on with one continuation (the loop's steps left
 # after it), yield (the final answer stands), or ask the judge first
@@ -89,4 +91,4 @@ def decide.at(open: Bool, n: Nat, r: Reading) -> Step:
 def decide(f: Facts) -> Step:
   match f:
     case Facts{d, q, a, b, s, n, r}:
-      decide.at(Bool.and(Bool.not(d), Bool.and(Bool.not(q), Bool.and(a, Bool.and(b, Bool.not(Pg.Goal.stopped(s)))))), n, r)
+      decide.at(Bool.and(Bool.not(d), Bool.and(Bool.not(q), Bool.and(a, Bool.and(b, Bool.not(Pg.Run.stopped(s)))))), n, r)

@@ -4762,6 +4762,7 @@ import ./proof/work_left/work_left_entry_answers.bend as PWorkLeftEntryAnswers
 import ./proof/work_left/work_left_entry_exact.bend as PWorkLeftEntryExact
 import ./proof/work_left/work_left_entry_refuses.bend as PWorkLeftEntryRefuses
 import ./proof/work_left/work_left_entry_left_over.bend as PWorkLeftEntryLeftOver
+import ./proof/work_left/work_left_entry_steer.bend as PWorkLeftEntrySteer
 import ./proof/work_left/work_left_entry_example.bend as PWorkLeftEntryExample
 import ./proof/autonomous/base.bend as LAAutonomous
 import ./proof/autonomous/autonomous_claim_end_stops.bend as PAutonomousClaimEndStops
