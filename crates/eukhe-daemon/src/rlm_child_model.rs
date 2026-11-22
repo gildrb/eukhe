@@ -123,9 +123,10 @@ pub fn resolve_child_model_from_settings(
 }
 
 /// The model a child with no reference and no parent model runs on: the
-/// first model the user configured ([`fallback::configured_references`]:
-/// the `enabledModels` scope, then the chat roles' models) whose provider
-/// has credentials and that the allowlist allows.
+/// first model the user configured to do the work
+/// ([`fallback::configured_references`]: the `enabledModels` scope, then
+/// the work roles' models) whose provider has credentials and that the
+/// allowlist allows.
 fn first_configured_model(
     agent_dir: &Path,
     settings: &eukhe_core::settings::SettingsManager,

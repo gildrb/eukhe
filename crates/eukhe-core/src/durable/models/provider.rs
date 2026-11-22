@@ -203,6 +203,9 @@ struct Inner {
     /// refreshed, with the refresh's error ([`LoginWatch`]): the next
     /// request to one fails without leaving and goes to another model.
     logins: Arc<Mutex<HashMap<String, String>>>,
+    /// The providers whose login this run found unusable, by provider id
+    /// ([`DeadLogin`]).
+    dead_logins: Arc<Mutex<HashMap<String, DeadLogin>>>,
     /// The session's model moves, one per pair of models, oldest first.
     moves: Mutex<Vec<ModelMove>>,
     /// The session's accounts: the account each provider's requests use
@@ -210,6 +213,19 @@ struct Inner {
     accounts: Arc<AccountBook>,
     /// The session's account switches, oldest first.
     switches: Mutex<Vec<AccountSwitch>>,
+}
+
+/// A provider login a request of this run found unusable ([`Why::Login`])
+/// and left. It stays unusable for the rest of the run: a later request
+/// on that provider starts on the model the run went on with, and its
+/// login is never refreshed again ([`LoginWatch`]), so no request pays
+/// another failed refresh. A new login of the provider clears it.
+#[derive(Clone)]
+struct DeadLogin {
+    /// The login's failure, as the request that left it read it.
+    error: String,
+    /// The model the run went on with: the latest that answered.
+    moved_to: Model,
 }
 
 /// One move of the session's requests from the model they asked for to
@@ -275,6 +291,7 @@ impl ProviderRuntime {
                 privacy: eukhe_ai::privacy::TokenMap::default(),
                 failures: Mutex::new(HashMap::new()),
                 logins: Arc::new(Mutex::new(HashMap::new())),
+                dead_logins: Arc::new(Mutex::new(HashMap::new())),
                 moves: Mutex::new(Vec::new()),
                 accounts,
                 switches: Mutex::new(Vec::new()),
@@ -350,6 +367,7 @@ impl ProviderRuntime {
                     oauth,
                     provider: provider.id.clone(),
                     logins: Arc::clone(&runtime.inner.logins),
+                    dead: Arc::clone(&runtime.inner.dead_logins),
                 }));
             }
             models.set_provider(provider);
@@ -433,11 +451,14 @@ impl ProviderRuntime {
 /// credential stands, so the request reaches the runtime, which fails it
 /// there without sending it ([`take_login_failure`]) and moves it to
 /// another model the user configured. A refresh that succeeds clears the
-/// record; an aborted refresh fails as before.
+/// record; an aborted refresh fails as before. A login the run found
+/// unusable ([`DeadLogin`]) is not refreshed again: its failure is
+/// recorded at once. A new login clears both.
 struct LoginWatch {
     oauth: Arc<dyn OAuthAuth>,
     provider: String,
     logins: Arc<Mutex<HashMap<String, String>>>,
+    dead: Arc<Mutex<HashMap<String, DeadLogin>>>,
 }
 
 impl OAuthAuth for LoginWatch {
@@ -458,7 +479,18 @@ impl OAuthAuth for LoginWatch {
         interaction: ProviderAuthInteraction,
         options: Option<LoginOptions>,
     ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
-        self.oauth.login(interaction, options)
+        Box::pin(async move {
+            let credential = self.oauth.login(interaction, options).await?;
+            self.dead
+                .lock()
+                .unwrap_or_else(poisoned)
+                .remove(&self.provider);
+            self.logins
+                .lock()
+                .unwrap_or_else(poisoned)
+                .remove(&self.provider);
+            Ok(credential)
+        })
     }
 
     fn refresh(
@@ -467,6 +499,19 @@ impl OAuthAuth for LoginWatch {
         signal: AbortSignal,
     ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
         Box::pin(async move {
+            let dead = self
+                .dead
+                .lock()
+                .unwrap_or_else(poisoned)
+                .get(&self.provider)
+                .map(|dead| dead.error.clone());
+            if let Some(error) = dead {
+                self.logins
+                    .lock()
+                    .unwrap_or_else(poisoned)
+                    .insert(self.provider.clone(), error);
+                return Ok(credential);
+            }
             match self.oauth.refresh(credential.clone(), signal.clone()).await {
                 Ok(refreshed) => {
                     self.logins
@@ -506,8 +551,20 @@ fn take_login_failure(logins: &Mutex<HashMap<String, String>>, provider: &str) -
 pub(super) const LOGIN_EXPIRED_DIAGNOSTIC: &str = "login_expired";
 
 /// The stream of a request whose provider's login expired: its one event
-/// is the failure, with the refresh's `error` and the login diagnostic.
+/// is the failure ([`login_failed_message`]).
 fn login_failed_stream(model: &Model, error: &str) -> AssistantMessageEventStream {
+    let out = create_assistant_message_event_stream();
+    out.push(AssistantMessageEvent::Error {
+        reason: ErrorReason::Error,
+        error: login_failed_message(model, error),
+    });
+    out.end(None);
+    out
+}
+
+/// The failure of a request on `model` whose provider's login expired:
+/// the refresh's `error` and the login diagnostic.
+fn login_failed_message(model: &Model, error: &str) -> AssistantMessage {
     let mut message = refuted_message(model, error);
     message.diagnostics = Some(vec![AssistantMessageDiagnostic {
         kind: LOGIN_EXPIRED_DIAGNOSTIC.to_owned(),
@@ -515,13 +572,7 @@ fn login_failed_stream(model: &Model, error: &str) -> AssistantMessageEventStrea
         error: None,
         details: None,
     }]);
-    let out = create_assistant_message_event_stream();
-    out.push(AssistantMessageEvent::Error {
-        reason: ErrorReason::Error,
-        error: message,
-    });
-    out.end(None);
-    out
+    message
 }
 
 fn poisoned<T>(error: std::sync::PoisonError<T>) -> T {
@@ -628,6 +679,27 @@ async fn run_request(
     } else {
         0
     };
+    // A login this run found unusable is not tried again: the request
+    // starts on the model the run went on with, as one whose login just
+    // failed would move there ([`DeadLogin`]).
+    let dead = inner
+        .dead_logins
+        .lock()
+        .unwrap_or_else(poisoned)
+        .get(&primary.provider)
+        .cloned()
+        .filter(|dead| {
+            failover.enabled
+                && (!context_has_images(&context) || dead.moved_to.input.contains(&Modality::Image))
+        });
+    if let Some(dead) = dead {
+        let _recorded = take_login_failure(&inner.logins, &primary.provider);
+        primary_failure = Some(login_failed_message(&primary, &dead.error));
+        left_for = Some(Why::Login);
+        dispatch = original_dispatch(&inner, &dead.moved_to, carried.clone(), simple);
+        serving = dead.moved_to.clone();
+        moved.push(dead.moved_to);
+    }
     loop {
         // Each attempt opens with its own `start`, which drops the failed
         // attempt's partial downstream (the event protocol). A provider
@@ -801,6 +873,16 @@ async fn run_request(
                     match model_move(&inner, &settings, &carried, &request, failing, failure).await
                     {
                         Move::To { model, reason, why } => {
+                            // A login found unusable stays so for the run.
+                            if why == Why::Login {
+                                inner.dead_logins.lock().unwrap_or_else(poisoned).insert(
+                                    failing.provider.clone(),
+                                    DeadLogin {
+                                        error: final_error_of(failure),
+                                        moved_to: (*model).clone(),
+                                    },
+                                );
+                            }
                             switches += 1;
                             let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
                                 attempt: switches,
@@ -857,13 +939,23 @@ async fn run_request(
                 clock.done(&message);
             }
             // The model the request asked for answered (or its sibling for
-            // it): its failures in a row are over.
+            // it): its failures in a row are over. A request that left a
+            // dead login: the run goes on with the model that answered.
             if moved.is_empty() {
                 inner
                     .failures
                     .lock()
                     .unwrap_or_else(poisoned)
                     .remove(&model_reference(&primary));
+            } else if left_for == Some(Why::Login) {
+                if let Some(dead) = inner
+                    .dead_logins
+                    .lock()
+                    .unwrap_or_else(poisoned)
+                    .get_mut(&primary.provider)
+                {
+                    dead.moved_to = serving.clone();
+                }
             }
             resume_if_parked(&inner).await;
             out.push(AssistantMessageEvent::Done {

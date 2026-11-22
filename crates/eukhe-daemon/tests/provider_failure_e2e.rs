@@ -171,6 +171,18 @@ fn serve(
     if content_length > 0 {
         reader.read_exact(&mut body_bytes)?;
     }
+    // The chat-memory compactor of a world with chat memory on
+    // (`setup_world`) runs on its own provider, routed under `/memory`: it
+    // always succeeds and never counts, so the counter and the scripted
+    // failures stay the session's provider requests.
+    let memory_request = head
+        .lines()
+        .next()
+        .and_then(|request_line| request_line.split_whitespace().nth(1))
+        .is_some_and(|path| path.starts_with("/memory/"));
+    if memory_request {
+        return write_answer(&mut stream, MEMORY_ANSWER);
+    }
     let index = {
         let mut requests = requests.lock().expect("mock lock");
         *requests += 1;
@@ -401,51 +413,91 @@ fn setup_with_rejection(
     answer: &'static str,
     rejection: MockRejection,
 ) -> (tempfile::TempDir, FailingMock, Daemon, Client, String) {
+    setup_world(name, failures, answer, rejection, ChatMemory::Off)
+}
+
+/// What a mock's `/memory` route answers: the chat-memory compactor's
+/// summary.
+const MEMORY_ANSWER: &str = "user: said hi";
+
+/// Whether the supervisor's chat memory runs in the harness's world.
+#[derive(Clone, Copy)]
+enum ChatMemory {
+    /// No chat memory: its compactor, without a model of its own, would
+    /// run on the session's model, and its requests would land in the
+    /// session's provider accounting.
+    Off,
+    /// Chat memory on, its compactor on `memory.model` =
+    /// `chat-memory/summarizer`: a second provider with credentials,
+    /// routed to the mock's `/memory`.
+    OnItsOwnModel,
+}
+
+/// The shared harness with a choosable mock rejection mode and chat
+/// memory.
+#[allow(clippy::type_complexity)]
+fn setup_world(
+    name: &str,
+    failures: usize,
+    answer: &'static str,
+    rejection: MockRejection,
+    memory: ChatMemory,
+) -> (tempfile::TempDir, FailingMock, Daemon, Client, String) {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     let session_dir = agent_dir.join("sessions");
     std::fs::create_dir_all(&session_dir).expect("session dir");
     let mock = FailingMock::start_with_rejection(failures, answer, rejection);
-    std::fs::write(
-        agent_dir.join("models.json"),
-        json!({
-            "providers": {
-                "local-inference": {
+    let mut providers = json!({
+        "local-inference": {
+            "api": "openai-completions",
+            "baseUrl": mock.url(),
+            "apiKey": "sk-battery",
+            "models": [
+                {
+                    "id": "mock-1",
+                    "name": "Mock 1",
                     "api": "openai-completions",
-                    "baseUrl": mock.url(),
-                    "apiKey": "sk-battery",
-                    "models": [
-                        {
-                            "id": "mock-1",
-                            "name": "Mock 1",
-                            "api": "openai-completions",
-                            "contextWindow": 128_000,
-                            "maxTokens": 4096
-                        }
-                    ]
+                    "contextWindow": 128_000,
+                    "maxTokens": 4096
                 }
-            }
-        })
-        .to_string(),
-    )
-    .expect("write models.json");
+            ]
+        }
+    });
     // A fast retry policy so the test asserts the loop, not the delays.
     // No session title: its background request to the same provider
-    // would add to the request counts the tests assert. No chat memory:
-    // its compactor's model would be a configured chat-role model, which
-    // a failed run falls over to (laws/fallback.bend), and its requests
-    // would land in the session's provider accounting; this world has
-    // mock-1 alone, so the failure surfaces.
+    // would add to the request counts the tests assert.
+    let mut settings = json!({
+        "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
+        "titles": { "generate": false }
+    });
+    match memory {
+        ChatMemory::Off => settings["memory"] = json!({ "chat": false }),
+        ChatMemory::OnItsOwnModel => {
+            providers["chat-memory"] = json!({
+                "api": "openai-completions",
+                "baseUrl": format!("http://127.0.0.1:{}/memory", mock.port),
+                "apiKey": "sk-memory",
+                "models": [
+                    {
+                        "id": "summarizer",
+                        "name": "Summarizer",
+                        "api": "openai-completions",
+                        "contextWindow": 128_000,
+                        "maxTokens": 4096
+                    }
+                ]
+            });
+            settings["memory"] = json!({ "model": "chat-memory/summarizer" });
+        }
+    }
     std::fs::write(
-        agent_dir.join("settings.json"),
-        json!({
-            "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
-            "memory": { "chat": false },
-            "titles": { "generate": false }
-        })
-        .to_string(),
+        agent_dir.join("models.json"),
+        json!({ "providers": providers }).to_string(),
     )
-    .expect("write settings.json");
+    .expect("write models.json");
+    std::fs::write(agent_dir.join("settings.json"), settings.to_string())
+        .expect("write settings.json");
     let socket = dir.path().join(format!("{name}.sock"));
     let supervisor = spawn_supervisor(&socket, &agent_dir);
     let mut client = Client::connect(&socket);
@@ -643,6 +695,57 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
     assert!(outcome["content"]
         .as_str()
         .expect("outcome text")
+        .contains("mock provider overloaded"));
+}
+
+/// Regression (the nightly of 2026-11-22: with chat memory on, a run
+/// whose model gave up went on with the compactor's `memory.model` and the
+/// failure never surfaced): `memory.model` is configured for a side job,
+/// not the run's work, so a run whose only work model fails ends with
+/// that failure, though the memory model's provider has credentials and
+/// answers.
+#[test]
+fn a_failed_run_never_goes_on_with_the_memory_model() {
+    let (_dir, mock, _supervisor, mut client, session_id) = setup_world(
+        "memory-on",
+        5,
+        "never reached",
+        MockRejection::ServerError,
+        ChatMemory::OnItsOwnModel,
+    );
+    client.send_command(
+        "p1",
+        &json!({ "type": "prompt_and_wait", "activeSessionId": session_id, "message": "hi" }),
+    );
+    let done = client.request("p1");
+    assert_eq!(done["success"], false, "prompt must fail: {done}");
+    client.drain_events(Duration::from_secs(1));
+    assert_eq!(mock.count(), 3, "requests: initial + 2 retries");
+    let assistant_messages: Vec<&Value> = client
+        .events
+        .iter()
+        .filter(|event| {
+            event.get("type").and_then(Value::as_str) == Some("message_end")
+                && event["message"]["role"] == "assistant"
+        })
+        .map(|event| &event["message"])
+        .collect();
+    assert!(
+        !assistant_messages
+            .iter()
+            .any(|message| message.to_string().contains(MEMORY_ANSWER)),
+        "the memory model answered the run: {assistant_messages:?}"
+    );
+    let turn_end = client
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.get("type").and_then(Value::as_str) == Some("turn_end"))
+        .expect("turn_end");
+    assert_eq!(turn_end["message"]["stopReason"], "error");
+    assert!(turn_end["message"]["errorMessage"]
+        .as_str()
+        .expect("turn error")
         .contains("mock provider overloaded"));
 }
 

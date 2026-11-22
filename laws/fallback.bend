@@ -15,7 +15,11 @@ import ./base.bend as LawsBase
 # the run reports the switch. Owner decision of 2026-11-21: attention is
 # the one scarce input; past the configured models the run goes on with
 # the default model of every other provider the user is signed in to, and
-# a run with no model left ends with a report that names the cause.
+# a run with no model left ends with a report that names the cause. Owner
+# decision of 2026-11-22: the configured models are those configured to do
+# the run's work (`enabledModels`, then the chat, image, subagent, worker
+# and gateway roles); a model configured only for a side job (memory,
+# summaries, `rlm.query`, titles, judgments, translation) is none.
 # bend/fallback.bend: the choice. It runs as the compiled core by
 # bend/ffi_fallback.bend (eukhe-bend rules/fallback.rs), asked by
 # eukhe-core durable/models/provider.rs when a request gives up. Every
@@ -39,19 +43,26 @@ import ./base.bend as LawsBase
 #     `E fallback: malformed request`.
 #
 # Not pinned here, the Rust tests pin it:
-# - which models Rust offers: the configured models whose provider has
-#   credentials, then the default model of each other provider with
-#   credentials the allowlist permits (eukhe-core durable/models/fallback.rs
-#   `candidates_are_the_configured_models_with_credentials`,
+# - which models Rust offers: the models configured to do the work whose
+#   provider has credentials, then the default model of each other
+#   provider with credentials the allowlist permits (eukhe-core
+#   durable/models/fallback.rs
+#   `candidates_are_the_work_models_with_credentials`,
+#   `a_side_jobs_model_is_a_candidate_only_when_it_also_does_work`,
 #   `defaults_are_the_signed_in_providers_default_models`);
 # - what it does with the choice and the report of a switch or an end
 #   (eukhe-core durable/models/provider_tests.rs
 #   `a_failed_model_hands_the_request_to_the_next_configured_model`,
 #   `an_expired_login_hands_the_request_to_a_signed_in_model`,
 #   `an_expired_login_goes_on_with_a_signed_in_providers_default`,
+#   `an_expired_login_goes_on_with_a_default_never_the_memory_model`,
 #   `an_expired_login_with_no_model_left_ends_with_the_login_report`; the
 #   report itself: durable/models/fallback.rs
-#   `an_end_on_a_login_names_the_login_command`).
+#   `an_end_on_a_login_names_the_login_command`);
+# - that a login a run found unusable stays so for the rest of the run:
+#   later requests start on the model the run moved to and never refresh
+#   it again (provider_tests.rs `a_dead_login_is_not_tried_again_in_the_run`,
+#   `a_dead_login_is_never_refreshed_until_a_new_login`).
 
 # Spec helpers
 # ------------
