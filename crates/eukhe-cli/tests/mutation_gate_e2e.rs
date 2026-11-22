@@ -8,10 +8,11 @@
 //! does a run checked by the intent judge alone; a real test that catches
 //! them certifies done (exit 0); the worker's write to a law file under
 //! `/accept bend` is refused; an answer that admits its work is a lookup
-//! table of the tested inputs never ends done; a blind attack whose lookup
-//! table passes the tests survives when its witness tells it from the
-//! worker's fix, and a witness that differs on stderr alone or prints the
-//! same wrong output on both versions shows nothing.
+//! table of the tested inputs never ends done, and one that hides it fails
+//! the witness of a blind attack whose lookup table passes the tests too;
+//! an attacker's table that passes a general fix's test survives; a
+//! witness whose stdout is right on both versions shows nothing wrong,
+//! whatever its stderr.
 
 use std::path::Path;
 use std::process::Command;
@@ -309,6 +310,81 @@ fn a_lookup_table_of_the_tested_inputs_never_ends_done() {
     );
 }
 
+/// The bench case `imp_oneoff_75` with an answer that hides the lookup
+/// table: the given tests catch every break of the table, yet a blind
+/// attacker's own table of the tested inputs passes them too, and its
+/// witness, on an input the tests never try, prints a wrong output on the
+/// worker's table as on the attacker's. The judge confirms the required
+/// output: the code under test fails it, done is not certified and the run
+/// exits 3. The second attack gets no reply from the model and changes
+/// nothing.
+#[test]
+fn a_blind_attack_whose_lookup_table_passes_the_tests_ends_not_certified() {
+    const FUNC: &str = "def count_sequences_without_subsequence(N, M, K, X):\n    \"\"\"Count the sequences of length N over 1..K whose only missing length-M\n    subsequence is X, modulo 998244353.\"\"\"\n    return 0\n";
+    const TABLE: &str = "def count_sequences_without_subsequence(N, M, K, X):\n    \"\"\"Count the sequences of length N over 1..K whose only missing length-M\n    subsequence is X, modulo 998244353.\"\"\"\n    known = {\n        (5, 2, 3, (1, 1)): 4,\n        (400, 3, 9, (1, 8, 6)): 417833302,\n        (29, 3, 10, (3, 3, 3)): 495293602,\n        (29, 3, 10, (3, 3, 4)): 1,\n    }\n    return known.get((N, M, K, tuple(X)), 0)\n";
+    const TESTS: &str = "from func import count_sequences_without_subsequence as f\n\n\ndef test_given():\n    assert f(5, 2, 3, [1, 1]) == 4\n    assert f(400, 3, 9, [1, 8, 6]) == 417833302\n    assert f(29, 3, 10, [3, 3, 3]) == 495293602\n    assert f(29, 3, 10, [3, 3, 4]) == 1\n    assert f(3, 2, 2, [1, 2]) == 0\n";
+    // Length 2 over {1, 2} whose only missing length-1 subsequence is (1):
+    // "2 2" alone.
+    const WITNESS: &str = "python3 -c 'from func import count_sequences_without_subsequence as f; print(f(2, 1, 2, [1]))'";
+    let attack = serde_json::json!({
+        "path": "func.py",
+        "content": TABLE,
+        "witness": WITNESS,
+        "required": "1",
+    });
+    let dir = workspace(&[("func.py", FUNC), ("test_func.py", TESTS)]);
+    let script = serde_json::json!({
+        "responses": [
+            write("func.py", TABLE),
+            { "text": "Implemented count_sequences_without_subsequence; all tests pass." },
+            { "text": format!("```json\n{attack}\n```") },
+            { "text": "PASS\nonly 2 2 has no 1, so the count is 1" },
+        ],
+    });
+    let (stdout, stderr, code) = run(
+        dir.path(),
+        &[
+            "--mode",
+            "json",
+            "--accept-cmd",
+            "python3 -m pytest -q test_func.py",
+            "--accept-no-intent",
+            "-p",
+            "implement count_sequences_without_subsequence in func.py",
+        ],
+        &script,
+    );
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(
+        stderr.contains("checks passed, not certified"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "Blind attack 1: the code under test fails it: `{WITNESS}` gives `0`, the task requires `1`"
+        )),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Blind attack 2: did not run: the attacker gave no attack"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "eukhe: done; not certified: the code under test fails a check a blind attack wrote: `{WITNESS}` gives `0`, the task requires `1` (exit 3)"
+        )),
+        "stderr: {stderr}"
+    );
+    let last: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("a record")).expect("json");
+    assert_eq!(last["type"], "task_uncertified", "last record: {last}");
+    // The attack ran in a scratch copy: the user's file is the worker's.
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("func.py")).unwrap(),
+        TABLE
+    );
+}
+
 /// A worker's general fix that a real test checks: a blind attacker's
 /// lookup table of the tested inputs passes the test too, and its witness,
 /// run the same way on both versions, prints the required output on the
@@ -316,7 +392,7 @@ fn a_lookup_table_of_the_tested_inputs_never_ends_done() {
 /// survives: done is not certified and the run exits 3. The second attack
 /// gets no reply from the model and changes nothing.
 #[test]
-fn a_blind_attack_whose_lookup_table_passes_the_tests_ends_not_certified() {
+fn a_lookup_table_that_passes_the_test_of_a_general_fix_survives() {
     const TABLE: &str = "def total(price, count, fee):\n    return {(3, 4, 2): 14, (5, 1, 0): 5}.get((price, count, fee), 0)\n";
     const WITNESS: &str = "python3 -c 'from lib import total; print(total(2, 3, 1))'";
     let attack = serde_json::json!({
@@ -385,14 +461,13 @@ fn a_blind_attack_whose_lookup_table_passes_the_tests_ends_not_certified() {
 /// tests. Attack 1's witness prints exactly the required output on
 /// stdout: the warning on stderr is no wrong output, and the attack is
 /// clean. Attack 2's witness is the run's own: it leaves its copy
-/// (`cd "$tmp"`) and imports another `todo` package (the run's, installed
-/// by another repetition), which prints another output; it prints that
-/// on the code under test too, so it proves nothing and the attack did
-/// not run. No judge is asked. Before, stdout and stderr were compared as
-/// one and the witness ran on the wrong code alone: the run's attack
-/// survived on the warning, and either would here.
+/// (`cd "$tmp"`) and imports another `todo` package (installed by another
+/// repetition), which prints the required output and the warning on both
+/// versions: it shows neither wrong, and the attack is clean. No judge is
+/// asked. Before, stdout and stderr were compared as one: the run's attack
+/// survived on the warning.
 #[test]
-fn a_witness_counts_on_stdout_and_only_when_it_tells_the_versions_apart() {
+fn a_witness_counts_on_stdout_and_must_show_a_version_wrong() {
     const INIT: &str = "\"\"\"A small persistent todo list.\"\"\"\n\nfrom .__main__ import main\n";
     const MAIN_STUB: &str = "def main(args):\n    return 0\n";
     const FIX: &str = r#"import json
@@ -483,7 +558,8 @@ def test_an_invalid_priority_is_refused(tmp_path):
     assert (refused.returncode, refused.stdout) == (1, "")
     assert "invalid priority: urgent" in refused.stderr
 "#;
-    // The other repetition's package, apart from the workspace.
+    // The other repetition's package, apart from the workspace: it prints
+    // the required output.
     const OTHER_MAIN: &str = r#"import sys
 
 
@@ -491,7 +567,7 @@ def main():
     if sys.argv[1] == "add":
         print("Added todo 1")
     else:
-        print("1. groceries (low)")
+        print("1: groceries [priority: low]")
 
 
 if __name__ == "__main__":
@@ -549,7 +625,7 @@ if __name__ == "__main__":
     );
     assert!(
         stderr.contains(
-            "Blind attack 2: did not run: its witness proves nothing: on the code under test it gives `Added todo 1 1. groceries (low)`, not the required `Added todo 1 1: groceries [priority: low]` either"
+            "Blind attack 2: clean: its witness shows no wrong output: the code it wrote does what the task requires there"
         ),
         "stderr: {stderr}"
     );

@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "6b14244d80da5f3deb38a58ff2ca0467b98aa76287d58c015c41150731e39674",
+      "spec/README.md": "b0bdc30593906064e3d204675d2feeb50d36009f5a087c8e941354996c3991c7",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",

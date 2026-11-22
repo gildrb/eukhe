@@ -312,6 +312,7 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
     for (index, attack) in state.attacks.iter().enumerate() {
         let outcome = match attack.outcome {
             AttackOutcome::Survived => "survived",
+            AttackOutcome::Fails => "the code under test fails it",
             AttackOutcome::Clean => "clean",
             AttackOutcome::Unrun => "did not run",
         };
@@ -327,22 +328,30 @@ pub fn format_acceptance_status(state: &AcceptanceState) -> SessionResult<String
 
 /// The end line of a headless run whose checks all passed while done is
 /// not certified (exit 3): the work is done, and why it is not certified
-/// (`done; not certified: only the intent check ran`). A blind attack that
-/// survived on the final state is the reason before any other.
+/// (`done; not certified: only the intent check ran`). A blind attack on
+/// the final state whose witness the code under test fails is the reason
+/// before any other, then one that survived.
 #[must_use]
 pub fn uncertified_line(state: &AcceptanceState) -> String {
-    let survived = state
-        .attacks
-        .iter()
-        .any(|attack| attack.at == state.state && attack.outcome == AttackOutcome::Survived);
-    format!(
-        "done; not certified: {}",
-        if survived {
-            "the checks also passed wrong code a blind attack wrote"
-        } else {
-            judges_only(&state.checks).unwrap_or("the checks were not shown to catch broken code")
-        }
-    )
+    let on_state = |outcome: AttackOutcome| {
+        state
+            .attacks
+            .iter()
+            .find(|attack| attack.at == state.state && attack.outcome == outcome)
+    };
+    let reason = if let Some(fails) = on_state(AttackOutcome::Fails) {
+        format!(
+            "the code under test fails a check a blind attack wrote: {}",
+            fails.note
+        )
+    } else if on_state(AttackOutcome::Survived).is_some() {
+        "the checks also passed wrong code a blind attack wrote".to_owned()
+    } else {
+        judges_only(&state.checks)
+            .unwrap_or("the checks were not shown to catch broken code")
+            .to_owned()
+    };
+    format!("done; not certified: {reason}")
 }
 
 #[cfg(test)]
