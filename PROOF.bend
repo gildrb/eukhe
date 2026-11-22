@@ -2440,6 +2440,7 @@ import ./proof/command/command_ffi_out_round_trip.bend as PCommandFfiOutRoundTri
 import ./proof/command/command_ffi_witness.bend as PCommandFfiWitness
 import ./proof/shell/base.bend as LAShell
 import ./proof/shell/shell_ffi_answers.bend as PShellFfiAnswers
+import ./proof/shell/shell_ffi_reads.bend as PShellFfiReads
 import ./proof/shell/shell_ffi_left_over.bend as PShellFfiLeftOver
 import ./proof/shell/shell_ffi_reads_only_requests.bend as PShellFfiReadsOnlyRequests
 import ./proof/shell/shell_ffi_req_exact.bend as PShellFfiReqExact
@@ -4715,6 +4716,7 @@ import ./proof/undo/undo_restores_rows.bend as PUndoRestoresRows
 import ./proof/undo/undo_touches_only_changed.bend as PUndoTouchesOnlyChanged
 import ./proof/undo/undo_diff_rows.bend as PUndoDiffRows
 import ./proof/undo/undo_entry_answers.bend as PUndoEntryAnswers
+import ./proof/undo/undo_entry_reads.bend as PUndoEntryReads
 import ./proof/undo/undo_entry_exact.bend as PUndoEntryExact
 import ./proof/undo/undo_entry_req_exact.bend as PUndoEntryReqExact
 import ./proof/undo/undo_entry_req_example.bend as PUndoEntryReqExample

@@ -46,6 +46,11 @@
 # refused while a run is going (eukhe_daemon::rpc::commands::tests::
 # undo_turn_is_refused_during_the_run_and_get_turn_diff_answers; the SDK:
 # embed::undo_turn_is_refused_while_a_run_is_going).
+#
+# Not pinned on their own: the per-row helper `fix` (bend/undo.bend) is
+# pinned through `fixes`, `seens` and the entry `ffi` (the R5-R8 laws),
+# the defs /undo and /diff answer through; Rust reaches undo only
+# through ffi, and fix has no law of its own.
 
 import Base
 import ../bend/undo.bend as U
@@ -549,6 +554,17 @@ law undo_entry_answers:
   for +q: FU.Req
   for h: {sp_fit_req(q) == True{} : Bool}
   {FU.ffi(sp_w_req(q, "")) == sp_w_reply(q) : String}
+
+# LAW undo_entry_reads (R8): the entry's decoder reads a spelled request
+# (every number within the wire) back whole and leaves the input after it
+# untouched
+# EXCLUDES: a decoder that refuses a spelled request followed by more
+#   input, misreads it, or eats or skips input after it
+law undo_entry_reads:
+  for +q: FU.Req
+  for +rest: String
+  for h: {sp_fit_req(q) == True{} : Bool}
+  {FU.get_req(sp_w_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FU.Req>}
 
 # LAW undo_entry_exact (R8): every input the entry does not answer with the
 # error form is a spelled request that fits the wire
