@@ -102,8 +102,9 @@ pub struct MirrorRetry {
 /// from the stream's `SnapshotEvent`, replaced by any later `Snapshot` event).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConversationMirror {
-    /// Every entry, append order.
-    pub entries: Vec<EntryRecord>,
+    /// Every entry, append order; the snapshot's records are shared with
+    /// the stream that delivered them.
+    pub entries: Vec<Arc<EntryRecord>>,
     /// Live run inputs (busy iff Some).
     pub run: Option<Vec<SubmissionId>>,
     /// In-flight assistant message (message changes applied).
@@ -549,7 +550,7 @@ impl EventTranslator {
                     self.flush_into(&mut out);
                     out.push(frame);
                 }
-                self.mirror.entries.push(entry.clone());
+                self.mirror.entries.push(Arc::clone(entry));
             }
             // A nested call (a `codemode` script's `read`, ...) is part of the
             // call that made it, which reports it in its own output and
@@ -574,7 +575,7 @@ impl EventTranslator {
                 &mut out,
             ),
             AgentEvent::ToolExecutionEnd { call, entry, .. } => {
-                self.tool_end(call, entry.as_ref(), &mut out);
+                self.tool_end(call, entry.as_deref(), &mut out);
             }
             AgentEvent::InboxUpdate { items } => {
                 self.mirror.inbox.clone_from(items);
@@ -1080,7 +1081,7 @@ impl EventTranslator {
         self.message_update(message.usage, &changes, out);
     }
 
-    fn message_end(&mut self, entry: &EntryRecord, out: &mut Vec<SessionEvent>) {
+    fn message_end(&mut self, entry: &Arc<EntryRecord>, out: &mut Vec<SessionEvent>) {
         let kind = entry.kind.as_str();
         if kind == ASSISTANT_ENTRY.kind() {
             let message = entry
@@ -1116,6 +1117,7 @@ impl EventTranslator {
                         .entries
                         .iter()
                         .rev()
+                        .map(Arc::as_ref)
                         .find_map(assistant_context_tokens)
                         .unwrap_or(0),
                 }),
@@ -1133,7 +1135,7 @@ impl EventTranslator {
                 self.shown_message(&message, out);
             }
         }
-        self.mirror.entries.push(entry.clone());
+        self.mirror.entries.push(Arc::clone(entry));
     }
 
     /// Whether the entry just before `user` in the mirror is the legacy
@@ -1830,7 +1832,7 @@ fn starting_note(details: Option<&Value>) -> Option<&str> {
 /// The arguments of tool call `call_id` in the partial or the latest
 /// assistant entry that made it, else `{}`.
 fn tool_call_arguments(
-    entries: &[EntryRecord],
+    entries: &[Arc<EntryRecord>],
     partial: Option<&AssistantMessage>,
     call_id: &str,
 ) -> Value {

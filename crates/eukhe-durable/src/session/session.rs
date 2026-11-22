@@ -1144,7 +1144,7 @@ impl SessionInner {
             .into_iter()
             .filter_map(|write| match write {
                 StorageWrite::Conversation { value } => Some(CommitChange::Conversation(value)),
-                StorageWrite::Entry { value } => Some(CommitChange::Entry(value)),
+                StorageWrite::Entry { value } => Some(CommitChange::Entry(Arc::new(value))),
                 StorageWrite::Task { value } => Some(CommitChange::Task(value)),
                 StorageWrite::Submission { value } => Some(CommitChange::Submission(value)),
                 StorageWrite::DocumentCreate { .. }

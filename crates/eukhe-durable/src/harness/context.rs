@@ -448,14 +448,14 @@ pub(crate) async fn active_entries(
     conversation_id: ConversationId,
     bounds: Option<&ContextBounds>,
     cx: &Context,
-) -> SessionResult<Vec<EntryRecord>> {
+) -> SessionResult<Vec<Arc<EntryRecord>>> {
     let Some(bounds) = bounds else {
         return Ok(Vec::new());
     };
     let (min_entry_id, max_entry_id) = range_bounds(bounds);
     let range = scan_range(storage, conversation_id, min_entry_id, max_entry_id, cx).await?;
     Ok(select_active_refs(bounds.head.as_ref(), &range)
-        .map(|entry| EntryRecord::clone(entry))
+        .cloned()
         .collect())
 }
 

@@ -311,8 +311,8 @@ pub enum DocumentCommitChange {
 pub enum CommitChange {
     /// A created conversation.
     Conversation(ConversationRecord),
-    /// A created entry.
-    Entry(EntryRecord),
+    /// A created entry, shared with every view and event stream that shows it.
+    Entry(Arc<EntryRecord>),
     /// A created or replaced task record.
     Task(AnyTaskRecord),
     /// A created or replaced submission record.

@@ -515,6 +515,7 @@ impl Worker {
         let messages: Vec<Value> = mirror
             .entries
             .iter()
+            .map(Arc::as_ref)
             .filter_map(entry_wire_message)
             .collect();
         let count = |role: &str| {
@@ -676,6 +677,7 @@ impl Worker {
                 .iter()
                 .rev()
                 .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
+                .map(Arc::as_ref)
                 .find_map(entry_wire_message)
                 .map(|message| crate::types::message_text(&message))
         });

@@ -38,7 +38,7 @@ const MOUNTED_KINDS: [&str; 5] = ["pi.agent", "pi.live", "pi.inbox", "pi.provide
 #[derive(Clone, Debug)]
 pub struct ConversationView {
     conversation: Arc<ConversationRecord>,
-    entries: Arc<Vec<EntryRecord>>,
+    entries: Arc<Vec<Arc<EntryRecord>>>,
     entries_json: JsonValue,
     docs: Arc<JsonObject>,
     json: JsonValue,
@@ -48,7 +48,7 @@ impl ConversationView {
     fn new(
         conversation: Arc<ConversationRecord>,
         conversation_json: JsonValue,
-        entries: Arc<Vec<EntryRecord>>,
+        entries: Arc<Vec<Arc<EntryRecord>>>,
         entries_json: JsonValue,
         docs: Arc<JsonObject>,
     ) -> Self {
@@ -72,9 +72,10 @@ impl ConversationView {
     }
 
     /// Raw active entries, as `ContextView.entries`: the head marker, then the
-    /// non-head entries from its head.
+    /// non-head entries from its head. The records are the published ones,
+    /// shared with every event and reader that holds them.
     #[must_use]
-    pub fn entries(&self) -> &Arc<Vec<EntryRecord>> {
+    pub fn entries(&self) -> &Arc<Vec<Arc<EntryRecord>>> {
         &self.entries
     }
 
@@ -462,8 +463,12 @@ impl Inner {
             );
         }
         let conversation_json = to_json(&conversation)?;
-        let entries_json =
-            JsonValue::Array(Arc::new(entries.iter().map(entry_json).collect::<Vec<_>>()));
+        let entries_json = JsonValue::Array(Arc::new(
+            entries
+                .iter()
+                .map(|entry| entry_json(entry))
+                .collect::<Vec<_>>(),
+        ));
         Ok(Mount {
             value: ConversationView::new(
                 Arc::new(conversation),
@@ -545,7 +550,7 @@ fn advance(id: ConversationId, mount: &SharedMount, publication: &CommitPublicat
         let mut mounted = lock(mount);
         let mut doc_ops: Vec<Op> = Vec::new();
         let mut entry_ops: Vec<Op> = Vec::new();
-        let mut entries: Option<(Vec<EntryRecord>, Vec<JsonValue>)> = None;
+        let mut entries: Option<(Vec<Arc<EntryRecord>>, Vec<JsonValue>)> = None;
         // Entry writes are published in ID order.
         for change in &publication.changes {
             match change {
@@ -569,7 +574,7 @@ fn advance(id: ConversationId, mount: &SharedMount, publication: &CommitPublicat
                             0,
                             vec![value.clone()],
                         ));
-                        list.push(entry.clone());
+                        list.push(Arc::clone(entry));
                         json.push(value);
                         continue;
                     };
@@ -585,7 +590,7 @@ fn advance(id: ConversationId, mount: &SharedMount, publication: &CommitPublicat
                         kept,
                         vec![value.clone()],
                     ));
-                    list.splice(0..kept, [entry.clone()]);
+                    list.splice(0..kept, [Arc::clone(entry)]);
                     json.splice(0..kept, [value]);
                 }
                 CommitChange::Document(DocumentCommitChange::Document {

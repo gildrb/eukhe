@@ -151,7 +151,7 @@ fn answer(text: &str) -> AssistantMessage {
     )
 }
 
-fn kinds(entries: &[EntryRecord]) -> Vec<&str> {
+fn kinds(entries: &[Arc<EntryRecord>]) -> Vec<&str> {
     entries.iter().map(|entry| entry.kind.as_str()).collect()
 }
 
