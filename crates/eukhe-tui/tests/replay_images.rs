@@ -77,7 +77,7 @@ fn replayed_image_blocks_render_placeholder_rows() {
     // The result's image block: the metadata row below the tool card
     // (dimensions parsed from the payload).
     assert!(
-        flat.contains("`- [image/png - 64x32]"),
+        flat.contains("\n      [image/png - 64x32]"),
         "image metadata row: {flat}"
     );
 }

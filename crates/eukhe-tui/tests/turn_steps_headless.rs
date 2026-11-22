@@ -346,9 +346,12 @@ const OVERVIEW: &str = " > fix the greeting in hello.rs
 
    + thinking: The user wants the greeting fixed. First read src/hello.rs to see what it prints.
      Reading the file, then patching it.
- ok read - src/hello.rs - 6 lines - Nms
- ok edit - src/hello.rs - +1 -1 - Nms
- x  bash - cargo test -q - 3 lines - Nms - error[E0425]: cannot find function `greet2` in this scope
+   ok read  src/hello.rs - 6 lines - Nms
+   ok edit  src/hello.rs - +1 -1 - Nms
+   x  bash  cargo test -q - 3 lines - Nms
+      | error[E0425]: cannot find function `greet2` in this scope
+      |  --> src/main.rs:9:5
+      | error: could not compile `demo` (bin \"demo\") due to 1 previous error
 
    + thinking: The compile error is in a different file, unrelated to my patch. Report it.
 

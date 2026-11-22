@@ -6,6 +6,7 @@
 //! the element renderer draws them.
 
 pub mod bash;
+mod diff;
 pub mod generic;
 #[cfg(test)]
 mod golden_tests;
@@ -197,10 +198,10 @@ pub fn format_size(bytes: usize) -> String {
     }
 }
 
-/// Image result blocks render their metadata row below the card (TS
-/// `tool-execution.ts` adds one `Image` component per result image
-/// block, with `fallbackOnly` and the `BRANCH` prefix, in the
-/// toolOutput fallback color). Blocks without data or a mime type, and
+/// Image result blocks render their metadata row below the card, at the
+/// tool quote column (TS `tool-execution.ts` adds one `Image` component
+/// per result image block, with `fallbackOnly`, in the toolOutput
+/// fallback color). Blocks without data or a mime type, and
 /// every image while `show_images` is false, render nothing here -- the
 /// hidden ones contribute their `[Image: ...]` text through
 /// [`ToolResultView::text_output`] instead.
@@ -226,8 +227,8 @@ pub(crate) fn image_rows(
     for block in eligible_image_blocks(result, show_images) {
         rows.push(vec![Span::styled(
             format!(
-                "    {}{}",
-                crate::glyphs::BRANCH,
+                "{}{}",
+                " ".repeat(crate::rows::Gutter::ToolQuote.mark_col()),
                 image_block_row_text(block)
             ),
             fallback,
@@ -347,7 +348,7 @@ mod tests {
         let result = image_result(&payload, "image/png");
         let rows = image_rows(result.as_ref(), true, &theme());
         let flat: Vec<String> = rows.iter().map(text_of).collect();
-        assert_eq!(flat, vec!["    `- [image/png - 64x32]".to_string()]);
+        assert_eq!(flat, vec!["      [image/png - 64x32]".to_string()]);
         // The render never emits any of the payload's tail bytes.
         assert!(flat.iter().all(|row| !row.contains("AAAA")));
     }
@@ -362,7 +363,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
             flat,
-            vec!["    `- [image/jpeg - 182.0KB omitted]".to_string()]
+            vec!["      [image/jpeg - 182.0KB omitted]".to_string()]
         );
     }
 
@@ -384,7 +385,7 @@ mod tests {
         let flat: Vec<String> = rows.iter().map(text_of).collect();
         assert_eq!(
             flat,
-            vec!["    `- [image/jpeg - 182.0KB omitted]".to_string()]
+            vec!["      [image/jpeg - 182.0KB omitted]".to_string()]
         );
     }
 

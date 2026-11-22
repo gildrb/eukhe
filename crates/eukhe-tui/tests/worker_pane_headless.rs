@@ -308,7 +308,7 @@ fn the_worker_pane_shows_the_stream_and_esc_esc_pauses_the_worker() {
             wait("use the v2 api"),
             wait("[note from main] asked mid-run"),
             wait("Folding in the context"),
-            wait("read - src/api.rs"),
+            wait("read  src/api.rs"),
             // The full view, and Esc back to the split.
             key(KeyCode::Char('W'), KeyModifiers::SHIFT | KeyModifiers::ALT),
             wait("Esc: back"),

@@ -35,13 +35,10 @@ pub(super) fn collapsed_images(
         .flat_map(|result| result.content.iter())
         .filter(|block| block.get("type").and_then(Value::as_str) == Some("image"))
         .map(|block| {
-            body_row(
-                /* first */ false,
-                vec![Inline::role(
-                    hidden_image_text(block),
-                    ThemeColor::ToolOutput,
-                )],
-            )
+            body_row(vec![Inline::role(
+                hidden_image_text(block),
+                ThemeColor::ToolOutput,
+            )])
         })
         .collect()
 }

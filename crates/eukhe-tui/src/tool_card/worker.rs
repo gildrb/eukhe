@@ -65,19 +65,13 @@ pub fn render(card: &ToolCallCard, frame: usize, theme: &Theme, width: usize) ->
             .map(|note| format!("[note from main] {note}"))
             .unwrap_or_default(),
     };
-    let mut first = true;
-    for line in body.split('\n') {
-        if body.is_empty() {
-            break;
-        }
-        rows.push(body_row(
-            first,
-            vec![Inline::role(
+    if !body.is_empty() {
+        for line in body.split('\n') {
+            rows.push(body_row(vec![Inline::role(
                 if line.is_empty() { " " } else { line },
                 ThemeColor::CustomMessageText,
-            )],
-        ));
-        first = false;
+            )]));
+        }
     }
     element::render(&Element::Column(rows), theme, width, Tick(frame))
 }
@@ -126,7 +120,7 @@ mod tests {
         let rows = text(&card);
         assert_eq!(rows.len(), 4, "{rows:?}");
         assert!(
-            rows[0].contains("worker_forward - redirect -> worker"),
+            rows[0].contains("worker_forward  redirect -> worker"),
             "{rows:?}"
         );
         assert!(rows[1].ends_with("actually, keep the old API"), "{rows:?}");

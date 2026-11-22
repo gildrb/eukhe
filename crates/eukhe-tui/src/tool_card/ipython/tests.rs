@@ -52,7 +52,7 @@ fn done_cell_summary_line() {
     assert_eq!(lines.len(), 1);
     let text = text_of(&lines[0]);
     assert!(
-        text.contains("ok python - print('visual parity ok') - ^ 1 v 1 lines - 2ms"),
+        text.contains("ok python  print('visual parity ok') - ^ 1 v 1 lines - 2ms"),
         "got: {text}"
     );
 }
@@ -114,16 +114,16 @@ fn expanded_renders_code_and_output() {
     let lines = render(&card, 0, Detail::All, &theme(), 100, true);
     let flat: Vec<String> = lines.iter().map(text_of).collect();
     assert!(
-        flat[1].starts_with(" `- for i in range(3):"),
+        flat[1].starts_with("   `- for i in range(3):"),
         "got: {flat:?}"
     );
     assert!(
-        flat[2].starts_with("        print(f'line {i}')"),
+        flat[2].starts_with("          print(f'line {i}')"),
         "got: {flat:?}"
     );
     assert_eq!(flat[3], "", "blank between code and output");
-    assert!(flat[4].starts_with("  > line 0"), "got: {flat:?}");
-    assert!(flat[5].starts_with("    line 1"), "got: {flat:?}");
+    assert!(flat[4].starts_with("    > line 0"), "got: {flat:?}");
+    assert!(flat[5].starts_with("      line 1"), "got: {flat:?}");
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn sent_agent_messages_render_below_the_code() {
     assert!(
         flat[1]
             .trim_end()
-            .starts_with(" & Agent message - ^ Worker"),
+            .starts_with("   & Agent message - ^ Worker"),
         "got: {flat:?}"
     );
     assert!(!flat[1].contains("Ping."), "no body when collapsed");
@@ -192,9 +192,9 @@ fn sent_agent_messages_render_below_the_code() {
         .position(|row| row.contains("Agent message - ^ Worker"))
         .expect("summary row");
     assert_eq!(flat[summary - 1], "", "blank between code and receipt");
-    assert_eq!(flat[summary].trim_end(), " & Agent message - ^ Worker");
-    assert_eq!(flat[summary + 1], " `- Ping.");
-    assert_eq!(flat[summary + 2], "    Then report back.");
+    assert_eq!(flat[summary].trim_end(), "   & Agent message - ^ Worker");
+    assert_eq!(flat[summary + 1].trim_end(), "   `- Ping.");
+    assert_eq!(flat[summary + 2].trim_end(), "      Then report back.");
     // The summary carries no body preview and no receipt metadata.
     assert!(!flat.iter().any(|row| row.contains("agentmsg_1")));
     assert!(!flat.iter().any(|row| row.contains("deliveryStatus")));
@@ -405,7 +405,7 @@ fn shown_image_counts_render_below_the_cell() {
         "got: {flat:?}"
     );
     assert!(
-        flat.iter().any(|row| row.contains("`- [image/png - 8x4]")),
+        flat.iter().any(|row| row == "      [image/png - 8x4]"),
         "got: {flat:?}"
     );
 }
@@ -463,7 +463,7 @@ fn bash_dominated_cell_renders_as_bash() {
     assert_eq!(lines.len(), 1);
     assert_eq!(
         text_of(&lines[0]),
-        " ok bash - cargo test -p eukhe-tui - +2 more - ^ 5 v 1 lines - 2ms"
+        "   ok bash  cargo test -p eukhe-tui - +2 more - ^ 5 v 1 lines - 2ms"
     );
 }
 
@@ -487,6 +487,6 @@ fn bash_minority_cell_stays_python() {
     assert_eq!(lines.len(), 1);
     assert_eq!(
         text_of(&lines[0]),
-        " ok python - r = await sh(\"ls\") - ^ 4 v 1 lines - 5ms"
+        "   ok python  r = await sh(\"ls\") - ^ 4 v 1 lines - 5ms"
     );
 }
