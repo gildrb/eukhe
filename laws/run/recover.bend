@@ -472,3 +472,144 @@ law rec_quit_fails:
   for +n: Nat
   for +p: Nat
   {RnStep.call(cfg, RnRecovery.Act.reply(RnRecovery.Quit{}, pass), r, c, a, n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p} : RnState.St}
+
+# What the recoveries' laws read, pinned
+# --------------------------------------
+# The laws above read the recoveries through tests and measures of the
+# code (the fields of the caps, a record and a decision; the rows a
+# record counts; Out.stuck, below, again, Rec.capped, Rec.run). Each is
+# pinned here, by its constructors or against the requirement's own
+# count, so that no law holds because a test it reads says nothing.
+
+# LAW rec_terms_exact (H4.8): the caps, a record and a decision read back
+# the fields they were built with; a record counts its row for its own
+# recovery only; the rounds in a row of a kept round are the ones it
+# makes, a round whose results changed starts a new row of one; a stuck
+# reply is leaked calls, tool calls, a reply with no text or a length
+# stop the stop walk continues, and no other
+# EXCLUDES: a field read from another, or a constant (rec_never_runs_a_repeat
+#   and stop_repeat_row_counts then read a constant row), a row read for
+#   another recovery, a stuck reply read as not stuck or the other way
+#   (rec_stuck_gets_help then holds vacuously)
+law rec_terms_exact:
+  for +lo: Nat
+  for +le: Nat
+  for +rd: Nat
+  for +rp: Nat
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +a: RnRecovery.Act
+  for +r: RnRecovery.Rec
+  for +m: Nat
+  for +rb: Bool
+  for +h: Nat
+  for +kept: Bool
+  for +sh: Bool
+  for +lw: Bool
+  {RnRecovery.RCfg.long(RnRecovery.RCfg{lo, le, rd, rp}) == lo : Nat} &
+  {RnRecovery.RCfg.leak(RnRecovery.RCfg{lo, le, rd, rp}) == le : Nat} &
+  {RnRecovery.RCfg.redirect(RnRecovery.RCfg{lo, le, rd, rp}) == rd : Nat} &
+  {RnRecovery.RCfg.repeat(RnRecovery.RCfg{lo, le, rd, rp}) == rp : Nat} &
+  {RnRecovery.Rec.same(RnRecovery.Rec{k, row, same, last}) == same : Nat} &
+  {RnRecovery.Dec.act(RnRecovery.Dec{a, r}) == a : RnRecovery.Act} &
+  {RnRecovery.Dec.r(RnRecovery.Dec{a, r}) == r : RnRecovery.Rec} &
+  {RnRecovery.Rk.longs(RnRecovery.Free{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.longs(RnRecovery.Longs{}, row) == row : Nat} &
+  {RnRecovery.Rk.longs(RnRecovery.Leaks{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.longs(RnRecovery.Loops{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.longs(RnRecovery.Empties{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.leaks(RnRecovery.Free{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.leaks(RnRecovery.Longs{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.leaks(RnRecovery.Leaks{}, row) == row : Nat} &
+  {RnRecovery.Rk.leaks(RnRecovery.Loops{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.leaks(RnRecovery.Empties{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.loops(RnRecovery.Free{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.loops(RnRecovery.Longs{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.loops(RnRecovery.Leaks{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.loops(RnRecovery.Loops{}, row) == row : Nat} &
+  {RnRecovery.Rk.loops(RnRecovery.Empties{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.empties(RnRecovery.Free{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.empties(RnRecovery.Longs{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.empties(RnRecovery.Leaks{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.empties(RnRecovery.Loops{}, row) == 0n : Nat} &
+  {RnRecovery.Rk.empties(RnRecovery.Empties{}, row) == row : Nat} &
+  {RnRecovery.ran.same(True{}, m) == m : Nat} &
+  {RnRecovery.ran.same(False{}, m) == 1n : Nat} &
+  {RnRecovery.Out.stuck(RnRecovery.Leak{rb, h, kept}) == True{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Ran{h, kept}) == True{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Noted{}) == False{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Said{}) == False{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Answer{}) == False{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Other{}) == False{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Empty{}) == True{} : Bool} &
+  {RnRecovery.Out.stuck(RnRecovery.Think{sh, lw}) == True{} : Bool}
+
+# LAW rec_capped_reads_the_row (H4.8): the cap test rec_notes_capped
+# reads (Rec.capped) is the row cap of the record's recovery (Rk.capped),
+# and every row within its cap is within it: any row of no recovery, up
+# to `long` + 1 length notes, up to `leak` leak notes, up to `redirect`
+# redirect notes, up to 3 empty notes (the rows past the cap:
+# stop_capped_past_the_cap)
+# EXCLUDES: a Rec.capped tied to no row (always true: rec_notes_capped
+#   then holds vacuously), a cap that refuses a row within it
+law rec_capped_reads_the_row:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +lo: Nat
+  for +le: Nat
+  for +rd: Nat
+  for +rp: Nat
+  for +x: Nat
+  for +y: Nat
+  {RnRecovery.Rec.capped(rc, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Rk.capped(rc, k, row) : Bool} &
+  {RnRecovery.Rk.capped(rc, RnRecovery.Free{}, row) == True{} : Bool} &
+  {RnRecovery.Rk.capped(RnRecovery.RCfg{Nat.add(x, y), le, rd, rp}, RnRecovery.Longs{}, x) == True{} : Bool} &
+  {RnRecovery.Rk.capped(RnRecovery.RCfg{lo, le, rd, rp}, RnRecovery.Longs{}, 1n+lo) == True{} : Bool} &
+  {RnRecovery.Rk.capped(RnRecovery.RCfg{lo, Nat.add(x, y), rd, rp}, RnRecovery.Leaks{}, x) == True{} : Bool} &
+  {RnRecovery.Rk.capped(RnRecovery.RCfg{lo, le, Nat.add(x, y), rp}, RnRecovery.Loops{}, x) == True{} : Bool} &
+  {RnRecovery.Rk.capped(rc, RnRecovery.Empties{}, 0n) == True{} : Bool} &
+  {RnRecovery.Rk.capped(rc, RnRecovery.Empties{}, 1n) == True{} : Bool} &
+  {RnRecovery.Rk.capped(rc, RnRecovery.Empties{}, 2n) == True{} : Bool} &
+  {RnRecovery.Rk.capped(rc, RnRecovery.Empties{}, 3n) == True{} : Bool}
+
+# LAW rec_below_is_less (H4.8): `below`, the test the recoveries' laws
+# read for "within a cap", is the order of the naturals
+# EXCLUDES: a `below` that is always false (the premises of rec_calls_run,
+#   rec_repeat_redirects and stop_repeat_progress_restarts never hold) or
+#   always true
+law rec_below_is_less:
+  for a: Nat
+  for b: Nat
+  {RnRecovery.below(a, b) == Nat.is_lt(a, b) : Bool}
+
+# LAW rec_again_counts_the_rounds (H4.8): the rounds in a row the code
+# counts for calls of hash h after `same` rounds of the calls of hash
+# `last` (again) are the rounds the requirement counts (`rounds`): one
+# more than `same` when they are the last round's calls, else a new row
+# of one
+# EXCLUDES: a count that never grows or never restarts (rec_calls_run and
+#   stop_repeat_progress_restarts read it in their premises)
+law rec_again_counts_the_rounds:
+  for +same: Nat
+  for +last: Nat
+  for +h: Nat
+  {RnRecovery.again(same, last, h) == rounds(same, last, h) : Nat}
+
+# LAW rec_run_steps_each_reply (H4.8): the record after any replies
+# (Rec.run, which rec_never_runs_a_repeat and rec_notes_capped read)
+# starts as a run starts (Rec.init: stop_rec_init_exact) and each reply
+# moves it by one step of the recoveries (Rec.step)
+# EXCLUDES: a Rec.run that ignores the replies (always the record a run
+#   starts with: rec_never_runs_a_repeat and rec_notes_capped then hold
+#   vacuously), a reply read twice or skipped
+law rec_run_steps_each_reply:
+  for +rc: RnRecovery.RCfg
+  for +os: List<&2, RnRecovery.Out>
+  for +o: RnRecovery.Out
+  {RnRecovery.Rec.run(rc, Nil{}) == RnRecovery.Rec.init() : RnRecovery.Rec} &
+  {RnRecovery.Rec.run(rc, List.append(&2, RnRecovery.Out, os, o <> Nil{})) == RnRecovery.Dec.r(RnRecovery.Rec.step(rc, o, RnRecovery.Rec.run(rc, os))) : RnRecovery.Rec}

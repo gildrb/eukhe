@@ -815,3 +815,21 @@ law stop_think_lowers_last:
   for +last: Nat
   for +at: {Nat.is_eq(RnRecovery.Rk.longs(k, row), RnRecovery.RCfg.long(rc)) == True{} : Bool}
   {RnRecovery.Rec.step(rc, RnRecovery.Think{False{}, True{}}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Lower{}, RnRecovery.Rec{RnRecovery.Longs{}, 1n+RnRecovery.Rk.longs(k, row), same, last}} : RnRecovery.Dec}
+
+# LAW stop_facts_terms_exact (R1): the facts of a stop read back the
+# facts they were built with (Facts.text is the fact the stand laws
+# read)
+# EXCLUDES: a fact read from another fact, or a constant
+law stop_facts_terms_exact:
+  for +cut: Bool
+  for +text: Bool
+  for +broken: Bool
+  for +pending: Bool
+  for +spent: Bool
+  for +cuttable: Bool
+  {S.Facts.cut(S.Facts{cut, text, broken, pending, spent, cuttable}) == cut : Bool} &
+  {S.Facts.text(S.Facts{cut, text, broken, pending, spent, cuttable}) == text : Bool} &
+  {S.Facts.broken(S.Facts{cut, text, broken, pending, spent, cuttable}) == broken : Bool} &
+  {S.Facts.pending(S.Facts{cut, text, broken, pending, spent, cuttable}) == pending : Bool} &
+  {S.Facts.spent(S.Facts{cut, text, broken, pending, spent, cuttable}) == spent : Bool} &
+  {S.Facts.cuttable(S.Facts{cut, text, broken, pending, spent, cuttable}) == cuttable : Bool}
