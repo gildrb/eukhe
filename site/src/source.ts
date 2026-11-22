@@ -64,5 +64,13 @@ export const source = `${withEpigraphs(readme).trimEnd()}\n\n${sourceLine}\n`;
 
 export const notFound = `# Eukhe
 
-No page is at this address. Back to [eukhe.com](/).
+No page is at this address.
+
+<a href="https://gildrb.com"><pre>
+        _ __   __    __
+  ___ _(_) /__/ /___/ /   _______  __ _
+ / _ \`/ / / _  / __/ _ \\_/ __/ _ \\/  ' \\
+ \\_, /_/_/\\_,_/_/ /_.__(_)__/\\___/_/_/_/
+/___/
+</pre></a>
 `;

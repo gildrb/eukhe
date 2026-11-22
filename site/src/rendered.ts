@@ -232,6 +232,17 @@ export function render(
       if (pick !== null && row !== undefined) copies.push({ line: at, at: row, text: pick.text });
       continue;
     }
+    const art = /^<a href="([^"]+)"><pre>$/.exec(line)?.[1];
+    if (art !== undefined) {
+      // A drawing in characters that links somewhere (`<a href="…"><pre>` … `</pre></a>`, as GitHub
+      // renders it): its lines as they are, every character a link.
+      for (i += 1; i < md.length && md[i] !== "</pre></a>"; i += 1) {
+        const text = md[i] ?? "";
+        const n = Array.from(text).length;
+        add({ text, runs: n === 0 ? [] : [{ from: 0, to: n, hl: "heading", href: art }] });
+      }
+      continue;
+    }
     const heading = /^(#{1,6}) (.*)$/.exec(line);
     if (heading?.[2] !== undefined) {
       const text = heading[2];

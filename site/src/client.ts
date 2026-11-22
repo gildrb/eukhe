@@ -192,8 +192,9 @@ function linkAt(row: number, col: number): { url: string; col: number } | null {
   const cps = cells(line);
   const c = shown.left + col - g;
   const run = (file.runs[l] ?? []).find((r) => {
-    if (r.hl !== "link") return false;
-    const labelled = cps[r.from - 1] === "(" && cps[r.from - 2] === "]";
+    // A link, or a run that links without its look (a drawing that links: rendered.ts).
+    if (r.hl !== "link" && r.href === undefined) return false;
+    const labelled = r.hl === "link" && cps[r.from - 1] === "(" && cps[r.from - 2] === "]";
     const from = labelled ? cps.lastIndexOf("[", r.from - 3) : r.from;
     return from >= 0 && from <= c && c <= (labelled ? r.to : r.to - 1);
   });
