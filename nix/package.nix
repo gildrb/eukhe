@@ -8,6 +8,7 @@
   fetchurl,
   autoPatchelfHook,
   makeWrapper,
+  python314,
   git,
   onnxruntime,
   release,
@@ -50,6 +51,7 @@ stdenv.mkDerivation {
     payload="$out/libexec/eukhe"
     mkdir -p "$payload" "$out/bin"
     cp -R . "$payload/"
+    ${import ./kernel-bytecode.nix { inherit lib python314; } "$payload"}
     # git commits the chat memory after every turn; a user's own git
     # earlier on PATH wins. The Python kernel needs nothing on PATH: eukhe
     # fetches its own pinned uv and Python. The tiny-model worker loads
