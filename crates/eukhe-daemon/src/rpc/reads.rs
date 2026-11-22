@@ -15,7 +15,7 @@ use eukhe_types::pi_ai::{Model, UserContent, UserContentBlock};
 use serde_json::Value;
 
 use super::error::DocReadError;
-use crate::worker::durable_host::wire_messages::transcript_messages;
+use crate::worker::durable_host::wire_messages::transcript_messages_of;
 
 /// Entries read per history page.
 const HISTORY_PAGE: usize = 256;
@@ -94,7 +94,9 @@ pub(crate) async fn context_messages(
     let view = conversation
         .context(cx, eukhe_durable::harness::types::ContextOptions::default())
         .await?;
-    Ok(transcript_messages(&view.entries))
+    Ok(transcript_messages_of(
+        view.entries.iter().map(AsRef::as_ref),
+    ))
 }
 
 /// The main conversation's resolved agent.

@@ -856,7 +856,7 @@ async fn reruns_a_replay_safe_subagent_tool_after_a_restart_with_the_same_child_
         .messages
         .iter()
         .filter_map(|message| {
-            if let Message::ToolResult(result) = message {
+            if let Message::ToolResult(result) = message.as_ref() {
                 Some(result.is_error)
             } else {
                 None

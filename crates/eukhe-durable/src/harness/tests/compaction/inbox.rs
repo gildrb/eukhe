@@ -1,6 +1,8 @@
 //! "compaction and the inbox", "blocking and manual compaction together",
 //! and "context contributions".
 
+use std::sync::Arc;
+
 use eukhe_chord::json::{to_json, JsonValue};
 use eukhe_types::pi_ai::{AssistantMessage, Message, UserContent, UserMessage};
 
@@ -84,7 +86,7 @@ async fn places_a_reset_queued_after_the_summary_last_and_makes_a_summary_queued
                 .await
                 .unwrap()
                 .head
-                .map(|head| head.kind),
+                .map(|head| head.kind.clone()),
             Some("pi.reset".to_owned())
         );
         chat.harness.close(context()).await.unwrap();
@@ -450,16 +452,16 @@ async fn apply_edits_carried_by_an_older_head_marker_in_the_range() {
             .collect::<Vec<_>>(),
         ids
     );
-    let texts = |messages: &[Message]| {
+    let texts = |messages: &[Arc<Message>]| {
         messages
             .iter()
-            .map(|message| user_text(Some(message)))
+            .map(|message| user_text(Some(message.as_ref())))
             .collect::<Vec<_>>()
     };
     assert_eq!(
         view.contributions
             .iter()
-            .map(|messages| texts(messages))
+            .map(|messages| texts(&messages[..]))
             .collect::<Vec<_>>(),
         [
             vec!["H".to_owned()],

@@ -4,6 +4,7 @@
 //! changes). The count comes from the request's context, so a restart
 //! keeps it and a failed reply (not in the context) never adds to it.
 
+use std::borrow::Borrow;
 use std::fmt::Write as _;
 use std::num::NonZeroU32;
 
@@ -81,13 +82,16 @@ type Round<'a> = (Vec<(&'a str, String)>, Vec<(&'a [UserContentBlock], bool)>);
 /// a new row starts: it is no repeat. A user message (a steer, the user's
 /// next turn) ends the row: the user changed the context. System messages
 /// do not; a reply without tool calls does.
-pub(crate) fn rounds_in_a_row(messages: &[Message], calls: &[ToolCall]) -> NonZeroU32 {
+pub(crate) fn rounds_in_a_row<M: Borrow<Message>>(
+    messages: &[M],
+    calls: &[ToolCall],
+) -> NonZeroU32 {
     let set = call_set(calls.iter());
     let mut last: Option<Round<'_>> = None;
     let mut results = Vec::new();
     let mut rounds = NonZeroU32::MIN;
     for message in messages.iter().rev() {
-        match message {
+        match message.borrow() {
             Message::System(_) => {}
             Message::User(_) => break,
             Message::ToolResult(result) => {
@@ -221,7 +225,7 @@ mod tests {
         .concat();
         assert_eq!(
             [
-                rounds_in_a_row(&[], &next).get(),
+                rounds_in_a_row::<Message>(&[], &next).get(),
                 rounds_in_a_row(&same, &next).get(),
                 rounds_in_a_row(&same, &other).get(),
                 rounds_in_a_row(&changed, &next).get(),

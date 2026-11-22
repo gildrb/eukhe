@@ -467,7 +467,11 @@ async fn run_side_question(
     .retry;
     // The main context first (system prompt and tool declarations ride its
     // system messages), then the replayed side turns, then the question.
-    let mut messages = view.messages;
+    let mut messages: Vec<Message> = view
+        .messages
+        .iter()
+        .map(|message| Message::clone(message))
+        .collect();
     for (index, turn) in request.previous_turns.iter().enumerate() {
         messages.push(user_message(side_question_prompt(
             &turn.question,

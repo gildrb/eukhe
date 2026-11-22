@@ -197,7 +197,7 @@ pub async fn run(
         .messages;
     let mut system = Vec::new();
     for message in &messages {
-        let Message::System(message) = message else {
+        let Message::System(message) = message.as_ref() else {
             continue;
         };
         // `undefined` fields are left out, as JSON drops them.

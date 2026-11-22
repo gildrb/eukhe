@@ -2,6 +2,8 @@
 //! transcript through the compiled core's lift table, and the placement of
 //! a lift's arguments.
 
+use std::sync::Arc;
+
 use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_tool_call, FauxAssistantMessageOptions,
 };
@@ -15,6 +17,14 @@ use serde_json::json;
 use super::{place, PlaceError};
 use crate::harness::context::{derive_view, order_tool_results};
 use crate::types::{ConversationId, EntryId, EntryRecord};
+
+/// The shared messages of a view as plain ones.
+fn plain(messages: &[Arc<Message>]) -> Vec<Message> {
+    messages
+        .iter()
+        .map(|message| Message::clone(message))
+        .collect()
+}
 
 fn object(value: JsonValue) -> JsonObject {
     let JsonValue::Object(object) = value else {
@@ -113,7 +123,7 @@ fn an_old_transcript_replays_in_the_current_dialect() {
     let (entries, calls) = old_transcript();
     let refs: Vec<_> = calls.iter().map(|(n, i, a)| (*n, *i, a)).collect();
     assert_eq!(
-        derive_view(&entries).messages,
+        plain(&derive_view(&entries).messages),
         vec![
             user("look at line 3"),
             calling(&refs),

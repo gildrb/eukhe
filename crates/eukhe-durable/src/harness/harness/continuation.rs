@@ -19,7 +19,7 @@ use crate::harness::live::run::timestamp;
 use crate::harness::live::LIVE_DOC;
 use crate::harness::prompt::{next_system_entries, replay_sections, system_cache_breakpoint};
 use crate::harness::provider::session_provider_session_id;
-use crate::harness::types::{Agent, PromptInput};
+use crate::harness::types::{Agent, ContextView, PromptInput};
 use crate::session::SessionResult;
 use crate::types::{EntryId, EntryQuery};
 
@@ -69,7 +69,10 @@ impl Conversation {
             };
             prepare_system(&core, &conversation, &agent, &model, &cx).await?;
             let id = conversation.id();
-            let messages = read_context(&core.session, id, &cx, None).await?.messages;
+            // The view's other parts drop here, so each message is moved
+            // out of its now unshared handle, not copied.
+            let ContextView { messages, .. } = read_context(&core.session, id, &cx, None).await?;
+            let messages: Vec<Message> = messages.into_iter().map(Arc::unwrap_or_clone).collect();
             let mut options = Core::settings(&core.options).stream.simple_stream_options();
             options.stream.session_id =
                 Some(session_provider_session_id(&core.session, id, &cx).await?);
