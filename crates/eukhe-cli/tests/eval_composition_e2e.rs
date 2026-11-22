@@ -191,11 +191,20 @@ fn acceptance_returns(transcript: &Transcript) -> Vec<String> {
         .collect()
 }
 
+/// The headless end of a run whose only check, the verifier, passed in a
+/// workspace that is no git repository: the lines the task changed are
+/// unknown, so nothing is there to break and the check is weak (S1); done
+/// is not certified (S2) and the run exits 3 (S6, V10).
+const NOT_CERTIFIED_LINE: &str =
+    "eukhe: done; not certified: the checks were not shown to catch broken code (exit 3)";
+
 /// The verifier-driven session completing: the verifier is the run's
 /// command check; the first claim passes it, and the checks' end stops the
 /// run (no continuation of the run's own, which a run without checks
 /// would get) without a row: the stop surfaces through the exit contract
-/// only.
+/// only. The workspace is no git repository, so the passing verifier is
+/// weak and done is not certified: exit 3, the json stream's last record
+/// `task_uncertified`.
 #[test]
 fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
     let home = isolated_home();
@@ -215,7 +224,8 @@ fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
         ],
         &script,
     );
-    assert_eq!(code, 0, "stderr: {stderr}\nstdout: {stdout}");
+    assert_eq!(code, 3, "stderr: {stderr}\nstdout: {stdout}");
+    assert!(stderr.contains(NOT_CERTIFIED_LINE), "stderr: {stderr}");
     let events = parse_events(&stdout);
 
     // Header first.
@@ -234,7 +244,8 @@ fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
         "events: {events:?}"
     );
     // No continuation of the run's own, no return, no autonomous_status
-    // event, and the run's single `agent_end` closes it.
+    // event; the run's single `agent_end` closes it, then the headless
+    // end's record.
     assert!(
         !events.iter().any(|event| {
             event["message"]["customType"] == "autonomous_continuation"
@@ -252,7 +263,11 @@ fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
         .collect();
     assert_eq!(
         verdicts,
-        vec!["Acceptance checks passed, unconfined: 1 acceptance check confirmed.".to_string()],
+        vec![
+            "Acceptance checks passed, not certified: 1 acceptance check confirmed; check 1: weak, \
+             the workspace is no git repository, so the lines the task changed are unknown."
+                .to_string()
+        ],
         "events: {events:?}"
     );
     let agent_ends = events
@@ -260,7 +275,8 @@ fn verifier_check_pass_stops_the_run_with_structured_events_in_run() {
         .filter(|event| event["type"] == "agent_end")
         .count();
     assert_eq!(agent_ends, 1, "one run: {events:?}");
-    assert_eq!(events.last().unwrap()["type"], "agent_end");
+    assert_eq!(events[events.len() - 2]["type"], "agent_end");
+    assert_eq!(events.last().unwrap()["type"], "task_uncertified");
 
     // The durable session rows: the user's prompt only; the stop wrote no
     // custom entry.
@@ -350,7 +366,9 @@ fn verifier_check_failure_exhausts_returns_and_exits_one() {
 }
 
 /// Text mode prints the final answer on a passing verifier run, and stays
-/// quiet about the autonomous machinery (the stop writes nothing).
+/// quiet about the autonomous machinery (the stop writes nothing). The
+/// workspace is no git repository: done is not certified, exit 3 with its
+/// one line on stderr.
 #[test]
 fn text_mode_verifier_pass_prints_the_final_answer() {
     let home = isolated_home();
@@ -368,7 +386,8 @@ fn text_mode_verifier_pass_prints_the_final_answer() {
         ],
         &script,
     );
-    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(stderr.contains(NOT_CERTIFIED_LINE), "stderr: {stderr}");
     assert_eq!(stdout, "done\n");
     assert!(!stderr.contains("utonomous"), "stderr: {stderr}");
 
