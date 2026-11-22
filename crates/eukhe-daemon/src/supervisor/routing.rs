@@ -843,7 +843,7 @@ impl Supervisor {
         // `rename`/`set_session_name` forward in the name-reservation
         // ladder: name uniqueness is daemon-owned, so a session worker's
         // own rename can never mint a duplicate sibling name.
-        let response = match command {
+        let mut response = match command {
             DaemonCommand::Rename { name, .. } | DaemonCommand::SetSessionName { name, .. } => {
                 match self.live_session_name_scope(&resident.worker_id, name.trim().to_string()) {
                     Ok(scope) => self
@@ -886,11 +886,12 @@ impl Supervisor {
         // `"type":"response"` and the splice reproduces the exact line the
         // typed path would - without the parse, the per-key clone walk of
         // `from_value`, the `response_line` deep clone, and the re-serialize.
-        // The typed path stays for every response this arm edits or reads
-        // beyond the frame header's hints: the chunked-snapshot attach
-        // clients, a rebound reattach (command echo rewrite), and the
-        // small-payload bookkeeping commands (detach, kill, rename,
-        // set_session_name, the promote-owned catalog forms). An
+        // A rebound attach relays the same way; a rebound reattach (routed
+        // as the worker's `attach`) splices its `reattach` command echo in
+        // too. The typed path stays for every response this arm edits or
+        // reads beyond the frame header's hints: the chunked-snapshot attach
+        // clients and the small-payload bookkeeping commands (detach, kill,
+        // rename, set_session_name, the promote-owned catalog forms). An
         // attach-family relay also needs the frame header's
         // success/activeSessionId hints for the
         // supervisor's own bookkeeping; a hint-less one falls back to the
@@ -906,8 +907,11 @@ impl Supervisor {
             command,
             DaemonCommand::Attach { .. } | DaemonCommand::Reattach { .. }
         );
-        let typed_needed = rebound_to.is_some()
-            || client_wants_chunked
+        let echo = match (&rebound_to, command) {
+            (Some(_), DaemonCommand::Reattach { .. }) => SpliceEcho::Reattach,
+            _ => SpliceEcho::Worker,
+        };
+        let typed_needed = client_wants_chunked
             || matches!(
                 command,
                 // `subscribe_state_tree`: the caller reads the success to
@@ -926,30 +930,29 @@ impl Supervisor {
                         ..
                     }
             );
-        let splice = match response.as_ref() {
-            Ok(reply) if raw_out.is_some() => {
-                // Only the response_line shape splices: an object that opens
-                // with the response tag carries no id field, so prepending
-                // one reproduces the typed path's key order exactly.
-                let has_payload = reply
-                    .relayed_payload()
-                    .is_some_and(|payload| payload.starts_with(b"{\"type\":\"response\""));
+        let spliced = match response.as_mut() {
+            Ok(reply) if raw_out.is_some() && !typed_needed => {
                 let hints_present = !attach_family
                     || (reply.relayed_success().is_some()
                         && reply.relayed_active_session_id().is_some());
-                has_payload && hints_present && !typed_needed
+                // The payload moves into the client line (built in its own
+                // buffer): the supervisor holds the transcript of an attach
+                // once, not as the frame and a copy.
+                if hints_present && reply.relayed_payload().is_some_and(|p| echo.splices(p)) {
+                    reply
+                        .take_relayed_payload()
+                        .map(|payload| spliced_client_line(&command_id, echo, payload))
+                        .map(|line| (&*reply, line))
+                } else {
+                    None
+                }
             }
             // No raw queue (a supervisor-internal caller) or a typed-only
             // command: the typed path below.
-            _ => false,
+            _ => None,
         };
-        if splice {
-            let Ok(reply) = response.as_ref() else {
-                unreachable!("the splice arm only runs on an Ok reply")
-            };
-            let success = reply.relayed_success();
-            let payload = reply.relayed_payload().unwrap_or_default();
-            if success == Some(true) && attach_family {
+        if let Some((reply, line)) = spliced {
+            if reply.relayed_success() == Some(true) && attach_family {
                 let active_id = reply
                     .relayed_active_session_id()
                     .map_or_else(|| resident.worker_id.clone(), str::to_string);
@@ -972,7 +975,6 @@ impl Supervisor {
                     attached.unsubscribe(&self.editor_subscribers, &active_id);
                 }
             }
-            let line = spliced_client_line(&command_id, payload);
             if let Some(raw_out) = raw_out {
                 let _ = raw_out.send((vec![Outbound::Raw(line)], false)).await;
             }
@@ -1469,25 +1471,63 @@ impl Supervisor {
     }
 }
 
-/// The client response line for one relayed worker payload: the worker's
-/// own `response_line` bytes with the client's command id spliced in front.
-/// The worker serializes its responses with the id field absent, so the
-/// payload opens with `"type":"response"` and the splice reproduces the
-/// exact bytes the typed path's `response_line` -> `to_string` round trip
-/// emits. The trailing newline is part of the line.
-pub(crate) fn spliced_client_line(command_id: &str, worker_payload: &[u8]) -> Vec<u8> {
-    let mut line = Vec::with_capacity(command_id.len() + worker_payload.len() + 8);
-    line.extend_from_slice(b"{\"id\":");
-    serde_json::to_writer(&mut line, &Value::String(command_id.to_string()))
-        .expect("a command id serializes");
-    line.extend_from_slice(b",");
-    if worker_payload.first() == Some(&b'{') {
-        line.extend_from_slice(&worker_payload[1..]);
-    } else {
-        line.extend_from_slice(worker_payload);
+/// The command a spliced line answers as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpliceEcho {
+    /// The worker's own response command.
+    Worker,
+    /// A rebound reattach: routed as the worker's `attach`, it answers as
+    /// the client's `reattach`.
+    Reattach,
+}
+
+impl SpliceEcho {
+    /// The opening of the worker payload the splice replaces.
+    fn worker_head(self) -> &'static [u8] {
+        match self {
+            SpliceEcho::Worker => b"{",
+            SpliceEcho::Reattach => b"{\"type\":\"response\",\"command\":\"attach\"",
+        }
     }
-    line.push(b'\n');
-    line
+
+    /// What follows the spliced id in its place.
+    fn client_head(self) -> &'static [u8] {
+        match self {
+            SpliceEcho::Worker => b"",
+            SpliceEcho::Reattach => b"\"type\":\"response\",\"command\":\"reattach\"",
+        }
+    }
+
+    /// Whether this echo splices `payload`: only the `response_line` shape
+    /// does. An object that opens with the response tag carries no id
+    /// field, so prepending one reproduces the typed path's key order
+    /// exactly.
+    fn splices(self, payload: &[u8]) -> bool {
+        payload.starts_with(b"{\"type\":\"response\"") && payload.starts_with(self.worker_head())
+    }
+}
+
+/// The client response line for one relayed worker payload, built in the
+/// payload's own buffer: the worker's own `response_line` bytes with the
+/// client's command id spliced in front (and, for `echo`, the command it
+/// answers as). The worker serializes its responses with the id field
+/// absent, so the payload opens with `"type":"response"` and the splice
+/// reproduces the exact bytes the typed path's `response_line` ->
+/// `to_string` round trip emits. The trailing newline is part of the line.
+/// `worker_payload` opens the way `echo` [splices](SpliceEcho::splices).
+pub(crate) fn spliced_client_line(
+    command_id: &str,
+    echo: SpliceEcho,
+    mut worker_payload: Vec<u8>,
+) -> Vec<u8> {
+    let mut head = Vec::with_capacity(command_id.len() + 48);
+    head.extend_from_slice(b"{\"id\":");
+    serde_json::to_writer(&mut head, command_id).expect("a command id serializes");
+    head.push(b',');
+    head.extend_from_slice(echo.client_head());
+    worker_payload.splice(..echo.worker_head().len(), head);
+    worker_payload.push(b'\n');
+    worker_payload
 }
 
 #[cfg(test)]
@@ -1538,5 +1578,64 @@ mod route_class_tests {
                 "{prompt:?}"
             );
         }
+    }
+}
+
+/// The byte relay against the typed path it replaces: the same client line.
+#[cfg(test)]
+mod splice_tests {
+    use super::{response_line, spliced_client_line, DaemonResponse, SpliceEcho};
+    use serde_json::json;
+
+    /// A worker's attach payload, as its response writer serializes it.
+    fn worker_attach_payload() -> Vec<u8> {
+        crate::protocol::response_line_bytes(&DaemonResponse {
+            id: None,
+            command: "attach".to_string(),
+            success: true,
+            data: Some(json!({
+                "protocol": { "name": "eukhe.daemon", "version": 7 },
+                "activeSessionId": "s1",
+                "snapshot": {
+                    "messages": [{ "role": "user", "content": "\"command\":\"attach\" é", "timestamp": 1.5 }],
+                },
+                "lastEventSequence": 5,
+            })),
+            error: None,
+            error_info: None,
+        })
+    }
+
+    /// The typed path's line: parse, stamp the id and command, re-serialize.
+    fn typed_line(payload: &[u8], command_id: &str, command: &str) -> Vec<u8> {
+        let mut response: DaemonResponse = serde_json::from_slice(payload).expect("a response");
+        response.id = Some(command_id.to_string());
+        response.command = command.to_string();
+        let mut line = serde_json::to_vec(&response_line(&response)).expect("a line");
+        line.push(b'\n');
+        line
+    }
+
+    #[test]
+    fn a_spliced_line_is_the_typed_line() {
+        let payload = worker_attach_payload();
+        for (echo, command) in [
+            (SpliceEcho::Worker, "attach"),
+            (SpliceEcho::Reattach, "reattach"),
+        ] {
+            assert!(echo.splices(&payload));
+            assert_eq!(
+                spliced_client_line("r1", echo, payload.clone()),
+                typed_line(&payload, "r1", command)
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_response_line_splices() {
+        let prompt = br#"{"type":"response","command":"prompt","success":true}"#;
+        assert!(SpliceEcho::Worker.splices(prompt));
+        assert!(!SpliceEcho::Reattach.splices(prompt));
+        assert!(!SpliceEcho::Worker.splices(br#"{"id":"w1","type":"response"}"#));
     }
 }

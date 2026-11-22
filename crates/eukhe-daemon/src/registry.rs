@@ -73,6 +73,15 @@ impl WorkerReply {
         }
     }
 
+    /// The relayed payload bytes moved out (the reply keeps an empty
+    /// payload), when this reply carries them.
+    pub(crate) fn take_relayed_payload(&mut self) -> Option<Vec<u8>> {
+        match self {
+            WorkerReply::Relayed(relay) => Some(std::mem::take(&mut relay.payload)),
+            WorkerReply::Typed(_) => None,
+        }
+    }
+
     /// The header hint for whether the worker's command succeeded, when the
     /// relay frame carried it.
     pub(crate) fn relayed_success(&self) -> Option<bool> {
