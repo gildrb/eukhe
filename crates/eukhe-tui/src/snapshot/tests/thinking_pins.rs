@@ -61,19 +61,23 @@ fn the_two_stored_row_shapes_render_their_channels_faithfully() {
     };
 
     // The healthy row renders the thinking block collapsible and
-    // detail-gated: hidden at the collapsed default level, visible once
-    // the detail cycle reveals thinking.
+    // detail-gated: one summary row at the collapsed default level, the
+    // body under its header once the detail cycle reveals thinking.
     let mut view = test_view();
     for entry in assistant_value_to_entries(&healthy_row) {
         view.push_entry(entry);
     }
     view.detail = crate::chat::Detail::Overview;
     let collapsed = frame_text(&mut view);
-    assert!(
-        !collapsed
+    let summary = "   + thinking: The operator asks: why do we need the nightly cron again?";
+    assert_eq!(
+        collapsed
             .iter()
-            .any(|row| row.contains("nightly cron again")),
-        "the thinking row is hidden at the collapsed level: {collapsed:?}"
+            .filter(|row| row.contains("nightly cron again"))
+            .map(|row| row.trim_end())
+            .collect::<Vec<_>>(),
+        vec![summary],
+        "the thinking is one summary row at the collapsed level: {collapsed:?}"
     );
     assert!(
         collapsed
@@ -86,8 +90,11 @@ fn the_two_stored_row_shapes_render_their_channels_faithfully() {
     assert!(
         expanded
             .iter()
-            .any(|row| row.contains("nightly cron again")),
-        "the thinking row renders once the detail level reveals it: {expanded:?}"
+            .any(|row| row.trim_end().ends_with("   - thinking"))
+            && expanded.iter().any(|row| row
+                .trim_end()
+                .ends_with("   | The operator asks: why do we need the nightly cron again?")),
+        "the thinking body renders under its header once the detail level reveals it: {expanded:?}"
     );
     assert!(
         expanded

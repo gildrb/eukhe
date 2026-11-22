@@ -275,7 +275,7 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
 /// rows the live event pump left (`LAWS.bend` section `turn_visibility` R7). `tail`
 /// says whether the newest turn ended.
 #[must_use]
-pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEntry> {
+pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail<'_>) -> Vec<ChatEntry> {
     let ordered = order_messages_for_transcript(messages);
     let mut chat: Vec<ChatEntry> = Vec::new();
     let mut card_index: HashMap<String, Vec<usize>> = HashMap::new();
@@ -345,8 +345,8 @@ pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEnt
             }
         }
     }
-    if let (TurnTail::Ended, Some(ended)) = (tail, turn) {
-        chat.extend(ended.end(TurnBoundary::RunEnded));
+    if let (TurnTail::Ended(run_limit), Some(ended)) = (tail, turn) {
+        chat.extend(ended.end(TurnBoundary::RunEnded(run_limit)));
     }
     if superseded.is_empty() {
         return chat;
@@ -504,7 +504,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         if run_open {
             TurnTail::Running
         } else {
-            TurnTail::Ended
+            TurnTail::Ended(snapshot.state.get("runLimitError").and_then(Value::as_str))
         },
     );
     // The daemon appends the streaming assistant message to the attach

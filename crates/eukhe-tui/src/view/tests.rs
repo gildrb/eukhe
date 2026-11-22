@@ -1,5 +1,5 @@
 use super::*;
-use crate::chat::{AssistantLead, AssistantMessage, MessageBlock};
+use crate::chat::{AssistantMessage, MessageBlock};
 use crate::keybindings::HOST_ALT_LABEL;
 use crate::style::Modifier;
 use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
@@ -46,6 +46,14 @@ fn transcript_text(view: &mut AgentView, width: usize) -> String {
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
         .collect::<Vec<String>>()
         .join("\n")
+}
+
+/// [`transcript_text`] without the OSC 133 zone markers.
+fn transcript_plain(view: &mut AgentView, width: usize) -> String {
+    transcript_text(view, width)
+        .replace(crate::osc133::ZONE_START, "")
+        .replace(crate::osc133::ZONE_END_PREFIX, "")
+        .replace(crate::osc133::ZONE_END, "")
 }
 
 fn row_text(line: &Line) -> String {
@@ -535,14 +543,15 @@ fn detail_change_invalidates_cached_rows() {
         error: None,
         aborted: false,
     }))]);
-    // The hidden-thinking scenario sits at the collapsed overview
-    // level (the startup level since the 2026-09-28 directive).
+    // The collapsed thinking sits at the overview level (the startup
+    // level since the 2026-09-28 directive).
     view.detail = Detail::Overview;
     let overview = transcript_text(&mut view, 80);
     view.detail = view.detail.next();
     let details = transcript_text(&mut view, 80);
-    assert!(!overview.contains("thinking body"));
-    assert!(details.contains("thinking body"));
+    assert!(overview.contains("+ thinking: thinking body"));
+    assert!(!overview.contains("| thinking body"));
+    assert!(details.contains("| thinking body"));
 }
 
 /// The compaction summary is a collapsible block (TS
@@ -664,10 +673,9 @@ fn tool_card_after_user_message_has_one_blank_seam() {
 }
 
 /// The leading blank of a tool row (tool card, agent message, shell
-/// completion): only when it opens the turn's visible rows. Under an
-/// assistant message or another tool row it sits flush; an assistant
-/// message that renders nothing (hidden thinking, tool-only) is
-/// skipped.
+/// completion): only when it opens a step (the turn's first rows, or
+/// under an assistant message that renders nothing). Under a visible
+/// assistant message or another tool row it sits flush.
 #[test]
 fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
     let visible_assistant = || {
@@ -713,7 +721,7 @@ fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
         assert!(!view.conversation_leading(1), "flush under a tool row");
     }
 
-    // A tool-only assistant renders nothing: the scan looks past it.
+    // A tool-only assistant renders nothing: its tool rows open its step.
     let view = view_with(vec![tool_only_assistant(), agent_message_row()]);
     assert!(view.conversation_leading(1));
     let view = view_with(vec![user(), tool_only_assistant(), agent_message_row()]);
@@ -723,11 +731,11 @@ fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
         tool_only_assistant(),
         agent_message_row(),
     ]);
-    assert!(!view.conversation_leading(2));
+    assert!(view.conversation_leading(2));
 
-    // A hidden thinking-only assistant renders nothing at overview: the
-    // scan looks past it to the user row.
-    let hidden_assistant = || {
+    // A thinking-only assistant renders its summary row at overview: the
+    // tool row follows it flush.
+    let thinking_assistant = || {
         ChatEntry::Assistant(Box::new(AssistantMessage {
             blocks: vec![MessageBlock::Thinking("quiet".to_string())],
             has_tool_calls: false,
@@ -736,88 +744,19 @@ fn tool_rows_lead_with_a_blank_only_at_the_turn_start() {
             aborted: false,
         }))
     };
-    let mut view = view_with(vec![user(), hidden_assistant(), agent_message_row()]);
+    let mut view = view_with(vec![user(), thinking_assistant(), agent_message_row()]);
     view.detail = Detail::Overview;
-    assert!(view.conversation_leading(2));
+    assert!(!view.conversation_leading(2));
 }
 
-/// The leading blank of an assistant message: the turn's first rows
-/// lead with one; the settled reply after tool rows takes the reply
-/// lead (the blank before its reply text); a message under another
-/// assistant message, or under tool rows while it streams or carries
-/// tool calls of its own, sits flush.
+/// The turn as steps: the user header, one blank row, the first step
+/// (thinking expanded under its header behind the bar, paragraphs dense,
+/// the text at the agent text column, the tool card flush under it), one
+/// blank row, the reply's thinking, one blank row, the reply text. The
+/// thinking body renders in the thinking style; the reply keeps its
+/// markdown rendering.
 #[test]
-fn assistant_rows_lead_with_a_blank_at_the_turn_start_and_before_the_reply() {
-    let message = |has_tool_calls: bool, streaming: bool| AssistantMessage {
-        blocks: vec![MessageBlock::Text("body".to_string())],
-        has_tool_calls,
-        streaming,
-        error: None,
-        aborted: false,
-    };
-    let entry =
-        |has_tool_calls: bool| ChatEntry::Assistant(Box::new(message(has_tool_calls, false)));
-    let reply = message(false, false);
-    let streaming_reply = message(false, true);
-    let tool_message = message(true, false);
-
-    // Nothing preceding, or a user row: the turn starts.
-    let view = view_with(vec![entry(true)]);
-    assert_eq!(view.assistant_lead(0, &tool_message), AssistantLead::Spaced);
-    let view = view_with(vec![user_row(), entry(true)]);
-    assert_eq!(view.assistant_lead(1, &tool_message), AssistantLead::Spaced);
-    assert_eq!(view.assistant_lead(1, &reply), AssistantLead::Spaced);
-
-    // Under another assistant message: flush, reply or not.
-    let view = view_with(vec![user_row(), entry(true), entry(true)]);
-    assert_eq!(view.assistant_lead(2, &tool_message), AssistantLead::Flush);
-    assert_eq!(view.assistant_lead(2, &reply), AssistantLead::Flush);
-
-    // Under tool rows: the settled reply takes the reply lead; a message
-    // with tool calls of its own, or one still streaming, stays flush.
-    let view = view_with(vec![
-        user_row(),
-        entry(true),
-        settled_tool_card("c1"),
-        entry(false),
-    ]);
-    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Reply);
-    assert_eq!(
-        view.assistant_lead(3, &streaming_reply),
-        AssistantLead::Flush
-    );
-    assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
-
-    // A hidden thinking-only message between the tool row and the reply
-    // renders nothing: the reply still follows the tool row.
-    let hidden = ChatEntry::Assistant(Box::new(AssistantMessage {
-        blocks: vec![MessageBlock::Thinking("quiet".to_string())],
-        has_tool_calls: true,
-        streaming: false,
-        error: None,
-        aborted: false,
-    }));
-    let mut view = view_with(vec![
-        user_row(),
-        settled_tool_card("c1"),
-        hidden,
-        entry(false),
-    ]);
-    view.detail = Detail::Overview;
-    assert_eq!(view.assistant_lead(3, &reply), AssistantLead::Reply);
-    assert_eq!(view.assistant_lead(3, &tool_message), AssistantLead::Flush);
-}
-
-/// The dense turn: the thinking renders in the thinking style
-/// (`thinkingText`, italic) with its paragraphs on
-/// consecutive rows, the text block follows without a blank, the tool
-/// card follows the text without a blank, and the settled reply (no
-/// tool calls) after the tool rows keeps its thinking flush under the
-/// card and sets its reply text one blank row apart from that thinking
-/// -- the only blank row inside the turn. The reply keeps its markdown
-/// rendering.
-#[test]
-fn a_turn_renders_dense_thinking_and_flush_blocks() {
+fn a_turn_renders_as_steps_in_the_gutter() {
     let theme = Theme::builtin("forge", ColorMode::Color256);
     // The thinking style: the theme's `thinkingText` colour, italic.
     let thinking = theme
@@ -866,7 +805,7 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
         .collect();
     let prompt = plain
         .iter()
-        .position(|row| row == "  hello")
+        .position(|row| row == " > hello")
         .expect("the user row renders");
     let card = plain
         .iter()
@@ -875,48 +814,41 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
     assert_eq!(
         plain[prompt..card],
         [
-            "  hello",
+            " > hello",
             "",
-            " First thought about the task.",
-            " Second thought follows.",
-            " Third one closes.",
-            " Looking at the reference first.",
+            "   - thinking",
+            "   | First thought about the task.",
+            "   | Second thought follows.",
+            "   | Third one closes.",
+            "     Looking at the reference first.",
         ],
         "{plain:?}"
-    );
-    let reply_thinking = plain
-        .iter()
-        .position(|row| row == " It is a client-rendered page.")
-        .expect("the reply's thinking renders");
-    // The card's rows and the reply's thinking follow flush; the one
-    // blank row of the turn sits between that thinking and the reply
-    // text.
-    assert!(
-        plain[card..=reply_thinking]
-            .iter()
-            .all(|row| !row.is_empty()),
-        "the card and the reply's thinking follow flush: {plain:?}"
     );
     assert_eq!(
-        plain[reply_thinking..],
+        plain[card + 1..],
         [
-            " It is a client-rendered page.",
             "",
-            " The page is client-rendered."
+            "   - thinking",
+            "   | It is a client-rendered page.",
+            "",
+            "     The page is client-rendered."
         ],
         "{plain:?}"
     );
-    // The thinking rows are in the thinking style (inline code included;
-    // the zone marker on the reply's first row carries no color); the
-    // reply keeps its markdown rendering (the inline code in the code
-    // color, the body upright in the text color).
-    for index in [prompt + 2, prompt + 3, prompt + 4, reply_thinking] {
+    // The thinking body is in the thinking style (inline code included)
+    // behind the dim bar; the reply keeps its markdown rendering (the
+    // inline code in the code color, the body upright in the text color).
+    let dim = theme.fg_style(ThemeColor::Dim);
+    for index in [prompt + 3, prompt + 4, prompt + 5, card + 3] {
+        let body: Vec<&crate::Span> = rows[index]
+            .iter()
+            .filter(|span| !span.content.trim().is_empty())
+            .filter(|span| !span.content.starts_with('\u{1b}'))
+            .collect();
+        assert_eq!(body[0].content, "| ");
+        assert_eq!(body[0].style, dim);
         assert!(
-            rows[index]
-                .iter()
-                .filter(|span| !span.content.trim().is_empty())
-                .filter(|span| !span.content.starts_with('\u{1b}'))
-                .all(|span| span.style == thinking),
+            body[1..].iter().all(|span| span.style == thinking),
             "thinking-styled row {index}: {:?}",
             rows[index]
         );
@@ -939,14 +871,11 @@ fn a_turn_renders_dense_thinking_and_flush_blocks() {
     assert!(!reply_body.style.add_modifier.contains(Modifier::ITALIC));
 }
 
-/// TS `AgentMessageComponent` is a compact neighbor
-/// (`isCompactAgentMessageNeighbor`): the hidden thinking of a
-/// tool-carrying assistant after an agent message renders ZERO rows
-/// -- no leading spacer, no trailing tool separator -- so the tool
-/// card sits flush under the agent-message row (the collapsed
-/// thinking never leaves a visual gap).
+/// An agent message is a tool row of the step above it; the thinking of
+/// the next tool-carrying assistant opens a new step: one blank row,
+/// its summary row, then its tool card flush under it.
 #[test]
-fn hidden_thinking_after_an_agent_message_renders_zero_height() {
+fn thinking_after_an_agent_message_opens_a_step() {
     let mut view = view_with(vec![
         user_row(),
         agent_message_row(),
@@ -954,38 +883,31 @@ fn hidden_thinking_after_an_agent_message_renders_zero_height() {
         settled_tool_card("c1"),
     ]);
     view.detail = Detail::Overview;
-    let text = transcript_text(&mut view, 80);
-    assert!(!text.contains("thinking body"), "collapsed hides thinking");
+    let text = transcript_plain(&mut view, 80);
     let lines: Vec<&str> = text.lines().collect();
-    let agent_row = lines
-        .iter()
-        .position(|line| line.contains("Agent message - v lane"))
-        .expect("the agent-message row renders");
-    // The card is one row; the seam check looks above it.
     let header_row = lines
         .iter()
         .position(|line| line.contains("ok bash - echo done"))
         .expect("the tool card row renders");
-    // Flush: the row directly above the card header is the agent
-    // message block's own last row (its body), never the hidden
-    // thinking's trailing spacer (the pre-fix gap).
-    assert!(
-        agent_row < header_row,
-        "the card renders after the agent message:\n{text}"
+    assert_eq!(
+        lines[header_row - 1].trim_end(),
+        "   + thinking: thinking body",
+        "the summary row sits directly above its card:\n{text}"
     );
     assert!(
-        lines[header_row - 1].contains("Agent message - v lane"),
-        "the agent message header sits directly above the card header:\n{text}"
+        lines[header_row - 2].trim().is_empty(),
+        "one blank row opens the step:\n{text}"
+    );
+    assert!(
+        lines[header_row - 3].contains("Agent message - v lane"),
+        "the agent message ends the step above:\n{text}"
     );
 }
 
-/// A bash execution card is a compact neighbor like the tool cards
-/// themselves: the hidden thinking between a `!` bash card and the
-/// next tool call renders zero height (TS
-/// `isCompactAgentMessageNeighbor` includes
-/// `BashExecutionComponent`).
+/// A bash execution card ends its step like a tool card: the thinking
+/// of the next tool call opens a new step under one blank row.
 #[test]
-fn hidden_thinking_after_a_bash_card_renders_zero_height() {
+fn thinking_after_a_bash_card_opens_a_step() {
     let mut view = view_with(vec![
         user_row(),
         ChatEntry::BashExecution(Box::new(crate::bash_card::BashExecutionCard {
@@ -1005,34 +927,40 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
         settled_tool_card("c1"),
     ]);
     view.detail = Detail::Overview;
-    let text = transcript_text(&mut view, 80);
-    assert!(!text.contains("thinking body"), "collapsed hides thinking");
+    let text = transcript_plain(&mut view, 80);
     let lines: Vec<&str> = text.lines().collect();
     let bash_row = lines
         .iter()
         .position(|line| line.contains("echo hi"))
         .expect("the bash card renders");
-    // The tool card is one row; the seam sits above it.
     let header_row = lines
         .iter()
         .position(|line| line.contains("ok bash - echo done"))
         .expect("the tool card row renders");
-    // Flush: the row directly above the tool card header is the bash
-    // card's own closing border, never a hidden-thinking spacer.
     assert!(
-        bash_row < header_row,
+        bash_row + 3 <= header_row,
         "the card renders after the bash card:\n{text}"
     );
+    assert_eq!(
+        lines[header_row - 1].trim_end(),
+        "   + thinking: thinking body",
+        "the summary row sits directly above its card:\n{text}"
+    );
     assert!(
-        lines[header_row - 1].contains('-'),
-        "the bash card's border sits directly above the card header:\n{text}"
+        lines[header_row - 2].trim().is_empty(),
+        "one blank row opens the step:\n{text}"
+    );
+    assert!(
+        lines[header_row - 3].contains('-'),
+        "the bash card's border ends the step above:\n{text}"
     );
 }
 
-/// A visible assistant body with tool calls after a compact neighbor
-/// sits flush, and its tool card follows it flush: one dense trace.
+/// A visible assistant body with tool calls after an agent message
+/// opens a new step under one blank row, and its tool card follows it
+/// flush.
 #[test]
-fn a_visible_assistant_after_an_agent_message_stays_flush() {
+fn a_visible_assistant_after_an_agent_message_opens_a_step() {
     let mut view = view_with(vec![
         user_row(),
         agent_message_row(),
@@ -1046,16 +974,17 @@ fn a_visible_assistant_after_an_agent_message_stays_flush() {
         settled_tool_card("c1"),
     ]);
     view.detail = Detail::Overview;
-    let text = transcript_text(&mut view, 80);
+    let text = transcript_plain(&mut view, 80);
     let lines: Vec<&str> = text.lines().collect();
     let agent_row = lines
         .iter()
         .position(|line| line.contains("Agent message - v lane"))
         .expect("the agent-message row renders");
-    // In overview the agent message renders its header alone; the
-    // assistant body follows it directly, and the card follows the body.
-    assert!(lines[agent_row + 1].contains("answer body"), "{text}");
-    assert!(lines[agent_row + 2].contains("bash"), "{text}");
+    // In overview the agent message renders its header alone; one blank
+    // row, the assistant body, and the card flush under the body.
+    assert!(lines[agent_row + 1].trim().is_empty(), "{text}");
+    assert!(lines[agent_row + 2].contains("answer body"), "{text}");
+    assert!(lines[agent_row + 3].contains("bash"), "{text}");
 }
 
 /// The custom rows render through the transcript path: the agent
@@ -1252,8 +1181,8 @@ fn settled_cards(count: usize) -> Vec<ChatEntry> {
 /// The operator's new contract: the collapsed view renders EVERY
 /// activity item exactly as `details` does - every tool card, every
 /// notice, every agent-message row - with ONLY the thinking blocks
-/// hidden; nothing condenses (the "N tool calls" summary block is
-/// gone at every level).
+/// collapsed to their one summary row; nothing condenses (the "N tool
+/// calls" summary block is gone at every level).
 #[test]
 fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     let mut entries = settled_cards(3);
@@ -1274,7 +1203,7 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
         "the agent-message notice keeps its own row: {text}"
     );
     assert!(
-        !text.contains("hi"),
+        !text.contains("`- hi"),
         "the collapsed notice row carries no body preview: {text}"
     );
     assert!(
@@ -1282,8 +1211,8 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
         "no condensed-run summary block renders: {text}"
     );
     assert!(
-        !text.contains("hmm"),
-        "the collapsed view hides the thinking: {text}"
+        text.contains("   + thinking: hmm") && !text.contains("- thinking"),
+        "the collapsed view shows the thinking as its summary row: {text}"
     );
     // The ONLY difference from `details` is the thinking: the
     // Ctrl+O cycle from the collapsed startup is the
@@ -1300,8 +1229,8 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
         "the notice keeps its own row at details: {details}"
     );
     assert!(
-        details.contains("hmm"),
-        "the thinking is visible at details"
+        details.contains("   - thinking") && details.contains("   | hmm"),
+        "the thinking expands at details: {details}"
     );
 }
 

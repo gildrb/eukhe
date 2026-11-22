@@ -51,22 +51,25 @@ pub(crate) fn aborted_row(text: String) -> ChatEntry {
 /// snapshot's run is open (`isStreaming`), or the transcript was fetched
 /// without that state (the post-compaction re-fetch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnTail {
+pub enum TurnTail<'a> {
     /// The newest turn may still answer: its end row is not folded.
     Running,
-    /// No run is open: the newest turn ended, and its end row folds.
-    Ended,
+    /// No run is open: the newest turn ended, and its end row folds; with
+    /// the tool round cap's failure text when the run stopped at it (the
+    /// snapshot state's `runLimitError`).
+    Ended(Option<&'a str>),
 }
 
 /// Where a stored turn ends in the transcript.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TurnBoundary {
+pub(super) enum TurnBoundary<'a> {
     /// The next user message: a turn that called tools or has no
     /// assistant message yet may go on past it (a steering or batched
     /// prompt lands mid-run), so only a settled last message decides.
     NextPrompt,
-    /// The transcript's end with no run open: the turn is over.
-    RunEnded,
+    /// The transcript's end with no run open: the turn is over; with the
+    /// tool round cap's failure text when the run stopped at it.
+    RunEnded(Option<&'a str>),
 }
 
 /// One stored turn being folded, from its user message on: how its newest
@@ -97,12 +100,14 @@ impl TurnFold {
 
     /// The row the turn leaves at `boundary`, the one the live event pump
     /// pushed at its end (`apply.rs` `TurnEnded` and `Idle`).
-    pub(super) fn end(self, boundary: TurnBoundary) -> Option<ChatEntry> {
+    pub(super) fn end(self, boundary: TurnBoundary<'_>) -> Option<ChatEntry> {
         match self.last {
             // No answer yet, or a tool round with no answering turn after
-            // it: over only when the run is.
+            // it: over only when the run is, with the cap's failure when
+            // the run stopped at it.
             None | Some((TurnOutcome::Continues, _)) => match boundary {
-                TurnBoundary::RunEnded => Some(no_reply_row()),
+                TurnBoundary::RunEnded(Some(error)) => Some(failure_row(error)),
+                TurnBoundary::RunEnded(None) => Some(no_reply_row()),
                 TurnBoundary::NextPrompt => None,
             },
             Some((TurnOutcome::Empty | TurnOutcome::Unreported, _)) => Some(no_reply_row()),

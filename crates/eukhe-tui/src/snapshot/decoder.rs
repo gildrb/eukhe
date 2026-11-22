@@ -440,8 +440,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
 }
 
 /// How a `turn_end` settled: its terminal assistant message's stop reason
-/// (an answer that called tools continues the run), else the bare turn
-/// error of a request that failed without a message.
+/// (an answer that called tools continues the run, unless the run failed
+/// after those tools: the turn's error, the tool round cap), else the
+/// bare turn error of a request that failed without a message.
 fn turn_outcome(answer: Option<&TurnAnswer>, error: Option<&str>) -> TurnOutcome {
     let message = answer.and_then(|answer| match &answer.message {
         AgentMessage::Assistant(message) => Some(message),
@@ -453,6 +454,9 @@ fn turn_outcome(answer: Option<&TurnAnswer>, error: Option<&str>) -> TurnOutcome
         | AgentMessage::CompactionSummary(_) => None,
     });
     match (message, error) {
+        (Some(message), Some(error)) if matches!(message.stop_reason, StopReason::ToolUse) => {
+            TurnOutcome::Failed(error.to_string())
+        }
         (Some(message), _) => message_outcome(message),
         (None, Some(error)) => TurnOutcome::Failed(error.to_string()),
         (None, None) => TurnOutcome::Unreported,
