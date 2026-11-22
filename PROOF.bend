@@ -835,6 +835,8 @@ import ./proof/run/run_round_terms_exact.bend as PRunRoundTermsExact
 import ./proof/run/run_reqs_terms_exact.bend as PRunReqsTermsExact
 import ./proof/run/run_rounds_spend_the_budget.bend as PRunRoundsSpendTheBudget
 import ./proof/run/run_defers_spend_the_polls.bend as PRunDefersSpendThePolls
+import ./proof/run/run_rounds_count_each_round.bend as PRunRoundsCountEachRound
+import ./proof/run/run_defers_count_each_reply.bend as PRunDefersCountEachReply
 import ./proof/run/run_resent_cut_is_not_fresh.bend as PRunResentCutIsNotFresh
 import ./proof/run/run_bound_exact.bend as PRunBoundExact
 import ./proof/run/run_reqs_step_exact.bend as PRunReqsStepExact
@@ -864,6 +866,10 @@ import ./proof/run/rec_repeat_redirects.bend as PRecRepeatRedirects
 import ./proof/run/rec_leak_ladder_ends.bend as PRecLeakLadderEnds
 import ./proof/run/rec_repeat_ladder_ends.bend as PRecRepeatLadderEnds
 import ./proof/run/rec_repeat_never_runs.bend as PRecRepeatNeverRuns
+import ./proof/run/rec_leak_never_runs.bend as PRecLeakNeverRuns
+import ./proof/run/rec_empty_gets_its_rung.bend as PRecEmptyGetsItsRung
+import ./proof/run/rec_think_gets_its_rung.bend as PRecThinkGetsItsRung
+import ./proof/run/rec_help_reads_the_act.bend as PRecHelpReadsTheAct
 import ./proof/run/rec_notes_keep_the_rounds.bend as PRecNotesKeepTheRounds
 import ./proof/run/rec_user_breaks_the_row.bend as PRecUserBreaksTheRow
 import ./proof/run/rec_other_replies_pass.bend as PRecOtherRepliesPass
