@@ -1,30 +1,41 @@
-//! The one-row summary every native tool card leads with, in the shape the
-//! kernel-run rows already use: `ok bash - <argument summary> - <result
-//! summary> - <duration>` (`x` and the error on failure, the working icon
-//! while running). The row is the whole card at the default detail level;
-//! the expanded level hangs the full arguments and output below it.
+//! The one-row summary every native tool card leads with, on the step
+//! gutter: `ok bash  <argument summary> - <result summary> - <duration>`
+//! (`x` on failure, the working icon while running), and the rows that hang
+//! below it at the tool quote column: a failed call's output, the expanded
+//! arguments as `key: value` rows, and the expanded output behind a dim
+//! `| ` bar.
 
 use serde_json::Value;
 
 use super::ipython_details::format_duration;
 use super::ToolCallCard;
 use crate::element::{Element, Fit, Inline, Status};
-use crate::theme::ThemeColor;
-use crate::width::{str_width, truncate_to_width};
+use crate::rows::Gutter;
+use crate::theme::{Theme, ThemeColor};
+use crate::width::{str_width, truncate_to_width, wrap_line};
+use crate::{Line, Span};
 
-/// The row's left margin (`Element::Inset`), the same as the kernel rows.
-const MARGIN: usize = 1;
+/// The row's left margin: the status mark sits on the step gutter.
+pub(super) const MARGIN: usize = Gutter::Step.mark_col();
+
+/// The column the rows below the summary start at.
+const BODY_COLUMN: usize = Gutter::ToolQuote.mark_col();
 
 /// The least width the argument summary keeps when a long error summary
 /// competes for the row.
 const MIN_ARGUMENT_WIDTH: usize = 12;
 
-/// The continuation indent of the expanded rows below the summary.
-pub(super) const BODY_INDENT: &str = "   ";
+/// The gap between the tool name and its argument.
+const NAME_GAP: &str = "  ";
 
-/// One summary row: the parts after the status mark and the tool name,
-/// `SEP`-joined. The argument summary shrinks first when the row is wider
-/// than the pane; the error summary shrinks next; the rest is fixed.
+/// The lines a failed call shows of its output before the cut, and after.
+const FAILED_HEAD_LINES: usize = 2;
+const FAILED_TAIL_LINES: usize = 3;
+
+/// One summary row: the tool name, its argument after a two-space gap,
+/// then the result parts `SEP`-joined. The argument summary shrinks first
+/// when the row is wider than the pane; the error summary shrinks next;
+/// the rest is fixed.
 pub(super) struct SummaryRow<'a> {
     pub(super) status: Status,
     pub(super) name: &'a str,
@@ -53,27 +64,37 @@ impl SummaryRow<'_> {
         if let Some(duration) = duration {
             tail.push((duration, ThemeColor::Dim));
         }
+        let sep_width = str_width(sep);
+        let gap_width = str_width(NAME_GAP);
+        // The first part after the name follows the two-space gap, every
+        // later one a separator.
+        let lead_width = |index: usize| if index == 0 { gap_width } else { sep_width };
+        let has_argument = !argument.is_empty();
+        let first_tail = usize::from(has_argument);
         // The status mark's two cells plus the space before the name.
         let fixed: usize = crate::element::STATUS_MARK_WIDTH
             + 1
             + str_width(name)
             + tail
                 .iter()
-                .map(|(text, _)| str_width(sep) + str_width(text))
+                .enumerate()
+                .map(|(index, (text, _))| lead_width(index + first_tail) + str_width(text))
                 .sum::<usize>();
-        let sep_width = str_width(sep);
         let budget = width.saturating_sub(MARGIN + fixed);
-        let error_width = error.as_ref().map_or(0, |text| sep_width + str_width(text));
+        let error_lead = lead_width(first_tail + tail.len());
+        let error_width = error
+            .as_ref()
+            .map_or(0, |text| error_lead + str_width(text));
         // The argument keeps at least `MIN_ARGUMENT_WIDTH` cells against a
         // long error; the error takes what the argument leaves.
-        let argument_budget = if argument.is_empty() {
-            0
-        } else {
+        let argument_budget = if has_argument {
             let room = budget
                 .saturating_sub(error_width)
-                .max(MIN_ARGUMENT_WIDTH + sep_width)
+                .max(MIN_ARGUMENT_WIDTH + gap_width)
                 .min(budget);
-            (sep_width + str_width(&argument)).min(room)
+            (gap_width + str_width(&argument)).min(room)
+        } else {
+            0
         };
         let error_budget = budget.saturating_sub(argument_budget);
 
@@ -83,17 +104,21 @@ impl SummaryRow<'_> {
             Inline::role(name, ThemeColor::Muted),
         ];
         let mut part = |text: String, role: ThemeColor| {
-            parts.push(Inline::role(sep, ThemeColor::Dim));
+            if parts.len() == 3 {
+                parts.push(Inline::plain(NAME_GAP));
+            } else {
+                parts.push(Inline::role(sep, ThemeColor::Dim));
+            }
             parts.push(Inline::role(text, role));
         };
-        if argument_budget > sep_width {
+        if argument_budget > gap_width {
             part(
                 truncate_to_width(
                     &argument,
-                    argument_budget - sep_width,
+                    argument_budget - gap_width,
                     crate::glyphs::ELLIPSIS,
                 ),
-                ThemeColor::Dim,
+                ThemeColor::Muted,
             );
         }
         for (text, role) in tail {
@@ -101,7 +126,7 @@ impl SummaryRow<'_> {
         }
         // A row too narrow to show more than the ellipsis drops the error
         // text; the `x` mark still says the call failed.
-        let error_room = error_budget.saturating_sub(sep_width);
+        let error_room = error_budget.saturating_sub(error_lead);
         if let Some(error) = error.filter(|_| error_room > str_width(crate::glyphs::ELLIPSIS)) {
             part(
                 truncate_to_width(&error, error_room, crate::glyphs::ELLIPSIS),
@@ -152,41 +177,132 @@ pub(super) fn string_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str)
 }
 
-/// The expanded body row: the first row hangs off the `BRANCH` gutter,
-/// the rest indent to match (the kernel cards' `addWrapped`).
-pub(super) fn body_row(first: bool, body: Vec<Inline>) -> Element {
-    let gutter = if first {
-        vec![Inline::role(crate::glyphs::BRANCH, ThemeColor::Dim)]
-    } else {
-        vec![Inline::plain(BODY_INDENT)]
-    };
+/// A row below the summary, at the tool quote column; wrapped rows keep
+/// the column.
+pub(super) fn body_row(body: Vec<Inline>) -> Element {
     Element::Inset {
-        left: MARGIN,
-        child: Box::new(Element::Row { gutter, body }),
+        left: BODY_COLUMN,
+        child: Box::new(Element::Row {
+            gutter: Vec::new(),
+            body,
+        }),
     }
 }
 
-/// The expanded output rows: the first marked `>`, the rest indented;
-/// blank lines keep one styled space so the row exists.
-pub(super) fn output_rows(rows: &mut Vec<Element>, text: &str, role: ThemeColor) {
-    let mut first = true;
-    for line in text.split('\n') {
-        let gutter = if first {
-            vec![Inline::role(
-                format!(" {} ", crate::glyphs::POINTER),
-                ThemeColor::Dim,
-            )]
-        } else {
-            vec![Inline::plain(BODY_INDENT)]
+/// The call's arguments as `key: value` rows below the summary, the keys
+/// in `skip` left out: a string value as it is (its later lines under its
+/// first), any other value as compact JSON.
+pub(super) fn argument_rows(rows: &mut Vec<Element>, args: &Value, skip: &[&str]) {
+    let Value::Object(args) = args else {
+        if !args.is_null() {
+            rows.push(body_row(vec![Inline::role(
+                args.to_string(),
+                ThemeColor::Muted,
+            )]));
+        }
+        return;
+    };
+    for (key, value) in args.iter().filter(|(key, _)| !skip.contains(&key.as_str())) {
+        let label = format!("{key}: ");
+        let indent = " ".repeat(str_width(&label));
+        let compact;
+        let text = match value {
+            Value::String(text) => text.as_str(),
+            value => {
+                compact = value.to_string();
+                compact.as_str()
+            }
         };
-        first = false;
-        rows.push(Element::Inset {
-            left: MARGIN,
-            child: Box::new(Element::Row {
-                gutter,
-                body: vec![Inline::role(if line.is_empty() { " " } else { line }, role)],
-            }),
-        });
+        for (index, line) in text.split('\n').enumerate() {
+            let gutter = if index == 0 {
+                Inline::role(label.as_str(), ThemeColor::Dim)
+            } else {
+                Inline::plain(indent.as_str())
+            };
+            rows.push(Element::Inset {
+                left: BODY_COLUMN,
+                child: Box::new(Element::Row {
+                    gutter: vec![gutter],
+                    body: vec![Inline::role(
+                        if line.is_empty() { " " } else { line },
+                        ThemeColor::Muted,
+                    )],
+                }),
+            });
+        }
+    }
+}
+
+/// The output behind the tool quote bar, every line; wrapped rows keep
+/// the bar.
+pub(super) fn output_rows(
+    rows: &mut Vec<Element>,
+    text: &str,
+    role: ThemeColor,
+    theme: &Theme,
+    width: usize,
+) {
+    quote(rows, text.split('\n'), role, theme, width);
+}
+
+/// A failed call's output behind the tool quote bar: its first
+/// [`FAILED_HEAD_LINES`] and last [`FAILED_TAIL_LINES`] lines, with a
+/// `... +N lines (Ctrl+O)` row between them for the lines left out.
+pub(super) fn failed_output_rows(rows: &mut Vec<Element>, text: &str, theme: &Theme, width: usize) {
+    let count = text.split('\n').count();
+    let shown = FAILED_HEAD_LINES + FAILED_TAIL_LINES;
+    if count <= shown {
+        quote(rows, text.split('\n'), ThemeColor::Muted, theme, width);
+        return;
+    }
+    quote(
+        rows,
+        text.split('\n').take(FAILED_HEAD_LINES),
+        ThemeColor::Muted,
+        theme,
+        width,
+    );
+    let hidden = format!(
+        "{} +{} lines (Ctrl+O)",
+        crate::glyphs::ELLIPSIS,
+        count - shown
+    );
+    quote(
+        rows,
+        std::iter::once(hidden.as_str()),
+        ThemeColor::Dim,
+        theme,
+        width,
+    );
+    quote(
+        rows,
+        text.split('\n').skip(count - FAILED_TAIL_LINES),
+        ThemeColor::Muted,
+        theme,
+        width,
+    );
+}
+
+fn quote<'a>(
+    rows: &mut Vec<Element>,
+    lines: impl Iterator<Item = &'a str>,
+    role: ThemeColor,
+    theme: &Theme,
+    width: usize,
+) {
+    let style = theme.fg_style(role);
+    let body_width = Gutter::ToolQuote.body_width(width);
+    for line in lines {
+        let mut body = wrap_line(&vec![Span::styled(line, style)], body_width);
+        if body.is_empty() {
+            body.push(Line::new());
+        }
+        rows.extend(
+            Gutter::ToolQuote
+                .place(None, body, theme, width)
+                .into_iter()
+                .map(Element::line),
+        );
     }
 }
 
@@ -240,7 +356,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "{rows:?}");
         let rendered = rows[0].trim_end();
         assert!(
-            rendered.starts_with(" x  bash - ls -la /t..."),
+            rendered.starts_with("   x  bash  ls -la /t..."),
             "{rendered:?}"
         );
         assert!(
@@ -277,7 +393,7 @@ mod tests {
                 column(Status::Queued, None),
                 column(Status::Aborted, None),
             ],
-            [4; 5]
+            [6; 5]
         );
     }
 
@@ -289,5 +405,78 @@ mod tests {
         assert_eq!(line_count("one\n\ntwo\n"), Some("2 lines".to_string()));
         assert_eq!(first_line("\n  ls -la  \nrm x"), "ls -la");
         assert_eq!(first_line("   "), "");
+    }
+
+    fn quoted(text: &str, failed: bool) -> Vec<String> {
+        let theme = Theme::builtin("forge", ColorMode::TrueColor);
+        let mut rows = Vec::new();
+        if failed {
+            failed_output_rows(&mut rows, text, &theme, 60);
+        } else {
+            output_rows(&mut rows, text, ThemeColor::ToolOutput, &theme, 60);
+        }
+        rows.iter()
+            .flat_map(|row| self::text(row, 60))
+            .map(|row| row.trim_end().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_failed_output_shows_its_head_and_tail_behind_the_bar() {
+        let short = "one\n\nthree";
+        assert_eq!(
+            quoted(short, true),
+            ["      | one", "      |", "      | three"]
+        );
+        let long = (1..=9)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            quoted(&long, true),
+            [
+                "      | line 1",
+                "      | line 2",
+                "      | ... +4 lines (Ctrl+O)",
+                "      | line 7",
+                "      | line 8",
+                "      | line 9",
+            ]
+        );
+        assert_eq!(quoted(&long, false).len(), 9);
+    }
+
+    #[test]
+    fn wrapped_output_keeps_the_bar() {
+        let rows = quoted(&"word ".repeat(20), false);
+        assert!(rows.len() > 1, "{rows:?}");
+        assert!(
+            rows.iter().all(|row| row.starts_with("      | ")),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn arguments_render_as_key_value_rows() {
+        let mut rows = Vec::new();
+        argument_rows(
+            &mut rows,
+            &serde_json::json!({ "path": "src/a.rs", "limit": 3, "input": "one\ntwo", "i": "x" }),
+            &["i"],
+        );
+        let rendered: Vec<String> = rows
+            .iter()
+            .flat_map(|row| text(row, 60))
+            .map(|row| row.trim_end().to_string())
+            .collect();
+        assert_eq!(
+            rendered,
+            [
+                "      path: src/a.rs",
+                "      limit: 3",
+                "      input: one",
+                "             two",
+            ]
+        );
     }
 }
