@@ -408,6 +408,98 @@ async fn a_model_reads_then_edits_through_the_wire_tools() {
     session.close(cx()).await.expect("close");
 }
 
+/// Regression (a measurement run lost its README.md): a session whose
+/// kernel cannot start has no `python` tool, so no `write()`, and `edit`
+/// changes existing files only; to create `todo/__init__.py` the model
+/// wrote its lines into README.md and moved README.md onto the new path.
+/// Such a session creates a new file through the wire `write` tool.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_without_a_kernel_creates_a_file_through_the_write_tool() {
+    /// Puts an env variable back when dropped.
+    struct EnvVar(&'static str, Option<std::ffi::OsString>);
+    impl EnvVar {
+        fn set(name: &'static str, value: Option<&std::ffi::OsStr>) -> Self {
+            let old = std::env::var_os(name);
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+            Self(name, old)
+        }
+    }
+    impl Drop for EnvVar {
+        fn drop(&mut self) {
+            match &self.1 {
+                Some(value) => std::env::set_var(self.0, value),
+                None => std::env::remove_var(self.0),
+            }
+        }
+    }
+    let _env_lock = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
+    let fixture = fixture();
+    // No interpreter named, no fetched Python, offline: the kernel cannot
+    // start.
+    let kernel_dir = fixture.agent_dir.join("no-kernel");
+    let _env = [
+        EnvVar::set("EUKHE_KERNEL_DIR", Some(kernel_dir.as_os_str())),
+        EnvVar::set("EUKHE_OFFLINE", Some(std::ffi::OsStr::new("1"))),
+        EnvVar::set("EUKHE_KERNEL_PYTHON", None),
+    ];
+    let offered: Arc<Mutex<Vec<String>>> = Arc::default();
+    let capture = Arc::clone(&offered);
+    let write = FauxResponseStep::factory(move |context, _, _, _| {
+        *capture.lock().unwrap_or_else(PoisonError::into_inner) =
+            get_current_tools(context.messages())
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect();
+        let serde_json::Value::Object(arguments) = serde_json::json!({
+            "i": "Creating the package",
+            "path": "todo/__init__.py",
+            "content": "__all__ = []\n",
+        }) else {
+            unreachable!("an object literal")
+        };
+        Ok(faux_assistant_message(
+            faux_tool_call("write", arguments, Some("call-write".to_owned())),
+            FauxAssistantMessageOptions {
+                stop_reason: Some(StopReason::ToolUse),
+                ..FauxAssistantMessageOptions::default()
+            },
+        ))
+    });
+    fixture.faux.set_responses(vec![write, answer("done")]);
+    let mut config = fixture.config(SessionStorage::Memory);
+    config.model = Some(fixture.model().into());
+    config.kernel_python = None;
+    let session = open_session(config, cx()).await.expect("open");
+    ask(&session, "make the package").await;
+    let offered = offered
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    assert_eq!(
+        (
+            offered.iter().any(|name| name == "python"),
+            offered.iter().any(|name| name == "write")
+        ),
+        (false, true),
+        "{offered:?}"
+    );
+    let results = tool_results(&entries(&session).await);
+    assert_eq!(
+        (results[0].0.as_str(), results[0].1),
+        ("write", false),
+        "{}",
+        results[0].2
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.cwd.join("todo/__init__.py")).expect("the new file"),
+        "__all__ = []\n"
+    );
+    session.close(cx()).await.expect("close");
+}
+
 /// Regression (a remote session corrupted a stylesheet): the scrubber of a
 /// remote model's requests (`privacy.anonymizeRemote`) read `::before` as
 /// an IPv6 and hashed it one way, so the model read `.cardIP_<hash>` and

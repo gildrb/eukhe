@@ -767,28 +767,148 @@ fn a_move_that_keeps_its_source_is_reported_landed() {
     );
 }
 
-/// `MV` onto an existing file is refused and writes nothing.
+/// `MV` onto an existing file is refused and writes nothing, even when
+/// both files were read: the error names both paths and how to replace
+/// the destination on purpose.
 #[test]
 fn a_move_never_replaces_its_destination() {
     let fixture = Fixture::new();
-    std::fs::write(fixture.path("a.txt"), "a\n").unwrap();
-    std::fs::write(fixture.path("b.txt"), "b\n").unwrap();
-    let payload = format!("{}\nMV b.txt", fixture.header("a.txt"));
+    std::fs::create_dir(fixture.path("todo")).unwrap();
+    std::fs::write(fixture.path("README.md"), "# todo\n").unwrap();
+    std::fs::write(fixture.path("todo/__init__.py"), "__all__ = []\n").unwrap();
+    fixture.header("todo/__init__.py");
+    let payload = format!("{}\nMV todo/__init__.py", fixture.header("README.md"));
     let error = fixture.edit(&payload, &NoFaults, &[]).unwrap_err();
     assert_eq!(
         (
             error.to_string(),
-            fixture.read("a.txt"),
-            fixture.read("b.txt")
+            fixture.read("README.md"),
+            fixture.read("todo/__init__.py")
         ),
         (
-            "Edit rejected for a.txt: the MV destination b.txt exists. Nothing was written. \
-             Pick another name, or REM b.txt in an earlier edit."
+            "Edit rejected for README.md: the MV destination todo/__init__.py exists, and MV \
+             never replaces a file. Nothing was written. To change todo/__init__.py, edit it \
+             under its own header; to replace it with README.md on purpose, REM \
+             todo/__init__.py in an edit of its own first, then MV again; otherwise pick another \
+             name."
                 .to_owned(),
-            Some("a\n".to_owned()),
-            Some("b\n".to_owned())
+            Some("# todo\n".to_owned()),
+            Some("__all__ = []\n".to_owned())
         )
     );
+}
+
+/// `MV` to a free path creates it (and its directory) and removes the
+/// source.
+#[test]
+fn a_move_to_a_new_path_lands() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.path("a.txt"), "a\n").unwrap();
+    let payload = format!("{}\nMV sub/b.txt", fixture.header("a.txt"));
+    let outcome = fixture.edit(&payload, &NoFaults, &[]).unwrap();
+    assert_eq!(
+        (
+            changes(&outcome),
+            fixture.read("a.txt"),
+            fixture.read("sub/b.txt")
+        ),
+        (
+            vec![(
+                "a.txt".to_owned(),
+                FileChange::Moved {
+                    destination: fixture.path("sub/b.txt")
+                }
+            )],
+            None,
+            Some("a\n".to_owned())
+        )
+    );
+}
+
+/// `[b.txt#TAG]` with the tag `a.txt`'s read printed: `(payload ops,
+/// error, a.txt, b.txt)` after the edit. `same` gives both files the same
+/// text (so the tags are equal).
+fn foreign_tag(ops: &str, same: bool) -> (String, Option<String>, Option<String>) {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.path("a.txt"), "a\n").unwrap();
+    std::fs::write(fixture.path("b.txt"), if same { "a\n" } else { "b\n" }).unwrap();
+    let header = fixture.header("a.txt").replacen("a.txt", "b.txt", 1);
+    let error = fixture
+        .edit(&format!("{header}\n{ops}"), &NoFaults, &[])
+        .unwrap_err();
+    (error.to_string(), fixture.read("a.txt"), fixture.read("b.txt"))
+}
+
+/// A tag read from one file never addresses another, whatever the op,
+/// and even when both files hold the same text (the tag is a content
+/// hash, so the numbers are equal).
+#[test]
+fn a_tag_read_from_one_file_never_addresses_another() {
+    for same in [false, true] {
+        let b = Some(if same { "a\n" } else { "b\n" }.to_owned());
+        let tag = crate::file_hash("a\n");
+        for ops in ["REM", "MV c.txt"] {
+            assert_eq!(
+                foreign_tag(ops, same),
+                (
+                    format!(
+                        "Edit rejected for b.txt: #{tag} is not a tag this session read from \
+                         b.txt; a tag addresses only the file whose output printed it. Nothing \
+                         was written. To `{ops}` this file, `read` or `grep` b.txt and copy the \
+                         header line it prints verbatim (`[b.txt#` + its 4-hex tag + `]`); never \
+                         invent a tag."
+                    ),
+                    Some("a\n".to_owned()),
+                    b.clone()
+                ),
+                "{ops} (same text: {same})"
+            );
+        }
+        for ops in ["PUT 1.=1:\n+x", "PUT >$:\n+x", "PUT <1:\n+x"] {
+            let (error, a, b_after) = foreign_tag(ops, same);
+            assert!(
+                error.starts_with(&format!(
+                    "Edit rejected for b.txt: #{tag} is not a tag this session holds for this file"
+                )),
+                "{ops} (same text: {same}): {error}"
+            );
+            assert_eq!((a, b_after), (Some("a\n".to_owned()), b.clone()), "{ops}");
+        }
+    }
+}
+
+/// `REM` and `MV` under a tag of an older read are refused: they anchor no
+/// line, so they would discard what changed since.
+#[test]
+fn a_stale_tag_neither_removes_nor_moves() {
+    for ops in ["REM", "MV c.txt"] {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.path("a.txt"), "a\n").unwrap();
+        let header = fixture.header("a.txt");
+        std::fs::write(fixture.path("a.txt"), "changed\n").unwrap();
+        let error = fixture
+            .edit(&format!("{header}\n{ops}"), &NoFaults, &[])
+            .unwrap_err();
+        let tag = crate::file_hash("a\n");
+        assert_eq!(
+            (
+                error.to_string(),
+                fixture.read("a.txt"),
+                fixture.read("c.txt")
+            ),
+            (
+                format!(
+                    "Edit rejected for a.txt: a.txt changed since the read that printed #{tag}, \
+                     so `{ops}` would discard changes you have not seen. Nothing was written. To \
+                     `{ops}` this file, `read` or `grep` a.txt and copy the header line it prints \
+                     verbatim (`[a.txt#` + its 4-hex tag + `]`); never invent a tag."
+                ),
+                Some("changed\n".to_owned()),
+                None
+            ),
+            "{ops}"
+        );
+    }
 }
 
 /// A no-replace publish onto a name that appeared after the check fails
