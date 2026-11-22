@@ -39,7 +39,6 @@
 
 use std::sync::Arc;
 
-use eukhe_bend::rules::autonomous::Checks;
 use eukhe_chord::context::Context;
 use eukhe_durable::entries::ASSISTANT_ENTRY;
 use eukhe_durable::harness::define::hook;
@@ -70,7 +69,7 @@ use super::state::{
     spends_limits, stamp, RunEnd, UsageOutcome,
 };
 use crate::autonomous::{now_millis, SessionBudget};
-use crate::durable::acceptance::checks_at;
+use crate::durable::acceptance::{checks_at, AnswerChecks};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::directors::{
     compared, read_work, stall_check, DirectorLimits, DirectorState, End, Last, Layer, LayerKind,
@@ -554,7 +553,7 @@ fn goal_check(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AnswerAt {
     stop_reason: StopReason,
-    checks: Checks,
+    checks: AnswerChecks,
 }
 
 /// Start a new loop when the stored one belongs to another run (its first
@@ -983,7 +982,7 @@ mod tests {
     fn answer() -> AnswerAt {
         AnswerAt {
             stop_reason: StopReason::Stop,
-            checks: Checks::Unchecked,
+            checks: AnswerChecks::Unchecked,
         }
     }
 
@@ -1140,9 +1139,11 @@ mod tests {
         );
         assert_eq!(
             [
-                at(Checks::Unchecked),
-                at(Checks::Returned),
-                at(Checks::Ended(eukhe_bend::rules::verify::Label::Failed)),
+                at(AnswerChecks::Unchecked),
+                at(AnswerChecks::Returned),
+                at(AnswerChecks::Ended(
+                    eukhe_types::acceptance::AcceptanceLabel::Failed
+                )),
             ],
             [
                 Pass {

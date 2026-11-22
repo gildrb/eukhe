@@ -43,7 +43,7 @@ pub(crate) use command::{bend_check, parse_accept_command, AcceptCommand, ACCEPT
 pub use command::{format_acceptance_status, uncertified_line};
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
-pub(crate) use ops::{autonomous_checks, checks_at, claim, label_of, protected_files, Claimed};
+pub(crate) use ops::{autonomous_checks, checks_at, claim, protected_files, AnswerChecks, Claimed};
 pub(crate) use report::answer_judge;
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;

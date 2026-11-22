@@ -11,11 +11,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::ops::{budget_report, conversation_of};
-use eukhe_bend::rules::autonomous::{self, Answer, Budget, Cause, Checks, Facts, Mode, Step};
+use eukhe_bend::rules::autonomous::{self, Answer, Budget, Cause, Facts, Mode, Step};
+use eukhe_bend::rules::verify::Label;
 use eukhe_chord::context::Context;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, DocumentReader};
+use eukhe_types::acceptance::AcceptanceLabel;
 use eukhe_types::budget::{BudgetReport, RunLimits};
 use eukhe_types::input_origin::AutonomousNudge;
 use eukhe_types::pi_ai::{StopReason, UserContent};
@@ -26,7 +28,7 @@ use crate::autonomous::{
     autonomous_continuation_text, now_millis, AgentAutonomousConfig, AgentAutonomousStatus,
     AutonomousStop, AUTONOMOUS_STATUS_CUSTOM_TYPE, DEFAULT_AUTONOMOUS_CONTINUATION_PROMPT,
 };
-use crate::durable::acceptance::autonomous_checks;
+use crate::durable::acceptance::{autonomous_checks, AnswerChecks};
 use crate::durable::budget::BudgetGate;
 use crate::durable::entries::custom_entry_draft;
 use crate::slash_command_args::format_autonomous_status;
@@ -138,15 +140,19 @@ fn answer_of(stop_reason: StopReason) -> Option<Answer> {
 }
 
 /// The acceptance label of the core's `label`.
-fn acceptance_label(
-    label: eukhe_bend::rules::verify::Label,
-) -> eukhe_types::acceptance::AcceptanceLabel {
-    crate::durable::acceptance::label_of(label)
+fn acceptance_label(label: Label) -> AcceptanceLabel {
+    match label {
+        Label::Verified => AcceptanceLabel::Verified,
+        Label::Failed => AcceptanceLabel::Failed,
+        Label::Unverified => AcceptanceLabel::Unverified,
+        Label::Passed => AcceptanceLabel::ChecksPassedUnconfined,
+    }
 }
 
 /// The step of `state` at a final answer that ended with `stop_reason`,
 /// with the checks' outcome `checks` and the session's `budget`: the
-/// compiled core's decision.
+/// compiled core's decision. A run its checks stop keeps the label the
+/// checks ended the claim with.
 ///
 /// # Errors
 ///
@@ -154,7 +160,7 @@ fn acceptance_label(
 pub(crate) fn decide(
     state: &AutonomousDocState,
     stop_reason: StopReason,
-    checks: Checks,
+    checks: AnswerChecks,
     budget: Budget,
 ) -> SessionResult<AutonomousYield> {
     let Some(answer) = answer_of(stop_reason) else {
@@ -167,7 +173,7 @@ pub(crate) fn decide(
             Mode::Attended
         },
         answer,
-        checks,
+        checks: checks.core(),
         budget,
     };
     Ok(
@@ -183,7 +189,10 @@ pub(crate) fn decide(
             },
             Step::Stop(cause) => {
                 let stop = match cause {
-                    Cause::Checks(label) => AutonomousStop::Checks(acceptance_label(label)),
+                    Cause::Checks(label) => AutonomousStop::Checks(match checks {
+                        AnswerChecks::Ended(ended) => ended,
+                        AnswerChecks::Unchecked | AnswerChecks::Returned => acceptance_label(label),
+                    }),
                     Cause::Budget => AutonomousStop::Budget,
                 };
                 AutonomousYield::Stop {
@@ -404,33 +413,52 @@ async fn apply_autonomous(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_bend::rules::verify::Label;
-    use eukhe_types::acceptance::AcceptanceLabel;
 
     fn on() -> AutonomousDocState {
         AutonomousDocState::initial().on(&AgentAutonomousConfig::default())
     }
 
     /// The core's step reaches the run: a continuation counts, a stop is
-    /// recorded with its cause, a return or a broken answer adds nothing.
+    /// recorded with its cause (the label the checks ended the claim with,
+    /// not certified included), a return or a broken answer adds nothing.
     #[test]
     fn the_core_decides_each_final_answer() {
         let run = on();
         let got = [
-            decide(&run, StopReason::Stop, Checks::Unchecked, Budget::Working),
-            decide(&run, StopReason::Stop, Checks::Returned, Budget::Working),
             decide(
                 &run,
                 StopReason::Stop,
-                Checks::Ended(Label::Passed),
+                AnswerChecks::Unchecked,
                 Budget::Working,
             ),
-            decide(&run, StopReason::ToolUse, Checks::Unchecked, Budget::Short),
-            decide(&run, StopReason::Error, Checks::Unchecked, Budget::Working),
+            decide(
+                &run,
+                StopReason::Stop,
+                AnswerChecks::Returned,
+                Budget::Working,
+            ),
+            decide(
+                &run,
+                StopReason::Stop,
+                AnswerChecks::Ended(AcceptanceLabel::ChecksPassedNotCertified),
+                Budget::Working,
+            ),
+            decide(
+                &run,
+                StopReason::ToolUse,
+                AnswerChecks::Unchecked,
+                Budget::Short,
+            ),
+            decide(
+                &run,
+                StopReason::Error,
+                AnswerChecks::Unchecked,
+                Budget::Working,
+            ),
             decide(
                 &AutonomousDocState::initial(),
                 StopReason::Stop,
-                Checks::Unchecked,
+                AnswerChecks::Unchecked,
                 Budget::Working,
             ),
         ]
@@ -455,7 +483,7 @@ mod tests {
                 },
                 AutonomousYield::Inactive,
                 stopped(AutonomousStop::Checks(
-                    AcceptanceLabel::ChecksPassedUnconfined
+                    AcceptanceLabel::ChecksPassedNotCertified
                 )),
                 stopped(AutonomousStop::Budget),
                 AutonomousYield::Inactive,
