@@ -512,8 +512,16 @@ async fn a_parked_run_exits_one_and_says_until_when() {
     let (session, provider) = faux_session(dir.path(), &script, storage).await;
     // The provider behaviors (the quota park among them) a session gets on
     // its own model collection; the faux collection is supplied, so install them.
-    let _runtime =
-        eukhe_core::durable::ProviderRuntime::install(&session.deps().models, session.deps());
+    let _runtime = eukhe_core::durable::ProviderRuntime::install(
+        &session.deps().models,
+        session.deps(),
+        Arc::new(eukhe_core::durable::AccountBook::new(
+            session
+                .deps()
+                .agent_dir
+                .join(eukhe_core::auth::AUTH_FILE_NAME),
+        )),
+    );
     provider.set_responses(vec![quota_step(450_144_000)]);
     let session_id = "0198f000-0000-7000-8000-000000000000".to_owned();
     let opened = HeadlessSession {

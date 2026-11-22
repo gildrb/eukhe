@@ -74,8 +74,9 @@ impl AuthCredential {
     }
 }
 
-/// auth.json document: provider id -> credential. Unknown providers
-/// (custom OAuth shapes) survive round-trips.
+/// auth.json document: provider id -> its accounts (`super::accounts`), or
+/// an MCP server's one credential. Unknown providers (custom OAuth shapes)
+/// survive round-trips.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuthStorageData(pub serde_json::Map<String, serde_json::Value>);
 
@@ -85,16 +86,40 @@ impl AuthStorageData {
         self.0.get(provider)
     }
 
+    /// The provider's credential: its first account's, or an MCP server's
+    /// own.
     #[must_use]
     pub fn credential(&self, provider: &str) -> Option<AuthCredential> {
-        self.0
-            .get(provider)
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
+        let entry = self.0.get(provider)?;
+        if !super::accounts::keeps_accounts(provider) {
+            return serde_json::from_value(entry.clone()).ok();
+        }
+        let first = super::accounts::accounts_of(provider, entry)
+            .into_iter()
+            .next()?;
+        serde_json::from_value(serde_json::Value::Object(first.credential)).ok()
     }
 
+    /// The provider's accounts, in order (none for an MCP server).
+    #[must_use]
+    pub fn accounts(&self, provider: &str) -> Vec<super::accounts::Account> {
+        match self.0.get(provider) {
+            Some(entry) if super::accounts::keeps_accounts(provider) => {
+                super::accounts::accounts_of(provider, entry)
+            }
+            Some(_) | None => Vec::new(),
+        }
+    }
+
+    /// Make `credential` the provider's one credential (its only account).
     pub fn insert(&mut self, provider: &str, credential: &AuthCredential) {
-        if let Ok(value) = serde_json::to_value(credential) {
-            self.0.insert(provider.to_string(), value);
+        if let Ok(serde_json::Value::Object(object)) = serde_json::to_value(credential) {
+            let entry = if super::accounts::keeps_accounts(provider) {
+                super::accounts::entry_of(&[super::accounts::Account::new(provider, object)])
+            } else {
+                serde_json::Value::Object(object)
+            };
+            self.0.insert(provider.to_string(), entry);
         }
     }
 

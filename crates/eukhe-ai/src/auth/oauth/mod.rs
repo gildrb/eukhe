@@ -6,6 +6,7 @@ mod callback_server;
 mod device_code;
 pub(crate) mod github_copilot;
 pub(crate) mod http;
+mod identity;
 mod kimi_coding;
 mod load;
 mod meta;
@@ -30,6 +31,7 @@ pub use device_code::{
     OAuthDeviceCodePollResult,
 };
 pub use github_copilot::{get_github_copilot_base_url, github_copilot_oauth};
+pub use identity::{oauth_identity, EMAIL_EXTRA, ORGANIZATION_EXTRA};
 pub use kimi_coding::kimi_coding_oauth;
 pub use load::{
     load_anthropic_oauth, load_github_copilot_oauth, load_kimi_coding_oauth, load_meta_oauth,

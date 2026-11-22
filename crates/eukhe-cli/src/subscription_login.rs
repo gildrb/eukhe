@@ -357,14 +357,23 @@ pub(crate) async fn run_subscription_login(
     if surface.panel.cancelled() {
         return ProviderAuthOutcome::Cancelled;
     }
+    // A login as a new identity adds an account; a login again as a known
+    // one replaces it.
     let mut auth = AuthStorage::create(agent_dir);
-    if let Err(error) = auth.set(provider_id, stored_oauth_credential(&credential)) {
-        return ProviderAuthOutcome::Error(format!(
-            "Failed to login to {provider_name}: could not save the login: {error}"
-        ));
-    }
+    let identity = eukhe_ai::auth::oauth::oauth_identity(provider_id, &credential);
+    let account =
+        match auth.add_account(provider_id, stored_oauth_credential(&credential), &identity) {
+            Ok(account) => account,
+            Err(error) => {
+                return ProviderAuthOutcome::Error(format!(
+                    "Failed to login to {provider_name}: could not save the login: {error}"
+                ));
+            }
+        };
+    let count = auth.get_all().accounts(provider_id).len();
     ProviderAuthOutcome::Status(format!(
-        "Logged in to {provider_name}. Credentials saved to {}",
+        "Logged in to {provider_name} as {account} ({count} account{}). Credentials saved to {}",
+        if count == 1 { "" } else { "s" },
         agent_dir.join("auth.json").display()
     ))
 }

@@ -73,6 +73,7 @@
 //! writes settings. The Bend models are `bend/default_model.bend` and
 //! `bend/model_roles.bend`.
 
+pub mod accounts;
 mod catalog;
 #[cfg(test)]
 mod chat_role_tests;
@@ -238,6 +239,9 @@ pub struct SessionModels {
     /// is dropped), or one for a file that cannot be read or parsed (no
     /// custom models). Empty when the file is good or absent.
     pub diagnostics: Vec<String>,
+    /// The accounts of the collection's providers: the account each
+    /// provider's requests use ([`accounts::AccountBook`]).
+    pub accounts: Arc<accounts::AccountBook>,
 }
 
 /// `eukhe_ai::models::Models` with every built-in provider serving
@@ -251,10 +255,13 @@ pub fn create_models(agent_dir: &Path) -> SessionModels {
 /// [`create_models`] with an injectable auth context (`None`: the process
 /// environment and file system).
 fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) -> SessionModels {
+    let accounts = Arc::new(accounts::AccountBook::new(
+        agent_dir.join(crate::auth::AUTH_FILE_NAME),
+    ));
     let models = create_pi_models(CreateModelsOptions {
-        credentials: Some(Arc::new(stores::AuthJsonCredentialStore::new(
-            agent_dir.join(crate::auth::AUTH_FILE_NAME),
-        ))),
+        credentials: Some(Arc::new(stores::AuthJsonCredentialStore::new(Arc::clone(
+            &accounts,
+        )))),
         models_store: None,
         auth_context,
     });
@@ -288,6 +295,7 @@ fn build_models(agent_dir: &Path, auth_context: Option<Arc<dyn AuthContext>>) ->
     SessionModels {
         models,
         diagnostics,
+        accounts,
     }
 }
 

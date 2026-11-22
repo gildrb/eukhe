@@ -236,10 +236,11 @@ fn agent_dir(dir: &tempfile::TempDir) -> std::path::PathBuf {
     agent
 }
 
+/// The provider's first stored account.
 fn stored(agent: &Path, provider_id: &str) -> serde_json::Value {
     let document: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(agent.join("auth.json")).unwrap()).unwrap();
-    document[provider_id].clone()
+    document[provider_id]["accounts"][0].clone()
 }
 
 #[tokio::test]
@@ -265,7 +266,8 @@ async fn the_browser_login_stores_the_credential_and_reports_the_ts_status() {
     assert_eq!(
         outcome,
         ProviderAuthOutcome::Status(format!(
-            "Logged in to ChatGPT Plus/Pro (Codex Subscription). Credentials saved to {}",
+            "Logged in to ChatGPT Plus/Pro (Codex Subscription) as [acct-1] (1 account). \
+             Credentials saved to {}",
             agent.join("auth.json").display()
         ))
     );
@@ -551,7 +553,7 @@ async fn the_stored_credential_round_trips_and_refreshes() {
     // the fresh token resolves.
     let mut data = auth.get_all();
     if let Some(document) = data.0.get_mut(XAI_PROVIDER_ID) {
-        document["expires"] = serde_json::json!(1);
+        document["accounts"][0]["expires"] = serde_json::json!(1);
     }
     let mut expired = AuthStorage::in_memory_without_env(
         &data,

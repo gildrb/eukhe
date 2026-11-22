@@ -154,6 +154,11 @@ pub struct SessionSummary {
     /// model fallback is never silent — the summary publishes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_fallback_message: Option<String>,
+    /// The account each provider's requests of this session use: the
+    /// account's identity by provider id; a provider the session has not
+    /// sent to yet is absent.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub accounts: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

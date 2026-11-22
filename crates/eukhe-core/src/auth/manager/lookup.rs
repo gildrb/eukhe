@@ -212,6 +212,33 @@ impl AuthStorage {
     }
 }
 
+/// The provider's entry with its refreshed credential: the first account's
+/// (the one the lookup read) in place, the other accounts kept; an MCP
+/// server's entry is the credential itself.
+fn refreshed_entry(
+    provider: &str,
+    data: &AuthStorageData,
+    credential: serde_json::Value,
+) -> serde_json::Value {
+    let (true, serde_json::Value::Object(object)) =
+        (crate::auth::accounts::keeps_accounts(provider), &credential)
+    else {
+        return credential;
+    };
+    let accounts = data.accounts(provider);
+    match accounts.first().map(|first| first.identity.clone()) {
+        Some(identity) => crate::auth::accounts::entry_of(&crate::auth::accounts::with_credential(
+            accounts,
+            &identity,
+            object.clone(),
+        )),
+        None => crate::auth::accounts::entry_of(&[crate::auth::accounts::Account::new(
+            provider,
+            object.clone(),
+        )]),
+    }
+}
+
 /// What a read of the auth document found under `provider`, at the clock
 /// of the read.
 fn read_of(
@@ -302,9 +329,12 @@ impl RefreshIo for DocumentRefresh<'_> {
                             return None;
                         }
                     }
-                    entry
-                        .take()
-                        .map(|entry| config::Edit::Set(provider.to_string(), entry))
+                    entry.take().map(|entry| {
+                        config::Edit::Set(
+                            provider.to_string(),
+                            refreshed_entry(provider, data, entry),
+                        )
+                    })
                 })?;
                 let content = data
                     .map(|data| serde_json::to_string_pretty(&data.0))

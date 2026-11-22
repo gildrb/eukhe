@@ -276,6 +276,8 @@ pub enum Entry {
     Strength = 465,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
+    /// `bend/ffi_account.bend`: a call.
+    Account = 481,
 }
 
 impl Entry {
@@ -416,6 +418,7 @@ impl Entry {
         Entry::HeadlessTask,
         Entry::Strength,
         Entry::Fallback,
+        Entry::Account,
     ];
 
     /// The id `bend/core.bend` dispatches on.

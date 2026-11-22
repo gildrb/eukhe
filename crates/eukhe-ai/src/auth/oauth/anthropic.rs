@@ -104,14 +104,52 @@ struct TokenData {
     access_token: String,
     refresh_token: String,
     expires_in: f64,
+    /// The account the token signs in as (its email).
+    #[serde(default)]
+    account: Option<TokenAccount>,
+    /// The organization the token acts for.
+    #[serde(default)]
+    organization: Option<TokenOrganization>,
 }
 
+#[derive(Deserialize)]
+struct TokenAccount {
+    #[serde(default)]
+    email_address: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TokenOrganization {
+    #[serde(default)]
+    uuid: Option<String>,
+}
+
+/// The credential of a token answer, with the account's email and
+/// organization when the answer names them (the login's identity:
+/// [`super::oauth_identity`]).
 fn credential_from(data: &TokenData) -> OAuthCredential {
-    OAuthCredential::new(
+    let credential = OAuthCredential::new(
         data.refresh_token.clone(),
         data.access_token.clone(),
         date_now() + data.expires_in * 1000.0 - 5.0 * 60.0 * 1000.0,
-    )
+    );
+    let email = data
+        .account
+        .as_ref()
+        .and_then(|account| account.email_address.clone());
+    let organization = data
+        .organization
+        .as_ref()
+        .and_then(|organization| organization.uuid.clone());
+    [
+        (super::EMAIL_EXTRA, email),
+        (super::ORGANIZATION_EXTRA, organization),
+    ]
+    .into_iter()
+    .fold(credential, |credential, (key, value)| match value {
+        Some(value) => credential.with_extra(key, serde_json::Value::String(value)),
+        None => credential,
+    })
 }
 
 async fn exchange_authorization_code(

@@ -223,4 +223,5 @@ import ./laws/verify.bend as Verify
 import ./laws/server_peer.bend as ServerPeer
 import ./laws/work_list.bend as WorkList
 import ./laws/fallback.bend as Fallback
+import ./laws/account.bend as Account
 import ./laws/strength.bend as Strength

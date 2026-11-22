@@ -59,6 +59,7 @@ pub(crate) mod mode;
 pub(crate) mod models_refresh_command;
 pub(crate) mod package_command;
 pub(crate) mod prompt_command;
+pub(crate) mod provider_accounts;
 pub(crate) mod provider_command;
 pub(crate) mod provider_login;
 pub(crate) mod public_command;

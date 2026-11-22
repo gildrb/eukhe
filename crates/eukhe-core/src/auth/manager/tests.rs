@@ -307,12 +307,16 @@ fn set_keeps_every_other_credential_as_read() {
     auth.set("b", api_key("kb")).unwrap();
     let written: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    // Each entry written as one credential is rewritten as its one account,
+    // every field kept.
     assert_eq!(
         written,
         serde_json::json!({
-            "a": a,
-            "b": { "type": "api_key", "key": "kb" },
-            "c": c,
+            "a": { "accounts": [{
+                "type": "api_key", "key": "ka", "note": "kept as is", "identity": "key"
+            }] },
+            "b": { "accounts": [{ "type": "api_key", "key": "kb", "identity": "key" }] },
+            "c": { "accounts": [c] },
         })
     );
 }
@@ -611,6 +615,94 @@ fn a_leader_that_panics_lands_its_flight_with_a_failure() {
                  ended without an outcome"
                     .to_string()
             )
+        )
+    );
+}
+
+fn read_file(path: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// An auth file written before accounts loads: each provider's one
+/// credential is its one account, rewritten as an account list in place;
+/// an MCP server's entry stays as it was.
+#[test]
+fn a_single_account_file_loads_and_migrates_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    std::fs::write(
+        &path,
+        serde_json::json!({
+            "openai": { "type": "api_key", "key": "sk-openai-123456" },
+            "mcp:linear": { "type": "mcp_static_token", "bearer": "b" },
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut auth = AuthStorage::create_with_oauth(dir.path(), Arc::new(NoOAuth));
+    assert_eq!(
+        (auth.get_api_key("openai"), read_file(&path),),
+        (
+            Some("sk-openai-123456".to_owned()),
+            serde_json::json!({
+                "openai": { "accounts": [
+                    { "type": "api_key", "key": "sk-openai-123456", "identity": "key ...123456" }
+                ] },
+                "mcp:linear": { "type": "mcp_static_token", "bearer": "b" },
+            }),
+        )
+    );
+}
+
+/// A login adds an account and keeps the others; a login again as the
+/// same identity replaces its account; a logout removes only the account
+/// it names, the provider going with its last.
+#[test]
+fn logins_add_accounts_and_a_logout_removes_only_its_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auth.json");
+    let mut auth = AuthStorage::create_with_oauth(dir.path(), Arc::new(NoOAuth));
+    let key = |key: &str| AuthCredential::ApiKey {
+        key: key.to_owned(),
+    };
+    let labels = [
+        auth.add_account("p", key("sk-aaaa-111111"), "").unwrap(),
+        auth.add_account("p", key("sk-bbbb-222222"), "").unwrap(),
+        auth.add_account("p", key("sk-cccc-333333"), "").unwrap(),
+        auth.add_account("p", key("sk-dddd-222222"), "").unwrap(),
+    ];
+    let removed = [
+        auth.remove_account("p", &AccountSelector::Place(2))
+            .unwrap(),
+        auth.remove_account("p", &AccountSelector::Identity("key ...nobody".to_owned()))
+            .unwrap(),
+    ];
+    let after_one = read_file(&path);
+    let last = [
+        auth.remove_account("p", &AccountSelector::Identity("key ...111111".to_owned()))
+            .unwrap(),
+        auth.remove_account("p", &AccountSelector::Place(1))
+            .unwrap(),
+    ];
+    assert_eq!(
+        (labels, removed, after_one, last, read_file(&path)),
+        (
+            [
+                "key ...111111".to_owned(),
+                "key ...222222".to_owned(),
+                "key ...333333".to_owned(),
+                "key ...222222".to_owned(),
+            ],
+            [Some("key ...222222".to_owned()), None],
+            serde_json::json!({ "p": { "accounts": [
+                { "type": "api_key", "key": "sk-aaaa-111111", "identity": "key ...111111" },
+                { "type": "api_key", "key": "sk-cccc-333333", "identity": "key ...333333" },
+            ] } }),
+            [
+                Some("key ...111111".to_owned()),
+                Some("key ...333333".to_owned())
+            ],
+            serde_json::json!({}),
         )
     );
 }

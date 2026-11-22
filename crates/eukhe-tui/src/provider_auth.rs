@@ -90,6 +90,10 @@ pub struct ProviderRow {
     /// available" annotation and Enter is inert -- the menu states the
     /// dead-end BEFORE selection instead of error-walling after it.
     pub available: bool,
+    /// A logout row's account: the text that names it to
+    /// [`ProviderAuthCommands::logout`] (its identity, or its place when it
+    /// has none). `None` on login rows and on an MCP server's row.
+    pub account: Option<String>,
 }
 
 /// The outcome of one login/logout flow: the status row to show, the
@@ -103,10 +107,92 @@ pub enum ProviderAuthOutcome {
     Cancelled,
 }
 
+/// One stored account of a provider, as `/accounts` lists it (its place
+/// is its position, from 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountRow {
+    /// Who the login signs in as; empty when it names no one.
+    pub identity: String,
+    /// The list's name for it: the identity, else `account <place>`.
+    pub label: String,
+    /// The local time its usage limit resets (`14:05`, `Sat 14:05`), while
+    /// the limit lasts.
+    pub limited_until: Option<String>,
+}
+
+/// The stored accounts of one provider, in login order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAccounts {
+    pub provider: String,
+    pub accounts: Vec<AccountRow>,
+}
+
 /// The boxed-future shape of the hook's methods.
 pub type ProviderRowsFuture = Pin<Box<dyn std::future::Future<Output = Vec<ProviderRow>> + Send>>;
 pub type ProviderAuthFuture =
     Pin<Box<dyn std::future::Future<Output = ProviderAuthOutcome> + Send>>;
+pub type ProviderAccountsFuture =
+    Pin<Box<dyn std::future::Future<Output = Vec<ProviderAccounts>> + Send>>;
+
+/// The `/accounts` listing: per provider, each account by place and
+/// label, `(this session)` on the account `session` names for the
+/// provider (provider id -> identity), and its limit while it lasts.
+///
+/// ```text
+/// anthropic
+///   1. a@x.com [org-1]   (this session)
+///   2. b@y.com [org-2]   limited until 14:05
+/// ```
+#[must_use]
+pub fn accounts_text(
+    providers: &[ProviderAccounts],
+    session: &std::collections::BTreeMap<String, String>,
+) -> String {
+    if providers.is_empty() {
+        return "No stored accounts.".to_string();
+    }
+    providers
+        .iter()
+        .flat_map(|provider| {
+            let width = provider
+                .accounts
+                .iter()
+                .map(|account| crate::width::str_width(&account.label))
+                .max()
+                .unwrap_or(0);
+            let pinned = session.get(&provider.provider);
+            std::iter::once(provider.provider.clone()).chain(
+                provider
+                    .accounts
+                    .iter()
+                    .enumerate()
+                    .map(move |(at, account)| {
+                        let marks: Vec<String> = [
+                            (pinned == Some(&account.identity))
+                                .then(|| "(this session)".to_string()),
+                            account
+                                .limited_until
+                                .as_ref()
+                                .map(|until| format!("limited until {until}")),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+                        let pad = width - crate::width::str_width(&account.label);
+                        let line = format!(
+                            "  {}. {}{}   {}",
+                            at + 1,
+                            account.label,
+                            " ".repeat(pad),
+                            marks.join(", ")
+                        );
+                        line.trim_end().to_string()
+                    }),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// `/login` + `/logout` provider auth, implemented by the composition
 /// root (credential storage, OAuth flows, and the provider catalog stay
@@ -115,8 +201,8 @@ pub trait ProviderAuthCommands: Send + Sync {
     /// TS `getLoginProviderOptions`: the provider rows sorted TS-style
     /// (configured first, oauth before api key, then by name).
     fn login_options(&self) -> ProviderRowsFuture;
-    /// TS `getLogoutProviderOptions`: one row per stored credential,
-    /// sorted by name.
+    /// The `/logout` rows: one per stored account (`<provider>: <label>`)
+    /// and per MCP server credential, sorted by name.
     fn logout_options(&self) -> ProviderRowsFuture;
     /// TS `loginProvider`: store the key for `ApiKeyPrompt` rows. The
     /// unavailable rows never reach this (the menu marks them before
@@ -133,8 +219,14 @@ pub trait ProviderAuthCommands: Send + Sync {
         provider: &ProviderRow,
         panel: crate::auth_panel::AuthPanelHandle,
     ) -> ProviderAuthFuture;
-    /// TS `runLogout`: remove the stored credential.
-    fn logout(&self, provider: &ProviderRow) -> ProviderAuthFuture;
+    /// Remove one stored account of `provider`: the one `account` names
+    /// (a place from 1 or an identity); `None` removes the provider's only
+    /// account (an MCP server's credential), and with several answers the
+    /// error that lists them.
+    fn logout(&self, provider: &str, account: Option<&str>) -> ProviderAuthFuture;
+    /// Each provider's stored accounts (MCP servers left out), sorted by
+    /// provider id.
+    fn accounts(&self) -> ProviderAccountsFuture;
     /// TS `getAnthropicSubscriptionAuthWarning`: the composition root
     /// reports the subscription-auth warning text when the stored
     /// Anthropic credential is an OAuth login or the resolved key is a
@@ -397,35 +489,7 @@ impl ProviderAuthSelector {
                     return AuthSelectorAction::None;
                 }
                 if kb.matches(key, "tui.select.confirm") {
-                    return match self.selected_row() {
-                        Some(provider) => {
-                            if self.is_logout() {
-                                AuthSelectorAction::Logout { provider }
-                            } else {
-                                match provider.flow {
-                                    AuthFlow::ApiKeyPrompt => {
-                                        self.mode = Mode::Prompt {
-                                            provider,
-                                            input: SearchInput::new(),
-                                        };
-                                        AuthSelectorAction::None
-                                    }
-                                    // The menu rule: an unavailable row
-                                    // shows its dead-end state inline and
-                                    // Enter never starts a flow that
-                                    // would error-wall after selection.
-                                    AuthFlow::TerminalFlow if !provider.available => {
-                                        AuthSelectorAction::None
-                                    }
-                                    AuthFlow::TerminalFlow => AuthSelectorAction::Login {
-                                        provider,
-                                        api_key: None,
-                                    },
-                                }
-                            }
-                        }
-                        None => AuthSelectorAction::None,
-                    };
+                    return self.confirm();
                 }
                 // Everything else edits the search field.
                 let previous = self.search.value().to_string();
@@ -436,6 +500,51 @@ impl ProviderAuthSelector {
                 AuthSelectorAction::None
             }
         }
+    }
+
+    /// Enter on the selected row: a logout row removes its account, an
+    /// API-key row opens the key prompt, an available panel row hands its
+    /// flow over.
+    fn confirm(&mut self) -> AuthSelectorAction {
+        let Some(provider) = self.selected_row() else {
+            return AuthSelectorAction::None;
+        };
+        if self.is_logout() {
+            return AuthSelectorAction::Logout { provider };
+        }
+        match provider.flow {
+            AuthFlow::ApiKeyPrompt => {
+                self.mode = Mode::Prompt {
+                    provider,
+                    input: SearchInput::new(),
+                };
+                AuthSelectorAction::None
+            }
+            // The menu rule: an unavailable row shows its dead-end state
+            // inline and Enter never starts a flow that would error-wall
+            // after selection.
+            AuthFlow::TerminalFlow if !provider.available => AuthSelectorAction::None,
+            AuthFlow::TerminalFlow => AuthSelectorAction::Login {
+                provider,
+                api_key: None,
+            },
+        }
+    }
+
+    /// `/login <provider>`: select the provider's row (its subscription
+    /// row before its API-key row) and start its login as Enter would (the
+    /// API-key prompt opens on the selector, a panel flow is handed over).
+    /// `None` when the selector has no such row.
+    pub fn start_login(&mut self, provider_id: &str) -> Option<AuthSelectorAction> {
+        let row_of = |auth_type: Option<AuthType>| {
+            self.filtered.iter().position(|index| {
+                let row = &self.providers[*index];
+                row.id == provider_id && auth_type.is_none_or(|kind| kind == row.auth_type)
+            })
+        };
+        let position = row_of(Some(AuthType::Oauth)).or_else(|| row_of(None))?;
+        self.selected = position;
+        Some(self.confirm())
     }
 
     /// Whether the selector serves `/logout`.
@@ -623,6 +732,7 @@ mod tests {
             flow: AuthFlow::TerminalFlow,
             configured: false,
             available: false,
+            account: None,
         }
     }
 
@@ -637,6 +747,7 @@ mod tests {
             flow: AuthFlow::TerminalFlow,
             configured: false,
             available: true,
+            account: None,
         }
     }
 
@@ -652,6 +763,7 @@ mod tests {
             flow: AuthFlow::ApiKeyPrompt,
             configured: true,
             available: true,
+            account: None,
         }
     }
 
@@ -664,6 +776,7 @@ mod tests {
             flow: AuthFlow::TerminalFlow,
             configured: false,
             available: true,
+            account: None,
         }
     }
 
@@ -1009,5 +1122,71 @@ mod tests {
         assert!(text
             .iter()
             .any(|row| row.contains("No providers available")));
+    }
+
+    /// `/login <provider>`: an API-key row opens its key prompt, a panel
+    /// row hands its flow over, a provider without a row is refused.
+    #[test]
+    fn start_login_runs_the_named_rows_enter() {
+        let rows = vec![openai(), codex()];
+        let mut api_key = ProviderAuthSelector::new(AuthSelectorKind::Login, rows.clone());
+        let mut panel = ProviderAuthSelector::new(AuthSelectorKind::Login, rows.clone());
+        let mut unknown = ProviderAuthSelector::new(AuthSelectorKind::Login, rows);
+        assert_eq!(
+            (
+                api_key.start_login("openai"),
+                api_key.title(),
+                panel.start_login("openai-codex"),
+                unknown.start_login("nope"),
+            ),
+            (
+                Some(AuthSelectorAction::None),
+                "Login to OpenAI".to_string(),
+                Some(AuthSelectorAction::Login {
+                    provider: codex(),
+                    api_key: None,
+                }),
+                None,
+            )
+        );
+    }
+
+    fn account(identity: &str, limited_until: Option<&str>) -> AccountRow {
+        AccountRow {
+            identity: identity.to_string(),
+            label: identity.to_string(),
+            limited_until: limited_until.map(str::to_string),
+        }
+    }
+
+    /// The listing: each provider's accounts by place, the session's
+    /// account marked, a limited account with its reset.
+    #[test]
+    fn the_accounts_listing_marks_the_session_and_limits() {
+        let providers = vec![
+            ProviderAccounts {
+                provider: "anthropic".to_string(),
+                accounts: vec![
+                    account("a@x.com [org-1]", None),
+                    account("bob@y.com [org-2]", Some("14:05")),
+                ],
+            },
+            ProviderAccounts {
+                provider: "openai".to_string(),
+                accounts: vec![account("key ...123456", None)],
+            },
+        ];
+        let session = std::collections::BTreeMap::from([
+            ("anthropic".to_string(), "a@x.com [org-1]".to_string()),
+            ("openai-codex".to_string(), "c@z.com".to_string()),
+        ]);
+        assert_eq!(
+            accounts_text(&providers, &session),
+            "anthropic\n\
+             \x20 1. a@x.com [org-1]     (this session)\n\
+             \x20 2. bob@y.com [org-2]   limited until 14:05\n\
+             openai\n\
+             \x20 1. key ...123456"
+        );
     }
 }

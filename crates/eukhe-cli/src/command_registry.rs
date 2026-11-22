@@ -302,8 +302,8 @@ command.",
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
         &["provider"],
-        "provider <caps|models>",
-        "Inspect what a provider's API offers besides chat",
+        "provider <caps|models|accounts|logout>",
+        "Inspect providers and manage their stored accounts",
     )
     .description(
         "Capabilities come from the quirks rulebook per provider, API, and base URL. Only \
@@ -330,6 +330,25 @@ command.",
 has `list_models`; a provider without one fails without sending a request.",
     )
     .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["provider", "accounts"],
+        "provider accounts [--json]",
+        "List each provider's stored accounts",
+    )
+    .description(
+        "Every login adds an account. Prints each provider's accounts by place (from 1) and \
+identity, and the local time a usage limit resets while it lasts.",
+    )
+    .options(&["--json  Print JSON"]),
+    CommandSpec::new(
+        &["provider", "logout"],
+        "provider logout <provider> [n|identity]",
+        "Remove one stored account of a provider",
+    )
+    .description(
+        "Removes the account at place n or of that identity. Without one, removes the \
+provider's only account; a provider with several lists them.",
+    ),
     CommandSpec::new(
         &["budget"],
         "budget <on|off|show|set|add|audit> [--account <account>]",

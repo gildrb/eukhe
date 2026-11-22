@@ -48,9 +48,9 @@ use eukhe_tui::interactive::{
     run_interactive, InteractiveOptions, ModelSelection, SessionSelection, UiMode,
 };
 use eukhe_tui::provider_auth::{
-    AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAuthCommands,
-    ProviderAuthCommandsHandle, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
-    ProviderWarningFuture, OPENAI_CODEX_PROVIDER_ID,
+    AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccountsFuture,
+    ProviderAuthCommands, ProviderAuthCommandsHandle, ProviderAuthOutcome, ProviderRow,
+    ProviderRowsFuture, ProviderWarningFuture, OPENAI_CODEX_PROVIDER_ID,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -134,6 +134,7 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
             flow: AuthFlow::TerminalFlow,
             configured: true,
             available: true,
+            account: None,
         };
         Box::pin(async move { vec![row] })
     }
@@ -177,9 +178,14 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
 
     fn logout(
         &self,
-        _provider: &ProviderRow,
+        _provider: &str,
+        _account: Option<&str>,
     ) -> Pin<Box<dyn std::future::Future<Output = ProviderAuthOutcome> + Send>> {
         Box::pin(async move { ProviderAuthOutcome::Cancelled })
+    }
+
+    fn accounts(&self) -> ProviderAccountsFuture {
+        Box::pin(async move { Vec::new() })
     }
 
     fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
@@ -308,6 +314,7 @@ impl ProviderAuthCommands for ScriptedModelPickerAuth {
             // (Enter routes the picked model's sign-in through it; an
             // unavailable row renders dimmed and inert).
             available: true,
+            account: None,
         };
         Box::pin(async move { vec![row] })
     }
@@ -349,9 +356,14 @@ impl ProviderAuthCommands for ScriptedModelPickerAuth {
 
     fn logout(
         &self,
-        _provider: &ProviderRow,
+        _provider: &str,
+        _account: Option<&str>,
     ) -> Pin<Box<dyn std::future::Future<Output = ProviderAuthOutcome> + Send>> {
         Box::pin(async move { ProviderAuthOutcome::Cancelled })
+    }
+
+    fn accounts(&self) -> ProviderAccountsFuture {
+        Box::pin(async move { Vec::new() })
     }
 
     fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
