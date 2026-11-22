@@ -286,8 +286,8 @@ function Page({
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structured }} />
       </head>
       <body {...stylex.props(styles.body)}>
-        <main {...stylex.props(styles.main)}>
-          <Markdown source={doc.markdown} header={doc !== home} />
+        <main>
+          <Markdown source={doc.markdown} linkHome={doc !== home} />
         </main>
         {/* The editor: a terminal of rows x cols cells; client.ts paints Vim.frame into it. */}
         <div
@@ -526,8 +526,6 @@ const styles = stylex.create({
     WebkitTextSizeAdjust: "100%",
     textRendering: "optimizeLegibility",
   },
-  /** The column's width, for the header's fitted type (`markdown.tsx`). */
-  main: { containerType: "inline-size" },
   body: {
     margin: 0,
     padding: { default: type.inset, "@media (max-width: 559px)": type.insetPhone },

@@ -32,7 +32,7 @@ From the repository root: `make site-check` (`npm ci`, check, laws, build) and `
 - `scripts/files.ts`: every file the README's relative links reach, read from the repository at build time at their paths in it (its tracked files, `git ls-files`, outside `site/`). A linked folder, or a linked `README.md` (its folder's index), brings the whole folder; the links of each Markdown file reached are followed in turn. A link that leaves the repository or reaches no file fails the build.
 - The editor holds them (`<Space><Space>` finds them); a click on a relative link opens its file or folder there (gf). The site also serves each at its path (`/LICENSE`, `/spec/rlm/family.bend`, text), and each folder as a page (`/spec/rlm/`).
 - `src/epigraphs.ts`: the site's Attic Greek epigraphs, at most one under a README heading, each with its translation and citation: the title epigraph under the README's first `# ` heading, whatever its text; the others keyed by their heading's line. The README's own lines stay as they are; an epigraph whose heading the README no longer holds is left out (the build names it), so a README edit never breaks the site.
-- `src/content/{about,contact,privacy}.md`: the other pages, rendered the same way; the first block is the header, its first line linking home.
+- `src/content/{about,contact,privacy}.md`: the other pages, rendered the same way; each starts `# Eukhe`, which links home.
 - `src/tokens.stylex.ts` `palette`: every color, OKLCH, per theme.
 
 ## Worker

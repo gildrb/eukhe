@@ -1,8 +1,4 @@
-EUKHE
-PRIVACY
-2026
-
-# Privacy
+# Eukhe
 
 ## This site
 

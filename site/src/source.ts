@@ -62,11 +62,7 @@ function withEpigraphs(markdown: string): string {
  */
 export const source = `${withEpigraphs(readme).trimEnd()}\n\n${sourceLine}\n`;
 
-export const notFound = `EUKHE
-404: NO PAGE HERE
-2026
+export const notFound = `# Eukhe
 
-# NOT FOUND
-
-Back to [eukhe.com](/).
+No page is at this address. Back to [eukhe.com](/).
 `;
