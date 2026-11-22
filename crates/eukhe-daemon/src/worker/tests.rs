@@ -339,6 +339,71 @@ async fn attach_names_the_tool_round_cap_the_last_run_stopped_at() {
     }
 }
 
+/// The attach result serializes in TS `createAttachResult` key order; a
+/// non-slim client reads the transcript twice (top level and snapshot), a
+/// slim client once, both equal to `get_messages`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attach_results_carry_the_transcript_in_ts_key_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let worker = created(dir.path(), json!({ "responses": ["first answer"] })).await;
+    let response = worker
+        .dispatch("prompt_and_wait", &json!({ "message": "hello" }))
+        .await;
+    assert!(response.success, "prompt: {response:?}");
+    let transcript = Value::Array(messages(&worker).await);
+    let keys = |data: &Value| -> Vec<String> {
+        data.as_object()
+            .expect("an object")
+            .keys()
+            .cloned()
+            .collect()
+    };
+    let full = worker
+        .dispatch("attach", &json!({ "clientId": "full" }))
+        .await
+        .data
+        .expect("attach result");
+    assert_eq!(
+        keys(&full),
+        [
+            "protocol",
+            "activeSessionId",
+            "state",
+            "messages",
+            "snapshot",
+            "replay",
+            "lastEventSequence",
+            "lastEventCursor",
+            "client"
+        ]
+    );
+    assert_eq!(
+        keys(&full["snapshot"]),
+        [
+            "activeSessionId",
+            "summary",
+            "state",
+            "messages",
+            "lastEventSequence",
+            "lastEventCursor",
+            "children"
+        ]
+    );
+    assert_eq!(full["messages"], transcript);
+    assert_eq!(full["snapshot"]["messages"], transcript);
+    assert_eq!(full["state"], full["snapshot"]["summary"]);
+    let slim = worker
+        .dispatch(
+            "attach",
+            &json!({ "clientId": "slim", "capabilities": ["attach_snapshot", "slim_attach"] }),
+        )
+        .await
+        .data
+        .expect("attach result");
+    assert!(slim.get("messages").is_none() && slim.get("state").is_none());
+    assert_eq!(slim["snapshot"]["messages"], transcript);
+}
+
 /// Steering joins the run at the post-tools boundary, ahead of an earlier
 /// follow-up, which waits for the final boundary.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
