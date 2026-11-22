@@ -208,6 +208,8 @@ fn prompt_token_for_host_request(request: &str) -> Option<String> {
         match request {
             "rlm.run" => "rlm.spawn",
             "rlm.progress.note" => "rlm.progress_note",
+            // `directors.remind` and `directors.force_tool` both send it.
+            "directors.push" => "directors.remind",
             "agent_observe.list" | "agent_message.list_agents" => "agent_observe.list_agents",
             "agent_observe.get" => "agent_observe.get_agent",
             "agent_observe.recent" => "agent_observe.recent_messages",

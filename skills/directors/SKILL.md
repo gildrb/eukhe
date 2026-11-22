@@ -1,6 +1,6 @@
 ---
 name: directors
-description: Steer the harness's autonomous run (/auto) from the REPL - leave a reminder that leads the next continuation, force the next requests to call a tool, or read the task's acceptance checks and their last verdicts before you call the work done.
+description: Steer the harness's autonomous run (/auto) from the REPL. Leave a reminder that leads the next continuation, force the next requests to call a tool, or read the task's acceptance checks and their last verdicts before you call the work done.
 ---
 
 # Directors
