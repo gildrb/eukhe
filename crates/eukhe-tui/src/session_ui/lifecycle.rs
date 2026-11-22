@@ -123,6 +123,7 @@ impl SessionUi {
             run_open: false,
             run_rounds: 0,
             run_awaits_turn: false,
+            turn_usage: crate::turn_usage::TurnUsage::default(),
             run_interrupted: false,
             session_closed: false,
             resynced_phase: None,
@@ -719,6 +720,7 @@ impl SessionUi {
             && (reconstructed.turn_running
                 || (same_session && self.run_open && self.run_awaits_turn));
         self.run_open = reconstructed.run_open;
+        self.turn_usage = reconstructed.turn_usage;
         let prompt_owed = same_session
             && self.prompt_in_flight == 0
             && self.turn_ends_seen < self.last_prompt_turn_end;
@@ -904,6 +906,7 @@ impl SessionUi {
         view.queue_selected = None;
         view.chrome.session_name.clone_from(&self.session_name);
         view.chrome.context = self.context;
+        view.chrome.cache_hit = self.turn_usage.cache_hit_percent();
         view.chrome.budget.clone_from(&self.budget);
         view.chrome.memory = self.memory;
         view.chrome.verification = self.verification;

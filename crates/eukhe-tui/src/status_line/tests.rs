@@ -413,7 +413,7 @@ fn the_speed_segment_yields_to_the_other_segments() {
             " [M] mock - prefill 2000 tok/... - [D] eukhe - @ main - expanded ctx: 0.0%/128K"
                 .to_string(),
             format!(
-                " [M] mock - prefill 2000 tok/s (TTFT 0.50s) · decode 50.0 tok/s - [D] eukhe - @ main - expanded{}ctx: 0.0%/128K",
+                " [M] mock - prefill 2000 tok/s (TTFT 0.50s) - decode 50.0 tok/s - [D] eukhe - @ main - expanded{}ctx: 0.0%/128K",
                 " ".repeat(10)
             ),
         ]
@@ -452,7 +452,7 @@ fn the_title_and_the_speed_yield_before_the_fixed_segments() {
     };
     assert_eq!(
         row(140),
-        " [M] mock - [med] - prefill 2000 tok/s (TTFT 0.50s) · decode 50.0 tok/s - [D] eukhe - Fix the t... - mem 1.1K/128K - details ctx: 0.0%/128K"
+        " [M] mock - [med] - prefill 2000 tok/s (TTFT 0.50s) - decode 50.0 tok/s - [D] eukhe - Fix the t... - mem 1.1K/128K - details ctx: 0.0%/128K"
     );
     assert_eq!(
         row(120),

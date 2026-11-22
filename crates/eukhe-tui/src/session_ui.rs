@@ -329,6 +329,9 @@ pub(crate) struct SessionUi {
     /// called tools. A run that ends owing one ended without a reply and
     /// says so.
     run_awaits_turn: bool,
+    /// The usage of the turn the run answers so far: its footer row at
+    /// the turn's end, and the status line's live cache figure.
+    turn_usage: crate::turn_usage::TurnUsage,
     /// This client interrupted the open run (Escape or Ctrl+C): a run that
     /// then ends owing its answering turn ended by that abort, and says
     /// so instead of "without a reply".

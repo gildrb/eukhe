@@ -82,7 +82,7 @@ fn prefill_rate_is_uncached_prompt_over_ttft_and_decode_skips_the_first_token() 
     );
     assert_eq!(
         speed.summary(),
-        "prefill 2000 tok/s (TTFT 0.50s) · decode 50.0 tok/s"
+        "prefill 2000 tok/s (TTFT 0.50s) - decode 50.0 tok/s"
     );
 }
 
@@ -105,7 +105,7 @@ fn a_nearly_all_cached_prompt_reads_cached() {
     );
     assert_eq!(
         speed.summary(),
-        "prefill cached (TTFT 1.2s) · decode 100 tok/s"
+        "prefill cached (TTFT 1.2s) - decode 100 tok/s"
     );
 }
 

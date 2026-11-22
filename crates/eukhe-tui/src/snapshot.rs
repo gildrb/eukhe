@@ -2,6 +2,7 @@
 //! results, streamed session events) folded into UI transcript items.
 
 use crate::chat::{AssistantMessage, ChatEntry, MessageBlock, ToolCallCard, ToolResultView};
+use crate::turn_usage::TurnUsage;
 use eukhe_types::daemon::{
     DaemonEventCursor, DaemonReplayInfo, DaemonSessionSnapshot, SessionActionSnapshot,
 };
@@ -117,6 +118,9 @@ pub struct Reconstructed {
     /// daemon appends to the attach (`message_update`s continue it), with
     /// visible content and no failure.
     pub open_message: Option<usize>,
+    /// The usage of the open run's newest turn so far: the live pump's
+    /// tally for its footer goes on from it.
+    pub turn_usage: TurnUsage,
 }
 
 impl Reconstructed {
@@ -271,11 +275,27 @@ pub fn transcript_to_entries(messages: &[AgentMessage]) -> Vec<ChatEntry> {
 
 /// Replay a whole transcript into chat rows: every message's rows, the
 /// `toolResult` messages folded onto their cards, each retry episode
-/// collapsed to its outcome row, and every ended turn's end row -- the
-/// rows the live event pump left (`LAWS.bend` section `turn_visibility` R7). `tail`
-/// says whether the newest turn ended.
+/// collapsed to its outcome row, and every ended turn's end row and
+/// usage footer -- the rows the live event pump left (`LAWS.bend` section
+/// `turn_visibility` R7). `tail` says whether the newest turn ended.
 #[must_use]
 pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEntry> {
+    fold_turns(messages, tail).0
+}
+
+/// [`fold_transcript`], plus the usage of the newest turn while it may
+/// still run (`TurnTail::Running`): the live pump's tally goes on from
+/// it. The open run's in-flight partial is not counted; its
+/// `message_end` is.
+fn fold_turns(messages: &[AgentMessage], tail: TurnTail) -> (Vec<ChatEntry>, TurnUsage) {
+    let partial = match (tail, messages.last()) {
+        (TurnTail::Running, Some(AgentMessage::Assistant(assistant)))
+            if assistant.timing.is_none() =>
+        {
+            Some(assistant)
+        }
+        _ => None,
+    };
     let ordered = order_messages_for_transcript(messages);
     let mut chat: Vec<ChatEntry> = Vec::new();
     let mut card_index: HashMap<String, Vec<usize>> = HashMap::new();
@@ -287,6 +307,11 @@ pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEnt
     let mut turn: Option<TurnFold> = None;
     for message in ordered {
         if let Some(result) = tool_result_message_view(message) {
+            if let (AgentMessage::ToolResult(stored), Some(turn)) = (message, turn.as_mut()) {
+                if stored.is_error {
+                    turn.tool_failed();
+                }
+            }
             let tool_call_id = result.tool_call_id.clone();
             if let Some(result) = settle_last_pending(
                 &mut chat,
@@ -305,13 +330,22 @@ pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEnt
         match message {
             // The previous turn ended at this prompt: its end row first.
             AgentMessage::User(_) => {
-                if let Some(ended) = turn.replace(TurnFold::default()) {
-                    chat.extend(ended.end(TurnBoundary::NextPrompt));
-                }
+                let carried = match turn.take() {
+                    Some(ended) => {
+                        let (rows, carried) = ended.end(TurnBoundary::NextPrompt);
+                        chat.extend(rows);
+                        carried
+                    }
+                    None => TurnUsage::default(),
+                };
+                turn = Some(TurnFold::carrying(carried));
             }
             AgentMessage::Assistant(assistant) => {
                 if let Some(turn) = turn.as_mut() {
-                    turn.assistant(assistant);
+                    turn.assistant(
+                        assistant,
+                        !partial.is_some_and(|partial| std::ptr::eq(partial, assistant)),
+                    );
                 }
             }
             // The retry-episode collapse (SANCTIONED DIVERGENCE, operator
@@ -345,17 +379,24 @@ pub fn fold_transcript(messages: &[AgentMessage], tail: TurnTail) -> Vec<ChatEnt
             }
         }
     }
-    if let (TurnTail::Ended, Some(ended)) = (tail, turn) {
-        chat.extend(ended.end(TurnBoundary::RunEnded));
-    }
+    let open = match (tail, turn) {
+        (TurnTail::Ended, Some(ended)) => {
+            chat.extend(ended.end(TurnBoundary::RunEnded).0);
+            TurnUsage::default()
+        }
+        (TurnTail::Running, Some(open)) => open.usage(),
+        (_, None) => TurnUsage::default(),
+    };
     if superseded.is_empty() {
-        return chat;
+        return (chat, open);
     }
-    chat.into_iter()
+    let chat = chat
+        .into_iter()
         .enumerate()
         .filter(|(index, _)| !superseded.contains(index))
         .map(|(_, entry)| entry)
-        .collect()
+        .collect();
+    (chat, open)
 }
 
 /// Settle a retry episode before its outcome row lands. A failed
@@ -499,7 +540,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
                 | AgentMessage::CompactionSummary(_) => None,
             })
             .unwrap_or(true);
-    let messages = fold_transcript(
+    let (messages, turn_usage) = fold_turns(
         &snapshot.messages,
         if run_open {
             TurnTail::Running
@@ -618,6 +659,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         compacting,
         turn_running,
         open_message,
+        turn_usage,
     })
 }
 
@@ -667,7 +709,7 @@ pub use tool_fold::{
 mod tool_fold;
 
 pub use turn_end::TurnTail;
-pub(crate) use turn_end::{aborted_row, failure_row, no_reply_row};
+pub(crate) use turn_end::{aborted_row, failure_row, no_reply_row, turn_footer};
 use turn_end::{TurnBoundary, TurnFold};
 mod turn_end;
 

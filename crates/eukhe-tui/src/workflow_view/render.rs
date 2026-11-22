@@ -95,7 +95,7 @@ fn run_panel(
         let (glyph, color) = match phase.state {
             WorkflowPhaseState::Done => ("✓", ThemeColor::Success),
             WorkflowPhaseState::Active => ("▶", ThemeColor::Accent),
-            WorkflowPhaseState::Pending => ("·", ThemeColor::Dim),
+            WorkflowPhaseState::Pending => (crate::glyphs::DOT_HALF, ThemeColor::Dim),
         };
         rows.push(vec![
             Span::raw("  "),

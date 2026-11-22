@@ -123,7 +123,7 @@ impl ResponseSpeed {
         }
     }
 
-    /// `prefill X tok/s (TTFT Ys) · decode Z tok/s`; `cached` in place of
+    /// `prefill X tok/s (TTFT Ys) - decode Z tok/s`; `cached` in place of
     /// the prefill rate when the cache gave nearly all of the prompt.
     pub(crate) fn summary(&self) -> String {
         let ttft = format_seconds(self.ttft);
@@ -133,7 +133,11 @@ impl ResponseSpeed {
             Prefill::Unknown => format!("TTFT {ttft}"),
         };
         match self.decode_tokens_per_second {
-            Some(rate) => format!("{prefill} · decode {} tok/s", format_rate(rate)),
+            Some(rate) => format!(
+                "{prefill}{}decode {} tok/s",
+                crate::glyphs::SEP,
+                format_rate(rate)
+            ),
             None => prefill,
         }
     }

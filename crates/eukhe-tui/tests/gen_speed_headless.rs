@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 /// The summary the settled message gives: 6,144 uncached prompt tokens
 /// over a 2 s TTFT, 100 tokens after the first over 2 s of decode.
-const SUMMARY: &str = "prefill 3072 tok/s (TTFT 2.0s) · decode 50.0 tok/s";
+const SUMMARY: &str = "prefill 3072 tok/s (TTFT 2.0s) - decode 50.0 tok/s";
 
 type Writer = Arc<Mutex<UnixStream>>;
 
