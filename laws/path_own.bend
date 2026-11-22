@@ -13,14 +13,16 @@ import ./base.bend as LawsBase
 # Eukhe's own config and credentials, the session record or a protected
 # file of a check under acceptance; nothing asks, the write is refused.
 # The caller (eukhe-shell, the document tools) names these places with
-# own rules (eukhe-types PathPolicy::own_rules: the agent dir as a Dir
-# rule, the agent profiles dir, the sessions and sessions-archive dirs,
-# each settings file the session reads and each --protect file of a set
-# check as Tree rules), resolves the path an access touches to its real
-# path (eukhe-types path_policy::resolve; names deepest first) and asks
-# the class of the access, given the path policy's class of the path. It
-# runs as the compiled core by bend/ffi_path_own.bend (eukhe-bend
-# rules/path_own.rs). Every input is free: any rules, any path, any class.
+# own rules (eukhe-core durable/path_policy.rs `own`, set on the policy
+# by eukhe-types `PathPolicy::with_own`: the agent dir as a Dir rule, the
+# agent profiles dir, each settings file the session reads, the sessions
+# and sessions-archive dirs and each --protect file of a set check as
+# Tree rules), resolves the path an access touches to its real path
+# (eukhe-types path_policy::resolve; names deepest first) and asks the
+# class of the access, given the path policy's class of the path
+# (eukhe-shell paths::own_write). It runs as the compiled core by
+# bend/ffi_path_own.bend (eukhe-bend rules/path_own.rs). Every input is
+# free: any rules, any path, any class.
 #
 # R1 (I3): a read keeps the judge's class: no read is Own.
 # R2 (I3): a write no own rule names keeps the judge's class.
@@ -36,9 +38,18 @@ import ./base.bend as LawsBase
 #     and nothing after it, and answers any other input with the exact
 #     error form `E path_own: malformed request`.
 #
-# Not pinned here: that Rust resolves the path and the rules to real
-# paths, refuses an Own write with the path and why, and lists every own
-# place in the rules (eukhe-types and eukhe-shell tests).
+# Not pinned here, gated by Rust tests: the own places in the rules
+# (eukhe_core::durable::path_policy::tests::
+# every_loader_file_and_the_session_record_are_own); the real paths
+# (eukhe_types::path_policy::tests::
+# real_paths_follow_links_on_the_existing_part); that an Own write is
+# refused with the path and why, and in a script it and the steps after
+# it do not run (eukhe_shell::run::tests::
+# every_step_runs_unasked_and_an_own_write_stops_the_script and
+# an_own_write_in_a_pipeline_runs_none_of_its_stages;
+# eukhe_core::durable::path_policy::tests::
+# a_document_write_to_an_own_path_is_refused; every client:
+# irreversible_unasked_e2e).
 
 # Spec helpers
 # ------------

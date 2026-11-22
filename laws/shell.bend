@@ -41,9 +41,19 @@ import ./base.bend as LawsBase
 # R8 (spec/README.md I3): a script runs its steps in order up to the first
 #     step that writes an own path; that step and every later one do not
 #     run, and the script ends stopped at that step's id; a script with no
-#     such step runs every step. A step planned from its parts carries the
-#     parts' effects (R3) and writes an own path exactly when its verdict
-#     (R7) refuses it.
+#     such step runs every step. A step here is a pipeline (a lone command
+#     is a pipeline of one stage): its stages start together, so a
+#     pipeline with a stage that writes an own path runs none of its
+#     stages, and the script ends stopped at that stage's id. A step
+#     planned from its parts carries the parts' effects (R3) and writes an
+#     own path exactly when its verdict (R7) refuses it. Tl.script is the
+#     model: no entry runs it. Rust runs the script (crates/eukhe-shell/
+#     src/run.rs `Shell::run`, `pipeline`), asking the entry's verdict (R7)
+#     for each stage. Rust tests gate it: eukhe_shell::run::tests::
+#     every_step_runs_unasked_and_an_own_write_stops_the_script (the steps
+#     before the refused one run, it and the later ones do not, the end
+#     names its id; a pipeline with no own write runs every stage) and
+#     an_own_write_in_a_pipeline_runs_none_of_its_stages.
 # Every input is free: any parts, any effects, any step id, any text.
 
 # Spec spellers
@@ -254,7 +264,8 @@ law shell_plan:
   {Tl.plan(i, ps) == Tl.Planned{i, Tl.pieces.effs(ps), refused(Tl.verdict(ps))} : Tl.Planned}
 
 # LAW shell_script_runs_all (R8): a script none of whose steps writes an
-# own path runs every step, in order, and ends with every step run
+# own path runs every step, in order, and ends with every step run (of
+# the model Tl.script; Rust's loop mirrors it, gated by its tests, R8)
 # EXCLUDES: a step dropped, repeated or reordered; a script stopped early
 #   (a net, secret or outside step taken as a stop)
 law shell_script_runs_all:
@@ -264,7 +275,8 @@ law shell_script_runs_all:
 
 # LAW shell_script_stops (R8): steps that write no own path, then step i
 # that writes one: the steps before it run, in order; it and every later
-# step do not, and the script ends stopped at i
+# step do not, and the script ends stopped at i (of the model Tl.script;
+# Rust's loop mirrors it, gated by its tests, R8)
 # EXCLUDES: the refused step run, a later step run, the steps before it
 #   dropped, a stop named by another id
 law shell_script_stops:

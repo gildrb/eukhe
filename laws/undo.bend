@@ -15,7 +15,10 @@
 # R2: /undo restores the newest snapshot not undone and drops it, from any
 #     state Rust stored, whatever its first snapshot; with none left it is
 #     refused. A turn start, from any state, only keeps its snapshot: no
-#     snapshot is restored but by /undo.
+#     snapshot is restored but by /undo. From any state Rust stored,
+#     whatever its first snapshot, a turn start t puts t newest in front of
+#     the snapshots left, dropping none, and keeps the first snapshot, or
+#     makes t the first when none is recorded.
 # R3: a refused /undo changes nothing.
 # R4: /diff compares the workspace with the newest snapshot not undone
 #     (the turn) or with the session's first snapshot (all), from any state
@@ -34,6 +37,15 @@
 #     within the wire) with the answer of R1-R7, reads exactly the request
 #     and nothing after it, and answers any other input with the exact
 #     error form `E undo: malformed request`.
+#
+# Not pinned here, gated by Rust tests: a turn whose snapshot failed is
+# recorded as failed, and /undo and /diff of it stop there, say why and
+# change nothing (eukhe_core::undo::tests::
+# undo_stops_at_a_turn_without_a_snapshot,
+# a_first_turn_without_a_snapshot_is_where_diff_all_starts); /undo is
+# refused while a run is going (eukhe_daemon::rpc::commands::tests::
+# undo_turn_is_refused_during_the_run_and_get_turn_diff_answers; the SDK:
+# embed::undo_turn_is_refused_while_a_run_is_going).
 
 import Base
 import ../bend/undo.bend as U
@@ -409,6 +421,19 @@ law undo_turn_takes:
   for +st: U.St
   for t: Nat
   {sp_act(U.step(st, U.TurnStart{t})) == U.Took{} : U.Act}
+
+# LAW undo_turn_any_state (R2): from every state, whatever its first
+# snapshot (none recorded included), a turn start t puts t newest in front
+# of the snapshots left and keeps them all; it keeps the first snapshot
+# when one is recorded and makes t the first when none is
+# EXCLUDES: a turn start that drops or replaces a snapshot left (on a
+#   state no history builds, as the wire may carry), moves a recorded
+#   first snapshot, or leaves none recorded
+law undo_turn_any_state:
+  for t: Nat
+  for live: List<&2, Nat>
+  for f: Nat
+  {sp_state(U.step(U.St{live, None{}}, U.TurnStart{t})) == U.St{t <> live, Some{t}} : U.St} & {sp_state(U.step(U.St{live, Some{f}}, U.TurnStart{t})) == U.St{t <> live, Some{f}} : U.St}
 
 # LAW undo_takes_newest (R2): from every state with a snapshot left, for
 # every first snapshot (none recorded included), /undo restores the newest

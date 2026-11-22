@@ -642,6 +642,7 @@ import ./proof/tools/path_resolve_spec.bend as PPathResolveSpec
 import ./proof/tools/tools_ffi_exact.bend as PToolsFfiExact
 import ./proof/tools/tools_ffi_example.bend as PToolsFfiExample
 import ./proof/tools/step_holds_every_part.bend as PStepHoldsEveryPart
+import ./proof/tools/step_holds_only_its_parts.bend as PStepHoldsOnlyItsParts
 import ./proof/tools/secret_needs_a_secret_path.bend as PSecretNeedsASecretPath
 import ./proof/tools/secret_path_gives_secret.bend as PSecretPathGivesSecret
 import ./proof/screen/base.bend as LAScreen
@@ -1920,6 +1921,8 @@ import ./proof/dash_policy/dash_policy_entry_answers.bend as PDashPolicyEntryAns
 import ./proof/dash_policy/dash_policy_entry_exact.bend as PDashPolicyEntryExact
 import ./proof/dash_policy/dash_policy_entry_refuses.bend as PDashPolicyEntryRefuses
 import ./proof/dash_policy/dash_policy_entry_example.bend as PDashPolicyEntryExample
+import ./proof/dash_policy/dash_policy_entry_req_exact.bend as PDashPolicyEntryReqExact
+import ./proof/dash_policy/dash_policy_entry_req_example.bend as PDashPolicyEntryReqExample
 import ./proof/dash_access/base.bend as LADashAccess
 import ./proof/dash_access/dash_access_host_spelled.bend as PDashAccessHostSpelled
 import ./proof/dash_access/dash_access_host_only_spelled.bend as PDashAccessHostOnlySpelled
@@ -4641,6 +4644,7 @@ import ./proof/undo/base/reads.bend as LAUndoReads
 import ./proof/undo/undo_state.bend as PUndoState
 import ./proof/undo/undo_restores_newest.bend as PUndoRestoresNewest
 import ./proof/undo/undo_turn_takes.bend as PUndoTurnTakes
+import ./proof/undo/undo_turn_any_state.bend as PUndoTurnAnyState
 import ./proof/undo/undo_takes_newest.bend as PUndoTakesNewest
 import ./proof/undo/undo_refused_changes_nothing.bend as PUndoRefusedChangesNothing
 import ./proof/undo/undo_refusal_keeps_state.bend as PUndoRefusalKeepsState
