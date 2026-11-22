@@ -28,7 +28,8 @@ import ./base.bend as LawsBase
 # R4: the entry answers each request Rust writes (K6) with the spelling
 #     (K7) of the core's step for it; an input it answers with a step is
 #     exactly such a request; every other input gets exactly
-#     `E work_left: malformed request` (K8).
+#     `E work_left: malformed request` (K8), a request with the progress
+#     check's steer (tag 2, which Rust never writes) among them.
 # Every other answer yields (K4): the step has three outcomes, so R1 and
 # R2 fix the third.
 # A4's Rust parts are not laws: which answers state work left (the
@@ -92,7 +93,8 @@ law work_left_example:
 # --------------------
 
 # the counts of a request fit the wire (below 10^14, as Rust saturates
-# them): the loop's steps left and the progress check's count of stalls
+# them): the loop's steps left and the progress check's count of stalls;
+# a steer is no request (K6: Rust sends it as a stop)
 def wl_fits(f: Wl.Facts) -> Bool:
   match f:
     case Wl.Facts{d, q, a, b, s, n, r}:
@@ -101,6 +103,8 @@ def wl_fits(f: Wl.Facts) -> Bool:
           Bool.and(LawsBase.wire_fits(n), LawsBase.wire_fits(k))
         case Pg.Stop{k}:
           Bool.and(LawsBase.wire_fits(n), LawsBase.wire_fits(k))
+        case Pg.Steer{k}:
+          False{}
 
 # LAW work_left_entry_answers (R4): the entry answers every request Rust
 # spells (K6), its counts within the wire (wl_fits), with the spelling
@@ -142,6 +146,21 @@ law work_left_entry_left_over:
   for +ch: Char
   for +t: String
   {FWl.ffi(SpL.w_req(f, SCon{ch, t})) == Wr.err("work_left: malformed request") : String}
+
+# LAW work_left_entry_steer (R4): a request spelled with the progress
+# check's steer (tag 2: Rust sends a steer as a stop, K6), whatever its
+# other fields and whatever follows, answers exactly the error form
+# EXCLUDES: a steer read as go or as stop; a step answered for a steer
+law work_left_entry_steer:
+  for +d: Bool
+  for +q: Bool
+  for +a: Bool
+  for +b: Bool
+  for +k: Nat
+  for +n: Nat
+  for +r: Wl.Reading
+  for +rest: String
+  {FWl.ffi(SpL.w_req(Wl.Facts{d, q, a, b, Pg.Steer{k}, n, r}, rest)) == Wr.err("work_left: malformed request") : String}
 
 # LAW work_left_entry_example (R4): anchor: the strings Rust sends and the
 # replies it reads: an answer read as work left with 3 steps left, one not

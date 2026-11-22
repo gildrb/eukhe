@@ -31,13 +31,16 @@ def wx.P(s: String, d: Wr.Dec<Wl.Facts>) -> Type:
     case Wr.Bad{}:
       Unit
 
-# the count of a progress check fits the wire
-def wx.sf(st: Pg.Goal) -> Bool:
+# the count of a progress check fits the wire (the decoder never reads a
+# steer)
+def wx.sf(st: Pg.Run) -> Bool:
   match st:
     case Pg.Go{k}:
       LawsBase.wire_fits(k)
     case Pg.Stop{k}:
       LawsBase.wire_fits(k)
+    case Pg.Steer{k}:
+      False{}
 
 # the tag of a progress check that stops, or goes on
 def wx.tag(stop: Bool) -> Nat:
@@ -54,19 +57,21 @@ def wx.and_tt(+a: Bool, -b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : B
     case False{}:
       LStg.stg.absurdF({Bool.and(False{}, b) == True{} : Bool}, ha)
 
-def wx.fits(-d: Bool, -q: Bool, -a: Bool, -b: Bool, st: Pg.Goal, +n: Nat, -r: Wl.Reading, hn: {LawsBase.wire_fits(n) == True{} : Bool}, hs: {wx.sf(st) == True{} : Bool}) -> {WorkLeft.wl_fits(Wl.Facts{d, q, a, b, st, n, r}) == True{} : Bool}:
+def wx.fits(-d: Bool, -q: Bool, -a: Bool, -b: Bool, st: Pg.Run, +n: Nat, -r: Wl.Reading, hn: {LawsBase.wire_fits(n) == True{} : Bool}, hs: {wx.sf(st) == True{} : Bool}) -> {WorkLeft.wl_fits(Wl.Facts{d, q, a, b, st, n, r}) == True{} : Bool}:
   match st:
     case Pg.Go{+k}:
       wx.and_tt(LawsBase.wire_fits(n), LawsBase.wire_fits(k), hn, hs)
     case Pg.Stop{+k}:
       wx.and_tt(LawsBase.wire_fits(n), LawsBase.wire_fits(k), hn, hs)
+    case Pg.Steer{+k}:
+      LStg.stg.absurdF({WorkLeft.wl_fits(Wl.Facts{d, q, a, b, Pg.Steer{k}, n, r}) == True{} : Bool}, hs)
 
 # s spells the fields before the reading; r7 spells the reading: s is the
 # request
-def wx.join(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Goal, +n: Nat, +r7: String, +rd: Wl.Reading, +rest: String, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, r7)))))) : String}, e: {r7 == SpL.w_reading(rd, rest) : String}) -> {s == SpL.w_req(Wl.Facts{d, q, a, b, st, n, rd}, rest) : String}:
+def wx.join(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Run, +n: Nat, +r7: String, +rd: Wl.Reading, +rest: String, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, r7)))))) : String}, e: {r7 == SpL.w_reading(rd, rest) : String}) -> {s == SpL.w_req(Wl.Facts{d, q, a, b, st, n, rd}, rest) : String}:
   Equal.trans(String, s, Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, r7)))))), Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, SpL.w_reading(rd, rest))))))), pre, Equal.cong(String, String, z => Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, z)))))), r7, SpL.w_reading(rd, rest), e))
 
-def wx.reading(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Goal, +n: Nat, +r7: String, x: Wr.Dec<Nat>, ex: {Wr.get_nat(r7) == x : Wr.Dec<Nat>}, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, r7)))))) : String}, hn: {LawsBase.wire_fits(n) == True{} : Bool}, hs: {wx.sf(st) == True{} : Bool}) -> wx.P(s, FWl.get_facts.reading(d, q, a, b, st, n, FWl.get_reading(x))):
+def wx.reading(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Run, +n: Nat, +r7: String, x: Wr.Dec<Nat>, ex: {Wr.get_nat(r7) == x : Wr.Dec<Nat>}, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, Wr.put_nat(n, r7)))))) : String}, hn: {LawsBase.wire_fits(n) == True{} : Bool}, hs: {wx.sf(st) == True{} : Bool}) -> wx.P(s, FWl.get_facts.reading(d, q, a, b, st, n, FWl.get_reading(x))):
   match x:
     case Wr.Got{t, +rest}:
       match t:
@@ -83,7 +88,7 @@ def wx.reading(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Goal,
     case Wr.Bad{}:
       Unit{}
 
-def wx.left(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Goal, +r6: String, x: Wr.Dec<Nat>, +ex: {Wr.get_nat(r6) == x : Wr.Dec<Nat>}, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, r6))))) : String}, hs: {wx.sf(st) == True{} : Bool}) -> wx.P(s, FWl.get_facts.left(d, q, a, b, st, x)):
+def wx.left(-s: String, +d: Bool, +q: Bool, +a: Bool, +b: Bool, +st: Pg.Run, +r6: String, x: Wr.Dec<Nat>, +ex: {Wr.get_nat(r6) == x : Wr.Dec<Nat>}, pre: {s == Wr.put_bool(d, Wr.put_bool(q, Wr.put_bool(a, Wr.put_bool(b, SpL.w_stall(st, r6))))) : String}, hs: {wx.sf(st) == True{} : Bool}) -> wx.P(s, FWl.get_facts.left(d, q, a, b, st, x)):
   match x:
     case Wr.Got{+n, +r7}:
       +e = Wire.wire_nat_exact(r6, n, r7, ex)

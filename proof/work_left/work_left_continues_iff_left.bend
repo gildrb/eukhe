@@ -44,3 +44,17 @@ def WorkLeft.work_left_continues_iff_left(f):
                                   {==}
                                 case Wl.Unjudged{}:
                                   {==}
+                        case Pg.Steer{k}:
+                          match n:
+                            case 0n:
+                              {==}
+                            case 1n+m:
+                              match r:
+                                case Wl.Unread{}:
+                                  {==}
+                                case Wl.Finished{}:
+                                  {==}
+                                case Wl.Left{}:
+                                  {==}
+                                case Wl.Unjudged{}:
+                                  {==}
