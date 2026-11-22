@@ -33,7 +33,7 @@ In a session, `/accept cmd --protect tests/app.test.js npm test` sets a check. T
 
 The agent cannot set, change, skip or remove a check. A check that finds less than 80 % of the breaks is weak, and the task ends `checks passed, not certified`. After 3 failed checks in sequence, the task ends `failed`.
 
-When every check finds enough breaks, up to two attackers each write a version of a changed file that they claim is wrong, and a command that shows it wrong. An attacker is a model request that does not see the agent's reasoning or answer. When such a version passes every check, its command shows it wrong and a separate model request agrees, the task ends `checks passed, not certified`.
+When every check finds enough breaks, up to two attackers each write a wrong version of a changed file and a command with the output that the task requires. An attacker is a model request that does not see the agent's reasoning or answer. When the wrong version passes every check, the command runs on it and on the agent's code. When either one gives another output and a separate model request agrees that the task requires the stated output, the task ends `checks passed, not certified`.
 
 ## Limits
 
@@ -61,13 +61,13 @@ Each child works on its own files in its own copy. A parent can set the checks o
 
 ## Report
 
-Each step runs without a question in the terminal, the browser, the phone and a script. At the end, one report gives the agent's final answer and the result of each check, and one message lists each irreversible effect that ran, such as a push.
+Each step runs without a question in the terminal, the browser, the phone and a script. After the agent acts, a separate model request reads its final answer; when that request finds work of the task left in the answer, or a question whether to go on, the run continues with that work, also after the checks pass. At the end, one report gives the agent's final answer and the result of each check, and one message lists each irreversible effect that ran, such as a push.
 
 `/undo` puts the files back to their state at the start of the last prompt and names the irreversible effects that it cannot undo; each further `/undo` goes back one more prompt. `/diff` shows what changed since the last prompt started.
 
 ## Limitations
 
-There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break and that no attacker writes, for example a hard-coded answer. `/undo` does not restore files that `.gitignore` ignores, files over 16 MiB or nested repositories. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
+There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break, for example a hard-coded answer; an attacker finds such code only with a command on an input that the code gets wrong. `/undo` does not restore files that `.gitignore` ignores, files over 16 MiB or nested repositories. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
 
 ## Credits
 
