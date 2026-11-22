@@ -70,7 +70,8 @@ pub(super) enum Copied {
     Cloned,
     /// The bytes were copied: the filesystem cannot share extents here.
     Plain,
-    /// Nothing to copy: no file or symlink at the source.
+    /// Nothing to copy: no file or symlink at the source (also one gone
+    /// while it was copied: removed or renamed by another process).
     Skipped,
 }
 
@@ -80,14 +81,19 @@ pub(super) enum Copied {
 pub(super) fn copy_entry(from: &Path, to: &Path) -> io::Result<Copied> {
     let meta = match fs::symlink_metadata(from) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Copied::Skipped),
+        Err(error) if gone(&error) => return Ok(Copied::Skipped),
         Err(error) => return Err(error),
     };
     if let Some(dir) = to.parent() {
         fs::create_dir_all(dir)?;
     }
     if meta.file_type().is_symlink() {
-        std::os::unix::fs::symlink(fs::read_link(from)?, to)?;
+        let target = match fs::read_link(from) {
+            Ok(target) => target,
+            Err(error) if gone(&error) => return Ok(Copied::Skipped),
+            Err(error) => return Err(error),
+        };
+        std::os::unix::fs::symlink(target, to)?;
         return Ok(Copied::Cloned);
     }
     if !meta.is_file() {
@@ -96,8 +102,22 @@ pub(super) fn copy_entry(from: &Path, to: &Path) -> io::Result<Copied> {
     if clone_file(from, to, &meta).is_ok() {
         return Ok(Copied::Cloned);
     }
-    fs::copy(from, to)?;
-    Ok(Copied::Plain)
+    // `fs::copy` opens `from` before it creates `to`: a source gone since
+    // its metadata leaves no file behind.
+    match fs::copy(from, to) {
+        Ok(_) => Ok(Copied::Plain),
+        Err(error) if gone(&error) => Ok(Copied::Skipped),
+        Err(error) => Err(error),
+    }
+}
+
+/// `error` says the path is not there (any more): no entry, or one of its
+/// directories is no directory.
+fn gone(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+    )
 }
 
 /// Clone `from` into the new file `to` (its data and its mode).
@@ -189,14 +209,18 @@ pub(super) enum Listing {
 /// The files and symlinks under `dir`, relative to it; `.git` is never
 /// listed.
 pub(super) fn walk(dir: &Path, listing: Listing) -> io::Result<BTreeSet<PathBuf>> {
-    walked(dir, listing).collect()
+    walked(dir, listing, Vec::new()).collect()
 }
 
 /// The files and symlinks under `dir` as the walk finds them, relative to
-/// it; `.git` is never listed.
+/// it; `.git` is never listed, nor anything under a path of `left_out`
+/// (relative to `dir`). An entry gone while the walk reads it (removed or
+/// renamed by another process) is not listed; `dir` itself gone is an
+/// error.
 pub(super) fn walked(
     dir: &Path,
     listing: Listing,
+    left_out: Vec<PathBuf>,
 ) -> impl Iterator<Item = io::Result<PathBuf>> + '_ {
     let mut builder = ignore::WalkBuilder::new(dir);
     builder.standard_filters(false).follow_links(false);
@@ -206,8 +230,18 @@ pub(super) fn walked(
             builder.git_ignore(true).require_git(false);
         }
     }
-    builder.filter_entry(|entry| entry.file_name() != ".git");
+    let root = dir.to_path_buf();
+    builder.filter_entry(move |entry| {
+        entry.file_name() != ".git"
+            && !entry
+                .path()
+                .strip_prefix(&root)
+                .is_ok_and(|relative| left_out.iter().any(|out| relative == out.as_path()))
+    });
     builder.build().filter_map(move |entry| match entry {
+        Err(error) if error.io_error().is_some_and(gone) && fs::symlink_metadata(dir).is_ok() => {
+            None
+        }
         Err(error) => Some(Err(io::Error::other(error))),
         Ok(entry) => entry
             .file_type()
@@ -220,14 +254,22 @@ pub(super) fn walked(
 /// The paths of the parent workspace a child copies: the tracked and the
 /// untracked, not ignored files of its git work tree under `dir`
 /// ([`git_paths`]), else (no git work tree) the files its `.gitignore`
-/// files do not ignore.
+/// files do not ignore; never one under a path of `left_out` (relative to
+/// `dir`).
 #[tracing::instrument(level = "debug")]
-pub(super) async fn parent_paths(dir: &Path) -> anyhow::Result<BTreeSet<PathBuf>> {
-    if let Some(paths) = git_paths(dir).await {
+pub(super) async fn parent_paths(
+    dir: &Path,
+    left_out: Vec<PathBuf>,
+) -> anyhow::Result<BTreeSet<PathBuf>> {
+    if let Some(mut paths) = git_paths(dir).await {
+        paths.retain(|path| !left_out.iter().any(|out| path.starts_with(out)));
         return Ok(paths);
     }
     let dir = dir.to_path_buf();
-    Ok(tokio::task::spawn_blocking(move || walk(&dir, Listing::NotIgnored)).await??)
+    Ok(tokio::task::spawn_blocking(move || {
+        walked(&dir, Listing::NotIgnored, left_out).collect::<io::Result<_>>()
+    })
+    .await??)
 }
 
 /// The tracked and the untracked, not ignored files of the git work tree

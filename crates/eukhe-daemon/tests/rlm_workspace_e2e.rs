@@ -443,3 +443,85 @@ fn a_child_still_writing_at_its_end_stops_before_its_hand_back() {
         }),
     );
 }
+
+/// A parent working in a directory that holds the agent dir and the work
+/// root (a user running Eukhe from the home directory) splits two isolated
+/// children at once: both copies are made while the other is staged in
+/// the work root, and neither holds Eukhe's state.
+#[test]
+fn a_split_from_a_directory_holding_eukhes_state_copies_none_of_it() {
+    let lane = Lane::new();
+    std::fs::write(lane.work().join("a.txt"), "a0").expect("parent workspace file");
+    // Each child lists its copy into a receipt named by its id (its
+    // workspace root's name; its copy is `<root>/tree`).
+    let child_script = lane.script(
+        "child",
+        &json!([
+            tool_call(&format!(
+                "import json, os\ntree = os.getcwd()\nlisting = os.path.join({receipts:?}, os.path.basename(os.path.dirname(tree)) + \".json\")\nopen(listing + \".tmp\", \"w\").write(json.dumps({{\"names\": sorted(os.listdir(tree)), \"a\": open(os.path.join(tree, \"work\", \"a.txt\")).read()}}))\nos.replace(listing + \".tmp\", listing)",
+                receipts = lane.receipts().display().to_string(),
+            )),
+            { "text": "copy listed" },
+        ]),
+    );
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            tool_call(&lane.cell(
+                "parent",
+                "one, two = await rlm.split({\"scope\": [\"work/one\"], \"task\": \"list your copy\", \"name\": \"one\"}, {\"scope\": [\"work/two\"], \"task\": \"list your copy\", \"name\": \"two\"})\nstatuses = [r.status for handle in (one, two) for r in await rlm.collect(handle, timeout_ms=60000)]\nrecord({\"ids\": [one.rlm_child_id, two.rlm_child_id], \"statuses\": statuses})",
+            )),
+            { "text": "parent turn done" },
+        ]),
+    );
+    let _daemon = spawn_supervisor(&lane.socket(), &lane.agent_dir());
+    let mut client = connect(&lane.socket());
+    let created = client.request(
+        "create",
+        &json!({
+            "type": "create",
+            "name": "parent",
+            "config": {
+                // The lane holds the agent dir (`agent`) and its work root
+                // (`agent-work`), where the children's copies are staged.
+                "cwd": lane.path().to_string_lossy(),
+                "sessionDir": lane.sessions_dir().to_string_lossy(),
+                "script": parent_script.to_string_lossy(),
+                "childScript": child_script.to_string_lossy(),
+            },
+        }),
+    );
+    let parent = created["activeSessionId"]
+        .as_str()
+        .expect("parent active session id")
+        .to_owned();
+    client.request(
+        "prompt",
+        &json!({ "type": "prompt", "activeSessionId": parent, "message": "split" }),
+    );
+
+    let receipt = lane.receipt("parent");
+    assert_eq!(receipt["statuses"], json!(["done", "done"]), "{receipt}");
+    let work_root =
+        eukhe_types::platform::dirs::work_root_of(&lane.agent_dir()).expect("a work root");
+    let state = [&lane.agent_dir(), &work_root].map(|dir| {
+        dir.file_name()
+            .expect("state dir name")
+            .to_string_lossy()
+            .into_owned()
+    });
+    for id in receipt["ids"].as_array().expect("child ids") {
+        let listing = lane.receipt(id.as_str().expect("child id"));
+        let names: Vec<&str> = listing["names"]
+            .as_array()
+            .expect("listed names")
+            .iter()
+            .map(|name| name.as_str().expect("name"))
+            .collect();
+        assert!(
+            names.contains(&"work") && !state.iter().any(|dir| names.contains(&dir.as_str())),
+            "child {id}'s copy: {names:?}"
+        );
+        assert_eq!(listing["a"], "a0", "child {id}");
+    }
+}

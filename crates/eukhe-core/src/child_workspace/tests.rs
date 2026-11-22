@@ -115,7 +115,7 @@ async fn a_workspace_copies_tracked_and_untracked_files_but_not_ignored_ones() {
     git(&parent, &["init", "-q"]);
     git(&parent, &["add", ".gitignore", "src/a.txt"]);
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    let report = workspace.create(&parent).await.unwrap();
+    let report = workspace.create(&parent, &[]).await.unwrap();
     let expected = files_of(&[
         (".gitignore", "target/\n"),
         ("b.txt", "b"),
@@ -132,11 +132,64 @@ async fn a_workspace_copies_tracked_and_untracked_files_but_not_ignored_ones() {
     );
     // A second create keeps the copy the child already changed.
     write(&workspace.tree(), "b.txt", "changed");
-    assert_eq!(workspace.create(&parent).await.unwrap(), report);
+    assert_eq!(workspace.create(&parent, &[]).await.unwrap(), report);
     assert_eq!(
         fs::read_to_string(workspace.tree().join("b.txt")).unwrap(),
         "changed"
     );
+}
+
+/// A parent working in a directory that holds Eukhe's own state (a home
+/// directory holds `~/.eukhe` and `~/.eukhe-work`) splits two children at
+/// once: both copies are made, beside each other in the work root, and
+/// neither holds the agent dir, the work root or the other's staging,
+/// whether git lists the parent's files or the walk does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_workspace_never_copies_eukhes_state_inside_its_parent() {
+    for git_tree in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("home");
+        write(&parent, "project/a.txt", "a");
+        write(&parent, ".eukhe/settings.json", "{}");
+        write(&parent, ".eukhe/sessions/s.jsonl", "{}\n");
+        let (agent, work) = (parent.join(".eukhe"), parent.join(".eukhe-work"));
+        let workspaces = work.join("workspaces").join("session");
+        fs::create_dir_all(&workspaces).unwrap();
+        if git_tree {
+            git(&parent, &["init", "-q"]);
+            git(&parent, &["add", "project/a.txt"]);
+        }
+        let (one, two) = (
+            ChildWorkspace::at(workspaces.join("one")),
+            ChildWorkspace::at(workspaces.join("two")),
+        );
+        let state = [agent.as_path(), work.as_path()];
+        let (first, second) =
+            tokio::join!(one.create(&parent, &state), two.create(&parent, &state));
+        first.unwrap();
+        second.unwrap();
+        let expected = files_of(&[("project/a.txt", "a")]);
+        assert_eq!(
+            [snapshot(&one.tree()), snapshot(&two.tree())],
+            [expected.clone(), expected],
+            "git tree: {git_tree}"
+        );
+    }
+}
+
+/// An entry removed while the walk runs (another process renaming its
+/// staging away) is not listed, and the walk goes on.
+#[test]
+fn a_walk_skips_an_entry_gone_while_it_walks() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "a/x", "x");
+    write(dir.path(), "b/y", "y");
+    let mut walk = files::walked(dir.path(), Listing::All, Vec::new());
+    let first = walk.next().unwrap().unwrap();
+    let other = if first.starts_with("a") { "b" } else { "a" };
+    fs::remove_dir_all(dir.path().join(other)).unwrap();
+    let rest: Vec<PathBuf> = walk.collect::<std::io::Result<_>>().unwrap();
+    assert!(rest.is_empty(), "{first:?}, then {rest:?}");
 }
 
 /// A child's copy is known by its directory until it is handed back;
@@ -147,7 +200,7 @@ async fn a_childs_copy_is_known_by_its_directory_until_its_hand_back() {
     let parent = dir.path().join("parent");
     write(&parent, "a.txt", "a0");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     let found = (
         ChildWorkspace::of_tree(&workspace.tree()),
         ChildWorkspace::of_tree(&parent),
@@ -196,7 +249,7 @@ async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_reposi
     write(&parent, "b.txt", "b-parent\n");
     write(&parent, "u.txt", "u0\n");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     let tree = workspace.tree();
     write(&tree, "a.txt", "a-child\n");
     write(&tree, "n.txt", "n-child\n");
@@ -307,7 +360,7 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
     write(&parent, "c.txt", "c0");
     write(&parent, "gone.txt", "g0");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     // The child edits a, c and adds a nested file and a build output its
     // .gitignore hides; the parent edits b and c.
     write(&workspace.tree(), "a.txt", "a-child");
@@ -373,8 +426,8 @@ async fn a_hand_back_keeps_each_doc_above_its_item_or_reports_the_conflict() {
     write(&parent, "src/b.rs", "/// B.\npub struct B;\n");
     let first = ChildWorkspace::at(dir.path().join("first"));
     let second = ChildWorkspace::at(dir.path().join("second"));
-    first.create(&parent).await.unwrap();
-    second.create(&parent).await.unwrap();
+    first.create(&parent, &[]).await.unwrap();
+    second.create(&parent, &[]).await.unwrap();
     let first_lib = "/// Adds one.\npub fn inc(x: u32) -> u32 {\n    x + 1\n}\n\n/// Halves.\n\
                      pub fn half(x: u32) -> u32 {\n    x / 2\n}\n\n/// Doubles.\n\
                      pub fn double(x: u32) -> u32 {\n    x * 2\n}\n";
@@ -423,7 +476,7 @@ async fn a_scoped_hand_back_applies_only_the_childs_scope() {
     write(&parent, "docs/d.md", "d0");
     write(&parent, "README.md", "r0");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     write(&workspace.tree(), "src/a.rs", "a-child");
     write(&workspace.tree(), "src/new.rs", "new-child");
     fs::remove_file(workspace.tree().join("src/old.rs")).unwrap();
@@ -478,7 +531,7 @@ async fn a_scoped_hand_back_cut_by_a_crash_runs_again_to_the_same_result() {
     let (clean_parent, clean) = make("clean");
     let (cut_parent, cut) = make("cut");
     for (parent, workspace) in [(&clean_parent, &clean), (&cut_parent, &cut)] {
-        workspace.create(parent).await.unwrap();
+        workspace.create(parent, &[]).await.unwrap();
         write(&workspace.tree(), "src/a.rs", "a-child");
         write(&workspace.tree(), "src/b.rs", "b-child");
         fs::remove_file(workspace.tree().join("src/gone.rs")).unwrap();
@@ -553,7 +606,7 @@ async fn a_hand_back_after_a_crash_removes_the_copy_the_crash_left_beside_a_path
     let parent = dir.path().join("parent");
     write(&parent, "a.txt", "a0");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     write(&workspace.tree(), "a.txt", "a-child");
     // The cut run staged a.txt's copy beside it, then the process died
     // before the rename.
@@ -585,7 +638,7 @@ async fn a_path_the_parent_holds_as_a_directory_or_under_a_file_is_a_conflict() 
     let parent = dir.path().join("parent");
     write(&parent, "a.txt", "a0");
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
-    workspace.create(&parent).await.unwrap();
+    workspace.create(&parent, &[]).await.unwrap();
     // The child adds the file p and the file q/x; the parent adds the
     // directory p/ and the file q.
     write(&workspace.tree(), "a.txt", "a-child");
@@ -1051,7 +1104,7 @@ async fn a_childs_copy_keeps_the_mise_trust_its_parent_has() {
     let mise = fake_mise(dir.path());
     let workspace = ChildWorkspace::at(dir.path().join("ws"));
     workspace
-        .create_asking(&parent, mise.as_os_str())
+        .create_asking(&parent, &[], mise.as_os_str())
         .await
         .unwrap();
     let tree = workspace.tree();
@@ -1107,12 +1160,12 @@ async fn a_copy_of_an_untrusted_or_unasked_parent_trusts_nothing() {
     let mise = fake_mise(dir.path());
     let untrusted = ChildWorkspace::at(dir.path().join("untrusted"));
     untrusted
-        .create_asking(&parent, mise.as_os_str())
+        .create_asking(&parent, &[], mise.as_os_str())
         .await
         .unwrap();
     let unasked = ChildWorkspace::at(dir.path().join("unasked"));
     unasked
-        .create_asking(&parent, dir.path().join("no-mise").as_os_str())
+        .create_asking(&parent, &[], dir.path().join("no-mise").as_os_str())
         .await
         .unwrap();
     assert_eq!(
