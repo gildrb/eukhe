@@ -164,8 +164,6 @@ pub struct Args {
     /// `--wait-limit-ms`: how long print/json mode waits on background
     /// jobs, subagents and a usage-limit reset after a turn ends.
     pub wait_limit_ms: Option<u64>,
-    pub goal: Option<String>,
-    pub goal_token_budget: Option<u32>,
     /// `--budget-cost`, `--budget-tokens`, `--budget-time` (a wall-clock
     /// duration from when a run starts: its deadline),
     /// `--budget-tool-calls` and `--budget-requests`: the limits the
@@ -349,6 +347,7 @@ pub fn parse_args(args: &[String]) -> Args {
     let first_arg_index = usize::from(internal_runtime_command);
 
     let mut end_of_options = false;
+    let mut goal_removed = false;
     let mut i = first_arg_index;
     while i < args.len() {
         let arg = args[i].as_str();
@@ -565,19 +564,30 @@ pub fn parse_args(args: &[String]) -> Args {
                 let value = require_value!(arg);
                 result.wait_limit_ms = parse_positive_u64(&value, arg, &mut result.diagnostics);
             }
+            // The removed goal: `--goal TEXT` is `--auto` with TEXT as the
+            // task, and `--goal-token-budget N` is the run's token limit
+            // (`--budget-tokens N`), with one note.
             "--goal" => {
+                result.autonomous = true;
+                goal_removed = true;
                 let value = require_value!(arg);
                 if value.trim().is_empty() {
                     result
                         .diagnostics
-                        .push(Diagnostic::error("--goal requires a non-empty objective"));
+                        .push(Diagnostic::error("--goal requires a non-empty task"));
                 } else {
-                    result.goal = Some(value);
+                    result.messages.push(value);
                 }
             }
             "--goal-token-budget" => {
+                result.autonomous = true;
+                goal_removed = true;
                 let value = require_value!(arg);
-                result.goal_token_budget = parse_positive_u32(&value, arg, &mut result.diagnostics);
+                if let Some(limit) = parse_positive_u64(&value, arg, &mut result.diagnostics) {
+                    result.budget = result
+                        .budget
+                        .with(BudgetDimension::Tokens, Some(LimitValue::At(limit)));
+                }
             }
             "--budget-cost" => {
                 let value = require_value!(arg);
@@ -725,10 +735,10 @@ pub fn parse_args(args: &[String]) -> Args {
         i += 1;
     }
 
-    if result.goal_token_budget.is_some() && result.goal.is_none() {
+    if goal_removed {
         result
             .diagnostics
-            .push(Diagnostic::error("--goal-token-budget requires --goal"));
+            .push(Diagnostic::warning("--goal is removed: use --auto"));
     }
     if !result.accept_evidence.is_empty() && result.accept_judges.is_empty() {
         result.diagnostics.push(Diagnostic::error(
@@ -1023,9 +1033,18 @@ mod tests {
     }
 
     #[test]
-    fn goal_budget_requires_goal() {
-        let parsed = parse(&["--goal-token-budget", "5"]);
-        assert_eq!(last_error(&parsed), "--goal-token-budget requires --goal");
+    fn goal_is_auto_with_its_task_and_token_limit() {
+        let parsed = parse(&["--goal", "ship it", "--goal-token-budget", "5000"]);
+        assert!(parsed.autonomous);
+        assert_eq!(parsed.messages, vec!["ship it".to_owned()]);
+        assert_eq!(parsed.budget.tokens, Some(LimitValue::At(5000)));
+        let notes: Vec<&str> = parsed
+            .diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(notes, ["--goal is removed: use --auto"]);
+        assert!(!parsed.diagnostics.iter().any(|d| d.is_error));
     }
 
     #[test]

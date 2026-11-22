@@ -77,7 +77,7 @@ pub struct FauxScript {
     /// The `repeatLastResponse` script key: once the queued responses run
     /// out, the provider re-serves the last one on every further call
     /// instead of erroring. Opt-in for harnesses whose flow keeps calling
-    /// the model past the script's depth (an active goal's continuation
+    /// the model past the script's depth (an autonomous run's continuation
     /// churn); the default stays the finite response budget.
     pub repeat_last_response: bool,
 }

@@ -442,7 +442,7 @@ async fn kill9_then_restart_revives_snapshot_and_reports_unserializable() {
 }
 
 /// Background `bash()` handles hold kernel residency (TS #2053), and a
-/// held goal/autonomous continuation waits for their settlement (TS #2465):
+/// held autonomous continuation waits for their settlement (TS #2465):
 /// the kernel's bash-activity track is the liveness surface, and the
 /// settlement callback is the wake-up. A live handle registers on the
 /// track; its completion settles the track exactly once (the completion

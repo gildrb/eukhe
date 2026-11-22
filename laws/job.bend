@@ -183,7 +183,7 @@ law job_feed_fills:
 # ---- core_w6 ----
 
 # LAWS: the entries of the compiled Bend core for the child task, the jobs,
-# the goal's progress check and the hand-back (bend/ffi_child.bend,
+# the autonomous run's progress check and the hand-back (bend/ffi_child.bend,
 # bend/ffi_job.bend, bend/ffi_progress.bend, bend/ffi_sandbox.bend). Each
 # entry, on the request Rust writes (`put_req`, every number within the
 # wire), answers the encoding of the model's decision: the codec loses,

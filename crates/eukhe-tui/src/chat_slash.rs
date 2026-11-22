@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn echo_row_uses_block_geometry() {
-        let rows = render_slash_command("/goal status", &theme(), 40);
+        let rows = render_slash_command("/auto status", &theme(), 40);
         // The echo block carries the zone markers (TS marks the echo but
         // never the result row).
         assert!(osc133::row_markers(&rows[0]).start);
@@ -139,7 +139,7 @@ mod tests {
             plain(&rows),
             vec![
                 osc133::ZONE_START.to_string() + &" ".repeat(40),
-                format!("  {}  ", "/goal status") + &" ".repeat(40 - 2 - 12 - 2),
+                format!("  {}  ", "/auto status") + &" ".repeat(40 - 2 - 12 - 2),
                 osc133::ZONE_END_PREFIX.to_string() + &" ".repeat(40),
             ]
         );
@@ -147,10 +147,10 @@ mod tests {
 
     #[test]
     fn echo_row_wraps_long_args() {
-        let rows = render_slash_command("/goal make the verifier pass everywhere", &theme(), 30);
+        let rows = render_slash_command("/auto make the verifier pass everywhere", &theme(), 30);
         let text = plain(&rows);
         assert_eq!(text.len(), 4);
-        assert!(text[1].starts_with("  /goal make the verifier"));
+        assert!(text[1].starts_with("  /auto make the verifier"));
         assert!(text[2].starts_with("  pass everywhere"));
     }
 

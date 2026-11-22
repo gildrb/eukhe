@@ -42,7 +42,7 @@ pub use self::watch::{watch_loop_updates, LoopUpdates};
 use self::args::{parse_loop_command, resolve_condition, status_message, LoopCommand};
 use self::drive::{decide, Input, LoopHost, Mode};
 use super::acceptance::ModelJudge;
-use super::goals::{open_doc, read_doc, write_doc};
+use super::autonomous::{open_doc, read_doc, write_doc};
 use super::HostDeps;
 use crate::autonomous::{now_millis, ShellGateRunner};
 
@@ -67,8 +67,8 @@ fn loop_funded(deps: &HostDeps) -> Arc<dyn Fn() -> bool + Send + Sync> {
 /// The loop extension of one session: the `pi.generation` hooks and the
 /// run-end observer. The condition command runs in the session cwd; a
 /// stated condition's judge is one request to the session's model.
-/// Installed before the goal extension: while a loop continues a final
-/// answer, the goal's continuation waits.
+/// Installed before the autonomous extension: while a loop continues a
+/// final answer, the autonomous run's continuation waits.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let host = host_of(deps);

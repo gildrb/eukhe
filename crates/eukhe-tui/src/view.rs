@@ -117,9 +117,6 @@ pub struct AgentView {
     /// `HeartbeatManagerComponent`, inline-picker style): while set, it
     /// owns the editor dock like the `/model` and `/effort` pickers.
     pub heartbeats_picker: Option<crate::heartbeats_picker::HeartbeatsPicker>,
-    /// The read-only goal panel (the dock's `Pursuing goal` row): while
-    /// `Some`, the panel owns the frame exactly like the docked pickers.
-    pub goal_panel: Option<crate::goal_surface::GoalPanel>,
     /// The dedicated bash view (the dock's Bash group's destination):
     /// while set, it owns the editor dock like the inline pickers.
     pub bash_view: Option<crate::bash_view::BashView>,
@@ -301,14 +298,12 @@ impl AgentView {
             return true;
         }
         // The input-less frame owners (the key dispatch's same set): the
-        // heartbeats picker, the bash view, the read-only goal and info
-        // panels, the `/memory` tree, the fork selector, the pending
-        // confirm, the reload box,
-        // and the auth panel (its own channel
-        // drives it). None of them leaves a paste to the editor behind.
+        // heartbeats picker, the bash view, the read-only info panel, the
+        // `/memory` tree, the fork selector, the pending confirm, the
+        // reload box, and the auth panel (its own channel drives it).
+        // None of them leaves a paste to the editor behind.
         if self.heartbeats_picker.is_some()
             || self.bash_view.is_some()
-            || self.goal_panel.is_some()
             || self.info_panel.is_some()
             || self.memory_tree.is_some()
             || self.fork_selector.is_some()
@@ -362,7 +357,6 @@ impl AgentView {
             factory_view: None,
             workflow_view: None,
             heartbeats_picker: None,
-            goal_panel: None,
             bash_view: None,
             reload_box: None,
             side_pane: None,

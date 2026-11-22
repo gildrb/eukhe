@@ -1,12 +1,13 @@
 //! The eukhe agent on the durable Harness (`eukhe-durable`): session open,
 //! model collection, settings source, execution environments, and the eukhe
-//! extensions (`eukhe.prompt`, `eukhe.rlm`, `eukhe.optchat`, `eukhe.goals`,
+//! extensions (`eukhe.prompt`, `eukhe.rlm`, `eukhe.optchat`, `eukhe.autonomous`,
 //! `eukhe.children`). Each extension module exposes
 //! `extension(deps: &Arc<HostDeps>) -> Arc<Extension>`; `registry` installs
 //! them in order.
 
 pub mod acceptance;
 mod admission_gate;
+pub mod autonomous;
 pub mod bounded_output;
 pub mod branch_summary;
 pub mod budget;
@@ -22,7 +23,6 @@ mod entries;
 mod env;
 mod export;
 mod fork;
-pub mod goals;
 mod import;
 pub mod jobs;
 pub mod loop_mode;

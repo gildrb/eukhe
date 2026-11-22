@@ -140,11 +140,11 @@ def pgt.watch_quiet(ps: List<&2, Pr.Peek>, +cfg: Ch.Cfg, +hist: List<&2, Nat>) -
         case Pr.Peek{+seg, dt}:
           pgt.watch_quiet(rest, cfg, List.append(&2, Nat, hist, seg))
 
-# The goal loop
-# -------------
+# The run's loop
+# --------------
 
-# a stopped goal stays stopped
-def pgt.goal_stop(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, +s: Nat) -> {Pr.goal(segs, cap, hist, Pr.Stop{s}) == Pr.Stop{s} : Pr.Goal}:
+# a stopped run stays stopped
+def pgt.run_stop(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, +s: Nat) -> {Pr.run(segs, cap, hist, Pr.Stop{s}) == Pr.Stop{s} : Pr.Run}:
   match segs:
     case Nil{}:
       {==}
@@ -164,16 +164,18 @@ def pgt.no_growth(+hist: List<&2, Nat>, +seg: List<&2, Nat>, w: Pr.Within(seg, h
   %Equal.sym(Nat, Pr.work(List.append(&2, Nat, hist, seg)), Pr.work(hist), LA.pp.repeat(hist, seg, w)) : {Nat.is_le(1n+Pr.work(hist), _) == False{} : Bool}
   pgt.succ_le(Pr.work(hist))
 
-def pg.goal(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Pr.Goal) -> {ProgressTerms.goal_spec(segs, cap, hist, g) == Pr.goal(segs, cap, hist, g) : Pr.Goal}:
+def pg.run(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Pr.Run) -> {ProgressTerms.run_spec(segs, cap, hist, g) == Pr.run(segs, cap, hist, g) : Pr.Run}:
   match segs:
     case Nil{}:
       {==}
     case +seg <> rest:
       match g:
         case Pr.Go{s}:
-          pg.goal(rest, cap, List.append(&2, Nat, hist, seg), Pr.check(cap, s, Pr.grew(hist, seg)))
+          pg.run(rest, cap, List.append(&2, Nat, hist, seg), Pr.check(cap, s, Pr.grew(hist, seg)))
         case Pr.Stop{s}:
           {==}
+        case Pr.Steer{s}:
+          pg.run(rest, cap, List.append(&2, Nat, hist, seg), Pr.check(cap, s, Pr.grew(hist, seg)))
 
 def pg.mem(+x: Nat, xs: List<&2, Nat>) -> {ProgressTerms.mem_spec(x, xs) == Pr.mem(x, xs) : Bool}:
   match xs:

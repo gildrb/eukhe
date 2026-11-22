@@ -28,7 +28,6 @@ pub mod fallback;
 pub mod frames;
 pub mod fsmode;
 pub mod glob;
-pub mod goal_text;
 pub mod headless;
 pub mod infer_force;
 pub mod infer_guard;

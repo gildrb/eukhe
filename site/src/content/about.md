@@ -13,7 +13,7 @@ wish.
 > So there is some hesitation to touch these things, lest the
 > argument seem a mere wish, my dear friend. (Plato, Republic 5.450d)
 
-You write the wish as rules in `AGENTS.md`, as a goal and as commands
+You write the wish as rules in `AGENTS.md`, as a task and as commands
 that must pass. When one of those commands fails, Eukhe gives its
 output to the agent and runs another turn, and it repeats this until
 every command passes or the run reaches a limit. A session is an
@@ -36,10 +36,10 @@ own process.
 Eukhe reads `AGENTS.md` in your project and puts it in the system
 prompt.
 
-`eukhe --goal "objective"` keeps running turns until the goal
-completes (with acceptance checks: when they all pass) or its
-responses reach `--goal-token-budget` tokens; the agent then wraps
-up and the run ends at its next final answer.
+`eukhe --auto -p "task"` keeps running turns on the task until its
+acceptance checks all pass, it reaches a limit (`--budget-tokens`
+and the other `--budget-*` flags), or its turns stop making progress;
+the run then ends at its next final answer.
 
 `eukhe --autonomous --autonomous-gate "cargo test"` runs `cargo test`
 after each turn. If it fails, Eukhe gives the agent its output and
@@ -104,8 +104,8 @@ such as its speed or size. The agent writes the benchmark script;
 Eukhe runs it for each experiment, commits a change only when its
 metric beats the best kept run, and resets the others.
 
-Loop is the code behind `--autonomous` and `--goal`. It has no
-requirements, spec files or laws yet.
+Loop is the code behind `--auto`. It has no requirements, spec files
+or laws yet.
 
 Planned and not built: confinement of the programs the agent runs,
 checks the agent never sees, review of the process for gaming,

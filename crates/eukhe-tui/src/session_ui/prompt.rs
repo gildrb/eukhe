@@ -851,7 +851,7 @@ impl SessionUi {
         generation: u64,
         view: &AgentView,
     ) {
-        // A session command (`/compact`, `/goal`, ...) runs on the session,
+        // A session command (`/compact`, `/auto`, ...) runs on the session,
         // not as a turn: the worker classifies an image-less prompt the
         // same way and answers once the command settled, with no
         // `turn_end` to wait for.

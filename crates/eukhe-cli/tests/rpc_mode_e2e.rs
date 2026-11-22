@@ -381,7 +381,8 @@ fn turn_script(steps: &Value) -> Value {
 }
 
 /// The mode answers `get_state` for a fresh session: the TS
-/// `RpcSessionState` fields, an idle queue projection, and no goal.
+/// `RpcSessionState` fields, an idle queue projection, and no goal state
+/// (the removed goal's field is gone).
 #[test]
 fn rpc_get_state_answers_the_fresh_session() {
     let mut client = RpcChild::spawn(
@@ -402,9 +403,7 @@ fn rpc_get_state_answers_the_fresh_session() {
     assert_eq!(data["sessionActions"]["queuedCount"], 0);
     assert_eq!(data["sessionActions"]["steering"], json!([]));
     assert_eq!(data["sessionActions"]["followUps"], json!([]));
-    // No goal: its status is idle (liveness derives from the status, the
-    // goal carries no stored `active` flag).
-    assert_eq!(data["goal"]["status"], "idle", "the goal: {}", data["goal"]);
+    assert!(data.get("goal").is_none(), "the state: {data}");
     assert!(
         data.get("sessionFile").is_none(),
         "--no-session keeps the session in memory (no sessionFile key)"

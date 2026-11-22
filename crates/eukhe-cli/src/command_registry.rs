@@ -680,7 +680,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         options: &[
             (
                 "-p, --print",
-                "Print a response and exit: 0 done; 1 the run failed, or left work (its goal open, or, after it acted, its final answer naming work left, read by one judge request); 3 that judge could not read the answer",
+                "Print a response and exit: 0 done; 1 the run failed, or left work (after it acted, its final answer naming work left, read by one judge request; or its autonomous run ended without progress); 3 that judge could not read the answer",
             ),
             (
                 "--mode <text|json|rpc|acp|daemon>",
@@ -722,14 +722,6 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
             ),
             ("--session-dir <DIR>", "Use a custom session directory"),
             ("--no-session", "Do not save the session"),
-            (
-                "--goal <OBJECTIVE>",
-                "Seed a persistent goal for a new root session",
-            ),
-            (
-                "--goal-token-budget <NUMBER>",
-                "Set a positive token budget for --goal",
-            ),
             (
                 "--accept-cmd <COMMAND>",
                 "Acceptance check: the run is done only if this command exits 0 on the final state and catches deliberate breaks of the changed code (repeatable)",

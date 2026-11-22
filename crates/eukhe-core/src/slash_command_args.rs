@@ -1,12 +1,12 @@
 //! Session slash-command arguments and status formatting for `/auto`
-//! (typed as `/auto`, `/autonomous` or the removed `/goal`). The arguments
-//! are the compiled core's (`eukhe_bend::rules::slash_args`,
-//! `laws/slash_args/`): this module maps its answers to the session's
-//! types. The status text is a port of agent-session.ts
-//! `_formatAutonomousStatus`; its strings are user-facing and
-//! byte-identical.
+//! (typed as `/auto` or `/autonomous`) and the pointer the removed `/goal`
+//! answers. The arguments are the compiled core's
+//! (`eukhe_bend::rules::slash_args`, `laws/slash_args/`): this module maps
+//! its answers to the session's types. The status text is a port of
+//! agent-session.ts `_formatAutonomousStatus`; its strings are user-facing
+//! and byte-identical.
 
-use eukhe_bend::rules::slash_args::{self, AutoArgs, AutoName, AutoVia, Limit};
+use eukhe_bend::rules::slash_args::{self, AutoArgs, AutoName, Limit};
 
 use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, AgentAutonomousStatus,
@@ -33,29 +33,27 @@ pub enum AutonomousCommand {
     /// Turn autonomous mode on, then send `text` as the user's message.
     Task {
         text: String,
-        /// `/goal --budget N`: the run's token budget.
-        token_budget: Option<u64>,
     },
 }
 
-/// What `/auto` asks, and how it was typed.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AutoCommand {
-    /// [`AutoVia::GoalAlias`]: typed as the removed `/goal`.
-    pub via: AutoVia,
-    /// The command, or the core's usage text.
-    pub command: Result<AutonomousCommand, SlashArgsRefusal>,
+/// Parse `/auto [status|off|on [--max-continuations <n>] ...|<task>]`, typed
+/// as `name`: the command, or the core's usage text.
+///
+/// # Errors
+///
+/// The core's refusal of `args`.
+pub fn parse_auto_command(
+    name: AutoName,
+    args: &str,
+) -> Result<AutonomousCommand, SlashArgsRefusal> {
+    command(slash_args::auto(name, args))
 }
 
-/// Parse `/auto [status|off|on [--max-continuations <n>] ...|<task>]`, typed
-/// as `name` (`/goal` maps each of its old forms to the `/auto` one).
+/// What the removed `/goal` answers, whatever its arguments: the core's
+/// pointer to `/auto`.
 #[must_use]
-pub fn parse_auto_command(name: AutoName, args: &str) -> AutoCommand {
-    let reply = slash_args::auto(name, args);
-    AutoCommand {
-        via: reply.via,
-        command: command(reply.args),
-    }
+pub fn goal_pointer(args: &str) -> String {
+    slash_args::goal_pointer(args)
 }
 
 /// The session's command for the core's answer.
@@ -63,7 +61,7 @@ fn command(args: AutoArgs) -> Result<AutonomousCommand, SlashArgsRefusal> {
     match args {
         AutoArgs::Status => Ok(AutonomousCommand::Status),
         AutoArgs::Off => Ok(AutonomousCommand::Off),
-        AutoArgs::Task { text, token_budget } => Ok(AutonomousCommand::Task { text, token_budget }),
+        AutoArgs::Task { text } => Ok(AutonomousCommand::Task { text }),
         AutoArgs::Error(text) => Err(SlashArgsRefusal { text }),
         AutoArgs::On(options) => Ok(AutonomousCommand::On {
             config: AgentAutonomousConfig {
@@ -129,58 +127,46 @@ mod tests {
     use super::*;
 
     /// The arguments reach the compiled core and map to the session's
-    /// types: a task, `/goal`'s budgeted objective as a task flagged as the
-    /// alias, `/goal resume` as `on`, `/autonomous on` with named limits
-    /// (the others unlimited) and a gate, a usage error.
+    /// types: a task, `/autonomous on` with named limits (the others
+    /// unlimited) and a gate, a usage error; the removed `/goal` answers
+    /// only its pointer, whatever it is given.
     #[test]
     fn slash_arguments_map_to_session_commands() {
-        let task = |text: &str, token_budget| {
-            Ok(AutonomousCommand::Task {
-                text: text.to_string(),
-                token_budget,
-            })
-        };
-        let parsed = |via, command| AutoCommand { via, command };
         assert_eq!(
             [
                 parse_auto_command(AutoName::Auto, "ship it"),
-                parse_auto_command(AutoName::Goal, "--budget 5000 keep going"),
-                parse_auto_command(AutoName::Goal, "resume"),
                 parse_auto_command(AutoName::Autonomous, "on --max-turns 5 --gate=ls"),
             ],
             [
-                parsed(AutoVia::Auto, task("ship it", None)),
-                parsed(AutoVia::GoalAlias, task("keep going", Some(5000))),
-                parsed(
-                    AutoVia::GoalAlias,
-                    Ok(AutonomousCommand::On {
-                        config: AgentAutonomousConfig::default(),
-                    })
-                ),
-                parsed(
-                    AutoVia::Auto,
-                    Ok(AutonomousCommand::On {
-                        config: AgentAutonomousConfig {
-                            max_continuations: Some(UNLIMITED_AUTONOMOUS_LIMIT),
-                            max_turns: Some(5),
-                            max_tokens: Some(UNLIMITED_AUTONOMOUS_LIMIT),
-                            timeout_ms: Some(UNLIMITED_AUTONOMOUS_LIMIT),
-                            gates: Some(AgentAutonomousGateConfig {
-                                commands: Some(vec!["ls".to_string()]),
-                                max_retries: None,
-                                timeout_ms: None,
-                            }),
-                            ..AgentAutonomousConfig::default()
-                        },
-                    })
-                ),
+                Ok(AutonomousCommand::Task {
+                    text: "ship it".to_string(),
+                }),
+                Ok(AutonomousCommand::On {
+                    config: AgentAutonomousConfig {
+                        max_continuations: Some(UNLIMITED_AUTONOMOUS_LIMIT),
+                        max_turns: Some(5),
+                        max_tokens: Some(UNLIMITED_AUTONOMOUS_LIMIT),
+                        timeout_ms: Some(UNLIMITED_AUTONOMOUS_LIMIT),
+                        gates: Some(AgentAutonomousGateConfig {
+                            commands: Some(vec!["ls".to_string()]),
+                            max_retries: None,
+                            timeout_ms: None,
+                        }),
+                        ..AgentAutonomousConfig::default()
+                    },
+                }),
             ]
         );
-        assert!(parse_auto_command(AutoName::Auto, "status now")
-            .command
-            .is_err_and(|error| error.text.starts_with(
-                "Unexpected autonomous argument: now. Usage: /auto [status|off|<task>]"
-            )));
+        assert!(
+            parse_auto_command(AutoName::Auto, "status now").is_err_and(|error| error
+                .text
+                .starts_with(
+                    "Unexpected autonomous argument: now. Usage: /auto [status|off|<task>]"
+                ))
+        );
+        for args in ["", "--budget 5000 ship it", "resume", "status"] {
+            assert_eq!(goal_pointer(args), "/goal is removed: use /auto");
+        }
     }
 
     /// The run's state, its continuations and its last stop; limits and

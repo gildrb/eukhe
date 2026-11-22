@@ -255,8 +255,11 @@ fn blank_rows_and_uncompacted_context_are_warm() {
     }
 }
 
+/// An old session's goal rows (`thread_goal_state`, one of them malformed)
+/// on and off the branch leave the window as it is: the compactions count
+/// and the settings hydrate; nothing reads the rows.
 #[test]
-fn valid_goal_and_physical_metadata_survive_invalid_newer_branch_goal() {
+fn legacy_goal_rows_leave_the_window_and_its_physical_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("goal.jsonl");
     let mut rows: Vec<serde_json::Value> = fixture()
@@ -271,14 +274,13 @@ fn valid_goal_and_physical_metadata_survive_invalid_newer_branch_goal() {
     std::fs::write(&path, body).unwrap();
     for _ in 0..2 {
         let store = WindowedSessionStore::open(&path).unwrap().unwrap();
-        assert_eq!(store.goal_state().unwrap().goal_id.as_deref(), Some("goal"));
         assert_eq!(store.compaction_count(), 2);
         assert_eq!(store.context().thinking_level, "high");
     }
 }
 
 /// The Anthropic subscription warning's once-per-session-lifecycle marker
-/// hydrates from the discarded prefix exactly like the goal row (operator
+/// hydrates from the discarded prefix (operator
 /// directive 2026-09-29): the walk parses on-path custom rows beyond the
 /// retained window, so a resume of a long session reads the marker without
 /// paying a full-file parse — and the cached sidecar serves it warm. The
@@ -293,7 +295,7 @@ fn anthropic_warning_marker_hydrates_from_before_the_boundary() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     // Put the marker deep in the discarded prefix, on the active chain
-    // (the same rewiring the goal fixture uses: u0 parents to the marker,
+    // (u0 parents to the marker,
     // the marker parents to the settings row).
     rows[2]["parentId"] = json!("marked");
     rows.insert(

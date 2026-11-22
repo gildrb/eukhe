@@ -167,7 +167,7 @@ impl BudgetLimits {
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
     /// One message sent while the session is idle; queued and steering
-    /// messages and goal or autonomous continuations join it.
+    /// messages and autonomous continuations join it.
     #[default]
     Interactive,
     /// One `-p` prompt.

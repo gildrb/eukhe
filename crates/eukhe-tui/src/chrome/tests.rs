@@ -86,7 +86,7 @@ fn dock_arrows_visit_the_same_groups_with_items() {
         heartbeats_paused: 1,
         bash_running: 1,
         factory_group: true,
-        goal_label: Some("Pursuing goal (0s)".to_string()),
+        workflow_group: true,
         ..ActivityDock::default()
     };
     assert_eq!(
@@ -96,17 +96,17 @@ fn dock_arrows_visit_the_same_groups_with_items() {
             ActivityGroup::Heartbeats,
             ActivityGroup::Bash,
             ActivityGroup::Factory,
-            ActivityGroup::Goal,
+            ActivityGroup::Workflow,
         ]
     );
-    // The full cycle right: every group in order, the goal group
+    // The full cycle right: every group in order, the workflow group
     // included, back to the start in five presses.
     let mut walked = ActivityGroup::Subagents;
     for expected in [
         ActivityGroup::Heartbeats,
         ActivityGroup::Bash,
         ActivityGroup::Factory,
-        ActivityGroup::Goal,
+        ActivityGroup::Workflow,
         ActivityGroup::Subagents,
     ] {
         walked = dock.step(walked, ActivityDirection::Next);
@@ -115,7 +115,7 @@ fn dock_arrows_visit_the_same_groups_with_items() {
     // The full cycle left mirrors it exactly.
     let mut walked = ActivityGroup::Subagents;
     for expected in [
-        ActivityGroup::Goal,
+        ActivityGroup::Workflow,
         ActivityGroup::Factory,
         ActivityGroup::Bash,
         ActivityGroup::Heartbeats,
@@ -126,34 +126,35 @@ fn dock_arrows_visit_the_same_groups_with_items() {
     }
 }
 
-/// The goal group unmounts with its row (its goal ended): the cycle
-/// drops it, and a stale selection on it steps to a group the dock
-/// still renders -- never to a hidden segment.
+/// A group whose lane goes away unmounts with it (the daemon stopped
+/// advertising `workflow_activity`): the cycle drops it, and a stale
+/// selection on it steps to a group the dock still renders -- never to
+/// a hidden segment.
 #[test]
-fn dock_goal_group_unmounts_with_its_row() {
-    let with_goal = ActivityDock {
-        goal_label: Some("Goal paused (0s)".to_string()),
+fn dock_group_unmounts_with_its_lane() {
+    let with_workflows = ActivityDock {
+        workflow_group: true,
         factory_group: true,
         ..ActivityDock::default()
     };
-    assert!(with_goal.groups().contains(&ActivityGroup::Goal));
+    assert!(with_workflows.groups().contains(&ActivityGroup::Workflow));
     let ended = ActivityDock {
         factory_group: true,
         ..ActivityDock::default()
     };
     assert!(
-        !ended.groups().contains(&ActivityGroup::Goal),
-        "the goal group leaves the cycle when its row unmounts"
+        !ended.groups().contains(&ActivityGroup::Workflow),
+        "the workflow group leaves the cycle when its lane goes"
     );
     assert_eq!(
-        ended.step(ActivityGroup::Goal, ActivityDirection::Prev),
+        ended.step(ActivityGroup::Workflow, ActivityDirection::Prev),
         ActivityGroup::Factory,
-        "a stale goal selection lands on the row's last group"
+        "a stale selection lands on the row's last group"
     );
     assert_eq!(
-        ended.step(ActivityGroup::Goal, ActivityDirection::Next),
+        ended.step(ActivityGroup::Workflow, ActivityDirection::Next),
         ActivityGroup::Heartbeats,
-        "a stale goal selection steps from the row's first group"
+        "a stale selection steps from the row's first group"
     );
 }
 

@@ -255,7 +255,6 @@ impl WorkerPane {
             | TurnUpdate::CompactionEnd { .. }
             | TurnUpdate::PromptProgress(_)
             | TurnUpdate::MemoryUpdate(_)
-            | TurnUpdate::GoalUpdate(_)
             | TurnUpdate::UnknownEffectsUpdate(_)
             | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::BudgetUpdate(_)

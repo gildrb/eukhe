@@ -1,7 +1,8 @@
 //! Session slash commands on the durable session: `/compact`, `/refine`,
-//! `/auto` (typed also as `/autonomous` or the removed `/goal`), `/accept`,
-//! `/remind`, `/force`, `/dynamic-workflow`, `/autoresearch`, and `/loop`,
-//! including the `/refine` and `/force` argument parsing.
+//! `/auto` (typed also as `/autonomous`), `/accept`, `/remind`, `/force`,
+//! `/dynamic-workflow`, `/autoresearch`, and `/loop`, including the
+//! `/refine` and `/force` argument parsing; the removed `/goal` answers
+//! only its pointer to `/auto`.
 //! Shared by print mode, rpc mode, and the daemon worker's prompt path.
 //! On main (`sessionShape` `main-worker`) `/auto` and `/accept` run on its
 //! worker, where the work runs.
@@ -26,13 +27,11 @@ use super::acceptance::{
     acceptance_state, bend_check, format_acceptance_status, parse_accept_command, set_acceptance,
     AcceptCommand, ACCEPT_USAGE,
 };
+use super::autonomous::{autonomous_state, budget_report, set_autonomous, AutonomousChange};
 use super::children::worker_session_command;
 use super::deps::SessionShape;
 use super::directors::{push_director, DirectorLimits, Layer};
 use super::entries::custom_entry_draft;
-use super::goals::{
-    autonomous_state, budget_report, set_autonomous, set_run_limits, AutonomousChange,
-};
 use super::messages::{
     SESSION_SLASH_COMMAND_CUSTOM_TYPE, SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
 };
@@ -45,12 +44,11 @@ use crate::autonomous::{
 };
 use crate::autoresearch::AutoresearchCommandError;
 use crate::slash_command_args::{
-    format_autonomous_status, parse_auto_command, AutonomousCommand, SlashArgsRefusal,
+    format_autonomous_status, goal_pointer, parse_auto_command, AutonomousCommand, SlashArgsRefusal,
 };
-use eukhe_bend::rules::slash_args::{AutoName, AutoVia};
+use eukhe_bend::rules::slash_args::AutoName;
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_types::acceptance::{owner_checks, AcceptanceState, CheckSpec};
-use eukhe_types::budget::{BudgetDimension, LimitValue, RunLimits};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::workflow::WorkflowSize;
 
@@ -178,6 +176,8 @@ pub enum SessionCommandName {
     Refine,
     /// `/auto`, and the name it was typed as.
     Auto(AutoName),
+    /// The removed `/goal`: it answers only its pointer to `/auto`.
+    Goal,
     Accept,
     Remind,
     Force,
@@ -187,14 +187,15 @@ pub enum SessionCommandName {
 }
 
 impl SessionCommandName {
-    /// The command's name (`compact`, `refine`, `auto`, `accept`, `remind`,
-    /// `force`, `dynamic-workflow`, `autoresearch`, `loop`).
+    /// The command's name (`compact`, `refine`, `auto`, `goal`, `accept`,
+    /// `remind`, `force`, `dynamic-workflow`, `autoresearch`, `loop`).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Compact => "compact",
             Self::Refine => "refine",
             Self::Auto(_) => "auto",
+            Self::Goal => "goal",
             Self::Accept => "accept",
             Self::Remind => "remind",
             Self::Force => "force",
@@ -204,8 +205,8 @@ impl SessionCommandName {
         }
     }
 
-    /// The session command typed as `name` (`/auto`'s aliases
-    /// `autonomous` and `goal` included); `None` for any other name.
+    /// The session command typed as `name` (`/auto`'s alias `autonomous`
+    /// and the removed `goal` included); `None` for any other name.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
@@ -213,7 +214,7 @@ impl SessionCommandName {
             "refine" => Some(Self::Refine),
             "auto" => Some(Self::Auto(AutoName::Auto)),
             "autonomous" => Some(Self::Auto(AutoName::Autonomous)),
-            "goal" => Some(Self::Auto(AutoName::Goal)),
+            "goal" => Some(Self::Goal),
             "accept" => Some(Self::Accept),
             "remind" => Some(Self::Remind),
             "force" => Some(Self::Force),
@@ -307,6 +308,15 @@ pub async fn execute_session_command(
         SessionCommandName::Refine => execute_refine(session, conversation, command, cx).await,
         SessionCommandName::Auto(name) => {
             execute_auto(session, conversation, command, name, &mut outcome, cx).await
+        }
+        SessionCommandName::Goal => {
+            let pointer = goal_pointer(&command.args);
+            append_rows(
+                conversation,
+                vec![result_row(command, pointer, Visibility::Shown)],
+                cx,
+            )
+            .await
         }
         SessionCommandName::Accept => {
             execute_accept(session, conversation, command, &mut outcome, cx).await
@@ -684,15 +694,10 @@ fn with_check(all: Vec<CheckSpec>, check: CheckSpec) -> Vec<CheckSpec> {
     owner_checks(checks, intent)
 }
 
-/// The note `/goal` (the removed command) prints before it does the `/auto`
-/// action it maps to.
-const GOAL_REMOVED: &str = "/goal is removed: use /auto";
-
 /// `/auto`: status, on (the run's checks and the limits its removed
 /// options ask, which go on the session's budget), off, or a task: on,
-/// then the task submitted as the user's message (`--budget N`: the run's
-/// token limit). Each appends the `autonomous_status` row; typed as
-/// `/goal`, the [`GOAL_REMOVED`] row comes first.
+/// then the task submitted as the user's message. Each appends the
+/// `autonomous_status` row.
 async fn execute_auto(
     session: &EukheSession,
     conversation: &Conversation,
@@ -701,19 +706,12 @@ async fn execute_auto(
     outcome: &mut SessionCommandOutcome,
     cx: &Context,
 ) -> Result<(), SessionCommandError> {
-    let parsed = parse_auto_command(name, &command.args);
-    match parsed.via {
-        AutoVia::GoalAlias => {
-            let note = result_row(command, GOAL_REMOVED.to_owned(), Visibility::Shown);
-            append_rows(conversation, vec![note], cx).await?;
-        }
-        AutoVia::Auto => {}
-    }
+    let parsed = parse_auto_command(name, &command.args)?;
     let harness = session.harness();
     let budget = session.budget();
     let id = conversation.id();
     let cwd = &session.deps().cwd;
-    match parsed.command? {
+    match parsed {
         AutonomousCommand::On { config } => {
             let status =
                 set_autonomous(harness, &budget, id, AutonomousChange::On(config), cwd, cx).await?;
@@ -726,10 +724,7 @@ async fn execute_auto(
             outcome.autonomous = Some(status);
             Ok(())
         }
-        AutonomousCommand::Task { text, token_budget } => {
-            let limits = RunLimits::default()
-                .with(BudgetDimension::Tokens, token_budget.map(LimitValue::At));
-            set_run_limits(&budget, limits).await?;
+        AutonomousCommand::Task { text } => {
             let config = AgentAutonomousConfig::default();
             let status =
                 set_autonomous(harness, &budget, id, AutonomousChange::On(config), cwd, cx).await?;

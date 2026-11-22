@@ -9,9 +9,8 @@
 //! changed code, in a scratch copy), then names the label (checks passed,
 //! unconfined; checks passed, not certified; failed; unverified).
 //!
-//! - A session without a goal claims at every final answer; an active
-//!   goal claims with `goal.complete()`, and its final answers before that
-//!   are no claim.
+//! - A final answer is a claim, unless the claim it would make was
+//!   already judged on this state.
 //! - Queued user input, unsettled children and workflow runs, and jobs
 //!   whose end wakes the session hold the verdict: the run they start
 //!   reaches its own final answer.
@@ -63,12 +62,11 @@ use super::ops::{core_error, doc_parts, doc_state, label_of};
 use super::strength::{Breaker, Pass, Probe};
 use super::ACCEPTANCE_CUSTOM_TYPE;
 use crate::autonomous::now_millis;
+use crate::durable::autonomous::{
+    conversation_of, open_doc, read_doc, user_input_queued, write_doc,
+};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::entries::custom_entry_draft;
-use crate::durable::goals::{
-    conversation_of, end_claimed_goal, open_doc, owns_continuation_wakeup, read_doc,
-    user_input_queued, write_doc, ClaimEnd, GOAL_DOC,
-};
 use crate::durable::pending::{pending_work, PendingWorkError};
 use crate::durable::workflow::unsettled_runs;
 use crate::durable::{HarnessCell, HostDeps};
@@ -167,9 +165,6 @@ impl Verifier {
         let facts = AnswerFacts {
             held: self.held(api, cx).await?,
             checked: !doc.checks.is_empty(),
-            goal: read_doc(api, &GOAL_DOC, conversation_id, cx)
-                .await?
-                .is_some_and(|goal| owns_continuation_wakeup(&goal)),
             claimed: doc.claimed,
             ended: doc.last_end.as_ref().is_some_and(|end| end.at == now),
         };
@@ -248,8 +243,6 @@ impl Verifier {
                                 .map_err(core_error)?;
                             doc.adopt(&claimed, None)?;
                         }
-                        // Read before the step clears the claim.
-                        let goal_claimed = doc.goal_claim;
                         let (mut action, mut next) =
                             verify::advance(now, doc.max_returns, &doc.core())
                                 .map_err(core_error)?;
@@ -364,10 +357,6 @@ impl Verifier {
                                     verdict_row(&doc, now, Some(label))?,
                                 )
                                 .await?;
-                                if goal_claimed {
-                                    let end = goal_end(&doc, now, label)?;
-                                    end_claimed_goal(&tx, conversation_id, &end).await?;
-                                }
                                 Step::Decided(None)
                             }
                         };
@@ -516,16 +505,6 @@ impl Verifier {
             )
             .await
     }
-}
-
-/// How the verifier ends a goal's claim.
-fn goal_end(doc: &AcceptanceDoc, now: u64, label: AcceptanceLabel) -> SessionResult<ClaimEnd> {
-    let line = end_line(doc, now, label)?;
-    Ok(if label.passed() {
-        ClaimEnd::Complete(format!("{} ({line})", label.text()))
-    } else {
-        ClaimEnd::Pause(format!("Acceptance {}: {line}", label.text()))
-    })
 }
 
 fn count_checks(count: usize) -> String {

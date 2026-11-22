@@ -30,7 +30,7 @@ use super::reads::{is_busy, rpc_context};
 /// `returnAfterAccepted: true`; the run's events follow on the ordered
 /// stream, buffered behind the response). A busy conversation queues the
 /// input per `streamingBehavior` and refuses it without one. Session
-/// commands (`/compact`, `/refine`, `/goal`, `/autonomous`) execute
+/// commands (`/compact`, `/refine`, `/auto`, `/autonomous`) execute
 /// through the shared durable executor, which commits their rows.
 ///
 /// # Errors

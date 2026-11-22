@@ -1,5 +1,5 @@
 //! Host request handling: execute-side requests answered by the host
-//! (harness/goal/etc.) and their settle/exit waits.
+//! (harness/directors/etc.) and their settle/exit waits.
 
 use super::frames::Refusal;
 use super::{anyhow, json, lock, ActiveExecution, Arc, Duration, HostRequestPayload, Inner, Value};

@@ -1,5 +1,5 @@
 //! The work a session did, as the stall checks measure it (rule H5 for a
-//! subagent's parent watch, `LAWS.bend`; the goal loop's progress
+//! subagent's parent watch, `LAWS.bend`; the autonomous run's progress
 //! check): the number of distinct acts.
 //!
 //! An act is a tool call with its result (the tool's name and arguments,

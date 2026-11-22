@@ -60,7 +60,7 @@ fn is_effect(entry: &EntryRecord) -> bool {
 }
 
 /// Whether `entry` holds the words of the task's owner: a message the user
-/// wrote (not a continuation the harness, a goal or a director added), or
+/// wrote (not a continuation the harness or a director added), or
 /// in a child, a message of its parent (its task, the user's words relayed
 /// by main).
 fn is_users(entry: &EntryRecord) -> bool {
@@ -416,7 +416,7 @@ fn user_text(content: &UserContent) -> String {
 
 /// The messages the user wrote in `conversation` (in a child: its parent's
 /// messages), oldest first, each cut to `max_chars`: what the intent judge
-/// reads. Continuations the harness, a goal or a director added are not
+/// reads. Continuations the harness or a director added are not
 /// the owner's and never enter.
 ///
 /// # Errors

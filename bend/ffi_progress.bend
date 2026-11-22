@@ -2,15 +2,15 @@ import Base
 import ./wire.bend as W
 import ./progress.bend as M
 
-# ffi_progress: the goal loop's progress check (bend/progress.bend
+# ffi_progress: the autonomous run's progress check (bend/progress.bend
 # `judge`) as an entry of the compiled Bend core, with the count held
 # below the bound t (Rust sends the wire's largest Nat). The request: t, the
 # cap (directors.stallSteps),
-# the prior check of the same run and goal (Maybe: its stalls and its
-# work; bend/ffi_work.bend `ffi` decides which prior that is), the work
-# now. The reply: the Goal, its tag (Go 0, Stop 1) and its count of
-# stalls. Any other input answers the error form "progress: malformed
-# request". laws/progress.bend (goal_entry, goal_entry_*) pins the entry.
+# the prior check of the same run (Maybe: its stalls and its work;
+# bend/ffi_work.bend `ffi` decides which prior that is), the work now. The
+# reply: the Run, its tag (Go 0, Stop 1, Steer 2) and its count of stalls.
+# Any other input answers the error form "progress: malformed request".
+# laws/progress.bend (run_entry, run_entry_*) pins the entry.
 
 def put_prior(p: Maybe<&2, M.Prior>, rest: String) -> String:
   match p:
@@ -24,12 +24,14 @@ def put_prior(p: Maybe<&2, M.Prior>, rest: String) -> String:
 def put_req(t: Nat, cap: Nat, p: Maybe<&2, M.Prior>, work: Nat) -> String:
   W.put_nat(t, W.put_nat(cap, put_prior(p, W.put_nat(work, ""))))
 
-def put_goal(g: M.Goal, rest: String) -> String:
+def put_run(g: M.Run, rest: String) -> String:
   match g:
     case M.Go{s}:
       W.put_nat(0n, W.put_nat(s, rest))
     case M.Stop{s}:
       W.put_nat(1n, W.put_nat(s, rest))
+    case M.Steer{s}:
+      W.put_nat(2n, W.put_nat(s, rest))
 
 def get_prior.w(+s: Nat, r: W.Dec<Nat>) -> W.Dec<Maybe<&2, M.Prior>>:
   match r:
@@ -69,7 +71,7 @@ def get_prior(s: String) -> W.Dec<Maybe<&2, M.Prior>>:
 def run.end(left: Bool, +t: Nat, +cap: Nat, p: Maybe<&2, M.Prior>, +work: Nat) -> String:
   match left:
     case True{}:
-      put_goal(M.judge(t, cap, p, work), "")
+      put_run(M.judge(t, cap, p, work), "")
     case False{}:
       W.err("progress: malformed request")
 

@@ -11,7 +11,6 @@ use eukhe_types::daemon::{
     SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
 use eukhe_types::effects::UnknownEffect;
-use eukhe_types::goal::GoalState;
 use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
 
@@ -116,9 +115,6 @@ pub enum TurnUpdate {
     /// merged the view. Moves the status line's `mem` gauge only; never
     /// a transcript row.
     MemoryUpdate(MemoryUpdate),
-    /// `goal_update`: the session goal state changed (the session view
-    /// owns announcement and tray rendering).
-    GoalUpdate(GoalState),
     /// `unknown_effects_update`: the session's ledger of effects whose
     /// outcome a restart could not tell changed (the whole ledger, oldest
     /// first; the session view owns the notices and `/effects`).
@@ -376,7 +372,6 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::SessionActionUpdate { actions } => {
             TurnUpdate::QueueUpdated(queued_messages(actions))
         }
-        SessionEvent::GoalUpdate { goal } => TurnUpdate::GoalUpdate(goal.clone()),
         SessionEvent::UnknownEffectsUpdate { effects } => {
             TurnUpdate::UnknownEffectsUpdate(effects.clone())
         }

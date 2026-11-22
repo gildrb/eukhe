@@ -18,7 +18,7 @@ use eukhe_types::acceptance::{
 use super::docs::{AcceptanceDoc, ACCEPTANCE_DOC};
 use super::evidence::protect;
 use super::workspace::{state_parts, StateParts};
-use crate::durable::goals::{conversation_of, open_doc, read_doc, write_doc};
+use crate::durable::autonomous::{conversation_of, open_doc, read_doc, write_doc};
 
 pub(crate) fn core_error(error: eukhe_bend::Error) -> SessionError {
     SessionError::other(error)
@@ -430,54 +430,4 @@ pub(crate) async fn autonomous_checks(
     };
     set_acceptance(harness, conversation_id, specs, max_returns, cwd, cx).await?;
     Ok(())
-}
-
-/// What a claim of "done" met.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Claimed {
-    /// The task has no acceptance checks: the claim stands, unverified.
-    Unchecked,
-    /// The claim waits: the verifier judges this many checks at the final
-    /// answer.
-    Pending { checks: usize },
-}
-
-/// The worker's claim that the goal of `conversation` is achieved
-/// (`goal.complete()`). With checks the claim waits for the verifier,
-/// marked as the goal's; with none nothing is written.
-///
-/// # Errors
-///
-/// Read or commit failures.
-pub(crate) async fn claim(
-    reader: &(impl DocumentReader + ?Sized),
-    conversation: &Conversation,
-    cx: &Context,
-) -> SessionResult<Claimed> {
-    let conversation_id = conversation.id();
-    let checked = stored(reader, conversation_id, cx)
-        .await?
-        .is_some_and(|doc| !doc.checks.is_empty());
-    if !checked {
-        return Ok(Claimed::Unchecked);
-    }
-    conversation
-        .commit(
-            move |tx| async move {
-                let (draft, mut doc) = open_doc(&tx, &ACCEPTANCE_DOC, conversation_id).await?;
-                if doc.checks.is_empty() {
-                    return Ok(Claimed::Unchecked);
-                }
-                let (_, next) =
-                    verify::act(Actor::Worker, Op::Claim, &doc.core()).map_err(core_error)?;
-                doc.adopt(&next, None)?;
-                doc.goal_claim = doc.claimed;
-                write_doc(&draft, &doc)?;
-                Ok(Claimed::Pending {
-                    checks: doc.checks.len(),
-                })
-            },
-            cx,
-        )
-        .await
 }

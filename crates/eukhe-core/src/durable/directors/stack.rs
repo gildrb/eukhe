@@ -7,12 +7,11 @@ use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
 use eukhe_bend::{call, expect_core, Entry};
 use serde::{Deserialize, Serialize};
 
-/// What a layer is (the model's `kind`).
+/// What a layer is (the model's `kind`). The removed goal's layer was kind
+/// 0: the numbers of the others stay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum LayerKind {
-    /// The conversation's goal (`eukhe.goal`).
-    Goal,
     /// The conversation's autonomous run (`eukhe.autonomous`).
     Autonomous,
     /// A reminder: its text leads the next continuation, then it leaves.
@@ -39,7 +38,6 @@ impl LayerKind {
     #[must_use]
     pub fn code(&self) -> u64 {
         match self {
-            Self::Goal => 0,
             Self::Autonomous => 1,
             Self::Reminder { .. } => 2,
             Self::ForceTool { .. } => 3,
@@ -47,12 +45,12 @@ impl LayerKind {
     }
 
     /// Whether a push puts the kind on the stack (a reminder, a forced
-    /// call), not the goal or autonomous state.
+    /// call), not the autonomous state.
     #[must_use]
     pub fn is_pushed(&self) -> bool {
         match self {
             Self::Reminder { .. } | Self::ForceTool { .. } => true,
-            Self::Goal | Self::Autonomous => false,
+            Self::Autonomous => false,
         }
     }
 }

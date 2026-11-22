@@ -87,10 +87,16 @@ fn condition_text(condition: &LoopCondition) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     let room = CONDITION_MAX_WIDTH - label.len() - 2;
-    format!(
-        "{label}: {}",
-        crate::goal_surface::truncate_plain(&command, room)
-    )
+    format!("{label}: {}", truncate_plain(&command, room))
+}
+
+/// `truncateToWidth` over unstyled text with the default `...` ellipsis.
+fn truncate_plain(text: &str, width: usize) -> String {
+    let line: crate::Line = vec![crate::Span::raw(text.to_string())];
+    crate::width::truncate_line(&line, width, crate::glyphs::ELLIPSIS)
+        .iter()
+        .map(|span| span.content.as_str())
+        .collect::<String>()
 }
 
 /// What the last check of the condition showed.

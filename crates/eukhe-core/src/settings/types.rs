@@ -376,16 +376,16 @@ pub struct ThinkingBudgetsSettings {
 #[serde(rename_all = "camelCase")]
 pub struct DirectorSettings {
     /// The reminders and forced calls the stack may hold (default 8; `0`
-    /// or unset takes the default). The goal and the autonomous run keep
-    /// 2 more places.
+    /// or unset takes the default). The autonomous run keeps 1 more place.
     pub stack_cap: Option<u32>,
     /// The continuations one run may make, whatever its Directors say
     /// (default 200; `0` or unset takes the default).
     pub max_steps: Option<u64>,
-    /// The goal continuations in a row that may do no new work (no tool
-    /// call with a result the session did not have before) before the
-    /// goal pauses with the reason (default 3; `0` or unset takes the
-    /// default).
+    /// The autonomous continuations in a row that may do no new work (no
+    /// tool call with a result the session did not have before) before
+    /// the harness asks the run once for another approach; twice as many
+    /// end the run, not done, with the reason (default 3; `0` or unset
+    /// takes the default).
     pub stall_steps: Option<u64>,
 }
 

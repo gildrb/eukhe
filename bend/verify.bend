@@ -539,36 +539,28 @@ def claims.fresh(ended: Bool) -> Bool:
     case False{}:
       True{}
 
-def claims.own(goal: Bool, ended: Bool) -> Bool:
-  match goal:
-    case True{}:
-      False{}
-    case False{}:
-      claims.fresh(ended)
-
-def claims.open(checked: Bool, goal: Bool, ended: Bool) -> Bool:
+def claims.open(checked: Bool, ended: Bool) -> Bool:
   match checked:
     case True{}:
-      claims.own(goal, ended)
+      claims.fresh(ended)
     case False{}:
       False{}
 
-def claims.free(claimed: Bool, checked: Bool, goal: Bool, ended: Bool) -> Bool:
+def claims.free(claimed: Bool, checked: Bool, ended: Bool) -> Bool:
   match claimed:
     case True{}:
       True{}
     case False{}:
-      claims.open(checked, goal, ended)
+      claims.open(checked, ended)
 
 # whether the verifier judges a claim at a final answer. `held`: queued
 # input or running work owns the next boundary (the run it starts reaches
-# its own final answer). `checked`: the task has a check. `goal`: an active
-# goal drives the run (it claims with goal.complete(), not by answering).
-# `claimed`: a claim already waits. `ended`: the last claim ended on the
-# state now (that verdict stands until the state or the checks change).
-def claims(held: Bool, checked: Bool, goal: Bool, claimed: Bool, ended: Bool) -> Bool:
+# its own final answer). `checked`: the task has a check. `claimed`: a
+# claim already waits. `ended`: the last claim ended on the state now
+# (that verdict stands until the state or the checks change).
+def claims(held: Bool, checked: Bool, claimed: Bool, ended: Bool) -> Bool:
   match held:
     case True{}:
       False{}
     case False{}:
-      claims.free(claimed, checked, goal, ended)
+      claims.free(claimed, checked, ended)

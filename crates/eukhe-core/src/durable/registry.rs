@@ -1,7 +1,7 @@
 //! The extension registry of an eukhe session, installed in prompt order:
 //! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
-//! `eukhe.acceptance`, `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
+//! `eukhe.acceptance`, `eukhe.autonomous`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
 //! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
@@ -25,7 +25,7 @@ use eukhe_types::daemon::agent_tree::TreeRole;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    acceptance, budget, children, codemode, compaction, directors, documents, goals, optchat,
+    acceptance, autonomous, budget, children, codemode, compaction, directors, documents, optchat,
     prompt, retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
 };
 
@@ -100,10 +100,11 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(retry_outcome::extension(deps))?;
     install(optchat::extension(deps))?;
     // The loop decides a final answer before the acceptance verifier and
-    // the goal do: while a loop runs, its next iteration owns the boundary.
+    // the autonomous run do: while a loop runs, its next iteration owns the
+    // boundary.
     install(super::loop_mode::extension(deps))?;
     install(acceptance::extension(deps))?;
-    install(goals::extension(deps))?;
+    install(autonomous::extension(deps))?;
     // After the Director stack's step: the work-left Director decides only
     // a final answer the stack did not continue.
     install(directors::work_left_extension(deps))?;

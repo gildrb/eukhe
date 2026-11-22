@@ -68,14 +68,6 @@ impl AppMode {
     }
 }
 
-/// A seeded persistent goal (`initialGoal` in the runtime config).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InitialGoal {
-    pub objective: String,
-    /// `--goal-token-budget`: the goal's own token budget.
-    pub token_budget: Option<u32>,
-}
-
 /// The acceptance checks the `--accept-*` flags ask for (and the removed
 /// `--autonomous-gate*` flags, their aliases): each command must exit 0
 /// (within the removed gate timeout when given, with the `--accept-protect`
@@ -140,7 +132,6 @@ pub struct RuntimeConfig {
     pub no_context_files: bool,
     pub autonomous: Option<AutonomousConfig>,
     pub serialized_refine: bool,
-    pub initial_goal: Option<InitialGoal>,
     /// The `--budget-*` limits: the standing limits of the session this
     /// run starts, each run's set limits (`None`: no flag was given).
     pub budget: Option<eukhe_types::budget::RunLimits>,
@@ -363,10 +354,6 @@ pub fn runtime_config_from_args(
         autonomous: AutonomousConfig::from_args(parsed),
         // Serialized refine is only used by print/json/rpc clients.
         serialized_refine: !matches!(app_mode, AppMode::Interactive | AppMode::Daemon),
-        initial_goal: parsed.goal.as_ref().map(|objective| InitialGoal {
-            objective: objective.clone(),
-            token_budget: parsed.goal_token_budget,
-        }),
         budget: (!parsed.budget.is_unset()).then_some(parsed.budget),
         acceptance: acceptance_seed(parsed),
         wait_limit: std::time::Duration::from_millis(

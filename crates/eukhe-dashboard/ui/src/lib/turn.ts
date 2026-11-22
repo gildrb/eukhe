@@ -115,7 +115,6 @@ export type Session = {
   turn: Turn;
   last: Speed | null;
   bash: { command: string; output: string; startedAt: number } | null;
-  goal: unknown;
   /** The session's `/loop`: `state.loop`, then every `loop_update`. */
   loop: LoopStatus | null;
   /** The running hand-back checks of the session's children, by child and place. */
@@ -216,7 +215,6 @@ export function openSession(reply: OpenReply, previous: Session | null, now: num
     summary: reply.summary ?? null,
     cursor: reply.cursor ?? (keep ? previous.cursor : null),
     queue: state.sessionActions ?? EMPTY_QUEUE,
-    goal: state.goal ?? null,
     loop: state.loop ?? null,
     serviceTier: state.serviceTier ?? null,
   };
@@ -658,8 +656,6 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
       };
     case "session_action_update":
       return { ...session, queue: event.actions };
-    case "goal_update":
-      return { ...session, goal: event.goal };
     case "loop_update": {
       // A loop that ends here leaves one note of why; a replayed end does not.
       const end = session.loop?.phase.state === "ended" ? null : loopEndNote(event.loop);

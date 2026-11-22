@@ -281,7 +281,7 @@ async fn the_init_host_request_starts_the_loop_and_answers_exact_json() {
     use eukhe_durable::harness::types::ModelRef;
 
     use super::host::CONTINUATION;
-    use crate::durable::goals::autonomous_state;
+    use crate::durable::autonomous::autonomous_state;
     use crate::durable::{open_session, HostCall, SessionConfig, SessionStorage};
 
     let home = tempfile::tempdir().unwrap();

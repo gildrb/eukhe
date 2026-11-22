@@ -478,7 +478,7 @@ pub enum PauseAction {
     Resume,
 }
 
-/// Run one typed session command (`/goal ...`, `/autonomous ...`) on a
+/// Run one typed session command (`/auto ...`, `/autonomous ...`) on a
 /// child, as if typed there: main's directors apply to its worker. A
 /// stopped child wakes for it.
 #[derive(Debug, Clone, PartialEq, Eq)]

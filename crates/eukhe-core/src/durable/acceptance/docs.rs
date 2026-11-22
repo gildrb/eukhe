@@ -54,10 +54,6 @@ pub(crate) struct AcceptanceDoc {
     /// A claim of "done" waits for its verdict.
     #[serde(default)]
     pub claimed: bool,
-    /// The waiting claim is the goal's (`goal.complete()`): its verdict
-    /// completes or pauses the goal.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub goal_claim: bool,
     /// Returns to the worker in a row.
     #[serde(default)]
     pub tries: u64,
@@ -87,7 +83,6 @@ impl Default for AcceptanceDoc {
             revision: 0,
             checks: Vec::new(),
             claimed: false,
-            goal_claim: false,
             tries: 0,
             max_returns: DEFAULT_MAX_RETURNS,
             last_end: None,
@@ -225,8 +220,6 @@ impl AcceptanceDoc {
         }
         self.revision = next.revision;
         self.claimed = next.claimed;
-        // A goal's claim lasts as long as the claim it rides on.
-        self.goal_claim = self.goal_claim && next.claimed;
         self.tries = next.tries;
         Ok(())
     }

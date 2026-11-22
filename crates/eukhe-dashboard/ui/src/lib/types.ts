@@ -125,7 +125,6 @@ export type AgentState = {
   sessionActions?: Queue;
   scopedModels?: { model: ModelRef }[];
   contextUsage?: ContextUsage;
-  goal?: unknown;
   loop?: LoopStatus | null;
   [key: string]: unknown;
 };
@@ -219,7 +218,6 @@ export type SessionEvent =
   | { type: "session_info_changed"; name?: string | null }
   | { type: "service_tier_changed"; serviceTier: string }
   | { type: "session_action_update"; actions: Queue }
-  | { type: "goal_update"; goal: unknown }
   | { type: "loop_update"; loop: LoopStatus }
   | { type: "budget_update"; budget: unknown }
   | { type: "check_update"; check: CheckProgress; text: string }

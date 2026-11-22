@@ -1295,8 +1295,8 @@ async fn write_park(
     .await
 }
 
-/// Replace the park document's value leaf by leaf (the goal docs' write
-/// shape).
+/// Replace the park document's value leaf by leaf (the conversation docs'
+/// write shape).
 fn write_park_doc(draft: &Draft, value: &ParkDocState) -> SessionResult<()> {
     let encoded = to_json(value)?;
     let Some(fields) = encoded.as_object() else {

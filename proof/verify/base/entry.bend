@@ -257,12 +257,11 @@ def ve.req(q: FV.Req, +rest: String, h: {SW.fit_req(q) == True{} : Bool}) -> {Wr
     case FV.QJudge{+ans}:
       %ve.ans(ans, rest) : {Wr.Got{FV.QJudge{ans}, rest} == FV.get_req.judge(_) : Wr.Dec<FV.Req>}
       {==}
-    case FV.QClaims{+held, +checked, +goal, +claimed, +ended}:
-      %ve.bool(held, Wr.put_bool(checked, Wr.put_bool(goal, Wr.put_bool(claimed, Wr.put_bool(ended, rest))))) : {Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, rest} == FV.get_req.claims(_) : Wr.Dec<FV.Req>}
-      %ve.bool(checked, Wr.put_bool(goal, Wr.put_bool(claimed, Wr.put_bool(ended, rest)))) : {Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, rest} == FV.get_req.claims_k(held, _) : Wr.Dec<FV.Req>}
-      %ve.bool(goal, Wr.put_bool(claimed, Wr.put_bool(ended, rest))) : {Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, rest} == FV.get_req.claims_g(held, checked, _) : Wr.Dec<FV.Req>}
-      %ve.bool(claimed, Wr.put_bool(ended, rest)) : {Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, rest} == FV.get_req.claims_c(held, checked, goal, _) : Wr.Dec<FV.Req>}
-      %ve.bool(ended, rest) : {Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, rest} == FV.get_req.claims_e(held, checked, goal, claimed, _) : Wr.Dec<FV.Req>}
+    case FV.QClaims{+held, +checked, +claimed, +ended}:
+      %ve.bool(held, Wr.put_bool(checked, Wr.put_bool(claimed, Wr.put_bool(ended, rest)))) : {Wr.Got{FV.QClaims{held, checked, claimed, ended}, rest} == FV.get_req.claims(_) : Wr.Dec<FV.Req>}
+      %ve.bool(checked, Wr.put_bool(claimed, Wr.put_bool(ended, rest))) : {Wr.Got{FV.QClaims{held, checked, claimed, ended}, rest} == FV.get_req.claims_k(held, _) : Wr.Dec<FV.Req>}
+      %ve.bool(claimed, Wr.put_bool(ended, rest)) : {Wr.Got{FV.QClaims{held, checked, claimed, ended}, rest} == FV.get_req.claims_c(held, checked, _) : Wr.Dec<FV.Req>}
+      %ve.bool(ended, rest) : {Wr.Got{FV.QClaims{held, checked, claimed, ended}, rest} == FV.get_req.claims_e(held, checked, claimed, _) : Wr.Dec<FV.Req>}
       {==}
 
 # Replies: the encoders are the spec spellers
@@ -371,5 +370,5 @@ def ve.answer(q: FV.Req) -> {FV.answer(q) == SW.w_reply(q) : String}:
       ve.put_verdict(V.grade_until(ev), "")
     case FV.QJudge{ans}:
       ve.put_verdict(V.grade_judge(ans), "")
-    case FV.QClaims{held, checked, goal, claimed, ended}:
+    case FV.QClaims{held, checked, claimed, ended}:
       {==}

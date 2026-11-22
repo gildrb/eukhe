@@ -225,10 +225,6 @@ impl Worker {
                     .count();
                 u32::try_from(count).unwrap_or(u32::MAX)
             }),
-            goal: core
-                .view
-                .as_ref()
-                .map_or(Value::Null, |view| view.goal.clone()),
             unknown_effects: core
                 .view
                 .as_ref()
@@ -900,7 +896,6 @@ mod tests {
             ),
             inbox,
             active: None,
-            goal: Value::Null,
             unknown_effects: Vec::new(),
             loop_status: None,
             acceptance: Value::Null,

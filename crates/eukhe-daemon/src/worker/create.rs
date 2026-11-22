@@ -11,8 +11,8 @@ use eukhe_ai::providers::faux_script::FauxScriptError;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::autonomous::AgentAutonomousConfig;
 use eukhe_core::durable::acceptance::seed_acceptance;
+use eukhe_core::durable::autonomous::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::cvar_agent::CvarAgent;
-use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
     McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
 };

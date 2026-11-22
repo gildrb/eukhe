@@ -3,7 +3,7 @@
 //! [`Runner`] in its registration's `extra`: the effects the code it runs
 //! may have (its caps) and how the approval gate covers that code. A tool
 //! that declares none runs no code of its own: its effects are the session's
-//! own (documents, goals, children).
+//! own (documents, directors, children).
 //!
 //! Every way to declare a runner is gated: a tool that runs code and is
 //! not gated cannot be written as a [`Runner`]. The registry test

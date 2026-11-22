@@ -458,24 +458,11 @@ fn autonomous_runs_until_its_budget_stops_it() {
     );
 }
 
-/// `/goal` is removed: typed with a task it notes the removal, then does
-/// what `/auto <task>` does — autonomous mode on and the task sent as the
-/// user's message, whose answer the model gives first. The run then goes
-/// on under its checks until they or its budget stop it (the intent check
-/// a run gets when it turns on asks the scripted model too, so the later
-/// answers are not pinned here).
+/// `/goal` is removed: typed with a task it answers only its pointer to
+/// `/auto`. No run starts, no message is sent, the model is never asked.
 #[test]
-fn goal_notes_its_removal_then_runs_the_task_as_auto() {
-    let mut harness = setup(
-        "goal-alias",
-        &json!([
-            { "text": "step 1" },
-            { "text": "step 2" },
-            { "text": "step 3" },
-            { "text": "step 4" },
-        ]),
-    );
-    // The command answers once its task is submitted; the run goes on.
+fn goal_answers_only_its_pointer() {
+    let mut harness = setup("goal-pointer", &json!([{ "text": "never asked" }]));
     harness.prompt("goal", "/goal build the feature");
     harness.client.send_command(
         "idle",
@@ -489,21 +476,12 @@ fn goal_notes_its_removal_then_runs_the_task_as_auto() {
         harness.custom_texts("session_slash_command_result"),
         vec!["/goal is removed: use /auto".to_string()]
     );
-    assert_eq!(
-        durable_autonomous_rows(&harness, "[autonomous-status: on]").len(),
-        1,
-        "the run turned on once"
+    assert!(
+        durable_autonomous_rows(&harness, "[autonomous-status: on]").is_empty(),
+        "no run turned on"
     );
-    let user_texts: Vec<String> = harness.message_ends("user").iter().map(text_of).collect();
-    assert_eq!(user_texts, ["build the feature"]);
-    let assistants: Vec<String> = harness
-        .message_ends("assistant")
-        .iter()
-        .map(text_of)
-        .collect();
-    assert_eq!(
-        assistants.first().map(String::as_str),
-        Some("step 1"),
+    assert!(
+        harness.message_ends("user").is_empty() && harness.message_ends("assistant").is_empty(),
         "events: {:?}",
         harness.client.events
     );

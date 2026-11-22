@@ -32,10 +32,10 @@ use super::{
     director_state, tool_acted, DirectorLimits, WorkLeftOutcome, DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::acceptance::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
-use crate::durable::entries::CUSTOM_ENTRY;
-use crate::durable::goals::tests::{
+use crate::durable::autonomous::tests::{
     answer, entries, setup_with, submit, user_origins, user_texts, Setup,
 };
+use crate::durable::entries::CUSTOM_ENTRY;
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -110,7 +110,7 @@ fn write_call() -> FauxResponseStep {
     .into()
 }
 
-/// The goal extension's setup with the work-left Director's hook in an
+/// The autonomous extension's setup with the work-left Director's hook in an
 /// extension installed after it, judged by `replies`, and the `write` tool.
 /// Once a test puts an answer in `rerun`, a hook after the Director's
 /// reruns the work-left step of each final answer the Director let stand,

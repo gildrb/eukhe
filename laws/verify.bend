@@ -72,9 +72,8 @@ import ./base.bend as LawsBase
 # R7 (V3): when a final answer is a claim the verifier judges. Never
 #     while queued input or running work owns the next boundary. Else a
 #     claim that already waits is always judged; without one, a task
-#     with no check, an active goal (it claims with `goal.complete()`)
-#     and a state the last claim ended on are no claim; any other final
-#     answer of a task with checks is one.
+#     with no check and a state the last claim ended on are no claim;
+#     any other final answer of a task with checks is one.
 # R6: the entry answers each request Rust writes with the model's
 #     decision, reads exactly the request and nothing after it, and
 #     answers any other input with the exact error form
@@ -88,7 +87,7 @@ import ./base.bend as LawsBase
 # judge's request holds the evidence and not the worker's words, that the
 # intent judge reads the user's own messages, that the state number
 # changes with the worker's effects, the user's messages and the
-# workspace, that the goal is what the conversation currently asks for
+# workspace, that the task is what the conversation currently asks for
 # (V11) and that a parent sets its child's checks and reads its verdict
 # (V12): the Rust tests (durable/acceptance/tests.rs,
 # durable/children/tests.rs, acceptance_e2e) cover them.
@@ -735,39 +734,27 @@ law verify_exit_keeps_code_when_confirmed:
 #   changes, checks run while the user's next input waits
 law verify_claims_held_never:
   for checked: Bool
-  for goal: Bool
   for claimed: Bool
   for ended: Bool
-  {V.claims(True{}, checked, goal, claimed, ended) == False{} : Bool}
+  {V.claims(True{}, checked, claimed, ended) == False{} : Bool}
 
 # LAW verify_claims_waiting_claim_judged (R7): with nothing holding it, a
 # claim that already waits is judged at the final answer, whatever else
 # holds
-# EXCLUDES: a goal's `goal.complete()` claim that is never judged, a claim
-#   dropped because the goal is active or the last claim ended here
+# EXCLUDES: a waiting claim that is never judged, a claim dropped because
+#   the last claim ended here
 law verify_claims_waiting_claim_judged:
   for checked: Bool
-  for goal: Bool
   for ended: Bool
-  {V.claims(False{}, checked, goal, True{}, ended) == True{} : Bool}
+  {V.claims(False{}, checked, True{}, ended) == True{} : Bool}
 
 # LAW verify_claims_unchecked_never (R7): a final answer of a task with no
 # check and no waiting claim is no claim
 # EXCLUDES: a verdict row at every answer of a session with no acceptance
 #   checks
 law verify_claims_unchecked_never:
-  for goal: Bool
   for ended: Bool
-  {V.claims(False{}, False{}, goal, False{}, ended) == False{} : Bool}
-
-# LAW verify_claims_goal_claims_itself (R7): under an active goal a final
-# answer with no waiting claim is no claim
-# EXCLUDES: the checks run at every step of a goal, a goal sent back
-#   before it said it was done
-law verify_claims_goal_claims_itself:
-  for checked: Bool
-  for ended: Bool
-  {V.claims(False{}, checked, True{}, False{}, ended) == False{} : Bool}
+  {V.claims(False{}, False{}, False{}, ended) == False{} : Bool}
 
 # LAW verify_claims_ended_state_stands (R7): a final answer on the state
 # the last claim ended on, with no waiting claim, is no new claim
@@ -775,15 +762,14 @@ law verify_claims_goal_claims_itself:
 #   answers that change nothing
 law verify_claims_ended_state_stands:
   for checked: Bool
-  for goal: Bool
-  {V.claims(False{}, checked, goal, False{}, True{}) == False{} : Bool}
+  {V.claims(False{}, checked, False{}, True{}) == False{} : Bool}
 
-# LAW verify_claims_answer_is_claim (R7): with checks, nothing holding it,
-# no active goal and a state no claim ended on, a final answer is a claim
+# LAW verify_claims_answer_is_claim (R7): with checks, nothing holding it
+# and a state no claim ended on, a final answer is a claim
 # EXCLUDES: a verifier that never judges, a session with checks whose
 #   runs end unjudged
 law verify_claims_answer_is_claim:
-  {V.claims(False{}, True{}, False{}, False{}, False{}) == True{} : Bool}
+  {V.claims(False{}, True{}, False{}, False{}) == True{} : Bool}
 
 # Laws: the entry (R6)
 # --------------------
@@ -865,4 +851,4 @@ law verify_entry_unknown_tag_refused:
 # unknown tag and input left over
 # EXCLUDES: another spelling of a request or a reply
 law verify_entry_example:
-  {[FV.ffi("0,0,0,2,0,0,F0,"), FV.ffi("0,1,0,2,0,0,F0,"), FV.ffi("0,1,1,1,2,0,0,F0,"), FV.ffi("0,2,2,1,0,0,7,1,2,0,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,0,7,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,1,7,T0,"), FV.ffi("1,7,1,1,2,1,0,7,1,1,7,T1,"), FV.ffi("1,7,3,1,0,T2,"), FV.ffi("2,7,2,1,0,7,1,0,6,"), FV.ffi("2,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,6,"), FV.ffi("3,0,7,0,"), FV.ffi("4,0,T0,0,"), FV.ffi("4,0,T0,101,"), FV.ffi("4,0,F0,0,"), FV.ffi("4,0,T2,"), FV.ffi("4,0,T4,"), FV.ffi("5,0,1,"), FV.ffi("5,0,2,"), FV.ffi("5,0,127,"), FV.ffi("6,0,"), FV.ffi("6,3,"), FV.ffi("7,FTFFF"), FV.ffi("7,FTTFF"), FV.ffi("7,FTTTF"), FV.ffi("7,TTFTF"), FV.ffi("8,"), FV.ffi("6,0,x")] == ["T1,2,0,0,F0,", "F0,0,F0,", "T1,2,0,0,T0,", "T1,2,1,0,7,0,T0,", "1,1,1,2,1,0,7,0,T0,", "3,3,1,2,1,0,7,1,0,7,F0,", "2,1,2,1,0,7,1,1,7,F1,", "3,1,1,2,1,0,7,1,1,7,F0,", "3,2,1,0,F0,", "2,", "3,", "0,", "1,", "0,", "0,", "1,", "1,", "2,", "3,", "1,", "1,", "2,", "0,", "2,", "T", "F", "T", "F", Wr.err("verify: malformed request"), Wr.err("verify: malformed request")] : List<&2, String>}
+  {[FV.ffi("0,0,0,2,0,0,F0,"), FV.ffi("0,1,0,2,0,0,F0,"), FV.ffi("0,1,1,1,2,0,0,F0,"), FV.ffi("0,2,2,1,0,0,7,1,2,0,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,0,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,0,7,T0,"), FV.ffi("1,7,3,1,2,1,0,7,1,1,7,T0,"), FV.ffi("1,7,1,1,2,1,0,7,1,1,7,T1,"), FV.ffi("1,7,3,1,0,T2,"), FV.ffi("2,7,2,1,0,7,1,0,6,"), FV.ffi("2,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,7,"), FV.ffi("3,0,7,1,1,0,6,"), FV.ffi("3,0,7,0,"), FV.ffi("4,0,T0,0,"), FV.ffi("4,0,T0,101,"), FV.ffi("4,0,F0,0,"), FV.ffi("4,0,T2,"), FV.ffi("4,0,T4,"), FV.ffi("5,0,1,"), FV.ffi("5,0,2,"), FV.ffi("5,0,127,"), FV.ffi("6,0,"), FV.ffi("6,3,"), FV.ffi("7,FTFF"), FV.ffi("7,FTFT"), FV.ffi("7,FTTT"), FV.ffi("7,TTTF"), FV.ffi("8,"), FV.ffi("6,0,x")] == ["T1,2,0,0,F0,", "F0,0,F0,", "T1,2,0,0,T0,", "T1,2,1,0,7,0,T0,", "1,1,1,2,1,0,7,0,T0,", "3,3,1,2,1,0,7,1,0,7,F0,", "2,1,2,1,0,7,1,1,7,F1,", "3,1,1,2,1,0,7,1,1,7,F0,", "3,2,1,0,F0,", "2,", "3,", "0,", "1,", "0,", "0,", "1,", "1,", "2,", "3,", "1,", "1,", "2,", "0,", "2,", "T", "F", "T", "F", Wr.err("verify: malformed request"), Wr.err("verify: malformed request")] : List<&2, String>}

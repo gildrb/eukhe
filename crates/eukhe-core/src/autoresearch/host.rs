@@ -1,7 +1,7 @@
 //! The kernel host requests of the `autoresearch` skill:
 //! `autoresearch.init`, `.run`, `.log`, `.flag`, `.notes`, `.state`; and
 //! the loop's continuation. The loop is the autonomous run of the
-//! Director stack (`durable/goals`), with [`CONTINUATION`] as its prompt:
+//! Director stack (`durable/autonomous`), with [`CONTINUATION`] as its prompt:
 //! when the Lab's mode turns on (an accepted init), it starts; when an
 //! operation finds the mode off (the iteration cap stopped it,
 //! `/autoresearch off`, or the branch changed: a branch without an open
@@ -22,7 +22,7 @@ use super::ops::{InitArgs, LogArgs, Reply};
 use super::runner::RunGate;
 use super::Autoresearch;
 use crate::autonomous::AgentAutonomousConfig;
-use crate::durable::goals::{
+use crate::durable::autonomous::{
     autonomous_state, set_internal_autonomous, AutonomousChange, AutonomousDocState,
 };
 use crate::durable::rlm::session_env;

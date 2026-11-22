@@ -1,5 +1,6 @@
 //! Daemon-attached sessions: persistence and resume, EOF and close, cancel
-//! races, failed turns, supervisor loss, compaction, goals, and autonomy.
+//! races, failed turns, supervisor loss, compaction, the removed `/goal`'s
+//! pointer, and autonomy.
 
 use super::*;
 
@@ -622,17 +623,11 @@ fn acp_compact_command_publishes_the_compaction_meta_and_end_turn() {
 }
 
 #[test]
-fn acp_goal_command_runs_the_auto_task_under_its_token_limit() {
-    // The removed `/goal --budget N <task>` is `/auto <task> --budget N`:
-    // the run turns autonomous, N is the token limit of the run's budget
-    // (not a goal's), and the task is the user's message. Its answer is a
-    // claim the intent check judges (the second scripted reply is the
-    // judge's); the claim passes, so the checks stop the run: end_turn.
-    let script = json!({ "engine": "faux", "responses": [
-        "GOAL-PROGRESS",
-        "PASS\n1. reply with exactly GOAL-PROGRESS: the reply",
-        "unused",
-    ] });
+fn acp_goal_command_answers_only_its_pointer() {
+    // The removed `/goal` answers only its pointer to `/auto`, whatever it
+    // is given: no run turns autonomous, no limit is set, the model is
+    // never asked, and the turn ends normally.
+    let script = json!({ "engine": "faux", "responses": ["NEVER-ASKED"] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
@@ -645,7 +640,7 @@ fn acp_goal_command_runs_the_auto_task_under_its_token_limit() {
 
     let prompt = client.request(
         "session/prompt",
-        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/goal --budget 90000 reply with exactly: GOAL-PROGRESS" }] }),
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/goal --budget 90000 ship it" }] }),
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
 
@@ -653,27 +648,14 @@ fn acp_goal_command_runs_the_auto_task_under_its_token_limit() {
         .iter()
         .filter_map(|update| update["params"]["update"]["content"]["text"].as_str())
         .collect();
-    assert!(streamed.contains("GOAL-PROGRESS"), "updates: {updates:?}");
+    assert!(!streamed.contains("NEVER-ASKED"), "updates: {updates:?}");
     assert!(
-        updates
-            .iter()
-            .all(|update| update_meta(update)["goal"].is_null()),
-        "no goal: {updates:?}"
+        updates.iter().all(|update| {
+            update_meta(update)["autonomous"]["enabled"] != true
+                && update_meta(update)["budget"]["limits"]["tokens"].is_null()
+        }),
+        "no run, no limit: {updates:?}"
     );
-    let budget_tokens = updates
-        .iter()
-        .rev()
-        .find_map(|update| update_meta(update)["budget"]["limits"]["tokens"].as_u64());
-    assert_eq!(budget_tokens, Some(90_000), "updates: {updates:?}");
-    let autonomous = updates
-        .iter()
-        .rev()
-        .find_map(|update| {
-            let meta = &update_meta(update)["autonomous"];
-            (!meta.is_null()).then(|| meta.clone())
-        })
-        .expect("the run's accounting");
-    assert_eq!(autonomous["enabled"], true);
     assert_eq!(
         prompt_response["result"],
         json!({ "stopReason": "end_turn" }),

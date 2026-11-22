@@ -282,13 +282,6 @@ impl AgentView {
             Some(page.render(&self.theme, width, kb))
         } else if let Some(picker) = &self.heartbeats_picker {
             Some(picker.render(&self.theme, width, kb))
-        } else if let Some(panel) = &self.goal_panel {
-            Some(crate::goal_surface::render_goal_panel(
-                panel,
-                &self.theme,
-                width,
-                kb,
-            ))
         } else if let Some(view) = self.bash_view.as_ref() {
             Some(view.render(&self.theme, width, kb))
         } else if let Some(panel) = self.info_panel.as_mut() {

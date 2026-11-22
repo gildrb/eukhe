@@ -328,7 +328,8 @@ fn activity_segments_show_live_counts_only_until_focused() {
         heartbeats_paused: 1,
         bash_running: 1,
         factory_group: true,
-        goal_label: Some("Pursuing goal (0s)".to_string()),
+        workflow_group: true,
+        workflow_runs: 2,
         ..ActivityDock::default()
     };
     assert_eq!(
@@ -337,7 +338,7 @@ fn activity_segments_show_live_counts_only_until_focused() {
             "2 subagents - 1 queued",
             "3 heartbeats - 1 paused",
             "1 shell",
-            "Pursuing goal (0s)"
+            "2 workflows"
         ]
     );
     let success = theme.fg_style(ThemeColor::Success).fg;

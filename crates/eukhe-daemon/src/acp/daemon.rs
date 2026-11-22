@@ -10,7 +10,7 @@
 //! with the live outstanding-subagent count, terminal frame after the RLM
 //! family settles, stop reason) mirrors the TS captures, and the stop
 //! sequence cancels the outstanding children (TS #1612).
-//! The daemon worker's `goal_update` and `loop_update` session events
+//! The daemon worker's `loop_update` session events
 //! surface through the wire mapping (`wire_events.rs`), and the autonomous
 //! accounting rides the
 //! `wait_for_headless_completion` response into the completion envelope
@@ -1362,7 +1362,7 @@ async fn prompt_turn(
             .await
             .ok();
     // TS `abort.signal.aborted` after `waitForHeadlessCompletion`: queued
-    // continuations (goal, post-compaction autonomous) run inside that wait.
+    // continuations (autonomous, post-compaction) run inside that wait.
     if turn_cancelled(&*state.lock().await, admission_id) {
         producer.finish_prompt(turn_id).await;
         return cancelled_response(&id);

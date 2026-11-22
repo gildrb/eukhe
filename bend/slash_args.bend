@@ -1,25 +1,19 @@
 # slash_args: the arguments of the session slash command `/auto` (its
-# alias `/autonomous`, and `/goal`, the removed command each of whose
-# answers is an `/auto` one), and the quote-aware words of a command's
-# argument text (Rust: eukhe-bend rules/slash_args.rs; asked by
-# eukhe-core slash_command_args.rs for `/auto`, by goals.rs for a goal
-# objective, and by the prompt templates for `$1`, `$@`). Whitespace is
-# Unicode White_Space (Rust `char::is_whitespace`, gateway_answer's
-# `space`); a keyword compares with the text's ASCII letters lowercased
-# (no other char lowercases to an ASCII letter of a keyword).
+# alias `/autonomous`), the one answer of `/goal` (the removed command:
+# whatever its args, the text pointing to `/auto`), and the quote-aware
+# words of a command's argument text (Rust: eukhe-bend
+# rules/slash_args.rs; asked by eukhe-core slash_command_args.rs for
+# `/auto` and `/goal` and by the prompt templates for `$1`, `$@`).
+# Whitespace is Unicode White_Space (Rust `char::is_whitespace`,
+# gateway_answer's `space`); a keyword compares with the text's ASCII
+# letters lowercased (no other char lowercases to an ASCII letter of a
+# keyword).
 #
 # Words: chars outside quotes split at whitespace; `"` or `'` opens a
 # quote that the same char closes, its chars kept (whitespace too); a
 # quoted word is a word even when empty.
 #
-# `/goal`: the trimmed text, lowercased, is empty or `status` (the
-# status), `clear`, `stop` or `pause` (off), `resume` (on, no option);
-# else its first whitespace-separated piece may be `--budget N` /
-# `--token-budget N` (the value up to the next whitespace, the objective
-# after it) or `--budget=N` / `--token-budget=N` (the objective after the
-# piece); N must be digits without a leading 0, at most
-# 18446744073709551615; the objective, trimmed, must not be empty and
-# holds at most 4000 chars; it is the task, with the token budget N.
+# `/goal`: `/goal is removed: use /auto`, whatever its args.
 #
 # `/auto`: no words or `status` alone: the status; `on`, `enable`,
 # `enabled` then budget options; `off`, `disable`, `disabled` alone; any
@@ -39,63 +33,6 @@ import ./gateway_answer.bend as Ga
 
 # Text
 # ----
-
-def trim_start.at(b: Bool, c: Char, t: String, r: String) -> String:
-  match b:
-    case True{}:
-      r
-    case False{}:
-      SCon{c, t}
-
-# s without its leading whitespace
-def trim_start(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, +t}:
-      trim_start.at(Ga.space(c), c, t, trim_start(t))
-
-def trim_end.at(b: Bool, c: Char, r: String) -> String:
-  match b:
-    case True{}:
-      match r:
-        case SNil{}:
-          SNil{}
-        case SCon{x, u}:
-          SCon{c, SCon{x, u}}
-    case False{}:
-      SCon{c, r}
-
-# s without its trailing whitespace
-def trim_end(s: String) -> String:
-  match s:
-    case SNil{}:
-      SNil{}
-    case SCon{+c, t}:
-      trim_end.at(Ga.space(c), c, trim_end(t))
-
-def trim(s: String) -> String:
-  trim_end(trim_start(s))
-
-# Text before the first whitespace char, and the rest from that char
-type Cut is Data:
-  Cut{head: String, tail: String}
-
-def cut.at(b: Bool, c: Char, t: String, r: Cut) -> Cut:
-  match b:
-    case True{}:
-      Cut{SNil{}, SCon{c, t}}
-    case False{}:
-      match r:
-        case Cut{h, u}:
-          Cut{SCon{c, h}, u}
-
-def cut(s: String) -> Cut:
-  match s:
-    case SNil{}:
-      Cut{SNil{}, SNil{}}
-    case SCon{+c, +t}:
-      cut.at(Ga.space(c), c, t, cut(t))
 
 # s from just after its first `=` (empty without one)
 def after_eq.at(b: Bool, t: String, r: String) -> String:
@@ -213,88 +150,10 @@ def words(s: String) -> List<&2, String>:
 # /goal
 # -----
 
-def goal_usage() -> String:
-  "Usage: /goal [--budget <tokens>] <objective>"
-
-def goal_bad_budget() -> String:
-  "Goal token budget must be a positive integer."
-
-def goal.objective.at(empty: Bool, long: Bool, o: String, b: Maybe<&2, String>) -> Auto:
-  match empty:
-    case True{}:
-      AErr{"Goal objective must not be empty."}
-    case False{}:
-      match long:
-        case True{}:
-          AErr{"Goal objective must be at most 4000 characters."}
-        case False{}:
-          ATask{o, b}
-
-# the task of the objective o (trimmed) with the budget b
-def goal.objective(o: String, b: Maybe<&2, String>) -> Auto:
-  +t = trim(o)
-  goal.objective.at(String.is_empty(t), Bool.not(Nat.is_le(String.length(t), 4000n)), t, b)
-
-def goal.budget(ok: Bool, v: String, o: String) -> Auto:
-  match ok:
-    case True{}:
-      goal.objective(o, Some{v})
-    case False{}:
-      AErr{goal_bad_budget()}
-
-# `--budget N objective`: the value and the objective after the flag
-def goal.spaced(c: Cut) -> Auto:
-  match c:
-    case Cut{+v, u}:
-      match u:
-        case SNil{}:
-          AErr{goal_usage()}
-        case SCon{w, o}:
-          goal.budget(u64(v), v, o)
-
-def goal.flag(bare: Bool, eq: Bool, +first: String, tail: String, rest: String) -> Auto:
-  match bare:
-    case True{}:
-      goal.spaced(cut(trim_start(tail)))
-    case False{}:
-      match eq:
-        case True{}:
-          +v = after_eq(first)
-          goal.budget(u64(v), v, tail)
-        case False{}:
-          goal.objective(rest, None{})
-
-def goal.start(c: Cut, rest: String) -> Auto:
-  match c:
-    case Cut{+first, tail}:
-      goal.flag(Bool.or(String.eq(first, "--budget"), String.eq(first, "--token-budget")), Bool.or(String.starts_with(first, "--budget="), String.starts_with(first, "--token-budget=")), first, tail, rest)
-
-def goal.kw(status: Bool, clear: Bool, pause: Bool, resume: Bool, +rest: String) -> Auto:
-  match status:
-    case True{}:
-      AStatus{}
-    case False{}:
-      match clear:
-        case True{}:
-          AOff{}
-        case False{}:
-          match pause:
-            case True{}:
-              AOff{}
-            case False{}:
-              match resume:
-                case True{}:
-                  AOn{Conf{None{}, None{}, None{}, None{}, None{}, None{}}}
-                case False{}:
-                  goal.start(cut(rest), rest)
-
-def goal.of(+rest: String, +l: String) -> Auto:
-  goal.kw(Bool.or(String.is_empty(l), String.eq(l, "status")), Bool.or(String.eq(l, "clear"), String.eq(l, "stop")), String.eq(l, "pause"), String.eq(l, "resume"), rest)
-
-# the `/auto` answer of `/goal <args>`
-def goal(args: String) -> Auto:
-  +rest = trim(args)
-  goal.of(rest, String.to_lower(rest))
+# the one answer of `/goal <args>`, whatever the args: the pointer to
+# `/auto`
+def goal_pointer() -> String:
+  "/goal is removed: use /auto"
 
 # /auto
 # -----
@@ -318,8 +177,8 @@ type Auto is Data:
   AOn{conf: Conf}
   AOff{}
   AErr{text: String}
-  # the task text and the token budget's digits
-  ATask{text: String, budget: Maybe<&2, String>}
+  # the task text
+  ATask{text: String}
 
 def auto_usage() -> String:
   "Usage: /auto [status|off|<task>] or /auto on [--max-continuations <n|unlimited>] [--max-turns <n|unlimited>] [--max-tokens <n|unlimited>] [--timeout-ms <n|unlimited>] [--gate <command>] [--gate-retries <n>] [--gate-timeout-ms <n>] [--subagent-keep-alive-ms <n>]"
@@ -658,7 +517,7 @@ def auto.kw(status: Bool, on: Bool, off: Bool, ws: List<&2, String>, args: Strin
             case True{}:
               auto.alone(ws, AOff{})
             case False{}:
-              ATask{args, None{}}
+              ATask{args}
 
 def auto.first(+l: String, ws: List<&2, String>, args: String) -> Auto:
   auto.kw(String.eq(l, "status"), Bool.or(String.eq(l, "on"), Bool.or(String.eq(l, "enable"), String.eq(l, "enabled"))), Bool.or(String.eq(l, "off"), Bool.or(String.eq(l, "disable"), String.eq(l, "disabled"))), ws, args)
