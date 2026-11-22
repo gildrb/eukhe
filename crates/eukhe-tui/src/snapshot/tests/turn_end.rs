@@ -47,7 +47,7 @@ fn outcome(success: bool, text: &str) -> Value {
 }
 
 fn ended(messages: impl IntoIterator<Item = Value>) -> Vec<ChatEntry> {
-    fold_transcript(&msgs(messages), TurnTail::Ended)
+    fold_transcript(&msgs(messages), TurnTail::Ended(None))
 }
 
 fn running(messages: impl IntoIterator<Item = Value>) -> Vec<ChatEntry> {
@@ -102,6 +102,23 @@ fn a_run_that_ended_after_a_tool_round_folds_the_no_reply_row() {
         unclocked(ended([user("list"), call, result])),
         unclocked(expected)
     );
+}
+
+/// A run the engine stopped at its tool round cap ends after a tool
+/// round too; the attach snapshot's `runLimitError` names the cap, so the
+/// reopened chat shows that failure, as the live row did, and never the
+/// "no other model" report.
+#[test]
+fn a_run_stopped_at_its_tool_round_cap_folds_the_cap_failure() {
+    let cap = "The run stopped at its tool round cap: 250 rounds (maxToolRounds)";
+    let [call, result] = tool_round();
+    let mut expected = running([user("list"), call.clone(), result.clone()]);
+    expected.push(failure_row(cap));
+    let entries = fold_transcript(
+        &msgs([user("list"), call, result]),
+        TurnTail::Ended(Some(cap)),
+    );
+    assert_eq!(unclocked(entries), unclocked(expected));
 }
 
 /// A tool round followed by another prompt is no evidence the run ended

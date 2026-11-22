@@ -463,6 +463,12 @@ pub struct AgentConnectionState {
     /// Never a session entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kernel_unavailable: Option<String>,
+    /// The failure text of the tool round cap the last run stopped at
+    /// (`The run stopped at its tool round cap: <n> rounds
+    /// (maxToolRounds)`), which no transcript message carries. Attach
+    /// snapshots only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_limit_error: Option<String>,
 }
 
 #[cfg(test)]

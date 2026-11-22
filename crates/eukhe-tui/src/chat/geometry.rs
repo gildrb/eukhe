@@ -1,5 +1,5 @@
 //! Shared chat framing decisions.
-use super::{AssistantMessage, Detail, MessageBlock};
+use super::{AssistantMessage, MessageBlock};
 use crate::markdown::MarkdownStyle;
 use crate::style::Modifier;
 use crate::theme::{Theme, ThemeColor};
@@ -10,19 +10,18 @@ pub(super) fn user_mask(text: &str) -> crate::prompt_highlight::PromptTokenMask 
     crate::prompt_highlight::PromptTokenMask::new(text, command_end, include_bare_separator)
 }
 
-pub(super) fn visible_blocks(message: &AssistantMessage, detail: Detail) -> Vec<&MessageBlock> {
+pub(super) fn visible_blocks(message: &AssistantMessage) -> Vec<&MessageBlock> {
     message
         .blocks
         .iter()
         .filter(|block| match block {
-            MessageBlock::Thinking(text) => detail.show_thinking() && !text.trim().is_empty(),
-            MessageBlock::Text(text) => !text.trim().is_empty(),
+            MessageBlock::Thinking(text) | MessageBlock::Text(text) => !text.trim().is_empty(),
         })
         .collect()
 }
 
 /// A rendered markdown row with nothing visible on it: the blank rows
-/// markdown puts between blocks, which the dense thinking block drops.
+/// markdown puts between blocks, which the dense thinking body drops.
 pub(super) fn is_blank_row(line: &[crate::Span]) -> bool {
     line.iter().all(|span| span.content.trim().is_empty())
 }

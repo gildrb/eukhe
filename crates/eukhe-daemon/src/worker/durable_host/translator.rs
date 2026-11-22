@@ -633,8 +633,10 @@ impl EventTranslator {
     /// the run's new messages, prompt included): every `message_end` from
     /// the `agent_start` on. A `turn_end` carries its turn's terminal
     /// assistant message and the tool results after it (TS `turn_end
-    /// {message, toolResults}`); its separate `error` stays only for a turn
-    /// that failed without an assistant message to carry the failure.
+    /// {message, toolResults}`); its separate `error` stays for a turn
+    /// that failed without an assistant message to carry the failure, and
+    /// for one that failed after its answer's tools ran (the run's tool
+    /// round cap), which that answer does not carry.
     fn collect_run_messages(&mut self, out: &mut [SessionEvent]) {
         for frame in out {
             match frame {
@@ -658,7 +660,13 @@ impl EventTranslator {
                                 .cloned()
                                 .collect(),
                         });
-                        *error = None;
+                        if !matches!(
+                            &turn[at],
+                            AgentMessage::Assistant(message)
+                                if matches!(message.stop_reason, eukhe_types::ai::StopReason::ToolUse)
+                        ) {
+                            *error = None;
+                        }
                     }
                 }
                 SessionEvent::AgentEnd { messages } => {

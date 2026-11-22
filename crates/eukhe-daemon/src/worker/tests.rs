@@ -294,6 +294,51 @@ async fn attach_mid_stream_shows_the_partial() {
     wait_busy(&worker, false).await;
 }
 
+/// A run the engine stops at its tool round cap ends on a tool round, and
+/// no transcript message says why: the attach snapshot's state names the
+/// cap, until a later run answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attach_names_the_tool_round_cap_the_last_run_stopped_at() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("agent")).expect("agent dir");
+    std::fs::write(
+        dir.path().join("agent/settings.json"),
+        r#"{"maxToolRounds":1}"#,
+    )
+    .expect("settings");
+    let worker = created(
+        dir.path(),
+        json!({ "responses": [
+            { "content": [{ "type": "toolCall", "name": "missing_tool", "arguments": {}, "id": "call-1" }] },
+            "done",
+        ] }),
+    )
+    .await;
+    let run_limit_error = |worker: Arc<Worker>| async move {
+        let attached = worker
+            .dispatch("attach", &json!({ "clientId": "watcher" }))
+            .await;
+        assert!(attached.success, "attach: {attached:?}");
+        attached.data.expect("attach result")["snapshot"]["state"]["runLimitError"].clone()
+    };
+    for (prompt, expected) in [
+        (
+            "go",
+            json!("The run stopped at its tool round cap: 1 rounds (maxToolRounds)"),
+        ),
+        ("again", Value::Null),
+    ] {
+        let mut events = worker.events.subscribe();
+        let response = worker
+            .dispatch("prompt", &json!({ "message": prompt }))
+            .await;
+        assert!(response.success, "prompt: {response:?}");
+        until(&mut events, |event| kind(event) == "agent_end").await;
+        wait_busy(&worker, false).await;
+        assert_eq!(run_limit_error(Arc::clone(&worker)).await, expected);
+    }
+}
+
 /// Steering joins the run at the post-tools boundary, ahead of an earlier
 /// follow-up, which waits for the final boundary.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

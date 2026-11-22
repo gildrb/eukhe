@@ -130,7 +130,7 @@ fn user_block_renders_its_lines_without_padding_rows() {
         .iter()
         .map(|row| row.iter().map(|s| s.content.as_str()).collect())
         .collect();
-    assert_eq!(text, [format!("  Run a quick check.{}", " ".repeat(40))]);
+    assert_eq!(text, [format!(" > Run a quick check.{}", " ".repeat(39))]);
 }
 
 /// The user block's styling tiers: the row background, the
@@ -172,14 +172,16 @@ fn user_block_keeps_the_link_affordance() {
     // user-message color, the URL bracket keeps the dim link slot, and
     // the OSC 8 wrap rides the label -- all on the block background.
     crate::hyperlinks::set_hyperlinks_override(Some(true));
-    let (bg, body, _, _, _) = user_block_styles();
+    let (bg, body, accent, _, _) = user_block_styles();
     let link_url = bg.patch(theme().fg_style(ThemeColor::MdLinkUrl));
     let rows = user_rows("see [docs](https://x.dev/a)", 60);
     assert_eq!(rows.len(), 1);
     assert_eq!(
         row_runs(&rows[0]),
         vec![
-            ("  ".to_string(), bg),
+            (" ".to_string(), bg),
+            (">".to_string(), accent),
+            (" ".to_string(), bg),
             ("see ".to_string(), body),
             (
                 format!(
@@ -190,7 +192,7 @@ fn user_block_keeps_the_link_affordance() {
                 body.add_modifier(crate::style::Modifier::UNDERLINED)
             ),
             (" [https://x.dev/a]".to_string(), link_url),
-            (" ".repeat(60 - 28), bg),
+            (" ".repeat(60 - 29), bg),
         ]
     );
     crate::hyperlinks::set_hyperlinks_override(None);
@@ -200,19 +202,21 @@ fn user_block_keeps_the_link_affordance() {
 fn user_block_highlights_argument_tokens() {
     // TS `PromptTokenMask`: the argument tokens render in their own
     // colors inside the `userMessageText` body.
-    let (bg, body, _, success, md_link) = user_block_styles();
+    let (bg, body, accent, success, md_link) = user_block_styles();
     let rows = user_rows("fix @Cargo.toml --quiet now", 60);
     assert_eq!(rows.len(), 1);
     assert_eq!(
         row_runs(&rows[0]),
         vec![
-            ("  ".to_string(), bg),
+            (" ".to_string(), bg),
+            (">".to_string(), accent),
+            (" ".to_string(), bg),
             ("fix ".to_string(), body),
             ("@Cargo.toml".to_string(), success),
             (" ".to_string(), body),
             ("--quiet".to_string(), md_link),
             (" now".to_string(), body),
-            (" ".repeat(60 - 2 - 27), bg),
+            (" ".repeat(60 - 3 - 27), bg),
         ]
     );
 }
@@ -227,9 +231,11 @@ fn user_block_accents_a_recognized_leading_command() {
     assert_eq!(
         row_runs(&rows[0]),
         vec![
-            ("  ".to_string(), bg),
+            (" ".to_string(), bg),
+            (">".to_string(), accent),
+            (" ".to_string(), bg),
             ("/hotkeys".to_string(), accent),
-            (" ".repeat(40 - 2 - 8), bg),
+            (" ".repeat(40 - 3 - 8), bg),
         ]
     );
     let rows = user_rows("/definitely-not-builtin now", 40);
@@ -241,12 +247,12 @@ fn user_block_accents_a_recognized_leading_command() {
             .map(|(t, _)| t.as_str())
             .collect::<String>()
             .trim(),
-        "/definitely-not-builtin now"
+        "> /definitely-not-builtin now"
     );
     assert!(
         styled
             .iter()
-            .filter(|(_, s)| s != &bg)
+            .filter(|(t, s)| s != &bg && t != ">")
             .all(|(_, s)| s == &body),
         "no accent for unrecognized commands: {styled:?}"
     );
@@ -286,7 +292,7 @@ fn user_block_plain_sources_stay_plain() {
     assert!(
         styled
             .iter()
-            .filter(|(_, s)| s != &bg)
+            .filter(|(t, s)| s != &bg && t != ">")
             .all(|(_, s)| s == &body),
         "a literal-mask source renders whole: {styled:?}"
     );
@@ -300,7 +306,7 @@ fn user_block_plain_sources_stay_plain() {
         .iter()
         .flatten()
         .filter(|s| !s.content.contains('\u{1b}'))
-        .filter(|s| s.style != body && s.style != bg)
+        .filter(|s| s.style != body && s.style != bg && s.content != ">")
         .map(|s| (s.content.clone(), s.style))
         .collect();
     assert!(
@@ -340,7 +346,6 @@ fn assistant_markers_skip_tool_call_messages() {
         &theme(),
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert!(crate::osc133::row_markers(&rows[0]).start);
@@ -359,7 +364,6 @@ fn assistant_markers_skip_tool_call_messages() {
         &theme(),
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert_eq!(crate::osc133::row_markers(&rows[0]), RowMarkers::default());
@@ -391,7 +395,6 @@ fn code_block_indent_rides_the_render_calls() {
         &theme(),
         "    ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -400,7 +403,7 @@ fn code_block_indent_rides_the_render_calls() {
         .map(|row| strip_markers(&row))
         .collect();
     assert!(
-        flat.iter().any(|row| row == "     fn main() {}"),
+        flat.iter().any(|row| row == "         fn main() {}"),
         "non-default indent applied: {flat:?}"
     );
     // The default (no setting) stays two spaces.
@@ -410,7 +413,6 @@ fn code_block_indent_rides_the_render_calls() {
         &theme(),
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -419,7 +421,7 @@ fn code_block_indent_rides_the_render_calls() {
         .map(|row| strip_markers(&row))
         .collect();
     assert!(
-        flat.iter().any(|row| row == "   fn main() {}"),
+        flat.iter().any(|row| row == "       fn main() {}"),
         "default indent: {flat:?}"
     );
 }
@@ -465,7 +467,6 @@ fn assistant_error_row_and_spacers() {
         &theme(),
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -480,7 +481,7 @@ fn assistant_error_row_and_spacers() {
         flat.iter().any(|row| row.contains("Error: request failed")),
         "got: {flat:?}"
     );
-    // A tool-carrying message mid-turn renders flush: no leading blank,
+    // A tool-carrying message opens a step: one blank row, then its body,
     // and no trailing blank before its tool rows.
     let message = AssistantMessage {
         blocks: vec![MessageBlock::Text("body".into())],
@@ -495,12 +496,16 @@ fn assistant_error_row_and_spacers() {
         &theme(),
         "  ",
         60,
-        AssistantLead::Flush,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
-    assert_eq!(rows.len(), 1, "one body row, no blanks: {rows:?}");
-    assert!(!rows[0].is_empty());
-    // A tool-only message renders nothing, whatever its lead.
+    assert_eq!(rows.len(), 2, "one blank row, one body row: {rows:?}");
+    assert!(rows[0].is_empty());
+    let body: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+    assert!(
+        body.starts_with("     body"),
+        "agent text at column 5: {body:?}"
+    );
+    // A tool-only message renders nothing.
     let message = AssistantMessage {
         blocks: Vec::new(),
         has_tool_calls: true,
@@ -508,18 +513,15 @@ fn assistant_error_row_and_spacers() {
         error: None,
         aborted: false,
     };
-    for lead in [AssistantLead::Spaced, AssistantLead::Flush] {
-        let rows = render_assistant(
-            &message,
-            Detail::Overview,
-            &theme(),
-            "  ",
-            60,
-            lead,
-            &mut crate::markdown::MarkdownBlockCache::default(),
-        );
-        assert!(rows.is_empty(), "got: {rows:?}");
-    }
+    let rows = render_assistant(
+        &message,
+        Detail::Overview,
+        &theme(),
+        "  ",
+        60,
+        &mut crate::markdown::MarkdownBlockCache::default(),
+    );
+    assert!(rows.is_empty(), "got: {rows:?}");
 }
 
 /// TS `createErrorComponent` + `formatInlineLoginRecoveryMessage`: an
@@ -546,7 +548,6 @@ fn login_recovery_error_renders_one_merged_inline_line() {
             &theme,
             "  ",
             80,
-            AssistantLead::Spaced,
             &mut crate::markdown::MarkdownBlockCache::default(),
         );
         assert_eq!(
@@ -592,7 +593,6 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         &theme,
         "  ",
         160,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert_eq!(
@@ -614,7 +614,6 @@ fn login_recovery_merges_the_exact_daemon_error_wording() {
         &theme,
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let flat: Vec<String> = rows
@@ -663,7 +662,6 @@ fn login_recovery_fallthroughs_keep_the_normal_error_rows() {
             &theme,
             "  ",
             60,
-            AssistantLead::Spaced,
             &mut crate::markdown::MarkdownBlockCache::default(),
         )
     };
@@ -769,7 +767,6 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         &theme,
         "  ",
         60,
-        AssistantLead::Flush,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     let abort_row_index = rows
@@ -819,7 +816,6 @@ fn aborted_assistant_message_renders_the_red_abort_row() {
         &theme,
         "  ",
         60,
-        AssistantLead::Spaced,
         &mut crate::markdown::MarkdownBlockCache::default(),
     );
     assert!(
@@ -937,24 +933,136 @@ fn a_foldable_block_folds_to_its_head_with_a_count() {
     let theme = theme();
     let width = 60;
     let rows: Vec<Line> = (0..FOLD_HEAD + 4).map(|_| Vec::new()).collect();
-    let folded = fold_rows(rows.clone(), true, Detail::Details, &theme, width);
+    let folded = fold_rows(rows.clone(), true, Detail::Details, &theme, width, 5);
     assert_eq!(folded.len(), FOLD_HEAD + 1);
     let tail = folded[FOLD_HEAD]
         .iter()
         .map(|s| s.content.as_str())
         .collect::<String>();
-    assert!(tail.contains("+4 lines"), "{tail}");
+    assert!(tail.starts_with("     ... +4 lines"), "{tail}");
     assert_eq!(
-        fold_rows(rows.clone(), true, Detail::All, &theme, width).len(),
+        fold_rows(rows.clone(), true, Detail::All, &theme, width, 5).len(),
         rows.len()
     );
     let short: Vec<Line> = (0..FOLD_HEAD).map(|_| Vec::new()).collect();
     assert_eq!(
-        fold_rows(short.clone(), true, Detail::Overview, &theme, width).len(),
+        fold_rows(short.clone(), true, Detail::Overview, &theme, width, 5).len(),
         short.len()
     );
     assert_eq!(
-        fold_rows(rows.clone(), false, Detail::Overview, &theme, width).len(),
+        fold_rows(rows.clone(), false, Detail::Overview, &theme, width, 5).len(),
         rows.len()
+    );
+}
+
+fn thinking_message() -> AssistantMessage {
+    AssistantMessage {
+        blocks: vec![
+            MessageBlock::Thinking(
+                "First read `src/hello.rs` to see what it prints.\n\nThen patch it.".into(),
+            ),
+            MessageBlock::Text("Reading the file.".into()),
+        ],
+        has_tool_calls: true,
+        streaming: false,
+        error: None,
+        aborted: false,
+    }
+}
+
+/// `overview` collapses thinking to its one dim summary row in the step
+/// column, the text under it at the agent text column, no blank row
+/// between them (one step).
+#[test]
+fn overview_collapses_thinking_to_one_dim_row() {
+    let theme = theme();
+    let rows = render_assistant(
+        &thinking_message(),
+        Detail::Overview,
+        &theme,
+        "  ",
+        80,
+        &mut crate::markdown::MarkdownBlockCache::default(),
+    );
+    let summary = "   + thinking: First read src/hello.rs to see what it prints.";
+    assert_eq!(
+        rows[1],
+        vec![
+            Span::styled(summary, theme.fg_style(ThemeColor::Dim)),
+            Span::raw(" ".repeat(80 - summary.len())),
+        ]
+    );
+    let text: Vec<String> = rows
+        .iter()
+        .map(|row| row.iter().map(|s| s.content.as_str()).collect::<String>())
+        .map(|row| row.trim_end().to_string())
+        .collect();
+    assert_eq!(text, ["", summary, "     Reading the file."]);
+}
+
+/// `details` expands thinking under a dim `- thinking` header, its
+/// paragraphs dense behind the dim `| ` bar.
+#[test]
+fn details_expands_thinking_behind_the_bar() {
+    let theme = theme();
+    let dim = theme.fg_style(ThemeColor::Dim);
+    let rows = render_assistant(
+        &thinking_message(),
+        Detail::Details,
+        &theme,
+        "  ",
+        60,
+        &mut crate::markdown::MarkdownBlockCache::default(),
+    );
+    let text: Vec<String> = rows
+        .iter()
+        .map(|row| row.iter().map(|s| s.content.as_str()).collect::<String>())
+        .map(|row| row.trim_end().to_string())
+        .collect();
+    assert_eq!(
+        text,
+        [
+            "",
+            "   - thinking",
+            "   | First read src/hello.rs to see what it prints.",
+            "   | Then patch it.",
+            "     Reading the file.",
+        ]
+    );
+    assert!(rows[1]
+        .iter()
+        .filter(|span| !span.content.trim().is_empty())
+        .all(|span| span.style == dim));
+    assert!(rows[2]
+        .iter()
+        .any(|span| span.content == "| " && span.style == dim));
+}
+
+/// The user header's `>` mark is the accent on the band.
+#[test]
+fn the_user_mark_is_the_accent() {
+    let (_, _, accent, _, _) = user_block_styles();
+    let rows = user_rows("hi", 20);
+    let mark = rows[0]
+        .iter()
+        .find(|span| span.content == ">")
+        .expect("the user mark");
+    assert_eq!(mark.style, accent);
+}
+
+/// The summary joins the first paragraph's lines and cuts it with the
+/// ASCII ellipsis at the row's width less the right margin.
+#[test]
+fn the_thinking_summary_cuts_with_the_ascii_ellipsis() {
+    let summary = crate::rows::thinking_summary("**Plan**: read\nthe `file` then\n\npatch", 30);
+    assert!(
+        summary.starts_with("   + thinking: Plan: read"),
+        "{summary}"
+    );
+    assert!(summary.ends_with("..."), "{summary}");
+    assert!(crate::width::str_width(&summary) <= 29, "{summary}");
+    assert_eq!(
+        crate::rows::thinking_summary("short\nline", 40),
+        "   + thinking: short line"
     );
 }

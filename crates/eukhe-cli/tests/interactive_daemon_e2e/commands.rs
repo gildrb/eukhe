@@ -1023,7 +1023,7 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
     let (old, rebuilt) = rows.split_at(separators[0]);
     let (old, rebuilt) = (old.join("\n"), rebuilt[1..].join("\n"));
     assert!(
-        old.contains("  first") && old.contains("history history") && old.contains("kept intact"),
+        old.contains(" > first") && old.contains("history history") && old.contains("kept intact"),
         "the old transcript stays in the scrollback above the separator:\n{last}"
     );
     for clear in ["\u{1b}[2J", "\u{1b}[3J"] {

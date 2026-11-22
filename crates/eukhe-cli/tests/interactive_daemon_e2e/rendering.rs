@@ -131,8 +131,10 @@ async fn tui_big_streamed_turns_render_at_the_producer_rate() {
     );
     // Both turns settled with their full text (the window follows the
     // tail, so the second turn's marker is the strongest full-render proof).
+    // The marker may wrap at the text column, so the words are compared.
+    let words = rendered.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        rendered.contains("tail marker intact"),
+        words.contains("tail marker intact"),
         "the second big turn fully rendered:\n{rendered}"
     );
     assert_eq!(

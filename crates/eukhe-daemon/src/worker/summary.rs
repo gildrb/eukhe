@@ -257,6 +257,7 @@ impl Worker {
                 .session
                 .get()
                 .and_then(|hosted| hosted.deps().kernel_unavailable_notice()),
+            run_limit_error: None,
         }
     }
 

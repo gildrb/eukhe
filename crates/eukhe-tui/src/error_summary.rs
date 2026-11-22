@@ -63,6 +63,11 @@ const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
 /// `quota_parked_final_error` and `quota_already_parked_final_error`).
 const PARKED_MARKER: &str = " parked until ";
 
+/// The words the tool round cap's failure text ends with (`The run
+/// stopped at its tool round cap: <n> rounds (maxToolRounds)`,
+/// eukhe-durable `RoundEnd::Capped`, reason `run_limit`).
+const RUN_LIMIT_MARKER: &str = "(maxToolRounds)";
+
 /// Whether an error is a provider's server error (a 5xx status) while it
 /// checked the login (`503 credential validation failed`): a fault on the
 /// provider's side, not a rejected login (that is a 401).
@@ -82,12 +87,16 @@ fn is_login_check_fault(normalized: &str) -> bool {
 /// failed to check the login (`provider`: its name, when the row knows it)
 /// says whose fault it is; a missing key names its provider; every other
 /// failure says no other configured model took the turn. An error that
-/// already carries the expired-login report or the end report of a run
-/// with no usable login gets none.
+/// already carries the expired-login report, the end report of a run with
+/// no usable login, or the tool round cap's stop (no model failed; the
+/// error row names the cap) gets none.
 #[must_use]
 pub fn failure_report(error: &str, provider: Option<&str>) -> Option<String> {
     let normalized = normalize_error_details(error);
-    if normalized.contains(LOGIN_EXPIRED_REPORT) || normalized.contains(LOGIN_FIX) {
+    if normalized.contains(LOGIN_EXPIRED_REPORT)
+        || normalized.contains(LOGIN_FIX)
+        || normalized.contains(RUN_LIMIT_MARKER)
+    {
         return None;
     }
     if normalized.contains(PARKED_MARKER) {
