@@ -14,7 +14,7 @@ use crate::chat::{ChatEntry, Detail};
 use crate::custom_message::injected_prompt::render_injected_prompt;
 use crate::snapshot::{event_to_update, TurnUpdate};
 use crate::theme::{ColorMode, Theme};
-use crate::tool_card::{render_tool_card, ToolCallCard, ToolResultView};
+use crate::tool_card::{marks_failed, render_tool_card, ToolCallCard, ToolResultView};
 use crate::turn_usage::{render_turn_footer, TurnUsage};
 use crate::Line;
 
@@ -109,19 +109,23 @@ impl PrintTrace {
                 is_error,
                 ..
             } => {
-                if *is_error {
-                    self.usage.tool_failed();
-                }
                 let Some(index) = self
                     .running
                     .iter()
                     .position(|card| card.id == *tool_call_id)
                 else {
+                    if *is_error {
+                        self.usage.tool_failed();
+                    }
                     return Vec::new();
                 };
                 let mut card = self.running.swap_remove(index);
                 card.ended_at = Some(Instant::now());
                 card.result = Some(ToolResultView::new(result, *is_error));
+                // The footer counts the calls their cards mark failed.
+                if marks_failed(&card) {
+                    self.usage.tool_failed();
+                }
                 let rows =
                     render_tool_card(&card, 0, Detail::Overview, &self.theme, self.width, false);
                 plain_rows(&rows).into_iter().take(1).collect()

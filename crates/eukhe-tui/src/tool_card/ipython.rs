@@ -73,6 +73,15 @@ fn cell_code(card: &ToolCallCard) -> &str {
         .unwrap_or_default()
 }
 
+/// The settled cell's `x`: the status mark [`render`] draws.
+pub(super) fn failed(card: &ToolCallCard) -> bool {
+    let details = card.result.as_ref().map_or_else(
+        || IpythonDetails::parse(&Value::Null),
+        |result| IpythonDetails::parse(&result.details),
+    );
+    cell_status(card, &details) == Status::Error
+}
+
 /// Render the python cell card: the fixed summary line, then the expanded
 /// code and output rows when conversation detail is `all`.
 #[must_use]

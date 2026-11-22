@@ -39,9 +39,13 @@ fn agent_color(status: WorkflowAgentStatus) -> ThemeColor {
 }
 
 fn agent_row(theme: &Theme, agent: &WorkflowAgent, selected: bool, indent: &str) -> Line {
-    let marker = if selected { "› " } else { "  " };
+    let marker = if selected {
+        crate::glyphs::POINTER
+    } else {
+        " "
+    };
     let mut row = vec![
-        Span::raw(format!("{indent}{marker}")),
+        Span::raw(format!("{indent}{marker} ")),
         theme.fg_span(agent_color(agent.status), agent_glyph(agent.status)),
         Span::raw(" "),
     ];
@@ -93,8 +97,8 @@ fn run_panel(
     let selected = |agent: usize| cursor == Some(Cursor { run: index, agent });
     for phase in &run.phases {
         let (glyph, color) = match phase.state {
-            WorkflowPhaseState::Done => ("✓", ThemeColor::Success),
-            WorkflowPhaseState::Active => ("▶", ThemeColor::Accent),
+            WorkflowPhaseState::Done => (crate::glyphs::DONE, ThemeColor::Success),
+            WorkflowPhaseState::Active => (crate::glyphs::DOT_ON, ThemeColor::Accent),
             WorkflowPhaseState::Pending => (crate::glyphs::DOT_HALF, ThemeColor::Dim),
         };
         rows.push(vec![
