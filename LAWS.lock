@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "f2c2ea90c06eb61b556ae1f392665c1c88ccde3eb5541c3f6030c8fce0d8d2eb",
+      "spec/README.md": "320bf09e6fa68225fec3b79ed231c8f9bf3079eddb4b5814ed4eb4f59f244f20",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3115,6 +3115,7 @@
     "laws/run/model.bend::run_resent_cut_is_not_fresh": "5f95b1a9ab6f8831240d0e3939ae8a5248054f1874c47eb1d8b58144d650914e",
     "laws/run/model.bend::run_retry_budget": "9bd4b68490e46bad0e388c9ce1ee7ab98151759a024b2db40196046f8c73854b",
     "laws/run/model.bend::run_retry_counts_down": "aef3af02f540046efbce2b4f525fe506b188ff9677494b258d12dbd1017c6027",
+    "laws/run/model.bend::run_retry_fails_past_the_retries": "054287b0fad230e7016c0847bcd6debe35666283900f9044546b1dcff25733e7",
     "laws/run/model.bend::run_retry_keeps_the_notes": "29aff6c02b73ed625d027b3e6c58d3e8dbbd742de303ea545c71d3452a6733b7",
     "laws/run/model.bend::run_retry_premise_witness": "b3e5ad42e5b84be5d1ce0463a693c67de57f232176414d7508349e54283384f2",
     "laws/run/model.bend::run_retry_resends_the_request": "709a5a9c664c438bb89366a3944def11fa4af281adb1b007b2258efbf53ea1ff",
@@ -3144,7 +3145,7 @@
     "laws/run/recover.bend::rec_leak_row_starts_at_one": "4b84874b484542b6f7ed0d178e5fe86cbe1b321c95fbee935a4db72274d828f7",
     "laws/run/recover.bend::rec_never_runs_a_repeat": "41028535d15979da0c0f4ebe505830af87852ffd4bab0463a68d5a80f2bf784e",
     "laws/run/recover.bend::rec_notes_capped": "b2daad0a3fd356cc76ffce30e8213e350b2c07206bda1f9a66581f066ee6799a",
-    "laws/run/recover.bend::rec_notes_keep_the_rounds": "a3accafae8059f8a340eea5d51d1f4caca24ec05c303df928ab4e91e687e26cd",
+    "laws/run/recover.bend::rec_notes_keep_the_rounds": "35033af98206376086ebacdc2c7f7dc137e1ebdc05d49b54d33333ed209de0e6",
     "laws/run/recover.bend::rec_other_replies_pass": "4325612127c931ed18b08d6bdf445c7d50b747423a66339146d32b488193eb18",
     "laws/run/recover.bend::rec_quit_fails": "06457cf996a19f251b585a689b7927f1ac8a2dd43a258be27ea87cb135ee0c00",
     "laws/run/recover.bend::rec_redirect_row_starts_at_one": "8a78349b219b5d3cee4cde51371c28a830ca5877e7d7e7d551b9d417f81b9d74",

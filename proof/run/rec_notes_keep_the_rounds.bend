@@ -1,9 +1,9 @@
 # eukhe: the proof of LAW rec_notes_keep_the_rounds
 #
 # PROOF: rec.leak and rec.empty keep the rounds on both arms, whatever
-# the cap test gives; a repeat as the spec counts it is no fresh call
-# (LRR.rr.rounds_off), and rec.ran keeps the rounds on both arms of a
-# repeat.
+# the cap test gives, at any row and any rounds in a row; a repeat as the
+# spec counts it is no fresh call (LRR.rr.rounds_off), and rec.ran keeps
+# the rounds on both arms of a repeat.
 
 import Base
 import ../../bend/run/recovery.bend as RnRecovery
@@ -35,7 +35,7 @@ def kr.repeat(+k: RnRecovery.Rk, +row: Nat, +re: Nat, +rp: Nat, +h: Nat, +kept: 
   %Equal.sym(Bool, RnRecovery.below(RnRecovery.again(s, l, h), rp), False{}, off) : {RunRecover.rounds_of(RnRecovery.Dec.r(RnRecovery.rec.ran(_, RnRecovery.below(RnRecovery.Rk.loops(k, row), re), kept, RnRecovery.again(s, l, h), h, RnRecovery.Rk.loops(k, row), s, l, RnRecovery.Rec{k, row, s, l}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, s, l} : RnRecovery.Rec}
   kr.ran(RnRecovery.below(RnRecovery.Rk.loops(k, row), re), kept, RnRecovery.again(s, l, h), h, RnRecovery.Rk.loops(k, row), k, row, s, l)
 
-def RunRecover.rec_notes_keep_the_rounds(rc, h, kept, k, row, same, last, rep):
+def RunRecover.rec_notes_keep_the_rounds(rc, h, kept, k, row, same, last):
   match rc:
     case RnRecovery.RCfg{+long, +le, +re, +rp}:
-      (kr.leak(RnRecovery.below(RnRecovery.Rk.leaks(k, row), le), RnRecovery.Rk.leaks(k, row), k, row, same, last), (kr.repeat(k, row, re, rp, h, kept, same, last, LRR.rr.rounds_off(same, last, h, rp, rep)), kr.empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), 3n), RnRecovery.Rk.empties(k, row), k, row, same, last)))
+      (kr.leak(RnRecovery.below(RnRecovery.Rk.leaks(k, row), le), RnRecovery.Rk.leaks(k, row), k, row, same, last), ((rep => kr.repeat(k, row, re, rp, h, kept, same, last, LRR.rr.rounds_off(same, last, h, rp, rep))), kr.empty(RnRecovery.below(RnRecovery.Rk.empties(k, row), 3n), RnRecovery.Rk.empties(k, row), k, row, same, last)))

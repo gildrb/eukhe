@@ -244,6 +244,31 @@ law run_retry_spends_no_note:
   for +p: Nat
   {RnStep.call(cfg, RnState.Error{True{}, False{}}, r, c, 1n+b, n, p) == RnState.St{RnState.Prepare{}, r, c, b, n, RnState.Cfg.polls(cfg)} : RnState.St}
 
+# LAW run_retry_fails_past_the_retries (H4.7): an error that is not noted
+# (RnStep.retry, which RnStep.call and decide.reply reach for it), under
+# any caps, is retried while it is retryable and retries are left: the
+# request prepared again, one retry fewer, the rounds, the compactions and
+# the notes kept, the polls refilled; a retryable one with no retry left
+# and one not retryable fail the run on the model, every count kept, and
+# RnStep.call on a retryable error that is not noted with no retry left
+# does the same
+# EXCLUDES: a retry past retry.maxRetries (blind adversary RunAdv28,
+#   attack-run-26: RnStep.retry prepared again at a = 0, every law that
+#   reads RnStep.call held); an error past the retries that answers the
+#   run or fails another way; a retry that spends a note
+law run_retry_fails_past_the_retries:
+  for +cfg: RnState.Cfg
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +b: Nat
+  for +n: Nat
+  for +p: Nat
+  {RnStep.retry(cfg, True{}, r, c, 1n+b, n, p) == RnState.St{RnState.Prepare{}, r, c, b, n, RnState.Cfg.polls(cfg)} : RnState.St} &
+  {RnStep.retry(cfg, True{}, r, c, 0n, n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, 0n, n, p} : RnState.St} &
+  {RnStep.retry(cfg, False{}, r, c, a, n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, n, p} : RnState.St} &
+  {RnStep.call(cfg, RnState.Error{True{}, False{}}, r, c, 0n, n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, 0n, n, p} : RnState.St}
+
 # the input ends a round that no control stops: a round's end in the
 # tools phase that goes on or resets (a control's round is not counted)
 def counted_round(ph: RnState.Ph, e: RnState.Ev) -> Bool:

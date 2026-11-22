@@ -804,6 +804,7 @@ import ./proof/run/run_calls_never_answer.bend as PRunCallsNeverAnswer
 import ./proof/run/run_note_spends_no_retry.bend as PRunNoteSpendsNoRetry
 import ./proof/run/run_note_fails_past_the_notes.bend as PRunNoteFailsPastTheNotes
 import ./proof/run/run_retry_spends_no_note.bend as PRunRetrySpendsNoNote
+import ./proof/run/run_retry_fails_past_the_retries.bend as PRunRetryFailsPastTheRetries
 import ./proof/run/run_retry_sends_a_new_request.bend as PRunRetrySendsANewRequest
 import ./proof/run/run_cut_names_the_request.bend as PRunCutNamesTheRequest
 import ./proof/run/run_note_is_never_logged.bend as PRunNoteIsNeverLogged
