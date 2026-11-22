@@ -6,5 +6,5 @@ import Base
 import ../../bend/verify.bend as V
 import ../../laws/verify.bend as Verify
 
-def Verify.verify_claims_unchecked_never(goal, ended):
+def Verify.verify_claims_unchecked_never(ended):
   {==}

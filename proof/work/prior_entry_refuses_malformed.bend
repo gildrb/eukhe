@@ -11,6 +11,7 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../../laws/work.bend as Work
 import ../base/logic/logic.bend as LLogicLogic
+import ../wire/wire_nat_not_err.bend as PWireNatNotErr
 
 # a prior opens with its tag
 def per.prior(p: Maybe<&2, Pr.Prior>) -> {LawsBase.wire_opens_err(FW.put_prior(p)) == False{} : Bool}:

@@ -400,7 +400,7 @@ pub(crate) fn run_task_id(run_id: &str) -> SessionResult<TaskId> {
 /// The tasks that owe the report of an unsettled run of
 /// `conversation_id`, in start order: a run is busy work of its
 /// conversation until its report is admitted (the idle wait, the worker's
-/// idle exit, and goal continuations hold for it).
+/// idle exit, and autonomous continuations hold for it).
 ///
 /// # Errors
 ///

@@ -58,8 +58,6 @@ pub(super) struct ImportPlan {
     pub(super) model: Option<ModelRef>,
     pub(super) thinking_level: Option<ModelThinkingLevel>,
     pub(super) leaf_id: Option<String>,
-    /// The active branch's rows, root first (migrated, attributions folded).
-    pub(super) branch: Vec<FileEntry>,
     pub(super) entries: Vec<PlannedEntry>,
     /// Branch rows neither imported as entries nor applied to agent state.
     pub(super) skipped_rows: usize,
@@ -107,7 +105,6 @@ pub(super) fn plan_import(content: &str) -> Result<ImportPlan, ImportError> {
         model,
         thinking_level,
         leaf_id,
-        branch,
         entries,
         skipped_rows,
     })

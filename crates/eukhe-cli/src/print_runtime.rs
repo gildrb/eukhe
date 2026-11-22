@@ -12,11 +12,12 @@ use eukhe_bend::rules::headless::{
     UNJUDGED_CODE,
 };
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
+use eukhe_core::autonomous::AutonomousStop;
 use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, read_final_answer,
     seed_acceptance, session_judge, uncertified_line, AnswerReading, Judge,
 };
-use eukhe_core::durable::goals::{configure_autonomous, seed_initial_goal};
+use eukhe_core::durable::autonomous::{autonomous_state, configure_autonomous, AutonomousDocState};
 use eukhe_core::durable::pending::PendingWork;
 use eukhe_core::durable::{
     classify_session_command, execute_session_command, EukheSession, SessionCommandError,
@@ -56,7 +57,7 @@ enum HeadlessModeError {
     #[error(transparent)]
     Session(#[from] HeadlessSessionError),
     /// A durable session operation failed (the event watch, the
-    /// autonomous and goal setup, a submission, the transcript read, the
+    /// autonomous setup, a submission, the transcript read, the
     /// close).
     #[error("{0:#}")]
     Durable(#[from] SessionError),
@@ -344,10 +345,6 @@ async fn rpc_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
     eukhe_daemon::rpc::run_rpc_mode(eukhe_daemon::rpc::RpcOptions {
         engine_factory: rpc_engine_factory(options),
         autonomous_config: config.autonomous.as_ref().map(autonomous_runtime_config),
-        initial_goal: config
-            .initial_goal
-            .as_ref()
-            .map(|goal| (goal.objective.clone(), goal.token_budget.map(u64::from))),
         acceptance: config.acceptance.clone(),
     })
     .await
@@ -481,7 +478,7 @@ enum PromptsEnd {
 /// code: session commands run through the durable executor (a failure
 /// prints its raw error, TS print-mode's catch); every other prompt is
 /// submitted and waited for, then the session runs until it is quiescent
-/// (goal and autonomous continuations, compaction, and every turn a
+/// (autonomous continuations, compaction, and every turn a
 /// settled job or subagent wakes) or the wait limit elapses. Text mode
 /// prints the terminal result; both modes print failures to stderr. The
 /// compiled Bend core decides the exit code (`headless_exit`, then
@@ -519,6 +516,9 @@ async fn run_prompts(
     };
     // The run's entries are the ones after this: whether it acted.
     let since = activity::newest_entry(&conversation, cx).await?;
+    // The autonomous run as the session held it before: a stop this run
+    // made is a change of it.
+    let autonomous_before = autonomous_state(harness, conversation.id(), cx).await?;
     let watch = RunWatch::start(opened, &conversation, cx).await?;
     let ended = drive_prompts(opened, &conversation, &watch, options, cx).await;
     // The run's disclosure rows (a reported overflow outcome) commit from
@@ -555,6 +555,16 @@ async fn run_prompts(
             println!("{}", serde_json::json!({ "type": "task_uncertified" }));
         }
     }
+    // An autonomous run that ended for want of progress ended not done:
+    // the end-of-run report says so, and the run never exits 0.
+    let autonomous_after = autonomous_state(harness, conversation.id(), cx).await?;
+    let code = match no_progress_end(&autonomous_before, &autonomous_after) {
+        Some(stalls) => {
+            report_no_progress(stalls, json_mode);
+            code.max(1)
+        }
+        None => code,
+    };
     Ok(i32::try_from(code).unwrap_or(1))
 }
 
@@ -572,6 +582,32 @@ fn print_run_reports(reports: &[eukhe_types::effects::RunReport], json_mode: boo
                 unknown: report.unknown.clone(),
             });
         }
+    }
+}
+
+/// The count of continuations without progress at which this run's
+/// autonomous run ended (`after` holds a no-progress stop `before` did not).
+fn no_progress_end(before: &AutonomousDocState, after: &AutonomousDocState) -> Option<u64> {
+    match after.last_stop {
+        Some(AutonomousStop::NoProgress { stalls }) if before != after => Some(stalls),
+        Some(
+            AutonomousStop::NoProgress { .. } | AutonomousStop::Checks(_) | AutonomousStop::Budget,
+        )
+        | None => None,
+    }
+}
+
+/// The end-of-run report of an autonomous run that ended for want of
+/// progress: stderr in both modes, and in json mode the stream's last
+/// record.
+fn report_no_progress(stalls: u64, json_mode: bool) {
+    let reason = eukhe_core::autonomous::no_progress_reason(stalls);
+    eprintln!("eukhe: the task is incomplete: the autonomous run ended, not done: {reason}");
+    if json_mode {
+        println!(
+            "{}",
+            serde_json::json!({ "type": "task_incomplete", "reason": reason, "remaining": [] })
+        );
     }
 }
 
@@ -1025,22 +1061,6 @@ async fn drive_prompts(
     if let Some(acceptance) = &config.acceptance {
         seed_acceptance(harness, conversation.id(), acceptance, &opened.cwd, cx).await?;
     }
-    // The CLI `--goal` seed: a fresh conversation starts the goal (with
-    // its own token budget) and queues its continuation; a resumed or
-    // already-seeded one keeps its persisted goal.
-    if let Some(goal) = &config.initial_goal {
-        seed_initial_goal(
-            harness,
-            conversation.id(),
-            &goal.objective,
-            goal.token_budget.map(u64::from),
-            cx,
-        )
-        .await?;
-        if let Settled::GaveUp { work, limit } = quiescent().await? {
-            return Ok(PromptsEnd::GaveUp { work, limit });
-        }
-    }
     let resources = &session.deps().resources;
     for (prompt, images) in prompts(options) {
         let prompt = match first.take() {
@@ -1078,7 +1098,7 @@ async fn drive_prompts(
                 .await?;
             submission.wait(cx).await?;
         }
-        // Continuations (goal, autonomous), queued input, compaction, and
+        // Continuations (autonomous), queued input, compaction, and
         // the turns settled jobs and subagents wake run before the next
         // prompt.
         if let Settled::GaveUp { work, limit } = quiescent().await? {

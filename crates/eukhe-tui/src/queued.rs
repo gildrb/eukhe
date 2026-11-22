@@ -6,7 +6,7 @@
 //! with the TS prompt-highlight styling on top (a leading slash command
 //! in accent, `@path`/`--flag` argument tokens in their own colors) - with
 //! one hint row below them. The queued internal prompts (heartbeat fires,
-//! agent messages, goal contexts, background-command notices) condense
+//! agent messages, engine continuations, background-command notices) condense
 //! into the single counted row instead of preview rows, so the strip
 //! stays about what the user typed (the condensed row renders after the
 //! human previews). The strip is empty (renders nothing) when
@@ -65,7 +65,7 @@ enum InternalPromptOrigin {
     Heartbeat,
     /// A child run's exit or failure report.
     ChildStatus,
-    /// Every other internal prompt: goal and autonomous continuations, the
+    /// Every other internal prompt: autonomous and director continuations, the
     /// quota resume marker, finished background commands.
     Other,
 }

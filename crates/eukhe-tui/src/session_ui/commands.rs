@@ -40,7 +40,7 @@ impl SessionUi {
     /// Slash-command dispatch (the TS interactive submission ladder reduced
     /// to this client's surface): local client commands run here, builtin
     /// client commands without a UI yet report unavailability, session
-    /// commands (`compact`/`refine`/`goal`/`autonomous`) forward to the
+    /// commands (`compact`/`refine`/`auto`/`autonomous`) forward to the
     /// session, and unknown commands get the TS suggestion error -- anything
     /// without a suggestion passes through as a prompt.
     ///

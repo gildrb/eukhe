@@ -68,9 +68,6 @@ pub struct Reconstructed {
     /// (`view::handoff`) -- a restarted worker's sequence restarts, so the
     /// generation must match too.
     pub event_generation: String,
-    /// The session's goal state (`state.goal`), when the snapshot reports
-    /// one (TS `snapshot.ts: goal: session.goalState`).
-    pub goal: Option<eukhe_types::goal::GoalState>,
     /// The session's ledger of effects whose outcome a restart could not
     /// tell (`state.unknownEffects`; absent when empty).
     pub unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,
@@ -552,9 +549,6 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     // The cursor-presence gate (`view::handoff`): the handoff refuses to
     // key on a collapsed identity (an empty generation or session).
     let cursor_present = !event_generation.is_empty() && !session_id.is_empty();
-    let goal = state
-        .and_then(|state| state.get("goal"))
-        .and_then(|goal| serde_json::from_value::<eukhe_types::goal::GoalState>(goal.clone()).ok());
     let loop_status = state
         .and_then(|state| state.get("loop"))
         .and_then(|status| eukhe_types::loop_mode::LoopStatus::deserialize(status).ok());
@@ -605,7 +599,6 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
         session_name,
         session_id,
         event_generation,
-        goal,
         unknown_effects,
         loop_status,
         acceptance,

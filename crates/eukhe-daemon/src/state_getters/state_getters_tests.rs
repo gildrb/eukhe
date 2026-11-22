@@ -78,7 +78,6 @@ async fn get_connection_state_matches_the_ts_shape() {
         "messageCount",
         "sessionActions",
         "compactionCount",
-        "goal",
         "loop",
         "scopedModels",
         "activeToolNames",

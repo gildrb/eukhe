@@ -17,7 +17,7 @@ use eukhe_durable::types::{ConversationId, DocumentReader, LatestFork};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::durable::goals::read_doc;
+use crate::durable::autonomous::read_doc;
 
 /// How a child accounts for one item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

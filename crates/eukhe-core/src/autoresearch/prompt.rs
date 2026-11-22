@@ -18,7 +18,7 @@ use eukhe_durable::session::SessionError;
 use futures::FutureExt;
 
 use super::host::{of, ours};
-use crate::durable::goals::autonomous_state;
+use crate::durable::autonomous::autonomous_state;
 use crate::durable::HostDeps;
 
 /// The section's key (its tag in the prompt).

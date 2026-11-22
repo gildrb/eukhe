@@ -1,0 +1,6 @@
+{"prompt": "We're in /auto. Before the next continuation, remember to rerun the migration tests.", "expect_skill": "directors", "expect": "Calls directors.remind with the reminder to rerun the migration tests."}
+{"prompt": "The next step has to go through the bash tool, make sure it does.", "expect_skill": "directors", "expect": "Calls directors.force_tool(\"bash\")."}
+{"prompt": "What checks does this task have to pass before it counts as done?", "expect_skill": "directors", "expect": "Calls directors.acceptance() and reports the checks and their last verdicts."}
+{"prompt": "Fix this typo in the README.", "expect_skill": null, "expect": "Fixes it; puts nothing on the Director stack."}
+{"prompt": "Start an autonomous run on the release notes.", "expect_skill": null, "expect": "Tells the user to run /auto; the skill cannot start a run."}
+{"prompt": "The last three continuations repeated the same failing command.", "expect_skill": "directors", "expect": "Changes approach and may leave a directors.remind note with the new plan; does not repeat the command."}

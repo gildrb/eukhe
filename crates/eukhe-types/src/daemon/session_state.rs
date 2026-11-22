@@ -424,7 +424,6 @@ pub struct AgentConnectionState {
     pub message_count: u32,
     pub session_actions: SessionActionSnapshot,
     pub compaction_count: u32,
-    pub goal: Value,
     /// The ledger of steps a restart could not tell the outcome of and
     /// treated as not run (the `unknown_effects_update` payload), oldest
     /// first.

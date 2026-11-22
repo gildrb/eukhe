@@ -218,9 +218,10 @@ impl Worker {
         let cx = &BACKGROUND_CONTEXT;
         let status = async {
             let state =
-                eukhe_core::durable::goals::autonomous_state(hosted.harness(), main.id(), cx)
+                eukhe_core::durable::autonomous::autonomous_state(hosted.harness(), main.id(), cx)
                     .await?;
-            let budget = eukhe_core::durable::goals::budget_report(&hosted.deps().budget).await?;
+            let budget =
+                eukhe_core::durable::autonomous::budget_report(&hosted.deps().budget).await?;
             Ok::<_, eukhe_durable::session::SessionError>(state.status(budget))
         };
         match status.await {

@@ -35,9 +35,6 @@ the process exit code and stderr.
   to compact, so the observable parity is the namespaced `compaction: {}`
   update (the TS `compaction_end` with an undefined result) followed by the
   normal completion envelope and `end_turn`.
-- `goal_command`: `/goal <objective>` then `/goal status`. Shows the
-  goal-start `_meta.goal` frame, mid-turn usage updates after each settled
-  message, the completion observation, and the status-prompt frame.
 - `autonomous_gate`: `--autonomous --autonomous-gate true`. The gate passes
   after the first turn: the completion and terminal envelopes carry the
   `_meta.autonomous` accounting; the stop reason is `end_turn`. Captured
@@ -80,7 +77,7 @@ on the sandboxed `--daemon-socket`, hosts a client-owned daemon session,
 and streams its session events as ACP updates. The daemon-attached
 captures are: happy_path, cwd_mismatch, errors, second_initialize,
 tool_call, compact_command, mcp_stdio, mcp_replace, mcp_errors — all
-MATCH in full mode. `cancel`, `goal_command`, `autonomous_limit`, and
+MATCH in full mode. `cancel`, `autonomous_limit`, and
 `autonomous_gate` were captured on the since-removed in-process
 transport; recapture is pending (the files stay):
 
@@ -90,9 +87,8 @@ transport; recapture is pending (the files stay):
   scenario's 2s cancel window, so the pre-cancel chunk count differs
   per run. The daemon-attached cancel semantics are locked by the
   deterministic e2e (`acp_daemon_attached_cancels_mid_turn`).
-- `goal_command` / `autonomous_limit` / `autonomous_gate`: the captures
-  predate the daemon's `goal_update` / autonomous-accounting producers;
-  recapture is pending.
+- `autonomous_limit` / `autonomous_gate`: the captures predate the
+  daemon's autonomous-accounting producers; recapture is pending.
 
 ## Comparing a Rust run
 
@@ -110,13 +106,12 @@ worker); the network-dependent scenarios (tool_call, cancel mid-turn) are
 verified by running the scenario client against both binaries on a
 networked box.
 
-`--landmarks` drops model-behavior-dependent work frames (tool calls,
-chunk streams, and mid-turn goal-usage updates) and compares the protocol
-envelopes only. Use it for scenarios where the two model runs legally
-diverge in their tool usage (`goal_command`: one run answered directly,
-the other ran several python cells; `autonomous_limit`: one run wrote
-the essay with tool calls, the other without — both sequences are
-correct protocol behavior). The goal and autonomous frames themselves are
+`--landmarks` drops model-behavior-dependent work frames (tool calls and
+chunk streams) and compares the protocol envelopes only. Use it for
+scenarios where the two model runs legally diverge in their tool usage
+(`autonomous_limit`: one run wrote the essay with tool calls, the other
+without — both sequences are correct protocol behavior). The autonomous
+frames themselves are
 locked field-by-field by the offline e2e tests. All other scenarios
 (happy_path, cwd_mismatch, errors, second_initialize, tool_call,
 compact_command, cancel, autonomous_gate, mcp_stdio, mcp_replace,

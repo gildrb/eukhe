@@ -61,14 +61,11 @@ def normalize_frame(direction, frame, sequence_index):
                 shape["has_content"] = "content" in update
                 shape["has_python_meta"] = "python" in meta
             elif kind == "session_info_update":
-                # Compaction, goal, and refinement payloads: presence and
+                # Compaction and refinement payloads: presence and
                 # status are structural; usage counts and summary text are
                 # run-dependent values.
                 if "compaction" in meta:
                     shape["has_compaction"] = True
-                if "goal" in meta:
-                    shape["has_goal"] = True
-                    shape["goal_status"] = meta["goal"].get("status")
                 if "refinement" in meta:
                     shape["has_refinement"] = True
                     shape["refinement_status"] = meta["refinement"].get("status")
@@ -141,7 +138,7 @@ def landmark_frame(frame_shape):
     """Whether a frame is a structural landmark.
 
     `--landmarks` mode drops model-behavior-dependent work frames (tool
-    calls, streamed chunks, and mid-turn goal-usage updates) and keeps the
+    calls and streamed chunks) and keeps the
     protocol envelopes: requests, responses, boundaries, completion and
     terminal envelopes, compaction/refinement/autonomous metas, and stop
     reasons.
@@ -150,15 +147,6 @@ def landmark_frame(frame_shape):
         return True
     kind = frame_shape.get("sessionUpdate")
     if kind in ("tool_call", "tool_call_update", "chunk-stream"):
-        return False
-    if (
-        kind == "session_info_update"
-        and frame_shape.get("phase") == "event"
-        and frame_shape.get("has_goal")
-        and not frame_shape.get("has_compaction")
-        and not frame_shape.get("has_refinement")
-        and not frame_shape.get("has_autonomous")
-    ):
         return False
     return True
 

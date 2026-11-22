@@ -21,7 +21,7 @@ pub const CURRENT_SESSION_VERSION: u32 = 3;
 /// the Anthropic subscription ban-risk warning (operator directive
 /// 2026-09-29: the warning fires once per session LIFECYCLE, not once per
 /// TUI instance — the shown-state persists in the session's own durable
-/// store, exactly like `thread_goal_state`, so a reattach or a resume of
+/// store, so a reattach or a resume of
 /// the same session reads the row and skips the warning; a genuinely new
 /// session, or a fresh auth landing, shows it once). The row's `data` is
 /// `{ "shown": true }`.

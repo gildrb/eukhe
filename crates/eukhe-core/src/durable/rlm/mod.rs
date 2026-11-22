@@ -3,7 +3,7 @@
 //! (`rlm_heartbeat.*`, `mcp.*`, `model.info`, `compact.*`, `refine.*`,
 //! `rlm.query_batch`, `history.*`, `chat.*`, `factory.report`, plus the
 //! embedding's extra
-//! handlers). `rlm.*` (children) and `goal.*` (goals) register from their
+//! handlers). `rlm.*` (children) and `directors.push` (autonomous) register from their
 //! own extensions into the same
 //! [`HostRequestRegistry`](super::HostRequestRegistry).
 //!

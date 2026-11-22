@@ -679,7 +679,6 @@ impl EventTranslator {
                 | SessionEvent::SessionInfoChanged { .. }
                 | SessionEvent::ServiceTierChanged { .. }
                 | SessionEvent::SessionActionUpdate { .. }
-                | SessionEvent::GoalUpdate { .. }
                 | SessionEvent::UnknownEffectsUpdate { .. }
                 | SessionEvent::RanEffectsUpdate { .. }
                 | SessionEvent::RunReport { .. }

@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 use eukhe_core::autonomous::AgentAutonomousConfig;
 use eukhe_core::durable::acceptance::seed_acceptance;
-use eukhe_core::durable::goals::{autonomous_state, configure_autonomous, seed_initial_goal};
+use eukhe_core::durable::autonomous::{autonomous_state, configure_autonomous};
 use eukhe_durable::session::SessionResult;
 use eukhe_types::acceptance::AcceptanceSeed;
 use serde_json::Value;
@@ -56,9 +56,6 @@ pub struct RpcOptions {
     /// conversation unless it already runs autonomously; their turn, token
     /// and time limits go on the session's budget.
     pub autonomous_config: Option<AgentAutonomousConfig>,
-    /// The CLI `--goal` seed (objective, token budget: a token limit on
-    /// the session's budget) for the startup session's main conversation.
-    pub initial_goal: Option<(String, Option<u64>)>,
     /// The CLI `--accept-*` checks for the startup session's main
     /// conversation.
     pub acceptance: Option<AcceptanceSeed>,
@@ -163,13 +160,13 @@ fn exit_with(code: i32) -> ! {
 }
 
 /// The async entry: open the startup session through the factory, seed
-/// the CLI goal/autonomous state, and serve the RPC stdio mode until stdin
+/// the CLI autonomous state, and serve the RPC stdio mode until stdin
 /// closes or a signal exits. Returns the process exit code.
 ///
 /// # Errors
 ///
 /// The startup session cannot open (the factory's error, before any
-/// frame is written), or the CLI goal/autonomous seed fails. The
+/// frame is written), or the CLI autonomous seed fails. The
 /// transport itself never errors out of the loop (protocol failures
 /// answer on stdout, TS parity).
 pub async fn run_rpc_mode(options: RpcOptions) -> Result<i32, RpcModeError> {
@@ -180,14 +177,9 @@ pub async fn run_rpc_mode(options: RpcOptions) -> Result<i32, RpcModeError> {
     )
     .await
     .map_err(RpcModeError::Start)?;
-    seed_startup_state(
-        &session,
-        options.initial_goal,
-        options.autonomous_config,
-        options.acceptance,
-    )
-    .await
-    .map_err(RpcModeError::Seed)?;
+    seed_startup_state(&session, options.autonomous_config, options.acceptance)
+        .await
+        .map_err(RpcModeError::Seed)?;
     let session = Arc::new(session);
     let state = Arc::new(commands::RpcState {
         session: Arc::clone(&session),
@@ -199,11 +191,10 @@ pub async fn run_rpc_mode(options: RpcOptions) -> Result<i32, RpcModeError> {
     Ok(serve_stdin(state).await)
 }
 
-/// The CLI `--goal` seed and the CLI autonomous flags on the startup
+/// The CLI autonomous flags and checks on the startup
 /// session's main conversation (TS `createAgentSession` parity).
 async fn seed_startup_state(
     session: &RpcSession,
-    initial_goal: Option<(String, Option<u64>)>,
     autonomous_config: Option<AgentAutonomousConfig>,
     acceptance: Option<AcceptanceSeed>,
 ) -> SessionResult<()> {
@@ -213,9 +204,6 @@ async fn seed_startup_state(
     let cx = rpc_context();
     if let Some(seed) = acceptance {
         seed_acceptance(opened.harness(), main, &seed, &opened.deps().cwd, &cx).await?;
-    }
-    if let Some((objective, token_budget)) = initial_goal {
-        seed_initial_goal(opened.harness(), main, &objective, token_budget, &cx).await?;
     }
     if let Some(config) = autonomous_config {
         if !autonomous_state(opened.harness(), main, &cx).await?.enabled {

@@ -37,9 +37,11 @@ use crate::autonomous::{now_millis, GateCommandRunner};
 use crate::durable::acceptance::{
     read_answer, workspace_files, Judge, JudgeQuestion, JudgeReply, JudgeRequest,
 };
+use crate::durable::autonomous::{
+    conversation_of, open_doc, read_doc, user_input_queued, write_doc,
+};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::entries::custom_entry_draft;
-use crate::durable::goals::{conversation_of, open_doc, read_doc, user_input_queued, write_doc};
 use crate::durable::workflow::unsettled_runs;
 use crate::durable::HarnessCell;
 

@@ -9,6 +9,8 @@ import ./base.bend as LPT
 def ProgressTerms.progress_terms_exact(x, xs, g, segs, cap, hist, ps, cfg, v):
   match g:
     case Pr.Go{s}:
-      (Equal.sym(Bool, ProgressTerms.mem_spec(x, xs), Pr.mem(x, xs), LPT.pg.mem(x, xs)), ({==}, (Equal.sym(Pr.Goal, ProgressTerms.goal_spec(segs, cap, hist, Pr.Go{s}), Pr.goal(segs, cap, hist, Pr.Go{s}), LPT.pg.goal(segs, cap, hist, Pr.Go{s})), Equal.sym(Ch.Next, ProgressTerms.watch_spec(ps, cfg, hist, v), Pr.watch(ps, cfg, hist, v), LPT.pg.watch(ps, cfg, hist, v)))))
+      (Equal.sym(Bool, ProgressTerms.mem_spec(x, xs), Pr.mem(x, xs), LPT.pg.mem(x, xs)), ({==}, (Equal.sym(Pr.Run, ProgressTerms.run_spec(segs, cap, hist, Pr.Go{s}), Pr.run(segs, cap, hist, Pr.Go{s}), LPT.pg.run(segs, cap, hist, Pr.Go{s})), Equal.sym(Ch.Next, ProgressTerms.watch_spec(ps, cfg, hist, v), Pr.watch(ps, cfg, hist, v), LPT.pg.watch(ps, cfg, hist, v)))))
     case Pr.Stop{s}:
-      (Equal.sym(Bool, ProgressTerms.mem_spec(x, xs), Pr.mem(x, xs), LPT.pg.mem(x, xs)), ({==}, (Equal.sym(Pr.Goal, ProgressTerms.goal_spec(segs, cap, hist, Pr.Stop{s}), Pr.goal(segs, cap, hist, Pr.Stop{s}), LPT.pg.goal(segs, cap, hist, Pr.Stop{s})), Equal.sym(Ch.Next, ProgressTerms.watch_spec(ps, cfg, hist, v), Pr.watch(ps, cfg, hist, v), LPT.pg.watch(ps, cfg, hist, v)))))
+      (Equal.sym(Bool, ProgressTerms.mem_spec(x, xs), Pr.mem(x, xs), LPT.pg.mem(x, xs)), ({==}, (Equal.sym(Pr.Run, ProgressTerms.run_spec(segs, cap, hist, Pr.Stop{s}), Pr.run(segs, cap, hist, Pr.Stop{s}), LPT.pg.run(segs, cap, hist, Pr.Stop{s})), Equal.sym(Ch.Next, ProgressTerms.watch_spec(ps, cfg, hist, v), Pr.watch(ps, cfg, hist, v), LPT.pg.watch(ps, cfg, hist, v)))))
+    case Pr.Steer{s}:
+      (Equal.sym(Bool, ProgressTerms.mem_spec(x, xs), Pr.mem(x, xs), LPT.pg.mem(x, xs)), ({==}, (Equal.sym(Pr.Run, ProgressTerms.run_spec(segs, cap, hist, Pr.Steer{s}), Pr.run(segs, cap, hist, Pr.Steer{s}), LPT.pg.run(segs, cap, hist, Pr.Steer{s})), Equal.sym(Ch.Next, ProgressTerms.watch_spec(ps, cfg, hist, v), Pr.watch(ps, cfg, hist, v), LPT.pg.watch(ps, cfg, hist, v)))))

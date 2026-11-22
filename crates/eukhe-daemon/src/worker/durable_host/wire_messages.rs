@@ -6,7 +6,7 @@
 //! through, the eukhe kinds rebuild their old roles (`custom`,
 //! `bashExecution`, `branchSummary`), and a `pi.compaction` summary becomes a
 //! `compactionSummary`. A `pi.user` entry the engine wrote for itself (an
-//! autonomous, goal or Director continuation, a quota or compaction
+//! autonomous or Director continuation (or an old session's goal one), a quota or compaction
 //! resume: [`HiddenInput`]) maps to a `display: false` custom message, so
 //! no client shows it as the user's words. Kinds the transcript never
 //! showed (`pi.system`, `pi.reset`, custom state) map to nothing.

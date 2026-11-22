@@ -31,9 +31,9 @@ fn slash_context_matches_ts_positions() {
     assert_eq!(ctx.prefix, "/he");
     assert!(ctx.at_prompt_start);
     // Argument position carries the command name.
-    let ctx = get_slash_command_context(&["/goal ship".to_string()], 0, 10).unwrap();
+    let ctx = get_slash_command_context(&["/auto ship".to_string()], 0, 10).unwrap();
     assert_eq!(ctx.kind, SlashKind::Argument);
-    assert_eq!(ctx.command_name.as_deref(), Some("goal"));
+    assert_eq!(ctx.command_name.as_deref(), Some("auto"));
     assert_eq!(ctx.prefix, "ship");
     // Leading whitespace still counts as the command position.
     let ctx = get_slash_command_context(&["  /he".to_string()], 0, 5).unwrap();

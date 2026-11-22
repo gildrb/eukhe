@@ -20,8 +20,8 @@ call 4,{MAX},F4,
 call 5,0,{MAX},
 call 6,4,
 # whether a final answer is a claim
-call 7,FTFFF
-call 7,TTTTT
+call 7,FTFF
+call 7,TTTT
 refuse 0,0,0,{LONG},0,0,F0,
 refuse 2,{LONG},0,
 refuse 7,

@@ -32,7 +32,7 @@ fn agent_mail(text: &str) -> QueuedItem {
 }
 
 fn goal(text: &str) -> QueuedItem {
-    let context = eukhe_types::goal::GoalContextKind::Continuation;
+    let context = eukhe_types::input_origin::GoalContextKind::Continuation;
     internal(text, InputOrigin::Goal { context })
 }
 

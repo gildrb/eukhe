@@ -22,8 +22,7 @@ use eukhe_durable::session::SessionError;
 use eukhe_durable::storage::jsonl::{JsonlStorage, JsonlStorageOptions};
 use eukhe_durable::storage::MemoryStorage;
 use eukhe_durable::types::{Storage, ROOT_CONVERSATION_ID};
-use eukhe_types::goal::GoalContextKind;
-use eukhe_types::input_origin::{AutonomousNudge, ChildExit, InputOrigin, Report};
+use eukhe_types::input_origin::{AutonomousNudge, ChildExit, GoalContextKind, InputOrigin, Report};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, CacheBreakpoint, ImageContent, Message, StopReason, SystemContent,
     SystemMessage, TextContent, UserContent, UserContentBlock, UserMessage,

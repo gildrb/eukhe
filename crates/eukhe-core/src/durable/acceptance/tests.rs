@@ -53,16 +53,15 @@ use crate::autonomous::{
     AgentAutonomousConfig, AgentAutonomousGateConfig, AutonomousStop, ChildProcessResult,
     GateCommandRunner,
 };
+use crate::durable::autonomous::tests::{open_jsonl, user_origins, user_texts};
+use crate::durable::autonomous::{
+    autonomous_extension, autonomous_state, read_doc, set_autonomous, AutonomousChange,
+};
 use crate::durable::budget::BudgetGate;
 use crate::durable::directors::DirectorLimits;
 use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
-use crate::durable::goals::tests::{open_jsonl, user_origins, user_texts};
-use crate::durable::goals::{
-    autonomous_state, goal_state, goals_extension, read_doc, set_autonomous, AutonomousChange,
-};
 use crate::durable::rlm::tool_result as python_result;
 use crate::durable::{HarnessCell, HostCall, HostRequestRegistry};
-use crate::goals::GoalStatus;
 use crate::kernel::shared::{ExecuteResult, ExecuteStatus, KernelBashCommands};
 
 mod commits;
@@ -494,7 +493,7 @@ fn setup() -> Setup {
     let attacker = Arc::new(ScriptedAttacker::default());
     let dir = tempfile::tempdir().expect("tempdir");
     let budget = BudgetGate::side(dir.path(), "session");
-    // The product order: the verifier's hooks before the goal's.
+    // The product order: the verifier's hooks before the autonomous run's.
     registry
         .install(acceptance_extension(
             cell.clone(),
@@ -510,19 +509,18 @@ fn setup() -> Setup {
         ))
         .expect("the acceptance extension installs");
     registry
-        .install(goals_extension(
+        .install(autonomous_extension(
             cell.clone(),
             Arc::clone(&budget),
             Arc::new(DirectorLimits::default),
             &requests,
             Vec::new(),
         ))
-        .expect("the goal extension installs");
+        .expect("the autonomous extension installs");
     registry
         .install(define_extension(Extension {
             name: "test.tools".to_owned(),
             tools: vec![
-                host_tool("finish", "goal.complete", requests.clone()),
                 host_tool("drop_checks", "acceptance.set", requests.clone()),
                 work_tool(),
                 bash_tool(),
@@ -1258,18 +1256,12 @@ async fn an_autonomous_run_stops_when_its_checks_end_the_claim() {
 }
 
 /// V4: with no checks the result is unverified, nothing is written and
-/// nothing runs; a goal completed without checks says so.
+/// nothing runs.
 #[tokio::test]
-async fn no_checks_is_unverified_and_a_goal_completed_without_them_says_so() {
+async fn no_checks_is_unverified_and_nothing_runs() {
     let setup = setup();
     let (harness, root) = setup.memory().await;
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
-    setup
-        .faux
-        .set_responses(vec![call("finish", "f1"), answer("done")]);
+    setup.faux.set_responses(vec![answer("done")]);
 
     run(&harness, &root, "work").await;
 
@@ -1287,110 +1279,8 @@ async fn no_checks_is_unverified_and_a_goal_completed_without_them_says_so() {
             .expect("read"),
         None
     );
-    let goal = goal_state(&harness, root.id(), cx()).await.expect("goal");
-    assert_eq!(
-        (goal.status, goal.last_reason.as_deref()),
-        (
-            GoalStatus::Complete,
-            Some("unverified (no acceptance checks)")
-        )
-    );
     assert!(setup.runner.commands().is_empty());
     assert!(verdict_rows(&entries(&root).await).is_empty());
-    harness.close(cx()).await.expect("close");
-}
-
-/// V3, V5: under an active goal `goal.complete()` is only a claim: the
-/// goal completes when the checks pass on the final state.
-#[tokio::test]
-async fn a_goal_completes_only_when_its_checks_pass() {
-    let setup = setup();
-    let (harness, root) = setup.memory().await;
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
-    setup
-        .accept(&harness, &root, vec![command("cargo test")], None)
-        .await;
-    setup.runner.script(vec![exited(0, "ok")]);
-    setup.faux.set_responses(vec![
-        answer("step one"),
-        call("finish", "f1"),
-        answer("done"),
-    ]);
-
-    run(&harness, &root, "work").await;
-
-    let entries = entries(&root).await;
-    // The first final answer was no claim: the goal went on.
-    let texts = user_texts(&entries);
-    assert_eq!(texts.len(), 2, "{texts:?}");
-    assert!(texts[1].starts_with("[goal: continuation]"));
-    // The claim left the goal active until the verdict.
-    let claim = serde_json::to_string(&entries).expect("entries encode");
-    assert!(claim.contains(r#"\"status\":\"active\""#), "{claim}");
-    assert!(claim.contains(r#"\"status\":\"pending\""#), "{claim}");
-    assert!(claim.contains(r#"\"checks\":1"#), "{claim}");
-    let goal = goal_state(&harness, root.id(), cx()).await.expect("goal");
-    assert_eq!(
-        (goal.status, goal.last_reason.as_deref()),
-        (
-            GoalStatus::Complete,
-            Some("checks passed, unconfined (1 acceptance check confirmed, caught 4 of 4 breaks)")
-        )
-    );
-    assert_eq!(
-        state(&harness, &root).await.label,
-        AcceptanceLabel::ChecksPassedUnconfined
-    );
-    assert_eq!(setup.runner.commands(), vec!["cargo test".to_owned()]);
-    harness.close(cx()).await.expect("close");
-}
-
-/// V7: a goal whose claim is refuted gets the evidence back, goes on, and
-/// at the cap pauses failed: it never completes.
-#[tokio::test]
-async fn a_goal_whose_claim_stays_refuted_pauses_and_never_completes() {
-    let setup = setup();
-    let (harness, root) = setup.memory().await;
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
-    setup
-        .accept(&harness, &root, vec![command("cargo test")], Some(1))
-        .await;
-    setup
-        .runner
-        .script(vec![exited(1, "1 failed"), exited(1, "1 failed")]);
-    setup.faux.set_responses(vec![
-        call("finish", "f1"),
-        answer("done"),
-        call("finish", "f2"),
-        answer("done again"),
-    ]);
-
-    run(&harness, &root, "work").await;
-
-    let goal = goal_state(&harness, root.id(), cx()).await.expect("goal");
-    assert_eq!(
-        (goal.status, goal.last_reason.as_deref()),
-        (
-            GoalStatus::Paused,
-            Some("Acceptance failed: check 1 refuted (exited with code 1)")
-        )
-    );
-    let got = state(&harness, &root).await;
-    assert_eq!(
-        (got.label, got.last_end.map(|end| end.label)),
-        (AcceptanceLabel::Failed, Some(AcceptanceLabel::Failed))
-    );
-    let entries = entries(&root).await;
-    let texts = user_texts(&entries);
-    assert_eq!(texts.len(), 2, "{texts:?}");
-    assert!(texts[1].starts_with("[acceptance: not verified]"));
-    assert_eq!(setup.faux.get_pending_response_count(), 0);
     harness.close(cx()).await.expect("close");
 }
 

@@ -363,8 +363,6 @@ pub struct AnswerFacts {
     pub held: bool,
     /// The task has a check.
     pub checked: bool,
-    /// An active goal drives the run: it claims with `goal.complete()`.
-    pub goal: bool,
     /// A claim already waits for its verdict.
     pub claimed: bool,
     /// The last claim ended on the state now.
@@ -382,7 +380,6 @@ pub fn claims(facts: AnswerFacts) -> Result<bool, Error> {
         .tag(7)
         .bool(facts.held)
         .bool(facts.checked)
-        .bool(facts.goal)
         .bool(facts.claimed)
         .bool(facts.ended);
     // `Reader::bool` is fixed to one reader lifetime; `ask` needs a reader
@@ -537,7 +534,6 @@ mod tests {
         let plain = AnswerFacts {
             held: false,
             checked: true,
-            goal: false,
             claimed: false,
             ended: false,
         };
@@ -553,15 +549,10 @@ mod tests {
                     ..plain
                 }),
                 claims(AnswerFacts {
-                    goal: true,
-                    ..plain
-                }),
-                claims(AnswerFacts {
                     ended: true,
                     ..plain
                 }),
                 claims(AnswerFacts {
-                    goal: true,
                     claimed: true,
                     ended: true,
                     ..plain
@@ -573,7 +564,7 @@ mod tests {
                 }),
             ]
             .map(|claim| claim.expect("a decision")),
-            [true, false, false, false, false, true, false]
+            [true, false, false, false, true, false]
         );
     }
 

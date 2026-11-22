@@ -483,8 +483,8 @@ impl SessionUi {
 /// Deterministic list order: most recently active first (missing activity
 /// timestamps last), so `/switch <n>` targets are stable between `/list`
 /// renders.
-/// The terminal's current column count (TS `this.ui.terminal.columns` for
-/// the goal status detail suffix); 80 when the size is unavailable.
+/// The terminal's current column count (TS `this.ui.terminal.columns`);
+/// 80 when the size is unavailable.
 pub(super) fn terminal_columns() -> usize {
     crossterm::terminal::size().map_or(80, |(columns, _)| columns as usize)
 }

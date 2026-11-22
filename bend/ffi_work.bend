@@ -5,8 +5,8 @@
 #   (crates/eukhe-core/src/durable/children/work.rs `WorkLedger`), kept in
 #   the Bend heap. Each step is one event to `M.next`; the reply is its
 #   answer.
-# - the call: which last check the goal's progress check compares with
-#   (`M.compared`, crates/eukhe-core/src/durable/goals/state.rs); Rust then
+# - the call: which last check the autonomous run's progress check
+#   compares with (`M.compared`, eukhe-core's autonomous run); Rust then
 #   asks bend/ffi_progress.bend for the check.
 #
 # The codec is the wire format of bend/wire.bend (crates/eukhe-bend/WIRE.md):
@@ -19,8 +19,8 @@
 #   Blk     0, key: Nat, fp: Nat (a call) | 1, key: Nat, fp: Nat (a result)
 #           | 2, (text) | 3, (thinking) | 4, (user) | 5, (system)
 #   Out     0, work: Nat, read: Nat, last: Maybe<Nat> | 1, (again)
-#   ffi     Maybe<Last>, Last = run: Bool, goal: Bool, stalls: Nat,
-#           work: Nat                                 reply: Maybe<Prior>,
+#   ffi     Maybe<Last>, Last = run: Bool, stalls: Nat, work: Nat
+#                                                     reply: Maybe<Prior>,
 #           Prior = stalls: Nat, work: Nat
 #
 # A malformed event, or one with input left over, answers the wire's error
@@ -187,31 +187,24 @@ def get_ev.go(r: W.Dec<Nat>) -> W.Dec<M.Ev>:
 def get_ev(s: String) -> W.Dec<M.Ev>:
   get_ev.go(W.get_nat(s))
 
-def get_last.work(r: Bool, g: Bool, +n: Nat, d: W.Dec<Nat>) -> W.Dec<Maybe<&2, M.Last>>:
+def get_last.work(r: Bool, +n: Nat, d: W.Dec<Nat>) -> W.Dec<Maybe<&2, M.Last>>:
   match d:
     case W.Got{w, s}:
-      W.Got{Some{M.Last{r, g, n, w}}, s}
+      W.Got{Some{M.Last{r, n, w}}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_last.stalls(r: Bool, g: Bool, d: W.Dec<Nat>) -> W.Dec<Maybe<&2, M.Last>>:
+def get_last.stalls(r: Bool, d: W.Dec<Nat>) -> W.Dec<Maybe<&2, M.Last>>:
   match d:
     case W.Got{+n, s}:
-      get_last.work(r, g, n, W.get_nat(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_last.goal(r: Bool, d: W.Dec<Bool>) -> W.Dec<Maybe<&2, M.Last>>:
-  match d:
-    case W.Got{g, s}:
-      get_last.stalls(r, g, W.get_nat(s))
+      get_last.work(r, n, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
 def get_last.run(d: W.Dec<Bool>) -> W.Dec<Maybe<&2, M.Last>>:
   match d:
     case W.Got{r, s}:
-      get_last.goal(r, W.get_bool(s))
+      get_last.stalls(r, W.get_nat(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -280,7 +273,7 @@ def run(r: W.Dec<Maybe<&2, M.Last>>) -> String:
     case W.Bad{}:
       W.err("work: malformed request")
 
-# the entry's call: the prior check the goal's check compares with
+# the entry's call: the prior check the run's check compares with
 def ffi(input: String) -> String:
   run(get_last(input))
 

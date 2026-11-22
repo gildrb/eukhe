@@ -4,9 +4,12 @@
 //! the answer is a claim the checks judge (a refuted or broken claim goes
 //! back with its evidence, an ended claim stops the run with its label);
 //! without checks the run is continued with its continuation prompt; a
-//! budget that admits no more work stops it. The run has no limit of its
-//! own: the run's budget (`crate::durable::budget`) is its only one, and
-//! the checks (`crate::durable::acceptance`) its only way to end done.
+//! budget that admits no more work stops it, and so do continuations that
+//! make no progress (no tool call with a new result: steered once to
+//! another approach at `directors.stallSteps` in a row, ended not done at
+//! twice that). The run has no limit of its own: the run's budget
+//! (`crate::durable::budget`) is its only one, and the checks
+//! (`crate::durable::acceptance`) its only way to end done.
 //!
 //! The configuration keeps the fields of the removed own limits and gates
 //! (`maxTurns`, `maxTokens`, `timeoutMs`, `maxContinuations`, `gates`) so
@@ -144,6 +147,11 @@ pub enum AutonomousStop {
     Checks(AcceptanceLabel),
     /// The run's budget admits no more work.
     Budget,
+    /// This many continuations in a row made no progress (no tool call
+    /// with a new result), also after the harness asked for another
+    /// approach: the run ended, not done.
+    #[serde(rename_all = "camelCase")]
+    NoProgress { stalls: u64 },
 }
 
 impl AutonomousStop {
@@ -158,13 +166,22 @@ impl AutonomousStop {
                     .and_then(|report| report.short)
                     .map_or("work", BudgetDimension::label)
             ),
+            Self::NoProgress { stalls } => no_progress_reason(stalls),
         }
     }
 }
 
+/// Why an autonomous run ended for want of progress after `stalls`
+/// continuations in a row with no new work.
+#[must_use]
+pub fn no_progress_reason(stalls: u64) -> String {
+    format!(
+        "no progress: {stalls} autonomous continuations in a row made no tool call with a new result, also after the harness asked for another approach"
+    )
+}
+
 /// What the session's budget admits for this agent, as its ledger report
-/// shows it: an autonomous run and a goal stop once it admits no more
-/// work.
+/// shows it: an autonomous run stops once it admits no more work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionBudget {
     /// No budget, or one that admits work.

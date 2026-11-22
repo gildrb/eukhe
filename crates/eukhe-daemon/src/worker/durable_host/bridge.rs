@@ -3,10 +3,9 @@
 //! sequence and the attach snapshot's mirror advance together), coalesced
 //! `message_update`s flush every 50 ms, inbox changes become
 //! `session_action_update` (with the queued inputs' previews read from the
-//! `pi.inbox` document), goal document changes become `goal_update`,
-//! loop document changes become `loop_update`, changes of the
-//! `eukhe.effects` ledger become `unknown_effects_update` and
-//! `ran_effects_update`, and main's
+//! `pi.inbox` document), loop document changes become `loop_update`,
+//! changes of the `eukhe.effects` ledger become `unknown_effects_update`
+//! and `ran_effects_update`, and main's
 //! workers and the session's run pause land on the view (summary
 //! `workers`, `isPaused`).
 
@@ -93,8 +92,6 @@ pub(crate) struct ShownView {
     /// landed, `running` at its first assistant frame), cleared when the
     /// run ends.
     pub(crate) active: Option<eukhe_types::daemon::SessionActionActive>,
-    /// The served goal (`goal_update` payload); `Null` without a goal.
-    pub(crate) goal: Value,
     /// The ledger of effects whose outcome a restart could not tell
     /// (`unknown_effects_update` payload), oldest first.
     pub(crate) unknown_effects: Vec<UnknownEffect>,
@@ -201,8 +198,8 @@ impl EventBridge {
     }
 
     /// Attach to `conversation`'s events and durable view, install both on
-    /// the core, and start the listener, the flush timer, the goal watch,
-    /// the loop watch, the workers and pause watch, and the provider
+    /// the core, and start the listener, the flush timer, the loop watch,
+    /// the workers and pause watch, and the provider
     /// failover relay.
     ///
     /// # Errors
@@ -239,7 +236,6 @@ impl EventBridge {
                     .with_retry_policy(retry_policy),
                 inbox,
                 active: None,
-                goal: Value::Null,
                 unknown_effects: Vec::new(),
                 ran_effects: Vec::new(),
                 loop_status: None,
@@ -265,13 +261,6 @@ impl EventBridge {
         bridge
             .tasks
             .push(tokio::spawn(flush_loop(epoch, sink.clone())));
-        bridge.tasks.push(tokio::spawn(goal_loop(
-            harness.clone(),
-            epoch,
-            conversation_id,
-            sink.clone(),
-            cx.clone(),
-        )));
         bridge.tasks.push(tokio::spawn(effects_loop(
             harness.clone(),
             epoch,
@@ -563,7 +552,6 @@ fn run_changes(frames: &[SessionEvent]) -> Vec<RunChange> {
             | SessionEvent::SessionInfoChanged { .. }
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
-            | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::RanEffectsUpdate { .. }
             | SessionEvent::RunReport { .. }
@@ -595,39 +583,6 @@ async fn flush_loop(epoch: u64, sink: BridgeSink) {
         if let Some(frame) = view.translator.flush() {
             crate::worker::emit_event_locked(&mut core, &sink.events, frame);
         }
-    }
-}
-
-async fn goal_loop(
-    harness: Harness,
-    epoch: u64,
-    conversation_id: ConversationId,
-    sink: BridgeSink,
-    cx: Context,
-) {
-    let mut updates =
-        match eukhe_core::durable::goals::watch_goal_updates(&harness, conversation_id, &cx) {
-            Ok(updates) => updates,
-            Err(error) => {
-                eprintln!("eukhe-daemon worker: goal updates unavailable: {error}");
-                return;
-            }
-        };
-    while let Some(goal) = updates.next().await {
-        let mut core = lock(&sink.core);
-        let Some(view) = core.view.as_mut().filter(|view| view.epoch == epoch) else {
-            return;
-        };
-        let wire_goal = json!(goal);
-        if view.goal == wire_goal {
-            continue;
-        }
-        view.goal = wire_goal;
-        crate::worker::emit_event_locked(
-            &mut core,
-            &sink.events,
-            SessionEvent::GoalUpdate { goal },
-        );
     }
 }
 

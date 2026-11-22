@@ -1055,9 +1055,6 @@ impl SessionUi {
                     }
                 }
             }
-            TurnUpdate::GoalUpdate(goal) => {
-                self.apply_goal_update(goal, view);
-            }
             TurnUpdate::UnknownEffectsUpdate(effects) => {
                 self.apply_unknown_effects(effects, view);
             }

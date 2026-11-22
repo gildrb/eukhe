@@ -51,9 +51,9 @@ impl MockSupervisor {
         }
     }
 
-    /// Serve one connection: attach the session with the goal state, and
-    /// answer the loop's requests (the heartbeat catalog, the kernel-bash
-    /// registry, the stats fetch, the detach on exit).
+    /// Serve one connection: attach the session, and answer the loop's
+    /// requests (the heartbeat catalog, the kernel-bash registry, the
+    /// stats fetch, the detach on exit).
     fn serve(self) {
         let (stream, _) = self.listener.accept().expect("accept");
         let write_stream = stream.try_clone().expect("clone mock socket");
@@ -205,8 +205,8 @@ fn write_json(writer: &mut UnixStream, value: &Value) {
     writer.flush().expect("flush mock frame");
 }
 
-/// The slim attach result: one session with an actively pursued goal, so
-/// every dock group except Subagents is selectable (the roster stays
+/// The slim attach result: one session whose heartbeat and shell rows
+/// make the Heartbeats and Shells groups selectable (the roster stays
 /// empty).
 fn attach_data(id: &str) -> Value {
     json!({
@@ -229,13 +229,6 @@ fn attach_data(id: &str) -> Value {
                     "isStreaming": false,
                     "isCompacting": false,
                     "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
-                    "goal": {
-                        "active": true,
-                        "status": "active",
-                        "goalId": "goal-1",
-                        "objective": "land the dock exit focus",
-                        "timeUsedSeconds": 0,
-                    },
                 },
                 "messages": [],
                 "lastEventSequence": 0,
@@ -384,33 +377,6 @@ fn shells_exit_plan(exit: KeyCode) -> Vec<HeadlessStep> {
     ]
 }
 
-/// Enter the dock's goal panel (the shortcut, then three rights: it is
-/// the row's last group), leave it, and prove the restored focus the
-/// same way.
-fn goal_exit_plan(exit: KeyCode) -> Vec<HeadlessStep> {
-    vec![
-        // The barrier pins the panel's content (the goal row's own
-        // label); the navigation steps the rendered groups.
-        wait_render("Pursuing goal (0s)"),
-        alt_a(),
-        HeadlessStep::WaitMs(150),
-        // Subagents -> Heartbeates -> Shells -> the goal row: one
-        // press, one rendered group.
-        key(KeyCode::Right),
-        HeadlessStep::WaitMs(150),
-        key(KeyCode::Right),
-        HeadlessStep::WaitMs(150),
-        key(KeyCode::Right),
-        HeadlessStep::WaitMs(150),
-        key(KeyCode::Enter),
-        wait_render("land the dock exit focus"),
-        key(exit),
-        wait_gone("land the dock exit focus"),
-        key(KeyCode::Enter),
-        wait_render("land the dock exit focus"),
-    ]
-}
-
 /// ESC from the Heartbeats panel lands back on the dock's Heartbeats
 /// item: the second Enter re-opens the same panel, so the focus never
 /// reached the prompt bar (an empty-draft Enter submits nothing).
@@ -430,19 +396,17 @@ fn heartbeats_panel_esc_returns_to_the_dock_item() {
 
 /// The `/heartbeats` COMMAND path (not the dock's Enter) leaves the
 /// dock's Heartbeates item selected too: with the dock's selection
-/// parked on the goal row, submitting `/heartbeats` and leaving the
+/// parked on the Shells item, submitting `/heartbeats` and leaving the
 /// view with ESC lands on the Heartbeats item — the next Enter re-opens
-/// the heartbeats view, not the goal panel.
+/// the heartbeats view, not the bash view.
 #[test]
 fn heartbeats_command_path_esc_returns_to_the_dock_item() {
     let outcome = run_plan(vec![
-        // The barrier pins the goal row; the dock's selection walks to
-        // the goal section (one press, one rendered group) before the
+        // The barrier pins the shell row; the dock's selection walks to
+        // the Shells section (one press, one rendered group) before the
         // command opens the panel.
-        wait_render("Pursuing goal (0s)"),
+        wait_render(" 1 shell"),
         alt_a(),
-        HeadlessStep::WaitMs(150),
-        key(KeyCode::Right),
         HeadlessStep::WaitMs(150),
         key(KeyCode::Right),
         HeadlessStep::WaitMs(150),
@@ -461,8 +425,8 @@ fn heartbeats_command_path_esc_returns_to_the_dock_item() {
         "the reopened Heartbeats panel owns the final frame:\n{last}"
     );
     assert!(
-        !last.contains("land the dock exit focus"),
-        "the goal panel (the stale pre-command selection) must not open:\n{last}"
+        !last.contains("render the frames"),
+        "the bash view (the stale pre-command selection) must not open:\n{last}"
     );
     assert!(
         !outcome.return_to_agents_view,
@@ -511,38 +475,6 @@ fn shells_panel_left_returns_to_the_dock_item() {
     assert!(
         last.contains("render the frames"),
         "the reopened Shells panel owns the final frame:\n{last}"
-    );
-    assert!(
-        !outcome.return_to_agents_view,
-        "the exit stays in the chat view"
-    );
-}
-
-/// ESC from the read-only goal panel lands back on the dock's goal row:
-/// the second Enter re-opens the panel.
-#[test]
-fn goal_panel_esc_returns_to_the_dock_item() {
-    let outcome = run_plan(goal_exit_plan(KeyCode::Esc));
-    let last = outcome.frames.last().expect("frames were captured");
-    assert!(
-        last.contains("land the dock exit focus"),
-        "the reopened goal panel owns the final frame:\n{last}"
-    );
-    assert!(
-        !outcome.return_to_agents_view,
-        "the exit stays in the chat view"
-    );
-}
-
-/// The left arrow (the panel's back key) behaves exactly like ESC: the
-/// dock's goal row keeps the focus.
-#[test]
-fn goal_panel_left_returns_to_the_dock_item() {
-    let outcome = run_plan(goal_exit_plan(KeyCode::Left));
-    let last = outcome.frames.last().expect("frames were captured");
-    assert!(
-        last.contains("land the dock exit focus"),
-        "the reopened goal panel owns the final frame:\n{last}"
     );
     assert!(
         !outcome.return_to_agents_view,

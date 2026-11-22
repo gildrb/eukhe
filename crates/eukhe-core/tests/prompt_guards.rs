@@ -624,16 +624,16 @@ fn each_tool_is_documented_once_in_the_core_layer_or_its_skill() {
 /// skill the kernel's document functions replaced — the generic `mcp` doc
 /// skill in, the per-service linear/notion pair out (TS removed theirs when
 /// the generic MCP surface landed) — plus this fork's `autoresearch`,
-/// `factory` and `subagents` (the `rlm.*` subagent API the core layer no
-/// longer carries).
+/// `directors`, `factory` and `subagents` (the `rlm.*` subagent API the
+/// core layer no longer carries).
 const TS_PACKAGED_SKILL_SET: &[&str] = &[
     "agent-message",
     "agent-observe",
     "attach-image",
     "autoresearch",
     "compact",
+    "directors",
     "factory",
-    "goal",
     "mcp",
     "refine",
     "rlm-heartbeat",

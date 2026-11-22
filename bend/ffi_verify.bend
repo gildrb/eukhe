@@ -14,7 +14,7 @@
 #              are intact (Bool), the evidence
 #   5 until:   the evidence
 #   6 judge:   the judge's answer
-#   7 claims:  held, checked, goal, claimed, ended (five Bools)
+#   7 claims:  held, checked, claimed, ended (four Bools)
 # Who: 0 the owner, 1 the worker, 2 the verifier. An act: 0 assign (the
 # number of checks, a Nat), 1 claim, 2 record (the revision, the index,
 # the verdict, the state it judged). An acceptance: the revision (Nat),
@@ -48,7 +48,7 @@ type Req is Data:
   QCommand{expect: Nat, intact: Bool, ev: V.Evidence}
   QUntil{ev: V.Evidence}
   QJudge{ans: V.Answer}
-  QClaims{held: Bool, checked: Bool, goal: Bool, claimed: Bool, ended: Bool}
+  QClaims{held: Bool, checked: Bool, claimed: Bool, ended: Bool}
 
 # Decoders
 # --------
@@ -359,31 +359,24 @@ def get_req.judge(r: W.Dec<V.Answer>) -> W.Dec<Req>:
     case W.Bad{}:
       W.Bad{}
 
-def get_req.claims_e(held: Bool, checked: Bool, goal: Bool, claimed: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
+def get_req.claims_e(held: Bool, checked: Bool, claimed: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
   match r:
     case W.Got{ended, s}:
-      W.Got{QClaims{held, checked, goal, claimed, ended}, s}
+      W.Got{QClaims{held, checked, claimed, ended}, s}
     case W.Bad{}:
       W.Bad{}
 
-def get_req.claims_c(held: Bool, checked: Bool, goal: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
+def get_req.claims_c(held: Bool, checked: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
   match r:
     case W.Got{claimed, s}:
-      get_req.claims_e(held, checked, goal, claimed, W.get_bool(s))
-    case W.Bad{}:
-      W.Bad{}
-
-def get_req.claims_g(held: Bool, checked: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
-  match r:
-    case W.Got{goal, s}:
-      get_req.claims_c(held, checked, goal, W.get_bool(s))
+      get_req.claims_e(held, checked, claimed, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
 def get_req.claims_k(held: Bool, r: W.Dec<Bool>) -> W.Dec<Req>:
   match r:
     case W.Got{checked, s}:
-      get_req.claims_g(held, checked, W.get_bool(s))
+      get_req.claims_c(held, checked, W.get_bool(s))
     case W.Bad{}:
       W.Bad{}
 
@@ -493,8 +486,8 @@ def answer(q: Req) -> String:
       put_verdict(V.grade_until(ev), "")
     case QJudge{ans}:
       put_verdict(V.grade_judge(ans), "")
-    case QClaims{held, checked, goal, claimed, ended}:
-      W.put_bool(V.claims(held, checked, goal, claimed, ended), "")
+    case QClaims{held, checked, claimed, ended}:
+      W.put_bool(V.claims(held, checked, claimed, ended), "")
 
 # The entry
 # ---------

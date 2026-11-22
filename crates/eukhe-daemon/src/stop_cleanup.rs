@@ -1,6 +1,6 @@
 //! The stop/delete lifecycle cleanup (the zombie-resurrection fix):
 //! stopping or deleting a session must cancel its scheduled jobs so no
-//! schedule fire, wake pass, or goal continuation can revive it.
+//! schedule fire, wake pass, or autonomous continuation can revive it.
 //!
 //! The TS surfaces this ports (daemon-supervisor.ts + daemon-mode.ts):
 //!

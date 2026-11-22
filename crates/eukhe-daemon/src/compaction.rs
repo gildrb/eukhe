@@ -92,10 +92,10 @@ impl CompactionManager {
     /// running turn; an interrupted one gets its queued inputs back and
     /// resumes (see [`RunningTurn::Interrupt`]). A loop whose turn the
     /// interrupt cuts is held across the compaction and takes its work up
-    /// again whatever the compaction did. A compaction that compacted
-    /// continues an active goal (an abort ended its in-run loop) unless
-    /// resubmitted inputs drive the next run or a loop is on: the loop's
-    /// turn comes first. The caller passed the run gate (`_admission`):
+    /// again whatever the compaction did. An interrupted turn resumes
+    /// unless resubmitted inputs drive the next run or a loop is on: the
+    /// loop's turn comes first. The caller passed the run gate
+    /// (`_admission`):
     /// the resubmissions and the resume admit under it.
     pub(crate) async fn compact(
         &self,
@@ -213,14 +213,13 @@ impl CompactionManager {
         }
         // The compaction settled, whatever it did: a held loop takes its
         // work up again, its cut turn sent again ahead of the inputs queued
-        // behind it, before the goal.
+        // behind it.
         let loop_on = resume_loop(&hosted, &main).await;
         // However the compaction ended, the interrupted turn's queued
         // inputs come back and drive its resume (the loop's own queued
-        // iteration is its cut turn, never resubmitted); without them an
-        // active goal's continuation or the auto-continue prompt does,
-        // unless a loop is on (its turn runs first, and the goal follows
-        // its answer).
+        // iteration is its cut turn, never resubmitted); without them the
+        // auto-continue prompt does, unless a loop is on (its turn
+        // runs first).
         let resume = interrupted.is_some() && resumes_interrupted_turn(&outcome);
         let (mut queued, held) = interrupted.unwrap_or_default();
         if held {
@@ -237,17 +236,6 @@ impl CompactionManager {
                 eprintln!(
                     "eukhe-daemon: the inputs queued behind the compacted turn failed to resubmit: {error}"
                 );
-            }
-        }
-        if outcome.is_ok() && !restored && !loop_on {
-            if let Err(error) = eukhe_core::durable::goals::continue_goal_after_compaction(
-                hosted.harness(),
-                main.id(),
-                cx(),
-            )
-            .await
-            {
-                eprintln!("eukhe-daemon: the post-compaction goal continuation failed: {error}");
             }
         }
         if resume && !restored && !loop_on {

@@ -291,7 +291,6 @@ mod tests {
             "message_start",
             "agent_start",
             "agent_end",
-            "goal_update",
             "loop_update",
             "python_sent_agent_message",
         ] {

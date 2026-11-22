@@ -31,7 +31,7 @@ use futures::FutureExt;
 
 use super::docs::LOOP_MODE_DOC;
 use super::drive::{core_error, decide, Facts, Input, LoopHost, Mode};
-use crate::durable::goals::read_doc;
+use crate::durable::autonomous::read_doc;
 
 /// How many of the newest entries the adoption reads to find the prompt
 /// that started the turn.

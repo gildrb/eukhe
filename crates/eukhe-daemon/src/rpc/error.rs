@@ -51,7 +51,7 @@ pub enum RpcSessionError {
     /// The composition root could not open the session.
     #[error(transparent)]
     Engine(#[from] RpcEngineError),
-    /// The goal or loop read, the settle, or the event pump attach failed.
+    /// The loop read, the settle, or the event pump attach failed.
     #[error(transparent)]
     Session(#[from] SessionError),
 }
@@ -64,7 +64,7 @@ pub enum RpcModeError {
     /// The startup session cannot open (before any frame is written).
     #[error("{0}")]
     Start(#[source] RpcSessionError),
-    /// The CLI goal or autonomous seed failed.
+    /// The CLI autonomous or acceptance seed failed.
     #[error("{}", ErrorChain(.0))]
     Seed(#[source] SessionError),
 }

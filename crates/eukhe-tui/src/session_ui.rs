@@ -80,7 +80,6 @@ use crate::chat::{
     ToolResultView, WorkingState,
 };
 use crate::effort_picker::{self, EffortPickerAction};
-use crate::goal_surface::{format_goal_status, tray_goal_label, GoalPanel, GoalView};
 use crate::heartbeats_picker::{
     parse_heartbeats, scope_heartbeats, sort_heartbeats, HeartbeatAction, HeartbeatEntry,
     HeartbeatsPicker, HeartbeatsPickerAction,
@@ -546,9 +545,6 @@ pub(crate) struct SessionUi {
     /// The Ctrl+C exit hint (TS `ctrlCExitHintExpiresAt`): a second press
     /// inside the window terminates the client, regardless of turn state.
     ctrl_c_hint_until: Option<Instant>,
-    /// The session's thread-goal view state (current `goal_update` state,
-    /// announcement dedupe, tray label bookkeeping).
-    pub(crate) goal_view: GoalView,
     /// The session's ledger of effects whose outcome a restart could not
     /// tell (`unknown_effects_update`), oldest first.
     pub(crate) unknown_effects: Vec<eukhe_types::effects::UnknownEffect>,

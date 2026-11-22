@@ -3,7 +3,7 @@
 //! [`Runner`] in its registration's `extra`: the effects the code it runs
 //! may have (its caps) and how its effects are judged: by step or by call. A tool
 //! that declares none runs no code of its own: its effects are the session's
-//! own (documents, goals, children).
+//! own (documents, directors, children).
 //!
 //! Every way to declare a runner names how it is judged: a tool that runs
 //! code without one cannot be written as a [`Runner`]. The registry test

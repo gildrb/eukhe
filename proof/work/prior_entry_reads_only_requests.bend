@@ -14,6 +14,9 @@ import ../../laws/base.bend as LawsBase
 import ../../laws/wire.bend as Wire
 import ../../laws/work.bend as Work
 import ../wire/base/spell.bend as LAWireSpell
+import ../wire/wire_bool_exact.bend as PWireBoolExact
+import ../wire/wire_nat_decoded_fits.bend as PWireNatDecodedFits
+import ../wire/wire_nat_exact.bend as PWireNatExact
 
 # the request of the last check m, then rest
 def pro.spell(m: Maybe<&2, Pr.Last>, rest: String) -> String:
@@ -22,8 +25,8 @@ def pro.spell(m: Maybe<&2, Pr.Last>, rest: String) -> String:
       Wr.put_nat(0n, rest)
     case Some{x}:
       match x:
-        case Pr.Last{r, g, s, w}:
-          Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(s, Wr.put_nat(w, rest)))))
+        case Pr.Last{r, s, w}:
+          Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(s, Wr.put_nat(w, rest))))
 
 def pro.spell_req(m: Maybe<&2, Pr.Last>) -> {pro.spell(m, "") == Work.pe_spell_req(m) : String}:
   match m:
@@ -31,7 +34,7 @@ def pro.spell_req(m: Maybe<&2, Pr.Last>) -> {pro.spell(m, "") == Work.pe_spell_r
       {==}
     case Some{x}:
       match x:
-        case Pr.Last{r, g, s, w}:
+        case Pr.Last{r, s, w}:
           {==}
 
 # what a decoded request says about the input s
@@ -42,44 +45,34 @@ def pro.P(s: String, d: Wr.Dec<Maybe<&2, Pr.Last>>) -> Type:
     case Wr.Bad{}:
       Unit
 
-def pro.work(-s: String, +r: Bool, +g: Bool, +n: Nat, +s4: String, pre: {s == Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(n, s4)))) : String}, fn: {LawsBase.wire_fits(n) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s4) == d : Wr.Dec<Nat>}) -> pro.P(s, FW.get_last.work(r, g, n, d)):
+def pro.work(-s: String, +r: Bool, +n: Nat, +s4: String, pre: {s == Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(n, s4))) : String}, fn: {LawsBase.wire_fits(n) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s4) == d : Wr.Dec<Nat>}) -> pro.P(s, FW.get_last.work(r, n, d)):
   match d:
     case Wr.Got{+w, +s5}:
       +e = ed
-      (Equal.trans(String, s, Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(n, s4)))), Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(n, Wr.put_nat(w, s5))))), pre,
-          Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(n, z)))), s4, Wr.put_nat(w, s5), Wire.wire_nat_exact(s4, w, s5, e))),
+      (Equal.trans(String, s, Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(n, s4))), Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(n, Wr.put_nat(w, s5)))), pre,
+          Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(n, z))), s4, Wr.put_nat(w, s5), Wire.wire_nat_exact(s4, w, s5, e))),
         LAWireSpell.ws_and_tt(LawsBase.wire_fits(n), LawsBase.wire_fits(w), fn, Wire.wire_nat_decoded_fits(s4, w, s5, e)))
     case Wr.Bad{}:
       Unit{}
 
-def pro.stalls(-s: String, +r: Bool, +g: Bool, +s3: String, pre: {s == Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, s3))) : String}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> pro.P(s, FW.get_last.stalls(r, g, d)):
+def pro.stalls(-s: String, +r: Bool, +s3: String, pre: {s == Wr.put_nat(1n, Wr.put_bool(r, s3)) : String}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> pro.P(s, FW.get_last.stalls(r, d)):
   match d:
     case Wr.Got{+n, +s4}:
       +e = ed
-      pro.work(s, r, g, n, s4,
-        Equal.trans(String, s, Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, s3))), Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(n, s4)))), pre,
-          Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, z))), s3, Wr.put_nat(n, s4), Wire.wire_nat_exact(s3, n, s4, e))),
+      pro.work(s, r, n, s4,
+        Equal.trans(String, s, Wr.put_nat(1n, Wr.put_bool(r, s3)), Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(n, s4))), pre,
+          Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_bool(r, z)), s3, Wr.put_nat(n, s4), Wire.wire_nat_exact(s3, n, s4, e))),
         Wire.wire_nat_decoded_fits(s3, n, s4, e), Wr.get_nat(s4), {==})
-    case Wr.Bad{}:
-      Unit{}
-
-def pro.goal(-s: String, +r: Bool, +s2: String, pre: {s == Wr.put_nat(1n, Wr.put_bool(r, s2)) : String}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s2) == d : Wr.Dec<Bool>}) -> pro.P(s, FW.get_last.goal(r, d)):
-  match d:
-    case Wr.Got{+g, +s3}:
-      pro.stalls(s, r, g, s3,
-        Equal.trans(String, s, Wr.put_nat(1n, Wr.put_bool(r, s2)), Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, s3))), pre,
-          Equal.cong(String, String, z => Wr.put_nat(1n, Wr.put_bool(r, z)), s2, Wr.put_bool(g, s3), Wire.wire_bool_exact(s2, g, s3, ed))),
-        Wr.get_nat(s3), {==})
     case Wr.Bad{}:
       Unit{}
 
 def pro.run(-s: String, +s1: String, pre: {s == Wr.put_nat(1n, s1) : String}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s1) == d : Wr.Dec<Bool>}) -> pro.P(s, FW.get_last.run(d)):
   match d:
-    case Wr.Got{+r, +s2}:
-      pro.goal(s, r, s2,
-        Equal.trans(String, s, Wr.put_nat(1n, s1), Wr.put_nat(1n, Wr.put_bool(r, s2)), pre,
-          Equal.cong(String, String, z => Wr.put_nat(1n, z), s1, Wr.put_bool(r, s2), Wire.wire_bool_exact(s1, r, s2, ed))),
-        Wr.get_bool(s2), {==})
+    case Wr.Got{+r, +s3}:
+      pro.stalls(s, r, s3,
+        Equal.trans(String, s, Wr.put_nat(1n, s1), Wr.put_nat(1n, Wr.put_bool(r, s3)), pre,
+          Equal.cong(String, String, z => Wr.put_nat(1n, z), s1, Wr.put_bool(r, s3), Wire.wire_bool_exact(s1, r, s3, ed))),
+        Wr.get_nat(s3), {==})
     case Wr.Bad{}:
       Unit{}
 

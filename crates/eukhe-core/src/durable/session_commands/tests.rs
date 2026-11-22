@@ -215,7 +215,7 @@ fn classify_recognizes_only_session_commands() {
     assert_eq!(
         classify_session_command("/goal"),
         Some(SessionCommand {
-            name: SessionCommandName::Auto(AutoName::Goal),
+            name: SessionCommandName::Goal,
             args: String::new(),
             text: "/goal".to_owned(),
         })
@@ -239,6 +239,7 @@ fn classify_recognizes_only_session_commands() {
         SessionCommandName::Compact,
         SessionCommandName::Refine,
         SessionCommandName::Auto(AutoName::Auto),
+        SessionCommandName::Goal,
         SessionCommandName::Accept,
         SessionCommandName::Remind,
         SessionCommandName::Force,
@@ -248,34 +249,48 @@ fn classify_recognizes_only_session_commands() {
     }
 }
 
-/// `/goal` notes that it is removed, then does the `/auto` action it maps
-/// to: alone, the status.
+/// The removed `/goal`'s one answer.
+const GOAL_POINTER: &str = "/goal is removed: use /auto";
+
+/// `/goal`, whatever it is given (alone, a task, a budget, its old
+/// `pause`/`resume`, a malformed budget), answers only its pointer to
+/// `/auto`: no run starts, no message is sent, nothing fails.
 #[tokio::test]
-async fn goal_notes_its_removal_then_answers_the_auto_status() {
+async fn goal_answers_only_its_pointer() {
     let fixture = open(&[]).await;
-    let outcome = fixture.run("/goal").await;
-    assert_eq!(failed(&outcome), None);
-    let status = outcome.autonomous.expect("the status");
+    let texts = [
+        "/goal",
+        "/goal ship it",
+        "/goal --budget 5000 ship it",
+        "/goal resume",
+        "/goal pause",
+        "/goal --budget nope ship it",
+    ];
+    for text in texts {
+        let outcome = fixture.run(text).await;
+        assert_eq!(
+            (failed(&outcome), outcome.autonomous),
+            (None, None),
+            "{text}"
+        );
+    }
+    fixture.idle().await;
+    let expected: Vec<CustomEntryData> = texts
+        .into_iter()
+        .flat_map(|text| [echo(text), result(text, GOAL_POINTER, true)])
+        .collect();
     assert_eq!(
-        fixture
-            .rows(&[
-                SESSION_SLASH_COMMAND_CUSTOM_TYPE,
-                SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
-                AUTONOMOUS_STATUS_CUSTOM_TYPE,
-            ])
-            .await,
-        vec![
-            echo("/goal"),
-            result("/goal", GOAL_REMOVED, true),
-            CustomEntryData {
-                custom_type: AUTONOMOUS_STATUS_CUSTOM_TYPE.to_owned(),
-                content: None,
-                display: true,
-                details: Some(serde_json::to_value(&status).expect("status json")),
-                input: false,
-                origin: None,
-            },
-        ]
+        (
+            fixture
+                .rows(&[
+                    SESSION_SLASH_COMMAND_CUSTOM_TYPE,
+                    SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE,
+                    AUTONOMOUS_STATUS_CUSTOM_TYPE,
+                ])
+                .await,
+            fixture.user_texts().await,
+        ),
+        (expected, Vec::<String>::new())
     );
     fixture.close().await;
 }
@@ -297,30 +312,6 @@ async fn auto_task_turns_autonomous_on_and_sends_the_task() {
     fixture.close().await;
 }
 
-/// `/goal --budget N <task>` (`/auto <task> --budget N`): N is the token
-/// limit of the run on the session's budget; the autonomous run has none
-/// of its own.
-#[tokio::test]
-async fn a_goal_budget_is_the_runs_token_limit() {
-    let fixture = open(&[error_response("provider exploded")]).await;
-    let outcome = fixture.run("/goal --budget 5000 ship it").await;
-    assert_eq!(failed(&outcome), None);
-    assert!(outcome.autonomous.expect("the status").enabled);
-    fixture.idle().await;
-    assert_eq!(
-        (
-            fixture
-                .session
-                .budget()
-                .report()
-                .map(|report| report.limits.tokens),
-            fixture.user_texts().await
-        ),
-        (Some(Some(5000)), vec!["ship it".to_owned()])
-    );
-    fixture.close().await;
-}
-
 /// On main (`main-worker`) `/auto` (as typed in any of its names) is the
 /// worker's: main starts no run of its own; with no worker yet the command
 /// says so.
@@ -328,7 +319,7 @@ async fn a_goal_budget_is_the_runs_token_limit() {
 async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
     let fixture = open_with_settings(&[], &json!({ "sessionShape": "main-worker" })).await;
     let error = "No worker yet: /auto applies to the worker, which main creates with the first work you give it";
-    for text in ["/goal ship it", "/autonomous on"] {
+    for text in ["/auto ship it", "/autonomous on"] {
         let outcome = fixture.run(text).await;
         assert_eq!(
             (
@@ -343,65 +334,13 @@ async fn main_directors_go_to_the_worker_and_without_one_are_refused() {
         (fixture.command_rows().await, fixture.user_texts().await),
         (
             vec![
-                echo("/goal ship it"),
-                failure("/goal ship it", error),
+                echo("/auto ship it"),
+                failure("/auto ship it", error),
                 echo("/autonomous on"),
                 failure("/autonomous on", error),
             ],
             Vec::<String>::new(),
         )
-    );
-    fixture.close().await;
-}
-
-/// `/goal pause` turns autonomous mode off, `/goal resume` on, each after
-/// the removal note.
-#[tokio::test]
-async fn goal_pause_and_resume_turn_autonomous_off_and_on() {
-    let fixture = open(&[]).await;
-    let resumed = fixture.run("/goal resume").await;
-    let paused = fixture.run("/goal pause").await;
-    assert_eq!(
-        (
-            failed(&resumed),
-            resumed.autonomous.map(|status| status.enabled),
-            failed(&paused),
-            paused.autonomous.map(|status| status.enabled),
-        ),
-        (None, Some(true), None, Some(false))
-    );
-    assert_eq!(
-        fixture.command_rows().await,
-        vec![
-            echo("/goal resume"),
-            result("/goal resume", GOAL_REMOVED, true),
-            echo("/goal pause"),
-            result("/goal pause", GOAL_REMOVED, true),
-        ]
-    );
-    fixture.close().await;
-}
-
-/// A `/goal` with a malformed budget keeps its refusal, after the note.
-#[tokio::test]
-async fn an_invalid_goal_command_appends_the_failure_row() {
-    let fixture = open(&[]).await;
-    let text = "/goal --budget nope ship it";
-    let expected = parse_auto_command(AutoName::Goal, &command(text).args)
-        .command
-        .expect_err("an invalid budget");
-    let outcome = fixture.run(text).await;
-    assert_eq!(
-        (failed(&outcome), outcome.autonomous),
-        (Some(expected.to_string()), None)
-    );
-    assert_eq!(
-        fixture.command_rows().await,
-        vec![
-            echo(text),
-            result(text, GOAL_REMOVED, true),
-            failure(text, &expected.text)
-        ]
     );
     fixture.close().await;
 }
@@ -419,9 +358,7 @@ async fn autonomous_status_on_and_off_append_status_rows() {
     let enabled = on.autonomous.expect("the status");
     assert!(enabled.enabled);
     let AutonomousCommand::On { config } =
-        parse_auto_command(AutoName::Autonomous, "on --max-turns 5")
-            .command
-            .expect("parses")
+        parse_auto_command(AutoName::Autonomous, "on --max-turns 5").expect("parses")
     else {
         panic!("expected on");
     };
@@ -486,9 +423,8 @@ async fn autonomous_status_on_and_off_append_status_rows() {
 async fn an_invalid_autonomous_command_appends_the_failure_row() {
     let fixture = open(&[]).await;
     let text = "/autonomous status now";
-    let expected = parse_auto_command(AutoName::Autonomous, &command(text).args)
-        .command
-        .expect_err("extra arguments");
+    let expected =
+        parse_auto_command(AutoName::Autonomous, &command(text).args).expect_err("extra arguments");
     let outcome = fixture.run(text).await;
     assert_eq!(failed(&outcome), Some(expected.to_string()));
     assert_eq!(outcome.autonomous, None);

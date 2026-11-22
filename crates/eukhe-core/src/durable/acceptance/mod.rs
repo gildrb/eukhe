@@ -12,8 +12,8 @@
 //! and the workspace's fingerprint (`workspace.rs`). The owner (the
 //! user's `/accept`, an SDK client's [`set_acceptance`] or the daemon's
 //! `set_acceptance` command, the CLI's `--accept-*` flags, a parent's
-//! spawn) sets the checks; the worker claims (a final answer,
-//! or `goal.complete()` under an active goal) and can read its checks
+//! spawn) sets the checks; the worker claims (a final answer) and can
+//! read its checks
 //! (`acceptance.get`), never change them; the verifier (the
 //! `pi.generation` `on_yield` hook) gathers the evidence, records the
 //! verdicts and reports the result. Every decision is the compiled core's
@@ -42,9 +42,11 @@ use eukhe_durable::harness::types::Extension;
 
 pub(crate) use command::{bend_check, parse_accept_command, AcceptCommand, ACCEPT_USAGE};
 pub use command::{format_acceptance_status, uncertified_line};
+#[cfg(test)]
+pub(crate) use docs::ACCEPTANCE_DOC;
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
-pub(crate) use ops::{autonomous_checks, checks_at, claim, protected_files, AnswerChecks, Claimed};
+pub(crate) use ops::{autonomous_checks, checks_at, protected_files, AnswerChecks};
 pub(crate) use report::answer_judge;
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;
@@ -75,8 +77,9 @@ pub const ACCEPTANCE_CUSTOM_TYPE: &str = "eukhe.acceptance";
 /// requests registered in `deps.host_requests`. Checks run in the session
 /// cwd; a judge is one request to the session's models. It installs
 /// after `eukhe.loop` (while a loop runs, its next iteration owns the final
-/// answer) and before `eukhe.goals`: the first continuation of a final
-/// answer wins, and a refuted claim's evidence goes ahead of the goal's.
+/// answer) and before `eukhe.autonomous`: the first continuation of a
+/// final answer wins, and a refuted claim's evidence goes ahead of the
+/// autonomous run's.
 #[must_use]
 pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     let judge: Arc<dyn Judge> = Arc::new(ModelJudge {

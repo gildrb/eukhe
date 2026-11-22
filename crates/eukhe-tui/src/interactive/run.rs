@@ -1886,9 +1886,9 @@ async fn run_interactive_surface(
             }
         }
 
-        // The tray goal label follows the live goal state (TS
-        // `syncGoalTray`); the label only changes when the state does.
-        session.sync_goal_tray(&mut view);
+        // The dock follows the clock: the loop's duration limit counts
+        // down on every refresh; the row only repaints when it changes.
+        session.sync_activity_dock(&mut view);
 
         // Spinner animation (TS `Loader`'s `setInterval(80ms)` drives the
         // phase, not the render rate): the frame gate below caps renders,

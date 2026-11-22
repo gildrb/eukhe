@@ -428,12 +428,12 @@ law dir_lead_stays_when_the_loop_ends:
   for ends: {dir_running(Dr.tick(cap, l, dir_leads(vs, Dr.Unstack{}))) == False{} : Bool}
   {Dr.tick(cap, l, vs) == Dr.tick(cap, l, dir_leads(vs, Dr.Defer{})) : Dr.Loop}
 
-# LAW dir_lead_goes_example: anchor: a reminder over a goal with budget leads the goal's
-# continuation and leaves with it
+# LAW dir_lead_goes_example: anchor: a reminder over a budgeted layer (kind 0) leads that
+# layer's continuation and leaves with it
 law dir_lead_goes_example:
   {Dr.tick(4n, Dr.Loop{3n, [Dr.Layer{2n, 0n}, Dr.Layer{0n, 5n}], None{}}, [Dr.Lead{}, Dr.Again{}]) == Dr.Loop{2n, [Dr.Layer{0n, 4n}], None{}} : Dr.Loop}
 
-# LAW dir_lead_stays_example: anchor: a reminder over a goal that yields stays for the next run
+# LAW dir_lead_stays_example: anchor: a reminder over a budgeted layer (kind 0) that yields stays for the next run
 law dir_lead_stays_example:
   {Dr.tick(4n, Dr.Loop{3n, [Dr.Layer{2n, 0n}, Dr.Layer{0n, 5n}], None{}}, [Dr.Lead{}, Dr.Yield{}]) == Dr.Loop{3n, [Dr.Layer{2n, 0n}, Dr.Layer{0n, 5n}], Some{Dr.Hand{}}} : Dr.Loop}
 
@@ -757,7 +757,7 @@ law dir_ffi_malformed_unless_request:
   {(s, dir_req_fits(q)) == (dir_spell_req(q, rest), True{}) : String & Bool}
 
 # LAW dir_ffi_tags_example: anchor: the bytes Rust sends and reads: cap 4, 3 steps left, a
-# reminder (kind 1, no budget) over a goal (kind 0, budget 5), running;
+# reminder (kind 1, no budget) over a budgeted layer (kind 0, budget 5), running;
 # Lead then Again: the reminder leaves with the continuation (2,1,0,4,0,);
 # Lead then Yield: the reminder stays, handed back (3,2,1,0,0,5,1,1,);
 # cap 1, a Stack with no room fails and costs one unit (3,1,0,4,1,2,); an
