@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::autonomous::{AgentAutonomousConfig, AgentAutonomousGateConfig, AutonomousStop};
-use crate::durable::directors::left_continuation;
+use crate::durable::directors::{left_continuation, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::durable::goals::{autonomous_state, set_autonomous, AutonomousChange};
 
 /// AU1, AU2: the commands of an autonomous run's removed gates are command
@@ -133,6 +133,15 @@ async fn a_passing_claim_whose_answer_states_work_left_goes_on() {
     assert_eq!(
         user_texts(&entries)[1],
         left_continuation(&["test_cli fails".to_owned()])
+    );
+    // One display row tells the user the run went on; the model never sees it.
+    assert_eq!(
+        custom_rows(&entries, DIRECTOR_NOTICE_CUSTOM_TYPE),
+        vec![(
+            "The final answer left task work undone (test_cli fails); the run went on.".to_owned(),
+            false,
+            json!({ "workLeft": ["test_cli fails"] })
+        )]
     );
     let requests = judge_requests(&setup);
     let intent = JudgeQuestion::Intent(vec!["build the todo CLI".to_owned()]);

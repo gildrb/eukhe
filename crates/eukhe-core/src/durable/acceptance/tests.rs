@@ -657,13 +657,19 @@ async fn entries(conversation: &Conversation) -> Vec<EntryRecord> {
 /// The verdict rows, oldest first: their text, whether the model sees
 /// them, and their details.
 fn verdict_rows(entries: &[EntryRecord]) -> Vec<(String, bool, Value)> {
+    custom_rows(entries, ACCEPTANCE_CUSTOM_TYPE)
+}
+
+/// The custom rows of one type, oldest first: their text, whether the
+/// model sees them, and their details.
+fn custom_rows(entries: &[EntryRecord], custom_type: &str) -> Vec<(String, bool, Value)> {
     entries
         .iter()
         .filter(|entry| entry.kind == CUSTOM_ENTRY.kind())
         .filter_map(|entry| {
             let data: CustomEntryData =
                 serde_json::from_value(serde_json::to_value(entry.data.as_ref()?).ok()?).ok()?;
-            if data.custom_type != ACCEPTANCE_CUSTOM_TYPE {
+            if data.custom_type != custom_type {
                 return None;
             }
             let text = match data.content? {
