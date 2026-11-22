@@ -14,6 +14,7 @@ use super::ipython_details::{
     BackgroundShell, BashCommands, IpythonDetails, IpythonError,
 };
 use super::layout::images;
+use super::summary::MARGIN;
 use super::{highlight, ToolCallCard};
 use crate::chat::Detail;
 use crate::code_preview::{
@@ -141,7 +142,11 @@ fn collapsed_line(
         Inline::role(language_label, ThemeColor::Muted),
     ];
     let mut part = |text: String, role: ThemeColor| {
-        parts.push(Inline::role(crate::glyphs::SEP, ThemeColor::Dim));
+        if parts.len() == 3 {
+            parts.push(Inline::plain("  "));
+        } else {
+            parts.push(Inline::role(crate::glyphs::SEP, ThemeColor::Dim));
+        }
         parts.push(Inline::role(text, role));
     };
     if let Some(bash) = dominant {
@@ -187,7 +192,7 @@ fn collapsed_line(
         }
     }
     Element::Inset {
-        left: 1,
+        left: MARGIN,
         child: Box::new(Element::text(Fit::Keep, parts)),
     }
 }
@@ -371,28 +376,38 @@ fn render_sent_agent_messages(
             theme,
         );
         rows.push(Element::Inset {
-            left: 1,
+            left: MARGIN,
             child: Box::new(Element::text(
                 Fit::Ellipsis,
                 summary.into_iter().map(Inline::from).collect(),
             )),
         });
         if expanded {
+            // The body carries its own one-column margin; the rest of the
+            // card's margin moves it under the summary.
+            let shift = MARGIN - 1;
             rows.extend(
-                crate::custom_message::render::agent_message_body(&sent.message, theme, width)
-                    .into_iter()
-                    .map(Element::line),
+                crate::custom_message::render::agent_message_body(
+                    &sent.message,
+                    theme,
+                    width.saturating_sub(shift),
+                )
+                .into_iter()
+                .map(|line| Element::Inset {
+                    left: shift,
+                    child: Box::new(Element::line(line)),
+                }),
             );
         }
     }
 }
 
 /// One indented card row (TS `addWrapped`): the first wrapped row carries
-/// `gutter`, continuation rows the matching indent, all after a one-space
+/// `gutter`, continuation rows the matching indent, all after the card's
 /// margin; each row is cut at the width so a narrow pane cannot overflow.
 fn wrapped(gutter: Vec<Inline>, body: Vec<Inline>) -> Element {
     Element::Inset {
-        left: 1,
+        left: MARGIN,
         child: Box::new(Element::Row { gutter, body }),
     }
 }

@@ -1,22 +1,28 @@
 //! The generic tool card (`read`, `edit`, `write`, `grep`, `glob`, and any
 //! other native tool): one summary row at the default detail, for example
-//! `ok read - src/media.ts:44-52 - 12 lines - 3ms` or
-//! `ok edit - src/media.ts - +6 -2`, with `x` and the error's first line on
-//! failure; at the expanded detail, the call's arguments and its output
-//! hang below.
+//! `ok read  src/media.ts:44-52 - 12 lines - 3ms` or
+//! `ok edit  src/media.ts - +6 -2`. A failed call shows the head and the
+//! tail of its output below the row; an edit shows its diff from the
+//! `details` level on; at the expanded detail, the call's arguments hang
+//! below as `key: value` rows, then its output (an edit's whole diff).
 
 use serde_json::Value;
 
+use super::diff::EditDiff;
 use super::layout::{collapsed_images, images};
 use super::summary::{
-    body_row, duration, first_line, line_count, output_rows, string_arg, SummaryRow,
+    argument_rows, duration, failed_output_rows, first_line, line_count, output_rows, string_arg,
+    SummaryRow,
 };
 use super::{format_size, panel_status, ToolCallCard};
 use crate::chat::Detail;
-use crate::element::{self, Element, Inline, Status, Tick};
-use crate::error_summary::summarize_error_details;
+use crate::element::{self, Element, Status, Tick};
 use crate::theme::{Theme, ThemeColor};
 use crate::Line;
+
+/// The diff rows an edit card shows at the `details` level; `all` shows
+/// every row.
+const DETAILS_DIFF_ROWS: usize = 20;
 
 #[must_use]
 pub fn render(
@@ -33,32 +39,51 @@ pub fn render(
         .map(|result| result.text_output(show_images))
         .unwrap_or_default();
     let output = output.trim();
-    let mut rows = vec![summary_row(card, output).element(width)];
+    let diff = card
+        .result
+        .as_ref()
+        .filter(|result| card.name == "edit" && !card.result_partial && !result.is_error)
+        .and_then(|result| EditDiff::from_details(&result.details));
+    let summary = summary_row(card, output, diff.as_ref());
+    let failed = summary.status == Status::Error;
+    let mut rows = vec![summary.element(width)];
     if detail.tool_output_expanded() {
-        let args = match &card.args {
-            Value::Null => String::new(),
-            args => serde_json::to_string_pretty(args).unwrap_or_default(),
-        };
-        let mut first = true;
-        for line in args.split('\n').filter(|line| !line.is_empty()) {
-            rows.push(body_row(first, vec![Inline::role(line, ThemeColor::Dim)]));
-            first = false;
-        }
-        if !output.is_empty() {
-            output_rows(&mut rows, output, ThemeColor::ToolOutput);
+        argument_rows(&mut rows, &card.args, &[]);
+        if let Some(diff) = &diff {
+            rows.extend(diff.elements(None, theme, width));
+        } else if !output.is_empty() {
+            let role = if failed {
+                ThemeColor::Muted
+            } else {
+                ThemeColor::ToolOutput
+            };
+            output_rows(&mut rows, output, role, theme, width);
         }
         rows.extend(images(card.result.as_ref(), show_images, theme));
     } else {
+        if failed && !output.is_empty() {
+            failed_output_rows(&mut rows, output, theme, width);
+        } else if let Some(diff) = diff.as_ref().filter(|_| detail == Detail::Details) {
+            rows.extend(diff.elements(Some(DETAILS_DIFF_ROWS), theme, width));
+        }
         rows.extend(collapsed_images(card.result.as_ref(), show_images, theme));
     }
     element::render(&Element::Column(rows), theme, width, Tick(frame))
 }
 
-/// The one-row summary (the whole card at the default detail).
-fn summary_row<'a>(card: &'a ToolCallCard, output: &str) -> SummaryRow<'a> {
+/// The one-row summary (the whole card at the default detail). An edit
+/// with a diff counts its rows; one without counts its patch's.
+fn summary_row<'a>(
+    card: &'a ToolCallCard,
+    output: &str,
+    diff: Option<&EditDiff<'_>>,
+) -> SummaryRow<'a> {
     let (argument, mut results) = call_summary(&card.name, &card.args);
+    if let Some(diff) = diff {
+        let (added, removed) = diff.counts();
+        results = vec![(row_counts(added, removed), ThemeColor::Dim)];
+    }
     let mut status = panel_status(card);
-    let mut error = None;
     if let Some(result) = &card.result {
         if card.name != "edit" {
             if let Some(count) = line_count(output) {
@@ -67,7 +92,6 @@ fn summary_row<'a>(card: &'a ToolCallCard, output: &str) -> SummaryRow<'a> {
         }
         if !card.result_partial && result.is_error {
             status = Status::Error;
-            error = Some(summarize_error_details(output));
         }
     }
     SummaryRow {
@@ -76,7 +100,7 @@ fn summary_row<'a>(card: &'a ToolCallCard, output: &str) -> SummaryRow<'a> {
         argument,
         results,
         duration: duration(card),
-        error,
+        error: None,
     }
 }
 
@@ -144,12 +168,19 @@ fn edit_summary(input: &str) -> (String, Vec<(String, ThemeColor)>) {
             removed += count;
         }
     }
-    let counts = if removed > 0 {
+    (
+        paths.join(" ; "),
+        vec![(row_counts(added, removed), ThemeColor::Dim)],
+    )
+}
+
+/// `+N -M` (`-M` only when any).
+fn row_counts(added: usize, removed: usize) -> String {
+    if removed > 0 {
         format!("+{added} -{removed}")
     } else {
         format!("+{added}")
-    };
-    (paths.join(" ; "), vec![(counts, ThemeColor::Dim)])
+    }
 }
 
 /// The path of a `[PATH#TAG]` patch header line.
@@ -264,7 +295,7 @@ mod tests {
         for detail in [Detail::Overview, Detail::Details] {
             assert_eq!(
                 flat(&render(&card, 0, detail, &theme(), 120, true)),
-                vec![" ok read - src/media.ts:44-52 - 13 lines - 3ms"]
+                vec!["   ok read  src/media.ts:44-52 - 13 lines - 3ms"]
             );
         }
     }
@@ -279,7 +310,7 @@ mod tests {
         );
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok edit - src/media.ts - +5 -3 - 3ms"]
+            vec!["   ok edit  src/media.ts - +5 -3 - 3ms"]
         );
         let additions_only = done_card(
             "edit",
@@ -295,8 +326,81 @@ mod tests {
                 120,
                 true
             )),
-            vec![" ok edit - a.rs ; b.rs - +2 - 3ms"]
+            vec!["   ok edit  a.rs ; b.rs - +2 - 3ms"]
         );
+    }
+
+    fn edit_card(details: Value) -> ToolCallCard {
+        let mut card = done_card(
+            "edit",
+            json!({ "input": "[src/hello.rs#AB12]\nPUT 2.=2:\n+    println!(\"Hello, world!\");" }),
+            "[src/hello.rs#CD34]\n1:fn greet() {\n2:    println!(\"Hello, world!\");\n3:}",
+        );
+        card.result.as_mut().expect("result").details = details;
+        card
+    }
+
+    fn hello_diff() -> Value {
+        json!({ "files": [{
+            "path": "src/hello.rs",
+            "change": "updated",
+            "diff": " 1|fn greet() {\n-2|    println!(\"Helo world\");\n+2|    println!(\"Hello, world!\");\n 3|}",
+        }]})
+    }
+
+    #[test]
+    fn an_edit_with_a_diff_shows_it_from_the_details_level() {
+        let card = edit_card(hello_diff());
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Overview, &theme(), 100, true)),
+            vec!["   ok edit  src/hello.rs - +1 -1 - 3ms"]
+        );
+        assert_eq!(
+            flat(&render(&card, 0, Detail::Details, &theme(), 100, true)),
+            vec![
+                "   ok edit  src/hello.rs - +1 -1 - 3ms",
+                "       1   fn greet() {",
+                "       2 -     println!(\"Helo world\");",
+                "       2 +     println!(\"Hello, world!\");",
+                "       3   }",
+            ]
+        );
+        let all = flat(&render(&card, 0, Detail::All, &theme(), 100, true));
+        assert_eq!(all[1], "      input: [src/hello.rs#AB12]");
+        assert!(all.ends_with(&[
+            "       2 +     println!(\"Hello, world!\");".to_string(),
+            "       3   }".to_string(),
+        ]));
+        assert!(!all.iter().any(|row| row.contains("CD34")), "{all:?}");
+    }
+
+    #[test]
+    fn an_edit_without_a_diff_keeps_its_summary_row() {
+        for details in [
+            json!({}),
+            json!({ "diff": "-2|old\n+2|new" }),
+            json!({ "files": [{ "path": "src/hello.rs", "diff": "" }] }),
+        ] {
+            let card = edit_card(details);
+            assert_eq!(
+                flat(&render(&card, 0, Detail::Details, &theme(), 100, true)),
+                vec!["   ok edit  src/hello.rs - +1 -1 - 3ms"]
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_diff_is_cut_at_the_details_level() {
+        let diff: Vec<String> = (1..=30).map(|n| format!("+{n}|line {n}")).collect();
+        let card = edit_card(json!({ "files": [{ "path": "a.txt", "diff": diff.join("\n") }] }));
+        let details = flat(&render(&card, 0, Detail::Details, &theme(), 100, true));
+        assert_eq!(details.len(), 1 + DETAILS_DIFF_ROWS + 1, "{details:?}");
+        assert_eq!(
+            details.last().map(String::as_str),
+            Some("      ... +10 lines (Ctrl+O)")
+        );
+        let all = flat(&render(&card, 0, Detail::All, &theme(), 100, true));
+        assert!(all.iter().any(|row| row == "      30 + line 30"), "{all:?}");
     }
 
     #[test]
@@ -308,7 +412,7 @@ mod tests {
         );
         assert_eq!(
             flat(&render(&write, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok write - notes.txt - 3 lines (14B) - 1 line - 3ms"]
+            vec!["   ok write  notes.txt - 3 lines (14B) - 1 line - 3ms"]
         );
         let grep = done_card(
             "grep",
@@ -317,12 +421,12 @@ mod tests {
         );
         assert_eq!(
             flat(&render(&grep, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok grep - fn main in src - 2 lines - 3ms"]
+            vec!["   ok grep  fn main in src - 2 lines - 3ms"]
         );
         let glob = done_card("glob", json!({ "path": "**/*.rs" }), "a.rs\nb.rs");
         assert_eq!(
             flat(&render(&glob, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok glob - **/*.rs - 2 lines - 3ms"]
+            vec!["   ok glob  **/*.rs - 2 lines - 3ms"]
         );
         let other = done_card(
             "web_search",
@@ -331,7 +435,7 @@ mod tests {
         );
         assert_eq!(
             flat(&render(&other, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok web_search - ratatui wrap - 1 line - 3ms"]
+            vec!["   ok web_search  ratatui wrap - 1 line - 3ms"]
         );
         let intent_only = done_card("memo", json!({ "i": "Noting the plan", "count": 2 }), "");
         assert_eq!(
@@ -343,22 +447,29 @@ mod tests {
                 120,
                 true
             )),
-            vec![" ok memo - Noting the plan - 3ms"]
+            vec!["   ok memo  Noting the plan - 3ms"]
         );
     }
 
     #[test]
-    fn a_failed_call_is_an_error_row_with_the_first_error_line() {
+    fn a_failed_call_shows_its_output_below_the_row() {
         let mut card = done_card(
             "read",
             json!({ "path": "src/lib.rs" }),
             "no such file: src/lib.rs\n  at read",
         );
         card.result.as_mut().expect("result").is_error = true;
-        assert_eq!(
-            flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x  read - src/lib.rs - 2 lines - 3ms - no such file: src/lib.rs"]
-        );
+        for detail in [Detail::Overview, Detail::Details, Detail::All] {
+            let rows = flat(&render(&card, 0, detail, &theme(), 120, true));
+            assert_eq!(rows[0], "   x  read  src/lib.rs - 2 lines - 3ms");
+            assert!(
+                rows.ends_with(&[
+                    "      | no such file: src/lib.rs".to_string(),
+                    "      |   at read".to_string(),
+                ]),
+                "{rows:?}"
+            );
+        }
     }
 
     #[test]
@@ -373,12 +484,12 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" .  read - src/lib.rs"]
+            vec!["   .  read  src/lib.rs"]
         );
         let settled = done_card("read", json!({ "path": "src/lib.rs" }), "one\ntwo");
         assert_eq!(
             flat(&render(&settled, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok read - src/lib.rs - 2 lines - 3ms"]
+            vec!["   ok read  src/lib.rs - 2 lines - 3ms"]
         );
     }
 
@@ -388,12 +499,10 @@ mod tests {
         assert_eq!(
             flat(&render(&card, 0, Detail::All, &theme(), 120, true)),
             vec![
-                " ok read - src/lib.rs - 2 lines - 3ms",
-                " `- {",
-                "      \"path\": \"src/lib.rs\"",
-                "    }",
-                "  > one",
-                "    two",
+                "   ok read  src/lib.rs - 2 lines - 3ms",
+                "      path: src/lib.rs",
+                "      | one",
+                "      | two",
             ]
         );
     }
@@ -403,8 +512,7 @@ mod tests {
         let card = image_card();
         let rows = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
         assert!(
-            rows.iter()
-                .any(|r| r.contains("    `- [image/png - 64x32]")),
+            rows.iter().any(|r| r == "      [image/png - 64x32]"),
             "got: {rows:?}"
         );
         assert!(!rows.iter().any(|r| r.contains("[Image:")));
@@ -444,13 +552,13 @@ mod tests {
         let shown = flat(&render(&card, 0, Detail::Details, &theme(), 120, true));
         let shown: Vec<&str> = shown.iter().map(|row| row.trim_end()).collect();
         assert_eq!(shown.len(), 2, "{shown:?}");
-        assert!(shown[0].starts_with(" ok custom"), "{shown:?}");
-        assert_eq!(shown[1], "    `- [image/png - 64x32]");
+        assert!(shown[0].starts_with("   ok custom"), "{shown:?}");
+        assert_eq!(shown[1], "      [image/png - 64x32]");
         let hidden = flat(&render(&card, 0, Detail::Details, &theme(), 120, false));
         let hidden: Vec<&str> = hidden.iter().map(|row| row.trim_end()).collect();
         assert_eq!(hidden.len(), 2, "{hidden:?}");
-        assert!(hidden[0].starts_with(" ok custom"), "{hidden:?}");
-        assert_eq!(hidden[1], "    [Image: [image/png]]");
+        assert!(hidden[0].starts_with("   ok custom"), "{hidden:?}");
+        assert_eq!(hidden[1], "      [Image: [image/png]]");
         assert!(!hidden.iter().any(|row| row.contains("done")), "{hidden:?}");
     }
 }

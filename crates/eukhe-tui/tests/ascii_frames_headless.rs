@@ -411,7 +411,7 @@ fn assert_ascii_turn(frames: &[String]) {
     let all = frames.join("\n---frame---\n");
     for needle in [
         "list and read",
-        "ok bash - ls -la - 4 lines",
+        "ok bash  ls -la - 4 lines",
         "ENOENT",
         "See the docs",
     ] {

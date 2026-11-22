@@ -339,6 +339,24 @@ fn generic_cases() -> Vec<(&'static str, ToolCallCard)> {
             ),
         ),
         (
+            "generic edit diff",
+            card(
+                "edit",
+                json!({ "input": "[src/hello.rs#AB12]\nPUT 2.=2:\n+    println!(\"Hello, world!\");" }),
+                &Phase::Done,
+                "[src/hello.rs#CD34]\n1:fn greet() {\n2:    println!(\"Hello, world!\");\n3:}",
+                json!({ "files": [{ "path": "src/hello.rs", "diff": ([
+                    " 1|fn greet() {",
+                    "-2|    println!(\"Helo world\");",
+                    "+2|    println!(\"Hello, world!\");",
+                    " 3|}",
+                    "",
+                    " 9|fn main() { greet(); }",
+                    "-10|// a very long removed line that wraps at the narrow width of the pinned fixture",
+                ].join("\n")) }]}),
+            ),
+        ),
+        (
             "generic grep",
             card(
                 "grep",
