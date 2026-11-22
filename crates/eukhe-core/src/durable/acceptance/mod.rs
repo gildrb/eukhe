@@ -44,7 +44,7 @@ pub(crate) use command::{bend_check, parse_accept_command, AcceptCommand, ACCEPT
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
 pub(crate) use ops::{
-    autonomous_checks, checks_at, claim, held_files, label_of, Claimed, HeldFile,
+    autonomous_checks, checks_at, claim, held_files, AnswerChecks, Claimed, HeldFile,
 };
 pub(crate) use report::answer_judge;
 pub use report::{read_final_answer, session_judge, AnswerReading};

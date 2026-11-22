@@ -102,6 +102,7 @@ impl AgentAutonomousConfig {
                 expect: 0,
                 timeout_ms: gates.timeout_ms,
                 protect: Vec::new(),
+                strength: None,
             })
             .collect()
     }
@@ -267,6 +268,7 @@ mod tests {
                     expect: 0,
                     timeout_ms: Some(9_000),
                     protect: Vec::new(),
+                    strength: None,
                 }],
                 Some(2),
                 Some("Autonomous options are deprecated: its limits are the run's budget (/budget); its gates and continuations are acceptance checks (/accept).".to_owned()),

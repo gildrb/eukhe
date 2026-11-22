@@ -329,12 +329,40 @@ pub async fn seed_acceptance(
     Ok(true)
 }
 
+/// What the checks did with a final answer, for the autonomous run: none;
+/// the claim went back to the worker; the claim ended with its label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnswerChecks {
+    Unchecked,
+    Returned,
+    Ended(AcceptanceLabel),
+}
+
+impl AnswerChecks {
+    /// The checks as the compiled core's autonomous rule reads them
+    /// (`eukhe_bend::rules::autonomous`). Its labels are `verify`'s: checks
+    /// passed, not certified, is checks passed there; the rule reads only
+    /// that the claim ended, and the run's stop keeps the label itself.
+    pub(crate) fn core(self) -> autonomous::Checks {
+        match self {
+            Self::Unchecked => autonomous::Checks::Unchecked,
+            Self::Returned => autonomous::Checks::Returned,
+            Self::Ended(label) => autonomous::Checks::Ended(match label {
+                AcceptanceLabel::Verified => Label::Verified,
+                AcceptanceLabel::Failed => Label::Failed,
+                AcceptanceLabel::Unverified => Label::Unverified,
+                AcceptanceLabel::ChecksPassedUnconfined
+                | AcceptanceLabel::ChecksPassedNotCertified => Label::Passed,
+            }),
+        }
+    }
+}
+
 /// What the checks of `conversation_id` did with the final answer of
-/// generation `task_id`, for the autonomous rule
-/// (`eukhe_bend::rules::autonomous`): none; the claim went back to the
-/// worker; the claim ended with a label (now, or already on this state).
-/// The verifier runs before the autonomous run at a final answer
-/// (`super::extension`), so its record of this answer is there.
+/// generation `task_id`: none; the claim went back to the worker; the
+/// claim ended with a label (now, or already on this state). The verifier
+/// runs before the autonomous run at a final answer (`super::extension`),
+/// so its record of this answer is there.
 ///
 /// # Errors
 ///
@@ -344,12 +372,12 @@ pub(crate) async fn checks_at(
     conversation_id: ConversationId,
     task_id: eukhe_durable::types::TaskId,
     cx: &Context,
-) -> SessionResult<autonomous::Checks> {
+) -> SessionResult<AnswerChecks> {
     let Some(doc) = stored(reader, conversation_id, cx).await? else {
-        return Ok(autonomous::Checks::Unchecked);
+        return Ok(AnswerChecks::Unchecked);
     };
     if doc.checks.is_empty() {
-        return Ok(autonomous::Checks::Unchecked);
+        return Ok(AnswerChecks::Unchecked);
     }
     let returned = doc
         .yield_record
@@ -357,21 +385,11 @@ pub(crate) async fn checks_at(
         .filter(|record| record.task_id == task_id)
         .is_some_and(|record| record.r#continue.is_some());
     Ok(match (returned, &doc.last_end) {
-        (false, Some(end)) => autonomous::Checks::Ended(core_label(end.label)),
+        (false, Some(end)) => AnswerChecks::Ended(end.label),
         // A claim went back, or the answer was no claim the verifier
         // judged: the run adds nothing of its own.
-        (true, _) | (false, None) => autonomous::Checks::Returned,
+        (true, _) | (false, None) => AnswerChecks::Returned,
     })
-}
-
-/// The compiled core's label of `label`.
-fn core_label(label: AcceptanceLabel) -> Label {
-    match label {
-        AcceptanceLabel::Verified => Label::Verified,
-        AcceptanceLabel::Failed => Label::Failed,
-        AcceptanceLabel::Unverified => Label::Unverified,
-        AcceptanceLabel::ChecksPassedUnconfined => Label::Passed,
-    }
 }
 
 /// The checks an autonomous run starts with, as its owner: the current
