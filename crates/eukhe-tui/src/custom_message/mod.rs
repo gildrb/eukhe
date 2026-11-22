@@ -15,7 +15,9 @@
 //!
 //! The dispatch follows the TS live path
 //! (`createDisplayedCustomMessageComponent`): non-display rows render
-//! nothing, every displayed type without a dedicated component (engine
+//! nothing except the engine continuations on the allow-list
+//! (`injected_prompt::ContinuationOrigin`), which render their labelled
+//! injected row; every displayed type without a dedicated component (engine
 //! bookkeeping like `harness_digest`, unknown types) renders the generic
 //! `[<customType>]` panel. (The TS replay path `buildConversationComponents`
 //! drops unknown types instead; the live interactive path is the TUI ground
@@ -39,7 +41,7 @@ pub mod skill_invocation;
 pub use skill_invocation::{skill_invocation_entries, SkillInvocationRow};
 
 use injected_prompt::injected_prompt_row;
-pub use injected_prompt::{InjectedPromptKind, InjectedPromptRow};
+pub use injected_prompt::{ContinuationOrigin, InjectedPromptKind, InjectedPromptRow};
 
 use crate::chat::{ChatEntry, StatusKind};
 use crate::theme::ThemeColor;
@@ -172,7 +174,8 @@ pub struct CustomPanelRow {
 /// dispatch order: slash rows, compaction and refinement outcomes, agent
 /// messages (the received agent-message rows and the RLM child status
 /// notices, the same class), shell completions, injected prompts, then the
-/// generic panel. Non-display rows render nothing.
+/// generic panel. Non-display rows render nothing, except an engine
+/// continuation on the allow-list: its labelled injected row.
 #[must_use]
 pub fn custom_message_entries(
     custom_type: &CustomType,
@@ -180,6 +183,9 @@ pub fn custom_message_entries(
     display: bool,
     details: Option<&Value>,
 ) -> Vec<ChatEntry> {
+    if let Some(row) = injected_prompt::continuation_row(custom_type, content) {
+        return vec![ChatEntry::InjectedPrompt(Box::new(row))];
+    }
     if !display {
         return Vec::new();
     }
@@ -518,13 +524,15 @@ mod tests {
 
     #[test]
     fn non_display_rows_render_nothing() {
-        // TS skips display=false rows everywhere (harness digests,
-        // refinement notices, worker recovery are bookkeeping).
+        // Bookkeeping stays hidden (harness digests, refinement notices,
+        // worker recovery), and so do goal prompts: only the engine
+        // continuations on the allow-list show.
         for custom_type in [
             "harness_digest",
             "refinement_notice",
             "eukhe.worker_recovery",
             "agent_message",
+            "goal_prompt",
         ] {
             let entries = decoded(&json!({
                 "role": "custom",
@@ -534,6 +542,50 @@ mod tests {
                 "details": { "id": "agentmsg_1", "message": "body" },
             }));
             assert!(entries.is_empty(), "{custom_type} rendered {entries:?}");
+        }
+    }
+
+    /// The engine continuations travel as hidden custom messages and show
+    /// as their labelled injected rows.
+    #[test]
+    fn hidden_continuations_decode_to_labelled_rows() {
+        for (custom_type, origin, kind) in [
+            (
+                "director_continuation",
+                ContinuationOrigin::Director,
+                json!({ "kind": "director" }),
+            ),
+            (
+                "autonomous_continuation",
+                ContinuationOrigin::Autonomous,
+                json!({ "kind": "autonomous", "nudge": "gateFailed" }),
+            ),
+            (
+                "quota_resume",
+                ContinuationOrigin::QuotaResume,
+                json!({ "kind": "quotaResume" }),
+            ),
+            (
+                "compaction_resume",
+                ContinuationOrigin::CompactionResume,
+                json!({ "kind": "compactionResume" }),
+            ),
+        ] {
+            let entries = decoded(&json!({
+                "role": "custom",
+                "customType": custom_type,
+                "content": [{ "type": "text", "text": "Continue the task." }],
+                "display": false,
+                "details": { "origin": kind },
+            }));
+            assert_eq!(
+                entries,
+                vec![ChatEntry::InjectedPrompt(Box::new(InjectedPromptRow {
+                    kind: InjectedPromptKind::Continuation { origin },
+                    body: Some("Continue the task.".to_string()),
+                }))],
+                "{custom_type}"
+            );
         }
     }
 
@@ -1085,10 +1137,16 @@ mod tests {
             ),
             (
                 Some((
-                    injected_prompt::render_injected_prompt(&goal, Detail::Overview, &theme, 60),
+                    injected_prompt::render_injected_prompt(
+                        &goal,
+                        Detail::Overview,
+                        &theme,
+                        60,
+                        true,
+                    ),
                     vec!["", " Goal continuation - Ship."],
                 )),
-                injected_prompt::render_injected_prompt(&goal, Detail::All, &theme, 60),
+                injected_prompt::render_injected_prompt(&goal, Detail::All, &theme, 60, true),
                 vec!["", " Goal continuation - Ship."],
             ),
             (
