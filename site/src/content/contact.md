@@ -1,8 +1,4 @@
-EUKHE
-CONTACT
-2026
-
-# Contact
+# Eukhe
 
 Eukhe is made by Gil Rodrigues. Email: [g@gildrb.com](mailto:g@gildrb.com).
 

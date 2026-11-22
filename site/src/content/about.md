@@ -1,8 +1,4 @@
-EUKHE
-ABOUT
-2026
-
-# About Eukhe
+# Eukhe
 
 Eukhe is an agent harness that works a task with no person watching and gives a report at the end. The name is εὐχή, Greek for wish.
 
