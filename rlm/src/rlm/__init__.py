@@ -9,15 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from .bash import BashHandle, BashResult, bash
-from .factory import (
-    FACTORY_HELP,
-    graph_factory,
-    resume_factory,
-    run_factory,
-    status_factory,
-    stop_factory,
-    watch_factory,
-)
 from .harness import (
     CHAT_MEMORY_ABSENT_METHODS,
     CHAT_MEMORY_MESSAGE,
@@ -747,27 +738,43 @@ class _RLMFactoryNamespace:
     and the API with worked examples): ``rlm.factory.help()``.
     """
 
+    # The factory module loads at the first call: a kernel that runs no
+    # factory never imports it.
     async def run(self, spec_id: str, *, name: str | None = None) -> dict[str, Any]:
-        return await run_factory(spec_id, name=name)
+        from . import factory
+
+        return await factory.run_factory(spec_id, name=name)
 
     async def status(self, run_id: str) -> dict[str, Any]:
-        return await status_factory(run_id)
+        from . import factory
+
+        return await factory.status_factory(run_id)
 
     async def stop(self, run_id: str) -> dict[str, Any]:
-        return await stop_factory(run_id)
+        from . import factory
+
+        return await factory.stop_factory(run_id)
 
     async def resume(self, run_id: str) -> dict[str, Any]:
-        return await resume_factory(run_id)
+        from . import factory
+
+        return await factory.resume_factory(run_id)
 
     async def graph(self, ref: str | None = None) -> dict[str, Any]:
-        return graph_factory(ref)
+        from . import factory
+
+        return factory.graph_factory(ref)
 
     async def watch(self, run_id: str, timeout: float = 0.0) -> dict[str, Any]:
-        return await watch_factory(run_id, timeout)
+        from . import factory
+
+        return await factory.watch_factory(run_id, timeout)
 
     def help(self) -> str:
         """Return the embedded factory authoring reference and API guide."""
-        return FACTORY_HELP
+        from . import factory
+
+        return factory.FACTORY_HELP
 
 
 class _RLMNamespace:
