@@ -14,7 +14,7 @@ use eukhe_core::durable::acceptance::seed_acceptance;
 use eukhe_core::durable::cvar_agent::CvarAgent;
 use eukhe_core::durable::goals::{autonomous_state, configure_autonomous};
 use eukhe_core::durable::{
-    McpLogin, ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
+    ModelRequest, ParentLink, PromptConfig, SessionConfig, SessionRole, SessionStorage,
 };
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_types::acceptance::AcceptanceSeed;
@@ -503,19 +503,24 @@ impl Worker {
             data["interruptedCompactionPersisted"] = json!(persisted);
         }
         if let Some(interrupted) = payload.get("interruptedRun") {
-            // The open stopped the run; a notice that failed to land keeps
-            // the supervisor's declaration pending: the next reopen of the
-            // session writes it.
-            let persisted = match self.write_interrupted_run_notice(interrupted, &cx).await {
-                Ok(()) => true,
+            // The open stopped the run; the turn goes on by itself, or ends
+            // at the cap. A reopen that failed keeps the supervisor's
+            // declaration pending: the next reopen of the session retries.
+            match self.resume_interrupted_run(interrupted, &cx).await {
+                Ok(next) => {
+                    data["interruptedRunPersisted"] = json!(true);
+                    data["interruptedRunEnded"] = json!(matches!(
+                        next,
+                        eukhe_bend::rules::restart_turn::Reopened::End { .. }
+                    ));
+                }
                 Err(error) => {
                     eprintln!(
-                        "eukhe-daemon worker: the notice of the run the supervisor ended did not land: {error:#}"
+                        "eukhe-daemon worker: the turn the supervisor interrupted did not go on: {error:#}"
                     );
-                    false
+                    data["interruptedRunPersisted"] = json!(false);
                 }
-            };
-            data["interruptedRunPersisted"] = json!(persisted);
+            }
         }
         response_success(None, "create", Some(data))
     }
@@ -543,48 +548,20 @@ impl Worker {
         Ok(())
     }
 
-    /// A run the supervisor ended (`supervisor/interrupted_runs.rs`): its
-    /// worker stopped responding and was killed, or crashed past the
-    /// restart budget. The open stopped the run instead of resuming it
-    /// (`StoredWork::Stop`), so none of its model requests or tools runs
-    /// again; the supervisor's notice lands here as the display-only row
-    /// that says why the turn ended. The row's request id is the
-    /// declaration's, so a replayed declaration writes one row.
-    async fn write_interrupted_run_notice(
+    /// A run the supervisor interrupted (`supervisor/interrupted_runs.rs`):
+    /// the open stopped it (`StoredWork::Stop`); its turn goes on by
+    /// itself (`interrupted_run.rs`).
+    async fn resume_interrupted_run(
         &self,
         interrupted: &Value,
         cx: &Context,
-    ) -> anyhow::Result<()> {
-        let field = |key: &str| {
-            interrupted
-                .get(key)
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow::anyhow!("interruptedRun carries no {key}"))
-        };
-        let notice = field("notice")?;
-        let declared_at = field("declaredAt")?;
+    ) -> anyhow::Result<eukhe_bend::rules::restart_turn::Reopened> {
+        let interrupted = super::interrupted_run::Interrupted::parse(interrupted)?;
         let hosted = self
             .session
             .get()
             .ok_or_else(|| anyhow::anyhow!("the created session is not installed"))?;
-        let entry = eukhe_core::durable::custom_entry_draft(
-            eukhe_types::custom_type::WORKER_RESTART_NOTICE_CUSTOM_TYPE,
-            eukhe_types::pi_ai::UserContent::Text(notice.to_string()),
-            true,
-            None,
-            crate::util::now_ms(),
-        )?;
-        hosted
-            .main()?
-            .submit(
-                eukhe_durable::harness::types::WriteSubmissionDraft {
-                    request_id: Some(format!("worker-restart:{declared_at}")),
-                    entry,
-                },
-                cx,
-            )
-            .await?;
-        Ok(())
+        super::interrupted_run::resume(&hosted.main()?, &interrupted, cx).await
     }
 
     /// The eukhe session config for `params` (cwd, id, storage, role,
@@ -729,12 +706,12 @@ impl Worker {
                 },
             );
         }));
-        // The `bash` tool's approval questions go to the attached clients
-        // (the first answer wins; no client, no answer: a denial).
-        let shell_approvals = self.shell_approvals.clone();
-        config.shell_approval = Some(Arc::new(move |request| {
-            let shell_approvals = shell_approvals.clone();
-            Box::pin(async move { shell_approvals.ask(request).await })
+        // An irreversible effect asks the root session's editors first
+        // (spec I12); a subagent hands the question up. No editor: it runs.
+        let editor_permissions = self.editor_permissions.clone();
+        config.editor_permission = Some(Arc::new(move |request| {
+            let editor_permissions = editor_permissions.clone();
+            Box::pin(async move { editor_permissions.ask(request).await })
         }));
         // Each accepted `rlm.progress.note` is a roster `note` candidate:
         // keep the latest on the core and push the changed summary.
@@ -750,13 +727,42 @@ impl Worker {
             });
             progress_pushes.push();
         }));
-        // The kernel's `mcp.begin_login` host request: the worker runs the
-        // OAuth login (browser + local callback) and persists the
-        // endpoint-bound credential the shared auth store gates on.
-        config.mcp_login = Some(McpLogin {
-            ui: Arc::new(crate::mcp_login::WorkerMcpLoginUi::from_env()),
-            http: Arc::new(eukhe_core::mcp::ReqwestOAuthHttp::new()),
-        });
+        // A subagent's irreversible effects go up to its root's ledger; a
+        // root's run end reports on the wire after the run's `agent_end`
+        // (every frame its commits made is out first).
+        if params.parent_session_id.is_some() {
+            config.ran_effect_relay = Some(super::effects::relay(
+                Arc::clone(&self.core),
+                Arc::clone(&self.supervisor_link),
+                self.config.active_session_id.clone(),
+            ));
+        } else {
+            let (report_core, report_events, report_slot) = (
+                Arc::clone(&self.core),
+                Arc::clone(&self.events),
+                self.session.clone(),
+            );
+            config.run_report = Some(Arc::new(move |report: eukhe_types::effects::RunReport| {
+                let (core, events, slot) = (
+                    Arc::clone(&report_core),
+                    Arc::clone(&report_events),
+                    report_slot.clone(),
+                );
+                tokio::spawn(async move {
+                    if let Some(hosted) = slot.get() {
+                        hosted.events_delivered().await;
+                    }
+                    emit_worker_event_with(
+                        &core,
+                        &events,
+                        SessionEvent::RunReport {
+                            ran: report.ran,
+                            unknown: report.unknown,
+                        },
+                    );
+                });
+            }));
+        }
         // The kernel host seams: scheduled-jobs cron wiring, bash notices,
         // agent messaging (after `children`: it joins that registry). The
         // notices' in-flight count is part of the idle barrier.

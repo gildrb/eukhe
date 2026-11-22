@@ -3,11 +3,9 @@
 //! the server answers `unpaired` and closes, or greets with `hello`. Then
 //! the tab sends numbered requests, which run concurrently, and the
 //! server answers each with a reply or a failure under the same number.
-//! The bound session's events, approval questions and resyncs are pushed
-//! as they come.
+//! The bound session's events and resyncs are pushed as they come.
 
 use eukhe_types::daemon::{DaemonResumeCursor, MemoryZoom, SessionEvent};
-use eukhe_types::shell::ShellApprovalRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -150,19 +148,14 @@ pub(crate) enum ServerFrame<'a> {
     /// Request `id` failed.
     Failure { id: u64, error: String },
     /// One event of the bound session, with its cursor when the daemon
-    /// gave one.
+    /// gave one; a `run_report` with the end-of-run message's text.
     Event {
         event: &'a SessionEvent,
         #[serde(skip_serializing_if = "Option::is_none")]
         cursor: Option<EventCursor<'a>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        report: Option<String>,
     },
-    /// The bound session's `bash` tool asks whether one step may run; the
-    /// tab answers with `run` `answer_shell_approval`.
-    Approval { request: &'a ShellApprovalRequest },
-    /// The bound session no longer waits on question `request_id` (a
-    /// client answered it, its step ended, or it went elsewhere): the tab
-    /// drops its card.
-    ApprovalSettled { request_id: &'a str },
     /// The bound session moved (a worker replacement), lost its worker
     /// link, or closed: the tab opens it again.
     Resync { reason: String },
@@ -190,7 +183,6 @@ impl ServerFrame<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_types::shell::{ShellEffect, ShellEffects};
     use serde_json::json;
 
     #[test]
@@ -336,6 +328,7 @@ mod tests {
             serde_json::to_value(ServerFrame::Event {
                 event: &SessionEvent::AgentStart,
                 cursor: None,
+                report: None,
             })
             .unwrap(),
             json!({ "type": "event", "event": { "type": "agent_start" } })
@@ -347,6 +340,7 @@ mod tests {
                     generation: Some("g"),
                     sequence: 9
                 }),
+                report: None,
             })
             .unwrap(),
             json!({
@@ -365,21 +359,6 @@ mod tests {
             json!({
                 "type": "hello", "protocol": 3, "build": "b",
                 "ops": ["sessions", "open", "new", "prompt", "abort", "memory", "run", "export", "delete", "rename"],
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(ServerFrame::Approval {
-                request: &ShellApprovalRequest {
-                    request_id: "r1".to_string(),
-                    step: 0,
-                    command: "rm -rf build".to_string(),
-                    effects: ShellEffects::of(&[ShellEffect::Write]),
-                }
-            })
-            .unwrap(),
-            json!({
-                "type": "approval",
-                "request": { "requestId": "r1", "step": 0, "command": "rm -rf build", "effects": ["write"] },
             })
         );
         assert_eq!(

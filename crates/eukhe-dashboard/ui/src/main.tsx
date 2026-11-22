@@ -10,9 +10,9 @@ import { fmt } from "./lib/format.ts";
 import { loopCountsDown } from "./lib/loop.ts";
 import { connect, onFrame, onReady } from "./lib/link.ts";
 import { chatHref, currentRoute, navigate } from "./lib/router.ts";
-import { addApproval, approvalSettled, bind, opening, refreshSessions } from "./lib/session.ts";
+import { bind, opening, refreshSessions } from "./lib/session.ts";
 import { store } from "./lib/store.ts";
-import { derivePhase, reduce, type PhaseName } from "./lib/turn.ts";
+import { derivePhase, reduce, withNote, type PhaseName } from "./lib/turn.ts";
 
 const TICK_MS = 250;
 
@@ -22,7 +22,10 @@ applyTheme(store.get().prefs.theme);
 onFrame("event", (frame) => {
   const state = store.get();
   if (opening() || !state.session) return;
-  const session = reduce(state.session, frame.event, Date.now());
+  const now = Date.now();
+  const reduced = reduce(state.session, frame.event, now);
+  // A root run's end-of-run message: one note, the text every surface shows.
+  const session = frame.report ? withNote(reduced, "report", frame.report, now) : reduced;
   store.set({ session: frame.cursor ? { ...session, cursor: frame.cursor } : session });
   switch (frame.event.type) {
     case "agent_end":
@@ -40,8 +43,6 @@ onFrame("event", (frame) => {
       break;
   }
 });
-onFrame("approval", (frame) => addApproval(frame.request));
-onFrame("approval_settled", (frame) => approvalSettled(frame.requestId));
 onFrame("resync", () => {
   void bind(currentRoute().sessionId ?? store.get().session?.id ?? null, true).catch(() => {});
 });
@@ -95,7 +96,7 @@ function attend() {
     document.title = title;
     lastTitle = title;
   }
-  const needsYou = phase.phase === "approval" || phase.phase === "failed" ? 1 : 0;
+  const needsYou = phase.phase === "failed" ? 1 : 0;
   if (needsYou !== lastBadge && "setAppBadge" in navigator) {
     lastBadge = needsYou;
     void (needsYou ? navigator.setAppBadge(needsYou) : navigator.clearAppBadge()).catch(() => {});
@@ -106,8 +107,7 @@ function attend() {
   if (!state.prefs.notify || !document.hidden) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const body = state.session?.title ?? "";
-  if (phase.phase === "approval") notify("eukhe needs your approval", body);
-  else if (phase.phase === "failed") notify("eukhe failed", body);
+  if (phase.phase === "failed") notify("eukhe failed", body);
   else if (phase.phase === "idle" && previous !== "sending") notify("eukhe is done", body);
 }
 store.subscribe(attend);

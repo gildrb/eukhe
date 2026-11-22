@@ -487,8 +487,8 @@ law tokens_readable_wcag:
 # bend/tokens.bend 2.): primary, secondary and danger text on every ground
 # (bg, sidebar, raised, surface, hover); tertiary text on bg, sidebar and
 # raised, and as a caption on the fills surface and hover; bg on the
-# primary, secondary and danger fills (tooltips, the approval card, the
-# send button; a primary button under the pointer; a danger button)
+# primary, secondary and danger fills (tooltips, the send button; a
+# primary button under the pointer; a danger button)
 def must_pairs() -> List<&2, Tk.Ink>:
   [Tk.Ink{Tk.Primary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Primary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Secondary{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Surface{}, Tk.Prose{}}, Tk.Ink{Tk.Danger{}, Tk.Hover{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Bg{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Sidebar{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Raised{}, Tk.Prose{}}, Tk.Ink{Tk.Tertiary{}, Tk.Surface{}, Tk.Caption{}}, Tk.Ink{Tk.Tertiary{}, Tk.Hover{}, Tk.Caption{}}, Tk.Ink{Tk.Bg{}, Tk.Primary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Secondary{}, Tk.Prose{}}, Tk.Ink{Tk.Bg{}, Tk.Danger{}, Tk.Prose{}}]
 

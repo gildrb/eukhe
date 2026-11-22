@@ -37,7 +37,6 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::ResumeWorkers { .. } => "resume_workers",
         DaemonCommand::AbortAndSendQueued { .. } => "abort_and_send_queued",
         DaemonCommand::AbortBash { .. } => "abort_bash",
-        DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
         DaemonCommand::GetSessionHeader { .. } => "get_session_header",
         DaemonCommand::GetState { .. } => "get_state",
         DaemonCommand::GetConnectionState { .. } => "get_connection_state",
@@ -49,6 +48,8 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
+        DaemonCommand::UndoTurn { .. } => "undo_turn",
+        DaemonCommand::GetTurnDiff { .. } => "get_turn_diff",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",
         DaemonCommand::GetCommands { .. } => "get_commands",
         DaemonCommand::GetResourceSnapshot { .. } => "get_resource_snapshot",
@@ -156,6 +157,7 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetRlmMaxDepth { .. } => "set_rlm_max_depth",
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
         DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
+        DaemonCommand::GetRanEffects { .. } => "get_ran_effects",
         DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
         DaemonCommand::SetAcceptance { .. } => "set_acceptance",
         DaemonCommand::GetAcceptance { .. } => "get_acceptance",
@@ -164,7 +166,9 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetStateRewindPlan { .. } => "get_state_rewind_plan",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
         DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
-        DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
+        DaemonCommand::RelayRanEffect { .. } => "relay_ran_effect",
+        DaemonCommand::AnswerEditorPermission { .. } => "answer_editor_permission",
+        DaemonCommand::RelayEditorPermission { .. } => "relay_editor_permission",
         DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",
         DaemonCommand::RetryWorker { .. } => "retry_worker",
@@ -210,6 +214,34 @@ mod tests {
                 verdict(&command)
             }),
             [Verdict::Bound, Verdict::Catalog, Verdict::Refused]
+        );
+    }
+
+    /// The laws' table of the names Rust can send (`dp_wire`,
+    /// `laws/dash_policy.bend`) is `wire_name`'s match, name by name and in
+    /// its order: the law that gives each name its verdict covers every
+    /// daemon command, a new one included.
+    #[test]
+    fn dp_wire_lists_every_wire_name_in_order() {
+        fn quoted_after<'a>(text: &'a str, mark: &str) -> Vec<&'a str> {
+            text.split(mark)
+                .skip(1)
+                .filter_map(|rest| rest.split('"').next())
+                .collect()
+        }
+        let arms = include_str!("command_policy.rs")
+            .split("fn wire_name")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("wire_name's match");
+        let table = include_str!("../../../laws/dash_policy.bend")
+            .split("def dp_wire()")
+            .nth(1)
+            .and_then(|rest| rest.lines().nth(1))
+            .expect("dp_wire's table");
+        assert_eq!(
+            quoted_after(arms, "=> \""),
+            quoted_after(table, "DpEntry{\"")
         );
     }
 }

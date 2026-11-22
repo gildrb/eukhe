@@ -18,6 +18,7 @@ use eukhe_docs::{
     Witness, WriteDisposition, WriteError, WriteOutcome,
 };
 use eukhe_durable::harness::types::{OmittedAt, OmittedOutput, ToolExecutionApi};
+use eukhe_types::effects::{RanEffect, RanKind};
 use eukhe_types::pi_ai::{ImageContent, JsonObject};
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
@@ -28,7 +29,8 @@ use tokio::task::JoinError;
 use super::contract::{EditArgs, Function, GlobArgs, GrepArgs, ReadArgs, WriteArgs};
 use super::probe::ProbeWitness;
 use super::{urls, DocumentsHost};
-use crate::durable::{HostCall, HostRequestRegistry};
+use crate::durable::path_policy::{AccessRan, RecordingGate};
+use crate::durable::{ran_effects, HostCall, HostRequestRegistry};
 
 /// Every request carries the kernel's working directory, so relative paths
 /// resolve the way the model's `os.chdir` expects, and the arguments as the
@@ -57,12 +59,14 @@ impl Rejection {
     }
 }
 
-/// A performed call: its typed result and, for a `memory://` message read
+/// A performed call: its typed result, for a `memory://` message read
 /// whole, the message's images (the wire tool shows them; the kernel's
-/// reply carries the text only).
+/// reply carries the text only), and the irreversible accesses it made as
+/// the root's ledger recorded them.
 pub(super) struct Performed {
     pub(super) done: Done,
     pub(super) images: Vec<ImageContent>,
+    pub(super) ran: Vec<RanEffect>,
 }
 
 #[derive(Serialize)]
@@ -587,8 +591,7 @@ fn decode<T: DeserializeOwned>(function: Function, args: JsonObject) -> Result<T
 
 /// Run one call on `documents`, resolving relative paths against `cwd`,
 /// each path access through `gate`, each write recorded by `witness`
-/// before it lands. Blocking: file I/O, the gate may wait for the user,
-/// and the witness for its record.
+/// before it lands. Blocking: file I/O, and the witness for its record.
 fn perform_blocking(
     documents: &Documents,
     function: Function,
@@ -666,29 +669,7 @@ pub(super) async fn perform(
         Caller::Tool(api) => (Some(Arc::clone(&api)), Box::new(ProbeWitness::new(api, cx))),
         Caller::Kernel(api) => (api, Box::new(Unwitnessed)),
     };
-    let held = match &api {
-        Some(api) => {
-            match crate::durable::acceptance::held_files(
-                &**api,
-                api.conversation_id(),
-                workspace,
-                cx,
-            )
-            .await
-            {
-                Ok(held) => held,
-                Err(error) => {
-                    return Ok(Err(Rejection::new(
-                        function,
-                        "acceptance_unreadable",
-                        &error,
-                    )));
-                }
-            }
-        }
-        None => Vec::new(),
-    };
-    let gate = host.gate(workspace, api.as_deref(), held);
+    let gate = host.gate(workspace, api.as_deref(), cx).await;
     let url = match function {
         Function::Read => args
             .get("path")
@@ -700,18 +681,62 @@ pub(super) async fn perform(
         Some(Ok(url)) => urls::read(host, api, cwd, url, gate, cx).await,
         Some(Err(error)) => Ok(Err(urls::url_error(&error))),
         None => {
-            let host = Arc::clone(host);
-            tokio::task::spawn_blocking(move || {
-                perform_blocking(&host.documents, function, &cwd, args, &gate, &*witness).map(
-                    |done| Performed {
-                        done,
-                        images: Vec::new(),
-                    },
-                )
+            let blocking = Arc::clone(host);
+            let (done, accesses) = tokio::task::spawn_blocking(move || {
+                let gate = RecordingGate::new(gate);
+                let done =
+                    perform_blocking(&blocking.documents, function, &cwd, args, &gate, &*witness);
+                (done, gate.into_ran())
             })
-            .await
+            .await?;
+            let ran = record_accesses(host, api.as_deref(), accesses).await;
+            Ok(done.map(|done| Performed {
+                done,
+                images: Vec::new(),
+                ran,
+            }))
         }
     }
+}
+
+/// Record `accesses`, the irreversible accesses of one call (of `api`, or
+/// a kernel request outside a tool call), in the root's ledger, keyed by
+/// the call and their order in it.
+async fn record_accesses(
+    host: &DocumentsHost,
+    api: Option<&dyn ToolExecutionApi>,
+    accesses: Vec<AccessRan>,
+) -> Vec<RanEffect> {
+    let Some(deps) = host.deps.upgrade() else {
+        return Vec::new();
+    };
+    if accesses.is_empty() {
+        return Vec::new();
+    }
+    let (call, conversation) = match api {
+        Some(api) => (api.call_id().to_owned(), Some(api.conversation_id())),
+        None => (
+            format!("fs-{}", uuid::Uuid::new_v4().simple()),
+            deps.harness.root().map(|root| root.id()),
+        ),
+    };
+    let Some(conversation) = conversation else {
+        return Vec::new();
+    };
+    let drafts = accesses
+        .into_iter()
+        .enumerate()
+        .map(|(at, access)| {
+            ran_effects::draft(
+                &deps,
+                &format!("{call}:fs{at}"),
+                RanKind::DocumentAccess,
+                access.command,
+                access.classes,
+            )
+        })
+        .collect();
+    ran_effects::record_effects(&deps, conversation, drafts).await
 }
 
 /// Serve one `fs.*` request: repair the kernel's arguments by the

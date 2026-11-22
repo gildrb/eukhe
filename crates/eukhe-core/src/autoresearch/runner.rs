@@ -1,25 +1,23 @@
 //! One benchmark run: `bash autoresearch.sh` in the repository root,
-//! through the approval gate of the `bash` tool (the in-process
-//! [`Shell`] with the session's auto set, path policy and approval sink:
-//! a step that runs a program runs unasked only when `exec` is in
-//! `shell.autoEffects`), bounded by a timeout. Its stdout and stderr go
-//! to the run's `benchmark.log` as they arrive, and each whole line goes
-//! to the caller, which feeds it to the Lab.
+//! through the in-process [`Shell`] of the `bash` tool (the session's path
+//! policy: a step that writes an own path is refused; the caller's
+//! [`Steps`] around each step, as for a `bash` call: an attached editor
+//! asked before an irreversible step, the step recorded once it ran),
+//! bounded by a timeout. Its stdout and stderr go to the run's
+//! `benchmark.log` as they arrive, and each whole line goes to the
+//! caller, which feeds it to the Lab.
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use eukhe_shell::{End, Shell, Sink, Stream};
+use eukhe_shell::{End, Shell, Sink, Steps, Stream};
 use eukhe_types::path_policy::PathPolicy;
-use eukhe_types::shell::AutoSet;
 use tokio::sync::mpsc;
-
-use crate::durable::shell::{RefusalText, SinkApprover};
 
 /// The benchmark entrypoint; the model never chooses the command.
 pub(crate) const SCRIPT: &str = "bash autoresearch.sh";
@@ -30,13 +28,11 @@ pub(crate) const HARNESS: &str = "autoresearch.sh";
 /// The exit code a run that hit its timeout reports (as `timeout(1)`).
 pub(crate) const TIMEOUT_EXIT: i32 = 124;
 
-/// What the approval gate of one run needs: the environment of external
-/// steps, the auto set, the path policy, and who asks the user.
+/// What one run needs: the environment of external steps and the path
+/// policy.
 pub(crate) struct RunGate {
     pub(crate) env: HashMap<String, String>,
-    pub(crate) auto: AutoSet,
     pub(crate) paths: PathPolicy,
-    pub(crate) approver: SinkApprover,
 }
 
 /// How a run ended.
@@ -46,8 +42,8 @@ pub(crate) enum RunEnd {
     Exited(i32),
     /// The timeout killed the script and every process it started.
     TimedOut,
-    /// The gate did not let the script run; the text says why and what
-    /// to do.
+    /// A step writes an own path, or the editor refused it: the script
+    /// did not run on from it; the text says which and why.
     Refused(String),
 }
 
@@ -99,8 +95,9 @@ impl Sink for Lines {
     }
 }
 
-/// Run the harness in `root` under `gate`, writing its output to `log`;
-/// `on_line` gets every whole output line in order, as it arrives.
+/// Run the harness in `root` under `gate`, each step through `steps`,
+/// writing its output to `log`; `on_line` gets every whole output line in
+/// order, as it arrives.
 ///
 /// # Errors
 ///
@@ -108,6 +105,7 @@ impl Sink for Lines {
 /// `on_line` fails (the run is then stopped).
 pub(crate) async fn run(
     gate: RunGate,
+    steps: Arc<impl Steps + Send + 'static>,
     root: PathBuf,
     log: &Path,
     timeout: Duration,
@@ -115,23 +113,18 @@ pub(crate) async fn run(
 ) -> anyhow::Result<RunEnd> {
     let file = File::create(log).with_context(|| format!("could not create {}", log.display()))?;
     let (sender, mut receiver) = mpsc::unbounded_channel();
-    let lines = std::sync::Arc::new(Lines {
+    let lines = Arc::new(Lines {
         log: Mutex::new(file),
         write_failed: Mutex::new(None),
         partial: Mutex::new(HashMap::new()),
         sender,
     });
     let task = {
-        let lines = std::sync::Arc::clone(&lines);
+        let lines = Arc::clone(&lines);
         tokio::spawn(async move {
-            let RunGate {
-                env,
-                auto,
-                paths,
-                approver,
-            } = gate;
+            let RunGate { env, paths } = gate;
             Shell::new(root, env, "bash")
-                .run(SCRIPT, auto, &paths, &approver, &*lines)
+                .run(SCRIPT, &paths, &*steps, &*lines)
                 .await
         })
     };
@@ -169,11 +162,13 @@ pub(crate) async fn run(
     };
     Ok(match ran.end {
         End::Finished { status } | End::Exited { status } => RunEnd::Exited(status),
-        End::Refused {
-            command, refusal, ..
-        } => RunEnd::Refused(format!(
-            "`{command}` did not run: {}",
-            RefusalText::of(refusal)
+        End::Refused { command, own, .. } => {
+            RunEnd::Refused(format!("`{command}` did not run: {own}."))
+        }
+        // The editor refused a step (spec I12).
+        End::Rejected { command, .. } => RunEnd::Refused(format!(
+            "`{command}` did not run: {}.",
+            crate::durable::editor_permission::EDITOR_REFUSED
         )),
     })
 }

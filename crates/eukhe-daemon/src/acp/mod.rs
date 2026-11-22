@@ -5,6 +5,7 @@ pub mod daemon;
 mod jsonrpc;
 mod mcp;
 mod meta;
+mod permission;
 mod producer;
 mod types;
 mod wire_config;

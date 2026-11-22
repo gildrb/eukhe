@@ -64,8 +64,8 @@ impl Worker {
                 }
                 self.side_questions.abort(payload)
             }
-            "answer_shell_approval" => self.shell_approvals.answer(payload),
-            "relay_shell_approval" => self.shell_approvals.relay(payload).await,
+            "answer_editor_permission" => self.editor_permissions.answer(payload),
+            "relay_editor_permission" => self.editor_permissions.relay(payload).await,
             "compact" => self.handle_compaction(payload).await,
             "abort_compaction" => self.handle_abort_compaction().await,
             "set_auto_compaction" => self.handle_set_auto_compaction(payload).await,
@@ -82,6 +82,8 @@ impl Worker {
             "set_budget_limits" => self.handle_set_budget_limits(payload).await,
             "add_budget" => self.handle_add_budget(payload).await,
             "audit_budget" => self.handle_audit_budget().await,
+            "undo_turn" => self.handle_undo_turn().await,
+            "get_turn_diff" => self.handle_get_turn_diff(payload).await,
             "get_model_catalog" => self.handle_get_model_catalog(),
             "refresh_models" => self.handle_refresh_models(payload).await,
             "get_queue" => self.handle_get_queue(),
@@ -89,6 +91,8 @@ impl Worker {
             "get_last_assistant_text" => self.handle_get_last_assistant_text(),
             "get_run_outcome" => self.handle_get_run_outcome().await,
             "get_unknown_effects" => self.handle_get_unknown_effects().await,
+            "get_ran_effects" => self.handle_get_ran_effects().await,
+            "relay_ran_effect" => self.handle_relay_ran_effect(payload).await,
             "resolve_unknown_effect" => self.handle_resolve_unknown_effect(payload).await,
             "set_acceptance" => self.handle_set_acceptance(payload).await,
             "get_acceptance" => self.handle_get_acceptance().await,

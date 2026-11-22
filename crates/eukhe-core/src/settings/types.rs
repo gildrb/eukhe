@@ -363,6 +363,15 @@ pub struct BudgetSettings {
     pub presets: Option<serde_json::Value>,
 }
 
+/// `undo`: the workspace snapshots of `/undo` and `/diff`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoSettings {
+    /// Days a session's snapshots are kept after its last turn (default
+    /// 14; `0` reads as 1).
+    pub keep_days: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageSettings {
@@ -444,16 +453,6 @@ pub struct WarningSettings {
 #[serde(rename_all = "camelCase")]
 pub struct FactorySettings {
     pub enabled: Option<bool>,
-}
-
-/// `shell`: the shell tool's execution gate. An untrusted project may not
-/// set it (see `settings::trust`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellSettings {
-    /// The effects (`read`, `write`, `exec`, `net`) a shell command may
-    /// have without asking; unset is `read` only.
-    pub auto_effects: Option<Vec<String>>,
 }
 
 /// `ssh`: the `ssh://` reads of the `read` tool. Global-only: a read
@@ -561,6 +560,8 @@ pub struct Settings {
     /// sessions (newest by mtime win); `0 | "off" | "none"` disables. Raw JSON
     /// validated at access time.
     pub session_archive_max_sessions: Option<serde_json::Value>,
+    /// The workspace snapshots of `/undo` and `/diff` (`undo.*`).
+    pub undo: Option<UndoSettings>,
     pub transport: Option<TransportSetting>,
     pub steering_mode: Option<QueueModeSetting>,
     pub follow_up_mode: Option<QueueModeSetting>,
@@ -634,8 +635,6 @@ pub struct Settings {
     /// local child process. Parsed by
     /// `kernel::transport::KernelTransportSettings`.
     pub kernel_transport: Option<serde_json::Value>,
-    /// `shell`: the shell tool's execution gate.
-    pub shell: Option<ShellSettings>,
     /// Global-only: the hosts `ssh://` reads may reach. A project-scope
     /// value is never read (see `settings::trust`).
     pub ssh: Option<SshSettings>,

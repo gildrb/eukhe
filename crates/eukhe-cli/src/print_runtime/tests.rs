@@ -83,7 +83,9 @@ async fn run_in(
         session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
         cwd: dir.to_path_buf(),
         parent_session: None,
+        notice: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -287,7 +289,9 @@ async fn the_wait_for_background_work_ends_at_the_time_budgets_deadline() {
         session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
         cwd: dir.path().to_path_buf(),
         parent_session: None,
+        notice: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -401,7 +405,9 @@ async fn a_final_answer_with_a_job_running_at_the_budget_deadline_exits_zero() {
         session_id: "0198f000-0000-7000-8000-000000000000".to_owned(),
         cwd: dir.path().to_path_buf(),
         parent_session: None,
+        notice: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -522,7 +528,9 @@ async fn a_parked_run_exits_one_and_says_until_when() {
         session_id: session_id.clone(),
         cwd: dir.path().to_path_buf(),
         parent_session: None,
+        notice: None,
         wakes: eukhe_daemon::job_notices::HeadlessWakes::default(),
+        reports: crate::headless_session::RunReports::default(),
     };
     let conversation = opened.session.main();
     let cx = &*BACKGROUND_CONTEXT;
@@ -624,51 +632,15 @@ fn an_incomplete_task_says_what_remains() {
     );
 }
 
-/// A call acts unless it only read: the read tools never act, a `bash`
-/// call acts once a step has an effect other than reading (or its steps
-/// are not recorded), every other tool acts.
-#[test]
-fn a_call_acts_unless_it_only_read() {
-    let result =
-        |tool: &str, details: Option<serde_json::Value>| eukhe_types::pi_ai::ToolResultMessage {
-            tool_call_id: "call-1".to_owned(),
-            tool_name: tool.to_owned(),
-            content: Vec::new(),
-            details,
-            usage: None,
-            nested_calls: None,
-            is_error: false,
-            timestamp: 0,
-            duration_ms: None,
-        };
-    let steps = |effects: &[&[&str]]| {
-        Some(serde_json::json!({
-            "steps": effects
-                .iter()
-                .map(|effects| serde_json::json!({ "effects": effects }))
-                .collect::<Vec<_>>()
-        }))
-    };
-    let acted: Vec<bool> = [
-        result("read", None),
-        result("grep", None),
-        result("bash", steps(&[&["read"], &["read"]])),
-        result("bash", steps(&[&["read"], &["read", "write"]])),
-        result("bash", steps(&[&["exec"]])),
-        result("bash", None),
-        result("edit", None),
-        result("python", None),
-    ]
-    .iter()
-    .map(activity::tool_acted)
-    .collect();
-    assert_eq!(acted, [false, false, false, true, true, true, true, true]);
-}
-
 #[test]
 fn the_session_header_carries_the_ts_fields_in_order() {
     let opened_cwd = std::path::PathBuf::from("/work/project");
-    let header = header_for("0198f000-0000-7000-8000-000000000001", &opened_cwd, None);
+    let header = header_for(
+        "0198f000-0000-7000-8000-000000000001",
+        &opened_cwd,
+        None,
+        None,
+    );
     let keys: Vec<&str> = header
         .as_object()
         .expect("object")
@@ -683,12 +655,24 @@ fn the_session_header_carries_the_ts_fields_in_order() {
     assert_eq!(header["version"], 3);
     assert_eq!(header["cwd"], "/work/project");
     assert_eq!(header["rlmDepth"], 0);
+    let notice = crate::headless_session::ResumeNotice::Forked {
+        selector: "0198f000".to_owned(),
+        project: "/work/other".to_owned(),
+        session_id: "0198f000-0000-7000-8000-000000000002".to_owned(),
+    };
     let forked = header_for(
         "0198f000-0000-7000-8000-000000000002",
         &opened_cwd,
         Some(Path::new("/sessions/source")),
+        Some(&notice),
     );
-    assert_eq!(forked["parentSession"], "/sessions/source");
+    assert_eq!(
+        (&forked["parentSession"], &forked["notice"]),
+        (
+            &serde_json::json!("/sessions/source"),
+            &serde_json::json!("session 0198f000 belongs to another project (/work/other); forked it into this project as session 0198f000-0000-7000-8000-000000000002")
+        )
+    );
 }
 
 #[test]

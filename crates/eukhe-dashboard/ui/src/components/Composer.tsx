@@ -2,12 +2,14 @@
 // size change is its own text growing, in exact 24px lines from 1 to 8),
 // attach / paste / drop images, the model button, Steer | Queue while a
 // turn runs and the box has text, and the one action button (Send, muted
-// Send, Stop). Sends are optimistic; drafts persist per chat.
+// Send, Stop). Sends are optimistic; drafts persist per chat. `/effects`,
+// `/undo` and `/diff` run here (lib/effects.ts), never sent to the agent.
 
 import * as stylex from "@stylexjs/stylex";
 import { ArrowUp, Plus, Square, X } from "lucide-preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { admissionId, send, setPref, unqueue } from "../lib/actions.ts";
+import { parseCommand, runCommand } from "../lib/effects.ts";
 import { store, useStore } from "../lib/store.ts";
 import type { Pending } from "../lib/turn.ts";
 import { colors, media, radius, size, space, stroke, type } from "../tokens.stylex.ts";
@@ -132,6 +134,12 @@ export function Composer() {
 
   const submit = () => {
     if (!session || (!text.trim() && !images.length)) return;
+    const command = images.length ? null : parseCommand(text);
+    if (command) {
+      void runCommand(command);
+      setText("");
+      return;
+    }
     void send({
       admissionId: admissionId(),
       text,

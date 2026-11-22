@@ -59,7 +59,7 @@ use futures::FutureExt;
 use serde_json::json;
 
 use super::docs::{mark_of, strength_of, AcceptanceDoc, YieldRecord, ACCEPTANCE_DOC};
-use super::evidence::{Gatherer, DEFAULT_CHECK_TIMEOUT_MS, MAX_USER_MESSAGE_CHARS};
+use super::evidence::{Gatherer, Round, DEFAULT_CHECK_TIMEOUT_MS, MAX_USER_MESSAGE_CHARS};
 use super::ops::{core_error, doc_parts, doc_state, label_of};
 use super::strength::{AttackProbe, Attacker, Breaker, Gauged, Pass, Probe, MAX_ATTACKS};
 use super::workspace::user_messages;
@@ -139,7 +139,7 @@ enum Step {
         revision: u64,
         index: usize,
         check: Box<AcceptanceCheck>,
-        round: Vec<AcceptanceCheck>,
+        round: Round,
     },
     /// Every check passed: measure this check's strength on the state
     /// `at`, then record the mark for `revision`.
@@ -311,7 +311,11 @@ impl Verifier {
                                     revision: doc.revision,
                                     index,
                                     check: Box::new(check.clone()),
-                                    round: doc.checks.clone(),
+                                    round: Round {
+                                        checks: doc.checks.clone(),
+                                        at: now,
+                                        baseline: doc.baseline.clone(),
+                                    },
                                 }
                             }
                             Action::Rest => {
@@ -390,11 +394,15 @@ impl Verifier {
                                     attack::label(ended, now, &doc.gauges(), &outcomes)
                                         .map_err(core_error)?,
                                 );
+                                // The end clears the tries: the returns the
+                                // claim made are read before it.
+                                let returns = doc.tries;
                                 doc.adopt(&next, None)?;
                                 doc.last_end = Some(AcceptanceEnd {
                                     label,
                                     at: now,
                                     ended_at: now_millis(),
+                                    returns,
                                 });
                                 doc.yield_record = Some(YieldRecord {
                                     task_id,
@@ -446,7 +454,7 @@ impl Verifier {
             runs += 1;
             let (verdict, mut result) = self
                 .gatherer
-                .check(conversation, &check, &round, now, cx)
+                .check(conversation, &check, &round, cx)
                 .await?;
             // The run itself may have written to the workspace (a build's
             // output, new at every run when a link fails): with no new
@@ -857,7 +865,8 @@ fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> 
             Certification::Shown(format!("{clean} blind attacks ran clean"))
         }
         (true, false) => Certification::Blocked(format!(
-            "no check was shown to catch broken code (a judge or a waived check certifies nothing without {MAX_ATTACKS} blind attacks that ran clean{})",
+            "{} (a judge or a waived check certifies nothing without {MAX_ATTACKS} blind attacks that ran clean{})",
+            judges_only(&doc.checks).unwrap_or("no check was shown to catch broken code"),
             match clean {
                 0 => String::new(),
                 n => format!("; {n} did"),
@@ -865,6 +874,26 @@ fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> 
         )),
         (false, _) => Certification::Blocked(blocks.join("; ")),
     })
+}
+
+/// Why checks that all passed certify nothing when every one is a judge
+/// (S2): only the intent check ran, or only judges did; `None` when a
+/// check has code to break, or there is no check.
+pub(crate) fn judges_only(checks: &[AcceptanceCheck]) -> Option<&'static str> {
+    if checks.is_empty()
+        || checks
+            .iter()
+            .any(|check| check.spec.bar() != StrengthBar::Exempt)
+    {
+        None
+    } else if checks
+        .iter()
+        .all(|check| matches!(check.spec, CheckSpec::Intent { .. }))
+    {
+        Some("only the intent check ran")
+    } else {
+        Some("only judges ran")
+    }
 }
 
 /// Whether a passed claim's checks were shown to catch broken code, in

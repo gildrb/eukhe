@@ -26,6 +26,7 @@ use eukhe_daemon::lease::{SessionAlreadyActiveError, SessionLease};
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_durable::session::SessionError;
 use eukhe_tui::session_open_error::{already_active_error, SessionHolder};
+use eukhe_types::effects::RunReport;
 
 use crate::mode::{AppMode, RunOptions};
 
@@ -41,28 +42,9 @@ pub(crate) enum HeadlessSessionError {
         .0.suggestion().unwrap_or_default()
     )]
     Selector(#[source] SessionSelectorError),
-    /// `--resume` named another project's session (headless modes have no
-    /// fork prompt).
-    #[error(
-        "session {selector} belongs to a different project ({cwd}). Pass --fork {selector} to use it here, or run from that project's directory."
-    )]
-    OtherProject { selector: String, cwd: String },
     /// The selected session path has no absolute form.
     #[error("{0}")]
     AbsolutePath(#[source] std::io::Error),
-    /// The session's stored working directory is gone (main.ts
-    /// `getMissingSessionCwdIssue`).
-    #[error(
-        "Stored session working directory does not exist: {}\nSession file: {}\nCurrent working directory: {}",
-        .session_cwd.display(),
-        .session_file.display(),
-        .fallback_cwd.display()
-    )]
-    MissingCwd {
-        session_cwd: PathBuf,
-        session_file: PathBuf,
-        fallback_cwd: PathBuf,
-    },
     #[error("Cannot fork: source session file is not a regular file: {}", .0.display())]
     ForkSourceNotRegular(PathBuf),
     #[error("Cannot fork: source session file is empty or invalid: {}", .0.display())]
@@ -126,6 +108,44 @@ pub(crate) enum HeadlessSessionError {
     LeaseCheck(#[source] anyhow::Error),
 }
 
+/// What a headless open did in place of the session the flags named. The
+/// run goes on; the CLI tells it on stderr and in the json stream's
+/// session line (`notice`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResumeNotice {
+    /// `--resume` named another project's session: it was forked into
+    /// this project as `session_id`.
+    Forked {
+        selector: String,
+        project: String,
+        session_id: String,
+    },
+    /// The session's stored working directory is gone: the session
+    /// continues in `cwd`.
+    Relocated { stored: PathBuf, cwd: PathBuf },
+}
+
+impl std::fmt::Display for ResumeNotice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forked {
+                selector,
+                project,
+                session_id,
+            } => write!(
+                formatter,
+                "session {selector} belongs to another project ({project}); forked it into this project as session {session_id}"
+            ),
+            Self::Relocated { stored, cwd } => write!(
+                formatter,
+                "the session's working directory {} no longer exists; the session continues in {}",
+                stored.display(),
+                cwd.display()
+            ),
+        }
+    }
+}
+
 /// The co-existence refusal for a session another process leases.
 fn hold_refusal(active: &SessionAlreadyActiveError, session_path: &Path) -> String {
     refusal_message(
@@ -147,9 +167,13 @@ pub(crate) struct HeadlessSession {
     pub cwd: PathBuf,
     /// The fork source, when the session was forked from another one.
     pub parent_session: Option<PathBuf>,
+    /// What the open did in place of the session the flags named.
+    pub notice: Option<ResumeNotice>,
     /// The session's job-settled wake (its in-flight notices count toward
     /// quiescence).
     pub wakes: HeadlessWakes,
+    /// The end-of-run reports of its runs, until printed.
+    pub reports: RunReports,
 }
 
 /// Which session to open.
@@ -192,8 +216,36 @@ pub(crate) enum Selection {
         /// `--cwd` wins over the stored cwd.
         cwd_override: Option<PathBuf>,
     },
-    /// Fork `source` into a fresh session at the CLI cwd.
-    Fork { source: SessionLocation },
+    /// Fork `source` into a fresh session at the CLI cwd; `other_project`
+    /// when `--resume` named it from another project.
+    Fork {
+        source: SessionLocation,
+        other_project: Option<OtherProject>,
+    },
+}
+
+/// A `--resume` selector that named another project's session.
+pub(crate) struct OtherProject {
+    selector: String,
+    project: String,
+}
+
+impl OtherProject {
+    /// The notice of its fork into this project as `session_id`.
+    pub(crate) fn forked_as(self, session_id: String) -> ResumeNotice {
+        ResumeNotice::Forked {
+            selector: self.selector,
+            project: self.project,
+            session_id,
+        }
+    }
+}
+
+/// The cwd an opened session runs in, and the notice when it is not the
+/// stored one because that directory is gone.
+pub(crate) struct SessionCwd {
+    pub cwd: PathBuf,
+    pub notice: Option<ResumeNotice>,
 }
 
 /// Open the session `target` selects.
@@ -232,7 +284,7 @@ pub(crate) async fn open_headless_session(
     let opened = match selection {
         Selection::Memory => {
             let session_id = new_session_id();
-            let (session, wakes) = open(
+            let (session, wakes, reports) = open(
                 options,
                 &options.config.cwd,
                 &session_id,
@@ -246,34 +298,46 @@ pub(crate) async fn open_headless_session(
                 session_id,
                 cwd: options.config.cwd.clone(),
                 parent_session: None,
+                notice: None,
                 wakes,
+                reports,
             }
         }
         Selection::Fresh { cwd } => {
             let session_id = new_session_id();
             let dir = sessions_dir.join(&session_id);
             let lease = lease_fresh(&dir, agent_dir)?;
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
             HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: None,
+                notice: None,
                 wakes,
+                reports,
             }
         }
-        Selection::Fork { source } => {
+        Selection::Fork {
+            source,
+            other_project,
+        } => {
             let cwd = options.config.cwd.clone();
             let (session_id, dir, lease) = fork_into_fresh(options, &source, &cwd, cx).await?;
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            let notice = other_project.map(|other| other.forked_as(session_id.clone()));
             HeadlessSession {
                 session,
                 lease: Some(lease),
                 session_id,
                 cwd,
                 parent_session: Some(source.path().to_path_buf()),
+                notice,
                 wakes,
+                reports,
             }
         }
         Selection::Open {
@@ -288,8 +352,8 @@ pub(crate) async fn open_headless_session(
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let cwd =
-                stored_cwd(&location, &options.config.cwd, cwd_override.as_deref(), cx).await?;
+            let SessionCwd { cwd, notice } =
+                stored_cwd(&location, &options.config.cwd, cwd_override.as_deref(), cx).await;
             // A failed open's early return drops the lease (released).
             let lease = if reuse_lease {
                 None
@@ -306,8 +370,9 @@ pub(crate) async fn open_headless_session(
                         })?;
                 }
             }
-            let (session, wakes) = open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
-            if cwd_override.is_some() {
+            let (session, wakes, reports) =
+                open(options, &cwd, &session_id, jsonl(&dir), cx).await?;
+            if cwd_override.is_some() || notice.is_some() {
                 set_main_cwd(&session, &cwd, cx).await?;
             }
             apply_flag_model(options, &session, cx).await?;
@@ -317,7 +382,9 @@ pub(crate) async fn open_headless_session(
                 session_id,
                 cwd,
                 parent_session: None,
+                notice,
                 wakes,
+                reports,
             }
         }
     };
@@ -329,6 +396,9 @@ pub(crate) async fn open_headless_session(
             .await
             .map_err(HeadlessSessionError::BudgetTask)?
             .map_err(HeadlessSessionError::Budget)?;
+    }
+    if let Some(notice) = &opened.notice {
+        eprintln!("eukhe: {notice}");
     }
     Ok(opened)
 }
@@ -396,12 +466,12 @@ pub(crate) async fn resolve_fork_source(
 }
 
 /// The CLI flag selection (TS `createSessionManager`: noSession -> fork ->
-/// resume -> continue -> create).
+/// resume -> continue -> create). `--resume` of another project's session
+/// forks it into this project.
 ///
 /// # Errors
 ///
-/// The selector error (with the browse hint), or the different-project
-/// refusal of `--resume`.
+/// The selector error (with the browse hint).
 pub(crate) async fn select(
     options: &RunOptions,
     cx: &Context,
@@ -415,7 +485,10 @@ pub(crate) async fn select(
     // --fork is for (another project's session copied into this cwd).
     if let Some(selector) = &options.session.fork {
         let source = resolve_fork_source(options, selector, cx).await?;
-        return Ok(Selection::Fork { source });
+        return Ok(Selection::Fork {
+            source,
+            other_project: None,
+        });
     }
     let cwd_override = options.session.cwd_from_flag.then(|| cwd.clone());
     if let Some(selector) = &options.session.resume {
@@ -433,10 +506,14 @@ pub(crate) async fn select(
                 reuse_lease: false,
                 cwd_override,
             }),
-            // Headless modes have no fork prompt; mirror the TS non-TTY path.
-            ResolvedListing::Global(listing) => Err(HeadlessSessionError::OtherProject {
-                selector: selector.clone(),
-                cwd: listing.cwd,
+            // Another project's session forks into this one: the run goes
+            // on here, and the source stays that project's.
+            ResolvedListing::Global(listing) => Ok(Selection::Fork {
+                source: listing.location,
+                other_project: Some(OtherProject {
+                    selector: selector.clone(),
+                    project: listing.cwd,
+                }),
             }),
         };
     }
@@ -462,15 +539,15 @@ fn absolute_location(location: SessionLocation) -> Result<SessionLocation, Headl
 }
 
 /// The cwd an opened session runs in: the explicit `--cwd` override
-/// (main.ts `explicitCwdOverride`), else the stored session cwd, else the
-/// fallback. A session stored against a deleted directory must not
-/// silently continue somewhere else (main.ts `getMissingSessionCwdIssue`).
+/// (main.ts `explicitCwdOverride`; the CLI changed into it), else the
+/// stored session cwd, else the fallback. A stored cwd that is gone
+/// leaves the session in the fallback, with the notice that says so.
 pub(crate) async fn stored_cwd(
     location: &SessionLocation,
     fallback_cwd: &Path,
     explicit_cwd_override: Option<&Path>,
     cx: &Context,
-) -> Result<PathBuf, HeadlessSessionError> {
+) -> SessionCwd {
     let session_cwd = match explicit_cwd_override {
         Some(cwd) => cwd.to_path_buf(),
         None => read_session_cwd(location, cx)
@@ -478,14 +555,19 @@ pub(crate) async fn stored_cwd(
             .filter(|cwd| !cwd.is_empty())
             .map_or_else(|| fallback_cwd.to_path_buf(), PathBuf::from),
     };
-    if !session_cwd.exists() {
-        return Err(HeadlessSessionError::MissingCwd {
-            session_cwd,
-            session_file: location.path().to_path_buf(),
-            fallback_cwd: fallback_cwd.to_path_buf(),
-        });
+    if session_cwd.exists() {
+        return SessionCwd {
+            cwd: session_cwd,
+            notice: None,
+        };
     }
-    Ok(session_cwd)
+    SessionCwd {
+        cwd: fallback_cwd.to_path_buf(),
+        notice: Some(ResumeNotice::Relocated {
+            stored: session_cwd,
+            cwd: fallback_cwd.to_path_buf(),
+        }),
+    }
 }
 
 fn new_session_id() -> String {
@@ -499,19 +581,43 @@ fn jsonl(dir: &Path) -> SessionStorage {
     }
 }
 
+/// The end-of-run reports of a headless session's root runs, in order,
+/// kept until the run's output prints them after the run's events.
+#[derive(Clone, Default)]
+pub(crate) struct RunReports(Arc<std::sync::Mutex<Vec<RunReport>>>);
+
+impl RunReports {
+    /// Keep each report the session's run service hands over.
+    fn wire(&self, config: &mut SessionConfig) {
+        let kept = self.clone();
+        config.run_report = Some(Arc::new(move |report| kept.lock().push(report)));
+    }
+
+    /// The reports kept so far, oldest first; they are kept no more.
+    pub(crate) fn take(&self) -> Vec<RunReport> {
+        std::mem::take(&mut *self.lock())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<RunReport>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 /// Open a session with the CLI inputs ([`session_config`]), its
-/// job-settled wake, and its subagent runtime, like a daemon worker's: a
-/// settled background job or kernel command, or a child's report, wakes
-/// the session into its next turn. Children run as daemon child sessions
-/// ([`crate::headless_children`]; the supervisor starts on the first
-/// spawn).
+/// job-settled wake, its end-of-run reports, and its subagent runtime,
+/// like a daemon worker's: a settled background job or kernel command, or
+/// a child's report, wakes the session into its next turn. Children run
+/// as daemon child sessions ([`crate::headless_children`]; the supervisor
+/// starts on the first spawn).
 async fn open(
     options: &RunOptions,
     cwd: &Path,
     session_id: &str,
     storage: SessionStorage,
     cx: &Context,
-) -> Result<(Arc<EukheSession>, HeadlessWakes), HeadlessSessionError> {
+) -> Result<(Arc<EukheSession>, HeadlessWakes, RunReports), HeadlessSessionError> {
     let session_file = match &storage {
         SessionStorage::Jsonl { dir, .. } => Some(dir.clone()),
         SessionStorage::Memory => None,
@@ -529,13 +635,15 @@ async fn open(
     children.register_agent_messaging(&mut config);
     let wakes = HeadlessWakes::default();
     wakes.wire(&mut config);
+    let reports = RunReports::default();
+    reports.wire(&mut config);
     let session = open_session(config, cx)
         .await
         .map(Arc::new)
         .map_err(HeadlessSessionError::Open)?;
     wakes.bind(&session);
     children.bind(&session);
-    Ok((session, wakes))
+    Ok((session, wakes, reports))
 }
 
 /// The prompt guidelines of a headless session's root: a print or json run

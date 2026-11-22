@@ -47,6 +47,16 @@ def gca.cmd(c: Gc.Cmd) -> {FGc.put_cmd(c) == GatewayCommands.gc_w_cmd(c) : Strin
       {==}
     case Gc.CRestart{}:
       {==}
+    case Gc.CEffects{}:
+      {==}
+    case Gc.CUndo{}:
+      {==}
+    case Gc.CDiff{all}:
+      match all:
+        case False{}:
+          {==}
+        case True{}:
+          {==}
 
 def gca.out(o: Gc.Out) -> {FGc.put_out(o) == GatewayCommands.gc_w_out(o) : String}:
   match o:

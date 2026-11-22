@@ -1,5 +1,6 @@
 //! The extension registry of an eukhe session, installed in prompt order:
-//! `eukhe.prompt`, `eukhe.settings`, `eukhe.rlm`,
+//! `eukhe.prompt`, `eukhe.settings`, `eukhe.undo` (a top-level session
+//! with durable storage), `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.acceptance`, `eukhe.goals`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
@@ -25,8 +26,8 @@ use eukhe_types::daemon::agent_tree::TreeRole;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    acceptance, budget, children, codemode, compaction, documents, goals, optchat, prompt,
-    retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
+    acceptance, budget, children, codemode, compaction, directors, documents, goals, optchat,
+    prompt, retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
 };
 
 /// A registry with every eukhe extension of the session installed and its
@@ -95,6 +96,11 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     let [prompt_extension, closing_extension] = prompt::extensions(deps);
     install(prompt_extension)?;
     install(settings::extension(deps))?;
+    // A top-level session's turn snapshots start at the first request
+    // preparation and hold its tools until taken.
+    if let Some(snapshots) = &deps.turn_snapshots {
+        install(crate::undo::extension(deps, snapshots))?;
+    }
     install(rlm::extension(deps))?;
     install(compaction::extension(deps))?;
     install(retry_outcome::extension(deps))?;
@@ -104,6 +110,9 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(super::loop_mode::extension(deps))?;
     install(acceptance::extension(deps))?;
     install(goals::extension(deps))?;
+    // After the Director stack's step: the work-left Director decides only
+    // a final answer the stack did not continue.
+    install(directors::work_left_extension(deps))?;
     install(children::extension(deps))?;
     // After a paused child run's wait: the notices due are written just
     // before the request reads its context.
@@ -114,6 +123,10 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
     install(closing_extension)?;
+    // A root numbers its runs and reports each run's end; every session
+    // records the MCP calls its kernel makes.
+    super::ran_effects::install(deps);
+    super::ran_effects::register_host_requests(deps);
     registry.fix_roster();
     Ok(registry)
 }

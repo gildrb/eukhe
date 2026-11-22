@@ -49,7 +49,7 @@ When a model cannot continue because its retries are used up, its login expired 
 
 <p align="center"><img src="media/sort-crash.webp" width="640" alt="The run stops in the middle of a round; it starts again with the completed rounds in place; the interrupted round runs again; the check passes"><br><i>After a crash, completed steps stay complete. An interrupted step runs again when that is safe.</i></p>
 
-Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is recorded as not run, and the run continues. `/effects` shows these steps.
+Eukhe settles an interrupted step from its evidence: the file content, the git ref or the job exit. A step that is not safe to repeat is treated as not run, and the run continues. The message at the end of the run lists these steps with their cause, and `/effects` shows them. When the process that runs a session hangs or keeps crashing, Eukhe restarts it and the run continues by itself; the agent is told to check the step that was running before it repeats it. This happens at most 3 times a turn; then the run ends with its report.
 
 ## Parallel work
 
@@ -59,15 +59,13 @@ Each child works on its own files in its own copy. A parent can set the checks o
 
 ## Report
 
-At the end, one report gives the agent's final answer and the result of each check.
+Each step runs without a question in the terminal, the browser, the phone and a script. At the end, one report gives the agent's final answer and the result of each check, and one message lists each irreversible effect that ran, such as a push.
 
-**Target:** each step runs without a question in the terminal, the browser, the phone and a script; one message at the end lists each irreversible effect. **Status:** being built.
-
-**Target:** `/undo` puts the files back to their state before a prompt and names the irreversible effects that it cannot undo. **Status:** being built.
+`/undo` puts the files back to their state at the start of the last prompt and names the irreversible effects that it cannot undo; each further `/undo` goes back one more prompt. `/diff` shows what changed since the last prompt started.
 
 ## Limitations
 
-There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break and that no attacker writes, for example a hard-coded answer. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
+There is no sandbox. Code that the agent runs has the user's permissions and can change the files that a check reads; a check fails on a change only to its `--protect` files. A check that finds the breaks can pass on wrong code that is not similar to a break and that no attacker writes, for example a hard-coded answer. `/undo` does not restore files that `.gitignore` ignores, files over 16 MiB or nested repositories. A model request that a crash interrupts is not sent again, and its reserved cost stays counted until its usage is known. A limit that is not set has no maximum.
 
 ## Credits
 

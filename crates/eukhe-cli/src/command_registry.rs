@@ -127,15 +127,18 @@ for a node that comes back, restore for a node that changes.",
     CommandSpec::new(
         &["effects"],
         "effects [<agent>] [--json]",
-        "List the steps a restart treated as not run",
+        "List the irreversible effects that ran and the steps a restart treated as not run",
     )
     .description(
-        "After a crash, Eukhe settles each step of unknown outcome itself (a tool call, a file \
-write, a model request, a job, a spawn, a scheduled fire, a message delivery): it checks the \
-evidence (the file, the git ref, the job's exit record), runs again a step safe to repeat, and \
-otherwise treats the step as not run, lists it here under the run it was settled in, and goes on. Each \
-line shows the step id, its kind, its state (treated-not-run, or a correction: ran, not-run), and \
-what it is. Without <agent>, the only active agent.",
+        "Every irreversible effect that ran in the agent and its subagents (network, outside \
+the workspace, protected or secret paths, an MCP tool not declared read-only) is in its ledger, \
+one line each: its id, what ran, its classes, the subagent that ran it. After a crash, Eukhe \
+settles each step of unknown outcome itself (a tool call, a file write, a model request, a job, \
+a spawn, a scheduled fire, a message delivery): it checks the evidence (the file, the git ref, \
+the job's exit record), runs again a step safe to repeat, and otherwise treats the step as not \
+run, lists it in the run's end-of-run report, and goes on. Each such line shows the step id, its \
+kind, its state (treated-not-run, or a correction: ran, not-run), and what it is. Without \
+<agent>, the only active agent.",
     )
     .options(&["--json  Print JSON"]),
     CommandSpec::new(
@@ -403,6 +406,39 @@ of each plan window, and time, tool calls and requests per kind of run. Prints t
         "Turn limits off: runs go until finished",
     )
     .description("The default. A limit set for a run (flags, /budget set, /b) still applies."),
+    CommandSpec::new(
+        &["undo"],
+        "undo [<session>] [--json]",
+        "Restore the workspace to the start of the last prompt",
+    )
+    .description(
+        "Every prompt of a session starts with a snapshot of its workspace. Restores each file to \
+its state at the start of the newest prompt not undone; run again to go further back, to the \
+session's first prompt. Files the workspace's .gitignore ignores, files over 16 MiB and nested \
+repositories are left as they are. Irreversible effects of the undone prompt's run (a push, a \
+write outside the workspace, ...) stay; the undo lists them under \"Not undone (irreversible):\". \
+Refused while a run is going. Without <session>: the live session of the current directory.",
+    )
+    .options(&[
+        "--json                   Print JSON",
+        "--daemon-socket <PATH>   The daemon the session runs in",
+    ]),
+    CommandSpec::new(
+        &["diff"],
+        "diff [<session>] [--all] [--json]",
+        "Show what changed in the workspace since the last prompt started",
+    )
+    .description(
+        "A unified diff from the snapshot at the start of the newest prompt not undone to the \
+workspace now; --all compares with the start of the session's first prompt. Lists the paths it \
+did not compare (ignored, over 16 MiB, nested repositories). Without <session>: the live session \
+of the current directory.",
+    )
+    .options(&[
+        "--all                    Compare with the start of the session's first prompt",
+        "--json                   Print JSON",
+        "--daemon-socket <PATH>   The daemon the session runs in",
+    ]),
     CommandSpec::new(&["usage"], "usage [--json]", "Show the plan quota of each login")
         .description(
             "Reads each stored login's plan usage from its provider (Anthropic, ChatGPT, GitHub \
@@ -524,7 +560,8 @@ replaces its heartbeat. Runs until Ctrl+C.",
     .description(
         "Serves a mobile-friendly web dashboard on 127.0.0.1 and opens it in the browser. It \
 chats with the newest session (the one the CLI and the gateway use, or one you pick), controls it \
-(model, thinking, queue, compaction, approvals, saved sessions), and shows the chat memory as a \
+(model, thinking, queue, compaction, saved sessions), shows the irreversible effects \
+that ran, and shows the chat memory as a \
 tree of dated lines you can open down to each message. It listens on loopback only. The URL it \
 prints holds a pairing token after `#token=`: a browser must present it, and nothing runs for a \
 socket without the current token. The token stays the same across restarts (it is in the agent \

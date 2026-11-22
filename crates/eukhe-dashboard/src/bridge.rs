@@ -1,10 +1,10 @@
 //! One browser tab's bridge to the daemon: its own daemon connection, the
 //! session it is bound to, the tab's requests, and the bound session's
-//! events, approval questions and resyncs pushed as they come. Each
-//! request runs on its own task and answers under its id, so a slow one
-//! (an open, a memory read) never holds back another or the events. When
-//! the daemon goes away the bridge ends and the tab reconnects (a new
-//! bridge starts the daemon again).
+//! events and resyncs pushed as they come. Each request runs on its own
+//! task and answers under its id, so a slow one (an open, a memory read)
+//! never holds back another or the events. When the daemon goes away the
+//! bridge ends and the tab reconnects (a new bridge starts the daemon
+//! again).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -20,6 +20,10 @@ use eukhe_types::daemon::{
     DaemonCommand, DaemonReplayStatus, DaemonResumeCursor, PromptInput, SessionEvent,
     StreamingBehavior,
 };
+use eukhe_types::effects::{
+    ledger_text, run_report_text, RanEffectsReply, RunReport, UnknownEffect, UnknownEffectsReply,
+};
+use eukhe_types::undo::{diff_text, undo_text, TurnDiffReply, UndoReply};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -286,7 +290,8 @@ impl Tab {
 
     /// Queue one event of the bound session with its cursor, unless the
     /// snapshot the tab holds already has it. `sequence` 0: the daemon
-    /// gave none.
+    /// gave none. A `run_report` carries the end-of-run message's text,
+    /// the words every surface shows.
     fn send_event(&self, event: &SessionEvent, sequence: u64, stream: &EventStream) {
         if sequence != 0 && sequence <= stream.snapshot_sequence {
             return;
@@ -297,6 +302,7 @@ impl Tab {
                 generation: stream.generation.as_deref(),
                 sequence,
             }),
+            report: report_text(event),
         });
     }
 
@@ -506,7 +512,10 @@ impl Tab {
                 };
                 let addressed = read(addressed)?;
                 match verdict(&addressed) {
-                    Verdict::Bound => self.client.request_ok(addressed).await.map(Answer::Data),
+                    Verdict::Bound => {
+                        let data = self.client.request_ok(addressed).await?;
+                        with_text(&kind, data).map(Answer::Data)
+                    }
                     // A catalog command names its sessions itself: with no
                     // session id the supervisor answers for every session
                     // (with one, a worker would answer for its own).
@@ -916,26 +925,6 @@ impl Tab {
                 }),
                 Binding::Unbound | Binding::Opening { .. } | Binding::Bound { .. } => {}
             },
-            // The tab's approval card does not name a subagent that asks.
-            DaemonClientEvent::ShellApproval {
-                active_session_id,
-                request,
-                agent: _,
-            } => {
-                if binding.active_session_id() == Some(active_session_id.as_str()) {
-                    self.send(&ServerFrame::Approval { request: &request });
-                }
-            }
-            DaemonClientEvent::ShellApprovalSettled {
-                active_session_id,
-                request_id,
-            } => {
-                if binding.active_session_id() == Some(active_session_id.as_str()) {
-                    self.send(&ServerFrame::ApprovalSettled {
-                        request_id: &request_id,
-                    });
-                }
-            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,
@@ -976,11 +965,84 @@ impl Tab {
     }
 }
 
+/// The end-of-run message of a `run_report` event; none for any other
+/// event, and for a report with nothing in it.
+fn report_text(event: &SessionEvent) -> Option<String> {
+    let SessionEvent::RunReport { ran, unknown } = event else {
+        return None;
+    };
+    run_report_text(&RunReport {
+        ran: ran.clone(),
+        unknown: unknown.clone(),
+    })
+}
+
+/// A reply the tab shows as text (`/effects`, `/undo`, `/diff`) gets
+/// `text`: the words every surface shows. Any other reply goes as it came.
+fn with_text(kind: &str, data: Value) -> anyhow::Result<Value> {
+    let read = |what: &str| format!("read the {what} reply");
+    let text = match kind {
+        "get_ran_effects" => {
+            let reply: RanEffectsReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            ledger_text(&reply.effects)
+        }
+        "get_unknown_effects" => {
+            let reply: UnknownEffectsReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            reply
+                .effects
+                .iter()
+                .map(UnknownEffect::line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "undo_turn" => {
+            let reply: UndoReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            undo_text(&reply).trim_end().to_owned()
+        }
+        "get_turn_diff" => {
+            let reply: TurnDiffReply =
+                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+            diff_text(&reply).trim_end().to_owned()
+        }
+        _ => return Ok(data),
+    };
+    let Value::Object(mut fields) = data else {
+        anyhow::bail!("the {kind} reply is not an object");
+    };
+    fields.insert("text".to_string(), Value::String(text));
+    Ok(Value::Object(fields))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use eukhe_types::shell::{ShellApprovalRequest, ShellEffect, ShellEffects};
+    use eukhe_types::effects::{EffectClass, RanEffect, RanKind};
     use std::io::{BufRead, BufReader, Write};
+
+    /// The end of a root run of `active_session_id` that pushed once.
+    fn ran_report(active_session_id: &str) -> DaemonClientEvent {
+        DaemonClientEvent::SessionEvent {
+            active_session_id: active_session_id.to_string(),
+            event: Box::new(SessionEvent::RunReport {
+                ran: vec![RanEffect {
+                    id: "e1".to_string(),
+                    key: "k1".to_string(),
+                    run: 1,
+                    kind: RanKind::ShellStep,
+                    command: "git push origin main".to_string(),
+                    classes: vec![EffectClass::Net],
+                    agent: None,
+                    session_id: active_session_id.to_string(),
+                    at_ms: 1,
+                }],
+                unknown: Vec::new(),
+            }),
+            meta_sequence: 0,
+        }
+    }
 
     #[tokio::test]
     async fn only_the_bound_sessions_news_reaches_the_tab() {
@@ -1029,22 +1091,8 @@ mod tests {
             event: Box::new(SessionEvent::AgentStart),
             meta_sequence,
         };
-        let approval = |active_session_id: &str| DaemonClientEvent::ShellApproval {
-            active_session_id: active_session_id.to_string(),
-            request: ShellApprovalRequest {
-                request_id: format!("r-{active_session_id}"),
-                step: 1,
-                command: "make".to_string(),
-                effects: ShellEffects::of(&[ShellEffect::Exec]),
-            },
-            agent: None,
-        };
         let lost = |active_session_id: &str| DaemonClientEvent::DirectLinkLost {
             active_session_id: active_session_id.to_string(),
-        };
-        let settled = |active_session_id: &str| DaemonClientEvent::ShellApprovalSettled {
-            active_session_id: active_session_id.to_string(),
-            request_id: format!("r-{active_session_id}"),
         };
         for news in [
             // Already in the snapshot the tab holds.
@@ -1053,15 +1101,13 @@ mod tests {
             event("s2", 5),
             // No sequence from the daemon: no cursor.
             event("s1", 0),
-            approval("s2"),
-            approval("s1"),
-            settled("s2"),
-            settled("s1"),
+            ran_report("s2"),
+            ran_report("s1"),
             lost("s2"),
             lost("s1"),
             // Unbound now: the tab opens the session again first.
             event("s1", 6),
-            approval("s1"),
+            ran_report("s1"),
         ] {
             tab.forward(news);
         }
@@ -1079,10 +1125,18 @@ mod tests {
                 }),
                 json!({ "type": "event", "event": { "type": "agent_start" } }),
                 json!({
-                    "type": "approval",
-                    "request": { "requestId": "r-s1", "step": 1, "command": "make", "effects": ["exec"] },
+                    "type": "event",
+                    "event": {
+                        "type": "run_report",
+                        "ran": [{
+                            "id": "e1", "key": "k1", "run": 1, "kind": "shellStep",
+                            "command": "git push origin main", "classes": ["net"],
+                            "sessionId": "s1", "atMs": 1,
+                        }],
+                        "unknown": [],
+                    },
+                    "report": "Irreversible effects ran this run:\n- e1 git push origin main (net)",
                 }),
-                json!({ "type": "approval_settled", "requestId": "r-s1" }),
                 json!({ "type": "resync", "reason": "the link to the session's worker was lost" }),
             ]
         );

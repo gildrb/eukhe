@@ -14,7 +14,7 @@ use eukhe_bend::rules::headless::{
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_core::durable::acceptance::{
     acceptance_exit_code, acceptance_state, format_acceptance_status, read_final_answer,
-    seed_acceptance, session_judge, AnswerReading, Judge,
+    seed_acceptance, session_judge, uncertified_line, AnswerReading, Judge,
 };
 use eukhe_core::durable::goals::{
     autonomous_state, budget_report, configure_autonomous, goal_state, seed_initial_goal,
@@ -29,7 +29,7 @@ use eukhe_daemon::worker::durable_host::{CoalesceMode, EventTranslator};
 use eukhe_durable::harness::types::{InputSubmissionDraft, WhenBusy};
 use eukhe_durable::harness::{watch_events, AgentEventStream, Conversation};
 use eukhe_durable::session::SessionError;
-use eukhe_types::acceptance::{AcceptanceLabel, AttackOutcome};
+use eukhe_types::acceptance::AcceptanceLabel;
 use eukhe_types::budget::BudgetPhase;
 use eukhe_types::daemon::{SessionEvent, StreamUpdate};
 use eukhe_types::goal::{GoalState, GoalStatus};
@@ -231,22 +231,34 @@ async fn daemon_acp_create(
             location,
             cwd_override,
             ..
-        } => (
-            crate::headless_session::stored_cwd(
+        } => {
+            let opened_cwd = crate::headless_session::stored_cwd(
                 &location,
                 &config.cwd,
                 cwd_override.as_deref(),
                 cx,
             )
-            .await?,
-            Some(location.path().to_path_buf()),
-            DaemonSessionLifecycle::Resident,
-        ),
-        Selection::Fork { source } => {
+            .await;
+            if let Some(notice) = &opened_cwd.notice {
+                eprintln!("eukhe: {notice}");
+            }
+            (
+                opened_cwd.cwd,
+                Some(location.path().to_path_buf()),
+                DaemonSessionLifecycle::Resident,
+            )
+        }
+        Selection::Fork {
+            source,
+            other_project,
+        } => {
             // The fork's lease drops here: the daemon worker takes the
             // storage's lease when it opens it.
-            let (_, dir, _lease) =
+            let (session_id, dir, _lease) =
                 crate::headless_session::fork_into_fresh(options, &source, &config.cwd, cx).await?;
+            if let Some(other) = other_project {
+                eprintln!("eukhe: {}", other.forked_as(session_id));
+            }
             (
                 config.cwd.clone(),
                 Some(dir),
@@ -515,17 +527,21 @@ async fn run_prompts(
     // The run's disclosure rows (a reported overflow outcome) commit from
     // the compaction observer after the run settles: both modes report them.
     session.deps().observers_settled().await;
+    // Each run's end-of-run report is out of the run service once it read
+    // the run's end.
+    session.deps().runs_settled().await;
     if let Some(events) = events {
         events.finish().await;
     }
+    print_run_reports(&opened.reports.take(), json_mode);
     let exit = run_exit(opened, &conversation, watch, ended?, options, cx).await?;
     let exit = task_exit(opened, &conversation, exit, since, json_mode, cx).await?;
     // "Done" is a claim: with acceptance checks the run exits 0 only when
     // each is confirmed on the final state (`laws/verify.bend`) and done is
     // certified (`laws/strength.bend`, `laws/attack.bend`): a run whose
     // checks passed without being shown to catch broken code, or that also
-    // passed a blind attack's wrong code, exits 3 (`UNJUDGED_CODE`). The
-    // label goes to stderr in both modes.
+    // passed a blind attack's wrong code, is done but not certified and
+    // exits 3 (`UNJUDGED_CODE`). The label goes to stderr in both modes.
     let acceptance = acceptance_state(harness, conversation.id(), cx).await?;
     if !acceptance.checks.is_empty() {
         eprintln!("{}", format_acceptance_status(&acceptance)?);
@@ -534,22 +550,32 @@ async fn run_prompts(
     if acceptance.label == AcceptanceLabel::ChecksPassedNotCertified
         && code == u64::from(UNJUDGED_CODE)
     {
-        let survived = acceptance.attacks.iter().any(|attack| {
-            attack.at == acceptance.state && attack.outcome == AttackOutcome::Survived
-        });
-        let why = if survived {
-            "also passed wrong code a blind attack wrote"
-        } else {
-            "were not shown to catch broken code"
-        };
         eprintln!(
-            "eukhe: the checks passed but {why}: exit {UNJUDGED_CODE}, the run counts as not done"
+            "eukhe: {} (exit {UNJUDGED_CODE})",
+            uncertified_line(&acceptance)
         );
         if json_mode {
             println!("{}", serde_json::json!({ "type": "task_uncertified" }));
         }
     }
     Ok(i32::try_from(code).unwrap_or(1))
+}
+
+/// The end-of-run reports of the runs (spec I6), after the runs' events:
+/// the text on stderr in both modes, and in json mode each as a
+/// `run_report` event.
+fn print_run_reports(reports: &[eukhe_types::effects::RunReport], json_mode: bool) {
+    for report in reports {
+        if let Some(text) = eukhe_types::effects::run_report_text(report) {
+            eprintln!("{text}");
+        }
+        if json_mode {
+            print_event(&SessionEvent::RunReport {
+                ran: report.ran.clone(),
+                unknown: report.unknown.clone(),
+            });
+        }
+    }
 }
 
 /// The exit of a run whose prompt loop ended as `ended`: gather the facts
@@ -1137,12 +1163,15 @@ async fn begin_message(
 
 /// The json stream's leading identity line (the TS session header shape and
 /// field order: `type`, `version`, `id`, `timestamp`, `cwd`,
-/// `parentSession?`, `rlmDepth`).
+/// `parentSession?`, `rlmDepth`), and `notice` when the open did something
+/// in place of the session the flags named (a fork of another project's
+/// session, a gone working directory).
 fn session_header(opened: &HeadlessSession) -> serde_json::Value {
     header_for(
         &opened.session_id,
         &opened.cwd,
         opened.parent_session.as_deref(),
+        opened.notice.as_ref(),
     )
 }
 
@@ -1150,6 +1179,7 @@ fn header_for(
     session_id: &str,
     cwd: &std::path::Path,
     parent_session: Option<&std::path::Path>,
+    notice: Option<&crate::headless_session::ResumeNotice>,
 ) -> serde_json::Value {
     let mut header = serde_json::Map::new();
     header.insert("type".into(), "session".into());
@@ -1161,6 +1191,9 @@ fn header_for(
         header.insert("parentSession".into(), parent.display().to_string().into());
     }
     header.insert("rlmDepth".into(), 0.into());
+    if let Some(notice) = notice {
+        header.insert("notice".into(), notice.to_string().into());
+    }
     serde_json::Value::Object(header)
 }
 

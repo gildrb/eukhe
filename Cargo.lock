@@ -630,8 +630,10 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
  "url",
  "uuid",
 ]

@@ -4,10 +4,10 @@
 //! The pane is a watch attach (`clientKind: "watch"`) of the worker on the
 //! main connection: the worker's snapshot seeds a transcript of its own,
 //! and its events fold into it live (text as it streams, tool cards as
-//! they run and settle, the rows main forwarded). A watch takes none of
-//! the worker's approvals and never holds its kernel, so showing the pane
-//! changes nothing about how the worker runs. The rows render through a
-//! nested [`AgentView`], the same row renderers the main chat uses.
+//! they run and settle, the rows main forwarded). A watch never holds the
+//! worker's kernel, so showing the pane changes nothing about how the
+//! worker runs. The rows render through a nested [`AgentView`], the same
+//! row renderers the main chat uses.
 //!
 //! Where the pane sits: a right split when the terminal is at least
 //! [`SPLIT_MIN_WIDTH`] columns wide, otherwise a strip of
@@ -257,6 +257,7 @@ impl WorkerPane {
             | TurnUpdate::MemoryUpdate(_)
             | TurnUpdate::GoalUpdate(_)
             | TurnUpdate::UnknownEffectsUpdate(_)
+            | TurnUpdate::RunReport(_)
             | TurnUpdate::LoopUpdate(_)
             | TurnUpdate::BudgetUpdate(_)
             | TurnUpdate::PlanUsage(_)

@@ -5,81 +5,65 @@ import ../../bend/ffi_shell.bend as FSh
 import ../../bend/tools.bend as Tl
 import ../../bend/wire.bend as Wr
 import ../../bend/wire_flat.bend as Fl
-import ../../laws/base.bend as LawsBase
 import ../../laws/shell.bend as Shell
 import ../../laws/wire.bend as Wire
-import ../base/logic/bool.bend as LLogicBool
 import ../base/wire.bend as LWire
 
 # The entry answers as the laws spell the model's decision
 # --------------------------------------------------------
 
+def sh.verdict_put(v: Tl.Verdict) -> {Wr.put_nat(Shell.spell_verdict(v), "") == FSh.put_verdict(v, "") : String}:
+  match v:
+    case Tl.Runs{}:
+      {==}
+    case Tl.Refused{}:
+      {==}
+
 def sh.reply(q: FSh.Req) -> {FSh.answer(q) == Shell.spell_answer(q) : String}:
   match q:
-    case FSh.QStep{a, ps}:
+    case FSh.QVerdict{+ps}:
+      %sh.verdict_put(Tl.verdict(ps)) : {Wr.put_list(~Nat, ~Wr.put_nat, Tl.pieces.effs(ps), _) == Shell.spell_answer(FSh.QVerdict{ps}) : String}
       {==}
-    case FSh.QAllows{a, es}:
-      {==}
-    case FSh.QAnswer{i, y}:
-      match y:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
 
 # The reader reads back what Rust writes
 # --------------------------------------
 
-def sh.parts_rt(ps: List<&2, Tl.Part>) -> {FSh.parts.of(Shell.spell_parts(ps)) == Some{ps} : Maybe<&2, List<&2, Tl.Part>>}:
+def sh.pieces_cons(+p: Tl.Piece, +t: List<&2, Tl.Piece>, e: {FSh.pieces.of(Shell.spell_pieces(t)) == Some{t} : Maybe<&2, List<&2, Tl.Piece>>}) -> {FSh.pieces.of(Shell.spell_pieces(p <> t)) == Some{p <> t} : Maybe<&2, List<&2, Tl.Piece>>}:
+  match p:
+    case Tl.Piece{+o, s, m}:
+      match s m:
+        case True{} True{}:
+          %Equal.sym(Maybe<&2, List<&2, Tl.Piece>>, FSh.pieces.of(Shell.spell_pieces(t)), Some{t}, e) : {FSh.pieces.cons(Some{Tl.Piece{o, True{}, True{}}}, _) == Some{Tl.Piece{o, True{}, True{}} <> t} : Maybe<&2, List<&2, Tl.Piece>>}
+          {==}
+        case True{} False{}:
+          %Equal.sym(Maybe<&2, List<&2, Tl.Piece>>, FSh.pieces.of(Shell.spell_pieces(t)), Some{t}, e) : {FSh.pieces.cons(Some{Tl.Piece{o, True{}, False{}}}, _) == Some{Tl.Piece{o, True{}, False{}} <> t} : Maybe<&2, List<&2, Tl.Piece>>}
+          {==}
+        case False{} True{}:
+          %Equal.sym(Maybe<&2, List<&2, Tl.Piece>>, FSh.pieces.of(Shell.spell_pieces(t)), Some{t}, e) : {FSh.pieces.cons(Some{Tl.Piece{o, False{}, True{}}}, _) == Some{Tl.Piece{o, False{}, True{}} <> t} : Maybe<&2, List<&2, Tl.Piece>>}
+          {==}
+        case False{} False{}:
+          %Equal.sym(Maybe<&2, List<&2, Tl.Piece>>, FSh.pieces.of(Shell.spell_pieces(t)), Some{t}, e) : {FSh.pieces.cons(Some{Tl.Piece{o, False{}, False{}}}, _) == Some{Tl.Piece{o, False{}, False{}} <> t} : Maybe<&2, List<&2, Tl.Piece>>}
+          {==}
+
+def sh.pieces_rt(ps: List<&2, Tl.Piece>) -> {FSh.pieces.of(Shell.spell_pieces(ps)) == Some{ps} : Maybe<&2, List<&2, Tl.Piece>>}:
   match ps:
     case Nil{}:
       {==}
-    case p <> t:
-      match p:
-        case Tl.Part{o, s}:
-          match s:
-            case True{}:
-              %Equal.sym(Maybe<&2, List<&2, Tl.Part>>, FSh.parts.of(Shell.spell_parts(t)), Some{t}, sh.parts_rt(t)) : {FSh.parts.cons(Some{Tl.Part{o, True{}}}, _) == Some{Tl.Part{o, True{}} <> t} : Maybe<&2, List<&2, Tl.Part>>}
-              {==}
-            case False{}:
-              %Equal.sym(Maybe<&2, List<&2, Tl.Part>>, FSh.parts.of(Shell.spell_parts(t)), Some{t}, sh.parts_rt(t)) : {FSh.parts.cons(Some{Tl.Part{o, False{}}}, _) == Some{Tl.Part{o, False{}} <> t} : Maybe<&2, List<&2, Tl.Part>>}
-              {==}
+    case +p <> +t:
+      sh.pieces_cons(p, t, sh.pieces_rt(t))
 
-def sh.rt_step(+a: List<&2, Nat>, +ps: List<&2, Tl.Part>, +rest: String, +fits: {Shell.req_fits(FSh.QStep{a, ps}) == True{} : Bool}) -> {FSh.get_req(Shell.spell_req(FSh.QStep{a, ps}, rest)) == Wr.Got{FSh.QStep{a, ps}, rest} : Wr.Dec<FSh.Req>}:
-  +sp = Shell.spell_parts(ps)
+def sh.rt_verdict(+ps: List<&2, Tl.Piece>, +rest: String, fits: {Shell.req_fits(FSh.QVerdict{ps}) == True{} : Bool}) -> {FSh.get_req(Shell.spell_req(FSh.QVerdict{ps}, rest)) == Wr.Got{FSh.QVerdict{ps}, rest} : Wr.Dec<FSh.Req>}:
+  +sp = Shell.spell_pieces(ps)
   +f = Fl.flat(sp)
-  +ha = LLogicBool.wr_and_l(Shell.ns_fit(a), Shell.ns_fit(f), fits)
-  +hf = LLogicBool.wr_and_r(Shell.ns_fit(a), Shell.ns_fit(f), fits)
-  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Shell.spell_ns(a, Shell.spell_ns(f, rest))), Wr.Got{a, Shell.spell_ns(f, rest)}, Wire.wire_list_round_trip(a, Shell.spell_ns(f, rest), ha)) : {FSh.get_step(_) == Wr.Got{FSh.QStep{a, ps}, rest} : Wr.Dec<FSh.Req>}
-  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Shell.spell_ns(f, rest)), Wr.Got{f, rest}, Wire.wire_list_round_trip(f, rest, hf)) : {FSh.get_step.flat(a, _) == Wr.Got{FSh.QStep{a, ps}, rest} : Wr.Dec<FSh.Req>}
-  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(f), Some{sp}, LWire.fe.unflat_flat(sp)) : {FSh.get_step.parts(a, FSh.parts.flat(_), rest) == Wr.Got{FSh.QStep{a, ps}, rest} : Wr.Dec<FSh.Req>}
-  %Equal.sym(Maybe<&2, List<&2, Tl.Part>>, FSh.parts.of(sp), Some{ps}, sh.parts_rt(ps)) : {FSh.get_step.parts(a, _, rest) == Wr.Got{FSh.QStep{a, ps}, rest} : Wr.Dec<FSh.Req>}
+  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Shell.spell_ns(f, rest)), Wr.Got{f, rest}, Wire.wire_list_round_trip(f, rest, fits)) : {FSh.get_verdict(_) == Wr.Got{FSh.QVerdict{ps}, rest} : Wr.Dec<FSh.Req>}
+  %Equal.sym(Maybe<&2, List<&2, List<&2, Nat>>>, Fl.unflat(f), Some{sp}, LWire.fe.unflat_flat(sp)) : {FSh.get_verdict.pieces(FSh.pieces.flat(_), rest) == Wr.Got{FSh.QVerdict{ps}, rest} : Wr.Dec<FSh.Req>}
+  %Equal.sym(Maybe<&2, List<&2, Tl.Piece>>, FSh.pieces.of(sp), Some{ps}, sh.pieces_rt(ps)) : {FSh.get_verdict.pieces(_, rest) == Wr.Got{FSh.QVerdict{ps}, rest} : Wr.Dec<FSh.Req>}
   {==}
-
-def sh.rt_allows(+a: List<&2, Nat>, +es: List<&2, Nat>, +rest: String, +fits: {Shell.req_fits(FSh.QAllows{a, es}) == True{} : Bool}) -> {FSh.get_req(Shell.spell_req(FSh.QAllows{a, es}, rest)) == Wr.Got{FSh.QAllows{a, es}, rest} : Wr.Dec<FSh.Req>}:
-  +ha = LLogicBool.wr_and_l(Shell.ns_fit(a), Shell.ns_fit(es), fits)
-  +he = LLogicBool.wr_and_r(Shell.ns_fit(a), Shell.ns_fit(es), fits)
-  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Shell.spell_ns(a, Shell.spell_ns(es, rest))), Wr.Got{a, Shell.spell_ns(es, rest)}, Wire.wire_list_round_trip(a, Shell.spell_ns(es, rest), ha)) : {FSh.get_allows(_) == Wr.Got{FSh.QAllows{a, es}, rest} : Wr.Dec<FSh.Req>}
-  %Equal.sym(Wr.Dec<List<&2, Nat>>, Wr.get_list(~Nat, ~Wr.get_nat, Shell.spell_ns(es, rest)), Wr.Got{es, rest}, Wire.wire_list_round_trip(es, rest, he)) : {FSh.get_allows.effs(a, _) == Wr.Got{FSh.QAllows{a, es}, rest} : Wr.Dec<FSh.Req>}
-  {==}
-
-def sh.rt_answer(+i: Nat, y: Bool, +rest: String, fits: {Shell.req_fits(FSh.QAnswer{i, y}) == True{} : Bool}) -> {FSh.get_req(Shell.spell_req(FSh.QAnswer{i, y}, rest)) == Wr.Got{FSh.QAnswer{i, y}, rest} : Wr.Dec<FSh.Req>}:
-  match y:
-    case True{}:
-      %LWire.pw6.nat(i, Wr.put_bool(True{}, rest), fits) : {FSh.get_answer(_) == Wr.Got{FSh.QAnswer{i, True{}}, rest} : Wr.Dec<FSh.Req>}
-      {==}
-    case False{}:
-      %LWire.pw6.nat(i, Wr.put_bool(False{}, rest), fits) : {FSh.get_answer(_) == Wr.Got{FSh.QAnswer{i, False{}}, rest} : Wr.Dec<FSh.Req>}
-      {==}
 
 def sh.rt(q: FSh.Req, +rest: String, fits: {Shell.req_fits(q) == True{} : Bool}) -> {FSh.get_req(Shell.spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FSh.Req>}:
   match q:
-    case FSh.QStep{a, ps}:
-      sh.rt_step(a, ps, rest, fits)
-    case FSh.QAllows{a, es}:
-      sh.rt_allows(a, es, rest, fits)
-    case FSh.QAnswer{i, y}:
-      sh.rt_answer(i, y, rest, fits)
+    case FSh.QVerdict{ps}:
+      sh.rt_verdict(ps, rest, fits)
 
 # Lists and Bools
 # ---------------
@@ -98,11 +82,4 @@ def sh.app_assoc(-A: Data, xs: List<&2, A>, +ys: List<&2, A>, +zs: List<&2, A>) 
       {==}
     case x <> t:
       %sh.app_assoc(A, t, ys, zs) : {x <> List.append(&2, A, List.append(&2, A, t, ys), zs) == x <> _ : List<&2, A>}
-      {==}
-
-def sh.and_assoc(a: Bool, b: Bool, c: Bool) -> {Bool.and(a, Bool.and(b, c)) == Bool.and(Bool.and(a, b), c) : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
       {==}

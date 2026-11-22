@@ -1,12 +1,10 @@
 //! `eukhe.shell`: the `bash` tool (`bash@1`). It runs
 //! a script in process ([`eukhe_shell::Shell`]) in the agent's working
-//! directory. A step whose effects are all in the auto set (the
-//! `shell.autoEffects` setting, default every effect) runs unasked; every
-//! other step runs only when the user approves it through the session's
-//! [`ShellApprovalSink`] (the daemon asks the attached client). A denial,
-//! no answer, or the refusal of a session that runs only from the phone
-//! gateway stops the script at that step, and the
-//! model reads it as a [`RefusalText`].
+//! directory. Every step runs unasked but one that writes an own path
+//! (eukhe's own config and credentials, the session record, a protected
+//! file of a check under acceptance), or an irreversible step the editor
+//! attached through ACP rejects ([`HostDeps::editor_permission`]): that
+//! step and the steps after it do not run, and the model reads why.
 //!
 //! The tool obeys the S2 limits. Its output streams through one
 //! [`BoundedOutput`] under the call's [`Truncation`](eukhe_durable::harness::Truncation):
@@ -34,6 +32,7 @@ mod git_evidence;
 mod tests;
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
@@ -48,14 +47,16 @@ use eukhe_durable::harness::types::{
     ToolExecutionResult, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_shell::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, Stream};
+use eukhe_durable::types::ConversationId;
+use eukhe_shell::{End, Ran, Shell, Sink, StepRun, Steps, Stream};
+use eukhe_types::effects::{EffectClass, RanEffect, RanKind};
 use eukhe_types::job::{CellStatus, JobId};
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::platform::kill_point::kill_point;
-use eukhe_types::shell::{AutoSet, ShellAnswer, ShellApprovalRequest, ShellEffect};
+use eukhe_types::shell::ShellEffect;
 
 use super::bounded_output::BoundedOutput;
-use super::deps::ShellApprovalSink;
+use super::editor_permission::{self, EDITOR_REFUSED};
 use super::jobs::{self, Job, JobEvent, JobKind, JobResult, JobSpec, Wait};
 use super::rlm::{aborted, call_aborted, session_env, with_diagnostics};
 use super::HostDeps;
@@ -70,6 +71,90 @@ fn names_git(script: &str) -> bool {
         .any(|word| word.rsplit('/').next() == Some("git"))
 }
 
+/// What one script does around each step (spec I4, I12): the editor's
+/// say before an irreversible step (each question's id is the script's
+/// name and the step), and the ledger record of each irreversible step at
+/// its own end, before the next step starts (a crash later in the script
+/// keeps it recorded). A `bash` call and an autoresearch benchmark run
+/// both run their steps through it.
+pub(crate) struct CallSteps {
+    deps: Arc<HostDeps>,
+    conversation: ConversationId,
+    /// Unique within the session: each step's question id and ledger key
+    /// is `<call>:<step>`.
+    call: String,
+    /// The tool call that runs the script, named to the editor.
+    tool_call: Option<String>,
+    recorded: Mutex<Vec<RanEffect>>,
+}
+
+impl CallSteps {
+    pub(crate) fn new(
+        deps: Arc<HostDeps>,
+        conversation: ConversationId,
+        call: String,
+        tool_call: Option<String>,
+    ) -> Self {
+        Self {
+            deps,
+            conversation,
+            call,
+            tool_call,
+            recorded: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The effects recorded so far, in step order (what the call's notes
+    /// list).
+    fn recorded(&self) -> Vec<RanEffect> {
+        self.recorded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Steps for CallSteps {
+    fn allows(
+        &self,
+        step: u64,
+        command: &str,
+        effects: eukhe_types::shell::ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        editor_permission::allows(
+            self.deps.editor_permission.clone(),
+            format!("{}:{step}", self.call),
+            self.tool_call.clone(),
+            command.to_owned(),
+            EffectClass::of_shell(effects),
+        )
+    }
+
+    fn ran(&self, ran: &StepRun) -> impl Future<Output = ()> + Send {
+        let classes = EffectClass::of_shell(ran.effects);
+        let draft = eukhe_bend::rules::irreversible::is_irreversible(&classes).then(|| {
+            super::ran_effects::draft(
+                &self.deps,
+                &format!("{}:{}", self.call, ran.step),
+                RanKind::ShellStep,
+                ran.command.clone(),
+                classes,
+            )
+        });
+        async move {
+            if let Some(draft) = draft {
+                let recorded =
+                    super::ran_effects::record_effects(&self.deps, self.conversation, vec![draft])
+                        .await;
+                self.recorded
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .extend(recorded);
+            }
+        }
+    }
+}
+
 /// The extension's name.
 pub const SHELL_EXTENSION: &str = "eukhe.shell";
 
@@ -80,92 +165,15 @@ const NAME: &str = "bash";
 const VERSION: &str = "bash@1";
 
 const DESCRIPTION: &str = "Run a bash script in the cwd. Steps: simple commands joined by `;`, \
-newlines, `&&`, `||`, `|`, with redirections. Each step's effects (read, write, exec, net, \
-outside, protected, secret) gate on the user's `shell.autoEffects`: allowed ones run at once, \
-others wait for approval; a denial stops the script. `git` commands that can run repo programs \
-(status, diff, commit, ...) count as exec. cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, \
-touch, cp, mv, grep run in process; control flow, functions, subshells or `$(...)` run the whole \
-script in bash as one exec step. A file you will edit: `read` it, since `edit` needs the \
-`[path#TAG]` header `cat` does not print. No API keys or tokens in the environment. The result \
-lists each step's exit status; output is bounded. A script outliving the blocking budget \
-continues as a job; its end arrives as a `[job-settled]` message.";
-
-/// Asks through the session's sink; each question's id is the tool
-/// call's id (or a host request's) and the step.
-pub(crate) struct SinkApprover {
-    pub(crate) sink: Option<ShellApprovalSink>,
-    pub(crate) call: String,
-}
-
-impl Approver for SinkApprover {
-    #[tracing::instrument(level = "debug", skip_all, fields(step = ask.step))]
-    async fn approve(&self, ask: Ask) -> Answer {
-        let Some(sink) = &self.sink else {
-            return Answer::Unanswered;
-        };
-        let request = ShellApprovalRequest {
-            request_id: format!("{}:{}", self.call, ask.step),
-            step: ask.step,
-            command: ask.command,
-            effects: ask.effects,
-        };
-        match sink(request).await {
-            ShellAnswer::Approve => Answer::Approve,
-            ShellAnswer::Deny => Answer::Deny,
-            ShellAnswer::Unanswered => Answer::Unanswered,
-            ShellAnswer::GatewayRefused => Answer::GatewayRefused,
-        }
-    }
-}
-
-/// A refusal of the approval gate as the model reads it, for every runner
-/// the gate covers (a `bash` step, an `python` cell, a document tool's
-/// access): what failed and the step the model takes next, rendered as
-/// `<what failed>. <next step>.`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RefusalText {
-    pub(crate) what: &'static str,
-    pub(crate) next: &'static str,
-}
-
-impl RefusalText {
-    pub(crate) fn of(refusal: Refusal) -> Self {
-        match refusal {
-            Refusal::Denied => Self {
-                what: "the user denied it",
-                next: "Do not try it again unless the user asks for it",
-            },
-            Refusal::Unanswered => Self {
-                what: "it needs the user's approval, and no client answered",
-                next:
-                    "Ask the user to attach a client, or to allow its effect in shell.autoEffects \
-if that is read, write, exec, net, outside, protected or secret; or use read-only steps",
-            },
-            Refusal::GatewayRefused => Self {
-                what: "the session runs only from the phone gateway, and from there a step that \
-writes eukhe's protected files (its config and credentials, a .git or .eukhe dir, a PATH dir) \
-never runs when the user's auto set does not already run it",
-                next: "Ask the user to run it from the eukhe TUI or the dashboard",
-            },
-        }
-    }
-
-    /// The refusal of an approval answer that is not a yes.
-    pub(crate) fn of_answer(answer: ShellAnswer) -> Option<Self> {
-        match answer {
-            ShellAnswer::Approve => None,
-            ShellAnswer::Deny => Some(Self::of(Refusal::Denied)),
-            ShellAnswer::Unanswered => Some(Self::of(Refusal::Unanswered)),
-            ShellAnswer::GatewayRefused => Some(Self::of(Refusal::GatewayRefused)),
-        }
-    }
-}
-
-impl std::fmt::Display for RefusalText {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}. {}.", self.what, self.next)
-    }
-}
+newlines, `&&`, `||`, `|`, with redirections. Every step runs at once; a step that writes \
+eukhe's own config and credentials, the session record or a check's protected files is refused \
+and stops the script. `git` commands that can run repo programs (status, diff, commit, ...) count \
+as exec. cat, ls, head, tail, wc, echo, pwd, mkdir, rm, rmdir, touch, cp, mv, grep run in \
+process; control flow, functions, subshells or `$(...)` run the whole script in bash as one exec \
+step. A file you will edit: `read` it, since `edit` needs the `[path#TAG]` header `cat` does not \
+print. No API keys or tokens in the environment. The result lists each step's exit status; \
+output is bounded. A script outliving the blocking budget continues as a job; its end arrives as \
+a `[job-settled]` message.";
 
 /// The bounded output of one script and its decoders, one per step's
 /// stream (a chunk may end inside a character).
@@ -300,35 +308,9 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     })
 }
 
-/// The auto set of the `shell.autoEffects` setting, for every runner of
-/// code the gate covers (the `bash` steps, the `python` cells). The
-/// setting admits only the grantable effect names; a name it holds that
-/// names no grantable effect is skipped.
-pub(crate) fn auto_set(settings: &super::settings::EukheSettings) -> AutoSet {
-    AutoSet::new(
-        settings
-            .manager()
-            .get_shell_auto_effects()
-            .iter()
-            .filter_map(|name| match name.as_str() {
-                "read" => Some(ShellEffect::Read),
-                "write" => Some(ShellEffect::Write),
-                "exec" => Some(ShellEffect::Exec),
-                "net" => Some(ShellEffect::Net),
-                "outside" => Some(ShellEffect::Outside),
-                "protected" => Some(ShellEffect::Protected),
-                "secret" => Some(ShellEffect::Secret),
-                unknown => {
-                    tracing::warn!(unknown, "shell.autoEffects holds an unknown effect");
-                    None
-                }
-            }),
-    )
-}
-
 #[tracing::instrument(level = "debug", skip_all, fields(task = %api.task_id()))]
 async fn execute(
-    deps: &HostDeps,
+    deps: &Arc<HostDeps>,
     args: PiJsonValue,
     api: Arc<dyn ToolExecutionApi>,
     cx: &Context,
@@ -344,10 +326,6 @@ async fn execute(
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
-    let approver = SinkApprover {
-        sink: deps.shell_approval.clone(),
-        call: api.task_id().to_string(),
-    };
     let transcript = Arc::new(Transcript::new(BoundedOutput::in_session(
         deps.storage_dir.as_deref(),
         &api.task_id().to_string(),
@@ -368,15 +346,23 @@ async fn execute(
         api.probe(record, cx).await?;
     }
     let workspace = cwd.clone();
-    let held = super::acceptance::held_files(&*api, api.conversation_id(), &cwd, cx).await?;
+    let paths = super::path_policy::call_policy(deps, Some(api.conversation_id()), &cwd, cx).await;
+    let call_steps = Arc::new(CallSteps::new(
+        Arc::clone(deps),
+        api.conversation_id(),
+        api.call_id().to_owned(),
+        Some(api.call_id().to_owned()),
+    ));
     let mut running = {
-        let (auto, env) = (auto_set(&deps.settings), local_env(&session_env(deps)));
-        let paths =
-            super::path_policy::session_policy(&deps.agent_dir, &deps.settings, &cwd, &held);
-        let (script, transcript) = (script.to_owned(), Arc::clone(&transcript));
+        let env = local_env(&session_env(deps));
+        let (script, transcript, call_steps) = (
+            script.to_owned(),
+            Arc::clone(&transcript),
+            Arc::clone(&call_steps),
+        );
         tokio::spawn(async move {
             Shell::new(cwd, env, "bash")
-                .run(&script, auto, &paths, &approver, &*transcript)
+                .run(&script, &paths, &*call_steps, &*transcript)
                 .await
         })
     };
@@ -428,6 +414,7 @@ async fn execute(
             let (partial, bounded) = transcript.projection();
             let sink = deps.job_settled.clone();
             let settled_id = id.clone();
+            let call_steps = Arc::clone(&call_steps);
             tokio::spawn(async move {
                 let (status, event) = match running.await {
                     Ok(ran) => {
@@ -443,6 +430,11 @@ async fn execute(
                         (CellStatus::Error, JobEvent::Exited(1))
                     }
                 };
+                // Each irreversible step was recorded at its own end.
+                transcript.push(
+                    &super::ran_effects::tool_notes(&call_steps.recorded()),
+                    true,
+                );
                 if let Some(drift) = before
                     .drift(&TreeStamp::take(&workspace).await)
                     .text("the job")
@@ -462,8 +454,12 @@ async fn execute(
     };
     // The script ran; its result is not durable yet.
     kill_point(EffectKind::Tool.name(), "ran");
-    let refused = matches!(ran.end, End::Refused { .. });
+    let refused = matches!(ran.end, End::Refused { .. } | End::Rejected { .. });
     settle(&ran, &transcript);
+    transcript.push(
+        &super::ran_effects::tool_notes(&call_steps.recorded()),
+        true,
+    );
     let (text, bounded) = transcript.projection();
     let steps: Vec<serde_json::Value> = ran
         .steps
@@ -473,10 +469,6 @@ async fn execute(
                 "step": step.step,
                 "command": step.command,
                 "effects": step.effects,
-                "approval": match step.approval {
-                    Approval::Auto => "auto",
-                    Approval::Approved => "approved",
-                },
                 "status": step.status,
             })
         })
@@ -488,17 +480,23 @@ async fn execute(
             step,
             command,
             effects,
-            refusal,
+            own,
         } => serde_json::json!({
             "kind": "refused",
             "step": step,
             "command": command,
             "effects": effects,
-            "refusal": match refusal {
-                Refusal::Denied => "denied",
-                Refusal::Unanswered => "unanswered",
-                Refusal::GatewayRefused => "gateway_refused",
-            },
+            "own": own.path,
+        }),
+        End::Rejected {
+            step,
+            command,
+            effects,
+        } => serde_json::json!({
+            "kind": "rejected",
+            "step": step,
+            "command": command,
+            "effects": effects,
         }),
     };
     let details = serde_json::json!({ "version": VERSION, "steps": steps, "end": end });
@@ -527,13 +525,26 @@ fn settle(ran: &Ran, transcript: &Transcript) -> (CellStatus, i32) {
             step,
             command,
             effects,
-            refusal,
+            own,
         } => {
             transcript.push(
                 &format!(
-                    "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {}]\n",
+                    "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {own}.]\n",
                     effects.names(),
-                    RefusalText::of(*refusal)
+                ),
+                true,
+            );
+            (CellStatus::Error, 1)
+        }
+        End::Rejected {
+            step,
+            command,
+            effects,
+        } => {
+            transcript.push(
+                &format!(
+                    "[stopped at step {step} ({}): `{command}` and the steps after it did not run: {EDITOR_REFUSED}.]\n",
+                    effects.names(),
                 ),
                 true,
             );
@@ -556,8 +567,8 @@ fn detached_result(
         severity: ToolDiagnosticSeverity::Info,
         code: Some("detached".to_owned()),
         message: format!(
-            "The script outlived the {budget_ms} ms blocking budget and continues as job {job}; a \
-             step that needs approval still asks the user. Its result arrives on its own as a \
+            "The script outlived the {budget_ms} ms blocking budget and continues as job {job}. \
+             Its result arrives on its own as a \
              [job-settled job:{job}] message: never poll. Do the work that does not need this \
              result and edits no file it reads (a check judges only the tree it ran on); \
              `await jobs.wait(\"{job}\")` only when nothing else can proceed."

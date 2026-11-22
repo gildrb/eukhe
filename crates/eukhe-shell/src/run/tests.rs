@@ -1,36 +1,11 @@
-use std::collections::VecDeque;
 use std::os::unix::fs::PermissionsExt as _;
 use std::time::Duration;
 
-use eukhe_types::path_policy::PathRule;
+use eukhe_types::path_policy::{OwnKind, OwnPath, OwnRule, PathRule};
 use parking_lot::Mutex;
 use ShellEffect::{Exec, Net, Outside, Protected, Read, Secret, Write};
 
 use super::*;
-
-/// Answers the gated steps in order from a list (none left: no answer)
-/// and keeps every question.
-struct Scripted {
-    answers: Mutex<VecDeque<Answer>>,
-    asked: Mutex<Vec<Ask>>,
-}
-
-impl Scripted {
-    fn new(answers: impl IntoIterator<Item = Answer>) -> Self {
-        Self {
-            answers: Mutex::new(answers.into_iter().collect()),
-            asked: Mutex::new(Vec::new()),
-        }
-    }
-}
-
-impl Approver for Scripted {
-    fn approve(&self, ask: Ask) -> impl Future<Output = Answer> + Send {
-        self.asked.lock().push(ask);
-        let answer = self.answers.lock().pop_front();
-        std::future::ready(answer.unwrap_or(Answer::Unanswered))
-    }
-}
 
 /// What the sink saw of one step.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -99,7 +74,7 @@ fn seen(ran: &Ran, record: &Record) -> Vec<Seen> {
 /// A work dir with a `bin` of stand-in programs (`curl`, `tool`) that
 /// print their arguments; the shell's `PATH` is that `bin`, then the
 /// system's. The workspace is `work`; `guard` is protected, `keys` a
-/// secret (both outside `work`).
+/// secret, `agent` eukhe's own config (all outside `work`).
 struct Bench {
     dir: tempfile::TempDir,
 }
@@ -114,7 +89,7 @@ impl Bench {
             std::fs::write(&path, format!("#!/bin/sh\necho {name} \"$@\"\n")).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        for sub in ["work", "guard", "keys"] {
+        for sub in ["work", "guard", "keys", "agent"] {
             std::fs::create_dir(dir.path().join(sub)).unwrap();
         }
         std::fs::write(dir.path().join("keys/id"), "secret\n").unwrap();
@@ -125,12 +100,23 @@ impl Bench {
         self.dir.path().join("work")
     }
 
+    /// `name` in the own `agent` dir, as the refusal names it (real).
+    fn agent(&self, name: &str) -> PathBuf {
+        std::fs::canonicalize(self.dir.path().join("agent"))
+            .unwrap()
+            .join(name)
+    }
+
     fn paths(&self) -> PathPolicy {
         PathPolicy::new(
             vec![self.work()],
             vec![PathRule::Tree(self.dir.path().join("guard"))],
             vec![self.dir.path().join("keys")],
         )
+        .with_own(vec![OwnRule {
+            path: OwnPath::Tree(self.dir.path().join("agent")),
+            kind: OwnKind::Config,
+        }])
     }
 
     fn shell(&self) -> Shell {
@@ -151,20 +137,12 @@ impl Bench {
     }
 }
 
-fn ran(
-    step: u64,
-    command: &str,
-    effects: &[ShellEffect],
-    approval: Approval,
-    stdout: &str,
-    status: i32,
-) -> Seen {
+fn ran(step: u64, command: &str, effects: &[ShellEffect], stdout: &str, status: i32) -> Seen {
     Seen {
         run: StepRun {
             step,
             command: command.to_string(),
             effects: ShellEffects::of(effects),
-            approval,
             status,
         },
         stdout: stdout.to_string(),
@@ -172,19 +150,19 @@ fn ran(
     }
 }
 
+/// Every step runs unasked, an irreversible one too; a step that writes
+/// an own path is refused, and it and every later step do not run.
 #[tokio::test]
-async fn approved_steps_run_and_a_denial_stops_the_script() {
+async fn every_step_runs_unasked_and_an_own_write_stops_the_script() {
     let bench = Bench::new();
     std::fs::write(bench.work().join("notes"), "one\ntwo\n").unwrap();
-    let approver = Scripted::new([Answer::Approve, Answer::Deny]);
     let record = Record::default();
     let mut shell = bench.shell();
     let got = shell
         .run(
-            "cat notes | grep -c o\necho made > out.txt && cat out.txt\ncurl https://example.com\ntouch never",
-            AutoSet::new([Read]),
+            "cat notes | grep -c o\necho made > out.txt && cat out.txt\ncurl https://example.com\necho x > ../agent/settings.json\ntouch never",
             &bench.paths(),
-            &approver,
+            &Unasked,
             &record,
         )
         .await;
@@ -192,57 +170,93 @@ async fn approved_steps_run_and_a_denial_stops_the_script() {
         (seen(&got, &record), got.end),
         (
             vec![
-                ran(0, "cat notes", &[Read], Approval::Auto, "", 0),
-                ran(1, "grep -c o", &[Read], Approval::Auto, "2\n", 0),
+                ran(0, "cat notes", &[Read], "", 0),
+                ran(1, "grep -c o", &[Read], "2\n", 0),
+                ran(2, "echo made >out.txt", &[Read, Write], "", 0),
+                ran(3, "cat out.txt", &[Read], "made\n", 0),
                 ran(
-                    2,
-                    "echo made >out.txt",
-                    &[Read, Write],
-                    Approval::Approved,
-                    "",
+                    4,
+                    "curl https://example.com",
+                    &[Net],
+                    "curl https://example.com\n",
                     0
                 ),
-                ran(3, "cat out.txt", &[Read], Approval::Auto, "made\n", 0),
             ],
             End::Refused {
-                step: 4,
-                command: "curl https://example.com".to_string(),
-                effects: ShellEffects::of(&[Net]),
-                refusal: Refusal::Denied,
+                step: 5,
+                command: "echo x >../agent/settings.json".to_string(),
+                effects: ShellEffects::of(&[Read, Write, Outside]),
+                own: OwnWrite {
+                    path: bench.agent("settings.json"),
+                    kind: OwnKind::Config,
+                },
             },
         )
     );
     assert_eq!(
-        *approver.asked.lock(),
-        vec![
-            Ask {
-                step: 2,
-                command: "echo made >out.txt".to_string(),
-                effects: ShellEffects::of(&[Read, Write]),
-            },
-            Ask {
-                step: 4,
-                command: "curl https://example.com".to_string(),
-                effects: ShellEffects::of(&[Net]),
-            },
-        ]
+        (
+            bench.agent("settings.json").exists(),
+            bench.work().join("never").exists()
+        ),
+        (false, false)
     );
-    assert!(!bench.work().join("never").exists());
+}
+
+/// A pipeline is checked whole before any of its stages starts (they run
+/// together): a pipeline with no own write runs every stage; one whose
+/// second stage writes an own path runs no stage, the script ends refused
+/// at that stage's id, and no later step runs.
+#[tokio::test]
+async fn an_own_write_in_a_pipeline_runs_none_of_its_stages() {
+    let bench = Bench::new();
+    let record = Record::default();
+    let mut shell = bench.shell();
+    let got = shell
+        .run(
+            "echo a | cat\necho b | cat > ../agent/settings.json\ntouch never",
+            &bench.paths(),
+            &Unasked,
+            &record,
+        )
+        .await;
+    assert_eq!(
+        (seen(&got, &record), got.end),
+        (
+            vec![
+                ran(0, "echo a", &[Read], "", 0),
+                ran(1, "cat", &[Read], "a\n", 0),
+            ],
+            End::Refused {
+                step: 3,
+                command: "cat >../agent/settings.json".to_string(),
+                effects: ShellEffects::of(&[Read, Write, Outside]),
+                own: OwnWrite {
+                    path: bench.agent("settings.json"),
+                    kind: OwnKind::Config,
+                },
+            },
+        )
+    );
+    assert_eq!(
+        (
+            bench.agent("settings.json").exists(),
+            bench.work().join("never").exists()
+        ),
+        (false, false)
+    );
 }
 
 #[tokio::test]
 async fn shell_state_chains_and_external_programs() {
     let bench = Bench::new();
     std::fs::create_dir(bench.work().join("sub")).unwrap();
-    let approver = Scripted::new([]);
     let record = Record::default();
     let mut shell = bench.shell();
     let got = shell
         .run(
             "cd sub; export WHO=me; X=1; false || echo \"$WHO $X $?\"; tool a 'b c' 2>&1; missing-program; exit 3; echo after",
-            AutoSet::new([Read, Exec]),
             &bench.paths(),
-            &approver,
+            &Unasked,
             &record,
         )
         .await;
@@ -250,24 +264,17 @@ async fn shell_state_chains_and_external_programs() {
         (seen(&got, &record), got.end),
         (
             vec![
-                ran(0, "cd sub", &[Read], Approval::Auto, "", 0),
-                ran(1, "export WHO=me", &[Exec], Approval::Auto, "", 0),
-                ran(2, "X=1", &[Exec], Approval::Auto, "", 0),
-                ran(3, "false", &[Read], Approval::Auto, "", 1),
-                ran(4, "echo 'me 1 1'", &[Read], Approval::Auto, "me 1 1\n", 0),
-                ran(
-                    5,
-                    "tool a 'b c' 2>&1",
-                    &[Exec],
-                    Approval::Auto,
-                    "tool a b c\n",
-                    0
-                ),
+                ran(0, "cd sub", &[Read], "", 0),
+                ran(1, "export WHO=me", &[Exec], "", 0),
+                ran(2, "X=1", &[Exec], "", 0),
+                ran(3, "false", &[Read], "", 1),
+                ran(4, "echo 'me 1 1'", &[Read], "me 1 1\n", 0),
+                ran(5, "tool a 'b c' 2>&1", &[Exec], "tool a b c\n", 0),
                 Seen {
                     stderr: "eukhe-shell: missing-program: command not found\n".to_string(),
-                    ..ran(6, "missing-program", &[Exec], Approval::Auto, "", 127)
+                    ..ran(6, "missing-program", &[Exec], "", 127)
                 },
-                ran(7, "exit 3", &[Read], Approval::Auto, "", 3),
+                ran(7, "exit 3", &[Read], "", 3),
             ],
             End::Exited { status: 3 },
         )
@@ -278,58 +285,47 @@ async fn shell_state_chains_and_external_programs() {
     );
 }
 
+/// A script outside the grammar is one step of the external shell with
+/// every effect its commands hold: it runs unasked, and is refused whole
+/// when one of its commands writes an own path.
 #[tokio::test]
 async fn a_script_outside_the_grammar_is_one_step_with_every_effect_it_holds() {
     let bench = Bench::new();
     let script = "for f in a b; do echo $f; done";
-    let unanswered = bench
+    let record = Record::default();
+    let got = bench
         .shell()
-        .run(
-            script,
-            AutoSet::new([Read]),
-            &bench.paths(),
-            &Scripted::new([]),
-            &Record::default(),
-        )
+        .run(script, &bench.paths(), &Unasked, &record)
         .await;
     let command = format!("bash -c '{script}'");
     assert_eq!(
-        unanswered,
+        (seen(&got, &record), got.end),
+        (
+            vec![ran(0, &command, &[Read, Exec], "a\nb\n", 0)],
+            End::Finished { status: 0 },
+        )
+    );
+    let script = "for f in a; do echo $f > ../agent/f; done";
+    let got = bench
+        .shell()
+        .run(script, &bench.paths(), &Unasked, &Record::default())
+        .await;
+    assert_eq!(
+        got,
         Ran {
             steps: Vec::new(),
             end: End::Refused {
                 step: 0,
-                command: command.clone(),
-                effects: ShellEffects::of(&[Read, Exec]),
-                refusal: Refusal::Unanswered,
+                command: format!("bash -c '{script}'"),
+                effects: ShellEffects::of(&[Read, Write, Exec, Outside]),
+                own: OwnWrite {
+                    path: bench.agent("f"),
+                    kind: OwnKind::Config,
+                },
             },
         }
     );
-    let record = Record::default();
-    let approved = bench
-        .shell()
-        .run(
-            script,
-            AutoSet::new([Read]),
-            &bench.paths(),
-            &Scripted::new([Answer::Approve]),
-            &record,
-        )
-        .await;
-    assert_eq!(
-        (seen(&approved, &record), approved.end),
-        (
-            vec![ran(
-                0,
-                &command,
-                &[Read, Exec],
-                Approval::Approved,
-                "a\nb\n",
-                0
-            )],
-            End::Finished { status: 0 },
-        )
-    );
+    assert!(!bench.agent("f").exists());
 }
 
 /// Regression: the commands of a pipeline run together, so a command
@@ -339,14 +335,13 @@ async fn a_script_outside_the_grammar_is_one_step_with_every_effect_it_holds() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pipeline_ends_when_its_last_command_stops_reading() {
     let bench = Bench::new();
-    let auto = AutoSet::new([Read]);
     let paths = bench.paths();
     let record = Record::default();
     let got = tokio::time::timeout(
         Duration::from_secs(10),
         bench
             .shell()
-            .run("yes | head -n 3", auto, &paths, &Scripted::new([]), &record),
+            .run("yes | head -n 3", &paths, &Unasked, &record),
     )
     .await
     .expect("`yes | head -n 3` ends");
@@ -354,8 +349,8 @@ async fn a_pipeline_ends_when_its_last_command_stops_reading() {
         (seen(&got, &record), got.end),
         (
             vec![
-                ran(0, "yes", &[Read], Approval::Auto, "", 141),
-                ran(1, "head -n 3", &[Read], Approval::Auto, "y\ny\ny\n", 0),
+                ran(0, "yes", &[Read], "", 141),
+                ran(1, "head -n 3", &[Read], "y\ny\ny\n", 0),
             ],
             End::Finished { status: 0 },
         )
@@ -363,13 +358,9 @@ async fn a_pipeline_ends_when_its_last_command_stops_reading() {
     let record = Record::default();
     let got = tokio::time::timeout(
         Duration::from_secs(10),
-        bench.shell().run(
-            "yes | cat | head -n 2",
-            auto,
-            &paths,
-            &Scripted::new([]),
-            &record,
-        ),
+        bench
+            .shell()
+            .run("yes | cat | head -n 2", &paths, &Unasked, &record),
     )
     .await
     .expect("`yes | cat | head -n 2` ends");
@@ -377,29 +368,27 @@ async fn a_pipeline_ends_when_its_last_command_stops_reading() {
         (seen(&got, &record), got.end),
         (
             vec![
-                ran(0, "yes", &[Read], Approval::Auto, "", 141),
-                ran(1, "cat", &[Read], Approval::Auto, "", 141),
-                ran(2, "head -n 2", &[Read], Approval::Auto, "y\ny\n", 0),
+                ran(0, "yes", &[Read], "", 141),
+                ran(1, "cat", &[Read], "", 141),
+                ran(2, "head -n 2", &[Read], "y\ny\n", 0),
             ],
             End::Finished { status: 0 },
         )
     );
 }
 
-/// A refused command of a pipeline runs none of it: the commands are
-/// gated in order before any runs, so the endless `yes` before the
-/// refused `tool` never starts.
+/// A refused command of a pipeline runs none of it: every command is
+/// judged before any runs, so the endless `yes` before the refused `cat`
+/// never starts.
 #[tokio::test]
 async fn a_refused_command_runs_none_of_its_pipeline() {
     let bench = Bench::new();
-    let approver = Scripted::new([Answer::Deny]);
     let got = bench
         .shell()
         .run(
-            "echo first; yes | tool x",
-            AutoSet::new([Read]),
+            "echo first; yes | cat > ../agent/x",
             &bench.paths(),
-            &approver,
+            &Unasked,
             &Record::default(),
         )
         .await;
@@ -409,9 +398,12 @@ async fn a_refused_command_runs_none_of_its_pipeline() {
             1,
             End::Refused {
                 step: 2,
-                command: "tool x".to_string(),
-                effects: ShellEffects::of(&[Exec]),
-                refusal: Refusal::Denied,
+                command: "cat >../agent/x".to_string(),
+                effects: ShellEffects::of(&[Read, Write, Outside]),
+                own: OwnWrite {
+                    path: bench.agent("x"),
+                    kind: OwnKind::Config,
+                },
             }
         )
     );
@@ -419,37 +411,22 @@ async fn a_refused_command_runs_none_of_its_pipeline() {
 
 /// Regression (audit H4, H2, M4): a step had one effect, so a write
 /// redirection of a `Net` or `Exec` step, a write outside the workspace
-/// or to a protected place, and a read of a secret ran with the auto set
-/// of its main effect. Every effect gates the same way: the widest auto
-/// set runs the whole script, a narrow one asks for each effect it
-/// lacks.
+/// or to a protected place, and a read of a secret counted only its main
+/// effect. Every effect of a step is its own, so each irreversible one
+/// is recorded.
 #[tokio::test]
-async fn every_effect_of_a_step_must_be_allowed() {
+async fn every_effect_of_a_step_counts() {
     let bench = Bench::new();
-    let approver = Scripted::new([]);
     let got = bench
         .shell()
         .run(
             "curl x > got; touch ../out; touch ../guard/g; cat ../keys/id; cp ../keys/id copy",
-            AutoSet::new(ShellEffect::ALL),
             &bench.paths(),
-            &approver,
+            &Unasked,
             &Record::default(),
         )
         .await;
-    assert_eq!((got.steps.len(), got.end), (5, End::Finished { status: 0 }));
-    let asked = Scripted::new([Answer::Approve; 4]);
-    let got = bench
-        .shell()
-        .run(
-            "curl x > got; touch ../out; touch ../guard/g; cat ../keys/id; cp ../keys/id copy",
-            AutoSet::new([Read, Net]),
-            &bench.paths(),
-            &asked,
-            &Record::default(),
-        )
-        .await;
-    let effects: Vec<ShellEffects> = asked.asked.lock().iter().map(|ask| ask.effects).collect();
+    let effects: Vec<ShellEffects> = got.steps.iter().map(|step| step.effects).collect();
     assert_eq!(
         (effects, got.end),
         (
@@ -460,84 +437,193 @@ async fn every_effect_of_a_step_must_be_allowed() {
                 ShellEffects::of(&[Read, Secret]),
                 ShellEffects::of(&[Write, Secret]),
             ],
-            End::Refused {
-                step: 4,
-                command: "cp ../keys/id copy".to_string(),
-                effects: ShellEffects::of(&[Write, Secret]),
-                refusal: Refusal::Unanswered,
-            }
+            End::Finished { status: 0 },
         )
     );
+}
+
+/// The steps of `ran` that access a secret.
+fn secret_steps(ran: &Ran) -> Vec<u64> {
+    ran.steps
+        .iter()
+        .filter(|step| step.effects.contains(Secret))
+        .map(|step| step.step)
+        .collect()
 }
 
 /// Regression: every step run in a working directory that held a secret
 /// (the home dir) had `Secret`, so `echo hi`, `date` and `git -C repo
-/// log` there always asked. Only a step that reads the directory
-/// because it names no path of its own and descends into it (`rg x`,
-/// `grep -r x`, `find -name x`, `du`) reads the secret in it; a shallow
-/// `ls` names the entries and reads nothing below them.
+/// log` there counted as irreversible. Only a step that reads the
+/// directory because it names no path of its own and descends into it
+/// (`rg x`, `grep -r x`, `find -name x`, `du`) reads the secret in it; a
+/// shallow `ls` names the entries and reads nothing below them.
 #[tokio::test]
 async fn only_a_step_that_reads_its_working_directory_reads_a_secret_in_it() {
     let bench = Bench::new();
-    let asked = Scripted::new([Answer::Approve; 5]);
     let got = bench
         .shell_at(bench.dir.path().to_path_buf())
         .run(
             "echo hi; date; git -C work log; ls work; rg x work; ls; rg x; grep -r x; find -name x; du",
-            AutoSet::new([Read]),
             &bench.paths(),
-            &asked,
+            &Unasked,
             &Record::default(),
         )
         .await;
-    let asked: Vec<(u64, ShellEffects)> = asked
-        .asked
-        .lock()
-        .iter()
-        .map(|ask| (ask.step, ask.effects))
-        .collect();
     assert_eq!(
-        (asked, got.steps.len()),
-        (
-            (6..10)
-                .map(|step| (step, ShellEffects::of(&[Read, Secret])))
-                .collect(),
-            10
-        )
+        (secret_steps(&got), got.steps.len()),
+        ((6..10).collect(), 10)
     );
 }
 
 /// A shallow `ls` of a directory that only holds a secret below it (the
-/// bench dir over `keys`) names the entries and reads no secret: no
-/// ask. A recursive `ls -R` of it, `find` and `rg` over it, a listing
-/// of the secret itself and a read inside it still ask.
+/// bench dir over `keys`) names the entries and reads no secret. A
+/// recursive `ls -R` of it, `find` and `rg` over it, a listing of the
+/// secret itself and a read inside it read the secret.
 #[tokio::test]
 async fn a_shallow_ls_of_a_secret_holding_directory_reads_no_secret() {
     let bench = Bench::new();
-    let asked = Scripted::new([Answer::Approve; 5]);
     let got = bench
         .shell_at(bench.dir.path().to_path_buf())
         .run(
             "ls .; ls keys; ls -R .; find .; rg x .; cat keys/id",
-            AutoSet::new([Read]),
             &bench.paths(),
-            &asked,
+            &Unasked,
             &Record::default(),
         )
         .await;
-    let asked: Vec<(u64, ShellEffects)> = asked
-        .asked
-        .lock()
-        .iter()
-        .map(|ask| (ask.step, ask.effects))
-        .collect();
-    assert_eq!(
-        (asked, got.steps.len()),
-        (
-            (1..6)
-                .map(|step| (step, ShellEffects::of(&[Read, Secret])))
-                .collect(),
-            6
+    assert_eq!((secret_steps(&got), got.steps.len()), ((1..6).collect(), 6));
+}
+
+/// Asks about each step in order and refuses one (`refused`), keeping
+/// every question, and when each question and each step's end came.
+struct Editor {
+    refused: u64,
+    asked: Mutex<Vec<(u64, String, ShellEffects)>>,
+    order: Mutex<Vec<(&'static str, u64)>>,
+}
+
+impl Editor {
+    fn refusing(refused: u64) -> Self {
+        Self {
+            refused,
+            asked: Mutex::new(Vec::new()),
+            order: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Steps for Editor {
+    fn allows(
+        &self,
+        step: u64,
+        command: &str,
+        effects: ShellEffects,
+    ) -> impl Future<Output = bool> + Send {
+        self.asked.lock().push((step, command.to_owned(), effects));
+        self.order.lock().push(("asked", step));
+        std::future::ready(step != self.refused)
+    }
+
+    fn ran(&self, ran: &StepRun) -> impl Future<Output = ()> + Send {
+        self.order.lock().push(("ran", ran.step));
+        std::future::ready(())
+    }
+}
+
+/// Each step that ran goes to the hooks at its own end, before the next
+/// step is asked about or starts; a pipeline's steps end together.
+#[tokio::test]
+async fn each_step_goes_to_the_hooks_at_its_own_end() {
+    let bench = Bench::new();
+    let editor = Editor::refusing(u64::MAX);
+    let got = bench
+        .shell()
+        .run(
+            "echo one > one.txt; echo two | cat > two.txt; echo three",
+            &bench.paths(),
+            &editor,
+            &Record::default(),
         )
+        .await;
+    assert_eq!(
+        (got.steps.len(), editor.order.lock().clone()),
+        (
+            4,
+            vec![
+                ("asked", 0),
+                ("ran", 0),
+                ("asked", 1),
+                ("asked", 2),
+                ("ran", 1),
+                ("ran", 2),
+                ("asked", 3),
+                ("ran", 3),
+            ]
+        )
+    );
+}
+
+/// A step the hooks refuse does not run, and neither does any later
+/// step: the script ends `Rejected` there. An own write is refused before
+/// the hooks are asked about it.
+#[tokio::test]
+async fn a_step_before_refuses_stops_the_script() {
+    let bench = Bench::new();
+    let editor = Editor::refusing(1);
+    let record = Record::default();
+    let got = bench
+        .shell()
+        .run(
+            "echo one > one.txt; curl https://example.com; echo two > two.txt",
+            &bench.paths(),
+            &editor,
+            &record,
+        )
+        .await;
+    assert_eq!(
+        (
+            seen(&got, &record),
+            got.end,
+            editor.asked.lock().clone(),
+            bench.work().join("two.txt").exists()
+        ),
+        (
+            vec![ran(0, "echo one >one.txt", &[Read, Write], "", 0)],
+            End::Rejected {
+                step: 1,
+                command: "curl https://example.com".to_string(),
+                effects: ShellEffects::of(&[Net]),
+            },
+            vec![
+                (
+                    0,
+                    "echo one >one.txt".to_owned(),
+                    ShellEffects::of(&[Read, Write])
+                ),
+                (
+                    1,
+                    "curl https://example.com".to_owned(),
+                    ShellEffects::of(&[Net])
+                ),
+            ],
+            false
+        )
+    );
+    let editor = Editor::refusing(u64::MAX);
+    let got = bench
+        .shell()
+        .run(
+            "echo x > ../agent/f",
+            &bench.paths(),
+            &editor,
+            &Record::default(),
+        )
+        .await;
+    assert_eq!(
+        (
+            matches!(got.end, End::Refused { .. }),
+            editor.asked.lock().len()
+        ),
+        (true, 0)
     );
 }

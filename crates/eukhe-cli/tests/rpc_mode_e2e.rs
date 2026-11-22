@@ -1095,22 +1095,23 @@ fn rpc_failed_replacement_restarts_the_queue_pump() {
     // The steer parks behind the running turn.
     let steer = client.request(&json!({ "type": "steer", "message": "steer me" }));
     assert_eq!(steer["success"], true, "the steer queues: {steer}");
-    // The switch fails its assembly AFTER the settle: the crafted
-    // header stores a cwd that no longer exists (a merely missing file
-    // lazily opens as a new session instead), so the factory's
-    // missing-cwd guard refuses deterministically. The replacement
-    // retired the pump, the assembly failed, and the restart must hand
-    // the parked rows back to a live pump.
-    let bad_file = client.agent_dir().join("bad-cwd-session.jsonl");
+    // The switch fails its assembly AFTER the settle: the crafted legacy
+    // file's storage directory is a regular file (a merely missing file
+    // lazily opens as a new session instead), so the open of its storage
+    // refuses deterministically. The replacement retired the pump, the
+    // assembly failed, and the restart must hand the parked rows back to
+    // a live pump.
+    let bad_file = client.agent_dir().join("bad-storage-session.jsonl");
     std::fs::write(
         &bad_file,
         concat!(
-            "{\"type\":\"session\",\"id\":\"bad-cwd\",",
-            "\"timestamp\":\"2026-09-26T00:00:00.000Z\",",
-            "\"cwd\":\"/definitely/missing/project\"}\n"
+            "{\"type\":\"session\",\"id\":\"bad-storage\",",
+            "\"timestamp\":\"2026-09-26T00:00:00.000Z\"}\n"
         ),
     )
     .expect("write the crafted session");
+    std::fs::write(client.agent_dir().join("bad-storage-session"), "")
+        .expect("block the session's storage directory");
     let bad = client.command(&json!({
         "type": "switch_session",
         "sessionPath": bad_file.to_string_lossy()
@@ -1119,12 +1120,12 @@ fn rpc_failed_replacement_restarts_the_queue_pump() {
     let (failed, before) = client.wait_response(&bad, TIMEOUT);
     assert_eq!(
         failed["success"], false,
-        "the stale-cwd session fails the switch: {failed}"
+        "the blocked storage fails the switch: {failed}"
     );
     let error = failed["error"].as_str().unwrap_or_default();
     assert!(
-        error.contains("Stored session working directory does not exist"),
-        "the failure is the crafted stale cwd, not an unrelated refusal: {failed}"
+        error.contains("directory creation failed"),
+        "the failure is the blocked storage, not an unrelated refusal: {failed}"
     );
     // The parked row must still deliver: the running turn's post-turn
     // steering fold drains it while the settle waits the turn out (its

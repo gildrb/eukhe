@@ -67,12 +67,18 @@ libc = "0.2"
 futures = { workspace = true }
 crossterm = "0.28"
 # `user`: the unit tests' never-touch guard reads the account's own home
-# (passwd), whatever HOME a test sets.
-nix = { version = "0.29", features = ["term", "signal", "fs", "socket", "user"] }
+# (passwd), whatever HOME a test sets. `poll`: the irreversible pty e2e
+# waits until the pty is readable.
+nix = { version = "0.29", features = ["term", "signal", "fs", "socket", "user", "poll"] }
 # The safe calls nix lacks: TIOCSCTTY (the pty child's controlling-terminal
 # claim), PR_SET_PDEATHSIG (the daemon trampoline), and ptsname; and the
 # shared e2e `Daemon` guard's pidfd tree kill and wait.
 rustix = { version = "1", features = ["process", "pty", "event"] }
+# The dashboard e2e opens the bridge's socket as a tab does.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect"] }
+# The irreversible pty e2e includes the TUI's virtual terminal (vt.rs),
+# which splits graphemes.
+unicode-segmentation = "1"
 
 [lints]
 workspace = true

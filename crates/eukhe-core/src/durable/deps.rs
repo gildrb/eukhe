@@ -230,26 +230,20 @@ pub type ProgressNoteSink = Arc<dyn Fn(&str, f64) + Send + Sync>;
 pub type JobSettledSink =
     Arc<dyn Fn(eukhe_types::job::JobSettled, crate::durable::jobs::NoticeAdmission) + Send + Sync>;
 
-/// Asks the user whether one gated step of a `bash` tool script may run
-/// (G5): the daemon worker asks its attached clients and
-/// waits for the first answer, or answers by the gateway rule when its
-/// only clients are the phone gateway, or hands the question to its
-/// parent session when no client is attached.
-pub type ShellApprovalSink = Arc<
+/// Asks the editor attached through ACP whether one irreversible effect
+/// may run (spec I12; `editor_permission`): the daemon worker sends the
+/// question to its editor clients (a subagent's goes to its root's) and
+/// answers the editor's verdict. With no editor attached, or when it
+/// detaches unanswered, the answer is [`EditorVerdict::Allow`].
+///
+/// [`EditorVerdict::Allow`]: eukhe_types::effects::EditorVerdict::Allow
+pub type EditorPermissionSink = Arc<
     dyn Fn(
-            eukhe_types::shell::ShellApprovalRequest,
-        ) -> BoxFuture<'static, eukhe_types::shell::ShellAnswer>
+            eukhe_types::effects::EditorPermissionRequest,
+        ) -> BoxFuture<'static, eukhe_types::effects::EditorVerdict>
         + Send
         + Sync,
 >;
-
-/// An MCP login surface: the UI the OAuth flow drives and its HTTP client
-/// (see [`crate::mcp::wire_begin_login`]).
-#[derive(Clone)]
-pub struct McpLogin {
-    pub ui: Arc<dyn crate::mcp::McpLoginUi>,
-    pub http: Arc<dyn crate::mcp::OAuthHttp>,
-}
 
 /// What an eukhe session opens with.
 #[derive(Clone)]
@@ -281,11 +275,6 @@ pub struct SessionConfig {
     pub models: Option<Models>,
     /// Shared MCP manager (the daemon worker's); `None` builds one.
     pub mcp: Option<Arc<Mutex<crate::mcp::McpManager>>>,
-    /// The interactive login behind the session MCP manager's
-    /// `mcp.begin_login` host request (the daemon worker's browser login);
-    /// `None` leaves the request unregistered (TS registers it only when a
-    /// login is wired).
-    pub mcp_login: Option<McpLogin>,
     /// Harness clock (ms since the epoch); `None` uses the system clock.
     pub now: Option<Clock>,
     /// The provider admission authority the session's model requests ask
@@ -313,9 +302,16 @@ pub struct SessionConfig {
     /// Settled detached jobs (the daemon's job-settled wake); `None` drops
     /// them.
     pub job_settled: Option<JobSettledSink>,
-    /// The approval channel of the `bash` tool's gated steps; `None`
-    /// leaves every gated step unanswered (denied).
-    pub shell_approval: Option<ShellApprovalSink>,
+    /// Asked before an irreversible effect runs (a `bash` step, a
+    /// document access, an MCP call); `None`: nothing asks, every effect
+    /// runs.
+    pub editor_permission: Option<EditorPermissionSink>,
+    /// How a subagent's irreversible effects reach its root's ledger;
+    /// `None`: the session is a root and records in its own.
+    pub ran_effect_relay: Option<super::ran_effects::RanEffectRelay>,
+    /// Each root run's end-of-run report (spec I6); `None` drops it (the
+    /// ledger keeps every effect either way).
+    pub run_report: Option<super::ran_effects::RunReportSink>,
     /// Boot the main conversation's Python kernel in the background at open
     /// (TS `createDefaultRuntimeFactory`'s `prewarmIpythonKernel: true`, the
     /// daemon's sessions): honored for top-level sessions only (the TS
@@ -359,7 +355,6 @@ impl SessionConfig {
             prompt: PromptConfig::default(),
             models: None,
             mcp: None,
-            mcp_login: None,
             now: None,
             admission: None,
             admission_state: None,
@@ -368,7 +363,9 @@ impl SessionConfig {
             late_agent_message: None,
             progress_note: None,
             job_settled: None,
-            shell_approval: None,
+            editor_permission: None,
+            ran_effect_relay: None,
+            run_report: None,
             prewarm_kernel: false,
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
@@ -563,8 +560,12 @@ pub struct HostDeps {
     pub late_agent_message: Option<LateAgentMessageSink>,
     pub progress_note: Option<ProgressNoteSink>,
     pub job_settled: Option<JobSettledSink>,
-    /// [`SessionConfig::shell_approval`].
-    pub shell_approval: Option<ShellApprovalSink>,
+    /// [`SessionConfig::editor_permission`].
+    pub editor_permission: Option<EditorPermissionSink>,
+    /// [`SessionConfig::ran_effect_relay`].
+    pub ran_effect_relay: Option<super::ran_effects::RanEffectRelay>,
+    /// [`SessionConfig::run_report`].
+    pub run_report: Option<super::ran_effects::RunReportSink>,
     /// [`SessionConfig::prewarm_kernel`].
     pub prewarm_kernel: bool,
     /// [`SessionConfig::kernel_python`].
@@ -597,6 +598,9 @@ pub struct HostDeps {
     /// Resolves once the `eukhe.compaction` observer serviced every commit
     /// published before the call; set when the observer starts.
     pub(crate) compaction_barrier: OnceLock<ObserverBarrier>,
+    /// Resolves once the run service ([`super::ran_effects`]) read every
+    /// commit published before the call; set when the service starts.
+    pub(crate) runs_barrier: OnceLock<ObserverBarrier>,
     /// The jobs of the session.
     pub jobs: super::jobs::JobTable,
     /// The session's live state tree, set when the session opens.
@@ -618,6 +622,9 @@ pub struct HostDeps {
     /// checks (start, each interval while one runs, end), for the
     /// frontends' status ([`super::EukheSession::checks`]).
     pub checks: tokio::sync::broadcast::Sender<eukhe_types::daemon::agent_tree::CheckProgress>,
+    /// The workspace snapshots of `/undo` and `/diff`: a top-level session
+    /// with durable storage keeps them; `None` for any other.
+    pub turn_snapshots: Option<Arc<crate::undo::TurnSnapshots>>,
 }
 
 /// A barrier through a commit observer's queue.
@@ -645,6 +652,12 @@ pub(crate) struct ResolvedServices {
 impl HostDeps {
     pub(crate) fn new(config: &SessionConfig, services: ResolvedServices) -> Self {
         let harness = HarnessCell::default();
+        let turn_snapshots = (config.role.is_root() && services.storage_dir.is_some())
+            .then(|| {
+                crate::undo::TurnSnapshots::open(&config.agent_dir, &config.session_id, &config.cwd)
+            })
+            .flatten()
+            .map(Arc::new);
         Self {
             run_pause: Arc::new(super::children::RunPause::new(harness.clone())),
             agent_dir: config.agent_dir.clone(),
@@ -668,7 +681,9 @@ impl HostDeps {
             late_agent_message: config.late_agent_message.clone(),
             progress_note: config.progress_note.clone(),
             job_settled: config.job_settled.clone(),
-            shell_approval: config.shell_approval.clone(),
+            editor_permission: config.editor_permission.clone(),
+            ran_effect_relay: config.ran_effect_relay.clone(),
+            run_report: config.run_report.clone(),
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),
@@ -680,6 +695,7 @@ impl HostDeps {
             rlm_kernels: OnceLock::new(),
             optchat: OnceLock::new(),
             compaction_barrier: OnceLock::new(),
+            runs_barrier: OnceLock::new(),
             closing: SessionClosing::default(),
             jobs: super::jobs::JobTable::new(harness),
             state_tree: OnceLock::new(),
@@ -688,6 +704,7 @@ impl HostDeps {
             semantic_edges: services.semantic_edges,
             budget: services.budget,
             checks: tokio::sync::broadcast::Sender::new(CHECK_FEED_CAPACITY),
+            turn_snapshots,
         }
     }
 
@@ -713,6 +730,16 @@ impl HostDeps {
     /// overflow outcome, are committed). Immediate before they start.
     pub async fn observers_settled(&self) {
         if let Some(barrier) = self.compaction_barrier.get() {
+            barrier().await;
+        }
+    }
+
+    /// Wait until the run service (a root's, [`super::ran_effects`]) read
+    /// every commit published so far: each run that ended by then handed
+    /// its report to [`SessionConfig::run_report`]. Immediate before it
+    /// starts and in a subagent.
+    pub async fn runs_settled(&self) {
+        if let Some(barrier) = self.runs_barrier.get() {
             barrier().await;
         }
     }

@@ -81,17 +81,18 @@ pub enum DaemonErrorInfo {
     /// or a worker that could not answer: nothing stopped, every session
     /// keeps running.
     DaemonBusy,
-    /// `answer_shell_approval` named a question the session no longer
-    /// holds: a client answered it first, its step ended, or every
-    /// interactive client detached. Nothing to answer; the client drops
-    /// its panel (the `shell_approval_settled` frame usually beat it).
-    ShellApprovalGone,
     /// A prompt's run did not begin: its `/b` prefix does not read, a
     /// profile or preset it names is no limit, or the ledger failed. The
     /// message was not sent and no run stopped, so the refusal is the
     /// answer: a client reports its message (ACP's internal error), never
     /// the stop reason of the run before.
     PrefixRefused,
+    /// `undo_turn` found no snapshot left to restore: nothing changed.
+    NothingToUndo,
+    /// `get_turn_diff` found no snapshot to compare with: no turn ran yet.
+    NothingToDiff,
+    /// `undo_turn` came while a run is going: nothing changed.
+    RunInProgress,
     /// A `code` this build does not know (a newer daemon's typed
     /// refusal): forwards-compatibility — the unknown code must degrade
     /// to the plain refusal message that rides the same response instead
@@ -334,28 +335,15 @@ pub enum DaemonOutbound {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native, advertised by the `shell_approval` capability: the
-    /// session's `bash` tool asks the attached clients whether one step
-    /// may run. Unsequenced, like `side_question_event`: the first
-    /// `answer_shell_approval` for its request id wins. A subagent's
-    /// question reaches the clients of the nearest session up its chain
-    /// that has one; `agent` then names the subagent that asks.
-    ShellApproval {
+    /// Rust-native, sent only to clients that attached with the
+    /// `editor_permission` capability (an ACP editor): may one
+    /// irreversible effect run? The first `answer_editor_permission` for
+    /// its request id decides; with no such client, or when it detaches
+    /// unanswered, the effect runs. Unsequenced, like
+    /// `side_question_event`.
+    EditorPermission {
         active_session_id: String,
-        request: crate::shell::ShellApprovalRequest,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        agent: Option<String>,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
-    /// Rust-native, advertised by the `shell_approval` capability: the
-    /// question `request_id` of the session is no longer pending (a
-    /// client answered it, its step ended or was cancelled, or every
-    /// interactive client detached and it went elsewhere): every client
-    /// drops it. Unsequenced, like `shell_approval`.
-    ShellApprovalSettled {
-        active_session_id: String,
-        request_id: String,
+        request: crate::effects::EditorPermissionRequest,
         #[serde(flatten)]
         rest: JsonMap,
     },

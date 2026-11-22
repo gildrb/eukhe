@@ -85,10 +85,13 @@ impl ConnectionRole {
     pub(crate) fn streams(&self, outbound_type: &str) -> bool {
         match self {
             ConnectionRole::Supervisor { .. } => true,
+            // A direct session client is never an editor (an ACP editor
+            // attaches through the supervisor, which routes its questions).
             ConnectionRole::SessionClient { session } => {
                 session.is_attached()
                     && outbound_type != STATE_TREE_UPDATE_FRAME
                     && outbound_type != crate::worker::CRON_CHANGED_FRAME
+                    && outbound_type != crate::editor_permission::EDITOR_PERMISSION_FRAME
             }
             ConnectionRole::Unauthenticated | ConnectionRole::PeerWorker { .. } => false,
         }

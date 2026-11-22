@@ -126,14 +126,6 @@ export type Session = {
   pending: Pending[];
 };
 
-export type Approval = {
-  requestId: string;
-  step: number;
-  command: string;
-  effects: string[];
-  status: "pending" | "answering" | "elsewhere";
-};
-
 /** Plain text of message content (a string, or text blocks). */
 export function contentText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -261,6 +253,16 @@ function note(
   const notes = session.notes.length >= NOTE_LIMIT ? session.notes.slice(1) : session.notes.slice();
   notes.push({ at: now, kind, text, index: session.messages.length, ...extra });
   return notes;
+}
+
+/** One note of kind `output` (a command's answer), `report` (the end-of-run message) or `error`, kept with its lines. */
+export function withNote(
+  session: Session,
+  kind: "output" | "report" | "error",
+  text: string,
+  now: number,
+): Session {
+  return { ...session, notes: note(session, kind, text, now) };
 }
 
 /** Exact speed of a settled assistant message, from `usage` and `timing`. */
@@ -726,23 +728,6 @@ export function reduce(session: Session, event: SessionEvent, now: number): Sess
   }
 }
 
-const EFFECT_WORDS: Record<string, string> = {
-  read: "reads files",
-  write: "changes files",
-  exec: "runs a program",
-  net: "uses the network",
-  outside: "acts outside the work folder",
-  protected: "changes eukhe's own settings or files",
-  secret: "reads secrets",
-};
-
-/** A step's shell effects as one sentence ("Changes files, uses the network"). */
-export function effectWords(effects: string[]): string {
-  const words = effects.map((effect) => EFFECT_WORDS[effect] ?? `has the effect ${effect}`);
-  const sentence = words.length ? words.join(", ") : "runs a command";
-  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
-}
-
 /** One line naming what a tool call acts on (`cargo test`, `src/main.rs`). */
 export function toolTarget(args: unknown): string {
   if (!args || typeof args !== "object") return typeof args === "string" ? args : "";
@@ -785,7 +770,6 @@ export function basename(path: string | null | undefined): string {
 
 export type PhaseName =
   | "none"
-  | "approval"
   | "retrying"
   | "compacting"
   | "bash"
@@ -829,22 +813,13 @@ function phase(kind: PhaseName, label: string, extra: Partial<Phase> = {}): Phas
  * format.ts, injected to keep this module pure.
  */
 export function derivePhase(
-  state: { session: Session | null; approvals: Approval[] },
+  state: { session: Session | null },
   now: number,
   fmt: typeof Fmt,
 ): Phase {
-  const { session, approvals } = state;
+  const { session } = state;
   if (!session) return phase("none", "");
   const { turn } = session;
-  const waiting = approvals.filter((item) => item.status !== "elsewhere");
-  const first = waiting[0];
-  if (first) {
-    return phase("approval", "Waiting for your approval", {
-      running: true,
-      urgent: true,
-      announce: `Needs your approval: ${first.command}`,
-    });
-  }
   if (turn.retry) {
     const left = Math.max(0, turn.retry.at + turn.retry.delayMs - now);
     return phase("retrying", left > 0 ? `Retrying in ${fmt.seconds(left)}` : "Retrying", {

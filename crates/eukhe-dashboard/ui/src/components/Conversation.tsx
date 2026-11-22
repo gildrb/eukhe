@@ -1,8 +1,8 @@
 // The conversation: turns (the user's bubble, then the assistant's
 // thinking, tools and text in order, then a meta row), the streaming
 // message, the one activity line, the loop line, the running checks'
-// lines, the approval card, pending and queued messages, and "Latest" when
-// scrolled up. It sticks to the bottom only while the reader is there.
+// lines, pending and queued messages, and "Latest" when scrolled up. It
+// sticks to the bottom only while the reader is there.
 
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as stylex from "@stylexjs/stylex";
@@ -14,17 +14,15 @@ import { checkLine } from "../lib/check.ts";
 import { fmt } from "../lib/format.ts";
 import { loopLine } from "../lib/loop.ts";
 import { request, run } from "../lib/link.ts";
-import { answerApproval, bind } from "../lib/session.ts";
+import { bind } from "../lib/session.ts";
 import { store, useStore } from "../lib/store.ts";
 import {
   basename,
   contentText,
   derivePhase,
-  effectWords,
   messageSpeed,
   toolTarget,
   withoutSignalRules,
-  type Approval,
   type Note,
   type Pending,
   type Session,
@@ -594,12 +592,23 @@ const TurnView = memo(
     }
     for (const [index, item] of notes.entries()) {
       answer.push(
-        <p
-          key={`note:${index}`}
-          {...stylex.props(ui.small, item.kind === "error" ? styles.failed : ui.tertiary)}
-        >
-          {item.text}
-        </p>,
+        // A command's answer and the end-of-run message keep their lines.
+        item.kind === "output" || item.kind === "report" ? (
+          <pre
+            key={`note:${index}`}
+            translate={false}
+            {...stylex.props(ui.mono, styles.output, item.kind === "report" && styles.report)}
+          >
+            {item.text}
+          </pre>
+        ) : (
+          <p
+            key={`note:${index}`}
+            {...stylex.props(ui.small, item.kind === "error" ? styles.failed : ui.tertiary)}
+          >
+            {item.text}
+          </p>
+        ),
       );
     }
     if (!running)
@@ -640,55 +649,6 @@ function turnSignature(
 }
 
 // ----------------------------------------------------------- the tail --
-
-function ApprovalCard({ item }: { item: Approval }) {
-  const busy = item.status === "answering";
-  const card = useRef<HTMLDivElement>(null);
-  if (item.status === "elsewhere") {
-    return <p {...stylex.props(ui.small, ui.tertiary)}>Answered in another window</p>;
-  }
-  return (
-    <div
-      ref={card}
-      role="group"
-      tabIndex={-1}
-      aria-label="Approve this command?"
-      aria-keyshortcuts="A D Enter"
-      onKeyDown={(event) => {
-        if (busy || (event.target instanceof HTMLButtonElement && event.key === "Enter")) return;
-        const key = event.key.toLowerCase();
-        if (key === "a") void answerApproval(item.requestId, "approve");
-        // Deny is the default: Enter on the card denies.
-        else if (key === "d" || key === "enter") void answerApproval(item.requestId, "deny");
-      }}
-      {...stylex.props(ui.focusRing, styles.approval)}
-    >
-      <p {...stylex.props(ui.strong)}>Approve this command?</p>
-      <pre translate={false} {...stylex.props(ui.mono, styles.approvalCommand)}>
-        {item.command}
-      </pre>
-      <p {...stylex.props(ui.small, styles.approvalEffect)}>{effectWords(item.effects)}</p>
-      <div {...stylex.props(styles.approvalButtons)}>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void answerApproval(item.requestId, "deny")}
-          {...stylex.props(ui.reset, styles.approvalButton)}
-        >
-          Deny
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void answerApproval(item.requestId, "approve")}
-          {...stylex.props(ui.reset, styles.approvalButton, styles.approve)}
-        >
-          Approve
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function notice(text: string) {
   store.set({ notice: text });
@@ -817,7 +777,6 @@ function Center({
 
 export function Conversation({ routeId }: { routeId: string | null }) {
   const session = useStore((state) => state.session);
-  const approvals = useStore((state) => state.approvals);
   const link = useStore((state) => state.link);
   const opening = useStore((state) => state.opening);
   const tick = useStore((state) => state.tick);
@@ -880,7 +839,7 @@ export function Conversation({ routeId }: { routeId: string | null }) {
       const key = owner ? owner.start : -1;
       notesByTurn.set(key, [...(notesByTurn.get(key) ?? []), item]);
     }
-    const phase = derivePhase({ session: shown, approvals }, now, fmt);
+    const phase = derivePhase({ session: shown }, now, fmt);
     const folder = basename(shown.state.cwd);
     body = empty ? (
       <Center title="What should eukhe do?" body={folder ? `in ${folder}` : ""} />
@@ -920,9 +879,6 @@ export function Conversation({ routeId }: { routeId: string | null }) {
         ) : null}
         <LoopLine session={shown} now={now} />
         <CheckLines session={shown} now={now} />
-        {approvals.map((item) => (
-          <ApprovalCard key={item.requestId} item={item} />
-        ))}
         <PendingList session={shown} />
         {noticeText ? (
           <p role="alert" {...stylex.props(ui.small, styles.notice)}>
@@ -1167,45 +1123,15 @@ const styles = stylex.create({
   },
   loopLead: { fontWeight: weight.medium, color: colors.secondary },
   loopPaused: { fontWeight: weight.medium, color: colors.primary },
-  approval: {
-    display: "flex",
-    flexDirection: "column",
-    rowGap: space.x2,
-    padding: space.x4,
-    borderRadius: radius.control,
-    backgroundColor: colors.primary,
-    color: colors.bg,
-  },
-  approvalCommand: {
+  output: {
     margin: 0,
     fontSize: type.small,
     lineHeight: type.blockLine,
+    color: colors.secondary,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
   },
-  approvalEffect: { opacity: opacity.quiet },
-  approvalButtons: {
-    display: "flex",
-    justifyContent: "flex-end",
-    columnGap: space.x2,
-    marginTop: space.x2,
-  },
-  approvalButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    height: size.touch,
-    paddingInline: space.x5,
-    borderRadius: radius.control,
-    borderWidth: stroke.hairline,
-    borderStyle: "solid",
-    borderColor: colors.bg,
-    fontWeight: weight.medium,
-    opacity: { default: 1, ":disabled": opacity.dim },
-    outline: { default: "none", ":focus-visible": `${stroke.hairline} solid ${colors.bg}` },
-    outlineOffset: stroke.offset,
-  },
-  approve: { backgroundColor: colors.bg, color: colors.primary },
+  report: { color: colors.primary },
   notice: { display: "flex", alignItems: "center", columnGap: space.x4, color: colors.secondary },
   latest: {
     position: "absolute",

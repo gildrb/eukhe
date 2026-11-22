@@ -17,7 +17,11 @@
 #   R14b input left over after a spelled request is refused
 #                                      command_ffi_spelled_left_over
 #   R14c every answer that is not the error form answers exactly the one
-#        request the input spells      command_ffi_reads_only_requests
+#        request the input spells, and whatever the request reader
+#        accepts is exactly a spelled request that fits, then the rest
+#                                     command_ffi_reads_only_requests,
+#                                     command_ffi_req_exact,
+#                                     command_ffi_req_example
 #   R14h every answer but the malformed error comes from an input that
 #        begins with a spelled request   command_ffi_malformed_unless_request
 #   R14d a query, row or key tag the grammar does not name is malformed
@@ -28,24 +32,43 @@
 #        crates/eukhe-bend/tests/max_magnitude/command.txt (lines 5-6 are
 #        its resolve and menu requests) and the entry's replies to them
 #                                     command_ffi_example
-#   R14f a reply tag the reply grammar does not name reads as no reply
-#        (one spelling per answer)    command_ffi_unknown_res,
-#                                     command_ffi_unknown_menu
+#   R14f a reply tag the reply grammar does not name reads as no reply,
+#        and whatever a reply reader accepts is exactly the grammar's
+#        spelling of the reply it reads, then the rest, and fits the wire
+#        (one spelling per answer; a cut or malformed reply, or one past
+#        the wire's 14 digits, is no reply)
+#                                     command_ffi_unknown_res,
+#                                     command_ffi_unknown_menu,
+#                                     command_ffi_res_exact,
+#                                     command_ffi_menu_exact,
+#                                     command_ffi_out_exact,
+#                                     command_ffi_cut_reply_example,
+#                                     command_ffi_long_reply_example
 #   R14g the reply readers read every reply the reply grammar spells
-#        (the resolve reply's grammar spelling is the entry's own put_res)
-#                                     command_ffi_res_round_trip,
+#                                     command_ffi_res_reads_spelled,
 #                                     command_ffi_menu_reads_spelled,
-#                                     command_ffi_out_reads_spelled
-#   R14i every request and reply the entry's own encoders write reads
-#        back whole, the rest untouched; a request with input after it is
-#        refused                      command_ffi_round_trip,
+#                                     command_ffi_out_reads_spelled,
+#                                     command_ffi_reply_example
+#   R14i the entry's own encoders never rewrite what they are given,
+#        fitting the wire or not: the request, resolve and menu encoders
+#        write exactly the grammar's spelling (a place past the wire is
+#        written as it is, and the reader refuses it), and every key reply
+#        the key encoder writes reads back as itself when it fits and as
+#        no reply otherwise, never as another reply; every request and
+#        reply that fits reads back whole, the rest untouched; a request
+#        with input after it is refused
+#                                     command_ffi_req_spells,
+#                                     command_ffi_res_spells,
+#                                     command_ffi_menu_spells,
+#                                     command_ffi_out_back,
+#                                     command_ffi_round_trip,
 #                                     command_ffi_left_over,
 #                                     command_ffi_res_round_trip,
 #                                     command_ffi_menu_round_trip,
 #                                     command_ffi_out_round_trip
 # The requests and replies of R14a-R14h are spelled with the spec spellers
 # below and those of laws/base.bend, never with the entry's own encoders
-# (R14i reads those encoders back, and R14g's resolve reply is put_res).
+# (R14i ties those encoders to the spellers and reads them back).
 
 import Base
 import ../../bend/command.bend as Cmd
@@ -126,6 +149,19 @@ def cmd_out_fits(o: FCmd.OutW) -> Bool:
   match o:
     case FCmd.OutW{l, a, b}:
       LawsBase.wire_fits(String.length(l))
+
+# what the key reply reader gives back for the key reply x, then rest: x
+# and the rest when x fits the wire, no reply otherwise
+def cmd_out_back(+x: FCmd.OutW, rest: String) -> Wr.Dec<FCmd.OutW>:
+  Bool.pick(Wr.Dec<FCmd.OutW>, cmd_out_fits(x), Wr.Got{x, rest}, Wr.Bad{})
+
+# the menu reader's answer is a menu, not Bad
+def cmd_menu_got(d: Wr.Dec<FCmd.MenuW>) -> Bool:
+  match d:
+    case Wr.Got{x, r}:
+      True{}
+    case Wr.Bad{}:
+      False{}
 
 # LAW command_ffi_round_trip: every request that fits the wire reads back
 # as itself, and its reading consumes exactly its encoding
@@ -311,8 +347,20 @@ def cmd_spell_out(o: Cmd.Out) -> String:
     case Cmd.Out{l, a, b}:
       Wr.put_str(cmd_text(l), Wr.put_bool(a, Wr.put_bool(b, "")))
 
-# the replies as the reply grammar spells them: a menu, tag 0 the command
-# names, 1 the children (path, places), 2 none
+# the replies as the reply grammar spells them: a resolution, tag 0 runs
+# (path, text), 1 opens (path), 2 unknown (path, word), 3 no command
+def cmd_spell_resw(r: FCmd.ResW, rest: String) -> String:
+  match r:
+    case FCmd.RunsW{p, a}:
+      Wr.put_nat(0n, LawsBase.wire_spell_strs(p, Wr.put_str(a, rest)))
+    case FCmd.OpensW{p}:
+      Wr.put_nat(1n, LawsBase.wire_spell_strs(p, rest))
+    case FCmd.UnknownW{p, w}:
+      Wr.put_nat(2n, LawsBase.wire_spell_strs(p, Wr.put_str(w, rest)))
+    case FCmd.NoCmdW{}:
+      Wr.put_nat(3n, rest)
+
+# a menu, tag 0 the command names, 1 the children (path, places), 2 none
 def cmd_spell_menuw(m: FCmd.MenuW, rest: String) -> String:
   match m:
     case FCmd.NamesW{}:
@@ -350,6 +398,53 @@ def cmd_spell_reply(r: FCmd.Req) -> String:
 # and /goal (text)
 def cmd_example_wire_table() -> String:
   "4,1,6,memory0,TFF2,6,memory4,view0,TTF2,6,memory5,model0,TTF1,4,goal0,TTT"
+
+# Laws: the encoders spell the grammar
+# ------------------------------------
+
+# LAW command_ffi_req_spells: the entry's request encoder (put_req) writes
+# the grammar's spelling of every request, fitting the wire or not, then
+# the rest
+# EXCLUDES: an encoder that rewrites a request past the wire into another
+#   one (a row place of 15 digits written as place 0, or a long line or
+#   count cut), so that the request reads back as one it is not
+law command_ffi_req_spells:
+  for +r: FCmd.Req
+  for +rest: String
+  {FCmd.put_req(r, rest) == cmd_spell_req(r, rest) : String}
+
+# LAW command_ffi_res_spells: the entry's resolve reply encoder (put_res)
+# writes the grammar's spelling of every resolve reply, fitting the wire
+# or not, then the rest
+# EXCLUDES: an encoder that rewrites a reply past the wire into another
+#   one (a long path or word cut or dropped), so that Rust reads an answer
+#   the model did not give
+law command_ffi_res_spells:
+  for +x: FCmd.ResW
+  for +rest: String
+  {FCmd.put_res(x, rest) == cmd_spell_resw(x, rest) : String}
+
+# LAW command_ffi_menu_spells: the entry's menu reply encoder (put_menu)
+# writes the grammar's spelling of every menu reply, fitting the wire or
+# not, then the rest
+# EXCLUDES: an encoder that rewrites a menu past the wire into another
+#   one (a place of 15 digits written as place 0, a long place list cut)
+law command_ffi_menu_spells:
+  for +x: FCmd.MenuW
+  for +rest: String
+  {FCmd.put_menu(x, rest) == cmd_spell_menuw(x, rest) : String}
+
+# LAW command_ffi_out_back: every key reply the entry's key encoder
+# (put_out) writes, then any rest, reads back with the key reply reader
+# as itself and the rest when it fits the wire, and as no reply when it
+# does not: never as another key reply
+# EXCLUDES: an encoder that rewrites a key reply past the wire into
+#   another one (a long line cut or emptied, read back as a reply the
+#   model did not give)
+law command_ffi_out_back:
+  for +x: FCmd.OutW
+  for +rest: String
+  {FCmd.get_out(FCmd.put_out(x, rest)) == cmd_out_back(x, rest) : Wr.Dec<FCmd.OutW>}
 
 # Laws: the spelled entry
 # -----------------------
@@ -451,6 +546,18 @@ law command_ffi_unknown_menu:
   for +rest: String
   {FCmd.get_menu(Wr.put_nat(3n+n, rest)) == Wr.Bad{} : Wr.Dec<FCmd.MenuW>}
 
+# LAW command_ffi_res_reads_spelled: the resolve reply reader reads every
+# reply the reply grammar spells back as itself, the rest untouched
+# EXCLUDES: a reader and writer that agree on another grammar (the runs
+#   and unknown tags swapped: the entry's reply `0,2,6,memory5,model0,`,
+#   run /memory model, read as an unknown word), a reader that swaps the
+#   path and the text
+law command_ffi_res_reads_spelled:
+  for +x: FCmd.ResW
+  for +rest: String
+  for h: {cmd_res_fits(x) == True{} : Bool}
+  {FCmd.get_res(cmd_spell_resw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
+
 # LAW command_ffi_menu_reads_spelled: the menu reply reader reads every
 # reply the reply grammar spells back as itself, the rest untouched
 # EXCLUDES: a reader that swaps the menu tags, the path and the places
@@ -470,6 +577,102 @@ law command_ffi_out_reads_spelled:
   for +rest: String
   for h: {cmd_out_fits(x) == True{} : Bool}
   {FCmd.get_out(cmd_spell_outw(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
+
+# LAW command_ffi_res_exact: whatever the resolve reply reader accepts is
+# exactly the reply grammar's spelling of the resolution it reads, then
+# the rest, and that resolution fits the wire: any other reply is no reply
+# EXCLUDES: a reply cut before its text, word or path read as an answer
+#   (`0,1,6,memory`, its text missing, read as running /memory with no
+#   text), a default for a malformed reply, a second spelling of one
+#   answer, a reader of another grammar, a name, text or count of 15
+#   digits or more read
+law command_ffi_res_exact:
+  for +s: String
+  for +x: FCmd.ResW
+  for +rest: String
+  for h: {FCmd.get_res(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.ResW>}
+  {(s, cmd_res_fits(x)) == (cmd_spell_resw(x, rest), True{}) : String & Bool}
+
+# LAW command_ffi_menu_exact: whatever the menu reply reader accepts is
+# exactly the reply grammar's spelling of the menu it reads, then the
+# rest, and that menu fits the wire: any other reply is no reply
+# EXCLUDES: a children reply cut before its places or path read as a
+#   menu, a default for a malformed reply, a second spelling of one menu,
+#   a place, name or count of 15 digits or more read
+law command_ffi_menu_exact:
+  for +s: String
+  for +x: FCmd.MenuW
+  for +rest: String
+  for h: {FCmd.get_menu(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.MenuW>}
+  {(s, cmd_menu_fits(x)) == (cmd_spell_menuw(x, rest), True{}) : String & Bool}
+
+# LAW command_ffi_out_exact: whatever the key reply reader accepts is
+# exactly the reply grammar's spelling of the key reply it reads (the
+# line, then open, then submit), then the rest, and that reply fits the
+# wire: any other reply is no reply
+# EXCLUDES: a key reply cut before its submit or open flag read with a
+#   default flag, a short line accepted, a second spelling of one reply, a
+#   line whose length has 15 digits or more read
+law command_ffi_out_exact:
+  for +s: String
+  for +x: FCmd.OutW
+  for +rest: String
+  for h: {FCmd.get_out(s) == Wr.Got{x, rest} : Wr.Dec<FCmd.OutW>}
+  {(s, cmd_out_fits(x)) == (cmd_spell_outw(x, rest), True{}) : String & Bool}
+
+# LAW command_ffi_req_exact: whatever the request reader accepts is
+# exactly the grammar's spelling of the request it reads, then the rest,
+# and that request fits the wire: any other input is no request
+# EXCLUDES: a request reader that accepts leading zeros or no digit in a
+#   count, a short string, an unknown tag or a missing field (a reader
+#   apart from the one the entry answers by), a count or place past the
+#   wire's 14 digits
+law command_ffi_req_exact:
+  for +s: String
+  for +r: FCmd.Req
+  for +rest: String
+  for h: {FCmd.get_req(s) == Wr.Got{r, rest} : Wr.Dec<FCmd.Req>}
+  {(s, cmd_req_fits(r)) == (cmd_spell_req(r, rest), True{}) : String & Bool}
+
+# LAW command_ffi_req_example: anchor: the request reader reads the
+# empty table and a resolve of the empty line, and refuses it with a
+# leading zero, or no digit, in the table count
+# EXCLUDES: a request reader whose count loop accepts `00,` or `,` as 0
+law command_ffi_req_example:
+  {(FCmd.get_req("0,0,0,"), (FCmd.get_req("00,0,0,"), FCmd.get_req(",0,0,"))) == (Wr.Got{FCmd.Req{[], FCmd.QResolve{""}}, ""}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.Req> & (Wr.Dec<FCmd.Req> & Wr.Dec<FCmd.Req>)}
+
+# LAW command_ffi_cut_reply_example: anchor: replies cut short are no
+# reply: a resolve run of /memory with its text missing, a children menu
+# of /memory with its places missing, a key reply with its submit flag
+# missing
+# EXCLUDES: a cut reply read as `0,1,6,memory0,`, `1,1,6,memory0,` or
+#   `7,memory TF` (a default for what is missing)
+law command_ffi_cut_reply_example:
+  {(FCmd.get_res("0,1,6,memory"), (FCmd.get_menu("1,1,6,memory"), FCmd.get_out("7,memory T"))) == (Wr.Bad{}, (Wr.Bad{}, Wr.Bad{})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
+
+# LAW command_ffi_reply_example: anchor: the entry's replies of
+# command_ffi_example read back as what they say: `memory model` runs
+# /memory model with no text, the menu of `memory ` lists places 1 and 2
+# below /memory, Tab gives the line `memory ` with its menu open and no
+# submit
+# EXCLUDES: a resolve reader that reads tag 0 as an unknown word (a reader
+#   and writer that agree on swapped tags), a menu or key reader of
+#   another order
+law command_ffi_reply_example:
+  {(FCmd.get_res("0,2,6,memory5,model0,"), (FCmd.get_menu("1,1,6,memory2,1,2,"), FCmd.get_out("7,memory TF"))) == (Wr.Got{FCmd.RunsW{["memory", "model"], ""}, ""}, (Wr.Got{FCmd.KidsW{["memory"], [1n, 2n]}, ""}, Wr.Got{FCmd.OutW{"memory ", True{}, False{}}, ""})) : Wr.Dec<FCmd.ResW> & (Wr.Dec<FCmd.MenuW> & Wr.Dec<FCmd.OutW>)}
+
+# LAW command_ffi_long_reply_example: anchor: the menu reader takes a
+# place of 14 digits and refuses one of 15 (a children menu at place
+# 10^14 - 1, then one at 10^14). The place is the one Nat of a reply that
+# is a value: every other Nat is a tag, a count or a length, which a
+# reply of 15 digits cannot carry (command_ffi_res_exact and
+# command_ffi_out_exact cover those readers)
+# EXCLUDES: a menu reader that reads a place past the wire's 14 digits
+#   (`1,0,1,100000000000000,` read as a menu at place 10^14; a 15-digit
+#   place past 2^48-1 aborts the runtime), or one that refuses a place of
+#   14 digits
+law command_ffi_long_reply_example:
+  {(cmd_menu_got(FCmd.get_menu("1,0,1,99999999999999,")), FCmd.get_menu("1,0,1,100000000000000,")) == (True{}, Wr.Bad{}) : Bool & Wr.Dec<FCmd.MenuW>}
 
 # LAW command_ffi_example: anchor: in the spelling of the example table of
 # crates/eukhe-bend/tests/max_magnitude/command.txt (whose lines 5-6 are

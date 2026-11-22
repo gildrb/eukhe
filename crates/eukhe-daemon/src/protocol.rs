@@ -138,8 +138,9 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "list_kernel_bash",
     "tail_kernel_bash",
     "kill_kernel_bash",
-    "answer_shell_approval",
-    "relay_shell_approval",
+    "answer_editor_permission",
+    "relay_editor_permission",
+    "relay_ran_effect",
     "worker_register",
     "worker_roster_delta",
     "provider_admission_acquire",
@@ -163,12 +164,15 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "register_headless_parent",
     "headless_parent_receipt",
     "get_unknown_effects",
+    "get_ran_effects",
     "resolve_unknown_effect",
     "get_budget",
     "set_budget",
     "set_budget_limits",
     "add_budget",
     "audit_budget",
+    "undo_turn",
+    "get_turn_diff",
     "set_acceptance",
     "get_acceptance",
     "refresh_models",
@@ -238,6 +242,9 @@ pub fn supported_client_capabilities() -> &'static [&'static str] {
         "chunked_snapshot",
         "client_owned_sessions",
         "elide_snapshot_images",
+        // An editor attached through ACP: asked before each irreversible
+        // effect (`editor_permission` frames).
+        crate::editor_permission::EDITOR_PERMISSION_CAPABILITY,
     ]
 }
 
@@ -254,7 +261,6 @@ pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
                 "side_question_transcript",
                 "transient_bash",
                 "kernel_bash_activity",
-                "shell_approval",
                 "factory_activity",
                 "workflow_activity",
                 "session_input_admission",
@@ -688,10 +694,13 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::KillKernelBash {
             active_session_id, ..
         }
-        | DaemonCommand::AnswerShellApproval {
+        | DaemonCommand::AnswerEditorPermission {
             active_session_id, ..
         }
-        | DaemonCommand::RelayShellApproval {
+        | DaemonCommand::RelayEditorPermission {
+            active_session_id, ..
+        }
+        | DaemonCommand::RelayRanEffect {
             active_session_id, ..
         }
         | DaemonCommand::CancelRlmChild {
@@ -746,6 +755,12 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
             active_session_id, ..
         }
         | DaemonCommand::AuditBudget {
+            active_session_id, ..
+        }
+        | DaemonCommand::UndoTurn {
+            active_session_id, ..
+        }
+        | DaemonCommand::GetTurnDiff {
             active_session_id, ..
         }
         | DaemonCommand::GetContextTree {
@@ -919,6 +934,9 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::GetUnknownEffects {
             active_session_id, ..
         }
+        | DaemonCommand::GetRanEffects {
+            active_session_id, ..
+        }
         | DaemonCommand::ResolveUnknownEffect {
             active_session_id, ..
         }
@@ -1066,8 +1084,9 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::ListKernelBash { .. } => "list_kernel_bash",
         DaemonCommand::TailKernelBash { .. } => "tail_kernel_bash",
         DaemonCommand::KillKernelBash { .. } => "kill_kernel_bash",
-        DaemonCommand::AnswerShellApproval { .. } => "answer_shell_approval",
-        DaemonCommand::RelayShellApproval { .. } => "relay_shell_approval",
+        DaemonCommand::AnswerEditorPermission { .. } => "answer_editor_permission",
+        DaemonCommand::RelayEditorPermission { .. } => "relay_editor_permission",
+        DaemonCommand::RelayRanEffect { .. } => "relay_ran_effect",
         DaemonCommand::CancelRlmChild { .. } => "cancel_rlm_child",
         DaemonCommand::FactoryActivity { .. } => "factory_activity",
         DaemonCommand::WorkflowActivity { .. } => "workflow_activity",
@@ -1086,6 +1105,8 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::SetBudgetLimits { .. } => "set_budget_limits",
         DaemonCommand::AddBudget { .. } => "add_budget",
         DaemonCommand::AuditBudget { .. } => "audit_budget",
+        DaemonCommand::UndoTurn { .. } => "undo_turn",
+        DaemonCommand::GetTurnDiff { .. } => "get_turn_diff",
         DaemonCommand::GetContextTree { .. } => "get_context_tree",
         DaemonCommand::GetCommands { .. } => "get_commands",
         DaemonCommand::GetResourceSnapshot { .. } => "get_resource_snapshot",
@@ -1148,6 +1169,7 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::GetLastAssistantText { .. } => "get_last_assistant_text",
         DaemonCommand::GetRunOutcome { .. } => "get_run_outcome",
         DaemonCommand::GetUnknownEffects { .. } => "get_unknown_effects",
+        DaemonCommand::GetRanEffects { .. } => "get_ran_effects",
         DaemonCommand::ResolveUnknownEffect { .. } => "resolve_unknown_effect",
         DaemonCommand::SetAcceptance { .. } => "set_acceptance",
         DaemonCommand::GetAcceptance { .. } => "get_acceptance",
@@ -1204,27 +1226,29 @@ mod tests {
     }
 
     #[test]
-    fn answer_shell_approval_is_session_scoped() {
+    fn answer_editor_permission_is_session_scoped() {
         let line = json!({
             "type": "command",
             "id": "c1",
             "protocol": current_protocol_info(),
             "command": {
-                "type": "answer_shell_approval",
+                "type": "answer_editor_permission",
                 "activeSessionId": "session",
                 "requestId": "r1",
-                "verdict": "approve",
+                "verdict": "allow",
             },
         })
         .to_string();
         let parsed = parse_supervisor_command_line(&line).unwrap();
-        assert_eq!(command_type_name(&parsed.command), "answer_shell_approval");
-        assert_eq!(command_active_session_id(&parsed.command), Some("session"));
-        assert!(KNOWN_COMMAND_TYPES.contains(&"answer_shell_approval"));
-        assert!(eukhe_types::daemon::is_session_plane_daemon_command(
-            "answer_shell_approval"
-        ));
-        assert!(default_server_capabilities().contains(&"shell_approval".to_string()));
+        assert_eq!(
+            (
+                command_type_name(&parsed.command),
+                command_active_session_id(&parsed.command),
+                KNOWN_COMMAND_TYPES.contains(&"answer_editor_permission"),
+                eukhe_types::daemon::is_session_plane_daemon_command("answer_editor_permission"),
+            ),
+            ("answer_editor_permission", Some("session"), true, true)
+        );
     }
 
     #[test]

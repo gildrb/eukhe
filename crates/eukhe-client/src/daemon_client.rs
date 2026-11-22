@@ -34,13 +34,13 @@ mod budget;
 mod errors;
 #[cfg(test)]
 mod tests;
+mod undo;
 
 use errors::{command_type_debug, response_data_or_error, DaemonConnectFailed, DirectRequestError};
 pub use errors::{
     is_connect_failure, is_daemon_rejection, is_daemon_timeout, is_daemon_unreachable,
-    is_foreign_daemon, is_kernel_not_running, is_shell_approval_gone,
-    rejected_provider_unauthenticated, CommandFailed, ForeignDaemon, ForeignGreeting,
-    RequestRejected,
+    is_foreign_daemon, is_kernel_not_running, rejected_provider_unauthenticated, CommandFailed,
+    ForeignDaemon, ForeignGreeting, RequestRejected,
 };
 
 /// Default response timeout (TS `DEFAULT_DAEMON_REQUEST_TIMEOUT_MS`).
@@ -113,22 +113,6 @@ pub enum DaemonClientEvent {
         active_session_id: String,
         event: Value,
     },
-    /// `shell_approval`: the session's `bash` tool asks whether one step
-    /// may run; the client answers with `answer_shell_approval` (the first
-    /// answer of any attached client wins). `agent` names the subagent
-    /// that asks, when the question came up from one.
-    ShellApproval {
-        active_session_id: String,
-        request: eukhe_types::shell::ShellApprovalRequest,
-        agent: Option<String>,
-    },
-    /// `shell_approval_settled`: the session no longer waits on the
-    /// question `request_id` (a client answered it, its step ended, or it
-    /// went elsewhere): the client drops it, shown or queued.
-    ShellApprovalSettled {
-        active_session_id: String,
-        request_id: String,
-    },
     /// `roster_update`: live roster deltas for subscribers (the agents
     /// view): changed entries upsert by agent id, `removed` deletes, and
     /// `resync` replaces the whole roster.
@@ -192,12 +176,6 @@ struct InboundFrame<'a> {
     resync: Option<&'a RawValue>,
     #[serde(borrow, default)]
     update: Option<&'a RawValue>,
-    #[serde(borrow, default)]
-    request: Option<&'a RawValue>,
-    #[serde(borrow, default)]
-    agent: Option<&'a RawValue>,
-    #[serde(borrow, default)]
-    request_id: Option<&'a RawValue>,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -266,17 +244,6 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
         "side_question_event" => Some(DaemonClientEvent::SideQuestionEvent {
             active_session_id: decode_string(frame.active_session_id),
             event: decode(frame.event).unwrap_or(Value::Null),
-        }),
-        // A question that does not decode is dropped: this client leaves
-        // it to the others (or to the detach, a denial).
-        "shell_approval" => decode(frame.request).map(|request| DaemonClientEvent::ShellApproval {
-            active_session_id: decode_string(frame.active_session_id),
-            request,
-            agent: decode(frame.agent),
-        }),
-        "shell_approval_settled" => Some(DaemonClientEvent::ShellApprovalSettled {
-            active_session_id: decode_string(frame.active_session_id),
-            request_id: decode_string(frame.request_id),
         }),
         "session_list_item" => Some(DaemonClientEvent::SessionListItem {
             session: decode(frame.session).unwrap_or(Value::Null),

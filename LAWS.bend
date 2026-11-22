@@ -84,9 +84,6 @@ import ./laws/path_policy/gate.bend as PathPolicyGate
 import ./laws/path_policy/spec.bend as PathPolicySpec
 import ./laws/child_env.bend as ChildEnv
 import ./laws/runners.bend as Runners
-import ./laws/approvals/route.bend as Approvals
-import ./laws/approvals/entry.bend as ApprovalsEntry
-import ./laws/approvals/desk.bend as ApprovalsDesk
 import ./laws/wire.bend as Wire
 import ./laws/echo.bend as Echo
 import ./laws/wire_ffi.bend as WireFfi
@@ -226,3 +223,8 @@ import ./laws/work_list.bend as WorkList
 import ./laws/fallback.bend as Fallback
 import ./laws/strength.bend as Strength
 import ./laws/attack.bend as Attack
+import ./laws/irreversible.bend as Irreversible
+import ./laws/path_own.bend as PathOwn
+import ./laws/undo.bend as Undo
+import ./laws/restart_turn.bend as RestartTurn
+import ./laws/work_left.bend as WorkLeft

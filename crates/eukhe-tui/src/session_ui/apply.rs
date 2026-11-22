@@ -468,42 +468,6 @@ impl SessionUi {
                     self.apply_side_question_event(&event, view);
                 }
             }
-            // The `bash` tool asks whether one step may run: asked at once,
-            // or queued behind the open confirm (answered in order).
-            DaemonClientEvent::ShellApproval {
-                active_session_id,
-                request,
-                agent,
-            } => {
-                if active_session_id == self.active_session_id {
-                    self.shell_approvals
-                        .push_back((active_session_id, request, agent));
-                    if view.confirm.is_none() {
-                        self.open_next_shell_approval(view);
-                    }
-                }
-            }
-            // The session no longer waits on a question: drop it, queued
-            // or open (an open one gives way to the next).
-            DaemonClientEvent::ShellApprovalSettled {
-                active_session_id,
-                request_id,
-            } => {
-                if active_session_id == self.active_session_id {
-                    self.shell_approvals
-                        .retain(|(_, request, _)| request.request_id != request_id);
-                    if matches!(
-                        &self.pending_confirm,
-                        Some(super::PendingConfirm::ShellApproval { request_id: shown, .. })
-                            if *shown == request_id
-                    ) {
-                        self.pending_confirm = None;
-                        view.confirm = None;
-                        self.open_next_shell_approval(view);
-                    }
-                    self.dirty = true;
-                }
-            }
             DaemonClientEvent::SessionClosed {
                 active_session_id,
                 reason,
@@ -1097,6 +1061,7 @@ impl SessionUi {
             TurnUpdate::UnknownEffectsUpdate(effects) => {
                 self.apply_unknown_effects(effects, view);
             }
+            TurnUpdate::RunReport(text) => self.push_run_report(&text, view),
             TurnUpdate::LoopUpdate(status) => {
                 self.apply_loop_update(status, view);
             }

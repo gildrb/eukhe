@@ -1,14 +1,12 @@
 //! The runners of code: the registry a session installs against the
 //! compiled core's (`bend/runners.bend` `registry`, entry
-//! `bend/ffi_runners.bend`), and the `python` gate on a real kernel.
+//! `bend/ffi_runners.bend`), and a `python` cell on a real kernel.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use eukhe_bend::rules::runners::{self, ChatMemory, Covered};
 use eukhe_durable::harness::types::RegistryReader;
-use eukhe_types::pi_ai::ToolResultMessage;
-use eukhe_types::shell::{ShellAnswer, ShellApprovalRequest, ShellEffect, ShellEffects};
-use futures::FutureExt;
+use eukhe_types::shell::ShellEffects;
 use serde_json::json;
 
 use super::{Gate, Runner};
@@ -16,24 +14,8 @@ use crate::durable::rlm::kernel_test_lock;
 use crate::durable::rlm::tests::{
     entries, python, result_text, results, settle, submit, text, Fixture,
 };
-use crate::durable::{EukheSession, SessionRole, ShellApprovalSink};
+use crate::durable::{EukheSession, SessionRole};
 use crate::memory::{Memory, ResponseStarted, Summarizer, SummarizerFuture};
-
-/// What a denied cell's call says.
-const DENIED: &str =
-    "python did not run (exec): the user denied it. Do not try it again unless the user asks for it.";
-
-/// What an unanswered cell's call says.
-const UNANSWERED: &str = "python did not run (exec): it needs the user's approval, and no client \
-answered. Ask the user to attach a client, or to allow its effect in shell.autoEffects if that is \
-read, write, exec, net, outside, protected or secret; or use read-only steps.";
-
-/// Who answers a call's question.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Asker {
-    NoClient,
-    Deny,
-}
 
 /// Every tool of the session's registry: its name, caps and gate.
 fn dump(session: &EukheSession) -> Vec<(String, ShellEffects, Covered)> {
@@ -160,108 +142,28 @@ async fn the_tool_surface_follows_role_and_shape() {
     );
 }
 
-/// One `python` call of `code` under `auto`, answered by `asker`: its
-/// result and every question the session asked.
-async fn call(
-    fixture: &Fixture,
-    auto: &[ShellEffect],
-    asker: Asker,
-    code: &str,
-) -> (ToolResultMessage, Vec<ShellApprovalRequest>) {
-    let names: Vec<&str> = auto.iter().map(|effect| effect.as_str()).collect();
-    std::fs::write(
-        fixture.dir.path().join("agent").join("settings.json"),
-        json!({ "shell": { "autoEffects": names } }).to_string(),
-    )
-    .expect("settings");
-    fixture
-        .faux
-        .set_responses(vec![python("c1", code), text("done")]);
-    let questions: Arc<Mutex<Vec<ShellApprovalRequest>>> = Arc::default();
-    let seen = Arc::clone(&questions);
-    let sink: ShellApprovalSink = Arc::new(move |request: ShellApprovalRequest| {
-        seen.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(request);
-        std::future::ready(ShellAnswer::Deny).boxed()
-    });
-    let session = fixture
-        .open_configured(move |config| {
-            config.shell_approval = match asker {
-                Asker::NoClient => None,
-                Asker::Deny => Some(sink),
-            };
-        })
-        .await;
-    let id = submit(&session, "go").await;
-    settle(&session, id).await;
-    let mut all = results(&entries(&session).await);
-    assert_eq!(all.len(), 1, "{all:?}");
-    let questions = questions
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    (all.remove(0), questions)
-}
-
-/// Regression (audit C1): an `python` cell ran unasked whatever the auto
-/// set. Now, with `read` only and no client, and with a client that
-/// denies, the cell does not run (its marker file stays absent) and the
-/// model reads why; with `exec` in the auto set it runs, unasked.
+/// Regression (audit C1): an `python` cell ran outside any rule. Now a
+/// cell runs unasked as every runner of code does: its marker file is
+/// written and the model reads its output.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_cell_runs_only_within_the_auto_set_or_approved() {
+async fn a_cell_runs_unasked() {
     let _kernel = kernel_test_lock().await;
     let fixture = Fixture::new();
     let mark = fixture.dir.path().join("mark");
     let code =
         format!("import pathlib\npathlib.Path({mark:?}).write_text('ran')\nprint('cell ran')");
-
-    let (result, asked) = call(&fixture, &[ShellEffect::Read], Asker::NoClient, &code).await;
+    fixture
+        .faux
+        .set_responses(vec![python("c1", &code), text("done")]);
+    let session = fixture.open_configured(|_| {}).await;
+    let id = submit(&session, "go").await;
+    settle(&session, id).await;
+    let all = results(&entries(&session).await);
     assert_eq!(
-        (result_text(&result), result.is_error, asked),
-        (UNANSWERED.to_owned(), true, vec![])
-    );
-    assert!(!mark.exists(), "the unanswered cell ran");
-
-    let fixture = Fixture::new();
-    let mark = fixture.dir.path().join("mark");
-    let code =
-        format!("import pathlib\npathlib.Path({mark:?}).write_text('ran')\nprint('cell ran')");
-    let (result, asked) = call(&fixture, &[ShellEffect::Read], Asker::Deny, &code).await;
-    let request_id = asked
-        .first()
-        .map(|request| request.request_id.clone())
-        .unwrap_or_default();
-    assert!(request_id.ends_with(":cell"), "{request_id}");
-    assert_eq!(
-        (result_text(&result), result.is_error, asked),
-        (
-            DENIED.to_owned(),
-            true,
-            vec![ShellApprovalRequest {
-                request_id,
-                step: 0,
-                command: code.clone(),
-                effects: ShellEffects::of(&[ShellEffect::Exec]),
-            }]
-        )
-    );
-    assert!(!mark.exists(), "the denied cell ran");
-
-    let fixture = Fixture::new();
-    let mark = fixture.dir.path().join("mark");
-    let code =
-        format!("import pathlib\npathlib.Path({mark:?}).write_text('ran')\nprint('cell ran')");
-    let (result, asked) = call(
-        &fixture,
-        &[ShellEffect::Read, ShellEffect::Exec],
-        Asker::NoClient,
-        &code,
-    )
-    .await;
-    assert_eq!(
-        (result_text(&result), result.is_error, asked),
-        ("cell ran\n".to_owned(), false, vec![])
+        all.iter()
+            .map(|result| (result_text(result), result.is_error))
+            .collect::<Vec<_>>(),
+        vec![("cell ran\n".to_owned(), false)]
     );
     assert_eq!(std::fs::read_to_string(&mark).expect("the cell ran"), "ran");
 }

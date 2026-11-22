@@ -39,11 +39,12 @@ use std::sync::{Arc, Weak};
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::Extension;
 
-pub use command::format_acceptance_status;
 pub(crate) use command::{bend_check, parse_accept_command, AcceptCommand, ACCEPT_USAGE};
+pub use command::{format_acceptance_status, uncertified_line};
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
-pub(crate) use ops::{claim, held_files, Claimed, HeldFile};
+pub(crate) use ops::{claim, protected_files, Claimed};
+pub(crate) use report::answer_judge;
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;
 pub use watch::{watch_acceptance_updates, AcceptanceUpdates};

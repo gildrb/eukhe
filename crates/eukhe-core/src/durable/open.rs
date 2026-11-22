@@ -181,6 +181,13 @@ impl EukheSession {
         self.deps.checks.subscribe()
     }
 
+    /// The session's workspace snapshots (`/undo`, `/diff`); `None` for a
+    /// session that keeps none (a subagent, a session without storage).
+    #[must_use]
+    pub fn turn_snapshots(&self) -> Option<Arc<crate::undo::TurnSnapshots>> {
+        self.deps.turn_snapshots.clone()
+    }
+
     /// Begin closing ([`HostDeps::begin_close`]), stop the session's
     /// services (reverse start order), then close the Harness after its
     /// running tasks settle. Idempotent: a later call stops nothing and
@@ -632,7 +639,6 @@ fn load_session_resources(
     let agent_dir = config.agent_dir.clone();
     let prompt = config.prompt.clone();
     let shared_mcp = config.mcp.clone();
-    let mcp_login = config.mcp_login.clone();
     let loading = tokio::task::spawn_blocking(move || {
         let (skill_overrides, persistent_servers, built_mcp) =
             crate::mcp::McpManager::prompt_gating(user_servers, &agent_dir);
@@ -668,16 +674,8 @@ fn load_session_resources(
                     path: None,
                 });
         }
-        // A shared manager comes wired by its embedder; the session's own
-        // gets the configured login before the kernel registers its
-        // `mcp.*` host handlers.
-        let mcp = shared_mcp.unwrap_or_else(|| {
-            let built = Arc::new(Mutex::new(built_mcp));
-            if let Some(login) = mcp_login {
-                crate::mcp::wire_begin_login(&built, login.ui, login.http);
-            }
-            built
-        });
+        // A shared manager comes from its embedder; else the session's own.
+        let mcp = shared_mcp.unwrap_or_else(|| Arc::new(Mutex::new(built_mcp)));
         Ok(SessionResources {
             resources,
             generic_mcp_servers,

@@ -22,6 +22,9 @@ pub enum DaemonCommandPlane {
 /// defines has an entry; all other commands, known or unknown, are control
 /// (never forwarded on a peer link).
 #[must_use]
+// One line per session-plane command: the table is the wire contract,
+// so it grows with the commands rather than splitting.
+#[allow(clippy::too_many_lines)]
 pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
     use DaemonCommandPlane::{Control, Session};
     match command_type {
@@ -45,7 +48,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "list_kernel_bash"
         | "tail_kernel_bash"
         | "kill_kernel_bash"
-        | "answer_shell_approval"
+        | "answer_editor_permission"
         | "cancel_rlm_child"
         | "delete_rlm_subagent"
         | "wait_for_idle"
@@ -61,6 +64,8 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "set_budget_limits"
         | "add_budget"
         | "audit_budget"
+        | "undo_turn"
+        | "get_turn_diff"
         | "get_context_tree"
         | "get_commands"
         | "get_resource_snapshot"
@@ -116,6 +121,7 @@ pub fn command_plane(command_type: &str) -> DaemonCommandPlane {
         | "get_tool_definition"
         | "set_session_entry_label"
         | "get_unknown_effects"
+        | "get_ran_effects"
         | "resolve_unknown_effect"
         | "set_acceptance"
         | "get_acceptance" => Session,
@@ -145,12 +151,15 @@ mod tests {
             "get_state",
             "get_last_assistant_text",
             "start_side_question",
-            "answer_shell_approval",
+            "answer_editor_permission",
+            "get_ran_effects",
             "get_budget",
             "set_budget",
             "set_budget_limits",
             "add_budget",
             "audit_budget",
+            "undo_turn",
+            "get_turn_diff",
         ] {
             assert!(is_session_plane_daemon_command(session), "{session}");
         }

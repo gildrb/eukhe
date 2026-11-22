@@ -411,6 +411,7 @@ impl Supervisor {
         // entries go first — no session event may be enqueued for a
         // connection whose loop has exited — then the worker-side detach
         // routes run as before.
+        attached.detach_all(&self.editor_subscribers);
         attached.detach_all(&self.session_subscribers);
         tree_subscriptions.detach_all(&self.state_tree_subscribers);
         let attached_sessions = attached.session_ids();
@@ -696,6 +697,16 @@ impl Supervisor {
                     &command_id,
                     &type_name,
                 );
+                (vec![response_line(&response)], false)
+            }
+            DaemonCommand::RelayRanEffect {
+                active_session_id, ..
+            } if self.headless_parents.target(active_session_id).is_some() => {
+                // A child of a headless session: its root's ledger lives
+                // in the client process, reached over its connection.
+                let response = self
+                    .relay_ran_effect_to_headless_parent(command, &command_id, &type_name)
+                    .await;
                 (vec![response_line(&response)], false)
             }
             DaemonCommand::Restart { .. } | DaemonCommand::Shutdown { .. } => {

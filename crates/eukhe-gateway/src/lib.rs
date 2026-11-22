@@ -39,6 +39,10 @@ pub struct GatewayConfig {
     /// `root` (made when missing) and the gateway's start creates or
     /// replaces its heartbeat. `None` routes to the newest session.
     pub root_heartbeat: Option<String>,
+    /// Fields every session the gateway creates or opens gets in its
+    /// `create` config (the verification seam's scripted model; empty in
+    /// the product).
+    pub create_config: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A model of the catalog, as `set_model` names it.

@@ -21,7 +21,7 @@ mod service_catalog;
 pub use catalog_views::{
     mcp_credential_field_prompt_label, mcp_paste_credential, McpPasteCredential,
 };
-pub use login::{wire_begin_login, McpLoginContext, McpOAuth};
+pub use login::{McpLoginContext, McpOAuth};
 pub use manager_catalog::{
     install_static_token, remove_mcp_connection, McpConnectionError, McpConnectionHandles,
     PasteInstallInputs, StaticTokenInstall,
@@ -30,7 +30,6 @@ pub use oauth::{mcp_login, mcp_refresh_token, McpLoginUi, McpOAuthConfig};
 pub use oauth_http::{OAuthHttp, OAuthHttpRequest, OAuthHttpResponse, ReqwestOAuthHttp};
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -275,15 +274,10 @@ pub(crate) struct ResolvedIntegration {
 }
 
 /// Options for constructing an [`McpManager`].
-pub type BeginLoginFuture = Box<dyn Future<Output = anyhow::Result<()>> + Send>;
-pub type BeginLoginFn = Arc<dyn Fn(String) -> BeginLoginFuture + Send + Sync>;
-
 pub struct McpManagerOptions {
     pub auth_storage: AuthStorage,
     /// Reads the current `mcpServers` setting; re-read on refresh.
     pub get_user_servers: Box<dyn Fn() -> Option<HashMap<String, McpServerConfig>> + Send + Sync>,
-    /// Start an interactive host-side login for a server (UI mode supplies it).
-    pub begin_login: Option<BeginLoginFn>,
     /// The agent dir: connection records (`mcp-connections.json`) and the
     /// default local source (`mcp-services.json`) live here. `None` in
     /// embedded hosts (in-memory records, no local source).
@@ -301,7 +295,6 @@ pub struct McpManagerOptions {
 pub struct McpManager {
     auth_storage: Arc<tokio::sync::Mutex<AuthStorage>>,
     get_user_servers: Box<dyn Fn() -> Option<HashMap<String, McpServerConfig>> + Send + Sync>,
-    begin_login: Option<BeginLoginFn>,
     agent_dir: Option<std::path::PathBuf>,
     get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
     probe_override: Option<probe::McpEndpointProbe>,
@@ -340,7 +333,6 @@ impl McpManager {
         let mut manager = Self {
             auth_storage: Arc::new(tokio::sync::Mutex::new(options.auth_storage)),
             get_user_servers: options.get_user_servers,
-            begin_login: options.begin_login,
             agent_dir,
             get_catalog_sources: options.get_catalog_sources,
             probe_override: options.probe_override,
@@ -378,13 +370,6 @@ impl McpManager {
     /// The shared auth store the login flow persists into.
     pub(crate) fn auth_storage_handle(&self) -> Arc<tokio::sync::Mutex<AuthStorage>> {
         Arc::clone(&self.auth_storage)
-    }
-
-    /// Wire (or clear) the interactive login behind the
-    /// `mcp.begin_login` host request. Hosts with a login UI set it
-    /// before the session registers host handlers.
-    pub fn set_begin_login(&mut self, begin_login: Option<BeginLoginFn>) {
-        self.begin_login = begin_login;
     }
 
     fn resolve_integrations(&mut self) {
@@ -549,7 +534,6 @@ impl McpManager {
                 std::sync::Arc::new(McpOAuth::new()),
             ),
             get_user_servers: Box::new(move || Some(user_servers.clone())),
-            begin_login: None,
             agent_dir: Some(agent_dir.to_path_buf()),
             get_catalog_sources: None,
             probe_override: None,
@@ -574,10 +558,10 @@ impl McpManager {
     }
 
     /// Register the `mcp.*` host-request handlers onto a handler map
-    /// (TS `McpManager.hostHandlers`): `refresh`/`config`/`begin_login` dispatch
-    /// plumbing plus the bounded inventory surface the kernel's generic
-    /// `mcp` module reaches for (`mcp.list_plugins`, `mcp.search_plugins`,
-    /// `mcp.list_connections`).
+    /// (TS `McpManager.hostHandlers`): `refresh`/`config` dispatch
+    /// plumbing, the refusal of `begin_login`, plus the bounded inventory
+    /// surface the kernel's generic `mcp` module reaches for
+    /// (`mcp.list_plugins`, `mcp.search_plugins`, `mcp.list_connections`).
     ///
     /// The inventory handlers capture this manager so each request serves
     /// LIVE views (the same `pluginViews()` reads the TS handlers serve);
@@ -621,14 +605,13 @@ impl McpManager {
             Ok(number.min(max_limit as u64) as usize)
         }
 
-        let (auth, acp_servers, acp_servers_for_config, integrations, begin_login) = {
+        let (auth, acp_servers, acp_servers_for_config, integrations) = {
             let manager = manager.lock().unwrap();
             (
                 manager.auth_storage.clone(),
                 manager.acp_servers.clone(),
                 manager.acp_servers.clone(),
                 manager.integrations.clone(),
-                manager.begin_login.clone(),
             )
         };
         handlers.register(
@@ -720,29 +703,29 @@ impl McpManager {
                 })
             }),
         );
-        // Only expose begin_login when an interactive login is actually wired.
-        if let Some(begin_login) = begin_login {
-            handlers.register(
-                "mcp.begin_login",
-                host_handler(move |payload| {
-                    let begin_login = begin_login.clone();
-                    Box::pin(async move {
-                        let server = payload
-                            .data
-                            .get("server")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        if server.is_empty() {
-                            return Err(anyhow::anyhow!("mcp.begin_login requires a server"));
-                        }
-                        let mut future = std::pin::Pin::from(begin_login(server));
-                        future.as_mut().await?;
-                        Ok(json!({}))
-                    })
-                }),
-            );
-        }
+        // A run never starts an interactive login: a browser and a
+        // callback nobody may be there to answer would stop it. The
+        // request is refused at once and the run goes on; signing in stays
+        // the user's `/mcp login`.
+        handlers.register(
+            "mcp.begin_login",
+            host_handler(move |payload| {
+                Box::pin(async move {
+                    let server = payload
+                        .data
+                        .get("server")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    if server.is_empty() {
+                        return Err(anyhow::anyhow!("mcp.begin_login requires a server"));
+                    }
+                    Err(anyhow::anyhow!(
+                        "MCP server {server} is not signed in; the final answer names /mcp login {server}"
+                    ))
+                })
+            }),
+        );
         // -- the bounded inventory surface (TS `hostHandlers` list_plugins /
         // search_plugins / list_connections) -------------------------------
 
@@ -1039,7 +1022,6 @@ mod tests {
         McpManager::new(McpManagerOptions {
             auth_storage: test_auth_storage(),
             get_user_servers: Box::new(move || user_servers.clone()),
-            begin_login: None,
             agent_dir: None,
             get_catalog_sources: None,
             probe_override: None,
@@ -1351,8 +1333,33 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(error.to_string(), "mcp.config requires a server");
-        // begin_login is not registered when no login is wired.
-        assert!(handlers.get("mcp.begin_login").is_none());
+    }
+
+    /// A run's `mcp.begin_login` is refused at once (no browser, no
+    /// callback wait) with the text that names the user's `/mcp login`.
+    #[tokio::test]
+    async fn a_runs_login_request_is_refused_at_once() {
+        let manager = std::sync::Arc::new(std::sync::Mutex::new(manager_with(None)));
+        let mut handlers = HostRequestHandlers::default();
+        McpManager::register_host_handlers(&manager, &mut handlers);
+        let begin_login = handlers.get("mcp.begin_login").expect("registered").clone();
+        let mut errors = Vec::new();
+        for data in [json!({ "server": "linear" }), json!({})] {
+            let error = begin_login(crate::kernel::shared::HostRequestPayload {
+                data,
+                cell_source_code: None,
+            })
+            .await
+            .expect_err("a run never signs in");
+            errors.push(error.to_string());
+        }
+        assert_eq!(
+            errors,
+            [
+                "MCP server linear is not signed in; the final answer names /mcp login linear",
+                "mcp.begin_login requires a server",
+            ]
+        );
     }
 
     #[tokio::test]

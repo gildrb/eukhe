@@ -68,7 +68,6 @@ fn manager_with_sources(agent_dir: PathBuf, declared: Vec<String>) -> McpManager
         // manager instances like the product paths.
         auth_storage: crate::auth::AuthStorage::create(&agent_dir),
         get_user_servers: no_user_servers(),
-        begin_login: None,
         agent_dir: Some(agent_dir),
         get_catalog_sources: Some(Box::new(move || declared.clone())),
         probe_override: None,
@@ -437,7 +436,6 @@ async fn paste_flow_installs_a_bearer_token_service_end_to_end() {
             std::sync::Arc::new(crate::auth::manager::NoOAuth),
         ),
         get_user_servers: no_user_servers(),
-        begin_login: None,
         agent_dir: Some(agent_dir.path().to_path_buf()),
         get_catalog_sources: None,
         probe_override: Some(probe_for_inputs),

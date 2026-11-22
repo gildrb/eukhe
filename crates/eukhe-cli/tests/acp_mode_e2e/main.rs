@@ -394,6 +394,7 @@ fn update_meta(frame: &Value) -> &Value {
 
 mod compaction_rlm;
 mod daemon_attached;
+mod editor_permission;
 mod job_hold;
 mod protocol;
 mod stop_close;

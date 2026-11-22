@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW gateway_commands_plain_usage
 #
-# PROOF: as gateway_commands_plain; with a word after it the code's table refuses the arguments and answers the usage line, for each k of the seven.
+# PROOF: as gateway_commands_plain; with a word after it the code's table refuses the arguments and answers the usage line, for each k of the nine.
 
 import Base
 import ../../bend/gateway_commands.bend as Gc
@@ -27,8 +27,12 @@ def gcpu.at(k: Nat, -L: String, +a: String, +more: List<&2, String>, few: {Gatew
       Equal.cong(String, Gc.Out, z => Gc.known(z, a <> more, Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(5n)), cmd)
     case 6n:
       Equal.cong(String, Gc.Out, z => Gc.known(z, a <> more, Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(6n)), cmd)
-    case 7n+u:
-      LGa.gab.absurd({Gc.known(L, a <> more, Gc.find(L, Gc.names(Gc.specs()), 0n)) == Gc.OAnswer{String.append("Usage: ", GatewayCommands.gc_at(GatewayCommands.gc_lines(), GatewayCommands.gc_plain_at(7n+u)))} : Gc.Out}, few)
+    case 7n:
+      Equal.cong(String, Gc.Out, z => Gc.known(z, a <> more, Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(7n)), cmd)
+    case 8n:
+      Equal.cong(String, Gc.Out, z => Gc.known(z, a <> more, Gc.find(z, Gc.names(Gc.specs()), 0n)), L, GatewayCommands.gc_at(GatewayCommands.gc_names(), GatewayCommands.gc_plain_at(8n)), cmd)
+    case 9n+u:
+      LGa.gab.absurd({Gc.known(L, a <> more, Gc.find(L, Gc.names(Gc.specs()), 0n)) == Gc.OAnswer{String.append("Usage: ", GatewayCommands.gc_at(GatewayCommands.gc_lines(), GatewayCommands.gc_plain_at(9n+u)))} : Gc.Out}, few)
 
 def GatewayCommands.gateway_commands_plain_usage(t, sess, name, k, a, more, well, ws, nm, few, cmd, own):
   +L = String.to_lower(name)

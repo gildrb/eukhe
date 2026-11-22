@@ -125,6 +125,33 @@ impl ClientSubscriptions {
             .retain(|id| id != active_session_id);
     }
 
+    /// Add this connection to a second registry for `active_session_id`
+    /// (the editors'), leaving the session list as it is: the session list
+    /// of the connection's attach covers it, so a disconnect's
+    /// [`Self::detach_all`] on that registry clears it.
+    pub(crate) fn subscribe(&self, registry: &SessionSubscribers, active_session_id: &str) {
+        registry.register(active_session_id, &self.connection_id, self.queue.clone());
+    }
+
+    /// Take this connection out of a second registry for
+    /// `active_session_id`.
+    pub(crate) fn unsubscribe(&self, registry: &SessionSubscribers, active_session_id: &str) {
+        registry.unregister(active_session_id, &self.connection_id);
+    }
+
+    /// The stale-id rebind of a second registry: a subscription under
+    /// `selector` moves to `current` in one step.
+    pub(crate) fn rebind_subscription(
+        &self,
+        registry: &SessionSubscribers,
+        selector: &str,
+        current: &str,
+    ) {
+        if registry.contains(selector, &self.connection_id) {
+            registry.move_subscription(selector, current, &self.connection_id, self.queue.clone());
+        }
+    }
+
     /// The stale-id rebind seam: the connection keeps exactly its prior
     /// attached-ness under the current id. The registry's id move is atomic
     /// (one lock spans the unregister and the register, so no publish sees
@@ -211,6 +238,15 @@ impl SessionSubscribers {
                 sessions.remove(active_session_id);
             }
         }
+    }
+
+    /// Whether `connection_id` is subscribed to `active_session_id`.
+    fn contains(&self, active_session_id: &str, connection_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(active_session_id)
+            .is_some_and(|subscribers| subscribers.contains_key(connection_id))
     }
 
     /// Move one connection's subscription between session ids atomically

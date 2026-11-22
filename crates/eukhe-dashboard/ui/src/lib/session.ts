@@ -1,13 +1,11 @@
 // Which session this tab is bound to (`open`, with the resume cursor when
-// re-binding the same one; `new`), the saved-session list behind the
-// sidebar, and shell approvals.
+// re-binding the same one; `new`) and the saved-session list behind the
+// sidebar.
 
-import { linkServed, request, run, supports } from "./link.ts";
+import { linkServed, request, supports } from "./link.ts";
 import { store } from "./store.ts";
 import { openSession, type Session } from "./turn.ts";
-import type { ApprovalRequest, OpenReply, SessionRow } from "./types.ts";
-
-const ELSEWHERE_SHOWN_MS = 3000;
+import type { OpenReply, SessionRow } from "./types.ts";
 
 let sessionsInflight: Promise<SessionRow[]> | null = null;
 
@@ -42,7 +40,6 @@ function adopt(reply: OpenReply): Session {
   store.set((state) => ({
     session,
     opening: null,
-    approvals: previous && previous.id === session.id ? state.approvals : [],
     link: { ...state.link, catchingUp: false },
   }));
   return session;
@@ -121,64 +118,5 @@ export async function createSession(cwd: string | null = null): Promise<Session>
   } catch (error) {
     store.set({ opening: null });
     throw error;
-  }
-}
-
-// ------------------------------------------------------------ approvals --
-
-function setApproval(requestId: string, status: "answering" | "elsewhere") {
-  store.set((state) => ({
-    approvals: state.approvals.map((item) =>
-      item.requestId === requestId ? { ...item, status } : item,
-    ),
-  }));
-}
-
-function dropApproval(requestId: string) {
-  store.set((state) => ({
-    approvals: state.approvals.filter((item) => item.requestId !== requestId),
-  }));
-}
-
-/** Add the request of one `approval` frame (deduplicated by id). */
-export function addApproval(asked: ApprovalRequest): void {
-  if (!asked.requestId) return;
-  store.set((state) => {
-    if (state.approvals.some((item) => item.requestId === asked.requestId)) return null;
-    return {
-      approvals: [
-        ...state.approvals,
-        {
-          requestId: asked.requestId,
-          step: asked.step ?? 0,
-          command: asked.command || "",
-          effects: Array.isArray(asked.effects) ? asked.effects : [],
-          status: "pending",
-        },
-      ],
-    };
-  });
-}
-
-/** The session no longer waits on a request (an `approval_settled` frame): one still pending was settled elsewhere, so say so briefly, then drop it; one this tab is answering goes when its answer returns. */
-export function approvalSettled(requestId: string): void {
-  const settled = store.get().approvals.find((item) => item.requestId === requestId);
-  if (settled?.status !== "pending") return;
-  setApproval(requestId, "elsewhere");
-  setTimeout(() => dropApproval(requestId), ELSEWHERE_SHOWN_MS);
-}
-
-/** Answer one request; one answered elsewhere shows for a moment, then goes. */
-export async function answerApproval(
-  requestId: string,
-  verdict: "approve" | "deny",
-): Promise<void> {
-  setApproval(requestId, "answering");
-  try {
-    await run({ type: "answer_shell_approval", requestId, verdict });
-    dropApproval(requestId);
-  } catch {
-    setApproval(requestId, "elsewhere");
-    setTimeout(() => dropApproval(requestId), ELSEWHERE_SHOWN_MS);
   }
 }

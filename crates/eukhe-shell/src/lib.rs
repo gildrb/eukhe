@@ -4,12 +4,14 @@
 //! `&&`, `||` and `|`. [`Shell::run`] expands each step (variables, `~`,
 //! pathname patterns), gathers the parts of each step (the command, each
 //! redirection's target, each path it names, by class: a command the
-//! table does not know is `Exec`), and runs it only when the compiled
-//! core's gate (`eukhe_bend::rules::shell`: bend/tools.bend `join` and
-//! `within`) finds every effect within the [`eukhe_types::shell::AutoSet`]
-//! or the [`Approver`] approves it. A denial, or no answer, stops the
-//! script at that step: the steps before it ran and their effects stand,
-//! it and every later step did not run.
+//! table does not know is `Exec`), and runs it unasked unless a part
+//! writes an own path (eukhe's own config and credentials, the session
+//! record, a protected file of a check; the compiled core's verdict,
+//! `eukhe_bend::rules::shell::verdict`) or the caller's [`Steps`] refuses
+//! it (the editor's say on an irreversible step). A refused step stops
+//! the script there: the steps before it ran and their effects stand, it
+//! and every later step did not run. Each step that ran goes to the
+//! caller's [`Steps`] at its own end (the ledger of irreversible effects).
 //!
 //! The common commands run in process with their common options (`cat`,
 //! `ls`, `head`, `tail`, `wc`, `echo`, `pwd`, `mkdir`, `rm`, `rmdir`,
@@ -35,5 +37,5 @@ mod shown;
 
 pub use effect::GIT_UNTRUSTED_REPO_ARGS;
 pub use parse::literal_command;
-pub use run::{Answer, Approval, Approver, Ask, End, Ran, Refusal, Shell, Sink, StepRun, Stream};
+pub use run::{End, Ran, Shell, Sink, StepRun, Steps, Stream, Unasked};
 pub use shown::visible;

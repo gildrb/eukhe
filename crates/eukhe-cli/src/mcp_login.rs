@@ -21,11 +21,8 @@ use eukhe_tui::client_auth::{AuthFuture, ClientAuthCommands};
 /// The CLI's live MCP manager: the shared auth store, settings-declared
 /// user servers (`mcpServers`), and local service-catalog sources
 /// (`mcpCatalogSources`) all re-read per resolve -- the same closures TS
-/// `createAgentSessionServices` wires into every CLI session. No
-/// interactive login: hosts with a login UI call `set_begin_login`
-/// before the session registers host handlers; headless surfaces keep
-/// the host request absent (TS registers `mcp.begin_login` only when a
-/// login is wired).
+/// `createAgentSessionServices` wires into every CLI session. A run's
+/// `mcp.begin_login` is refused; signing in is `/mcp login`.
 pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path) -> McpManager {
     let user_cwd = cwd.to_path_buf();
     let user_agent_dir = agent_dir.to_path_buf();
@@ -48,7 +45,6 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
             }
             Some(servers)
         }),
-        begin_login: None,
         agent_dir: Some(agent_dir.to_path_buf()),
         get_catalog_sources: Some(Box::new(move || {
             let settings =

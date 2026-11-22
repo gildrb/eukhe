@@ -10,7 +10,7 @@ use eukhe_types::daemon::{
     BashRun, CompactionReason, CompactionResult, ErrorSeverity, Failover, MemoryUpdate,
     SessionActionSnapshot, SessionEvent, StreamUpdate, ToolOutput, TurnAnswer,
 };
-use eukhe_types::effects::UnknownEffect;
+use eukhe_types::effects::{run_report_text, RunReport, UnknownEffect};
 use eukhe_types::goal::GoalState;
 use eukhe_types::loop_mode::LoopStatus;
 use eukhe_types::session::{AgentMessage, CompactionSummaryMessage};
@@ -123,6 +123,10 @@ pub enum TurnUpdate {
     /// outcome a restart could not tell changed (the whole ledger, oldest
     /// first; the session view owns the notices and `/effects`).
     UnknownEffectsUpdate(Vec<UnknownEffect>),
+    /// `run_report`: a root run ended with irreversible effects that ran,
+    /// or steps a crash left unknown: the end-of-run message's text (the
+    /// session view writes it as one notice).
+    RunReport(String),
     /// `loop_update`: the session's `/loop` changed (the session view
     /// owns the status line label).
     LoopUpdate(LoopStatus),
@@ -380,6 +384,11 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::UnknownEffectsUpdate { effects } => {
             TurnUpdate::UnknownEffectsUpdate(effects.clone())
         }
+        SessionEvent::RunReport { ran, unknown } => run_report_text(&RunReport {
+            ran: ran.clone(),
+            unknown: unknown.clone(),
+        })
+        .map_or(TurnUpdate::StatusUpdate, TurnUpdate::RunReport),
         SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
         SessionEvent::BudgetUpdate { budget } => {
             TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
@@ -422,7 +431,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::AcceptanceUpdate { acceptance } => {
             TurnUpdate::AcceptanceUpdate(acceptance.clone())
         }
-        SessionEvent::RefineComplete { .. }
+        // `/effects` reads the ledger when asked: an update shows nothing.
+        SessionEvent::RanEffectsUpdate { .. }
+        | SessionEvent::RefineComplete { .. }
         | SessionEvent::RefineFailed { .. }
         | SessionEvent::PythonSentAgentMessage { .. } => TurnUpdate::StatusUpdate,
     }

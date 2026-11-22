@@ -127,8 +127,8 @@ pub(crate) fn client_route_timeout(command: &DaemonCommand) -> u64 {
             | DaemonCommand::Compact { .. }
             // A tree navigation may run a branch-summary model call.
             | DaemonCommand::NavigateTree { .. }
-            // A relayed approval question waits for the user.
-            | DaemonCommand::RelayShellApproval { .. }
+            // A relayed editor permission question waits for the editor.
+            | DaemonCommand::RelayEditorPermission { .. }
     ) || prompt_runs_session_command(command)
     {
         WORKER_REQUEST_TIMEOUT_MS
@@ -153,8 +153,8 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
             // holding a permit for its whole run would starve the bound.
             | DaemonCommand::Compact { .. }
             | DaemonCommand::NavigateTree { .. }
-            // A question parked on the user, like a turn-long wait.
-            | DaemonCommand::RelayShellApproval { .. }
+            // A question parked on the editor, like a turn-long wait.
+            | DaemonCommand::RelayEditorPermission { .. }
     ) || prompt_runs_session_command(command)
     {
         RouteAdmission::Watch
@@ -168,6 +168,21 @@ pub(crate) fn client_route_admission(command: &DaemonCommand) -> RouteAdmission 
         RouteAdmission::Control
     } else {
         RouteAdmission::ClientRequest
+    }
+}
+
+/// Whether an attach (or reattach) is an editor's: it asked for the
+/// `editor_permission` capability (an ACP attach), so its connection gets
+/// the session's `editor_permission` frames.
+fn attaches_an_editor(command: &DaemonCommand) -> bool {
+    match command {
+        DaemonCommand::Attach { capabilities, .. }
+        | DaemonCommand::Reattach { capabilities, .. } => {
+            attach_client_capabilities(capabilities.as_deref())
+                .iter()
+                .any(|cap| cap == crate::editor_permission::EDITOR_PERMISSION_CAPABILITY)
+        }
+        _ => false,
     }
 }
 
@@ -568,6 +583,7 @@ impl Supervisor {
                     // supervisor retires the stale address
                     // itself and answers the detach.
                     if matches!(command, DaemonCommand::Detach { .. }) {
+                        attached.unsubscribe(&self.editor_subscribers, &selector);
                         attached.detach(&self.session_subscribers, &selector);
                         return (
                             vec![response_line(&response_success(
@@ -950,6 +966,11 @@ impl Supervisor {
                     session_file.as_deref(),
                 );
                 attached.attach(&self.session_subscribers, &active_id);
+                if attaches_an_editor(command) {
+                    attached.subscribe(&self.editor_subscribers, &active_id);
+                } else {
+                    attached.unsubscribe(&self.editor_subscribers, &active_id);
+                }
             }
             let line = spliced_client_line(&command_id, payload);
             if let Some(raw_out) = raw_out {
@@ -1002,6 +1023,11 @@ impl Supervisor {
                                 session_file.as_deref(),
                             );
                             attached.attach(&self.session_subscribers, &active_id);
+                            if attaches_an_editor(command) {
+                                attached.subscribe(&self.editor_subscribers, &active_id);
+                            } else {
+                                attached.unsubscribe(&self.editor_subscribers, &active_id);
+                            }
                             // The client's own capability set, not the
                             // supervisor's worker-facing one, is echoed in
                             // the attach result.
@@ -1032,6 +1058,7 @@ impl Supervisor {
                         // rebind seam retires its superseded address itself.
                         // The registry entry goes first: delivery stops at
                         // the detach instant (TS send-time semantics).
+                        attached.unsubscribe(&self.editor_subscribers, &resident.worker_id);
                         attached.detach(&self.session_subscribers, &resident.worker_id);
                     }
                 }

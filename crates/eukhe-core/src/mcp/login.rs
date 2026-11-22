@@ -1,9 +1,9 @@
 //! Login execution for MCP integrations: resolve a server's OAuth setup,
-//! run the interactive flow, persist the endpoint-bound credential, and wire
-//! the `mcp.begin_login` host request in product paths (the TS manager's
-//! `beginLogin` seam, provided by the UI mode).
+//! run the interactive flow, persist the endpoint-bound credential. The
+//! user's `/mcp login` runs it; a run never does (its `mcp.begin_login`
+//! host request is refused).
 
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context as _, Result};
 
@@ -77,46 +77,6 @@ impl McpManager {
             auth_storage: self.auth_storage_handle(),
         })
     }
-}
-
-/// Wire a login UI into the manager so its `mcp.begin_login` host request
-/// runs the full flow (registration happens on the next
-/// `register_host_handlers` call, before the session starts). The wire is
-/// weak on the manager: a dropped manager fails the request instead of
-/// keeping the store alive.
-///
-/// # Panics
-///
-/// The wired login panics if the MCP manager mutex is poisoned (a previous
-/// login panicked while holding the lock).
-pub fn wire_begin_login(
-    manager: &Arc<Mutex<McpManager>>,
-    ui: Arc<dyn McpLoginUi>,
-    http: Arc<dyn OAuthHttp>,
-) {
-    let weak: Weak<Mutex<McpManager>> = Arc::downgrade(manager);
-    let begin_login = move |server: String| {
-        let weak = Weak::clone(&weak);
-        let ui = Arc::clone(&ui);
-        let http = Arc::clone(&http);
-        let login = async move {
-            let manager = weak
-                .upgrade()
-                .ok_or_else(|| anyhow!("the MCP manager is no longer running"))?;
-            let context = {
-                let manager = manager.lock().expect("MCP manager lock poisoned");
-                manager.login_context(&server)
-            };
-            context?.run(ui.as_ref(), http.as_ref()).await?;
-            Ok(())
-        };
-        // The seam hands out a boxed future; the host handler pins it
-        // once it takes ownership.
-        let boxed: super::BeginLoginFuture = Box::new(login);
-        boxed
-    };
-    let mut manager = manager.lock().expect("MCP manager lock poisoned");
-    manager.set_begin_login(Some(Arc::new(begin_login)));
 }
 
 /// The OAuth refresh implementation for `mcp:<server>` credentials: the
@@ -234,6 +194,7 @@ mod tests {
     use crate::mcp::{McpManagerOptions, McpServerConfig};
     use serde_json::json;
     use std::collections::HashMap;
+    use std::sync::Mutex;
 
     /// A scripted transport (url -> response); unknown urls fail.
     struct ScriptedHttp(HashMap<String, OAuthHttpResponse>);
@@ -326,7 +287,6 @@ mod tests {
                 Arc::new(McpOAuth::with_http(http)),
             ),
             get_user_servers: Box::new(move || user_servers.clone()),
-            begin_login: None,
             agent_dir: None,
             get_catalog_sources: None,
             probe_override: None,
@@ -376,10 +336,22 @@ mod tests {
         ])
     }
 
-    /// `begin_login` -> persisted endpoint-bound credentials -> `is_authed`
+    /// The user's `/mcp login` of `server` (the CLI's `TerminalMcpAuth`
+    /// flow): the manager's login context, run against `ui` and `http`.
+    async fn login(
+        manager: &Arc<Mutex<McpManager>>,
+        server: &str,
+        ui: &dyn McpLoginUi,
+        http: &dyn OAuthHttp,
+    ) -> Result<AuthCredential> {
+        let context = manager.lock().unwrap().login_context(server)?;
+        context.run(ui, http).await
+    }
+
+    /// `/mcp login` -> persisted endpoint-bound credentials -> `is_authed`
     /// -> the server unlocks in the prompt gating.
     #[tokio::test]
-    async fn begin_login_persists_creds_and_unlocks_gating() {
+    async fn a_login_persists_creds_and_unlocks_gating() {
         let _ports = super::super::oauth_callback::CALLBACK_PORT_LOCK
             .lock()
             .await;
@@ -402,22 +374,13 @@ mod tests {
         .unwrap();
         assert!(!before.contains(&"fixture".to_string()));
 
-        // The UI paste surface and the wire: the host wires the login.
-        let ui = Arc::new(PasteUi {
+        // The UI paste surface, as the user's `/mcp login` runs it.
+        let ui = PasteUi {
             auth_url: Arc::new(std::sync::Mutex::new(String::new())),
-        });
-        let http = Arc::new(fixture_http());
-        wire_begin_login(&manager, ui, http);
-
-        let mut handlers = HostRequestHandlers::default();
-        McpManager::register_host_handlers(&manager, &mut handlers);
-        let begin_login = handlers.get("mcp.begin_login").expect("wired").clone();
-        begin_login(HostRequestPayload {
-            data: json!({ "server": "fixture" }),
-            cell_source_code: None,
-        })
-        .await
-        .unwrap();
+        };
+        login(&manager, "fixture", &ui, &fixture_http())
+            .await
+            .unwrap();
 
         // The credential persisted to auth.json (the kernel reads the same
         // file), endpoint-bound like the TS shape.
@@ -454,10 +417,10 @@ mod tests {
         assert!(after.1.uses_oauth);
     }
 
-    /// The builtin linear integration: `begin_login` removes its skill
+    /// The builtin linear integration: `/mcp login` removes its skill
     /// override; notion stays disabled.
     #[tokio::test]
-    async fn begin_login_unlocks_builtin_skill_gating() {
+    async fn a_login_unlocks_builtin_skill_gating() {
         let _ports = super::super::oauth_callback::CALLBACK_PORT_LOCK
             .lock()
             .await;
@@ -503,19 +466,10 @@ mod tests {
             ]
         );
 
-        let ui = Arc::new(PasteUi {
+        let ui = PasteUi {
             auth_url: Arc::new(std::sync::Mutex::new(String::new())),
-        });
-        wire_begin_login(&manager, ui, http);
-        let mut handlers = HostRequestHandlers::default();
-        McpManager::register_host_handlers(&manager, &mut handlers);
-        let begin_login = handlers.get("mcp.begin_login").expect("wired").clone();
-        begin_login(HostRequestPayload {
-            data: json!({ "server": "linear" }),
-            cell_source_code: None,
-        })
-        .await
-        .unwrap();
+        };
+        login(&manager, "linear", &ui, http.as_ref()).await.unwrap();
         // Only notion stays gated.
         let gating_manager = Arc::clone(&manager);
         let after = tokio::task::spawn_blocking(move || {
@@ -529,36 +483,20 @@ mod tests {
         assert_eq!(after, vec!["-notion/SKILL.md".to_string()]);
     }
 
-    /// Unknown servers and non-OAuth servers error with the TS wording;
-    /// the handler surfaces it to the kernel.
+    /// Unknown servers and non-OAuth servers error with the TS wording.
     #[tokio::test]
-    async fn begin_login_rejects_unknown_servers() {
+    async fn a_login_rejects_unknown_servers() {
         let agent = tempfile::tempdir().unwrap();
         let http = Arc::new(ReqwestOAuthHttp::new()) as Arc<dyn OAuthHttp>;
-        let manager = manager(agent.path(), None, http.clone());
-        let ui = Arc::new(PasteUi {
+        let manager = manager(agent.path(), None, Arc::clone(&http));
+        let ui = PasteUi {
             auth_url: Arc::new(std::sync::Mutex::new(String::new())),
-        });
-        wire_begin_login(&manager, ui, http);
-        let mut handlers = HostRequestHandlers::default();
-        McpManager::register_host_handlers(&manager, &mut handlers);
-        let begin_login = handlers.get("mcp.begin_login").expect("wired").clone();
-        let error = begin_login(HostRequestPayload {
-            data: json!({ "server": "nope" }),
-            cell_source_code: None,
-        })
-        .await
-        .unwrap_err()
-        .to_string();
+        };
+        let error = login(&manager, "nope", &ui, http.as_ref())
+            .await
+            .unwrap_err()
+            .to_string();
         assert_eq!(error, "Unknown MCP integration: nope");
-        let error = begin_login(HostRequestPayload {
-            data: json!({}),
-            cell_source_code: None,
-        })
-        .await
-        .unwrap_err()
-        .to_string();
-        assert_eq!(error, "mcp.begin_login requires a server");
     }
 
     /// Expired credentials refresh through the `AuthStorage` seam: the

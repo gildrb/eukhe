@@ -38,7 +38,7 @@ chain with anchors, the replay, and the audit across agents.
 
 |Id|Requirement|
 |---|---|
-|T1|Complete. Every decision of the session engine and every effect appears in the record: a model request, a tool run, a file write, a program run, a message sent or delivered, a spawn, a question and its answer, a grant or a revoke, a settings change, a compaction. An effect's intent is acknowledged in the record before the effect starts; it never has two outcomes, and has exactly one once the session is open again after any crash.|
+|T1|Complete. Every decision of the session engine and every effect appears in the record: a model request, a tool run, a file write, a program run, a message sent or delivered, a spawn, a refusal, an editor's permission request and its answer (I12), a grant or a revoke, a settings change, a compaction. An effect's intent is acknowledged in the record before the effect starts; it never has two outcomes, and has exactly one once the session is open again after any crash.|
 |T2|Attributed. Every entry names its author and its cause. Only a user's input, a schedule firing or the harness's start has no cause. Following causes from any entry reaches such an origin in finitely many steps: no effect without a user, a schedule or a parent behind it; no cycle.|
 |T3|Ordered. Entries of one session have one order. Across sessions, a spawn precedes the child's first entry, a send precedes its delivery, a report precedes its placement. Time of day is an input like any other: no decision reads a clock that the record does not hold.|
 |T4|Tamper-evident. Each entry is bound by a hash to all entries before it. Short of a collision of that hash, a record that differs in any entry (changed, removed, inserted, moved) from the one a head or an anchor was taken from fails verification against it, and a record cut short fails against any anchor taken after the cut. Verification names the first entry whose link or anchor does not hold. What was appended after the last anchor is evident only from the next anchor on.|
@@ -73,11 +73,10 @@ Gaps against the requirements:
    written, so the record shows what happened, not what was decided (T1, T6).
 2. The request a model received is not recorded: it is rebuilt from the
    transcript by Rust (prompt assembly, quirks, scrubber) (T7).
-3. An approval's answer is a transient frame, not an entry
-   (`crates/eukhe-daemon/src/shell_approval.rs`): a refusal shows in the
-   tool's result text, a yes shows nowhere. An agent's own settings changes
-   are kept (the `eukhe.cvar.agent` document); a user's change of the
-   settings files is not (T1).
+3. An agent's own settings changes are kept (the `eukhe.cvar.agent`
+   document); a user's change of the settings files is not (T1). The
+   irreversible effects that ran are in the `eukhe.effects` ledger
+   (spec/README.md I4); the reversible ones only in their tool results.
 4. No integrity beyond the torn tail: a line changed in the middle of
    `main.jsonl` reads as valid. No digest, chain or anchor; a search of the
    storage code for sha256, checksum or a previous-hash field finds none
@@ -204,7 +203,7 @@ and 9.
    reference (assumed), or every request's full bytes? The second replays
    without the transcript and costs disk.
 3. Which decisions: every rule call of the session engine (assumed), or
-   only the gates (approval, admission, stop, capability)?
+   only the gates (admission, stop, own-path refusal, capability)?
 4. Replay scope: decisions only (assumed: exact and cheap). Should a
    release also be gated on replaying a corpus with the new core and
    reviewing every changed decision?

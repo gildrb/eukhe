@@ -83,24 +83,19 @@ pub enum DaemonSessionLifecycle {
     ClientOwned,
 }
 
-/// Who an attached client is ([`DaemonCommand::Attach`] `clientKind`). A
-/// session asks its interactive clients each shell approval question. A
-/// session whose only clients are the phone gateway asks no one: it runs
-/// each gated step at once, except a step that writes a protected path
-/// or reads or writes a secret, which it refuses at once. An attach without the field is interactive.
+/// Who an attached client is ([`DaemonCommand::Attach`] `clientKind`). An
+/// attach without the field is interactive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DaemonClientKind {
-    /// A person at a screen that shows the questions (the TUI, the
-    /// dashboard).
+    /// A person at a screen (the TUI, the dashboard, an editor).
     #[default]
     Interactive,
-    /// The Signal gateway (`eukhe gateway`): it shows no question.
+    /// The Signal gateway (`eukhe gateway`).
     Gateway,
     /// A display-only view of a session another client owns (the TUI's
-    /// worker pane): it receives the session's snapshot and events, is
-    /// never asked a question (approvals route as if it were not
-    /// attached), and does not keep the session's kernel resident.
+    /// worker pane): it receives the session's snapshot and events and
+    /// does not keep the session's kernel resident.
     Watch,
 }
 
@@ -666,34 +661,6 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
-    /// Rust-native extension, advertised by the `shell_approval`
-    /// capability: a client's answer to one `shell_approval` frame.
-    AnswerShellApproval {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        active_session_id: String,
-        request_id: String,
-        verdict: crate::shell::ShellVerdict,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
-    /// Rust-native, worker to worker over the supervisor: a subagent
-    /// session with no attached client hands one approval question to
-    /// its parent session, which asks its own clients, answers by the
-    /// gateway rule, or hands it on to its parent. The response data is
-    /// `{"answer": "approve" | "deny" | "unanswered" |
-    /// "gateway_refused"}` (a [`crate::shell::ShellAnswer`]).
-    RelayShellApproval {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        /// The parent session (its persisted id, else its live id).
-        active_session_id: String,
-        request: crate::shell::ShellApprovalRequest,
-        /// The subagent that asks (its session name).
-        agent: String,
-        #[serde(flatten)]
-        rest: JsonMap,
-    },
     TailKernelBash {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -880,6 +847,30 @@ pub enum DaemonCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: restore the workspace to its snapshot at the start of
+    /// the newest turn not undone (reply: [`crate::undo::UndoReply`]).
+    /// Refused while a run is going (`run_in_progress`) and when no
+    /// snapshot is left (`nothing_to_undo`).
+    UndoTurn {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native: the workspace's changes since the start of the newest
+    /// turn not undone, or of the session's first turn (reply:
+    /// [`crate::undo::TurnDiffReply`]; `nothing_to_diff` before the first
+    /// turn).
+    GetTurnDiff {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(default)]
+        scope: crate::undo::DiffScope,
         #[serde(flatten)]
         rest: JsonMap,
     },
@@ -1440,6 +1431,54 @@ pub enum DaemonCommand {
         #[serde(flatten)]
         rest: JsonMap,
     },
+    /// Rust-native: the root session's ledger of irreversible effects that
+    /// ran, by id (reply: [`crate::effects::RanEffectsReply`]).
+    GetRanEffects {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native, worker to worker over the supervisor: a subagent
+    /// session hands one irreversible effect that ran to its parent, which
+    /// records it in its ledger when it is the root, else hands it on. The
+    /// response data is the [`crate::effects::RanEffect`] as recorded.
+    RelayRanEffect {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// The parent session (its persisted id, else its live id).
+        active_session_id: String,
+        effect: crate::effects::RanEffectDraft,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native, advertised by the `editor_permission` capability: an
+    /// editor's answer to one `editor_permission` frame.
+    AnswerEditorPermission {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        active_session_id: String,
+        request_id: String,
+        verdict: crate::effects::EditorVerdict,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
+    /// Rust-native, worker to worker over the supervisor: a subagent
+    /// session hands one editor permission question to its parent, which
+    /// asks its attached editor when it is the root, else hands it on.
+    /// The response data is `{"verdict": "allow" | "reject" |
+    /// "unsupported"}` ([`crate::effects::EditorVerdict`]); with no editor
+    /// attached it is `allow`.
+    RelayEditorPermission {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// The parent session (its persisted id, else its live id).
+        active_session_id: String,
+        request: crate::effects::EditorPermissionRequest,
+        #[serde(flatten)]
+        rest: JsonMap,
+    },
     /// Rust-native: an optional correction of the uncorrected entry
     /// `effect_id` after looking at the world; nothing waits for one
     /// (reply: [`crate::effects::ResolvedEffectReply`]).
@@ -1811,6 +1850,20 @@ mod tests {
         rt::<DaemonCommand>(r#"{"type":"get_unknown_effects","activeSessionId":"s1"}"#);
         rt::<DaemonCommand>(
             r#"{"type":"resolve_unknown_effect","activeSessionId":"s1","effectId":"tool:c1","resolution":"notRun"}"#,
+        );
+    }
+
+    #[test]
+    fn ran_effect_and_editor_permission_commands_roundtrip() {
+        rt::<DaemonCommand>(r#"{"type":"get_ran_effects","activeSessionId":"s1"}"#);
+        rt::<DaemonCommand>(
+            r#"{"type":"relay_ran_effect","activeSessionId":"s1","effect":{"key":"s2:c1:0","kind":"shellStep","command":"git push","classes":["exec","net"],"agent":"fix-tests","sessionId":"s2","atMs":5}}"#,
+        );
+        rt::<DaemonCommand>(
+            r#"{"type":"answer_editor_permission","activeSessionId":"s1","requestId":"c1:0","verdict":"unsupported"}"#,
+        );
+        rt::<DaemonCommand>(
+            r#"{"type":"relay_editor_permission","activeSessionId":"s1","request":{"requestId":"c1:0","toolCallId":"c1","command":"git push","classes":["net"],"agent":"fix-tests"}}"#,
         );
     }
 

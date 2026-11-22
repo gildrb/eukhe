@@ -22,15 +22,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
+use eukhe_chord::context::Context;
 use eukhe_docs::Documents;
 use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{Extension, ToolExecutionApi};
 
 use self::contract::Function;
-use super::acceptance::HeldFile;
-use super::path_policy::{session_policy, DocumentsGate};
+use super::path_policy::{call_policy, session_policy, DocumentsGate, EditorAsk};
 use super::settings::EukheSettings;
-use super::{HostDeps, ShellApprovalSink};
+use super::HostDeps;
 use crate::memory::Memory;
 use crate::resources::LoadedResources;
 
@@ -52,41 +52,51 @@ pub(crate) struct DocumentsHost {
     /// The session (its MCP servers and kernels) `mcp://` reads through;
     /// weak: the session's host requests own this host.
     deps: Weak<HostDeps>,
-    /// The gate's inputs: the agent dir and settings the path policy
-    /// derives its protected set from, and the session's approval sink.
+    /// The gate's inputs once the session closed: the agent dir and
+    /// settings the path policy derives its protected and own sets from.
     gate: GateInputs,
 }
 
-/// What the gate of each call reads.
+/// What the gate of a call reads once the session closed.
 pub(crate) struct GateInputs {
     pub(crate) agent_dir: PathBuf,
     pub(crate) settings: Arc<EukheSettings>,
-    pub(crate) sink: Option<ShellApprovalSink>,
 }
 
 impl DocumentsHost {
-    /// The gate of one call working in `workspace`: the session's path
-    /// policy, its auto set and its approval sink; each question's id
-    /// starts with the id of `api`'s tool call (a kernel request without
-    /// one: a fresh id).
-    fn gate(
+    /// The gate of one call of `api`'s conversation (a kernel request
+    /// without one: none) working in `workspace`: the session's path
+    /// policy, whose own set refuses a write, and the session's editor
+    /// sink, asked about each irreversible access; each question's id
+    /// starts with the id of `api`'s tool call (a kernel request: a fresh
+    /// id).
+    async fn gate(
         &self,
         workspace: &Path,
         api: Option<&dyn ToolExecutionApi>,
-        held: Vec<HeldFile>,
+        cx: &Context,
     ) -> DocumentsGate {
-        DocumentsGate {
-            policy: session_policy(&self.gate.agent_dir, &self.gate.settings, workspace, &held),
-            held,
-            auto: super::shell::auto_set(&self.gate.settings),
-            sink: self.gate.sink.clone(),
-            call: api.map_or_else(
-                || format!("fs-{}", uuid::Uuid::new_v4().simple()),
-                |api| api.task_id().to_string(),
-            ),
-            asked: AtomicU64::new(0),
-            runtime: tokio::runtime::Handle::current(),
-        }
+        let conversation = api.map(ToolExecutionApi::conversation_id);
+        let deps = self.deps.upgrade();
+        let policy = match &deps {
+            Some(deps) => call_policy(deps, conversation, workspace, cx).await,
+            None => session_policy(&self.gate.agent_dir, &self.gate.settings, workspace, &[]),
+        };
+        let editor = deps
+            .and_then(|deps| deps.editor_permission.clone())
+            .map(|sink| {
+                let call = api.map(|api| api.call_id().to_owned());
+                EditorAsk {
+                    sink,
+                    prefix: call
+                        .clone()
+                        .unwrap_or_else(|| format!("fs-{}", uuid::Uuid::new_v4().simple())),
+                    call,
+                    asked: AtomicU64::new(0),
+                    runtime: tokio::runtime::Handle::current(),
+                }
+            });
+        DocumentsGate { policy, editor }
     }
 }
 
@@ -111,7 +121,6 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         gate: GateInputs {
             agent_dir: deps.agent_dir.clone(),
             settings: Arc::clone(&deps.settings),
-            sink: deps.shell_approval.clone(),
         },
     });
     requests::register(&deps.host_requests, &host);

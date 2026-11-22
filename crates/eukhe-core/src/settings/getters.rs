@@ -231,6 +231,13 @@ impl SettingsManager {
         }
     }
 
+    /// `undo.keepDays`: days a session's workspace snapshots are kept after
+    /// its last turn, at least 1.
+    #[must_use]
+    pub fn get_undo_keep_days(&self) -> u64 {
+        self.cvars().nat(&table::UNDO_KEEP_DAYS).max(1)
+    }
+
     /// `budget.planReserve`, at most 100 percent.
     #[must_use]
     pub fn get_budget_plan_reserve(&self) -> u64 {
@@ -713,14 +720,6 @@ impl SettingsManager {
     #[must_use]
     pub fn get_kernel_transport(&self) -> Option<Value> {
         Some(self.cvars().value(&table::KERNEL_TRANSPORT)).filter(|value| !value.is_null())
-    }
-
-    /// `shell.autoEffects`: the effects (`read`, `write`, `exec`, `net`,
-    /// `outside`, `protected`) a shell command may have without asking; by
-    /// default all six.
-    #[must_use]
-    pub fn get_shell_auto_effects(&self) -> Vec<String> {
-        self.cvars().list(&table::SHELL_AUTO_EFFECTS)
     }
 
     /// `privacy.anonymizeRemote`: scrub outbound request text of a remote

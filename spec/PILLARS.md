@@ -9,7 +9,7 @@ the questions the user must decide.
 
 |Pillar|Spec|Ids|One line|Builds on (proven today)|
 |---|---|---|---|---|
-|capability security|`security/SPEC.md`|C1..C14|What an agent may read, write, run and send is one policy; a subagent holds no more than its parent granted; secrets and private data leave only through a granted capability.|path_policy, approvals, runners, child_env, privacy, sandbox, config trust|
+|capability security|`security/SPEC.md`|C1..C14|What an agent may read, write, run and send is one policy; a subagent holds no more than its parent granted; secrets and private data leave only through a granted capability.|path_policy, irreversible, runners, child_env, privacy, sandbox, config trust|
 |complete replayable record|`record/SPEC.md`|T1..T12|Every decision and effect is attributed, the record shows tampering, a session replays to the same decisions, one query audits a tree.|log, tree, tool_call, call_lift, arg_repair|
 |orchestration at scale|`orchestration/SPEC.md`|O1..O14|Many agents, loops and workflows: fair turns, no deadlock, no lost or duplicated message, bounded queues, admission limits.|admission, family, workflow, rlm_query, kin, child, wait, wait_any, job, task_life|
 |stable SDK contract|`contract/SPEC.md`|W1..W23|The wire and the SDKs keep working across upgrades: negotiated versions, unknown fields tolerated, old and new on both sides, rules for removal. One SDK API over two doors: the engine in the host's process or in the daemon, chosen by configuration, with the host's callbacks working the same in both.|replace, launcher, semver, wire, call_lift|

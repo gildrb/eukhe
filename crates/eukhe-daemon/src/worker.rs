@@ -34,6 +34,8 @@ pub(crate) use run_gate::RunAdmission;
 mod state_tree;
 mod summary;
 mod title;
+mod undo;
+pub(crate) use undo::diff_scope;
 
 mod connection;
 
@@ -42,6 +44,7 @@ pub(crate) use connection::{
 };
 
 mod create;
+mod interrupted_run;
 
 pub(crate) use create::CreateParams;
 use create::{active_session_id_of, worker_server_capabilities};
@@ -135,10 +138,14 @@ pub struct Worker {
     recovery: Arc<Mutex<Option<WorkerRecoveryJournal>>>,
     /// Live side-question runs (registry, guards, event frames).
     side_questions: crate::side_question::SideQuestionManager,
-    /// The `bash` tool's open approval questions (`answer_shell_approval`).
-    shell_approvals: crate::shell_approval::ShellApprovals,
+    /// The session's open questions to its editors (`editor_permission`,
+    /// `answer_editor_permission`).
+    pub(crate) editor_permissions: crate::editor_permission::EditorPermissions,
     /// Single-use peer-transport grants (worker memory only).
     pub(crate) peer_grants: PeerGrantStore,
+    /// The worker's supervisor link (roster pushes, a subagent's
+    /// `relay_ran_effect` to its parent).
+    pub(crate) supervisor_link: Arc<crate::supervisor_link::SupervisorLink>,
     /// Compaction commands.
     pub(crate) compaction: crate::compaction::CompactionManager,
     /// Session-tree navigation: `/tree` moves, branch summaries, forks.
@@ -280,15 +287,15 @@ impl Worker {
             events.clone(),
             config.active_session_id.clone(),
         );
-        // A question no client of this session answers goes up to the
-        // parent session over the supervisor link; the user may take as
-        // long as a turn.
-        let shell_approvals = crate::shell_approval::ShellApprovals::new(
+        // A subagent's question to the editor goes up to its parent session
+        // over the supervisor link; the editor may take as long as a turn.
+        let relay_link = Arc::clone(&roster_link);
+        let editor_permissions = crate::editor_permission::EditorPermissions::new(
             Arc::clone(&core),
             events.clone(),
             config.active_session_id.clone(),
             Arc::new(move |command| {
-                let link = Arc::clone(&roster_link);
+                let link = Arc::clone(&relay_link);
                 Box::pin(async move {
                     link.request(
                         command,
@@ -311,7 +318,6 @@ impl Worker {
         let acp_mcp = eukhe_core::mcp::McpManager::new(eukhe_core::mcp::McpManagerOptions {
             auth_storage: eukhe_core::auth::AuthStorage::create(&agent_dir),
             get_user_servers: Box::new(|| None),
-            begin_login: None,
             agent_dir: Some(agent_dir),
             get_catalog_sources: None,
             probe_override: None,
@@ -333,8 +339,9 @@ impl Worker {
             events,
             recovery,
             side_questions,
-            shell_approvals,
+            editor_permissions,
             peer_grants: PeerGrantStore::new(),
+            supervisor_link: roster_link,
             compaction,
             tree_navigation,
             context_tree: std::sync::Arc::new(crate::context_tree_cache::ContextTreeCache::new()),

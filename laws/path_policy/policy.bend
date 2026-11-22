@@ -1,4 +1,4 @@
-# eukhe: the laws of area path_policy: the real path, the judgment, the store, the entry
+# eukhe: the laws of area path_policy: the real path, the judgment, the entry
 
 import Base
 import ../../bend/ffi_path_policy.bend as FPp
@@ -21,9 +21,7 @@ import ../base.bend as LawsBase
 # segments from `/`; the symlinks are free (any location, any target,
 # from `/` or from the link's directory, loops included); the policy is
 # free (any roots, protected rules and secret entries). An access is
-# judged on the real path; its effects run unasked only when the auto
-# set (`shell.autoEffects`, any value) allows each of them. The user's
-# answer is free: yes, no, or none (no client answered).
+# judged on the real path.
 
 # LAW path_real_has_no_link: a path is judged by its real path: unless its links looped, no
 # prefix of the path a resolution reaches is a symlink (each link it met
@@ -157,40 +155,6 @@ def pp_same(xs: List<&2, Nat>, ys: List<&2, Nat>) -> Bool:
           False{}
         case y <> yr:
           Bool.and(Nat.is_eq(x, y), pp_same(xr, yr))
-
-# no write of es carries the user's yes
-def pp_no_yes(es: List<&2, Pp.Put>) -> Bool:
-  match es:
-    case Nil{}:
-      True{}
-    case e <> rest:
-      match e:
-        case Pp.Put{s, v, a}:
-          match a:
-            case Pp.Yes{}:
-              False{}
-            case Pp.No{}:
-              pp_no_yes(rest)
-            case Pp.Gone{}:
-              pp_no_yes(rest)
-
-# v when the cell is at the location, else the rest's answer
-def pp_cell_pick(hit: Bool, v: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
-  match hit:
-    case True{}:
-      Some{v}
-    case False{}:
-      rest
-
-# the content of the first cell of cs at the location at, if any
-def pp_cell(cs: List<&2, Pp.Cell>, +at: List<&2, Nat>) -> Maybe<&2, Nat>:
-  match cs:
-    case Nil{}:
-      None{}
-    case c <> rest:
-      match c:
-        case Pp.Cell{a, v}:
-          pp_cell_pick(pp_same(a, at), v, pp_cell(rest, at))
 
 # some link of ls sits at the location k
 def pp_link_at(ls: List<&2, Pp.Link>, +k: List<&2, Nat>) -> Bool:
@@ -349,30 +313,14 @@ law path_judge_guards_secret_ancestor:
   for +l: Bool
   {Pp.Cls.guarded(Pp.Judged.cls(Pp.judge(Pp.Pol{ro, ru, List.append(&2, List<&2, Nat>, se1, (m <> List.append(&2, Nat, k, at)) <> se2)}, Pp.Res{at, l}))) == True{} : Bool}
 
-# (changed 2026-10-27 by the user: secrets never ask again) the store law
-# secrets_kept_without_yes (no write without a yes lands on a secret,
-# whatever the auto set holds) is gone with secrets_need_yes: an auto set
-# may hold the secret effect; the store laws of gate.bend pin each write.
-# waive L11-phantom: the note records a law the user removed, by its old name
-
 # LAW path_judge_secret_example: anchor and witness: with the secret /3/5, /3/5 is Secret and
 # holds a secret, its parent /3 is Protected and holds one, its sibling /3/7
 # is Outside and holds none (the premise of path_judge_secret_has_entry is
-# satisfiable), and a write without a yes exists
+# satisfiable)
 # EXCLUDES: a vacuous path_judge_guards_secret_ancestor or
 #   path_judge_secret_has_entry, a judgment that forgets the secret entries
 law path_judge_secret_example:
-  {[Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[5n, 3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[7n, 3n], False{}})] == [Pp.Judged{Pp.Secret{}, True{}}, Pp.Judged{Pp.Protected{}, True{}}, Pp.Judged{Pp.Outside{}, False{}}] : List<&2, Pp.Judged>} & {pp_no_yes([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}]) == True{} : Bool}
-
-# LAW secrets_kept_example: anchor: under roots [/3] and the secret /3/5, with write in the auto
-# set, a write of 1 to /3/5 without a yes leaves its 0 (the auto set lacks
-# the secret effect), the same write with a yes lands, and a write of 2 to
-# /3/7 without a yes lands
-# EXCLUDES: a write to a secret that lands while the auto set lacks the
-#   secret effect and no yes came, a store where no write runs at all, a
-#   gate that ignores the user's yes
-law secrets_kept_example:
-  {[pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{5n}], 1n, Pp.Yes{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], [Pp.Cell{[5n, 3n], 0n}]), [5n, 3n]), pp_cell(Pp.run([Pp.Put{[Tl.Name{3n}, Tl.Name{7n}], 2n, Pp.No{}}], Pp.Pol{[[3n]], Nil{}, [[5n, 3n]]}, Nil{}, [1n], Nil{}), [7n, 3n])] == [Some{0n}, Some{1n}, Some{2n}] : List<&2, Maybe<&2, Nat>>}
+  {[Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[5n, 3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[3n], False{}}), Pp.judge(Pp.Pol{Nil{}, Nil{}, [[5n, 3n]]}, Pp.Res{[7n, 3n], False{}})] == [Pp.Judged{Pp.Secret{}, True{}}, Pp.Judged{Pp.Protected{}, True{}}, Pp.Judged{Pp.Outside{}, False{}}] : List<&2, Pp.Judged>}
 
 # (G1) The path judgment entry, spelled
 # -------------------------------------
@@ -531,7 +479,7 @@ law path_policy_ffi_tags_example:
 # cover (a Tree rule's path read as Inside), with a Pp.safe that drops it
 # too, passed every law (an adversary found this gap). The laws below state
 # each clause of G1.2 and G1.3 for the class of a path through
-# any links (Pp.class: the class the gate and the store judge), over the
+# any links (Pp.class: the class a path is judged by), over the
 # policy's own fields Pol{ro, ru, se} and its real path, with constructors
 # and list splits (a path p is at or above q when q is k ++ p, names deepest
 # first): each rule protects what it covers, a strict ancestor of an entry
@@ -759,8 +707,8 @@ law path_judge_class_example:
 # path_real_has_no_link and path_real_reaches_no_link are one-way (the path
 # a resolution reaches stands on no link unless it looped) and
 # path_real_links_example has no `..` or `.`: a resolution that reads `..`
-# as `.` passes them, and the class, gate and store laws judge whatever path
-# it reaches (/3/7/../5 judged at /3/7/5, so a secret /3/5 read unasked).
+# as `.` passes them, and the class laws judge whatever path it reaches
+# (/3/7/../5 judged at /3/7/5, so a secret /3/5 judged Inside).
 # The laws below state the resolution of G1.1 (Rust's
 # crates/eukhe-types/src/path_policy.rs `resolve`) by what it does to a
 # path, never by a second walker: `.` stays; `..` after a name that is no

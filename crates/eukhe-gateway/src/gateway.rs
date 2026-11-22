@@ -35,6 +35,8 @@ use crate::style::{self, StyledText};
 use crate::{GatewayConfig, GatewayExit, RestartSupport};
 use eukhe_client::saved_sessions::{strip_signal_reply_rules, DaemonLauncher, SIGNAL_REPLY_RULES};
 
+mod effects;
+
 /// Signal shows a typing indicator for about 15 s; refresh it sooner.
 const TYPING_REFRESH: Duration = Duration::from_secs(10);
 
@@ -527,6 +529,9 @@ impl<L: DaemonLauncher> Gateway<L> {
             PhoneCommand::Reasoning(level) => self.reasoning(level).await,
             PhoneCommand::ModelAll(number) => self.model(number, ModelSwitch::AllRoles).await,
             PhoneCommand::Restart => return Ok(self.restart().await),
+            PhoneCommand::Effects => self.effects().await,
+            PhoneCommand::Undo => self.undo().await,
+            PhoneCommand::Diff(scope) => return self.diff(peer, scope).await,
         };
         reply.map(Done::Reply)
     }
@@ -1102,8 +1107,8 @@ impl<L: DaemonLauncher> Gateway<L> {
         session_path: Option<&str>,
         saved_cwd: Option<&str>,
     ) -> anyhow::Result<Binding> {
-        let mut create_config =
-            json!({ "sessionDir": self.config.session_dir.display().to_string() });
+        let mut create_config = Value::Object(self.config.create_config.clone());
+        create_config["sessionDir"] = json!(self.config.session_dir.display().to_string());
         let new_cwd = self.config.new_session_cwd.display().to_string();
         match (session_path, saved_cwd) {
             (None, _) => create_config["cwd"] = json!(new_cwd),
@@ -1209,8 +1214,6 @@ impl<L: DaemonLauncher> Gateway<L> {
             | DaemonClientEvent::SessionListItem { .. }
             | DaemonClientEvent::SessionListProgress { .. }
             | DaemonClientEvent::SideQuestionEvent { .. }
-            | DaemonClientEvent::ShellApproval { .. }
-            | DaemonClientEvent::ShellApprovalSettled { .. }
             | DaemonClientEvent::RosterUpdate { .. }
             | DaemonClientEvent::StateTreeUpdate { .. }
             | DaemonClientEvent::HeartbeatsChanged => {}
@@ -1251,6 +1254,7 @@ impl<L: DaemonLauncher> Gateway<L> {
                     self.stop_typing().await;
                 }
             }
+            SessionEvent::RunReport { ran, unknown } => self.send_run_report(ran, unknown).await,
             SessionEvent::MessageStart { .. }
             | SessionEvent::MessageUpdate { .. }
             | SessionEvent::MessageEnd { .. }
@@ -1270,6 +1274,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::SessionActionUpdate { .. }
             | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
+            | SessionEvent::RanEffectsUpdate { .. }
             | SessionEvent::LoopUpdate { .. }
             | SessionEvent::BudgetUpdate { .. }
             | SessionEvent::PlanUsage { .. }

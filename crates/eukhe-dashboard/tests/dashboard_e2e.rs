@@ -5,8 +5,9 @@
 //! hears `unpaired` and nothing runs), greets with `hello`, opens
 //! the newest root session (create + attach), resumes from a cursor, sends
 //! a message whose reply streams back as session events with cursors,
-//! runs daemon commands for the bound session, hears approvals and
-//! resyncs, reads the memory tree, and keeps events flowing while a
+//! runs daemon commands for the bound session, hears the end-of-run
+//! message and resyncs, words the replies of `/effects`, `/undo` and
+//! `/diff`, reads the memory tree, and keeps events flowing while a
 //! request waits.
 #![cfg(unix)]
 
@@ -178,7 +179,7 @@ fn serve_connection(
         &json!({
             "type": "daemon_hello",
             "protocol": { "name": "eukhe.daemon", "version": 7 },
-            "serverCapabilities": ["memory", "memory_tree", "shell_approval"],
+            "serverCapabilities": ["memory", "memory_tree"],
             "clientId": "mock",
         }),
     );
@@ -303,8 +304,22 @@ fn daemon_answer(command: &Value) -> Value {
             std::fs::write(path, format!("{kind} of {session}")).expect("write the export");
             json!({ "path": path })
         }
+        "get_ran_effects" => json!({ "effects": [ran_effect()] }),
+        "get_unknown_effects" => json!({ "effects": [] }),
+        "undo_turn" => json!({
+            "restored": ["a.txt"], "turn": 2, "left": 0, "notUndone": [ran_effect()],
+        }),
+        "get_turn_diff" => json!({ "diff": "", "paths": [], "skipped": [] }),
         _ => json!({}),
     }
+}
+
+/// The irreversible effect `e1` of session `s1`, as the daemon sends it.
+fn ran_effect() -> Value {
+    json!({
+        "id": "e1", "key": "tool:c1:0", "run": 1, "kind": "shellStep",
+        "command": "git push origin main", "classes": ["net"], "sessionId": "s1", "atMs": 1,
+    })
 }
 
 /// One plain HTTP/1.1 GET under `host` with extra header lines: the
@@ -1177,7 +1192,7 @@ async fn events_and_other_requests_never_wait_behind_a_slow_request() {
 }
 
 #[tokio::test]
-async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
+async fn a_tab_resumes_from_its_cursor() {
     let dir = tempfile::tempdir().expect("tempdir");
     let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
     let port = serve(config(dir.path(), Vec::new()), Running).await;
@@ -1219,24 +1234,6 @@ async fn a_tab_resumes_from_its_cursor_and_hears_approvals() {
     assert_eq!(
         attach["resumeCursor"],
         json!({ "generation": "g1", "sequence": 3 })
-    );
-
-    // The bound session's approval question reaches the tab; another
-    // session's does not.
-    let approval = |active_session_id: &str| {
-        json!({
-            "type": "shell_approval", "activeSessionId": active_session_id,
-            "request": { "requestId": active_session_id, "step": 0, "command": "rm -r build", "effects": ["write"] },
-        })
-    };
-    daemon.write(&approval("s2"));
-    daemon.write(&approval("s1"));
-    assert_eq!(
-        next_frame(&mut socket).await,
-        json!({
-            "type": "approval",
-            "request": { "requestId": "s1", "step": 0, "command": "rm -r build", "effects": ["write"] },
-        })
     );
 
     // A cursor the daemon cannot replay from: the whole transcript again.
@@ -1432,5 +1429,74 @@ async fn a_socket_without_the_current_token_runs_nothing() {
             json!("hello"),
             2
         )
+    );
+}
+
+/// A root run's end-of-run message reaches the tab once, in the words
+/// every surface shows, beside its event; a report with nothing in it
+/// carries none. `/effects`, `/undo` and `/diff all` reach the daemon for
+/// the bound session, and each reply carries its words: the ledger, and
+/// what `/undo` could not take back.
+#[tokio::test]
+async fn a_tab_hears_the_end_of_run_message_and_effects_undo_diff_answer_in_words() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let daemon = ScriptedDaemon::start(&dir.path().join("daemon.sock"), &[]);
+    let port = serve(config(dir.path(), Vec::new()), Running).await;
+    let mut socket = bound_tab(port, &daemon).await;
+
+    let report = json!({ "type": "run_report", "ran": [ran_effect()], "unknown": [] });
+    let empty = json!({ "type": "run_report", "ran": [], "unknown": [] });
+    daemon.write(&session_event(4, &report));
+    daemon.write(&session_event(5, &empty));
+    let heard = [next_frame(&mut socket).await, next_frame(&mut socket).await];
+    let cursor = |sequence: u64| json!({ "generation": "g1", "sequence": sequence });
+    assert_eq!(
+        heard,
+        [
+            json!({
+                "type": "event", "event": report, "cursor": cursor(4),
+                "report": "Irreversible effects ran this run:\n- e1 git push origin main (net)",
+            }),
+            json!({ "type": "event", "event": empty, "cursor": cursor(5) }),
+        ]
+    );
+
+    let mut answered = Vec::new();
+    for (id, command) in [
+        (2, json!({ "type": "get_ran_effects" })),
+        (3, json!({ "type": "get_unknown_effects" })),
+        (4, json!({ "type": "undo_turn" })),
+        (5, json!({ "type": "get_turn_diff", "scope": "all" })),
+    ] {
+        let mut sent = command.clone();
+        sent["activeSessionId"] = json!("someone-else");
+        let reply = request(
+            &mut socket,
+            json!({ "id": id, "op": "run", "command": sent }),
+        )
+        .await;
+        let mut reached = command;
+        reached["activeSessionId"] = json!("s1");
+        answered.push((
+            reply["data"]["text"].clone(),
+            daemon.next_command() == reached,
+        ));
+    }
+    assert_eq!(
+        answered,
+        [
+            (
+                json!("Irreversible effects ran in this session:\n- e1 git push origin main (net)"),
+                true
+            ),
+            (json!(""), true),
+            (
+                json!(
+                    "Restored the workspace to the start of prompt 2 (1 path).\n  a.txt\nNothing more to undo.\nNot undone (irreversible):\n- e1 git push origin main (net)"
+                ),
+                true
+            ),
+            (json!("No changes."), true),
+        ]
     );
 }

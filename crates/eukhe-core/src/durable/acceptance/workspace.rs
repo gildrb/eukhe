@@ -200,6 +200,50 @@ pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
     output.status.success().then_some(output.stdout)
 }
 
+/// git's empty tree: the baseline of a repository with no commit yet.
+pub(crate) const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// What the task committed: the commits from `baseline` (the commit the
+/// workspace held when the checks were set; every commit when `None`) to
+/// `HEAD`, each with its message and files, then their diff. `None`
+/// outside a git repository, before its first commit, and when nothing was
+/// committed since.
+pub(crate) async fn committed_work(cwd: &Path, baseline: Option<String>) -> Option<String> {
+    let cwd = cwd.to_path_buf();
+    tokio::task::spawn_blocking(move || committed_blocking(&cwd, baseline.as_deref()))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn committed_blocking(cwd: &Path, baseline: Option<&str>) -> Option<String> {
+    let range = baseline.map_or_else(|| "HEAD".to_owned(), |base| format!("{base}..HEAD"));
+    let log = git(
+        cwd,
+        &[
+            "log",
+            "--no-color",
+            "--decorate=short",
+            "--stat",
+            &range,
+            "--",
+        ],
+    )?;
+    if log.is_empty() {
+        return None;
+    }
+    let base = baseline.unwrap_or(EMPTY_TREE);
+    let diff = git(
+        cwd,
+        &["diff", "--no-color", "--no-ext-diff", base, "HEAD", "--"],
+    )?;
+    Some(format!(
+        "Commits since the checks were set (`git log --stat`):\n{}\n\nTheir changes (`git diff` from the commit the checks were set on to `HEAD`):\n{}",
+        String::from_utf8_lossy(&log).trim_end(),
+        String::from_utf8_lossy(&diff).trim_end()
+    ))
+}
+
 fn fingerprint_blocking(cwd: &Path) -> [u8; 32] {
     let mut hasher = Sha256::new();
     if let Some(top) = git(cwd, &["rev-parse", "--show-toplevel"]) {
@@ -522,5 +566,77 @@ mod tests {
         assert_ne!(untracked, edited, "an untracked file");
         std::fs::write(root.join("new.txt"), "b").expect("write");
         assert_ne!(fingerprint_blocking(root), untracked, "its content");
+    }
+
+    /// The work a judge reads as committed: nothing outside git, before
+    /// the first commit and when nothing was committed since the baseline;
+    /// else the log since the baseline (every commit without one) and the
+    /// diff from it (from the empty tree without one) to `HEAD`.
+    #[test]
+    fn the_committed_work_is_the_log_and_the_diff_since_the_baseline() {
+        let plain = tempfile::tempdir().expect("tempdir");
+        assert_eq!(committed_blocking(plain.path(), None), None, "no git");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let run = |args: &[&str]| {
+            let status = Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+                .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?}");
+        };
+        let commit = |message: &str| {
+            run(&["add", "."]);
+            run(&["-c", "commit.gpgsign=false", "commit", "-q", "-m", message]);
+            String::from_utf8_lossy(&git(root, &["rev-parse", "HEAD"]).expect("a head"))
+                .trim()
+                .to_owned()
+        };
+        run(&["init", "-q", "-b", "main"]);
+        assert_eq!(committed_blocking(root, None), None, "no commit yet");
+        std::fs::write(root.join("a.txt"), "one\n").expect("write");
+        let first = commit("first");
+        assert_eq!(
+            committed_blocking(root, Some(&first)),
+            None,
+            "nothing committed since"
+        );
+        std::fs::write(root.join("a.txt"), "two\n").expect("write");
+        let second = commit("second");
+        let log = |sha: &str, message: &str, file: &str| {
+            format!(
+                "commit {sha}{}\nAuthor: t <t@t>\nDate:   Thu Jan 1 00:00:00 2026 +0000\n\n    {message}\n\n a.txt | {file}",
+                if sha == second { " (HEAD -> main)" } else { "" }
+            )
+        };
+        let head = "Commits since the checks were set (`git log --stat`):";
+        let diff = "Their changes (`git diff` from the commit the checks were set on to `HEAD`):";
+        let index = |from: &str, to: &str| format!("diff --git a/a.txt b/a.txt\n{from}index {to}");
+        assert_eq!(
+            committed_blocking(root, Some(&first)),
+            Some(format!(
+                "{head}\n{}\n 1 file changed, 1 insertion(+), 1 deletion(-)\n\n{diff}\n{}\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two",
+                log(&second, "second", "2 +-"),
+                index("", "5626abf..f719efd 100644")
+            ))
+        );
+        assert_eq!(
+            committed_blocking(root, None),
+            Some(format!(
+                "{head}\n{}\n 1 file changed, 1 insertion(+), 1 deletion(-)\n\n{}\n 1 file changed, 1 insertion(+)\n\n{diff}\n{}\n--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+two",
+                log(&second, "second", "2 +-"),
+                log(&first, "first", "1 +"),
+                index("new file mode 100644\n", "0000000..f719efd")
+            ))
+        );
     }
 }

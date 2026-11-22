@@ -737,10 +737,22 @@ const READ_CANCELLED_KID: &str = "listed = [[job.kind, job.state] for job in awa
 /// the roster and `rlm.collect` read it cancelled and settled, a wait on
 /// it returns at once (a cancelled agent is settled for every waiter), and
 /// `jobs.cancel` deletes it.
+///
+/// The wait cell's blocking budget is the collect's own half hour: the
+/// cell blocks its turn until the abort however long the kid takes to
+/// start. Under the default 30 s a loaded machine detached the cell before
+/// the Esc: the turn went on without the wait the Esc is meant to abort,
+/// and the detached cell's late `job_settled` wake turn took the script's
+/// read cell.
 #[test]
 fn a_parent_reads_the_child_its_aborted_wait_cancelled() {
     const SLEEP_SECS: u32 = 1796;
     let lane = Lane::new();
+    std::fs::write(
+        lane.agent_dir().join("settings.json"),
+        json!({ "toolBlockingBudgetMs": 1_800_000 }).to_string(),
+    )
+    .expect("write settings.json");
     let sleeping = lane.path().join("kid-sleeping");
     let child_script = sleeping_kid(&lane, &sleeping, SLEEP_SECS);
     let parent_script = lane.script(

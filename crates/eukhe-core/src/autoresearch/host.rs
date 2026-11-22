@@ -26,7 +26,7 @@ use crate::durable::goals::{
     autonomous_state, set_autonomous, AutonomousChange, AutonomousDocState,
 };
 use crate::durable::rlm::session_env;
-use crate::durable::shell::{auto_set, SinkApprover};
+use crate::durable::shell::CallSteps;
 use crate::durable::{HostCall, HostDeps};
 use crate::kernel::manager::local_env;
 
@@ -54,43 +54,32 @@ enum Request {
 }
 
 /// The autoresearch host of a session: its stores under
-/// `<agent_dir>/autoresearch`, its cwd, and the gate of the `bash` tool
-/// (the `shell.autoEffects` auto set read at each run, the session's
-/// path policy and approval sink).
+/// `<agent_dir>/autoresearch`, its cwd, and what a run of the `bash` tool
+/// needs (the session's environment and path policy).
 pub(crate) fn of(deps: &Arc<HostDeps>) -> Autoresearch {
     let weak = Arc::downgrade(deps);
     Autoresearch::new(
         &deps.agent_dir,
         deps.cwd.clone(),
-        Arc::new(move |request: &str| gate(&weak, request)),
+        Arc::new(move || gate(&weak)),
     )
 }
 
-fn gate(deps: &Weak<HostDeps>, request: &str) -> RunGate {
-    let call = format!("autoresearch:{request}");
+fn gate(deps: &Weak<HostDeps>) -> RunGate {
     match deps.upgrade() {
         Some(deps) => RunGate {
             env: local_env(&session_env(&deps)),
-            auto: auto_set(&deps.settings),
-            // The experiment runs are judged by their metric, not by
-            // acceptance checks: no held files.
             paths: crate::durable::path_policy::session_policy(
                 &deps.agent_dir,
                 &deps.settings,
                 &deps.cwd,
                 &[],
             ),
-            approver: SinkApprover {
-                sink: deps.shell_approval.clone(),
-                call,
-            },
         },
-        // The session closed: nothing runs unasked, nobody answers.
+        // The session closed: no environment, no workspace.
         None => RunGate {
             env: std::collections::HashMap::new(),
-            auto: eukhe_types::shell::AutoSet::default(),
             paths: eukhe_types::path_policy::PathPolicy::new(Vec::new(), Vec::new(), Vec::new()),
-            approver: SinkApprover { sink: None, call },
         },
     }
 }
@@ -126,6 +115,10 @@ pub(crate) fn register_host_requests(deps: &Arc<HostDeps>) {
 async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyhow::Result<Value> {
     let lab = of(deps);
     let data = &call.data;
+    let conversation = match &call.call {
+        Some(api) => api.conversation_id(),
+        None => deps.harness.root().context("the Harness is closed")?.id(),
+    };
     let reply = match request {
         Request::Init => lab.init(init_args(data)?).await?,
         Request::Run => {
@@ -137,11 +130,8 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
                     .map(Duration::from_secs_f64)
                     .context("autoresearch.run timeout_s must be a positive number")?,
             };
-            let id = call
-                .call
-                .as_ref()
-                .map_or_else(|| "run".to_owned(), |api| api.task_id().to_string());
-            lab.run(timeout, &id).await?
+            lab.run(timeout, Arc::new(run_steps(deps, &call, conversation)))
+                .await?
         }
         Request::Log => lab.log(log_args(data)?).await?,
         Request::Flag => {
@@ -154,12 +144,23 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
         }
         Request::State => lab.state().await?,
     };
-    let conversation = match &call.call {
-        Some(api) => api.conversation_id(),
-        None => deps.harness.root().context("the Harness is closed")?.id(),
-    };
     follow_mode(deps, conversation, &reply).await?;
     Ok(reply.value)
+}
+
+/// What a benchmark run does around each step, as a `bash` call does
+/// (spec I4, I12): an attached editor is asked before an irreversible
+/// step, which goes to the ledger once it ran. Its steps are named
+/// `<call>:autoresearch-<unique>:<step>` (`kernel` for `<call>` outside a
+/// tool call), so a cell's second run is recorded as its own.
+fn run_steps(deps: &Arc<HostDeps>, call: &HostCall, conversation: ConversationId) -> CallSteps {
+    let tool_call = call.call.as_ref().map(|api| api.call_id().to_owned());
+    let name = format!(
+        "{}:autoresearch-{}",
+        tool_call.as_deref().unwrap_or("kernel"),
+        uuid::Uuid::new_v4().simple()
+    );
+    CallSteps::new(Arc::clone(deps), conversation, name, tool_call)
 }
 
 /// Make the autoresearch continuation follow the Lab's mode after an
