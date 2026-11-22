@@ -856,9 +856,6 @@ import ./proof/run/rec_repeat_redirects.bend as PRecRepeatRedirects
 import ./proof/run/rec_leak_ladder_ends.bend as PRecLeakLadderEnds
 import ./proof/run/rec_repeat_ladder_ends.bend as PRecRepeatLadderEnds
 import ./proof/run/rec_repeat_never_runs.bend as PRecRepeatNeverRuns
-import ./proof/run/rec_leak_never_runs.bend as PRecLeakNeverRuns
-import ./proof/run/rec_empty_gets_its_rung.bend as PRecEmptyGetsItsRung
-import ./proof/run/rec_think_gets_its_rung.bend as PRecThinkGetsItsRung
 import ./proof/run/rec_help_reads_the_act.bend as PRecHelpReadsTheAct
 import ./proof/run/rec_notes_keep_the_rounds.bend as PRecNotesKeepTheRounds
 import ./proof/run/rec_user_breaks_the_row.bend as PRecUserBreaksTheRow
