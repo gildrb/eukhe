@@ -1,14 +1,15 @@
 //! Blind attacks on the checks (layer 2): an attacker, a model request
 //! that never sees the worker's transcript, reads the user's messages, the
 //! checks and the code the task changed, and answers wrong code for one
-//! changed file with a witness (a command and the output the task requires
+//! changed file with a witness (a command and the stdout the task requires
 //! of it). The attack runs in a scratch copy of the workspace: the wrong
-//! code against every gauged check, then the witness; a separate judge
-//! decides whether the required output is what the task asks. The compiled
+//! code against every gauged check, then the witness, whose stdout alone is
+//! compared; a separate judge decides whether the required output is what
+//! the task asks. The compiled
 //! core (`eukhe_bend::rules::attack`) decides the outcome; a survivor keeps
 //! done from being certified (`spec/README.md` S8).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use eukhe_bend::rules::attack::{self, Run};
@@ -19,9 +20,10 @@ use eukhe_durable::types::ConversationId;
 use eukhe_types::acceptance::{AttackMark, AttackOutcome};
 use futures::future::BoxFuture;
 
+use super::scratch::Scratch;
 use super::{changes, check_file, copy_of, run_check, verdict, Pass, Probe};
 use crate::autonomous::now_millis;
-use crate::durable::acceptance::evidence::read_answer;
+use crate::durable::acceptance::evidence::{read_answer, Ran};
 use crate::durable::acceptance::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 use crate::durable::budget::BudgetGate;
 
@@ -276,21 +278,10 @@ async fn attack(
             ),
         ));
     }
-    let copy = match copy_of(&probe.workspace).await {
+    let copy = match copy_with(&probe.workspace, Some(&found)).await {
         Ok(copy) => copy,
         Err(note) => return Ok(unrun(&probe, Some(&found), note)),
     };
-    if let Err(error) = std::fs::write(copy.root().join(&found.path), &found.content) {
-        return Ok(unrun(
-            &probe,
-            Some(&found),
-            format!(
-                "{} could not be written in the scratch copy: {error}",
-                found.path
-            ),
-        ));
-    }
-    super::drop_bytecode(&copy.root().join(&found.path));
     // The wrong code against every gauged check: the first that fails
     // catches it.
     for gauged in &probe.gauged {
@@ -324,22 +315,39 @@ async fn attack(
             ));
         }
     }
-    let witness = Probe {
-        command: found.witness.clone(),
-        pass: Pass::Exit(0),
-        timeout_ms: WITNESS_TIMEOUT_MS,
-        protected: Vec::new(),
-        workspace: copy.root().to_path_buf(),
-        baseline: None,
-        at: probe.at,
-    };
-    let shown = match run_check(budget, &witness, copy.root(), WITNESS_TIMEOUT_MS, cx).await? {
+    drop(copy);
+    // The witness shows the wrong code wrong only when it tells the two
+    // versions apart: run the same way, each in a fresh copy, it prints
+    // the required output on the code under test and another on the wrong
+    // code. What it shows is its stdout, the output the task requires of a
+    // command; its stderr (an interpreter's warning, a log line) is not
+    // compared: a witness that means stderr says `2>&1`.
+    let wrong = match witness_run(budget, &probe, &found.witness, Some(&found), cx).await? {
         Ok(ran) => ran,
         Err(note) => return Ok(unrun(&probe, Some(&found), note)),
     };
-    let got = shown.output.trim().to_owned();
-    let differs = got != found.required.trim();
+    let got = wrong.stdout.trim().to_owned();
+    let required = found.required.trim();
+    let differs = got != required;
     let agrees = if differs {
+        let real = match witness_run(budget, &probe, &found.witness, None, cx).await? {
+            Ok(ran) => ran,
+            Err(note) => return Ok(unrun(&probe, Some(&found), note)),
+        };
+        let real_got = real.stdout.trim();
+        if real_got != required {
+            return Ok(mark(
+                &probe,
+                AttackOutcome::Unrun,
+                Some(&found),
+                &got,
+                format!(
+                    "its witness proves nothing: on the code under test it gives {}, not the required {} either",
+                    one_line(real_got),
+                    one_line(required)
+                ),
+            ));
+        }
         let reply = ask(
             judge,
             JudgeRequest {
@@ -349,7 +357,7 @@ async fn attack(
                     witness: found.witness.clone(),
                     required: found.required.clone(),
                 },
-                evidence: format!("`{}` printed:\n{}", found.witness, cut(&got, MAX_GOT_CHARS)),
+                evidence: witness_evidence(&found.witness, &wrong, &real),
                 model: None,
             },
             cx,
@@ -391,6 +399,80 @@ async fn attack(
         AttackOutcome::Unrun => "the judge gave no verdict on the required output".to_owned(),
     };
     Ok(mark(&probe, outcome, Some(&found), &got, note))
+}
+
+/// A scratch copy of `workspace`, with the attack's file written over it
+/// when `replacement` is one; or why there is none.
+async fn copy_with(workspace: &Path, replacement: Option<&Attack>) -> Result<Scratch, String> {
+    let copy = copy_of(workspace).await?;
+    if let Some(found) = replacement {
+        let path = copy.root().join(&found.path);
+        std::fs::write(&path, &found.content).map_err(|error| {
+            format!(
+                "{} could not be written in the scratch copy: {error}",
+                found.path
+            )
+        })?;
+        super::drop_bytecode(&path);
+    }
+    Ok(copy)
+}
+
+/// `witness` run in a fresh copy of the workspace, the attack's file
+/// written over it when `replacement` is one: the attacker's code and the
+/// code under test are run the same way. What it did, or why it did not
+/// run.
+///
+/// # Errors
+///
+/// `cx` was cancelled.
+async fn witness_run(
+    budget: &Arc<BudgetGate>,
+    probe: &AttackProbe,
+    witness: &str,
+    replacement: Option<&Attack>,
+    cx: &Context,
+) -> SessionResult<Result<Ran, String>> {
+    let copy = match copy_with(&probe.workspace, replacement).await {
+        Ok(copy) => copy,
+        Err(note) => return Ok(Err(note)),
+    };
+    let check = Probe {
+        command: witness.to_owned(),
+        pass: Pass::Exit(0),
+        timeout_ms: WITNESS_TIMEOUT_MS,
+        protected: Vec::new(),
+        workspace: copy.root().to_path_buf(),
+        baseline: None,
+        at: probe.at,
+    };
+    run_check(budget, &check, copy.root(), WITNESS_TIMEOUT_MS, cx).await
+}
+
+/// The witness judge's evidence: what `witness` printed on the attacker's
+/// code and on the code under test, each version's stdout (compared) and
+/// stderr (not compared) apart.
+fn witness_evidence(witness: &str, wrong: &Ran, real: &Ran) -> String {
+    format!(
+        "`{witness}` printed:\n\n{}\n\n{}",
+        printed("on the adversary's code", wrong),
+        printed("on the code under test", real)
+    )
+}
+
+/// What one version printed, for the witness judge: its stdout, then its
+/// stderr when there is any.
+fn printed(version: &str, ran: &Ran) -> String {
+    let stdout = cut(ran.stdout.trim(), MAX_GOT_CHARS);
+    let stderr = ran.stderr.trim();
+    if stderr.is_empty() {
+        format!("{version}, on stdout:\n{stdout}")
+    } else {
+        format!(
+            "{version}, on stdout:\n{stdout}\n{version}, on stderr (not compared):\n{}",
+            cut(stderr, MAX_GOT_CHARS)
+        )
+    }
 }
 
 /// `text` on one line, cut short.
