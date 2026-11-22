@@ -17,6 +17,7 @@ pub use credential_store::InMemoryCredentialStore;
 pub use helpers::{env_api_key_auth, lazy_oauth, LazyOAuthInput, OAuthLoader};
 pub use resolve::{
     refresh_stored_oauth_credential, resolve_provider_auth, AuthResolutionOverrides,
+    CREDENTIAL_STORE_FAILED,
 };
 pub use types::{
     ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, ApiKeyType, AuthCheck, AuthContext,

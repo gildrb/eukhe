@@ -69,6 +69,17 @@ use crate::platform::lock_dir::LockDir as LockGuard;
 /// Staleness for the sync auth lock (TS proper-lockfile default: 10s).
 const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Staleness for the refresh lock: past an OAuth refresh's own timeout
+/// (15 s, pi-ai's `DEFAULT_OAUTH_REFRESH_TIMEOUT_MS`), so only a crashed
+/// holder's lock is this old.
+const REFRESH_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How a credential change waits for another holder of the refresh lock:
+/// 500 attempts 50 ms apart, 25 s, past [`REFRESH_STALE_AFTER`], so a
+/// crashed holder's lock is reclaimed within the wait.
+const REFRESH_LOCK_ATTEMPTS: u32 = 500;
+const REFRESH_LOCK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
 pub struct FileAuthStorageBackend {
     auth_path: PathBuf,
 }
@@ -133,6 +144,32 @@ impl FileAuthStorageBackend {
     /// `WouldBlock` error that names the held lock.
     fn acquire_lock(real: &Path) -> std::io::Result<LockGuard> {
         LockGuard::acquire_retrying(real, STALE_AFTER, 10, std::time::Duration::from_millis(20))
+    }
+
+    /// The document's refresh lock (`<real file>.refresh.lock`), held by a
+    /// credential store across one change of a stored credential, an OAuth
+    /// refresh's network round trip included: across processes one refresh
+    /// of the document runs at a time, and the next holder re-reads the
+    /// document and finds the refreshed token instead of refreshing again.
+    /// It is not the document's lock, so reads and writes of the document
+    /// never wait for a refresh. A holder is waited for up to 25 s
+    /// ([`REFRESH_LOCK_ATTEMPTS`]); one older than [`REFRESH_STALE_AFTER`]
+    /// crashed and is reclaimed.
+    ///
+    /// # Errors
+    ///
+    /// A lock still held after the wait, as the auth storage lock's error;
+    /// any other failure to prepare or take it.
+    pub(crate) fn refresh_lock(&self) -> Result<LockGuard> {
+        let mut lock = self.document()?.into_os_string();
+        lock.push(".refresh");
+        LockGuard::acquire_retrying(
+            Path::new(&lock),
+            REFRESH_STALE_AFTER,
+            REFRESH_LOCK_ATTEMPTS,
+            REFRESH_LOCK_INTERVAL,
+        )
+        .map_err(lock_failure)
     }
 
     /// Read the document under the lock. Only a missing file is `None`.

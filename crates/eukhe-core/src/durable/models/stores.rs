@@ -309,6 +309,18 @@ impl CredentialStore for AuthJsonCredentialStore {
         let task = async move {
             let _turn = chain.lock_owned().await;
             task_signal.throw_if_aborted()?;
+            // The document's refresh lock, held until the change is stored:
+            // a peer process changing this document's credentials (an OAuth
+            // refresh) is waited for, and the read below sees what it
+            // stored, so `f` refreshes only a credential still expired.
+            let lock_backend = Arc::clone(&backend);
+            let _refresh = blocking(move || {
+                lock_backend
+                    .refresh_lock()
+                    .map_err(|error| AuthJsonError::Document(AuthDocumentError::Update(error)))
+            })
+            .await?;
+            task_signal.throw_if_aborted()?;
             let read_backend = Arc::clone(&backend);
             let document = blocking(move || Ok(read_document(&read_backend)?)).await?;
             let previous = document.get(&id).cloned();
@@ -323,6 +335,11 @@ impl CredentialStore for AuthJsonCredentialStore {
             };
             task_signal.throw_if_aborted()?;
             let entry = credential_entry(&next)?;
+            // An entry that stays as stored (a failed refresh that keeps
+            // the stored login) is not written back.
+            if previous.as_ref() == Some(&entry) {
+                return Ok(Some(next));
+            }
             let write_id = id.clone();
             let concurrent = blocking(move || {
                 Ok(update_document(&backend, |document| {
@@ -583,6 +600,73 @@ mod tests {
         assert_eq!(
             store.read("anthropic", options()).await.unwrap(),
             Some(Credential::OAuth(peer))
+        );
+    }
+
+    /// Regression (`AttentionMeasure` re-measure, six processes on one
+    /// auth.json): stores over one document, one per process, that find
+    /// its OAuth credential expired at once refresh it once. Each other
+    /// store waits for the refresh lock, re-reads the document, finds the
+    /// fresh token and serves it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_refreshers_of_one_document_refresh_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        write_json(&path, &todays_auth_json());
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let fresh = OAuthCredential::new("rt-new", "sk-ant-oat-new", 4_102_444_800_000.0);
+        let processes: Vec<_> = (0..6)
+            .map(|_| {
+                let store = AuthJsonCredentialStore::new(&path);
+                let refreshes = Arc::clone(&refreshes);
+                let fresh = fresh.clone();
+                tokio::spawn(async move {
+                    let refresh: ModifyFn = Box::new(move |current| {
+                        Box::pin(async move {
+                            let Some(Credential::OAuth(current)) = current else {
+                                return Ok(None);
+                            };
+                            if current.expires > 1_800_000_000_000.0 {
+                                return Ok(None);
+                            }
+                            refreshes.fetch_add(1, Ordering::SeqCst);
+                            // The token fetch's network round trip.
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            Ok(Some(Credential::OAuth(fresh)))
+                        })
+                    });
+                    store.modify("anthropic", refresh, options()).await
+                })
+            })
+            .collect();
+        for process in processes {
+            assert_eq!(
+                process.await.unwrap().unwrap(),
+                Some(Credential::OAuth(fresh.clone()))
+            );
+        }
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+    }
+
+    /// A refresh that failed keeps the stored login (the provider
+    /// runtime's login watch answers the stored credential): nothing is
+    /// written, so a shared document is not rewritten by every request of
+    /// a run whose login expired.
+    #[tokio::test]
+    async fn an_unchanged_credential_is_not_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        write_json(&path, &todays_auth_json());
+        let before = std::fs::read_to_string(&path).unwrap();
+        let keep: ModifyFn = Box::new(|current| Box::pin(async move { Ok(current) }));
+        let kept = AuthJsonCredentialStore::new(&path)
+            .modify("anthropic", keep, options())
+            .await
+            .unwrap();
+        assert_eq!(
+            (kept.is_some(), std::fs::read_to_string(&path).unwrap()),
+            (true, before)
         );
     }
 

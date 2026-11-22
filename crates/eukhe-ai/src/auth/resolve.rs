@@ -184,6 +184,12 @@ impl AuthContext for OverlayEnvAuthContext {
 const DEFAULT_OAUTH_MINIMUM_VALIDITY_MS: f64 = 5.0 * 60.0 * 1000.0;
 const DEFAULT_OAUTH_REFRESH_TIMEOUT_MS: u64 = 15_000;
 
+/// How a refresh whose credential store failed (its lock still held past
+/// the store's wait, an unwritable document) begins its error, before the
+/// provider id: the login cannot serve the request, as when its refresh
+/// failed.
+pub const CREDENTIAL_STORE_FAILED: &str = "Credential store modify failed for ";
+
 /// Refresh a stored OAuth credential under the credential-store lock and
 /// persist the result before the lock is released. `needs_refresh` is
 /// re-checked under the lock, so concurrent callers and processes refresh
@@ -274,7 +280,7 @@ where
             signal.throw_if_aborted()?;
             Err(models_error(
                 ModelsErrorCode::Auth,
-                format!("Credential store modify failed for {provider_id}"),
+                format!("{CREDENTIAL_STORE_FAILED}{provider_id}"),
                 error,
             ))
         }
