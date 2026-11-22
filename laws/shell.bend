@@ -61,7 +61,11 @@ import ./base.bend as LawsBase
 # bend/ffi_shell.bend) are pinned through `get_req` (shell_ffi_reads,
 # shell_ffi_req_exact, shell_ffi_req_example) and the entry `ffi` (R1,
 # R2); Rust reaches the shell only through ffi, and the steps have no law
-# of their own.
+# of their own. Nor, in this area, are the effects helpers `Tl.join` and
+# `Tl.parts.effs` (bend/tools.bend): they are pinned through
+# `Tl.pieces.effs`, which `ffi` answers with (shell_verdict_effects equates
+# it to their composition; the R3 laws fix that composition, in order);
+# no shipped entry calls either.
 
 # Spec spellers
 # -------------
