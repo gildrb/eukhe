@@ -40,6 +40,11 @@ import ./base.bend as LawsBase
 # Not pinned here: that Rust records every irreversible effect that ran
 # under its key and run (eukhe-core and eukhe-durable tests), and the text
 # of the end-of-run message (eukhe-types effects tests).
+#
+# Not pinned on their own: the request decoder's steps (`get_req.go`,
+# `get_req.tag`, bend/ffi_irreversible.bend) are pinned through `get_req`
+# (irreversible_entry_req_exact, irreversible_entry_req_example), the
+# decoder the entry runs on every input; they have no law of their own.
 
 # Spec helpers
 # ------------

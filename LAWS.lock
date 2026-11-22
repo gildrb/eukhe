@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "876608828510975453e3faf14d91a178bdbb83e575becee3a3590428eb6705a6",
+      "spec/README.md": "585ad2869b86fb2994015bb900677b3f7c452662aad7b1b7b5ee489377bc3a56",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3377,6 +3377,7 @@
     "laws/shell.bend::shell_ffi_answers": "96b4e1e99ca9eba78e686391639a2f0f533351b6edda224efb50cdb823633f08",
     "laws/shell.bend::shell_ffi_example": "557dcf309a0bfc463dcce0fa8c0760ffdcad8122e9b0930f859021b2a4e33364",
     "laws/shell.bend::shell_ffi_left_over": "b45f4e9fe230122a8871ca072532178a1ea7a31f4fae541b719dd630e59147ba",
+    "laws/shell.bend::shell_ffi_reads": "c40c957be5674c6e57492769dac921c5d0e5c9c1a5334a7ec52ac06c199d76ea",
     "laws/shell.bend::shell_ffi_reads_only_requests": "4ca5ef27ff180803b084b4fcb372f8ea4db81a6371676446fdf8a92349dc020d",
     "laws/shell.bend::shell_ffi_refuses": "248103432159b95091bda0f52a2a3138c36cda31c0c70500b5a0204da6e7e477",
     "laws/shell.bend::shell_ffi_req_exact": "fbc8250a206f753024dcad50d86613fe45357f9f74b92833cb4cd1a9bf7a253f",
@@ -4013,6 +4014,7 @@
     "laws/undo.bend::undo_entry_answers": "255750c7c3a7a9188b1b8fb2183d1eeddc0b87c35b73e1b0149b923b47040c40",
     "laws/undo.bend::undo_entry_exact": "66ecac6422f3779de7e58cebfd8d390f153963f65898b33ad41252c0bdea9293",
     "laws/undo.bend::undo_entry_example": "b05a4d25b01972178e125085e2eef8a57e202ff63d07fa5e21c31acf94b93935",
+    "laws/undo.bend::undo_entry_reads": "6de89a383a510aa099ae276a923e79ea43643e05c018fc66ed6c860ca12e5ea2",
     "laws/undo.bend::undo_entry_refuses": "c8b0fe6be417fa22f1d8c499156ed1bd7375fd23373a59aca1ae373c089763d0",
     "laws/undo.bend::undo_entry_req_exact": "4f414c5907534b60ca9cb96efc8c23ad1eb56bf665ae0aac7fb3a4f0181dfda2",
     "laws/undo.bend::undo_entry_req_example": "92a307c3e0659aa83d713954a49b7dfd49459624111bb27f8894f311536902d8",

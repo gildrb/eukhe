@@ -55,6 +55,13 @@ import ./base.bend as LawsBase
 #     names its id; a pipeline with no own write runs every stage) and
 #     an_own_write_in_a_pipeline_runs_none_of_its_stages.
 # Every input is free: any parts, any effects, any step id, any text.
+#
+# Not pinned on their own: the request decoder's steps (`get_req.go`,
+# `get_req.tag`, `get_verdict`, `get_ns`, `pieces.of`, `piece.of`,
+# bend/ffi_shell.bend) are pinned through `get_req` (shell_ffi_reads,
+# shell_ffi_req_exact, shell_ffi_req_example) and the entry `ffi` (R1,
+# R2); Rust reaches the shell only through ffi, and the steps have no law
+# of their own.
 
 # Spec spellers
 # -------------
@@ -148,6 +155,17 @@ law shell_ffi_answers:
   for +q: FSh.Req
   for fits: {req_fits(q) == True{} : Bool}
   {FSh.ffi(spell_req(q, "")) == spell_answer(q) : String}
+
+# LAW shell_ffi_reads (R1): the entry's decoder reads a request Rust writes
+# (every number within the wire) back whole and leaves the input after it
+# untouched
+# EXCLUDES: a decoder that refuses a request Rust writes (the entry then
+#   decoding on its own), misreads it, or eats or skips input after it
+law shell_ffi_reads:
+  for +q: FSh.Req
+  for +rest: String
+  for fits: {req_fits(q) == True{} : Bool}
+  {FSh.get_req(spell_req(q, rest)) == Wr.Got{q, rest} : Wr.Dec<FSh.Req>}
 
 # LAW shell_ffi_left_over: a request Rust writes followed by more input gets exactly the error form
 # EXCLUDES: a second request or trailing bytes read past or ignored
