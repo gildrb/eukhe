@@ -299,11 +299,12 @@ async fn auto_task_turns_autonomous_on_and_sends_the_task() {
 
 /// `/goal --budget N <task>` (`/auto <task> --budget N`): N is the token
 /// limit of the run on the session's budget; the autonomous run has none
-/// of its own.
+/// of its own. N is above the request floor (`c574745ee`): the first
+/// request's 1024 plus the final answer's 7168.
 #[tokio::test]
 async fn a_goal_budget_is_the_runs_token_limit() {
     let fixture = open(&[error_response("provider exploded")]).await;
-    let outcome = fixture.run("/goal --budget 5000 ship it").await;
+    let outcome = fixture.run("/goal --budget 50000 ship it").await;
     assert_eq!(failed(&outcome), None);
     assert!(outcome.autonomous.expect("the status").enabled);
     fixture.idle().await;
@@ -316,7 +317,7 @@ async fn a_goal_budget_is_the_runs_token_limit() {
                 .map(|report| report.limits.tokens),
             fixture.user_texts().await
         ),
-        (Some(Some(5000)), vec!["ship it".to_owned()])
+        (Some(Some(50000)), vec!["ship it".to_owned()])
     );
     fixture.close().await;
 }
