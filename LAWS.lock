@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "536da4064b705d118045b19a254cca44472cfce6749642aebf70f936b87c1ea1",
+      "spec/README.md": "df0c14bbce5910472df7322e1779f08153fec992a9d22ec853e8a0959c6c7d53",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3069,7 +3069,6 @@
     "laws/run/machine.bend::run_reqs_exact": "9dd102953e1714362c53432dee14a68936d59b49efb41436b0db10d87166ff4d",
     "laws/run/machine.bend::run_reqs_step_exact": "0dc3107fac3abbe8da3257022643074638978858d068c33d5531d274be8e9648",
     "laws/run/machine.bend::run_step_exact": "c8dd98a90ab7ffb398f00fbe5ae434de996333dc52d31fc40b70d48ee08842e0",
-    "laws/run/machine.bend::run_steps_exact": "62849e03f33cb2e1854f90a30bcca74815419a9d7d3cccbcd7ed688abf780e72",
     "laws/run/model.bend::rec_calls_run": "c1fd9fb47cbaf966680e6d079433de8b396b92f48eecf0e1e9fcb0811a3b04df",
     "laws/run/model.bend::rec_redo_is_noted": "85020f53f62ac6a25c7fb832f01dfa31e1d2784127f1697546708342de58d5ee",
     "laws/run/model.bend::rec_repeat_redirects": "b8f4fff8de58b5598a5e8fe7e6dc639cdc6a0d943f9a6880f313ccce0e101f1c",
