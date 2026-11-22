@@ -415,7 +415,10 @@ fn with_print_runtime<Ctx>(
 
 /// Print/json mode: open the selected session, run every prompt, print the
 /// result, close the session. The opened session's lease moves into
-/// `lease`, which the caller releases after the runtime stops.
+/// `lease`, which the caller releases after the runtime stops. A text run
+/// whose session has no Python kernel says so once, on stderr, before the
+/// first prompt: the model reads it in its prompt, the user here (json
+/// mode leaves it to the host that reads the stream).
 async fn print_mode_main(
     options: &RunOptions,
     lease: &mut Option<eukhe_daemon::lease::SessionLease>,
@@ -423,6 +426,11 @@ async fn print_mode_main(
     let cx = &*BACKGROUND_CONTEXT;
     let mut opened = open_headless_session(options, HeadlessTarget::Selected, cx).await?;
     *lease = opened.lease.take();
+    if options.app_mode == AppMode::Print {
+        if let Some(notice) = opened.session.deps().kernel_unavailable_notice() {
+            eprintln!("eukhe: {notice}");
+        }
+    }
     let result = run_prompts(&opened, options, cx).await;
     let HeadlessSession { session, .. } = opened;
     // Every other holder (the event stream, the prompt loop) is gone.

@@ -311,7 +311,9 @@ fn packaged_binary_reports_manifest_version() {
 /// fail. Now the session offers no python tool (the request's prompt says
 /// there is no Python REPL). The notice naming the runtime directory is a
 /// notification of the interactive client: a json run stores no row for
-/// it and prints nothing about it.
+/// it and prints nothing about it. A text print run, which has no later
+/// view, says it once on stderr (a measurement run's binary without
+/// `rlm/` told only the model).
 #[test]
 fn missing_sidecar_session_offers_no_python() {
     let _guard = serial_lock();
@@ -338,6 +340,33 @@ fn missing_sidecar_session_offers_no_python() {
     assert!(
         !stderr.contains("The Python kernel cannot start"),
         "a json run prints no kernel notice; stderr: {stderr}"
+    );
+    let mut command = box_.command(staged);
+    let output = command
+        .env("EUKHE_SESSION_DIR", &sessions)
+        .env("EUKHE_FAUX_SCRIPT", script.to_string())
+        .args(["-p", "use the kernel"])
+        .output()
+        .expect("run packaged binary");
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    let notice =
+        "eukhe: The Python kernel cannot start: the rlm kernel runtime directory was not found";
+    assert_eq!(
+        (
+            stderr.matches(notice).count(),
+            stderr.contains("EUKHE_PACKAGE_DIR"),
+            stderr.contains("This session has no `python` tool"),
+        ),
+        (1, true, true),
+        "a print run says it once on stderr; stderr: {stderr}"
     );
 }
 

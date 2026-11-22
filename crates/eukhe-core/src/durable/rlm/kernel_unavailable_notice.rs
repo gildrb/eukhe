@@ -17,11 +17,12 @@
 //! the daemon's connection state carries it), and the interactive client
 //! shows it once per install state ([`eukhe_types::kernel_notice`]). A
 //! session of an install without the kernel is therefore as empty as any
-//! other new session. A host with no notification surface (print, json
-//! and rpc mode) shows nothing and leaves the notification to the next
-//! interactive client. The Python backend is dropped after a definitive
-//! failed probe, and the first-launch Python warning is raised on
-//! interactive launches only; its text goes to the UI's startup
+//! other new session. A print run writes the text once on stderr, every
+//! run: it has no later view to show it in. Json and rpc mode show
+//! nothing (their stream's host decides), and no headless run touches the
+//! interactive client's marker. The Python backend is dropped after a
+//! definitive failed probe, and the first-launch Python warning is raised
+//! on interactive launches only; its text goes to the UI's startup
 //! notifications, never into the session.
 
 use std::path::Path;
