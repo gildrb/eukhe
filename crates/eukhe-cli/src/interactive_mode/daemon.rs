@@ -107,6 +107,7 @@ pub(crate) fn cli_launcher(
         SupervisorLife::Detached => command.env_remove(crate::daemon_mode::DAEMON_OWNER_STDIN_ENV),
         SupervisorLife::Caller => command.env(crate::daemon_mode::DAEMON_OWNER_STDIN_ENV, "1"),
     };
+    eukhe_daemon::platform::set_allocator_options(&mut command);
     let launcher = ProcessLauncher::new(command, socket_path, shutdown_command(socket_path))
         .with_spawn_check(eukhe_daemon::platform::check_daemon_socket_dir);
     match life {

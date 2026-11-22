@@ -675,6 +675,7 @@ impl Supervisor {
         // (`spawnHidden(..., { detached: true })`): the worker leaves the
         // supervisor's console group and shows no fresh console.
         eukhe_core::platform::process::set_new_process_group(command.as_std_mut());
+        crate::platform::set_allocator_options(command.as_std_mut());
         let child = command.spawn().with_context(|| {
             format!(
                 "spawn session worker {} from {}",
