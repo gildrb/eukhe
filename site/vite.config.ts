@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import stylexVite from "@stylexjs/unplugin/vite";
 import { defineConfig, type Plugin } from "vite-plus";
-import { gather, images, sizes } from "./scripts/files.ts";
+import { gather, images, servedPath, shown, webp } from "./scripts/files.ts";
 import type * as RenderModule from "./src/render.tsx";
 
 type Render = typeof RenderModule;
@@ -52,12 +52,12 @@ const site: Plugin = {
         .ssrLoadModule("/src/render.tsx")
         .then(async (module) => {
           const css = stylexPlugin.__stylexCollectCss?.() ?? "";
-          const shown = await images(root);
+          const read = await images(root);
           const files = renderModule(module).render(
             css,
             "/src/client.ts",
             await gather(root),
-            sizes(shown),
+            shown(read),
           );
           const name = pathname.endsWith("/")
             ? `${pathname.slice(1)}index.html`
@@ -65,10 +65,10 @@ const site: Plugin = {
           const body = files[name];
           if (body === undefined) {
             // The README's images, read again on every request, as its linked files are.
-            const image = shown.find((file) => file.path === name);
+            const image = read.find((file) => servedPath(file) === name);
             if (image === undefined) return next();
-            response.setHeader("Content-Type", contentType(name));
-            return response.end(image.bytes);
+            response.setHeader("Content-Type", "image/webp");
+            return response.end(await webp(image));
           }
           const html = name.endsWith(".html");
           response.setHeader("Content-Type", html ? "text/html" : contentType(name));
@@ -147,14 +147,19 @@ export default defineConfig({
       const outDir = "dist";
       // The pages inline the CSS; the client pass's copy of it is unused.
       await rm(path.join(outDir, "assets/stylex.css"), { force: true });
-      const shown = await images(root);
-      const pages = render(css, `/${entry.fileName}`, await gather(root), sizes(shown));
-      const taken = shown.filter((image) => image.path in pages).map((image) => image.path);
+      const read = await images(root);
+      const pages = render(css, `/${entry.fileName}`, await gather(root), shown(read));
+      const taken = read.map(servedPath).filter((file) => file in pages);
       if (taken.length > 0)
         throw new Error(`README images clash with the site's files: ${taken.join(", ")}`);
       const out: [string, string | Buffer][] = [
         ...Object.entries(pages),
-        ...shown.map((image): [string, Buffer] => [image.path, image.bytes]),
+        ...(await Promise.all(
+          read.map(async (image): Promise<[string, Buffer]> => [
+            servedPath(image),
+            await webp(image),
+          ]),
+        )),
       ];
       await Promise.all(
         out.map(async ([file, body]) => {
