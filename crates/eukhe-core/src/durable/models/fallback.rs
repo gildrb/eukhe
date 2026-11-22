@@ -14,7 +14,7 @@ use eukhe_ai::quirks::provider_defaults;
 use eukhe_bend::rules::fallback::{self as rules, Choice, Why};
 use eukhe_bend::{expect_core, Entry};
 use eukhe_types::ai::Model as RegistryModel;
-use eukhe_types::model_roles::ModelRoleGroup;
+use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::Model;
 
 use super::failover::model_reference;
@@ -56,11 +56,13 @@ pub fn configured_models(settings: &SettingsManager, available: &[Model]) -> Vec
         .collect()
 }
 
-/// The models the user configured ("provider/model-id"), in the order a
-/// failed request tries them: the `enabledModels` scope, then the model of
-/// each role that takes a chat model, in `ModelRole::ALL` order (the chat
-/// role's is `defaultProvider`/`defaultModel`). Each is one of `available`
-/// (its provider has credentials), once.
+/// The models the user configured to do the run's work ("provider/model-id"),
+/// in the order a failed request tries them: the `enabledModels` scope, then
+/// the model of each work role ([`does_work`]), in `ModelRole::ALL` order
+/// (the chat role's is `defaultProvider`/`defaultModel`). A model configured
+/// only for a side job (memory, summaries, titles, judgments, translation,
+/// `rlm.query`) is none. Each is one of `available` (its provider has
+/// credentials), once.
 #[must_use]
 pub fn configured_references(
     settings: &SettingsManager,
@@ -75,10 +77,7 @@ pub fn configured_references(
         .map(|scoped| reference(&scoped.model));
     let roles = role_table(settings.cvars())
         .into_iter()
-        .filter(|row| match row.role.group() {
-            ModelRoleGroup::Chat => true,
-            ModelRoleGroup::Local => false,
-        })
+        .filter(|row| does_work(row.role))
         .filter_map(|row| {
             let (provider, id) = row.provider_model()?;
             available
@@ -93,6 +92,28 @@ pub fn configured_references(
         }
     }
     references
+}
+
+/// Whether `role`'s model does the run's work (the chat, the worker,
+/// subagents, turns with images, the phone gateway), so a failed run may
+/// go on with it. A side job's model (memory, summaries, `rlm.query`,
+/// titles, judgments, translation, speech, dictation) never takes the run.
+const fn does_work(role: ModelRole) -> bool {
+    match role {
+        ModelRole::Chat
+        | ModelRole::Image
+        | ModelRole::Subagent
+        | ModelRole::Worker
+        | ModelRole::Gateway => true,
+        ModelRole::Memory
+        | ModelRole::Auxiliary
+        | ModelRole::Query
+        | ModelRole::Titles
+        | ModelRole::Judge
+        | ModelRole::Translate
+        | ModelRole::Speech
+        | ModelRole::Dictation => false,
+    }
 }
 
 /// The default model of each provider the user is signed in to, in
@@ -220,38 +241,93 @@ mod tests {
         }
     }
 
-    /// A model the user configured whose provider has credentials is a
-    /// candidate, in the scope's order, then the roles'; one without
+    /// The candidates of the settings `settings` over `available`.
+    fn candidates(settings: &serde_json::Value, available: &[Model]) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), settings.to_string()).unwrap();
+        let settings = SettingsManager::create(dir.path(), dir.path());
+        configured_models(&settings, available)
+            .iter()
+            .map(model_reference)
+            .collect()
+    }
+
+    /// A model the user configured to do the run's work whose provider has
+    /// credentials is a candidate: the scope's in its order, then the work
+    /// roles' (chat, image, subagent, worker, gateway); one without
     /// credentials (absent from `available`) never is.
     #[test]
-    fn candidates_are_the_configured_models_with_credentials() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("settings.json"),
-            serde_json::json!({
-                "enabledModels": ["beta/b-1", "gamma/g-1"],
-                "defaultProvider": "alpha",
-                "defaultModel": "a-1",
-                "subagentDefaultModel": "beta/b-2",
-                "auxiliaryModel": "delta/d-1",
-            })
-            .to_string(),
-        )
-        .unwrap();
-        let settings = SettingsManager::create(dir.path(), dir.path());
+    fn candidates_are_the_work_models_with_credentials() {
+        let available = [
+            model("alpha", "a-1"),
+            model("alpha", "a-2"),
+            model("beta", "b-1"),
+            model("beta", "b-2"),
+            model("epsilon", "e-1"),
+            model("zeta", "z-1"),
+        ];
+        assert_eq!(
+            candidates(
+                &serde_json::json!({
+                    "enabledModels": ["beta/b-1", "gamma/g-1"],
+                    "defaultProvider": "alpha",
+                    "defaultModel": "a-1",
+                    "imageModel": "epsilon/e-1",
+                    "subagentDefaultModel": "beta/b-2",
+                    "workerModel": "alpha/a-2",
+                    "gateway": { "signal": { "model": "zeta/z-1" } },
+                }),
+                &available
+            ),
+            [
+                "beta/b-1",
+                "alpha/a-1",
+                "epsilon/e-1",
+                "beta/b-2",
+                "alpha/a-2",
+                "zeta/z-1"
+            ]
+        );
+    }
+
+    /// A model configured only for a side job (memory, summaries,
+    /// `rlm.query`) is no candidate, though its provider has credentials;
+    /// the same model configured for work too keeps its work place.
+    #[test]
+    fn a_side_jobs_model_is_a_candidate_only_when_it_also_does_work() {
         let available = [
             model("alpha", "a-1"),
             model("beta", "b-1"),
-            model("beta", "b-2"),
             model("delta", "d-1"),
+            model("memory", "m-1"),
+            model("query", "q-1"),
         ];
-        let references: Vec<String> = configured_models(&settings, &available)
-            .iter()
-            .map(model_reference)
-            .collect();
         assert_eq!(
-            references,
-            ["beta/b-1", "alpha/a-1", "delta/d-1", "beta/b-2"]
+            candidates(
+                &serde_json::json!({
+                    "enabledModels": ["beta/b-1"],
+                    "defaultProvider": "alpha",
+                    "defaultModel": "a-1",
+                    "memory": { "model": "memory/m-1" },
+                    "auxiliaryModel": "delta/d-1",
+                    "rlm": { "queryModel": "query/q-1" },
+                }),
+                &available
+            ),
+            ["beta/b-1", "alpha/a-1"]
+        );
+        assert_eq!(
+            candidates(
+                &serde_json::json!({
+                    "enabledModels": ["beta/b-1"],
+                    "defaultProvider": "alpha",
+                    "defaultModel": "a-1",
+                    "memory": { "model": "beta/b-1" },
+                    "auxiliaryModel": "alpha/a-1",
+                }),
+                &available
+            ),
+            ["beta/b-1", "alpha/a-1"]
         );
     }
 

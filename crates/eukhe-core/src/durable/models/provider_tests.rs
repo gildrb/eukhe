@@ -642,6 +642,219 @@ async fn a_failed_credential_store_goes_on_with_a_signed_in_providers_default() 
     );
 }
 
+/// Regression (the nightly of 2026-11-22: a run whose model gave up went
+/// on with the chat-memory compactor's `memory.model`, a model configured
+/// only for a side job): with `memory.model` configured on a signed-in
+/// provider and the chat's login expired, the run goes on with the
+/// signed-in provider's default, and `memory.model` receives nothing.
+#[tokio::test]
+async fn an_expired_login_goes_on_with_a_default_never_the_memory_model() {
+    let codex = format!("openai-codex/{}", codex_default());
+    let fixture = fixture_second(
+        "openai-codex",
+        codex_default(),
+        &serde_json::json!({
+            "allowedModels": ["faux-a/shared-1", codex, "faux-memory/summarizer"],
+            "memory": { "model": "faux-memory/summarizer" },
+            "retry": { "maxRetries": 0 },
+        }),
+    );
+    let memory = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux-memory".to_owned()),
+        models: Some(vec![FauxModelDefinition::new("summarizer")]),
+        ..RegisterFauxProviderOptions::default()
+    });
+    fixture.models.set_provider(memory.provider.clone());
+    memory.set_responses(vec![FauxResponseStep::Message(Box::new(
+        faux_assistant_message("memory answer", FauxAssistantMessageOptions::default()),
+    ))]);
+    let model = fixture.faux_a.get_model();
+    fixture.faux_a.set_responses(vec![error_step("never sent")]);
+    fixture
+        .faux_b
+        .set_responses(vec![FauxResponseStep::Message(Box::new(
+            faux_assistant_message("default answer", FauxAssistantMessageOptions::default()),
+        ))]);
+    expire_faux_a(&fixture);
+    let mut events = fixture.runtime.subscribe();
+    let message = drive(
+        &fixture.models,
+        &model,
+        vec![user_message(UserContent::Text("hello".to_owned()))],
+    )
+    .await;
+    assert_eq!(
+        (
+            message.provider.as_str(),
+            answer_text(&message),
+            switches(&mut events),
+            memory.get_pending_response_count(),
+        ),
+        (
+            "openai-codex",
+            "default answer".to_owned(),
+            vec![(codex, 0)],
+            1,
+        )
+    );
+}
+
+/// Regression (`AttentionMeasure` re-measure: every request of a run whose
+/// login expired tried that login again, paid a failed refresh, and only
+/// then moved): a login a request found unusable stays so for the rest of
+/// the run. The next request starts on the model the run moved to: the
+/// login's provider receives nothing, and no second switch is reported.
+#[tokio::test]
+async fn a_dead_login_is_not_tried_again_in_the_run() {
+    let fixture = fixture_set(/*text_only*/ false, "solo-1", &two_configured_models());
+    let model = fixture.faux_a.get_model();
+    fixture
+        .faux_a
+        .set_responses(vec![error_step("sent on the dead login")]);
+    let answer = |text: &str| {
+        FauxResponseStep::Message(Box::new(faux_assistant_message(
+            text,
+            FauxAssistantMessageOptions::default(),
+        )))
+    };
+    fixture
+        .faux_b
+        .set_responses(vec![answer("first answer"), answer("second answer")]);
+    expire_faux_a(&fixture);
+    let hello = || vec![user_message(UserContent::Text("hello".to_owned()))];
+    let first = drive(&fixture.models, &model, hello()).await;
+    let mut events = fixture.runtime.subscribe();
+    let second = drive(&fixture.models, &model, hello()).await;
+    assert_eq!(
+        (
+            answer_text(&first),
+            second.provider.as_str(),
+            answer_text(&second),
+            switches(&mut events),
+            fixture.faux_a.get_pending_response_count(),
+            fixture.runtime.model_moves().len(),
+        ),
+        (
+            "first answer".to_owned(),
+            "faux-b",
+            "second answer".to_owned(),
+            Vec::new(),
+            1,
+            1,
+        )
+    );
+}
+
+/// An OAuth whose refreshes are counted; its login answers `credential`.
+struct CountingOAuth {
+    refreshes: std::sync::atomic::AtomicUsize,
+    credential: OAuthCredential,
+}
+
+impl OAuthAuth for CountingOAuth {
+    // The trait returns a borrowed name; this one is a literal.
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn name(&self) -> &str {
+        "Counting"
+    }
+
+    fn login(
+        &self,
+        _interaction: ProviderAuthInteraction,
+        _options: Option<LoginOptions>,
+    ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+        let credential = self.credential.clone();
+        Box::pin(async move { Ok(credential) })
+    }
+
+    fn refresh(
+        &self,
+        credential: OAuthCredential,
+        _signal: AbortSignal,
+    ) -> BoxFuture<'_, Result<OAuthCredential, Thrown>> {
+        self.refreshes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move { Ok(credential) })
+    }
+
+    fn to_auth<'a>(
+        &'a self,
+        _credential: &'a OAuthCredential,
+    ) -> BoxFuture<'a, Result<ModelAuth, Thrown>> {
+        Box::pin(async { Ok(ModelAuth::default()) })
+    }
+}
+
+/// A login interaction that is never asked anything.
+struct Unasked;
+
+impl eukhe_ai::auth::AuthInteraction for Unasked {
+    fn signal(&self) -> Option<AbortSignal> {
+        None
+    }
+
+    fn prompt(&self, _prompt: eukhe_ai::auth::AuthPrompt) -> BoxFuture<'_, Result<String, Thrown>> {
+        Box::pin(async { Ok(String::new()) })
+    }
+
+    fn notify(&self, _event: eukhe_ai::auth::AuthEvent) {}
+}
+
+/// A login the run found unusable is not refreshed again: its refresh
+/// records the login's failure at once, without the provider's refresh. A
+/// new login of the provider clears it, and the next refresh is the
+/// provider's own.
+#[tokio::test]
+async fn a_dead_login_is_never_refreshed_until_a_new_login() {
+    let fixture = fixture(/*text_only*/ false);
+    let inner = &fixture.runtime.inner;
+    let fresh = OAuthCredential::new("rt-new", "at-new", 4_102_444_800_000.0);
+    let oauth = Arc::new(CountingOAuth {
+        refreshes: std::sync::atomic::AtomicUsize::new(0),
+        credential: fresh.clone(),
+    });
+    let watch = LoginWatch {
+        oauth: Arc::clone(&oauth) as Arc<dyn OAuthAuth>,
+        provider: "faux-a".to_owned(),
+        logins: Arc::clone(&inner.logins),
+        dead: Arc::clone(&inner.dead_logins),
+    };
+    let error = "OAuth refresh failed for faux-a: invalid_grant";
+    inner.dead_logins.lock().unwrap_or_else(poisoned).insert(
+        "faux-a".to_owned(),
+        DeadLogin {
+            error: error.to_owned(),
+            moved_to: fixture.faux_b.get_model(),
+        },
+    );
+    let stale = OAuthCredential::new("rt-old", "at-old", 0.0);
+    let signal = || eukhe_chord::context::AbortController::new().signal();
+    let refreshes = || oauth.refreshes.load(std::sync::atomic::Ordering::SeqCst);
+    let kept = watch.refresh(stale.clone(), signal()).await.unwrap();
+    let dead_refresh = (
+        kept == stale,
+        take_login_failure(&inner.logins, "faux-a"),
+        refreshes(),
+    );
+    let login = ProviderAuthInteraction::new(Arc::new(Unasked), signal());
+    let logged_in = watch.login(login, None).await.unwrap();
+    let after_login = watch.refresh(logged_in.clone(), signal()).await.unwrap();
+    assert_eq!(
+        (
+            dead_refresh,
+            logged_in == fresh,
+            after_login == fresh,
+            inner
+                .dead_logins
+                .lock()
+                .unwrap_or_else(poisoned)
+                .contains_key("faux-a"),
+            refreshes(),
+        ),
+        ((true, Some(error.to_owned()), 0), true, true, false, 1)
+    );
+}
+
 /// Regression (`AttentionMeasure`, expired login with no second model
 /// configured: the run printed only the raw refresh failure): with no
 /// model left (the signed-in provider's default is outside
