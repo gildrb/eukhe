@@ -214,11 +214,16 @@ impl AcceptanceLabel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttackOutcome {
-    /// Its wrong code passed every gauged check, its witness showed the
-    /// code wrong, and the judge agreed: the checks let it through.
+    /// Its wrong code passed every gauged check, its witness printed the
+    /// required output on the code under test and another on the wrong
+    /// code, and the judge agreed: the checks let it through.
     Survived,
-    /// The checks caught it, its witness did not show it wrong, or the
-    /// judge rejected it.
+    /// Its witness does not print the required output on the code under
+    /// test, and the judge agreed the task requires it: the code under test
+    /// is wrong. It keeps done from being certified, as a survivor does.
+    Fails,
+    /// The checks caught it, its witness did not show it wrong (it prints
+    /// the required output on both versions), or the judge rejected it.
     Clean,
     /// It did not run (the budget, the time, a reply that did not read, no
     /// verdict of the judge): it shows nothing.

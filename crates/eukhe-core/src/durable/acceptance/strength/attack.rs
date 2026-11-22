@@ -316,38 +316,28 @@ async fn attack(
         }
     }
     drop(copy);
-    // The witness shows the wrong code wrong only when it tells the two
-    // versions apart: run the same way, each in a fresh copy, it prints
-    // the required output on the code under test and another on the wrong
-    // code. What it shows is its stdout, the output the task requires of a
+    // The witness runs the same way on both versions, each in a fresh
+    // copy. What it shows is its stdout, the output the task requires of a
     // command; its stderr (an interpreter's warning, a log line) is not
-    // compared: a witness that means stderr says `2>&1`.
+    // compared: a witness that means stderr says `2>&1`. It shows the wrong
+    // code wrong when the code under test prints the required output and
+    // the wrong code another; it shows the code under test wrong when that
+    // prints another, whatever the wrong code prints (the worker's own
+    // lookup table prints what the attacker's does).
     let wrong = match witness_run(budget, &probe, &found.witness, Some(&found), cx).await? {
         Ok(ran) => ran,
         Err(note) => return Ok(unrun(&probe, Some(&found), note)),
     };
+    let real = match witness_run(budget, &probe, &found.witness, None, cx).await? {
+        Ok(ran) => ran,
+        Err(note) => return Ok(unrun(&probe, Some(&found), note)),
+    };
     let got = wrong.stdout.trim().to_owned();
+    let real_got = real.stdout.trim();
     let required = found.required.trim();
-    let differs = got != required;
+    let real_fails = real_got != required;
+    let differs = real_fails || got != required;
     let agrees = if differs {
-        let real = match witness_run(budget, &probe, &found.witness, None, cx).await? {
-            Ok(ran) => ran,
-            Err(note) => return Ok(unrun(&probe, Some(&found), note)),
-        };
-        let real_got = real.stdout.trim();
-        if real_got != required {
-            return Ok(mark(
-                &probe,
-                AttackOutcome::Unrun,
-                Some(&found),
-                &got,
-                format!(
-                    "its witness proves nothing: on the code under test it gives {}, not the required {} either",
-                    one_line(real_got),
-                    one_line(required)
-                ),
-            ));
-        }
         let reply = ask(
             judge,
             JudgeRequest {
@@ -380,13 +370,24 @@ async fn attack(
         differs,
         agrees,
     };
-    let outcome = outcome_of(attack::outcome(run).map_err(SessionError::other)?);
+    // What survives the checks is the code under test itself when the
+    // witness shows that wrong.
+    let outcome = match outcome_of(attack::outcome(run).map_err(SessionError::other)?) {
+        AttackOutcome::Survived if real_fails => AttackOutcome::Fails,
+        outcome => outcome,
+    };
     let note = match outcome {
         AttackOutcome::Survived => format!(
             "the checks passed wrong code in {}: `{}` gives {}, the task requires {}",
             found.path,
             found.witness,
             one_line(&got),
+            one_line(&found.required)
+        ),
+        AttackOutcome::Fails => format!(
+            "`{}` gives {}, the task requires {}",
+            found.witness,
+            one_line(real_got),
             one_line(&found.required)
         ),
         AttackOutcome::Clean if !differs => {

@@ -847,8 +847,19 @@ fn strength_line(doc: &AcceptanceDoc, now: u64) -> SessionResult<Certification> 
         attacks
             .iter()
             .enumerate()
-            .filter(|(_, attack)| attack.outcome == AttackOutcome::Survived)
-            .map(|(index, attack)| format!("blind attack {} survived: {}", index + 1, attack.note)),
+            .filter_map(|(index, attack)| match attack.outcome {
+                AttackOutcome::Survived => Some(format!(
+                    "blind attack {} survived: {}",
+                    index + 1,
+                    attack.note
+                )),
+                AttackOutcome::Fails => Some(format!(
+                    "the code under test fails blind attack {}: {}",
+                    index + 1,
+                    attack.note
+                )),
+                AttackOutcome::Clean | AttackOutcome::Unrun => None,
+            }),
     );
     let clean = attacks
         .iter()

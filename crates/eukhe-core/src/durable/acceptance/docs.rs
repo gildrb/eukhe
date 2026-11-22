@@ -159,13 +159,14 @@ impl AcceptanceDoc {
 
     /// The outcomes of the attacks made on the state `now`, as the
     /// compiled core reads them; an attack of another state counts for
-    /// nothing.
+    /// nothing. An attack whose witness the code under test fails keeps
+    /// done from being certified as a survivor does.
     pub(crate) fn outcomes(&self, now: u64) -> Vec<Outcome> {
         self.attacks
             .iter()
             .filter(|attack| attack.at == now)
             .map(|attack| match attack.outcome {
-                AttackOutcome::Survived => Outcome::Survived,
+                AttackOutcome::Survived | AttackOutcome::Fails => Outcome::Survived,
                 AttackOutcome::Clean => Outcome::Clean,
                 AttackOutcome::Unrun => Outcome::Unrun,
             })
