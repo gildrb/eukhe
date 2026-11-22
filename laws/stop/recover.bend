@@ -192,6 +192,38 @@ law stop_empty_capped_at_three:
   for +x: Nat
   {RnDecision.decide.recover(rc, RnDecision.Emptied{}, RnRecovery.Empties{}, 3n+x) == RnDecision.Quits{} : RnDecision.Help}
 
+# the helps the recoveries' model gives n empty replies in a row, the
+# first read with the record r, each next with the record the reply
+# before left (Rec.run)
+def empty_helps(n: Nat, +rc: RnRecovery.RCfg, r: RnRecovery.Rec) -> List<&2, RnDecision.Help>:
+  match n:
+    case 0n:
+      []
+    case 1n+m:
+      +d = RnRecovery.Rec.step(rc, RnRecovery.Empty{}, r)
+      RnDecision.Help.of(d) <> empty_helps(m, rc, RnRecovery.Dec.r(d))
+
+# LAW stop_empty_ladder_ends (R4): in the recoveries' model, under any
+# caps, empty replies after a request whose note is no empty note (any
+# row, rounds in a row and last calls' hash), each read with the record
+# the reply before left, get empty notes 1, 2 and 3, then the run fails
+# (three reminders, the fourth empty stop ends the turn); after an empty
+# note of row 3 or more an empty reply fails the run (the rounds an empty
+# note keeps: stop_empty_redoes)
+# EXCLUDES: an empty reply nudged forever, run on, compacted or passed on
+#   once the empty notes ran out; a row that skips, repeats or restarts a
+#   note, or fails the run before the cap, in the model the run reads
+law stop_empty_ladder_ends:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +x: Nat
+  for other: {empty_note(k) == False{} : Bool}
+  {empty_helps(4n, rc, RnRecovery.Rec{k, row, same, last}) == [RnDecision.Redoes{1n}, RnDecision.Redoes{2n}, RnDecision.Redoes{3n}, RnDecision.Quits{}] : List<&2, RnDecision.Help>} &
+  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{RnRecovery.Empties{}, 3n+x, same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+
 # LAW stop_empty_row_starts_at_one (R4): in the recoveries' model, under any caps, after a
 # request whose note is no empty note (any row, any rounds in a row, any
 # last calls' hash), an empty reply is retried with empty note 1, the
