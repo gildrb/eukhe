@@ -368,31 +368,24 @@ def vr.judge(d: Wr.Dec<V.Answer>) -> {FV.get_req.judge(d) == SW.r_req.judge(d) :
     case Wr.Bad{}:
       {==}
 
-def vr.claims_e(held: Bool, checked: Bool, goal: Bool, claimed: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_e(held, checked, goal, claimed, d) == SW.r_req.claims_e(held, checked, goal, claimed, d) : Wr.Dec<FV.Req>}:
+def vr.claims_e(held: Bool, checked: Bool, claimed: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_e(held, checked, claimed, d) == SW.r_req.claims_e(held, checked, claimed, d) : Wr.Dec<FV.Req>}:
   match d:
     case Wr.Got{ended, s}:
       {==}
     case Wr.Bad{}:
       {==}
 
-def vr.claims_c(held: Bool, checked: Bool, goal: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_c(held, checked, goal, d) == SW.r_req.claims_c(held, checked, goal, d) : Wr.Dec<FV.Req>}:
+def vr.claims_c(held: Bool, checked: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_c(held, checked, d) == SW.r_req.claims_c(held, checked, d) : Wr.Dec<FV.Req>}:
   match d:
     case Wr.Got{claimed, s}:
-      vr.claims_e(held, checked, goal, claimed, Wr.get_bool(s))
-    case Wr.Bad{}:
-      {==}
-
-def vr.claims_g(held: Bool, checked: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_g(held, checked, d) == SW.r_req.claims_g(held, checked, d) : Wr.Dec<FV.Req>}:
-  match d:
-    case Wr.Got{goal, s}:
-      vr.claims_c(held, checked, goal, Wr.get_bool(s))
+      vr.claims_e(held, checked, claimed, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 
 def vr.claims_k(held: Bool, d: Wr.Dec<Bool>) -> {FV.get_req.claims_k(held, d) == SW.r_req.claims_k(held, d) : Wr.Dec<FV.Req>}:
   match d:
     case Wr.Got{checked, s}:
-      vr.claims_g(held, checked, Wr.get_bool(s))
+      vr.claims_c(held, checked, Wr.get_bool(s))
     case Wr.Bad{}:
       {==}
 

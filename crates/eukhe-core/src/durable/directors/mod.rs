@@ -1,17 +1,17 @@
 //! The Director stack (the model `bend/director.bend`):
 //! after each final answer the agent loop asks a stack of Directors what to
-//! do. The goal, the autonomous run, a reminder, and a forced tool call
-//! are layers ([`LayerKind`]); the top layer decides first, and the loop of
-//! one run has a global budget of steps ([`Loop::tick`]).
+//! do. The autonomous run, a reminder, and a forced tool call are layers
+//! ([`LayerKind`]); the top layer decides first, and the loop of one run
+//! has a global budget of steps ([`Loop::tick`]).
 //!
 //! The stack and the loop of the conversation's last run live in the
 //! rewindable `eukhe.directors` document ([`DIRECTORS_DOC`]): each step
 //! commits it, a resume reads it back, and a fork or a branch move starts
-//! from the stack as of its fork entry. The goal extension's `on_yield`
-//! hook runs the steps (`goals/hooks.rs`); after it, the work-left
-//! Director's extension (`work_left.rs`) continues a run whose final
-//! answer leaves task work undone, and records its decision in the same
-//! document.
+//! from the stack as of its fork entry. The autonomous extension's
+//! `on_yield` hook runs the steps (`autonomous/hooks.rs`); after it, the
+//! work-left Director's extension (`work_left.rs`) continues a run whose
+//! final answer leaves task work undone, and records its decision in the
+//! same document.
 
 mod pending;
 mod progress;
@@ -23,8 +23,11 @@ mod tests;
 #[cfg(test)]
 mod work_left_tests;
 
+use std::sync::Arc;
+
 use eukhe_chord::context::Context;
-use eukhe_durable::documents::{DocDefinition, RewindableConversationDoc};
+use eukhe_chord::json::{from_json, JsonObject, JsonValue};
+use eukhe_durable::documents::{CallbackError, DocDefinition, RewindableConversationDoc};
 use eukhe_durable::harness::types::ForcedTool;
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
@@ -39,17 +42,17 @@ pub use work_left::{
 };
 pub(crate) use work_left::{judge_answer, left_continuation, left_notice, read_work};
 
-use super::goals::{conversation_of, open_doc, read_doc, write_doc};
+use super::autonomous::{conversation_of, open_doc, read_doc, write_doc};
 use crate::settings::Settings;
 
 /// The reminders and forced calls a stack holds when the
 /// `directors.stackCap` setting is unset or `0`.
 pub const DEFAULT_STACK_CAP: usize = 8;
 
-/// The places the goal and the autonomous run keep on every stack, above
-/// the cap of the pushed layers: the stack holds at most `stackCap + 2`
-/// layers ([`DirectorLimits::bound`]).
-pub const RESERVED_LAYERS: usize = 2;
+/// The places the autonomous run keeps on every stack, above the cap of
+/// the pushed layers: the stack holds at most `stackCap + 1` layers
+/// ([`DirectorLimits::bound`]).
+pub const RESERVED_LAYERS: usize = 1;
 
 /// The custom type of the display row that records a forced call that
 /// failed (display-only: the user sees it, the model does not).
@@ -59,23 +62,49 @@ pub const DIRECTOR_NOTICE_CUSTOM_TYPE: &str = "eukhe.director";
 /// `directors.maxSteps` setting is unset or `0`.
 pub const DEFAULT_MAX_STEPS: u64 = 200;
 
-/// The continuations in a row with no new work at which the progress check
-/// (`progress.rs`) stops a chain, when the `directors.stallSteps` setting
-/// is unset or `0`. The first continuation can be an answer that only
-/// states a plan; the second carries the no-progress note that asks for
-/// one concrete step; the third shows that the model did not act on that
-/// note. Each one is a request with the full context, and a model that
-/// ignored an explicit note does not start to act with more of them.
+/// The autonomous continuations in a row with no new work at which the
+/// run is asked once for another approach, when the `directors.stallSteps`
+/// setting is unset or `0`; twice as many end the run, not done
+/// (`crate::durable::autonomous`). The first continuation can be an answer
+/// that only states a plan; the second carries the no-progress note that
+/// asks for one concrete step; the third shows that the model did not act
+/// on that note.
 pub const DEFAULT_STALL_STEPS: u64 = 3;
+
+/// Version 1 could hold the removed goal's layer (`{"type":"goal"}`): the
+/// migration drops it, and the rest of the stack and the loop stay.
+fn migrate_directors(value: &JsonObject, _from: u64) -> Result<DirectorState, CallbackError> {
+    let mut value = value.clone();
+    let kept: Option<Vec<JsonValue>> = match value.get("stack") {
+        Some(JsonValue::Array(stack)) => Some(
+            stack
+                .iter()
+                .filter(|layer| {
+                    layer
+                        .get("kind")
+                        .and_then(|kind| kind.get("type"))
+                        .and_then(JsonValue::as_str)
+                        != Some("goal")
+                })
+                .cloned()
+                .collect(),
+        ),
+        _ => None,
+    };
+    if let Some(kept) = kept {
+        value.insert("stack", JsonValue::Array(Arc::new(kept)));
+    }
+    Ok(from_json(&JsonValue::Object(Arc::new(value)))?)
+}
 
 /// The Director stack of one conversation.
 pub static DIRECTORS_DOC: RewindableConversationDoc<DirectorState> =
     match RewindableConversationDoc::define(
         DocDefinition {
             kind: "eukhe.directors",
-            version: 1,
+            version: 2,
             initial: DirectorState::default,
-            migrate: None,
+            migrate: Some(migrate_directors),
             checkpoint_when: Some(|_, _, _| true),
         },
         RewindableFork::AsOf,
@@ -127,7 +156,6 @@ impl DirectorState {
                 retries: *tries,
             }),
             LayerKind::ForceTool { called: true, .. }
-            | LayerKind::Goal
             | LayerKind::Autonomous
             | LayerKind::Reminder { .. } => None,
         })
@@ -135,7 +163,7 @@ impl DirectorState {
 }
 
 /// The cap of the pushed layers, the global budget of a loop, and the
-/// goal continuations in a row with no new work.
+/// autonomous continuations in a row with no new work that steer the run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirectorLimits {
     /// The reminders and forced calls the stack may hold.
@@ -156,8 +184,7 @@ impl Default for DirectorLimits {
 
 impl DirectorLimits {
     /// The layers the whole stack may hold: the pushed layers and the
-    /// places of the goal and the autonomous run. A decision of the stack
-    /// gets this cap.
+    /// place of the autonomous run. A decision of the stack gets this cap.
     #[must_use]
     pub fn bound(self) -> usize {
         self.stack_cap.saturating_add(RESERVED_LAYERS)
@@ -205,13 +232,12 @@ pub async fn director_state(
 
 /// Put `layer` on top of the stack of `conversation_id`, in one commit.
 /// Returns the new state. A reminder or a forced call needs room under
-/// `stack_cap`; the goal and the autonomous run have their own places, one
-/// layer each.
+/// `stack_cap`; the autonomous run has its own place, one layer.
 ///
 /// # Errors
 ///
-/// The stack holds `stack_cap` pushed layers already, a goal or autonomous
-/// layer is on the stack already, or read/commit failures.
+/// The stack holds `stack_cap` pushed layers already, an autonomous layer
+/// is on the stack already, or read/commit failures.
 #[tracing::instrument(skip_all)]
 pub async fn push_director(
     harness: &Harness,

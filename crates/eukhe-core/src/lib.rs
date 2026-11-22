@@ -34,7 +34,6 @@ pub mod child_workspace;
 pub mod cron;
 pub mod durable;
 pub mod export_html;
-pub mod goals;
 pub mod image_dimensions;
 pub mod kernel;
 pub mod mcp;

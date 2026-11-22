@@ -59,7 +59,6 @@ import ./ffi_gateway_commands.bend as ffi_gateway_commands
 import ./ffi_gateway_report.bend as ffi_gateway_report
 import ./ffi_gateway_width.bend as ffi_gateway_width
 import ./ffi_glob.bend as ffi_glob
-import ./ffi_goal_text.bend as ffi_goal_text
 import ./ffi_headless_exit.bend as ffi_headless_exit
 import ./ffi_headless_settle.bend as ffi_headless_settle
 import ./ffi_headless_task.bend as ffi_headless_task
@@ -316,8 +315,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_mcp_url.ffi(input)
     case 291:
       ffi_slash_args.ffi(input)
-    case 292:
-      ffi_goal_text.ffi(input)
     case 293:
       ffi_redirect_input.ffi(input)
     case 294:

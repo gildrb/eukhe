@@ -1,7 +1,8 @@
-//! The Director stack on a real Harness with faux models (the goal
-//! extension's setup): the goal as a layer until it completes, the global
-//! budget, a reminder, a forced tool call, the `directors.push` host
-//! request, and the stack across a reopen and a fork.
+//! The Director stack on a real Harness with faux models (the autonomous
+//! extension's setup): the global budget, a reminder, a forced tool call,
+//! the `directors.push` host request, the stack across a reopen and a
+//! fork, and the stacks of old sessions that held the removed goal's
+//! layer.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -18,17 +19,15 @@ use eukhe_types::pi_ai::{AssistantMessage, JsonObject, Message, StopReason, User
 use serde_json::json;
 
 use super::{
-    director_state, push_director, DirectorLimits, DirectorState, End, Layer, LayerKind, RunLoop,
-    DEFAULT_STALL_STEPS, DIRECTOR_NOTICE_CUSTOM_TYPE,
+    director_state, migrate_directors, push_director, DirectorLimits, DirectorState, End, Layer,
+    LayerKind, RunLoop, DEFAULT_STALL_STEPS, DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::autonomous::AgentAutonomousConfig;
-use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
-use crate::durable::goals::autonomous_state;
-use crate::durable::goals::tests::{
-    answer, autonomous_unchecked, entries, finish_call, open_jsonl, setup, stored_goal, submit,
-    user_origins, user_texts,
+use crate::durable::autonomous::autonomous_state;
+use crate::durable::autonomous::tests::{
+    answer, autonomous_unchecked, entries, open_jsonl, setup, submit, user_origins, user_texts,
 };
-use crate::goals::{GoalContextKind, GoalStatus};
+use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY};
 
 fn cx() -> &'static Context {
     &BACKGROUND_CONTEXT
@@ -47,59 +46,6 @@ fn assistant_ids(entries: &[EntryRecord]) -> Vec<eukhe_durable::types::EntryId> 
         .filter(|entry| entry.kind == ASSISTANT_ENTRY.kind())
         .map(|entry| entry.id)
         .collect()
-}
-
-#[tokio::test]
-async fn a_goal_is_a_director_layer_and_hands_back_when_it_completes() {
-    let setup = setup();
-    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
-    setup.faux.set_responses(vec![
-        answer("step one"),
-        answer("step two"),
-        finish_call(),
-        answer("done"),
-    ]);
-
-    submit(&root, "work").await;
-    harness.wait_for_idle(cx()).await.expect("idle");
-
-    let continuation = InputOrigin::Goal {
-        context: GoalContextKind::Continuation,
-    };
-    assert_eq!(
-        user_origins(&entries(&root).await),
-        vec![InputOrigin::User, continuation.clone(), continuation]
-    );
-    assert_eq!(
-        stored_goal(&harness, &root).await.status,
-        GoalStatus::Complete
-    );
-    // Two continuations spent the goal layer and the loop; the completed
-    // goal yielded, so the loop handed back.
-    let state = director_state(&harness, root.id(), cx())
-        .await
-        .expect("read");
-    let max = DirectorLimits::default().max_steps;
-    assert_eq!(
-        state,
-        DirectorState {
-            stack: vec![Layer {
-                kind: LayerKind::Goal,
-                budget: max - 2,
-            }],
-            run: Some(RunLoop {
-                input: loop_input(&state),
-                left: max - 2,
-                end: Some(End::Hand),
-            }),
-            work_left: None,
-        }
-    );
-    harness.close(cx()).await.expect("close");
 }
 
 #[tokio::test]
@@ -160,28 +106,51 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
     harness.close(cx()).await.expect("close");
 }
 
+/// The limits of a loop of one step: the autonomous run continues once,
+/// then the loop hands back.
+fn one_step() -> DirectorLimits {
+    DirectorLimits {
+        max_steps: 1,
+        ..DirectorLimits::default()
+    }
+}
+
+/// The stack after a loop spent its steps on the autonomous run's
+/// continuations and handed back.
+fn spent(state: &DirectorState) -> DirectorState {
+    DirectorState {
+        stack: vec![Layer {
+            kind: LayerKind::Autonomous,
+            budget: 0,
+        }],
+        run: Some(RunLoop {
+            input: loop_input(state),
+            left: 0,
+            end: Some(End::Hand),
+        }),
+        work_left: None,
+    }
+}
+
 #[tokio::test]
 async fn a_reminder_leads_the_next_continuation_and_leaves() {
     let setup = setup();
+    let limits = one_step();
+    *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
-    let limits = DirectorLimits::default();
-    for kind in [
-        LayerKind::Goal,
-        LayerKind::Reminder {
-            text: "Run the tests first.".to_owned(),
-        },
-    ] {
-        push_director(&harness, root.id(), Layer { kind, budget: 0 }, limits, cx())
-            .await
-            .expect("the layer fits");
-    }
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
+    push_director(
+        &harness,
+        root.id(),
+        Layer::reminder("Run the tests first.".to_owned()),
+        limits,
+        cx(),
+    )
+    .await
+    .expect("the layer fits");
     setup
         .faux
-        .set_responses(vec![answer("a"), finish_call(), answer("done")]);
+        .set_responses(vec![answer("a"), answer("b"), answer("unused")]);
 
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");
@@ -189,27 +158,13 @@ async fn a_reminder_leads_the_next_continuation_and_leaves() {
     let texts = user_texts(&entries(&root).await);
     assert_eq!(texts.len(), 2, "{texts:?}");
     assert!(
-        texts[1].starts_with("Run the tests first.\n\n[goal: continuation]"),
+        texts[1].starts_with("Run the tests first.\n\n[autonomous-continuation]"),
         "{texts:?}"
     );
     let state = director_state(&harness, root.id(), cx())
         .await
         .expect("read");
-    assert_eq!(
-        state,
-        DirectorState {
-            stack: vec![Layer {
-                kind: LayerKind::Goal,
-                budget: limits.max_steps - 1,
-            }],
-            run: Some(RunLoop {
-                input: loop_input(&state),
-                left: limits.max_steps - 1,
-                end: Some(End::Hand),
-            }),
-            work_left: None,
-        }
-    );
+    assert_eq!(state, spent(&state));
     harness.close(cx()).await.expect("close");
 }
 
@@ -372,6 +327,8 @@ async fn a_forced_call_the_model_never_makes_fails_once_and_the_next_run_is_not_
 #[tokio::test]
 async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
     let setup = setup();
+    let limits = one_step();
+    *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
     let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
     let reminder = "Run the tests first.";
     setup
@@ -386,7 +343,6 @@ async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
     // No layer continues the first run: the reminder stays.
     submit(&root, "go").await;
     harness.wait_for_idle(cx()).await.expect("idle");
-    let limits = DirectorLimits::default();
     let state = director_state(&harness, root.id(), cx())
         .await
         .expect("read");
@@ -403,50 +359,33 @@ async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
         }
     );
 
-    // The goal's continuation of the next run carries it.
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
+    // The autonomous continuation of the next run carries it.
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
     setup
         .faux
-        .set_responses(vec![answer("b"), finish_call(), answer("done")]);
+        .set_responses(vec![answer("b"), answer("c"), answer("unused")]);
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");
 
     let texts = user_texts(&entries(&root).await);
     assert_eq!(texts.len(), 3, "{texts:?}");
     assert!(
-        texts[2].starts_with("Run the tests first.\n\n[goal: continuation]"),
+        texts[2].starts_with("Run the tests first.\n\n[autonomous-continuation]"),
         "{texts:?}"
     );
     let state = director_state(&harness, root.id(), cx())
         .await
         .expect("read");
-    assert_eq!(
-        state,
-        DirectorState {
-            stack: vec![Layer {
-                kind: LayerKind::Goal,
-                budget: limits.max_steps - 1,
-            }],
-            run: Some(RunLoop {
-                input: loop_input(&state),
-                left: limits.max_steps - 1,
-                end: Some(End::Hand),
-            }),
-            work_left: None,
-        }
-    );
+    assert_eq!(state, spent(&state));
     harness.close(cx()).await.expect("close");
 }
 
 #[tokio::test]
-async fn the_goal_keeps_its_place_on_a_full_stack() {
+async fn the_autonomous_run_keeps_its_place_on_a_full_stack() {
     let setup = setup();
     let limits = DirectorLimits {
         stack_cap: 1,
-        max_steps: 8,
+        max_steps: 1,
         stall_steps: DEFAULT_STALL_STEPS,
     };
     *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
@@ -465,43 +404,26 @@ async fn the_goal_keeps_its_place_on_a_full_stack() {
         refused.to_string(),
         "The Director stack is full: 1 reminders and forced calls (directors.stackCap)"
     );
-    setup
-        .host_request("goal.create", json!({ "objective": "ship it" }))
-        .await
-        .expect("goal.create succeeds");
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
     setup
         .faux
-        .set_responses(vec![answer("a"), finish_call(), answer("done")]);
+        .set_responses(vec![answer("a"), answer("b"), answer("unused")]);
 
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");
 
-    // The pushed layer filled the cap; the goal still came on the stack
-    // and continued the run.
+    // The pushed layer filled the cap; the autonomous run still came on
+    // the stack and continued the run.
     let texts = user_texts(&entries(&root).await);
     assert_eq!(texts.len(), 2, "{texts:?}");
     assert!(
-        texts[1].starts_with("Run the tests first.\n\n[goal: continuation]"),
+        texts[1].starts_with("Run the tests first.\n\n[autonomous-continuation]"),
         "{texts:?}"
     );
     let state = director_state(&harness, root.id(), cx())
         .await
         .expect("read");
-    assert_eq!(
-        state,
-        DirectorState {
-            stack: vec![Layer {
-                kind: LayerKind::Goal,
-                budget: limits.max_steps - 1,
-            }],
-            run: Some(RunLoop {
-                input: loop_input(&state),
-                left: limits.max_steps - 1,
-                end: Some(End::Hand),
-            }),
-            work_left: None,
-        }
-    );
+    assert_eq!(state, spent(&state));
     harness.close(cx()).await.expect("close");
 }
 
@@ -509,16 +431,18 @@ async fn the_goal_keeps_its_place_on_a_full_stack() {
 async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entry() {
     let dir = tempfile::tempdir().expect("tempdir");
     let setup = setup();
+    let max = 2;
+    *setup.limits.lock().unwrap_or_else(PoisonError::into_inner) = DirectorLimits {
+        max_steps: max,
+        ..DirectorLimits::default()
+    };
     let (harness, root) = setup.open(open_jsonl(dir.path()).await).await;
-    setup
-        .host_request("goal.create", json!({ "objective": "persist" }))
-        .await
-        .expect("goal.create succeeds");
+    autonomous_unchecked(&setup, &harness, &root, AgentAutonomousConfig::default()).await;
     setup.faux.set_responses(vec![
         answer("first"),
         answer("second"),
-        finish_call(),
-        answer("done"),
+        answer("third"),
+        answer("unused"),
     ]);
     submit(&root, "work").await;
     harness.wait_for_idle(cx()).await.expect("idle");
@@ -536,11 +460,10 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
         before
     );
 
-    // At the first answer the goal layer had made one step; before it, the
-    // conversation had no Director.
+    // At the first answer the autonomous layer had made one step; before
+    // the run's input, the conversation had no Director.
     let entries = entries(&root).await;
     let first_answer = assistant_ids(&entries)[0];
-    let max = DirectorLimits::default().max_steps;
     let forked = root
         .fork(
             first_answer,
@@ -555,7 +478,7 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
             .expect("read"),
         DirectorState {
             stack: vec![Layer {
-                kind: LayerKind::Goal,
+                kind: LayerKind::Autonomous,
                 budget: max - 1,
             }],
             run: Some(RunLoop {
@@ -654,4 +577,30 @@ async fn a_kept_truncated_answer_is_followed_by_one_warning_row() {
         )
     );
     harness.close(cx()).await.expect("close");
+}
+
+/// An old session's stack held the removed goal's layer (version 1): the
+/// migration drops it, and the other layers and the loop stay.
+#[test]
+fn a_stack_with_the_removed_goal_layer_migrates_without_it() {
+    let old = r#"{"stack":[{"kind":{"type":"autonomous"},"budget":3},{"kind":{"type":"goal"},"budget":7},{"kind":{"type":"reminder","text":"Run the tests."},"budget":0}],"loop":{"left":5}}"#;
+    let value = eukhe_chord::json::JsonValue::parse(old).expect("json");
+    assert_eq!(
+        migrate_directors(value.as_object().expect("object"), 1).expect("migrate"),
+        DirectorState {
+            stack: vec![
+                Layer {
+                    kind: LayerKind::Autonomous,
+                    budget: 3,
+                },
+                Layer::reminder("Run the tests.".to_owned()),
+            ],
+            run: Some(RunLoop {
+                input: None,
+                left: 5,
+                end: None,
+            }),
+            work_left: None,
+        }
+    );
 }

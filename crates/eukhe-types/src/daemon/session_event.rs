@@ -12,7 +12,6 @@ use crate::acceptance::AcceptanceState;
 use crate::ai::{ServiceTier, UserContentBlock};
 use crate::budget::BudgetReport;
 use crate::effects::{RanEffect, UnknownEffect};
-use crate::goal::GoalState;
 use crate::loop_mode::LoopStatus;
 use crate::output::OmittedOutput;
 use crate::pi_ai::PromptProgress;
@@ -145,9 +144,6 @@ pub enum SessionEvent {
     SessionActionUpdate {
         actions: SessionActionSnapshot,
     },
-    GoalUpdate {
-        goal: GoalState,
-    },
     /// The session's ledger of steps a restart treated as not run changed
     /// (a step was noted or corrected): the whole ledger, oldest first.
     UnknownEffectsUpdate {
@@ -261,7 +257,6 @@ impl SessionEvent {
             | Self::SessionInfoChanged { .. }
             | Self::ServiceTierChanged { .. }
             | Self::SessionActionUpdate { .. }
-            | Self::GoalUpdate { .. }
             | Self::UnknownEffectsUpdate { .. }
             | Self::RanEffectsUpdate { .. }
             | Self::RunReport { .. }

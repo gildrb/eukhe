@@ -17,7 +17,6 @@ use eukhe_types::daemon::{
     DaemonCommand, MemoryReply, MemorySnapshot, PromptInput, SessionEvent, StreamingBehavior,
     WaitingOn,
 };
-use eukhe_types::goal::GoalState;
 use eukhe_types::session::AgentMessage;
 use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
@@ -1272,7 +1271,6 @@ impl<L: DaemonLauncher> Gateway<L> {
             | SessionEvent::SessionInfoChanged { .. }
             | SessionEvent::ServiceTierChanged { .. }
             | SessionEvent::SessionActionUpdate { .. }
-            | SessionEvent::GoalUpdate { .. }
             | SessionEvent::UnknownEffectsUpdate { .. }
             | SessionEvent::RanEffectsUpdate { .. }
             | SessionEvent::LoopUpdate { .. }
@@ -1311,9 +1309,8 @@ impl<L: DaemonLauncher> Gateway<L> {
     }
 
     /// The end of a run of the bound session, as its state tells it: whether
-    /// work the run started still runs, and what the agent reported is left
-    /// of its goal. A state that cannot be read ends the run with nothing
-    /// running and nothing left, so the report still goes.
+    /// work the run started still runs. A state that cannot be read ends the
+    /// run with nothing running, so the report still goes.
     #[tracing::instrument(skip_all)]
     async fn run_end(&self) -> End {
         let settled = End::Run {
@@ -1492,26 +1489,18 @@ fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
 }
 
 /// The run end the session state (`get_state`) tells: work still runs
-/// while it has a `waitingOn`; what is left is its goal's `remaining`.
+/// while it has a `waitingOn`. Nothing is left: the removed goal was its
+/// source.
 ///
 /// # Errors
 ///
-/// The state carries a malformed `waitingOn` or `goal`.
+/// The state carries a malformed `waitingOn`.
 fn run_end(state: &Value) -> anyhow::Result<End> {
     let work = match waiting_on(state)? {
         Some(_) => Work::Running,
         None => Work::Settled,
     };
-    let goal = state
-        .get("goal")
-        .cloned()
-        .map(serde_json::from_value::<GoalState>)
-        .transpose()
-        .context("the session state has a malformed goal")?;
-    Ok(End::Run {
-        work,
-        left: goal.and_then(|goal| goal.remaining),
-    })
+    Ok(End::Run { work, left: None })
 }
 
 #[cfg(test)]
@@ -1613,8 +1602,8 @@ mod tests {
         );
     }
 
-    /// A run end reads whether work still runs and what is left of the
-    /// goal from the session state.
+    /// A run end reads whether work still runs from the session state; a
+    /// goal it still carries (an old session's) leaves nothing.
     #[test]
     fn the_session_state_tells_the_run_end() {
         let waiting = json!({
@@ -1622,20 +1611,14 @@ mod tests {
             "waitingOn": { "jobs": [{ "id": "j1", "label": "sleep 45" }] },
             "goal": { "status": "active", "remaining": "the release notes" },
         });
-        let settled = json!({ "isStreaming": false, "goal": { "status": "complete" } });
         assert_eq!(
             [
                 run_end(&waiting).expect("a well-formed state"),
-                run_end(&settled).expect("a well-formed state"),
                 run_end(&json!({ "isStreaming": false })).expect("a well-formed state"),
             ],
             [
                 End::Run {
                     work: Work::Running,
-                    left: Some("the release notes".to_string()),
-                },
-                End::Run {
-                    work: Work::Settled,
                     left: None,
                 },
                 End::Run {

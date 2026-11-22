@@ -241,7 +241,6 @@ fn slim_attach() -> Value {
                 "messageCount": 2,
                 "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
                 "compactionCount": 0,
-                "goal": null,
                 "scopedModels": [],
                 "activeToolNames": [],
             },
@@ -531,7 +530,7 @@ fn reconstructs_the_injected_origin_from_session_actions() {
             queued_item(
                 "[goal: continuation]\n\nKeep driving the goal.",
                 InputOrigin::Goal {
-                    context: eukhe_types::goal::GoalContextKind::Continuation,
+                    context: eukhe_types::input_origin::GoalContextKind::Continuation,
                 },
             ),
             queued_item("then summarize", InputOrigin::User),
@@ -739,7 +738,7 @@ fn decodes_the_injected_origin_from_the_live_queue_update() {
                 queued_item(
                     "[goal: continuation]\n\nKeep driving the goal.",
                     InputOrigin::Goal {
-                        context: eukhe_types::goal::GoalContextKind::Continuation,
+                        context: eukhe_types::input_origin::GoalContextKind::Continuation,
                     },
                 ),
                 queued_item("then summarize", InputOrigin::User),
@@ -1729,31 +1728,6 @@ fn transcript_replay_skips_contentless_settled_messages() {
     assert!(matches!(&items[0], ChatEntry::Tool(card) if card.name == "bash"));
 }
 
-/// A `goal_update` event decodes to the wire goal payload (the session
-/// view owns announcement and tray rendering).
-#[test]
-fn goal_update_decodes_the_goal_payload() {
-    let update = event_to_update(&event(json!({
-        "type": "goal_update",
-        "goal": {
-            "active": false,
-            "status": "complete",
-            "goalId": "g-1",
-            "objective": "ship it",
-            "tokensUsed": 120,
-            "timeUsedSeconds": 3,
-            "continuationsUsed": 2,
-            "lastReason": "completed by its owner"
-        }
-    })));
-    let TurnUpdate::GoalUpdate(goal) = update else {
-        panic!("expected a goal update");
-    };
-    assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Complete);
-    assert_eq!(goal.objective.as_deref(), Some("ship it"));
-    assert_eq!(goal.last_reason.as_deref(), Some("completed by its owner"));
-}
-
 /// A `loop_update` event decodes to the wire loop status (the session
 /// view owns the status line label).
 #[test]
@@ -1809,56 +1783,6 @@ fn attach_snapshot_carries_the_loop_status() {
     let reconstructed =
         reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
     assert_eq!(reconstructed.loop_status, Some(running_loop()));
-}
-
-/// The attach snapshot's `state.goal` rehydrates with the session (TS
-/// `snapshot.ts: goal: session.goalState`); a null goal stays absent.
-#[test]
-fn attach_snapshot_carries_the_goal_state() {
-    let attach = json!({
-        "protocol": { "name": "eukhe.daemon", "version": 7 },
-        "activeSessionId": "abc123def456",
-        "snapshot": {
-            "activeSessionId": "abc123def456",
-            "summary": { "id": "abc123def456", "cwd": "/tmp" },
-            "state": {
-                "activeSessionId": "abc123def456",
-                "cwd": "/tmp",
-                "sessionId": "0199-sess",
-                "model": null,
-                "thinkingLevel": "default",
-                "serviceTier": "auto",
-                "isStreaming": false,
-                "isCompacting": false,
-                "retryAttempt": 0,
-                "steeringMode": "all",
-                "followUpMode": "all",
-                "autoCompactionEnabled": false,
-                "messageCount": 0,
-                "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
-                "compactionCount": 0,
-                "goal": {
-                    "active": true,
-                    "status": "active",
-                    "objective": "keep shipping",
-                    "tokensUsed": 10,
-                    "timeUsedSeconds": 1,
-                    "continuationsUsed": 0
-                },
-                "scopedModels": [],
-                "activeToolNames": []
-            },
-            "messages": [],
-            "lastEventSequence": 3,
-            "lastEventCursor": { "generation": "g-1", "sequence": 3 }
-        },
-        "lastEventSequence": 3
-    });
-    let data = attach_data_from_response(attach).unwrap();
-    let reconstructed = reconstruct(&data).expect("reconstructs");
-    let goal = reconstructed.goal.expect("snapshot goal");
-    assert_eq!(goal.status, eukhe_types::goal::GoalStatus::Active);
-    assert_eq!(goal.objective.as_deref(), Some("keep shipping"));
 }
 
 /// An `unknown_effects_update` event decodes to the whole ledger it

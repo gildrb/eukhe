@@ -1,33 +1,13 @@
 //! The status-row concern: the note/toast/error-row rendering family
-//! (TS `showStatus`/`showError`), the tray rebuild, the goal-tray
-//! glue, and the anthropic-subscription warning pair that rides it.
+//! (TS `showStatus`/`showError`), the tray rebuild, and the
+//! anthropic-subscription warning pair that rides it.
 use super::{
-    format_goal_status, terminal_columns, AgentView, ChatEntry, DaemonCommand, Duration, Map,
-    SessionUi, StatusKind, ANTHROPIC_SUBSCRIPTION_AUTH_WARNING, UI_REQUEST_TIMEOUT_MS,
+    AgentView, ChatEntry, DaemonCommand, Duration, Map, SessionUi, StatusKind,
+    ANTHROPIC_SUBSCRIPTION_AUTH_WARNING, UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::WARN;
 
 impl SessionUi {
-    /// One `goal_update` session event (TS `handleGoalUpdate`): store the
-    /// state, announce as a status row when the dedupe rules say so, and
-    /// sync the tray goal label.
-    pub(super) fn apply_goal_update(
-        &mut self,
-        goal: eukhe_types::goal::GoalState,
-        view: &mut AgentView,
-    ) {
-        let announce = self.goal_view.apply_update(goal.clone());
-        if announce {
-            self.announce_goal_status(view);
-        }
-        // An open goal panel rides the live state, never a stale
-        // snapshot of the objective it was opened to show.
-        if let Some(panel) = view.goal_panel.as_mut() {
-            panel.goal = goal;
-        }
-        self.sync_goal_tray(view);
-    }
-
     /// One `loop_update` session event: store the status and sync the
     /// status line's loop label. (The loop reports its start and its end
     /// in transcript rows of its own.)
@@ -38,41 +18,6 @@ impl SessionUi {
     ) {
         if self.loop_view.apply_update(status) {
             self.sync_activity_dock(view);
-        }
-    }
-
-    /// The goal status row (TS `showStatus` via `formatGoalStatus`): a
-    /// consecutive announcement rewrites the previous status row in place
-    /// while it is still the transcript's last entry.
-    fn announce_goal_status(&mut self, view: &mut AgentView) {
-        let columns = terminal_columns();
-        let text = format_goal_status(&self.goal_view.goal, columns);
-        let updated_in_place = match self.goal_view.last_status_index {
-            Some(index) if index + 1 == view.chat_len() => {
-                view.update_status_row(index, &text, StatusKind::Info)
-            }
-            _ => false,
-        };
-        if !updated_in_place {
-            view.push_entry(ChatEntry::Status {
-                text,
-                kind: StatusKind::Info,
-            });
-            self.goal_view.last_status_index = Some(view.chat_len() - 1);
-        }
-        self.dirty = true;
-    }
-
-    /// The goal's dock row follows the current goal state (the tray's
-    /// TS `getTrayGoalLabel` cluster is deliberately not ported -- the
-    /// operator's 2026-09-24 directive moves "Pursuing goal" off the
-    /// line below the prompt bar; the dock's row below carries it).
-    pub(crate) fn sync_goal_tray(&mut self, view: &mut AgentView) {
-        let previous = view.chrome.activity.clone();
-        let previous_panel = view.agents_panel.clone();
-        self.update_subagent_summary(view);
-        if previous != view.chrome.activity || previous_panel != view.agents_panel {
-            self.dirty = true;
         }
     }
 

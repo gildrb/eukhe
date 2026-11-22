@@ -87,8 +87,6 @@ pub struct EukheSessionMeta {
     /// Set when the session's heartbeat or cron schedule changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeats_changed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub goal: Option<EukheGoalMeta>,
     /// The session's `/loop`: its whole status, after every change.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#loop: Option<eukhe_types::loop_mode::LoopStatus>,
@@ -107,21 +105,6 @@ pub struct EukheSessionMeta {
     pub subagents: Option<Vec<EukheSubagentMeta>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autonomous: Option<EukheAutonomousMeta>,
-}
-
-/// A goal's live state, surfaced after `/goal` commands and driver turns.
-/// Its tokens are the session budget's (the last `budget_update` seen):
-/// the token limit and what was spent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EukheGoalMeta {
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub objective: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_budget: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tokens_used: Option<u64>,
 }
 
 /// The outcome of one continual-harness refinement run.
@@ -227,15 +210,17 @@ pub fn acp_stop_reason_for_status(
         .and_then(|status| status.last_stop)
     {
         Some(AutonomousStop::Budget) => limit_stop_reason(budget.and_then(|report| report.short)),
-        Some(AutonomousStop::Checks(_)) | None => match assistant_stop_reason {
-            Some(StopReason::Length) => super::types::AcpStopReason::MaxTokens,
-            Some(StopReason::Error) => {
-                budget_stop_reason(budget).unwrap_or(super::types::AcpStopReason::EndTurn)
+        Some(AutonomousStop::Checks(_) | AutonomousStop::NoProgress { .. }) | None => {
+            match assistant_stop_reason {
+                Some(StopReason::Length) => super::types::AcpStopReason::MaxTokens,
+                Some(StopReason::Error) => {
+                    budget_stop_reason(budget).unwrap_or(super::types::AcpStopReason::EndTurn)
+                }
+                Some(StopReason::Stop | StopReason::ToolUse | StopReason::Aborted) | None => {
+                    super::types::AcpStopReason::EndTurn
+                }
             }
-            Some(StopReason::Stop | StopReason::ToolUse | StopReason::Aborted) | None => {
-                super::types::AcpStopReason::EndTurn
-            }
-        },
+        }
     }
 }
 

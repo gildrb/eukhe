@@ -40,13 +40,13 @@ use super::progress::{compared, stall_check, Last, Stall};
 use super::{DirectorLimits, DirectorState, RunLoop, DIRECTORS_DOC, DIRECTOR_NOTICE_CUSTOM_TYPE};
 use crate::autonomous::{now_millis, SessionBudget};
 use crate::durable::acceptance::{read_final_answer, AnswerReading, Judge};
-use crate::durable::budget::BudgetGate;
-use crate::durable::children::{has_unsettled_children, WorkLedger};
-use crate::durable::entries::custom_entry_draft;
-use crate::durable::goals::{
+use crate::durable::autonomous::{
     budget_report, conversation_of, open_doc, read_doc, user_input_queued, write_doc,
     AUTONOMOUS_DOC,
 };
+use crate::durable::budget::BudgetGate;
+use crate::durable::children::{has_unsettled_children, WorkLedger};
+use crate::durable::entries::custom_entry_draft;
 use crate::durable::loop_mode::LOOP_MODE_DOC;
 use crate::durable::workflow::unsettled_runs;
 use crate::durable::{HarnessCell, HostDeps};
@@ -274,13 +274,14 @@ impl WorkLeftHost {
         let work = read_work(&self.work, conversation, cx).await?;
         let last = state.work_left.as_ref().map(|record| Last {
             same_run: record.input == input,
-            same_goal: true,
             stalls: record.stalls,
             work: record.work,
         });
         let (progress, stalls) = match stall_check(limits.stall_steps, compared(last), work) {
             Stall::Go { stalls } => (Progress::Go { stalls }, stalls),
-            Stall::Stop { stalls } => (Progress::Stop { stalls }, stalls),
+            // The chain stops at the cap, where the autonomous run is
+            // steered: the work-left Director has no other approach to ask.
+            Stall::Stop { stalls } | Stall::Steer { stalls } => (Progress::Stop { stalls }, stalls),
         };
         let left = state
             .run

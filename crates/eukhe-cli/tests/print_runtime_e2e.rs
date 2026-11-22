@@ -1521,3 +1521,51 @@ fn an_unjudged_answer_exits_three() {
         assert_eq!(last["type"], "task_unjudged", "last record: {last}");
     }
 }
+
+/// Regression (the goal's stall paused the run until a resume; now on the
+/// autonomous run): an autonomous run whose continuations make no
+/// progress (no tool call with a new result) is steered once to another
+/// approach at `directors.stallSteps` (3), then ends not done at twice
+/// that: the run exits 1 with the reason on stderr and, in json mode, as
+/// the stream's last record. Nothing waits for a resume. The run has no
+/// checks (`/accept clear`), so its own continuations carry it.
+#[test]
+fn a_stalled_autonomous_run_is_steered_once_then_ends_not_done() {
+    let responses: Vec<serde_json::Value> = (0..8)
+        .map(|_| serde_json::json!({ "text": "Waiting for the build." }))
+        .collect();
+    let script = serde_json::json!({ "responses": responses });
+    let (stdout, stderr, code) = run(
+        &[
+            "--mode",
+            "json",
+            "--auto",
+            "-p",
+            "/accept clear",
+            "do the work list",
+        ],
+        &script,
+    );
+    assert_eq!(code, 1, "stderr: {stderr}");
+    let reason = "no progress: 6 autonomous continuations in a row made no tool call with a new result, also after the harness asked for another approach";
+    assert!(
+        stderr.contains(&format!(
+            "eukhe: the task is incomplete: the autonomous run ended, not done: {reason}"
+        )),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("[autonomous: change approach] 3 autonomous continuations in a row"),
+        "the steer reached the model: {stdout}"
+    );
+    let last: serde_json::Value =
+        serde_json::from_str(stdout.lines().last().expect("a record")).unwrap();
+    assert_eq!(
+        (&last["type"], &last["reason"]),
+        (
+            &serde_json::json!("task_incomplete"),
+            &serde_json::json!(reason)
+        ),
+        "last record: {last}"
+    );
+}

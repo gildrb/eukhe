@@ -186,8 +186,6 @@ pub enum Entry {
     McpUrl = 290,
     /// `bend/ffi_slash_args.bend`: a call.
     SlashArgs = 291,
-    /// `bend/ffi_goal_text.bend`: a call.
-    GoalText = 292,
     /// `bend/ffi_redirect_input.bend`: a call.
     RedirectInput = 293,
     /// `bend/ffi_package_source.bend`: a call.
@@ -387,7 +385,6 @@ impl Entry {
         Entry::DocPlan,
         Entry::McpUrl,
         Entry::SlashArgs,
-        Entry::GoalText,
         Entry::RedirectInput,
         Entry::PackageSource,
         Entry::RefinePlan,

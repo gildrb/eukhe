@@ -487,7 +487,7 @@ pub struct HostCall {
 pub type HostCallHandler =
     Arc<dyn Fn(HostCall) -> BoxFuture<'static, anyhow::Result<Value>> + Send + Sync>;
 
-/// Kernel host-request handlers by request type (`rlm.run`, `goal.get`,
+/// Kernel host-request handlers by request type (`rlm.run`, `directors.push`,
 /// ...). Extensions register at construction; the kernel dispatch looks a
 /// handler up per request. A later registration of a type replaces the
 /// earlier one.

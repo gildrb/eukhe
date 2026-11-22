@@ -5,7 +5,7 @@
 use super::{
     attach_data_from_response, create_session, mpsc, reconstruct, resume_hint_from_stats,
     ActivityUpdates, AgentView, BTreeMap, CatalogLanding, ChatEntry, CompactionAbortNote, Context,
-    DaemonClient, DaemonCommand, DockFold, Duration, GoalView, HashSet, InteractiveOptions,
+    DaemonClient, DaemonCommand, DockFold, Duration, HashSet, InteractiveOptions,
     LoaderTokenTracker, LoopView, Map, MessageBlock, PromptOrder, PromptSubmitNote,
     ReattachOutcome, RebuildKind, ReloadNote, Result, ResyncBash, SessionSelection, SessionUi,
     Value, EXIT_DETACH_TIMEOUT_MS, EXIT_STATS_TIMEOUT_MS, UI_REQUEST_TIMEOUT_MS,
@@ -192,7 +192,6 @@ impl SessionUi {
             stash_session_id: String::new(),
             dirty: true,
             ctrl_c_hint_until: None,
-            goal_view: GoalView::new(),
             unknown_effects: Vec::new(),
             loop_view: LoopView::default(),
             notes,
@@ -665,7 +664,6 @@ impl SessionUi {
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
         self.pending_open_message = reconstructed.open_message;
-        self.goal_view.seed(reconstructed.goal.unwrap_or_default());
         self.unknown_effects = reconstructed.unknown_effects;
         self.loop_view
             .seed(reconstructed.loop_status.unwrap_or_default());
@@ -824,14 +822,9 @@ impl SessionUi {
                 self.factory_view_session = None;
                 self.factory_graph = serde_json::json!({"runs": []});
             }
-            // The goal panel dies with the old session too: it is a
-            // snapshot of the previous session's goal state, and until
-            // the new session's own `goal_update` lands it would keep
-            // owning the frame over the rebind with stale content.
-            view.goal_panel = None;
-            // The read-only info panel dies the same death: it holds the
-            // previous session's fetched document, and a stale panel
-            // would keep consuming keys over the new session.
+            // The read-only info panel dies with the old session too: it
+            // holds the previous session's fetched document, and a stale
+            // panel would keep consuming keys over the new session.
             view.info_panel = None;
             // The `/memory` tree is the previous session's memory.
             view.memory_tree = None;
@@ -910,10 +903,6 @@ impl SessionUi {
         view.chrome.memory = self.memory;
         view.chrome.verification = self.verification;
         self.update_subagent_summary(view);
-        // The rebuilt transcript invalidates the announcement row tracking;
-        // the goal state itself carries over (seeded at attach).
-        self.goal_view.reset_row_tracking();
-        self.sync_goal_tray(view);
         self.sync_activity_dock(view);
         view.pending_bash = held_bash;
         // The rebuild decides the mounted card's fate: a rebind drops it

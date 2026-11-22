@@ -242,8 +242,9 @@ pub fn is_input_entry(entry: &EntryRecord) -> bool {
 }
 
 /// An engine's own input placed as a `pi.user` entry (its origin has an
-/// [`InputOrigin::hidden_custom_type`]): the autonomous, goal and Director
-/// continuations, the quota and compaction resumes. The entry stays the
+/// [`InputOrigin::hidden_custom_type`]): the autonomous and Director
+/// continuations (and the removed goal's, in old sessions), the quota and
+/// compaction resumes. The entry stays the
 /// model's user input; transcripts show it as a hidden custom message.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HiddenInput<'a> {

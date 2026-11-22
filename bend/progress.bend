@@ -1,9 +1,9 @@
 # progress: what counts as progress when the harness checks a loop. The
 # Rust code is the host of the work ledger (crates/eukhe-core/src/durable/
 # children/work.rs, `WorkLedger`, which feeds the stepper of
-# bend/ffi_work.bend), the goal's progress check (`stall_check` in
-# crates/eukhe-core/src/durable/goals/state.rs, `goal_check` in
-# goals/hooks.rs: bend/ffi_work.bend `ffi`, then bend/ffi_progress.bend),
+# bend/ffi_work.bend), the autonomous run's progress check (the stall
+# check of eukhe-core's autonomous run, `autonomous.rs`: bend/ffi_work.bend
+# `ffi`, then bend/ffi_progress.bend),
 # and the subagent watch that reads the ledger's count as the child's
 # progress token (crates/eukhe-daemon/src/worker/run_outcome.rs, with
 # `look` in bend/child.bend).
@@ -16,12 +16,14 @@
 #   blocks of the transcript's entries: a call waits for its result, a
 #   result is the act of the call with it; nothing else is an act. It
 #   keeps each act whole (`Act`), as its fingerprints, not as its number.
-# - The goal's progress check runs at each goal continuation: the work
-#   grew since the last check, or not. New work clears the count of
-#   continuations in a row with no new work; else the count grows by one,
-#   and at the cap (directors.stallSteps) the goal stops (`check`). It
-#   compares with the last check only when that one was of the same run
-#   and goal (`compared`).
+# - The autonomous run's progress check runs at each of its continuations:
+#   the work grew since the last check, or not. New work clears the count
+#   of continuations in a row with no new work; else the count grows by
+#   one. At the cap (directors.stallSteps) the harness steers the run once
+#   (a continuation that asks for another approach); at twice the cap (as
+#   many again with no new work since that steer) the run stops: it ends
+#   not done (`check`). It compares with the last check only when that one
+#   was of the same run (`compared`).
 #
 # laws/progress.bend states what must hold; PROOF.bend proves it with
 # proof/progress/.
@@ -79,28 +81,39 @@ def Within(xs: List<&2, Nat>, +s: List<&2, Nat>) -> Type:
     case +h <> t:
       In(h, s) & Within(t, s)
 
-# The goal's progress check
-# -------------------------
+# The autonomous run's progress check
+# -----------------------------------
 
-# the check's verdict: continue with stalls continuations in a row that did
-# no new work, or stop (the goal pauses) at that count
-type Goal is Data:
+# the check's verdict: go on with stalls continuations in a row that did
+# no new work; stop (the run ends not done) at that count; or steer at
+# that count (the run goes on with a continuation that asks for another
+# approach)
+type Run is Data:
   Go{stalls: Nat}
   Stop{stalls: Nat}
+  Steer{stalls: Nat}
 
-def strike.put(stop: Bool, n: Nat) -> Goal:
+def strike.go(steer: Bool, n: Nat) -> Run:
+  match steer:
+    case True{}:
+      Steer{n}
+    case False{}:
+      Go{n}
+
+def strike.put(stop: Bool, steer: Bool, n: Nat) -> Run:
   match stop:
     case True{}:
       Stop{n}
     case False{}:
-      Go{n}
+      strike.go(steer, n)
 
-# one more continuation with no new work after s of them
-def strike(+cap: Nat, +s: Nat) -> Goal:
-  strike.put(Nat.is_le(cap, 1n+s), 1n+s)
+# one more continuation with no new work after s of them: the count
+# reaching the cap steers the run, twice the cap stops it
+def strike(+cap: Nat, +s: Nat) -> Run:
+  strike.put(Nat.is_le(Nat.add(cap, cap), 1n+s), Nat.is_eq(cap, 1n+s), 1n+s)
 
 # the check at one continuation: the work grew since the last one, or not
-def check(+cap: Nat, +s: Nat, grew: Bool) -> Goal:
+def check(+cap: Nat, +s: Nat, grew: Bool) -> Run:
   match grew:
     case True{}:
       Go{0n}
@@ -111,26 +124,30 @@ def check(+cap: Nat, +s: Nat, grew: Bool) -> Goal:
 def grew(+hist: List<&2, Nat>, seg: List<&2, Nat>) -> Bool:
   Nat.is_le(1n+work(hist), work(List.append(&2, Nat, hist, seg)))
 
-# the goal loop: a check at each continuation, each one after the acts
-# seg of the run since the last check, on the session's acts hist; a
-# stopped goal stays stopped
-def goal(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Goal) -> Goal:
+# the run loop: a check at each continuation, each one after the acts seg
+# of the run since the last check, on the session's acts hist; a steered
+# run goes on like one that goes on; a stopped run stays stopped
+def run(segs: List<&2, List<&2, Nat>>, +cap: Nat, +hist: List<&2, Nat>, g: Run) -> Run:
   match segs:
     case Nil{}:
       g
     case +seg <> rest:
       match g:
         case Go{s}:
-          goal(rest, cap, List.append(&2, Nat, hist, seg), check(cap, s, grew(hist, seg)))
+          run(rest, cap, List.append(&2, Nat, hist, seg), check(cap, s, grew(hist, seg)))
         case Stop{s}:
           Stop{s}
+        case Steer{s}:
+          run(rest, cap, List.append(&2, Nat, hist, seg), check(cap, s, grew(hist, seg)))
 
-def Goal.stopped(g: Goal) -> Bool:
+def Run.stopped(g: Run) -> Bool:
   match g:
     case Go{s}:
       False{}
     case Stop{s}:
       True{}
+    case Steer{s}:
+      False{}
 
 # every segment of segs holds only acts of hist
 def Repeats(segs: List<&2, List<&2, Nat>>, +hist: List<&2, Nat>) -> Type:
@@ -140,29 +157,30 @@ def Repeats(segs: List<&2, List<&2, Nat>>, +hist: List<&2, Nat>) -> Type:
     case +seg <> rest:
       Within(seg, hist) & Repeats(rest, hist)
 
-# The check the Rust goal loop runs
-# ---------------------------------
-# The Rust loop keeps, per run and goal, the count of stalls and the work
-# (the ledger's count) at the last check, and compares counts: the work
-# grew when its count did. The compiled core's wire carries a Nat up to
+# The check the Rust run loop runs
+# --------------------------------
+# The Rust loop keeps, per run, the count of stalls and the work (the
+# ledger's count) at the last check, and compares counts: the work grew
+# when its count did. The compiled core's wire carries a Nat up to
 # 10^14 - 1, so the count is held below t = 10^14 - 1 and one more stall
 # stays within t.
 
-# the last check of the same run and goal: its count of stalls and the
-# work then
+# the last check of the same run: its count of stalls and the work then
 type Prior is Data:
   Prior{stalls: Nat, work: Nat}
 
-def Goal.stalls(g: Goal) -> Nat:
+def Run.stalls(g: Run) -> Nat:
   match g:
     case Go{s}:
       s
     case Stop{s}:
       s
+    case Steer{s}:
+      s
 
 # the check at a continuation whose work is now `work`, after prior p
-# (None: the first check of the run or the goal starts the count)
-def judge(+t: Nat, +cap: Nat, p: Maybe<&2, Prior>, +work: Nat) -> Goal:
+# (None: the first check of the run starts the count)
+def judge(+t: Nat, +cap: Nat, p: Maybe<&2, Prior>, +work: Nat) -> Run:
   match p:
     case None{}:
       Go{0n}
@@ -171,11 +189,11 @@ def judge(+t: Nat, +cap: Nat, p: Maybe<&2, Prior>, +work: Nat) -> Goal:
         case Prior{s, w}:
           check(cap, Nat.min(s, Nat.sub(t, 1n)), Nat.is_lt(w, work))
 
-# the last check the goal loop stored: whether it was of the same run (the
-# run's first input) and of the same goal as the check now, its count of
-# stalls and the work then
+# the last check the run loop stored: whether it was of the same run (the
+# run's first input) as the check now, its count of stalls and the work
+# then
 type Last is Data:
-  Last{run: Bool, goal: Bool, stalls: Nat, work: Nat}
+  Last{run: Bool, stalls: Nat, work: Nat}
 
 def compared.of(same: Bool, +s: Nat, +w: Nat) -> Maybe<&2, Prior>:
   match same:
@@ -185,15 +203,15 @@ def compared.of(same: Bool, +s: Nat, +w: Nat) -> Maybe<&2, Prior>:
       None{}
 
 # the prior check the check now compares with: the last one, when it was
-# of the same run and the same goal (else the check starts the count)
+# of the same run (else the check starts the count)
 def compared(m: Maybe<&2, Last>) -> Maybe<&2, Prior>:
   match m:
     case None{}:
       None{}
     case Some{x}:
       match x:
-        case Last{r, g, s, w}:
-          compared.of(Bool.and(r, g), s, w)
+        case Last{r, s, w}:
+          compared.of(r, s, w)
 
 # The ledger the Rust host keeps
 # ------------------------------

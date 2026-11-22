@@ -4,9 +4,32 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::goal::GoalContextKind;
 use crate::job::{BashStopper, CellStatus, JobId};
 use crate::pi_ai::StreamFailureKind;
+
+/// The kind of context the removed goal engine submitted as input. Old
+/// sessions hold it in their `pi.user` entries and inbox items
+/// ([`InputOrigin::Goal`]), so it still decodes; nothing produces it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalContextKind {
+    Continuation,
+    BudgetLimit,
+    ObjectiveUpdated,
+}
+
+impl GoalContextKind {
+    /// The header word: `continuation`, `budget-limit`, or
+    /// `objective-updated`.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Continuation => "continuation",
+            Self::BudgetLimit => "budget-limit",
+            Self::ObjectiveUpdated => "objective-updated",
+        }
+    }
+}
 
 /// The producer of one user-role input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,7 +37,8 @@ use crate::pi_ai::StreamFailureKind;
 pub enum InputOrigin {
     /// A person's words, or a client prompt sent on their behalf.
     User,
-    /// A goal context the goal engine submitted.
+    /// A context of the removed goal engine: old sessions hold it; nothing
+    /// produces it now.
     Goal { context: GoalContextKind },
     /// An iteration of `/loop`: the loop's prompt, sent as iteration
     /// `iteration` (the first turn is 1).

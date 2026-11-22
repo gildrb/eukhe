@@ -557,7 +557,7 @@ async fn pause_rows(
     Ok(())
 }
 
-/// Run the typed session command `text` (`/goal ...`, `/autonomous ...`
+/// Run the typed session command `text` (`/auto ...`, `/autonomous ...`
 /// typed on main) on main's worker (`worker`, else the first one), where
 /// the work runs: answers its name, or `None` when main has no worker yet.
 ///

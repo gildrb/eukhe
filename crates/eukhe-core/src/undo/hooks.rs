@@ -20,7 +20,7 @@ use eukhe_durable::session::SessionResult;
 use futures::FutureExt;
 
 use super::{prune_snapshots, snapshots_dir, TurnKey, TurnSnapshots};
-use crate::durable::goals::read_doc;
+use crate::durable::autonomous::read_doc;
 use crate::durable::ran_effects::run_key;
 use crate::durable::{main_conversation_id, HostDeps};
 

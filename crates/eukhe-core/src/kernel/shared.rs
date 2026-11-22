@@ -409,7 +409,7 @@ where
     Arc::new(move |payload| Box::pin(f(payload)) as HostHandlerFuture)
 }
 
-/// Host request handlers keyed by request type (e.g. `rlm.run`, `goal.complete`),
+/// Host request handlers keyed by request type (e.g. `rlm.run`, `directors.push`),
 /// or a per-request dispatch that replaces the map.
 #[derive(Clone, Default)]
 pub struct HostRequestHandlers {

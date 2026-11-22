@@ -13,7 +13,7 @@ import ../spec/autonomous/autonomous.bend as SpA
 # --------------------------------------------------------------------------
 # bend/autonomous.bend, run as the compiled core by
 # bend/ffi_autonomous.bend (eukhe-bend rules/autonomous.rs; asked by
-# eukhe-core durable/goals at each final answer with whether the run is
+# eukhe-core's autonomous run at each final answer with whether the run is
 # autonomous, how the answer ended, the checks' outcome at that answer,
 # whether the run's budget admits work and the final-answer judge's
 # reading of the answer). spec/autonomous/autonomous.bend states the rule
@@ -43,13 +43,13 @@ import ../spec/autonomous/autonomous.bend as SpA
 # Not pinned here (Rust, so the gate is tests): AU1, that turning a run on
 # gives it the intent check when it has none and that each command of the
 # removed gates becomes a command check that must exit 0
-# (crates/eukhe-core/src/durable/goals/tests.rs::
+# (crates/eukhe-core/src/durable/autonomous/tests.rs::
 # turning_an_autonomous_run_on_gives_it_the_intent_check); AU5's mapping
 # of the removed options, `maxTurns`, `maxTokens`, `timeoutMs` onto the
 # run's budget and `maxContinuations` and the gate retries onto the checks'
 # return cap (crates/eukhe-core/src/autonomous/mod.rs::
 # removed_options_map_onto_the_budget_and_the_checks,
-# crates/eukhe-core/src/durable/goals/tests.rs::
+# crates/eukhe-core/src/durable/autonomous/tests.rs::
 # the_removed_max_turns_is_the_runs_request_limit,
 # an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it);
 # AU7's request and continuation: the judge reads the final answer alone

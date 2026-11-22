@@ -1,6 +1,6 @@
 //! Daemon session-event mapping: the TS `acpUpdatesForSessionEvent` port
 //! for the wire shapes a daemon worker streams (`message_start/update/end`,
-//! `tool_execution_*`, `bash_*`, `compaction_end`, `goal_update`,
+//! `tool_execution_*`, `bash_*`, `compaction_end`,
 //! `loop_update`, ...): the
 //! ACP frames the daemon worker's session events produce.
 //!
@@ -332,7 +332,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 meta: None,
             }]
         }
-        // The session's budget rides the namespaced meta like the goal; a
+        // The session's budget rides the namespaced meta; a
         // session without a budget (`budget: null`) has nothing to show.
         "budget_update" => {
             let report = event
@@ -348,31 +348,6 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 })
                 .into_iter()
                 .collect()
-        }
-        "goal_update" => {
-            let goal = event.get("goal");
-            vec![AcpSessionUpdate::SessionInfoUpdate {
-                meta: eukhe_meta(&EukheSessionMeta {
-                    goal: Some(super::meta::EukheGoalMeta {
-                        status: goal
-                            .and_then(|goal| goal.get("status"))
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string(),
-                        objective: goal
-                            .and_then(|goal| goal.get("objective"))
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        token_budget: goal
-                            .and_then(|goal| goal.get("tokenBudget"))
-                            .and_then(Value::as_u64),
-                        tokens_used: goal
-                            .and_then(|goal| goal.get("tokensUsed"))
-                            .and_then(Value::as_u64),
-                    }),
-                    ..Default::default()
-                }),
-            }]
         }
         "loop_update" => {
             // The whole status rides the meta; an event without a readable
@@ -706,41 +681,6 @@ mod tests {
             &mut state,
         );
         assert_eq!(chunk(&next[0]).2, "eukhe-assistant-2");
-    }
-
-    #[test]
-    fn goal_update_maps_to_the_namespaced_goal_meta() {
-        // TS acp-events.ts `case "goal_update"`: the GoalState fields the
-        // meta carries, nothing else (its tokens are the goal's own).
-        let mut state = WireMappingState::default();
-        let updates = wire_updates(
-            &json!({
-                "type": "goal_update",
-                "goal": {
-                    "active": true,
-                    "status": "active",
-                    "goalId": "g1",
-                    "objective": "Name a river",
-                    "tokenBudget": 500,
-                    "tokensUsed": 0,
-                    "timeUsedSeconds": 0,
-                    "continuationsUsed": 0,
-                },
-            }),
-            &mut state,
-        );
-        assert_eq!(updates.len(), 1);
-        let value = serde_json::to_value(&updates[0]).unwrap();
-        assert_eq!(value["sessionUpdate"], "session_info_update");
-        assert_eq!(
-            value["_meta"]["com.eukhe"]["goal"],
-            json!({
-                "status": "active",
-                "objective": "Name a river",
-                "tokenBudget": 500,
-                "tokensUsed": 0,
-            })
-        );
     }
 
     #[test]

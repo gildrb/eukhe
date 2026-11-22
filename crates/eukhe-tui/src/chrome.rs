@@ -138,10 +138,6 @@ pub enum ActivityGroup {
     /// The `/workflows` page: dynamic workflow runs. Its group renders
     /// while the daemon advertises the `workflow_activity` lane.
     Workflow,
-    /// The active goal: its group is mounted while a goal is being
-    /// pursued and opens the read-only goal panel (the objective and
-    /// its facts); a goal that ended unmounts the row with it.
-    Goal,
 }
 
 /// Which way an arrow key steps along the dock's rendered groups.
@@ -198,12 +194,6 @@ pub struct ActivityDock {
     /// Whether the workflow group renders: the daemon's
     /// `workflow_activity` advertisement.
     pub workflow_group: bool,
-    /// The active goal's dock label -- `Pursuing goal (12m 05s)`-style,
-    /// the elapsed-time form (the operator's 2026-09-24 directive: the
-    /// row reads the time, the token budget lives inside the goal
-    /// panel); `None` unless the goal is actively being pursued (a
-    /// completed or idle goal carries no dock segment).
-    pub goal_label: Option<String>,
     /// The session's `/loop` label (`Loop running 7/10 until: test -f
     /// done`-style); `None` unless a loop is on. Not a group: it opens
     /// nothing, so the arrows never land on it.
@@ -216,9 +206,8 @@ impl ActivityDock {
     /// The groups this dock renders, left to right -- the arrow
     /// traversal order. The subagents, heartbeats, and shells groups
     /// always render (an empty one reads its zero count and stays
-    /// traversable); the factory group renders exactly while the daemon
-    /// advertises the `factory_activity` lane (the opt-in gate), and the
-    /// goal group exactly while a live goal keeps its row mounted.
+    /// traversable); the factory and workflow groups render exactly while
+    /// the daemon advertises their lanes (the opt-in gates).
     #[must_use]
     pub fn groups(&self) -> Vec<ActivityGroup> {
         let mut groups = vec![
@@ -232,9 +221,6 @@ impl ActivityDock {
         if self.workflow_group {
             groups.push(ActivityGroup::Workflow);
         }
-        if self.goal_label.is_some() {
-            groups.push(ActivityGroup::Goal);
-        }
         groups
     }
 
@@ -242,8 +228,8 @@ impl ActivityDock {
     /// `direction`, wrapping at the row's ends. A group's emptiness
     /// never skips it, so the cycle is deterministic -- N rendered
     /// groups take N presses to return to the start. A `current` that
-    /// no longer renders (a goal group whose row unmounted) steps
-    /// from the row's start.
+    /// no longer renders (a group whose lane went away) steps from the
+    /// row's start.
     #[must_use]
     pub fn step(&self, current: ActivityGroup, direction: ActivityDirection) -> ActivityGroup {
         let groups = self.groups();

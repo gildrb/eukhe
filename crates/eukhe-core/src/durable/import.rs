@@ -4,7 +4,8 @@
 //! conversation: user/assistant/tool-result messages as the built-in
 //! entries, compactions as `pi.compaction` heads, custom rows as eukhe entry
 //! kinds (`crate::durable::entries`); the model, thinking level, and cwd
-//! become the root's `pi.agent`, the branch's goal state the goal doc.
+//! become the root's `pi.agent`. The removed goal's `thread_goal_state`
+//! rows are not imported.
 //! Everything lands in one commit inside a staging directory that is made
 //! durable and renamed into place ([`super::staging`]), so `storage_dir`
 //! either holds the whole import or does not exist. The legacy file is only
@@ -35,7 +36,6 @@ use futures::FutureExt;
 
 use self::plan::{plan_import, ImportPlan, PlannedHead};
 use super::staging::{lock_staging, publish, staging_dir, PublishError, StagingKind};
-use crate::durable::goals::import_legacy_goal;
 
 /// What [`import_legacy_session`] wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +269,7 @@ fn harness_options() -> HarnessOptions {
     )
 }
 
-/// Append every planned entry, then seed the goal state from the branch.
+/// Append every planned entry.
 /// Each imported assistant answer adds its usage to `pi.usage`, as the
 /// commit that recorded a live response does: the session's spend
 /// survives the import.
@@ -303,5 +303,5 @@ async fn append_plan(
             record_usage(&tx, conversation_id, UsageBucket::Models, &key, &usage).await?;
         }
     }
-    import_legacy_goal(&tx, conversation_id, &plan.branch).await
+    Ok(())
 }

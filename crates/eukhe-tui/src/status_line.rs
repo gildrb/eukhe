@@ -491,12 +491,11 @@ pub(crate) fn format_count(count: u64) -> String {
 }
 
 /// The live activity segments: the session's loop label first (a paused
-/// loop reads amber), then the groups. A group renders
-/// while it counts something
-/// (live subagents, heartbeats, running shells, live factory runs, the
-/// pursued goal). A focused dock renders every group, the selected one
-/// behind the selection band, so the arrows always land on a visible
-/// segment.
+/// loop reads amber), then the groups. A group renders while it counts
+/// something (live subagents, heartbeats, running shells, live factory
+/// or workflow runs). A focused dock renders every group, the selected
+/// one behind the selection band, so the arrows always land on a
+/// visible segment.
 fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
     let running = dock.subagents_running_direct + dock.subagents_running_nested;
     let color = |count: usize| {
@@ -586,17 +585,6 @@ fn activity_segments(dock: &ActivityDock, theme: &Theme) -> Vec<Line> {
                     plural(dock.workflow_runs, "workflow", "workflows"),
                 )],
             ),
-            // A pursued goal reads green; its paused and budget-limited
-            // states read amber.
-            ActivityGroup::Goal => {
-                let goal = dock.goal_label.as_deref().unwrap_or_default();
-                let tone = if goal.starts_with("Pursuing goal") {
-                    ThemeColor::Success
-                } else {
-                    ThemeColor::Warning
-                };
-                (true, vec![theme.fg(tone, goal.to_string())])
-            }
         };
         if !(live || dock.focused) {
             continue;

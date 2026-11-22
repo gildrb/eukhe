@@ -230,10 +230,6 @@ impl SessionUi {
         if view.bash_view.is_some() {
             return self.handle_bash_view_key(key, view);
         }
-        // The read-only goal panel owns the frame the same way.
-        if view.goal_panel.is_some() {
-            return self.handle_goal_panel_key(key, view);
-        }
         // The read-only info panel owns the frame the same way.
         if view.info_panel.is_some() {
             return self.handle_info_panel_key(key, view);

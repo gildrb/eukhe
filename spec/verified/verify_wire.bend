@@ -111,8 +111,8 @@ def w_req(q: FV.Req, rest: String) -> String:
       Wr.put_nat(5n, w_evidence(ev, rest))
     case FV.QJudge{ans}:
       Wr.put_nat(6n, Wr.put_nat(w_answer(ans), rest))
-    case FV.QClaims{held, checked, goal, claimed, ended}:
-      Wr.put_nat(7n, Wr.put_bool(held, Wr.put_bool(checked, Wr.put_bool(goal, Wr.put_bool(claimed, Wr.put_bool(ended, rest))))))
+    case FV.QClaims{held, checked, claimed, ended}:
+      Wr.put_nat(7n, Wr.put_bool(held, Wr.put_bool(checked, Wr.put_bool(claimed, Wr.put_bool(ended, rest)))))
 
 # Spellers: the reply, as Rust reads it
 # -------------------------------------
@@ -172,8 +172,8 @@ def w_reply(q: FV.Req) -> String:
       Wr.put_nat(w_verdict(V.grade_until(ev)), "")
     case FV.QJudge{ans}:
       Wr.put_nat(w_verdict(V.grade_judge(ans)), "")
-    case FV.QClaims{held, checked, goal, claimed, ended}:
-      Wr.put_bool(V.claims(held, checked, goal, claimed, ended), "")
+    case FV.QClaims{held, checked, claimed, ended}:
+      Wr.put_bool(V.claims(held, checked, claimed, ended), "")
 
 # Bounds: every number of a request fits the wire
 # -----------------------------------------------
@@ -239,7 +239,7 @@ def fit_req(q: FV.Req) -> Bool:
       fit_evidence(ev)
     case FV.QJudge{ans}:
       True{}
-    case FV.QClaims{held, checked, goal, claimed, ended}:
+    case FV.QClaims{held, checked, claimed, ended}:
       True{}
 
 # The reader: the request an input spells, read with the wire's decoders
@@ -548,31 +548,24 @@ def r_req.judge(r: Wr.Dec<V.Answer>) -> Wr.Dec<FV.Req>:
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_req.claims_e(held: Bool, checked: Bool, goal: Bool, claimed: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
+def r_req.claims_e(held: Bool, checked: Bool, claimed: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
   match r:
     case Wr.Got{ended, s}:
-      Wr.Got{FV.QClaims{held, checked, goal, claimed, ended}, s}
+      Wr.Got{FV.QClaims{held, checked, claimed, ended}, s}
     case Wr.Bad{}:
       Wr.Bad{}
 
-def r_req.claims_c(held: Bool, checked: Bool, goal: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
+def r_req.claims_c(held: Bool, checked: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
   match r:
     case Wr.Got{claimed, s}:
-      r_req.claims_e(held, checked, goal, claimed, Wr.get_bool(s))
-    case Wr.Bad{}:
-      Wr.Bad{}
-
-def r_req.claims_g(held: Bool, checked: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
-  match r:
-    case Wr.Got{goal, s}:
-      r_req.claims_c(held, checked, goal, Wr.get_bool(s))
+      r_req.claims_e(held, checked, claimed, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 
 def r_req.claims_k(held: Bool, r: Wr.Dec<Bool>) -> Wr.Dec<FV.Req>:
   match r:
     case Wr.Got{checked, s}:
-      r_req.claims_g(held, checked, Wr.get_bool(s))
+      r_req.claims_c(held, checked, Wr.get_bool(s))
     case Wr.Bad{}:
       Wr.Bad{}
 

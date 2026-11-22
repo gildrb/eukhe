@@ -2,8 +2,9 @@
 //! each entry is to a call's request. The user's words, the agent's
 //! replies and tool calls, and tool results are logged; reports and
 //! background events that reach the model are logged as `work` messages
-//! starting with one `[id] `; harness nudges (autonomous and goal
-//! continuations: not the user's words) and harness state the next turn
+//! starting with one `[id] `; harness nudges (autonomous continuations, and
+//! the removed goal's in old sessions: not the user's words) and harness
+//! state the next turn
 //! re-derives (kernel notices, bookkeeping rows, summaries) are not.
 //! Thinking is never logged. A tool result is clipped to its head and
 //! tail; any other text longer than [`crate::memory::CAP`] characters is
@@ -273,7 +274,7 @@ enum CustomRow {
     /// A report or a background event: logged as `[id] ...` and delivered
     /// with the user's texts.
     Report,
-    /// A harness nudge (a goal continuation): delivered with the user's
+    /// A harness nudge (an old session's goal context): delivered with the user's
     /// texts, never logged (not the user's words).
     Nudge,
     /// Harness state and bookkeeping: re-derived every turn, or never

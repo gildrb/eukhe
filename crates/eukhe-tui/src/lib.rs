@@ -74,7 +74,6 @@ pub mod fuzzy;
 pub mod gen_speed;
 pub mod git_placement;
 pub mod glyphs;
-pub mod goal_surface;
 pub mod heartbeats_picker;
 pub mod hotkeys;
 pub mod hyperlinks;

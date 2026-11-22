@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn typed_slash_burst_submits_as_typed() {
         let mut e = ed();
-        for key in ["/", "g", "o", "a", "l"] {
+        for key in ["/", "a", "u", "t", "o"] {
             e.handle_input(key);
         }
         assert!(!e.is_showing_autocomplete(), "dropdown parks its request");
@@ -466,7 +466,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(submitted, vec!["/goal"]);
+        assert_eq!(submitted, vec!["/auto"]);
         assert_eq!(e.get_text(), "");
     }
 

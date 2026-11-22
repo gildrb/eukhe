@@ -1,12 +1,12 @@
 //! The panels concern: the activity dock and its group views, the
-//! roster-driven subagent summary, the goal and info panels, and the
+//! roster-driven subagent summary, the info panel, and the
 //! retry-episode collapse (TS `activityBar` composition + panel keys).
 
 use super::{
-    key_event_to_id, mpsc, paused_heartbeat_count, picker_viewport_rows, tray_goal_label,
-    tray_loop_label, AgentView, AgentsUpdate, BashActivityUpdate, ChatViewUpdate,
-    CommandCatalogUpdate, DaemonCommand, DockFocusSource, FactoryUpdate, GoalPanel,
-    HeartbeatsUpdate, InfoContent, InfoPanelAction, KeyEvent, Map, Result, SessionUi, Value,
+    key_event_to_id, mpsc, paused_heartbeat_count, tray_loop_label, AgentView, AgentsUpdate,
+    BashActivityUpdate, ChatViewUpdate, CommandCatalogUpdate, DaemonCommand, DockFocusSource,
+    FactoryUpdate, HeartbeatsUpdate, InfoContent, InfoPanelAction, KeyEvent, Map, Result,
+    SessionUi, Value,
 };
 
 pub(crate) struct ActivityUpdates {
@@ -135,9 +135,9 @@ impl SessionUi {
             anchor_ms,
         );
         let dock = self.activity_dock_state();
-        // A focused selection must stay on a rendered group: only the
-        // goal group can leave the row (its goal ended), and the
-        // selection steps back to the group that now ends the row.
+        // A focused selection must stay on a rendered group: a group
+        // whose lane went away leaves the row, and the selection steps
+        // back to the group that now ends the row.
         if self.subagents_focused && !dock.groups().contains(&self.activity_group) {
             self.activity_group =
                 dock.step(self.activity_group, crate::chrome::ActivityDirection::Prev);
@@ -190,20 +190,11 @@ impl SessionUi {
             .unwrap_or_default()
     }
 
-    /// The dock's feed state: the live counts, the goal row's label, and
+    /// The dock's feed state: the live counts, the loop's label, and
     /// the selection/focus the caller owns. The row render, the focus
     /// hand-off, and the arrows' traversal all read this one mapping --
     /// a group renders exactly when it stays traversable.
     pub(super) fn activity_dock_state(&self) -> crate::chrome::ActivityDock {
-        // The dock is the goal's one chrome surface (the operator's
-        // 2026-09-24 directive moved it off the line below the prompt
-        // bar): every live state renders its row -- pursuing reads the
-        // elapsed time ("make it 'Pursuing goal (time)'"), and the
-        // paused and budget-limited states keep their persistent label
-        // here too (the tray's TS cluster no longer exists to carry
-        // them; terminal states carry no row). The token budget lives
-        // inside the goal panel the row opens, not on the bar.
-        let goal_label = tray_goal_label(&self.goal_view.goal);
         // The loop's label reads the clock: a duration limit counts down
         // on every dock refresh.
         let loop_label =
@@ -250,7 +241,6 @@ impl SessionUi {
             factory_group: self.factory_activity_supported(),
             workflow_runs: crate::workflow_view::running_runs(&self.workflow_lane.runs),
             workflow_group: self.workflow_activity_supported(),
-            goal_label,
             loop_label,
             selected: self.activity_group,
             focused: self.subagents_focused,
@@ -338,26 +328,7 @@ impl SessionUi {
             crate::chrome::ActivityGroup::Workflow => {
                 self.open_workflows_page(view);
             }
-            crate::chrome::ActivityGroup::Goal => {
-                self.open_goal_panel(view);
-            }
         }
-    }
-
-    /// The dock's goal row opens the read-only goal panel (the
-    /// operator's 2026-09-24 directive: selecting the `Pursuing goal`
-    /// row shows "what the goal prompt is").
-    fn open_goal_panel(&mut self, view: &mut AgentView) {
-        view.goal_panel = Some(GoalPanel {
-            goal: self.goal_view.goal.clone(),
-            // The panel renders inside this row budget: a multi-screen
-            // objective clips (with a marker) instead of growing the dock
-            // past the frame, which would front-crop the title away.
-            viewport_rows: picker_viewport_rows(view.terminal_rows()),
-        });
-        self.subagents_focused = false;
-        self.update_subagent_summary(view);
-        self.dirty = true;
     }
 
     /// Open the read-only info panel over the editor dock (the
@@ -376,37 +347,6 @@ impl SessionUi {
     ) {
         view.info_panel = Some(crate::info_panel::InfoPanel::new(title, content));
         self.dirty = true;
-    }
-
-    /// The goal panel owns the frame while open: the close and back
-    /// keys dismiss it; every other key is consumed (a read-only view).
-    pub(super) fn handle_goal_panel_key(
-        &mut self,
-        key: KeyEvent,
-        view: &mut AgentView,
-    ) -> Result<()> {
-        let Some(id) = key_event_to_id(&key) else {
-            return Ok(());
-        };
-        // The panel consumes Ctrl+C (close, not exit): report the handled
-        // press so the force-quit guard can disarm once the whole pair was
-        // consumed with TS semantics (the same discipline as the other
-        // modal handlers).
-        if id == "ctrl+c" {
-            self.exit_guard.note_ctrl_c_handled();
-        }
-        if view.editor.keybindings().matches(&id, "tui.select.cancel")
-            || view.editor.keybindings().matches(&id, "app.modal.back")
-            || view.editor.keybindings().matches(&id, "app.clear")
-        {
-            view.goal_panel = None;
-            // The exit restores the dock's own group (the operator's
-            // 2026-09-26 panel-exit ruling): ESC/left lands back on the
-            // goal row, ready to re-open, not on the prompt bar.
-            self.focus_activity_dock(view);
-            self.dirty = true;
-        }
-        Ok(())
     }
 
     /// The info panel owns the frame while open: the navigation keys

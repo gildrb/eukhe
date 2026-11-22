@@ -368,7 +368,7 @@ pub(crate) async fn children_verdicts(
 
 /// Whether any child of `conversation_id` is unsettled: its
 /// `eukhe.rlm.child` task still owes the run or the admission of its
-/// report. Goal and autonomous continuations defer while this holds.
+/// report. Autonomous continuations defer while this holds.
 ///
 /// # Errors
 ///

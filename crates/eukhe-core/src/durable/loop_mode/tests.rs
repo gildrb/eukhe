@@ -35,8 +35,8 @@ use super::{
     hold_loop_for_compaction, interrupt_loop, loop_status, resume_loop_after_compaction,
     watch_loop_updates, LoopDoc, LOOP_MODE_DOC, LOOP_NOTICE_CUSTOM_TYPE,
 };
+use crate::durable::autonomous::{open_doc, read_doc, write_doc};
 use crate::durable::entries::{custom_entry_draft, CUSTOM_ENTRY};
-use crate::durable::goals::{open_doc, read_doc, write_doc};
 use crate::durable::session_commands::{classify_session_command, execute_session_command};
 use crate::durable::{open_session, EukheSession, ModelRequest, SessionConfig, SessionStorage};
 

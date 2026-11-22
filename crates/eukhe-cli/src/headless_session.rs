@@ -646,15 +646,18 @@ async fn open(
     Ok((session, wakes, reports))
 }
 
+/// The guideline of a headless print or json run's root (`eukhe -p`): the
+/// agent works the task through and reports at the end, and a run whose
+/// final answer names work left exits 1 with what remains
+/// (`bend/headless_task.bend`).
+const HEADLESS_GUIDELINE: &str = "This run is headless (`eukhe -p`): nobody answers a question before it ends, and its exit code says whether the task is done. Work the whole task through before your final answer: make a reasonable assumption where you would ask, and treat a failed command as something to fix, not a reason to stop. Your final answer is the run's report: say what you did and how you checked it, and list plainly any part that is not done and why. A run whose final answer lists work left exits 1 and prints what remains.";
+
 /// The prompt guidelines of a headless session's root: a print or json run
 /// ends with an exit code that says whether its task is done
-/// ([`eukhe_core::goals::HEADLESS_GOAL_GUIDELINE`]); an RPC session's
-/// client keeps its own state.
+/// ([`HEADLESS_GUIDELINE`]); an RPC session's client keeps its own state.
 fn headless_guidelines(mode: AppMode) -> Vec<String> {
     match mode {
-        AppMode::Print | AppMode::Json => {
-            vec![eukhe_core::goals::HEADLESS_GOAL_GUIDELINE.to_owned()]
-        }
+        AppMode::Print | AppMode::Json => vec![HEADLESS_GUIDELINE.to_owned()],
         AppMode::Rpc | AppMode::Acp | AppMode::Interactive | AppMode::Daemon => Vec::new(),
     }
 }

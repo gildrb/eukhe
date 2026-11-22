@@ -1,7 +1,8 @@
 # director: the model of the Director stack (S5), the
 # rule the Rust code runs (crates/eukhe-core/src/durable/directors). The
 # agent loop asks the stack what to do after each model turn. A Director
-# is one layer: a goal, an autonomous run, a reminder, a forced tool call.
+# is one layer: an autonomous run, a reminder, a forced tool call (kind 0,
+# a goal, is legacy: the stack's migrate drops such layers).
 # Layers stack and nest. The top layer decides first; each layer gives one
 # verdict, which the adversary picks:
 #
@@ -38,7 +39,8 @@
 import Base
 import ./tree.bend as T
 
-# A layer: its kind (goal, autonomous run, reminder, forced call, ...)
+# A layer: its kind (autonomous run, reminder, forced call, ...; kind 0 was
+# a goal)
 # and the loop steps it may still ask for
 type Layer is Data:
   Layer{kind: Nat, budget: Nat}

@@ -34,8 +34,8 @@ use futures::FutureExt;
 
 use super::docs::{LoopDoc, LOOP_MODE_DOC};
 use super::drive::{turn_request_id, Input, LoopHost, Mode};
+use crate::durable::autonomous::read_doc;
 use crate::durable::deps::SessionClosing;
-use crate::durable::goals::read_doc;
 use crate::durable::{HostDeps, OpenedSession, ServiceStop};
 
 /// One run that ended without an answer.

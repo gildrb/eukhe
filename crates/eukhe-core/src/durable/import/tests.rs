@@ -8,24 +8,21 @@ use std::sync::Arc;
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::to_json;
 use eukhe_durable::entries::{
-    CompactionData, CompactionSummary, COMPACTION_ENTRY, TOOL_RESULT_ENTRY,
+    CompactionData, CompactionSummary, COMPACTION_ENTRY, TOOL_RESULT_ENTRY, USER_ENTRY,
 };
 use eukhe_durable::harness::types::{CompactionReason, ModelRef};
 use eukhe_durable::harness::{Conversation, ConversationEntryQuery, Harness};
 use eukhe_durable::storage::jsonl::{open_native_jsonl_storage, JsonlStorageOptions};
 use eukhe_durable::types::{EntryRecord, ROOT_CONVERSATION_ID};
 use eukhe_types::pi_ai::{Message, ModelThinkingLevel};
-use eukhe_types::session::FileEntry;
 use serde_json::{json, Value};
 
 use super::plan::{plan_import, PlannedHead};
 use super::{harness_options, import_legacy_session, ImportError, ImportReport};
-use crate::durable::goals::goal_state;
 use crate::durable::messages::HARNESS_DIGEST_CUSTOM_TYPE;
 use crate::durable::messages::{convert_to_llm, COMPACTION_OUTCOME_CUSTOM_TYPE};
 use crate::session::tree::SessionTree;
 use crate::session::{build_session_context, migrate_to_current_version, parse_session_entries};
-use eukhe_types::goal::GoalStatus;
 
 fn cx() -> Context {
     BACKGROUND_CONTEXT.clone()
@@ -639,9 +636,7 @@ async fn imports_custom_rows_bash_runs_and_branch_summaries() {
         data[9],
         Some(json!({"customType": "thread_goal_state", "data": goal_row()}))
     );
-    let goal = goal_state(&harness, root.id(), &cx()).await.unwrap();
-    assert_eq!(goal.objective.as_deref(), Some("ship"));
-    assert_eq!(goal.status, GoalStatus::Paused);
+    // The removed goal's row stays an inert state row: nothing reads it.
     harness.close(&cx()).await.unwrap();
 }
 
@@ -827,8 +822,5 @@ fn a_parent_cycle_ends_the_branch_walk() {
     ]);
     let plan = plan_import(&content).unwrap();
     assert_eq!(plan.entries.len(), 2);
-    assert!(matches!(
-        plan.branch.first(),
-        Some(FileEntry::Message { .. })
-    ));
+    assert_eq!(plan.entries[0].draft.kind, USER_ENTRY.kind());
 }

@@ -9,24 +9,24 @@ import ../base.bend as LawsBase
 # (D2) The entry
 # --------------
 # R10: the entry answers each request Rust writes (a tag: 0 `/goal`, 1
-#      `/auto`, 2 words, 3 objective, 4 `/autonomous`; then the text, its
-#      length within the wire) with the model's answer
-#      (bend/slash_args.bend; R1-R9 are the laws of
-#      laws/slash_args/model.bend) spelled as below, reads exactly the
-#      request and nothing after it, and answers any other input (an
-#      unknown tag, a short text, input left over) with the exact error
-#      form `E slash_args: malformed request`.
+#      `/auto`, 2 words, 4 `/autonomous`; then the text, its length within
+#      the wire) with the reply below (the `/auto` answer and the words
+#      are the model's, bend/slash_args.bend; R1, R2, R6-R9 are the laws
+#      of laws/slash_args/model.bend), reads exactly the request and
+#      nothing after it, and answers any other input (an unknown tag, 3
+#      among them: the removed goal objective's question, a short text,
+#      input left over) with the exact error form
+#      `E slash_args: malformed request`.
 # R11: an answer is its tag (0 status, 1 on, 2 off, 3 error, 4 task) then
 #      for on the options (four limits, each 0 none | 1 then 0 unlimited |
 #      1 its digits; the gates 0 none | 1 then the commands (0 none | 1
 #      then the list), the retries and the timeout (each 0 none | 1 its
 #      digits); the keep-alive (0 none | 1 its digits)), for an error its
-#      text, for a task its text and the budget (0 none | 1 its digits).
-#      `/auto` and `/autonomous` reply 0 then the `/auto` answer;
-#      `/goal` replies 1 (the removed command, for its note) then the
-#      `/auto` answer it maps to. Words are the list of words. An
-#      objective is answered as the task without a budget, or the error.
+#      text, for a task its text. `/auto` and `/autonomous` reply the
+#      `/auto` answer alone. Words are the list of words.
 # R12: `/autonomous` is `/auto`: the same text gets the same reply.
+# R13: `/goal` is removed: every `/goal` request, whatever its text,
+#      replies only the text `/goal is removed: use /auto`.
 
 # Spec spellers
 # -------------
@@ -43,8 +43,6 @@ def sae_req(q: FSa.Req, rest: String) -> String:
       sae_text(1n, a, rest)
     case FSa.QWords{a}:
       sae_text(2n, a, rest)
-    case FSa.QObjective{a}:
-      sae_text(3n, a, rest)
     case FSa.QAutonomous{a}:
       sae_text(4n, a, rest)
 
@@ -97,23 +95,26 @@ def sae_auto(a: Sa.Auto) -> String:
       Wr.put_nat(2n, "")
     case Sa.AErr{e}:
       Wr.put_nat(3n, Wr.put_str(e, ""))
-    case Sa.ATask{t, b}:
-      Wr.put_nat(4n, Wr.put_str(t, sae_mstr(b, "")))
+    case Sa.ATask{t}:
+      Wr.put_nat(4n, Wr.put_str(t, ""))
 
-# the spelled answer of the model to a request (the model is pinned by the
-# laws of laws/slash_args/model.bend)
+# R13: the pointer every `/goal` request replies
+def sae_pointer() -> String:
+  "/goal is removed: use /auto"
+
+# the spelled reply to a request: the pointer for `/goal` (R13), else the
+# model's answer (the model is pinned by the laws of
+# laws/slash_args/model.bend)
 def sae_reply(q: FSa.Req) -> String:
   match q:
     case FSa.QGoal{a}:
-      Wr.put_nat(1n, sae_auto(Sa.goal(a)))
+      Wr.put_str(sae_pointer(), "")
     case FSa.QAuto{a}:
-      Wr.put_nat(0n, sae_auto(Sa.auto(a)))
+      sae_auto(Sa.auto(a))
     case FSa.QWords{a}:
       LawsBase.wire_spell_strs(Sa.words(a), "")
-    case FSa.QObjective{a}:
-      sae_auto(Sa.goal.objective(a, None{}))
     case FSa.QAutonomous{a}:
-      Wr.put_nat(0n, sae_auto(Sa.auto(a)))
+      sae_auto(Sa.auto(a))
 
 # the request's text fits the wire
 def sae_fits(q: FSa.Req) -> Bool:
@@ -124,24 +125,32 @@ def sae_fits(q: FSa.Req) -> Bool:
       LawsBase.wire_fits(String.length(a))
     case FSa.QWords{a}:
       LawsBase.wire_fits(String.length(a))
-    case FSa.QObjective{a}:
-      LawsBase.wire_fits(String.length(a))
     case FSa.QAutonomous{a}:
       LawsBase.wire_fits(String.length(a))
 
 # Laws
 # ----
 
-# LAW slash_args_entry_answers (R10, R11): the entry answers every request
-# Rust spells, its text within the wire, with the model's answer spelled
+# LAW slash_args_entry_answers (R10, R11, R13): the entry answers every
+# request Rust spells, its text within the wire, with its spelled reply
 # EXCLUDES: questions swapped, a field misread, an answer of another tag
-#   or field order, the budget's or a limit's digits dropped, the `/goal`
-#   flag dropped or set for `/auto`, words spelled without their count, a
-#   default
+#   or field order, a limit's digits dropped, a leading tag of how `/auto`
+#   was typed, words spelled without their count, a default
 law slash_args_entry_answers:
   for +q: FSa.Req
   for fit: {sae_fits(q) == True{} : Bool}
   {FSa.ffi(sae_req(q, "")) == sae_reply(q) : String}
+
+# LAW slash_args_entry_goal_pointer (R13): for every text a within the
+# wire, the `/goal a` request replies only the pointer
+# `/goal is removed: use /auto`
+# EXCLUDES: `/goal` read as `/auto` (a task, the status, on, off), its
+#   words read as a budget or a keyword, a pointer that varies with the
+#   text, an `/auto` answer after the pointer, `/goal` refused
+law slash_args_entry_goal_pointer:
+  for +a: String
+  for +fit: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
+  {FSa.ffi(sae_req(FSa.QGoal{a}, "")) == Wr.put_str("/goal is removed: use /auto", "") : String}
 
 # LAW slash_args_entry_left_over (R10): a spelled request followed by more
 # input answers the error form
@@ -173,8 +182,8 @@ law slash_args_entry_refuses:
 
 # LAW slash_args_entry_alias (R12): for every text a within the wire,
 # `/autonomous a` gets the reply of `/auto a`
-# EXCLUDES: `/autonomous` read by another grammar, refused, or flagged as
-#   `/goal`
+# EXCLUDES: `/autonomous` read by another grammar, refused, or answered
+#   as `/goal`
 law slash_args_entry_alias:
   for +a: String
   for +fit: {LawsBase.wire_fits(String.length(a)) == True{} : Bool}
@@ -188,8 +197,9 @@ law slash_args_entry_unknown_tag:
   for +rest: String
   {FSa.ffi(Wr.put_nat(5n+n, rest)) == Wr.err("slash_args: malformed request") : String}
 
-# LAW slash_args_entry_example (R10, R11): anchor: the wire strings Rust
-# sends and the replies it reads
+# LAW slash_args_entry_example (R10, R11, R13): anchor: the wire strings
+# Rust sends and the replies it reads; the removed objective question
+# (tag 3) is refused
 # EXCLUDES: another spelling of a request or of a reply
 law slash_args_entry_example:
-  {[FSa.ffi("0,0,"), FSa.ffi("0,9,--budget="), FSa.ffi("0,4,a bc"), FSa.ffi("1,2,on"), FSa.ffi("1,11,on --gate=x"), FSa.ffi("1,6,fix it"), FSa.ffi("2,7,a 'b c'"), FSa.ffi("3,3, a "), FSa.ffi("4,3,off"), FSa.ffi("5,0,"), FSa.ffi("0,0,x")] == ["1,0,", "1,3,45,Goal token budget must be a positive integer.", "1,4,4,a bc0,", "0,1,0,0,0,0,0,0,", "0,1,0,0,0,0,1,1,1,1,x0,0,0,", "0,4,6,fix it0,", "2,1,a3,b c", "4,1,a0,", "0,2,", Wr.err("slash_args: malformed request"), Wr.err("slash_args: malformed request")] : List<&2, String>}
+  {[FSa.ffi("0,0,"), FSa.ffi("0,9,--budget="), FSa.ffi("0,6,resume"), FSa.ffi("1,2,on"), FSa.ffi("1,11,on --gate=x"), FSa.ffi("1,6,fix it"), FSa.ffi("2,7,a 'b c'"), FSa.ffi("3,3, a "), FSa.ffi("4,3,off"), FSa.ffi("5,0,"), FSa.ffi("0,0,x")] == ["27,/goal is removed: use /auto", "27,/goal is removed: use /auto", "27,/goal is removed: use /auto", "1,0,0,0,0,0,0,", "1,0,0,0,0,1,1,1,1,x0,0,0,", "4,6,fix it", "2,1,a3,b c", Wr.err("slash_args: malformed request"), "2,", Wr.err("slash_args: malformed request"), Wr.err("slash_args: malformed request")] : List<&2, String>}

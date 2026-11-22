@@ -432,7 +432,7 @@ impl Worker {
                 };
             }
         }
-        // Typed session commands (`/compact`, `/goal`, ...) run on the
+        // Typed session commands (`/compact`, `/auto`, ...) run on the
         // session instead of becoming model input. The follow-up key
         // queues a `/compact` behind a running turn.
         if images.is_empty() && custom_row.is_none() {

@@ -11,16 +11,16 @@ import ./base.bend as LawsBase
 # LAWS: the entry of the compiled Bend core for the session's work: a
 # stepper, the work ledger the host keeps per conversation
 # (crates/eukhe-core/src/durable/children/work.rs `WorkLedger`, read by the
-# subagent watch in eukhe-daemon worker/run_outcome.rs and by the goal
-# loop in durable/goals/hooks.rs), and a call, the prior check the goal's
-# progress check compares with (durable/goals/state.rs; the check itself is
+# subagent watch in eukhe-daemon worker/run_outcome.rs and by the
+# autonomous run's loop), and a call, the prior check the autonomous run's
+# progress check compares with (the check itself is
 # bend/ffi_progress.bend, laws/progress.bend). Rust writes the events and
 # requests and fingerprints bytes: a tool call's name and arguments, a
 # result's tool name, content and error flag, the key of a call id, a
 # progress note's text. The entry decides the rest. The events and
 # requests below are spelled from the primitives of bend/wire.bend, never
 # with the entry's own encoders; the replies as the Rust readers read them
-# (children/work.rs `send`, goals/state.rs `compared_call`). Every input is
+# (children/work.rs `send`, the autonomous run's `compared_call`). Every input is
 # free: any fingerprints, keys, ids, entries, views, pages, notes and
 # checks, in any order. The model is bend/progress.bend (`next`,
 # `compared`).
@@ -36,7 +36,7 @@ import ./base.bend as LawsBase
 #     their fingerprints are, and a note is never a result's act.
 # W4: the work the ledger answers is the number of distinct acts it read
 #     since it started (`Pr.work` of their numbers `Pr.act`, `Pr.note`):
-#     the laws of the goal's check and of the subagent watch in
+#     the laws of the autonomous run's check and of the subagent watch in
 #     laws/progress.bend hold for it.
 # W5: a view that no longer holds the last entry read at its place starts
 #     the ledger over (the answer Again: the host sends the view from its
@@ -47,8 +47,8 @@ import ./base.bend as LawsBase
 #     ledger's answer; any other input answers exactly the error form
 #     "work: malformed event" and keeps the ledger; an open with input is
 #     refused, and a refused open answers every step with the error form.
-# W7: the goal's check compares with the last check only when that one was
-#     of the same run and the same goal; the call reads exactly the
+# W7: the autonomous run's check compares with the last check only when
+#     that one was of the same run; the call reads exactly the
 #     requests Rust spells, and answers exactly the error form "work:
 #     malformed request" to any other input.
 
@@ -62,30 +62,23 @@ def pe_spell_req(m: Maybe<&2, Pr.Last>) -> String:
       Wr.put_nat(0n, "")
     case Some{x}:
       match x:
-        case Pr.Last{r, g, s, w}:
-          Wr.put_nat(1n, Wr.put_bool(r, Wr.put_bool(g, Wr.put_nat(s, Wr.put_nat(w, "")))))
+        case Pr.Last{r, s, w}:
+          Wr.put_nat(1n, Wr.put_bool(r, Wr.put_nat(s, Wr.put_nat(w, ""))))
 
-def pe_answer.goal(g: Bool, +s: Nat, +w: Nat) -> String:
-  match g:
-    case True{}:
-      Wr.put_nat(1n, Wr.put_nat(s, Wr.put_nat(w, "")))
-    case False{}:
-      Wr.put_nat(0n, "")
-
-# the reply: the last check's stalls and work when it was of the same run
-# and the same goal, else none (W7); spelled as goals/state.rs
-# `compared_call` reads it: Some (1,) then stalls and work, or None (0,)
-# (the decision is W7's sentence itself)
+# the reply: the last check's stalls and work when it was of the same run,
+# else none (W7); spelled as the autonomous run's `compared_call` reads
+# it: Some (1,) then stalls and work, or None (0,) (the decision is W7's
+# sentence itself)
 def pe_answer(m: Maybe<&2, Pr.Last>) -> String:
   match m:
     case None{}:
       Wr.put_nat(0n, "")
     case Some{x}:
       match x:
-        case Pr.Last{r, g, s, w}:
+        case Pr.Last{r, s, w}:
           match r:
             case True{}:
-              pe_answer.goal(g, s, w)
+              Wr.put_nat(1n, Wr.put_nat(s, Wr.put_nat(w, "")))
             case False{}:
               Wr.put_nat(0n, "")
 
@@ -95,7 +88,7 @@ def pe_fits(m: Maybe<&2, Pr.Last>) -> Bool:
       True{}
     case Some{x}:
       match x:
-        case Pr.Last{r, g, s, w}:
+        case Pr.Last{r, s, w}:
           Bool.and(LawsBase.wire_fits(s), LawsBase.wire_fits(w))
 
 # Spec helpers: the work ledger (the stepper)
@@ -461,9 +454,9 @@ def wk_feed(ins: List<&2, String>, r: FW.St & String) -> List<&2, String>:
 
 # LAW prior_entry_answers (W7): on every request Rust spells whose numbers fit the wire, the
 # call answers the last check's stalls and work exactly when it was of the
-# same run and the same goal, else none
-# EXCLUDES: a prior of another run or goal compared with, a prior dropped
-#   when both match, stalls and work swapped or misread
+# same run, else none
+# EXCLUDES: a prior of another run compared with, a prior dropped when the
+#   run matches, stalls and work swapped or misread
 law prior_entry_answers:
   for +m: Maybe<&2, Pr.Last>
   for h: {pe_fits(m) == True{} : Bool}
@@ -491,15 +484,16 @@ law prior_entry_refuses_malformed:
 
 # LAW prior_entry_example (W7): anchor: the requests of the grammar of
 # bend/ffi_work.bend (no Rust test produces these bytes): no last check;
-# one of the same run and goal; another goal; another run; input left over
+# one of the same run; another run; a request with a field too many;
+# input left over
 # EXCLUDES: request or reply tags in another order than the grammar's
 law prior_entry_example:
-  {[FW.ffi("0,"), FW.ffi("1,TT2,5,"), FW.ffi("1,TF2,5,"), FW.ffi("1,FT2,5,"), FW.ffi("1,TT2,5,x")] == ["0,", "1,2,5,", "0,", "0,", Wr.err("work: malformed request")] : List<&2, String>}
+  {[FW.ffi("0,"), FW.ffi("1,T2,5,"), FW.ffi("1,F2,5,"), FW.ffi("1,TT2,5,"), FW.ffi("1,T2,5,x")] == ["0,", "1,2,5,", "0,", Wr.err("work: malformed request"), Wr.err("work: malformed request")] : List<&2, String>}
 
 # LAW prior_req_fits_example: witness: requests that fit the wire exist (prior_entry_answers
 # is not vacuous)
 law prior_req_fits_example:
-  {[pe_fits(None{}), pe_fits(Some{Pr.Last{True{}, True{}, 2n, 5n}})] == [True{}, True{}] : List<&2, Bool>}
+  {[pe_fits(None{}), pe_fits(Some{Pr.Last{True{}, 2n, 5n}})] == [True{}, True{}] : List<&2, Bool>}
 
 # Laws: the work ledger (the stepper)
 # -----------------------------------

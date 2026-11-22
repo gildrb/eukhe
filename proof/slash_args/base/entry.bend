@@ -83,15 +83,14 @@ def sae.auto(a: Sa.Auto) -> {FSa.put_auto(a) == SlashArgsEntry.sae_auto(a) : Str
       {==}
     case Sa.AErr{e}:
       {==}
-    case Sa.ATask{+t, +b}:
-      %Equal.sym(String, FSa.put_mstr(b, ""), SlashArgsEntry.sae_mstr(b, ""), sae.mstr(b, "")) : {Wr.put_nat(4n, Wr.put_str(t, _)) == Wr.put_nat(4n, Wr.put_str(t, SlashArgsEntry.sae_mstr(b, ""))) : String}
+    case Sa.ATask{t}:
       {==}
 
 # Replies never open with 'E'
 # ---------------------------
 
-def sae.auto_ok(a: Sa.Auto) -> {LawsBase.wire_opens_err(FSa.put_auto(a)) == False{} : Bool}:
-  match a:
+def sae.auto_ok(x: Sa.Auto) -> {LawsBase.wire_opens_err(FSa.put_auto(x)) == False{} : Bool}:
+  match x:
     case Sa.AStatus{}:
       {==}
     case Sa.AOn{c}:
@@ -100,7 +99,7 @@ def sae.auto_ok(a: Sa.Auto) -> {LawsBase.wire_opens_err(FSa.put_auto(a)) == Fals
       {==}
     case Sa.AErr{e}:
       {==}
-    case Sa.ATask{t, b}:
+    case Sa.ATask{t}:
       {==}
 
 def sae.answer_ok(q: FSa.Req) -> {LawsBase.wire_opens_err(FSa.answer(q)) == False{} : Bool}:
@@ -108,13 +107,11 @@ def sae.answer_ok(q: FSa.Req) -> {LawsBase.wire_opens_err(FSa.answer(q)) == Fals
     case FSa.QGoal{a}:
       {==}
     case FSa.QAuto{a}:
-      {==}
+      sae.auto_ok(Sa.auto(a))
     case FSa.QWords{a}:
       LE.dcw.fin_ok(Wr.put_list.go(~String, ~Wr.put_str, Sa.words(a), ""))
-    case FSa.QObjective{a}:
-      sae.auto_ok(Sa.goal.objective(a, None{}))
     case FSa.QAutonomous{a}:
-      {==}
+      sae.auto_ok(Sa.auto(a))
 
 # Decoded requests are spelled
 # ----------------------------
@@ -158,18 +155,6 @@ def sax.words(-s: String, -s1: String, d: Wr.Dec<String>, sp: LE.dcw.SP(s1, d), 
     case Wr.Bad{}:
       LStg.stg.absurd(sax.T(s), ok)
 
-def sax.obj(-s: String, -s1: String, d: Wr.Dec<String>, sp: LE.dcw.SP(s1, d), es: {s == Wr.put_nat(3n, s1) : String}, ok: {LawsBase.wire_opens_err(FSa.ffi.got(FSa.get_objective(d))) == False{} : Bool}) -> sax.T(s):
-  match d:
-    case Wr.Got{+a, rest}:
-      match rest:
-        case SNil{}:
-          (e1, fit) = sp
-          (FSa.QObjective{a}, (LE.dcw.after(s, 3n, s1, Wr.put_str(a, ""), es, e1), fit))
-        case SCon{x, y}:
-          LStg.stg.absurd(sax.T(s), ok)
-    case Wr.Bad{}:
-      LStg.stg.absurd(sax.T(s), ok)
-
 def sax.autonomous(-s: String, -s1: String, d: Wr.Dec<String>, sp: LE.dcw.SP(s1, d), es: {s == Wr.put_nat(4n, s1) : String}, ok: {LawsBase.wire_opens_err(FSa.ffi.got(FSa.get_autonomous(d))) == False{} : Bool}) -> sax.T(s):
   match d:
     case Wr.Got{+a, rest}:
@@ -194,7 +179,7 @@ def sax.top(+s: String, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s) == d : Wr.Dec<Nat>}, 
         case 2n:
           sax.words(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 2n, s1, ed), ok)
         case 3n:
-          sax.obj(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 3n, s1, ed), ok)
+          LStg.stg.absurd(sax.T(s), ok)
         case 4n:
           sax.autonomous(s, s1, Wr.get_str(s1), LE.dcw.str(s1), Wire.wire_nat_exact(s, 4n, s1, ed), ok)
         case 5n+u:

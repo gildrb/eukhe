@@ -8,7 +8,7 @@ import ../../laws/progress.bend as Progress
 import ../base/logic/bool.bend as LLogicBool
 import ../base/logic/logic.bend as LLogicLogic
 import ../base/nat.bend as LNat
-import ./goal_entry.bend as PGoalEntry
+import ./auto_entry.bend as PAutoEntry
 
 # ---- progress ----
 
@@ -18,10 +18,11 @@ import ./goal_entry.bend as PGoalEntry
 # The ledger only adds an act it does not hold. So reading an act it holds
 # changes nothing, every act read is held, and the ledger never shrinks.
 # Reading acts the session did before keeps the work (`pp.repeat`);
-# reading an act the session never did grows it (`pp.grows`). The goal's
-# check sees no growth in a run of repeats, so the count of continuations
-# with no new work grows by one at each, and the goal stops at the cap
-# (`pp.stops`). The watch reads the same token at each poll of a looping
+# reading an act the session never did grows it (`pp.grows`). The
+# autonomous run's check sees no growth in a run of repeats, so the count
+# of continuations with no new work grows by one at each: the run is
+# steered at the cap and stops at twice the cap (`pp.stops` in
+# auto_stops_without_progress). The watch reads the same token at each poll of a looping
 # child, so each poll is a quiet poll of bend/child.bend, and quiet polls
 # end the watch in time (`pc.stalls_in_time`).
 #
@@ -273,7 +274,7 @@ def pp.within_app(xs: List<&2, Nat>, +hist: List<&2, Nat>, +more: List<&2, Nat>,
       (i, rest) = w
       (pp.in_app(h, hist, more, i), pp.within_app(t, hist, more, rest))
 
-# The check the Rust goal loop runs (`judge`): below t it is the check on
+# The check the Rust run loop runs (`judge`): below t it is the check on
 # the counts, the counts grow exactly when `grew`, and the count is held.
 
 def pp.le0_eq(t: Nat) -> {True{} == Nat.is_le(0n, t) : Bool}:
@@ -314,6 +315,19 @@ def pp.lt_pred(s: Nat, t: Nat, h: {Nat.is_lt(s, t) == True{} : Bool}) -> {Nat.is
       %LNat.pj.sub_zero(tp) : {Nat.is_le(1n+sp, _) == True{} : Bool}
       pp.lt_le_succ(sp, tp, h)
 
+# s + (1 + k) is never at most s
+def pp.add_succ_not_le(+s: Nat, +k: Nat) -> {Nat.is_le(Nat.add(s, 1n+k), s) == False{} : Bool}:
+  match s:
+    case 0n:
+      {==}
+    case 1n+p:
+      pp.add_succ_not_le(p, k)
+
+# twice 1 + s is never at most 1 + s: a count at the cap is below twice the
+# cap
+def pp.twice_not_le(+s: Nat) -> {Nat.is_le(Nat.add(1n+s, 1n+s), 1n+s) == False{} : Bool}:
+  pp.add_succ_not_le(s, s)
+
 # The entry
 # ---------
 
@@ -329,12 +343,12 @@ def pe.spell(+t: Nat, +cap: Nat, p: Maybe<&2, Pr.Prior>, +work: Nat) -> {Progres
           {==}
 
 # a spelled request that fits answers the spelled verdict of judge
-def pe.answer(+t: Nat, +cap: Nat, +p: Maybe<&2, Pr.Prior>, +work: Nat, +h: {Progress.gs_fits(Progress.gs.Req{t, cap, p, work}) == True{} : Bool}) -> {FPr.put_goal(Pr.judge(t, cap, p, work), "") == FPr.ffi(Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work})) : String}:
+def pe.answer(+t: Nat, +cap: Nat, +p: Maybe<&2, Pr.Prior>, +work: Nat, +h: {Progress.gs_fits(Progress.gs.Req{t, cap, p, work}) == True{} : Bool}) -> {FPr.put_run(Pr.judge(t, cap, p, work), "") == FPr.ffi(Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work})) : String}:
   +r1 = LLogicBool.wr_and_r(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work))), h)
   +r2 = LLogicBool.wr_and_r(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work)), r1)
   +ht = LLogicBool.wr_and_l(LawsBase.wire_fits(t), Bool.and(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work))), h)
   +hc = LLogicBool.wr_and_l(LawsBase.wire_fits(cap), Bool.and(Progress.wire_prior_fits(p), LawsBase.wire_fits(work)), r1)
   +hp = LLogicBool.wr_and_l(Progress.wire_prior_fits(p), LawsBase.wire_fits(work), r2)
   +hw = LLogicBool.wr_and_r(Progress.wire_prior_fits(p), LawsBase.wire_fits(work), r2)
-  %Equal.sym(String, Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work}), FPr.put_req(t, cap, p, work), pe.spell(t, cap, p, work)) : {FPr.put_goal(Pr.judge(t, cap, p, work), "") == FPr.ffi(_) : String}
-  Equal.sym(String, FPr.ffi(FPr.put_req(t, cap, p, work)), FPr.put_goal(Pr.judge(t, cap, p, work), ""), Progress.goal_entry(t, cap, p, work, ht, hc, hp, hw))
+  %Equal.sym(String, Progress.gs_spell_req(Progress.gs.Req{t, cap, p, work}), FPr.put_req(t, cap, p, work), pe.spell(t, cap, p, work)) : {FPr.put_run(Pr.judge(t, cap, p, work), "") == FPr.ffi(_) : String}
+  Equal.sym(String, FPr.ffi(FPr.put_req(t, cap, p, work)), FPr.put_run(Pr.judge(t, cap, p, work), ""), Progress.auto_entry(t, cap, p, work, ht, hc, hp, hw))

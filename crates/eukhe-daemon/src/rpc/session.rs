@@ -10,10 +10,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_core::durable::goals::goal_state;
 use eukhe_core::durable::loop_mode::loop_status;
 use eukhe_core::durable::EukheSession;
-use eukhe_core::goals::GoalState;
 use eukhe_durable::harness::types::ConversationAbortOptions;
 use eukhe_durable::session::SessionResult;
 use eukhe_types::budget::BudgetReport;
@@ -176,11 +174,8 @@ pub struct RpcSession {
     outputs: ConnectionOutputs,
     factory: RpcEngineFactory,
     pump: tokio::sync::Mutex<Option<EventPump>>,
-    /// The last published `goal_update` goal (change-gated emits across
+    /// The last published `loop_update` status (change-gated emits across
     /// pumps and replacements).
-    last_goal: Arc<Mutex<GoalState>>,
-    /// The last published `loop_update` status (change-gated like the
-    /// goal).
     last_loop: Arc<Mutex<LoopStatus>>,
     /// The last published `budget_update` budget (change-gated emits
     /// across pumps and replacements; `None` until the session has one).
@@ -207,28 +202,17 @@ impl RpcSession {
     ) -> Result<Self, RpcSessionError> {
         let handle = factory(RpcEngineRequest::Startup).await?;
         let cx = rpc_context();
-        let initial_goal =
-            goal_state(handle.session.harness(), handle.session.main().id(), &cx).await?;
-        let last_goal = Arc::new(Mutex::new(initial_goal));
         let initial_loop =
             loop_status(handle.session.harness(), handle.session.main().id(), &cx).await?;
         let last_loop = Arc::new(Mutex::new(initial_loop));
         let last_budget = Arc::new(Mutex::new(None));
-        let pump = EventPump::attach(
-            &handle.session,
-            &outputs,
-            &last_goal,
-            &last_loop,
-            &last_budget,
-            &cx,
-        )
-        .await?;
+        let pump =
+            EventPump::attach(&handle.session, &outputs, &last_loop, &last_budget, &cx).await?;
         Ok(Self {
             handle: tokio::sync::RwLock::new(handle),
             outputs,
             factory,
             pump: tokio::sync::Mutex::new(Some(pump)),
-            last_goal,
             last_loop,
             last_budget,
             replacement: tokio::sync::Mutex::new(()),
@@ -263,7 +247,6 @@ impl RpcSession {
         let pump = EventPump::attach(
             session,
             &self.outputs,
-            &self.last_goal,
             &self.last_loop,
             &self.last_budget,
             &rpc_context(),
@@ -368,7 +351,6 @@ impl RpcSession {
         let pump = match EventPump::attach(
             &replacement.session,
             &self.outputs,
-            &self.last_goal,
             &self.last_loop,
             &self.last_budget,
             &cx,

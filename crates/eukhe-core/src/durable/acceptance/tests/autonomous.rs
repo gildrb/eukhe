@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::autonomous::{AgentAutonomousConfig, AgentAutonomousGateConfig, AutonomousStop};
+use crate::durable::autonomous::{autonomous_state, set_autonomous, AutonomousChange};
 use crate::durable::directors::{left_continuation, DIRECTOR_NOTICE_CUSTOM_TYPE};
-use crate::durable::goals::{autonomous_state, set_autonomous, AutonomousChange};
 
 /// AU1, AU2: the commands of an autonomous run's removed gates are command
 /// checks beside the intent check; a refuted claim goes back to the worker

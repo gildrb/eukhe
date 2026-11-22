@@ -321,7 +321,7 @@ async fn a_hand_over_carries_the_users_images_and_file_references_once_in_order(
     opened.harness.close(cx()).await.unwrap();
 }
 
-/// `/goal` and `/autonomous` typed on main run on its worker, as typed;
+/// `/auto` and `/autonomous` typed on main run on its worker, as typed;
 /// before main has a worker there is none to run them on.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn main_directors_run_on_the_worker() {
@@ -338,7 +338,7 @@ async fn main_directors_run_on_the_worker() {
         &opened.harness,
         host.as_ref(),
         ROOT_CONVERSATION_ID,
-        "/goal ship it",
+        "/auto ship it",
         cx(),
     )
     .await
@@ -357,7 +357,7 @@ async fn main_directors_run_on_the_worker() {
         .last()
         .cloned()
         .expect("the worker");
-    for text in ["/goal ship it", "/autonomous on"] {
+    for text in ["/auto ship it", "/autonomous on"] {
         let ran = worker_session_command(
             &opened.harness,
             host.as_ref(),
@@ -371,7 +371,7 @@ async fn main_directors_run_on_the_worker() {
     }
     assert_eq!(
         lock(&host.state).commands,
-        ["/goal ship it", "/autonomous on"]
+        ["/auto ship it", "/autonomous on"]
             .map(|text| RlmChildCommandRequest {
                 session_id: worker.session_id.clone(),
                 text: text.to_owned(),

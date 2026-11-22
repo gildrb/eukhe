@@ -271,7 +271,7 @@ pub(crate) fn resumes_interrupted_turn(
 /// auto-continue prompt. Queued input drives the resume instead: the
 /// prompt is admitted only on
 /// an idle conversation with nothing queued, so the resubmitted inputs, a
-/// goal continuation, or a prompt sent during the compaction take the
+/// continuation, or a prompt sent during the compaction take the
 /// session first. Answers whether the prompt was admitted.
 ///
 /// # Errors

@@ -135,21 +135,21 @@ mod tests {
     /// 1, the command at column 3, one band row per line.
     #[test]
     fn echo_row_uses_the_user_gutter() {
-        let rows = render_slash_command("/goal status", &theme(), 40);
+        let rows = render_slash_command("/auto status", &theme(), 40);
         // The echo block carries the zone markers (TS marks the echo but
         // never the result row).
         assert!(osc133::row_markers(&rows[0]).end);
         assert_eq!(
-            plain(&echo_rows("/goal status", 40)),
-            vec![format!(" > {}", "/goal status") + &" ".repeat(40 - 3 - 12)]
+            plain(&echo_rows("/auto status", 40)),
+            vec![format!(" > {}", "/auto status") + &" ".repeat(40 - 3 - 12)]
         );
     }
 
     #[test]
     fn echo_row_wraps_long_args() {
-        let text = plain(&echo_rows("/goal make the verifier pass everywhere", 30));
+        let text = plain(&echo_rows("/auto make the verifier pass everywhere", 30));
         assert_eq!(text.len(), 2);
-        assert!(text[0].starts_with(" > /goal make the verifier"));
+        assert!(text[0].starts_with(" > /auto make the verifier"));
         assert!(text[1].starts_with("   pass everywhere"));
     }
 

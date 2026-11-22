@@ -1045,7 +1045,7 @@ fn stored_autonomous(dir: &Path) -> Value {
             .main;
         read_session_document(
             &location,
-            &eukhe_core::durable::goals::AUTONOMOUS_DOC,
+            &eukhe_core::durable::autonomous::AUTONOMOUS_DOC,
             main,
             cx,
         )

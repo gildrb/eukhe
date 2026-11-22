@@ -332,7 +332,7 @@ const llms = `# Eukhe
 ## What it is
 
 Eukhe is εὐχή, Greek for wish. You write the wish as rules in
-\`AGENTS.md\`, as a goal and as commands that must pass. When one of
+\`AGENTS.md\`, as a task and as commands that must pass. When one of
 those commands fails, Eukhe gives its output to the agent and runs
 another turn, until every command passes or the run reaches a limit. A
 session is an append-only log on disk, so it survives a crash and
@@ -345,10 +345,10 @@ own process.
 ## Wish
 
 - Eukhe reads \`AGENTS.md\` in the project and puts it in the system prompt.
-- \`eukhe --goal "objective"\` keeps running turns until the goal completes
-  (with acceptance checks: when they all pass) or its responses reach
-  \`--goal-token-budget\` tokens; the agent then wraps up and the run ends at
-  its next final answer.
+- \`eukhe --auto -p "task"\` keeps running turns on the task until its
+  acceptance checks all pass, it reaches a limit (\`--budget-tokens\` and the
+  other \`--budget-*\` flags), or its turns stop making progress; the run then
+  ends at its next final answer.
 - \`eukhe --autonomous --autonomous-gate "cargo test"\` runs \`cargo test\`
   after each turn and runs another turn while it fails, up to the
   limits that \`eukhe --help\` lists.
@@ -375,8 +375,8 @@ crates are not on crates.io. Their API may change with any release.
 
 [Durable](${origin}/spec/durable/), [Memory](${origin}/spec/memory/),
 [RLM](${origin}/spec/rlm/) and [Autoresearch](${origin}/spec/autoresearch/)
-have requirements and laws. Loop, the code behind \`--autonomous\` and
-\`--goal\`, has no requirements, spec files or laws yet.
+have requirements and laws. Loop, the code behind \`--auto\`, has no
+requirements, spec files or laws yet.
 
 Planned and not built: confinement of the programs the agent runs, checks
 the agent never sees, review of the process for gaming, capability
