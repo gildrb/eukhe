@@ -210,6 +210,29 @@ law run_note_spends_no_retry:
   for +p: Nat
   {RnStep.call(cfg, RnState.Error{retryable, True{}}, r, c, a, 1n+m, p) == RnState.St{RnState.Prepare{}, r, c, a, m, RnState.Cfg.polls(cfg)} : RnState.St}
 
+# LAW run_note_fails_past_the_notes (H4.7): a noted reply (RnStep.note,
+# which RnStep.call and decide.reply reach for an empty reply and every
+# noted error), under any caps, is retried with a note while notes are
+# left: the request prepared again, one note fewer, the rounds, the
+# compactions and the retries kept, the polls refilled; with no note left
+# the run fails on the model, every count kept, for a noted error
+# retryable or not as for an empty reply
+# EXCLUDES: a noted reply past the notes that answers the run, prepares
+#   again or fails another way (blind adversary RunAdv25, attack-run-23:
+#   an empty reply answered the run at n = 0 through RnStep.note, every
+#   law that reads RnStep.call held); a note that spends a retry
+law run_note_fails_past_the_notes:
+  for +cfg: RnState.Cfg
+  for retryable: Bool
+  for +r: Nat
+  for +c: Nat
+  for +a: Nat
+  for +m: Nat
+  for +p: Nat
+  {RnStep.note(cfg, r, c, a, 1n+m, p) == RnState.St{RnState.Prepare{}, r, c, a, m, RnState.Cfg.polls(cfg)} : RnState.St} &
+  {RnStep.note(cfg, r, c, a, 0n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, 0n, p} : RnState.St} &
+  {RnStep.call(cfg, RnState.Error{retryable, True{}}, r, c, a, 0n, p) == RnState.St{RnState.Failed{RnState.Model{}}, r, c, a, 0n, p} : RnState.St}
+
 # LAW run_retry_spends_no_note: a retryable error that is not noted spends a retry, not a note:
 # the notes left stay
 law run_retry_spends_no_note:
