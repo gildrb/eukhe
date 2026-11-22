@@ -54,6 +54,10 @@ pub struct ChromeState {
     /// whole-file spend plus every subagent descendant's -- the same
     /// number the agents view bills the row).
     pub cost_usd: Option<f64>,
+    /// The share of the running turn's prompt the cache served so far
+    /// (whole percent): the status line's `cache NN%` segment. `None`
+    /// between turns and while the cache has neither read nor written.
+    pub cache_hit: Option<u64>,
     /// The session's budget, when it has one (the attach snapshot's
     /// `state.budget`, then every `budget_update`): the status line's
     /// `budget:` segment beside the spend.

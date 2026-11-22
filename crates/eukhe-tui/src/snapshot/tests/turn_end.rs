@@ -221,3 +221,81 @@ fn a_failed_reply_with_text_keeps_one_error() {
         ended([user("plan"), answer("Here is the pl"), disclosed])
     );
 }
+
+/// `message` with this provider usage and its stream marks.
+fn used(mut message: Value, input: u64, cache_read: u64) -> Value {
+    message["usage"] = json!({
+        "input": input, "output": 10, "cacheRead": cache_read, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 },
+    });
+    message["timing"] = json!({ "firstTokenMs": 1, "lastTokenMs": 5 });
+    message
+}
+
+/// The footer rows of `entries`, as their text.
+fn footers(entries: &[ChatEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            ChatEntry::TurnFooter(usage) => Some(usage.row_text()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A turn that used tokens closes with its usage footer after its end
+/// rows, the row the live pump pushes when the run ends; a failed tool
+/// result counts, and a turn without tokens has no footer.
+#[test]
+fn a_turn_that_used_tokens_folds_its_footer_last() {
+    let [call, mut result] = tool_round();
+    result["isError"] = json!(true);
+    let entries = ended([
+        user("list"),
+        used(call, 100, 300),
+        result,
+        used(answer("done"), 20, 380),
+        user("again"),
+        answer("ok"),
+    ]);
+    assert_eq!(
+        footers(&entries),
+        ["-- 1 tool, 1 failed - in 120 - out 20 - cache r 680 w 0 (85% hit)"]
+    );
+    let footer = entries
+        .iter()
+        .position(|entry| matches!(entry, ChatEntry::TurnFooter(_)))
+        .expect("a footer");
+    assert!(matches!(entries[footer + 1], ChatEntry::User { .. }));
+}
+
+/// A tool round followed by another prompt may go on past it (a steering
+/// prompt): its usage carries into the one footer of the turn that ends.
+#[test]
+fn a_tool_round_before_the_next_prompt_carries_its_usage_on() {
+    let [call, result] = tool_round();
+    let entries = ended([
+        user("list"),
+        used(call, 100, 0),
+        result,
+        user("and now?"),
+        used(answer("done"), 20, 0),
+    ]);
+    assert_eq!(footers(&entries), ["-- 1 tool - in 120 - out 20"]);
+    assert!(matches!(entries.last(), Some(ChatEntry::TurnFooter(_))));
+}
+
+/// The open run's newest turn folds no footer yet; its usage so far seeds
+/// the live tally, without the in-flight partial its `message_end` adds.
+#[test]
+fn the_open_turn_hands_its_usage_to_the_live_tally() {
+    let [call, result] = tool_round();
+    let mut partial = used(answer("do"), 7, 0);
+    partial.as_object_mut().expect("object").remove("timing");
+    let (entries, open) = fold_turns(
+        &msgs([user("list"), used(call, 100, 0), result, partial]),
+        TurnTail::Running,
+    );
+    assert!(footers(&entries).is_empty());
+    assert_eq!(open.row_text(), "-- 1 tool - in 100 - out 10");
+}
