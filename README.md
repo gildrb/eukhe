@@ -41,9 +41,11 @@ When every check finds enough breaks, up to two attackers each write a version o
 
 Each step reserves its maximum cost before it starts. The report gives the work done, the work not done and the limit that stopped it.
 
-## Models
+## Accounts and models
 
-When a model cannot continue because its retries are used up, its login expired or its usage limit is reached, the run continues with another model that the user configured and is logged in to. Eukhe shows each change. When no model is left and the provider reports when its usage limit resets, the run waits for the reset; a script run stops at its wait limit and leaves the session waiting. Any other failure ends the run with its report.
+`/login <provider>` adds an account each time, and `/accounts` lists each provider's accounts with any usage limit and its reset. When an account reaches a usage or rate limit or its login cannot refresh, the run continues with the next account of the same provider and model. Eukhe shows each change.
+
+When a model cannot continue because its retries are used up, its login expired or its usage limit is reached, the run continues with another model that the user configured, then with the default model of another provider that the user is logged in to. Eukhe shows each change. When no model is left and the provider reports when its usage limit resets, the run waits for the reset; a script run stops at its wait limit and leaves the session waiting. Any other failure ends the run with its report.
 
 ## Crash recovery
 
