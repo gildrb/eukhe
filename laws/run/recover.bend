@@ -377,7 +377,10 @@ law rec_help_reads_the_act:
 # note is no round: the guard counts the rounds of the calls that ran
 # EXCLUDES: a note that resets or bumps the rounds in a row, or forgets
 #   the last calls, at any row of its ladder, so that a repeat after it
-#   counts from scratch or a fresh call counts as a repeat
+#   counts from scratch or a fresh call counts as a repeat (blind
+#   adversary RunAdv27, attack-run-25: a leak note from row 1 on reset
+#   the rounds of calls that were no repeat, and the 5th identical round
+#   after it ran)
 law rec_notes_keep_the_rounds:
   for +rc: RnRecovery.RCfg
   for +h: Nat
@@ -386,9 +389,8 @@ law rec_notes_keep_the_rounds:
   for +row: Nat
   for +same: Nat
   for +last: Nat
-  for +rep: {Nat.is_le(RnRecovery.RCfg.repeat(rc), rounds(same, last, h)) == True{} : Bool}
   {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec} &
-  {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec} &
+  ({Nat.is_le(RnRecovery.RCfg.repeat(rc), rounds(same, last, h)) == True{} : Bool} -> {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec}) &
   {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec}
 
 # LAW rec_redirect_row_starts_at_one (H4.8): in the recoveries' model, under a redirect cap of
