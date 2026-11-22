@@ -960,6 +960,19 @@ fn return_text(doc: &AcceptanceDoc) -> String {
             None => lines.push(format!("{head}: not judged")),
         }
     }
+    let intent_unmet = doc.checks.iter().any(|check| {
+        matches!(check.spec, CheckSpec::Intent { .. })
+            && check
+                .result
+                .as_ref()
+                .is_none_or(|result| result.verdict != CheckVerdict::Confirmed)
+    });
+    if intent_unmet {
+        lines.push(
+            "Only the `bash` tool's runs, as the harness recorded them, count as commands you ran: a python cell's `bash()` is never evidence. If the task needs a command run (the tests, a build) and you ran it in a python cell, run it again with the `bash` tool."
+                .to_owned(),
+        );
+    }
     lines.push(
         "Fix the work so that every check passes (a check that could not judge, e.g. a timeout, runs again too), then finish again. Every check runs again on the final state; only the task's owner sets checks."
             .to_owned(),

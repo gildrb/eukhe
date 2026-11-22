@@ -3,8 +3,12 @@
 //! script ended, and the tail of its output. The intent judge reads them
 //! beside the workspace, so a requirement to run something (the tests) is
 //! decided by what the record shows ran and how it ended, never by the
-//! worker's word. Bounded: the newest runs only, each step's command and
-//! each output cut.
+//! worker's word. Only the `bash` tool's own results count: a python
+//! cell's `bash()` runs in the kernel, the process that runs the worker's
+//! code, so whatever a cell reports (its output, the commands it says it
+//! started, the end of a process it notices) could be forged and is never
+//! read. Bounded: the newest runs only, each step's command and each
+//! output cut.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -19,7 +23,7 @@ use serde_json::Value;
 
 use crate::durable::entries::CUSTOM_ENTRY;
 use crate::durable::messages::JOB_SETTLED_CUSTOM_TYPE;
-use crate::durable::shell::VERSION as BASH_VERSION;
+use crate::durable::shell::{NAME as BASH_NAME, VERSION as BASH_VERSION};
 
 /// How many entries one read of the conversation takes.
 const PAGE: usize = 64;
@@ -94,6 +98,9 @@ fn bash_run(entry: &EntryRecord) -> Option<Run> {
     let Some(Message::ToolResult(result)) = entry.model.as_ref()?.first() else {
         return None;
     };
+    if result.tool_name != BASH_NAME {
+        return None;
+    }
     let details = result.details.as_ref()?;
     if details.get("version").and_then(Value::as_str) != Some(BASH_VERSION) {
         return None;
@@ -162,7 +169,7 @@ fn render(runs: &[Run], settled: &HashMap<String, Settled>, earlier: bool) -> Op
     };
     shown.reverse();
     Some(format!(
-        "Commands the worker ran with the `bash` tool, as the harness recorded them ({order}; each step with its exit status):\n{}",
+        "Commands the worker ran with the `bash` tool, as the harness recorded them ({order}; each step with its exit status). Only these count as commands run; a python cell's `bash()` is never recorded here:\n{}",
         shown.join("\n")
     ))
 }
@@ -320,7 +327,7 @@ mod tests {
                 false
             ),
             Some(
-                "Commands the worker ran with the `bash` tool, as the harness recorded them (oldest first; each step with its exit status):\n\
+                "Commands the worker ran with the `bash` tool, as the harness recorded them (oldest first; each step with its exit status). Only these count as commands run; a python cell's `bash()` is never recorded here:\n\
                  --- bash run\nstep 1 `pytest -q` exited 0\nthe script ended with status 0\noutput:\n3 passed\n\
                  --- bash run\nstep 1 `rm -rf /` did not run (denied); the steps after it did not run\nno output\n\
                  --- bash run\nthe script outlived the blocking budget and ran on as job shell-1, which settled with status ok\noutput:\n[step 1 exited 0]\n9 passed"
