@@ -754,13 +754,10 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         .context(conversation_id, &cx, ContextOptions { at: Some(cutoff) })
         .await?;
     // The hooks see and may replace the messages and the forced tool; the
-    // settings' forced tool is the first value.
+    // settings' forced tool is the first value. They share the view's
+    // messages: a hook copies only a message it changes.
     let shaped = Mutex::new(RequestMessages {
-        messages: view
-            .messages
-            .iter()
-            .map(|message| Message::clone(message))
-            .collect(),
+        messages: view.messages.clone(),
         force_tool: stream_options.force_tool.clone(),
     });
     let api = runtime.hook_api();
@@ -794,9 +791,10 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         }
     }
     let RequestMessages {
-        mut messages,
+        messages,
         force_tool,
     } = shaped.into_inner().unwrap_or_else(PoisonError::into_inner);
+    let mut messages: Vec<Message> = messages.into_iter().map(Arc::unwrap_or_clone).collect();
     let mut options = stream_options.simple_stream_options();
     options.stream.request.signal = Some(runtime.signal());
     options

@@ -83,7 +83,10 @@ impl OptChat {
         messages: Vec<Message>,
         cx: &Context,
     ) -> SessionResult<Vec<Message>> {
-        shape(self, conversation, messages, Caller::Side, cx).await
+        // Each message has one owner here: wrapping and unwrapping moves it.
+        let messages = messages.into_iter().map(Arc::new).collect();
+        let shaped = shape(self, conversation, messages, Caller::Side, cx).await?;
+        Ok(shaped.into_iter().map(Arc::unwrap_or_clone).collect())
     }
 }
 
@@ -92,10 +95,10 @@ impl OptChat {
 async fn shape(
     chat: &OptChat,
     conversation: ConversationId,
-    messages: Vec<Message>,
+    messages: Vec<Arc<Message>>,
     caller: Caller,
     cx: &Context,
-) -> SessionResult<Vec<Message>> {
+) -> SessionResult<Vec<Arc<Message>>> {
     let harness = chat.harness.require()?;
     let root = match chat.role {
         MemoryRole::Root => {
@@ -341,8 +344,9 @@ async fn commit_call(
 /// built it (every turn verbatim, its images too, after the session's
 /// compaction when one ran), with the pinned view of the older history
 /// leading its first user message, marked at its end. Without such
-/// history the transcript goes unchanged.
-pub(crate) fn root_request(call: &CallState, mut messages: Vec<Message>) -> Vec<Message> {
+/// history the transcript goes unchanged. Only the first user message is
+/// copied, to change it.
+pub(crate) fn root_request(call: &CallState, mut messages: Vec<Arc<Message>>) -> Vec<Arc<Message>> {
     if call.pieces.is_empty() {
         return messages;
     }
@@ -361,8 +365,8 @@ pub(crate) fn root_request(call: &CallState, mut messages: Vec<Message>) -> Vec<
         .collect();
     let first_user = messages
         .iter()
-        .position(|message| matches!(message, Message::User(_)));
-    if let Some(Message::User(user)) = first_user.map(|at| &mut messages[at]) {
+        .position(|message| matches!(**message, Message::User(_)));
+    if let Some(Message::User(user)) = first_user.map(|at| Arc::make_mut(&mut messages[at])) {
         let content = std::mem::replace(&mut user.content, UserContent::Text(String::new()));
         match content {
             UserContent::Text(text) => {
@@ -374,14 +378,14 @@ pub(crate) fn root_request(call: &CallState, mut messages: Vec<Message>) -> Vec<
     } else {
         let at = messages
             .iter()
-            .take_while(|message| matches!(message, Message::System(_)))
+            .take_while(|message| matches!(message.as_ref(), Message::System(_)))
             .count();
         messages.insert(
             at,
-            Message::User(UserMessage {
+            Arc::new(Message::User(UserMessage {
                 content: UserContent::Blocks(view),
                 timestamp: call.timestamp,
-            }),
+            })),
         );
     }
     messages
@@ -393,28 +397,29 @@ pub(crate) fn root_request(call: &CallState, mut messages: Vec<Message>) -> Vec<
 /// text block with its leading user texts (its task, reports) joined by a
 /// blank line, their images after it, its last text block marked as the
 /// request's end; then any harness state among those leading rows; then
-/// the rest of the conversation. Messages before `start` are dropped.
+/// the rest of the conversation. Messages before `start` are dropped. The
+/// leading user rows are read, not copied; the others are shared.
 pub(crate) fn request_messages(
     call: &CallState,
-    mut messages: Vec<Message>,
+    mut messages: Vec<Arc<Message>>,
     start: usize,
     is_state: impl Fn(&Message) -> bool,
-) -> Vec<Message> {
+) -> Vec<Arc<Message>> {
     let mut run = messages.split_off(start.min(messages.len()));
-    let mut systems: Vec<Message> = messages
+    let mut systems: Vec<Arc<Message>> = messages
         .into_iter()
-        .filter(|message| matches!(message, Message::System(_)))
+        .filter(|message| matches!(**message, Message::System(_)))
         .collect();
     let lead = run
         .iter()
-        .take_while(|message| matches!(message, Message::User(_) | Message::System(_)))
+        .take_while(|message| matches!(message.as_ref(), Message::User(_) | Message::System(_)))
         .count();
     let rest = run.split_off(lead);
     let mut texts: Vec<String> = Vec::new();
     let mut images: Vec<UserContentBlock> = Vec::new();
-    let mut state_rows: Vec<Message> = Vec::new();
+    let mut state_rows: Vec<Arc<Message>> = Vec::new();
     for message in run {
-        if matches!(message, Message::System(_)) {
+        if matches!(*message, Message::System(_)) {
             systems.push(message);
             continue;
         }
@@ -422,11 +427,11 @@ pub(crate) fn request_messages(
             state_rows.push(message);
             continue;
         }
-        let Message::User(user) = message else {
+        let Message::User(user) = message.as_ref() else {
             continue;
         };
-        match user.content {
-            UserContent::Text(text) => texts.push(text),
+        match &user.content {
+            UserContent::Text(text) => texts.push(text.clone()),
             UserContent::Blocks(blocks) => {
                 let mut text = String::new();
                 for block in blocks {
@@ -437,7 +442,7 @@ pub(crate) fn request_messages(
                             }
                             text.push_str(&block.text);
                         }
-                        image @ UserContentBlock::Image(_) => images.push(image),
+                        image @ UserContentBlock::Image(_) => images.push(image.clone()),
                     }
                 }
                 texts.push(text);
@@ -473,11 +478,11 @@ pub(crate) fn request_messages(
     }
     let system = get_current_system_message(&systems);
     let mut out = Vec::with_capacity(2 + state_rows.len() + rest.len());
-    out.extend(system.map(Message::System));
-    out.push(Message::User(UserMessage {
+    out.extend(system.map(|system| Arc::new(Message::System(system))));
+    out.push(Arc::new(Message::User(UserMessage {
         content: UserContent::Blocks(parts),
         timestamp: call.timestamp,
-    }));
+    })));
     out.extend(state_rows);
     out.extend(rest);
     out

@@ -988,14 +988,15 @@ fn a_subagent_request_joins_the_leading_user_texts_behind_the_view() {
         state.clone(),
         Message::Assistant(answer("reply")),
     ];
+    let messages = messages.into_iter().map(Arc::new).collect();
     let request = request_messages(&call, messages, 2, |message| *message == state);
-    let Message::System(system) = &request[0] else {
+    let Message::System(system) = &*request[0] else {
         panic!("a system message leads");
     };
     assert_eq!(
         (
             system.content.clone(),
-            request[1..].iter().map(describe).collect::<Vec<_>>(),
+            request[1..].iter().map(|message| describe(message)).collect::<Vec<_>>(),
         ),
         (
             SystemContent::Text("base\n\npatch".to_string()),
@@ -1030,14 +1031,17 @@ fn a_root_request_keeps_its_thread_verbatim_behind_the_older_history() {
         timestamp: 4,
         duration_ms: None,
     });
-    let messages = vec![
+    let messages: Vec<Arc<Message>> = [
         system("base", 1),
         user("make the page", 2),
         Message::Assistant(call("shot", serde_json::json!({}))),
         shot,
         Message::Assistant(answer("done")),
         user("the button is still wrong", 5),
-    ];
+    ]
+    .into_iter()
+    .map(Arc::new)
+    .collect();
     let call = |pieces: Vec<String>| CallState {
         run_key: Some("input:2".to_string()),
         head: None,
@@ -1054,7 +1058,13 @@ fn a_root_request_keeps_its_thread_verbatim_behind_the_older_history() {
         messages.clone(),
     );
     assert_eq!(
-        (plain, request.iter().map(describe).collect::<Vec<_>>()),
+        (
+            plain,
+            request
+                .iter()
+                .map(|message| describe(message))
+                .collect::<Vec<_>>()
+        ),
         (
             messages,
             vec![

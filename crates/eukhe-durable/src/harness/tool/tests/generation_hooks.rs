@@ -83,10 +83,10 @@ async fn replaces_request_messages_observes_responses_and_continues_on_yield() {
         GenerationHooks {
             before_request: Some(Arc::new(|request: &RequestMessages, _, _| {
                 let mut messages = request.messages.clone();
-                messages.push(Message::User(UserMessage {
+                messages.push(Arc::new(Message::User(UserMessage {
                     content: UserContent::Text("injected".to_owned()),
                     timestamp: 0,
-                }));
+                })));
                 let force_tool = request.force_tool.clone();
                 async move {
                     Ok(Some(RequestMessages {
