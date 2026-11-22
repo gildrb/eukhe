@@ -15,7 +15,9 @@ eukhe-tokens.workspace = true
 # thinking budgets and the retry classifier and wait run as their Bend models.
 eukhe-bend.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: the generated model catalogs keep each model as its JSON text
+# until a catalog parses it (`model_catalog`).
+serde_json = { workspace = true, features = ["raw_value"] }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
