@@ -5,7 +5,6 @@ import ./wire.bend as W
 import ./ffi_admission.bend as ffi_admission
 import ./ffi_agent_tree.bend as ffi_agent_tree
 import ./ffi_ai_text.bend as ffi_ai_text
-import ./ffi_approvals.bend as ffi_approvals
 import ./ffi_arg_repair.bend as ffi_arg_repair
 import ./ffi_attack.bend as ffi_attack
 import ./ffi_auth_flight.bend as ffi_auth_flight
@@ -67,6 +66,7 @@ import ./ffi_infer.bend as ffi_infer
 import ./ffi_infer_force.bend as ffi_infer_force
 import ./ffi_infer_guard.bend as ffi_infer_guard
 import ./ffi_infer_threshold.bend as ffi_infer_threshold
+import ./ffi_irreversible.bend as ffi_irreversible
 import ./ffi_job.bend as ffi_job
 import ./ffi_job_notice.bend as ffi_job_notice
 import ./ffi_job_rewind.bend as ffi_job_rewind
@@ -87,6 +87,7 @@ import ./ffi_optchat.bend as ffi_optchat
 import ./ffi_orphan.bend as ffi_orphan
 import ./ffi_overflow.bend as ffi_overflow
 import ./ffi_package_source.bend as ffi_package_source
+import ./ffi_path_own.bend as ffi_path_own
 import ./ffi_path_policy.bend as ffi_path_policy
 import ./ffi_privacy.bend as ffi_privacy
 import ./ffi_progress.bend as ffi_progress
@@ -133,6 +134,7 @@ import ./ffi_tool_surface.bend as ffi_tool_surface
 import ./ffi_tools.bend as ffi_tools
 import ./ffi_tree.bend as ffi_tree
 import ./ffi_tui_color.bend as ffi_tui_color
+import ./ffi_undo.bend as ffi_undo
 import ./ffi_verify.bend as ffi_verify
 import ./ffi_wait_any.bend as ffi_wait_any
 import ./ffi_wait_race.bend as ffi_wait_race
@@ -235,8 +237,6 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_tool_surface.ffi(input)
     case 52:
       ffi_runners.ffi(input)
-    case 53:
-      ffi_approvals.ffi(input)
     case 54:
       ffi_frames.ffi(input)
     case 60:
@@ -395,8 +395,12 @@ def ffi.go(+entry: U32, input: String) -> String:
       ffi_strength.ffi(input)
     case 466:
       ffi_attack.ffi(input)
+    case 467:
+      ffi_undo.ffi(input)
     case 468:
       ffi_restart_turn.ffi(input)
+    case 469:
+      ffi_irreversible.ffi(input)
     case 470:
       ffi_work_left.ffi(input)
     case 471:
@@ -404,6 +408,8 @@ def ffi.go(+entry: U32, input: String) -> String:
     case 472:
       ffi_fallback.ffi(input)
     case 473:
+      ffi_path_own.ffi(input)
+    case 474:
       ffi_autonomous.ffi(input)
     case _:
       W.err("unknown entry")
@@ -424,7 +430,6 @@ type State is Type:
   Selection{s: ffi_selection.St}
   DocSearch{s: ffi_doc_search.St}
   DocGlob{s: ffi_doc_glob.St}
-  Approvals{s: ffi_approvals.St}
   Quirks{s: ffi_quirks.St}
   InferGuard{s: ffi_infer_guard.St}
   Bound{s: ffi_bound.St}
@@ -486,11 +491,6 @@ def open.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
   match r:
     case (s, reply):
       (DocGlob{s}, reply)
-
-def open.approvals(r: ffi_approvals.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (Approvals{s}, reply)
 
 def open.quirks(r: ffi_quirks.St & String) -> State & String:
   match r:
@@ -587,8 +587,6 @@ def open.go(+entry: U32, input: String) -> State & String:
       open.doc_search(ffi_doc_search.open(input))
     case 42:
       open.doc_glob(ffi_doc_glob.open(input))
-    case 53:
-      open.approvals(ffi_approvals.open(input))
     case 61:
       open.quirks(ffi_quirks.open(input))
     case 74:
@@ -671,11 +669,6 @@ def step.doc_glob(r: ffi_doc_glob.St & String) -> State & String:
   match r:
     case (s, reply):
       (DocGlob{s}, reply)
-
-def step.approvals(r: ffi_approvals.St & String) -> State & String:
-  match r:
-    case (s, reply):
-      (Approvals{s}, reply)
 
 def step.quirks(r: ffi_quirks.St & String) -> State & String:
   match r:
@@ -772,8 +765,6 @@ def step.go(state: State, input: String) -> State & String:
       step.doc_search(ffi_doc_search.step(s, input))
     case DocGlob{s}:
       step.doc_glob(ffi_doc_glob.step(s, input))
-    case Approvals{s}:
-      step.approvals(ffi_approvals.step(s, input))
     case Quirks{s}:
       step.quirks(ffi_quirks.step(s, input))
     case InferGuard{s}:
@@ -831,8 +822,6 @@ def close.go(state: State) -> Unit:
     case DocSearch{s}:
       Unit{}
     case DocGlob{s}:
-      Unit{}
-    case Approvals{s}:
       Unit{}
     case Quirks{s}:
       Unit{}
