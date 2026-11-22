@@ -17,12 +17,29 @@
 /// ms cut 27 MB at +30 % CPU, 250 ms 11 MB within the run-to-run CPU spread).
 const PURGE_DELAY: (&str, &str) = ("MIMALLOC_PURGE_DELAY", "250");
 
+/// Marks a launch env whose options [`set_allocator_options`] added (not
+/// the user), so the child takes them back out ([`take_allocator_options`]).
+const SET_BY_LAUNCH_ENV: &str = "EUKHE_ALLOCATOR_OPTIONS_SET";
+
 /// Gives `command` the daemon processes' allocator options, unless this
 /// process's own environment sets the option (the user's setting reaches
 /// the child unchanged).
 pub fn set_allocator_options(command: &mut std::process::Command) {
     let (name, value) = PURGE_DELAY;
     if std::env::var_os(name).is_none() {
-        command.env(name, value);
+        command.env(name, value).env(SET_BY_LAUNCH_ENV, "1");
+    }
+}
+
+/// Removes the options a launch added from this process's environment;
+/// call it at the start of `main`, while the process is single-threaded.
+/// mimalloc read them before `main`; the process's own children (tool
+/// commands, kernels, tiny workers) never see them, and a supervisor's
+/// workers get them again from [`set_allocator_options`]. A user's own
+/// setting carries no marker and stays.
+pub fn take_allocator_options() {
+    if std::env::var_os(SET_BY_LAUNCH_ENV).is_some() {
+        std::env::remove_var(PURGE_DELAY.0);
+        std::env::remove_var(SET_BY_LAUNCH_ENV);
     }
 }

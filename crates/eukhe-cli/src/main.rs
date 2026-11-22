@@ -33,6 +33,9 @@ fn main() {
         std::process::exit(1);
     }
     eukhe_core::platform::process::claim_startup_stderr();
+    // The allocator options a daemon launch set end with this process: its
+    // own children do not inherit them.
+    eukhe_daemon::platform::take_allocator_options();
     // The cvar table is checked here, before any session runs: a table that
     // declares an id twice or a default of the wrong type stops eukhe now.
     let _ = eukhe_core::settings::cvar::registry();
