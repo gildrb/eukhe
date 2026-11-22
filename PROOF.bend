@@ -795,6 +795,7 @@ import ./proof/run/run_retry_spends_no_note.bend as PRunRetrySpendsNoNote
 import ./proof/run/run_retry_sends_a_new_request.bend as PRunRetrySendsANewRequest
 import ./proof/run/run_cut_names_the_request.bend as PRunCutNamesTheRequest
 import ./proof/run/run_note_is_never_logged.bend as PRunNoteIsNeverLogged
+import ./proof/run/run_context_is_logged.bend as PRunContextIsLogged
 import ./proof/run/run_note_is_read.bend as PRunNoteIsRead
 import ./proof/run/run_prepare_compacted_reads_no_threshold.bend as PRunPrepareCompactedReadsNoThreshold
 import ./proof/run/run_round_counts_down.bend as PRunRoundCountsDown
@@ -816,6 +817,7 @@ import ./proof/run/run_reply_saturates_the_wait.bend as PRunReplySaturatesTheWai
 import ./proof/run/run_reply_saturates_the_attempt.bend as PRunReplySaturatesTheAttempt
 import ./proof/run/run_step_counts_rounds_down.bend as PRunStepCountsRoundsDown
 import ./proof/run/run_cut_names_the_last_sent.bend as PRunCutNamesTheLastSent
+import ./proof/run/run_retry_resends_the_request.bend as PRunRetryResendsTheRequest
 import ./proof/run/run_every_call_is_logged.bend as PRunEveryCallIsLogged
 import ./proof/run/run_reply_answers_or_runs_tools.bend as PRunReplyAnswersOrRunsTools
 import ./proof/run/run_retry_budget.bend as PRunRetryBudget

@@ -314,6 +314,18 @@ law run_note_is_never_logged:
   for q: RnRequest.Req
   {RnRequest.logged(RnRequest.Req.lines(q)) == RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{RnRequest.Req.ctx(q), 0n})) : List<&2, RnRequest.Line>}
 
+# LAW run_context_is_logged (H4.7): in the model of the requests, what
+# the run logs of a request it sends (`logged` of its `Req.lines`) is its
+# context, with a note of any attempt or with none: the run logs every
+# request's context, never its note
+# EXCLUDES: a run that logs nothing (a `logged` that drops every line
+#   passes run_note_is_never_logged), logs the note, or logs another
+#   context
+law run_context_is_logged:
+  for ctx: Nat
+  for note: Nat
+  {RnRequest.logged(RnRequest.Req.lines(RnRequest.Req{ctx, note})) == [RnRequest.Context{ctx}] : List<&2, RnRequest.Line>}
+
 # LAW run_note_is_read (H4.7): in the model of the requests, a request
 # with the note of attempt n (n >= 1, any context) is read by the model as
 # its context, then that note: the retry reads differently from the
@@ -364,6 +376,60 @@ law run_cut_names_the_last_sent:
   for +cfg: RnState.Cfg
   for evs: List<&2, RnState.Ev>
   {cuts_name_sends(RnRequest.Reqs.log(RnRequest.reqs(cfg, evs))) == True{} : Bool}
+
+# the phase is the call: a request (or a poll of it) is out
+def in_call(ph: RnState.Ph) -> Bool:
+  match ph:
+    case RnState.Call{}:
+      True{}
+    case RnState.Prepare{}:
+      False{}
+    case RnState.Compact{over}:
+      False{}
+    case RnState.Tools{}:
+      False{}
+    case RnState.Answered{}:
+      False{}
+    case RnState.Aborted{}:
+      False{}
+    case RnState.Failed{why}:
+      False{}
+
+# the newest request sent in xs (newest first) is the request sent
+# before it
+def resent(xs: List<&2, RnRequest.Sent>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case RnRequest.Sent{+q} <> +t:
+      sent_last_is(q, t)
+    case RnRequest.Cut{q} <> t:
+      False{}
+
+# the run goes on from state s with requests t by inputs e then f: when
+# a request is out before e and again after f, the request out after f
+# is the one out before e
+def resends(+cfg: RnState.Cfg, +s: RnState.St, +t: RnRequest.Reqs, +e: RnState.Ev, +f: RnState.Ev) -> Bool:
+  Bool.or(Bool.not(Bool.and(in_call(RnState.St.ph(s)), in_call(RnState.St.ph(RnStep.run.go(e <> f <> Nil{}, cfg, s))))), resent(RnRequest.Reqs.log(RnRequest.reqs.go(e <> f <> Nil{}, cfg, s, t))))
+
+# LAW run_retry_resends_the_request (H4.7): in the model of the requests,
+# after any inputs under any configuration, with a request out, an error
+# that is no cut (retryable or not) and then any reply: when that reply
+# sends a request, it is the request the error retries, its context and
+# note and all (a retry after a cut sends a new one:
+# run_retry_sends_a_new_request)
+# EXCLUDES: a retry after another error that drops the note, adds one,
+#   names another attempt, or sends another context
+law run_retry_resends_the_request:
+  for +cfg: RnState.Cfg
+  for +evs: List<&2, RnState.Ev>
+  for retryable: Bool
+  for -fin: RnState.Fin
+  for -got: RnState.Got
+  for reply: RnState.Reply
+  for -fin2: RnState.Fin
+  for -got2: RnState.Got
+  {resends(cfg, RnStep.run(cfg, evs), RnRequest.reqs(cfg, evs), RnState.Go{RnState.Error{retryable, False{}}, fin, got}, RnState.Go{reply, fin2, got2}) == True{} : Bool}
 
 # the requests sent in xs
 def sents(xs: List<&2, RnRequest.Sent>) -> Nat:
