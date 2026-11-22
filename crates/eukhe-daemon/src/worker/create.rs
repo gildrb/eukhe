@@ -632,11 +632,6 @@ impl Worker {
             thinking: params.thinking.map(|level| level.as_str().to_owned()),
             child_script: params.child_script.clone(),
         });
-        // The daemon's sessions prewarm their kernel at open (the old
-        // engine's `prewarm_ipython_kernel: Some(true)`, TS
-        // `createDefaultRuntimeFactory`); the core gates it to top-level
-        // sessions.
-        config.prewarm_kernel = true;
         // This crate's tests run this checkout's runtime, never the user's
         // `~/.eukhe/kernel`.
         #[cfg(test)]
