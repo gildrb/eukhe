@@ -14,8 +14,9 @@ use super::{
     doc_guard, endings,
     input::PatchSection,
     messages::{
-        already_landed_message, anchored_context_lines, missing_snapshot_tag_message,
-        path_recovered_from_tag_message, unseen_lines_message, RevealedLine, UnseenLinesReveal,
+        already_landed_message, anchored_context_lines, file_op_tag_message,
+        missing_snapshot_tag_message, path_recovered_from_tag_message, unseen_lines_message,
+        RevealedLine, UnseenLinesReveal,
         HEADTAIL_DRIFT_WARNING, RECOVERY_REBASE_WARNING,
     },
     mismatch::{mismatch_error, MismatchDetails},
@@ -458,12 +459,15 @@ fn rebase_stale(
 
 /// Apply one section's edits to the live text `normalized`.
 ///
-/// The live text matches the section when it hashes to the section tag and,
-/// because the 16-bit tag can collide, the store holds no snapshot under
-/// that tag or holds the live text itself. A matching section applies
-/// directly; a stale one with only head/tail inserts applies with a warning;
-/// any other stale section goes through [`recover_stale`] or is rejected.
-/// Block locators (`N*`) are rejected up front: there is no block resolver.
+/// A tag addresses only the path it was read from: the live text matches
+/// the section when this session recorded it for `canonical` under the
+/// section tag (the 16-bit tag is a content hash, so another file's tag,
+/// or a colliding one, can equal it). A matching section applies directly;
+/// a stale one (its tag names an older snapshot of this path) with only
+/// head/tail inserts applies with a warning; any other stale section goes
+/// through [`recover_stale`] or is rejected, as is a tag this path never
+/// had. Block locators (`N*`) are rejected up front: there is no block
+/// resolver.
 #[allow(
     clippy::too_many_arguments,
     reason = "omp's apply_with_recovery contract: section identity, live text, edits, batch clipboard, store, policy"
@@ -480,9 +484,8 @@ fn apply_with_recovery(
 ) -> Result<ApplyResult, EditError> {
     reject_block_edits(edits)?;
     let anchor_lines = collect_anchor_lines(edits);
-    let stored = store.by_hash(canonical, tag);
     let live_matches = file_hash(normalized).eq_ignore_ascii_case(tag)
-        && (stored.is_none() || store.by_content(canonical, normalized).is_some());
+        && store.by_content(canonical, normalized).is_some();
     validate_clipboard_sequence(edits, clipboard)?;
     if live_matches {
         if enforce_seen_lines {
@@ -490,20 +493,19 @@ fn apply_with_recovery(
         }
         return apply_edits(normalized, edits, clipboard);
     }
-    if !has_anchor_scoped_edit(edits) {
+    let stored = store.by_hash(canonical, tag);
+    if let (false, Some(base)) = (has_anchor_scoped_edit(edits), stored) {
         // A retry of a head/tail insert that already landed: the edits
         // applied to the tagged snapshot give the live text.
-        if let Some(base) = store.by_hash(canonical, tag) {
-            let landed = apply_edits(&base.text, edits, &mut clipboard.fork())
-                .is_ok_and(|ours| ours.text == normalized && ours.text != *base.text);
-            if landed {
-                return Ok(ApplyResult {
-                    text: normalized.to_owned(),
-                    origins: (0..normalized.split('\n').count()).map(Some).collect(),
-                    landing: Landing::Already,
-                    ..ApplyResult::default()
-                });
-            }
+        let landed = apply_edits(&base.text, edits, &mut clipboard.fork())
+            .is_ok_and(|ours| ours.text == normalized && ours.text != *base.text);
+        if landed {
+            return Ok(ApplyResult {
+                text: normalized.to_owned(),
+                origins: (0..normalized.split('\n').count()).map(Some).collect(),
+                landing: Landing::Already,
+                ..ApplyResult::default()
+            });
         }
         let mut result = apply_edits(normalized, edits, clipboard)?;
         let mut warnings = vec![HEADTAIL_DRIFT_WARNING.to_owned()];
@@ -570,6 +572,33 @@ fn recover_target(
     )
 }
 
+/// Refuse a `REM` or `MV` unless `tag` names the live text of `canonical`
+/// as this session recorded it. These ops anchor no line, so neither the
+/// seen-line guard nor the stale-tag recovery checks them: without this, a
+/// stale tag, another file's tag or an invented one deletes or moves the
+/// file as it is now. Nothing is recorded: the error hands out no tag.
+fn require_live_tag(
+    display: &str,
+    tag: &str,
+    op: &FileOp,
+    canonical: &Path,
+    live: &str,
+    store: &EditStore,
+) -> Result<(), EditError> {
+    let fresh = store
+        .by_content(canonical, live)
+        .is_some_and(|snapshot| snapshot.hash.eq_ignore_ascii_case(tag));
+    if fresh {
+        return Ok(());
+    }
+    let op = match op {
+        FileOp::Rem => "REM".to_owned(),
+        FileOp::Move { dest } => format!("MV {dest}"),
+    };
+    let known = store.by_hash(canonical, tag).is_some();
+    Err(EditError::apply(file_op_tag_message(display, tag, &op, known)))
+}
+
 /// Stage every section atomically, in payload order.
 #[allow(
     clippy::too_many_lines,
@@ -632,6 +661,9 @@ pub(crate) fn stage_patch(
         };
         // The lines an earlier process of the session saw of this text.
         store.restore(&read.canonical, &read.text);
+        if let Some(op) = &parsed.file_op {
+            require_live_tag(&section.path, tag, op, &read.canonical, &read.text, store)?;
+        }
         let apply = apply_with_recovery(
             &section.path,
             tag,

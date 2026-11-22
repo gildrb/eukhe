@@ -956,8 +956,10 @@ fn io_error(display: &str, path: &Path, source: std::io::Error) -> EditError {
 
 fn destination_taken(display: &str, destination: &str) -> EditError {
     EditError::apply(format!(
-        "Edit rejected for {display}: the MV destination {destination} exists. Nothing was \
-         written. Pick another name, or REM {destination} in an earlier edit."
+        "Edit rejected for {display}: the MV destination {destination} exists, and MV never \
+         replaces a file. Nothing was written. To change {destination}, edit it under its own \
+         header; to replace it with {display} on purpose, REM {destination} in an edit of its \
+         own first, then MV again; otherwise pick another name."
     ))
 }
 

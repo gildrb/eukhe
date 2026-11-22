@@ -16,9 +16,6 @@ use serde::Deserialize;
 const GREP_CONTEXT_BEFORE: u32 = 1;
 const GREP_CONTEXT_AFTER: u32 = 3;
 
-/// How a relative path resolves, the same for every function.
-const PATH_RULE: &str = "Relative paths resolve against the session's cwd; the same-named Python functions use `os.getcwd()`.";
-
 const PATH_ALIASES: &[&str] = &["file_path", "filepath", "file", "filename"];
 
 const READ_DESCRIPTION: &str = "Read a file or directory. Line ranges go in `path`, never in separate offset/limit parameters (`notes.txt:450-455`); repeat the selector on every ranged call.
@@ -27,11 +24,11 @@ A file prints as a `[path#TAG]` header, then `N:TEXT` rows; `edit` copies that h
 URLs: `repo://<path>` (workspace root); `skill://<name>/<path>` (bare: its SKILL.md); `agent://<name|id>` (subagent chat); `memory://` (chat view), `memory://<id>` (message whole), `memory://<id>/<n>` (line id+n); `mcp://<server>` (resource list), `mcp://<server>/<uri>`; `ssh://<host>/<path>` (remote text file, `/~/` = remote home, `ssh.hosts` only). `..` never leaves a URL's root.";
 
 const GREP_DESCRIPTION: &str = "Regex search, Rust syntax; case-sensitive and gitignore-respecting by default. `path`: `;`-separated files/dirs/globs or a `file:50-100` selector; default `.`. Bare glob `*.ts` matches any depth; `dir/*.ts` only direct children (`dir/**/*.ts` recurses). Literal `\\n` enables cross-line matches. `skip` pages by file.
-Hits print as `[path#TAG]` then `*N:TEXT` (match) and ` N:TEXT` (context) rows: `edit` anchors under that header. A file printed without a tag must be read before an edit.";
+Hits print as `[path#TAG]` then `*N:TEXT` (match) and ` N:TEXT` (context) rows: `edit` anchors under that header.";
 
 const GLOB_DESCRIPTION: &str = "Glob files/dirs: `;`-separated patterns or paths; default `.`. `hidden` and `gitignore` default true (ignored dotfiles need `gitignore: false`). Newest first by directory; dirs end `/`; `skip` pages past the first `limit` paths.";
 
-const WRITE_DESCRIPTION: &str = "Create or overwrite a whole file atomically; parent directories are created; BOM, line endings and mode are kept. An existing file is replaced only if you read or wrote it and it has not changed since. Prefer `edit` for existing files.";
+const WRITE_DESCRIPTION: &str = "Create or replace a whole file atomically (parent directories created; BOM, line endings and mode kept). Replaces only a file you read or wrote, unchanged since; prefer `edit` for existing files.";
 
 const EXACT_STRING_HINT: &str = "edit takes a hashline patch, not old/new strings: read or grep the file, then send the `[path#TAG]` header it printed, copied verbatim, with line ops, e.g. `[src/a.rs#3F9A]\\nPUT 12.=14:\\n+new line`.";
 
@@ -86,7 +83,9 @@ impl Function {
         }
     }
 
-    /// The model-facing description, ending with the path rule.
+    /// The model-facing description. Relative paths resolve against the
+    /// session's cwd (the REPL functions: `os.getcwd()`); the core prompt
+    /// layer says so once for every file tool.
     pub(super) fn description(self) -> String {
         let body = match self {
             Self::Read => READ_DESCRIPTION,
@@ -95,7 +94,7 @@ impl Function {
             Self::Grep => GREP_DESCRIPTION,
             Self::Glob => GLOB_DESCRIPTION,
         };
-        format!("{}\n\n{PATH_RULE}", body.trim_end())
+        body.trim_end().to_owned()
     }
 
     /// The parameter schema: the shared `i`, then the function's own

@@ -1,6 +1,6 @@
 # eukhe harness
 
-Model tools: `python` (a persistent CPython REPL), `read`, `edit`, `grep`, `glob`, and `bash` (an in-process shell). Every step runs unasked; a write to Eukhe's own config and credentials, the session record or a check's protected files is refused. Every other tool is a programmatic tool: an async function in the REPL.
+Model tools: `python` (a persistent CPython REPL), `read`, `write`, `edit`, `grep`, `glob` (relative paths: the session's cwd), and `bash` (an in-process shell). Every step runs unasked; a write to Eukhe's own config and credentials, the session record or a check's protected files is refused. Every other tool is a programmatic tool: an async function in the REPL.
 
 Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the harness, not the user.
 
@@ -11,7 +11,7 @@ Messages that start with `[<kind>(: <qualifier>)( <address>)]` come from the har
   - `jobs.list()`: running and recent jobs
   - `jobs.wait(targets=None, *, timeout_s=None)`: the first job to settle (`.id`, `.state`, `.output`), `None` on timeout; a message for this session ends it early
   - `jobs.cancel(target)`
-- The file tools are also sync functions with the same anchors, raising `FsError` (`edit`: `EditRejected`):
+- The file tools are also sync functions with the same anchors (relative paths: `os.getcwd()`), raising `FsError` (`edit`: `EditRejected`):
 - `read(path)`
 - `grep(pattern, path=".")`
 - `glob(path=".")`

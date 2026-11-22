@@ -1,6 +1,6 @@
 //! `eukhe.documents`: the session's documents (`eukhe_docs::Documents`,
-//! one edit store per session) behind the wire `read`, `edit`, `grep`, and
-//! `glob` tools and the kernel's `fs.*` host requests. Both entry points
+//! one edit store per session) behind the wire `read`, `write`, `edit`,
+//! `grep`, and `glob` tools and the kernel's `fs.*` host requests. Both entry points
 //! decode through one contract per function and share the store, so a
 //! `read()` in the kernel makes its lines anchorable for the `edit` tool and
 //! the other way round. `read` also serves the internal URLs (`urls`), and
@@ -127,6 +127,7 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
     define_extension(Extension {
         tools: [
             Function::Read,
+            Function::Write,
             Function::Edit,
             Function::Grep,
             Function::Glob,
