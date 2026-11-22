@@ -1,13 +1,15 @@
-//! The row a turn that ended without an answer leaves, live and rebuilt
-//! alike (`LAWS.bend` section `turn_visibility` R4, R5, R7): a failure the chat does
-//! not show yet gets its failure row, and a turn with no reply at all says
-//! so. Both rows report how the turn ended. The live event pump pushes them
-//! at the turn's end; the transcript rebuild folds the same rows from the
-//! stored messages ([`TurnFold`]).
+//! The rows a turn leaves at its end, live and rebuilt alike (`LAWS.bend`
+//! section `turn_visibility` R4, R5, R7): a failure the chat does not
+//! show yet gets its failure row, a turn with no reply at all says so,
+//! and a turn that used tokens closes with its usage footer
+//! ([`crate::turn_usage`]). The live event pump pushes them at the turn's
+//! end; the transcript rebuild folds the same rows from the stored
+//! messages ([`TurnFold`]).
 
 use super::{AssistantMessage, ChatEntry, TurnOutcome};
 use crate::chat::StatusKind;
 use crate::glyphs::{SEP, WARN};
+use crate::turn_usage::TurnUsage;
 
 /// The failure row of a turn whose failure the chat does not show yet:
 /// the failed-attempt row shape (an error-only assistant entry), so it
@@ -73,23 +75,42 @@ pub(super) enum TurnBoundary<'a> {
 }
 
 /// One stored turn being folded, from its user message on: how its newest
-/// assistant message settled and whether a retry episode's outcome row
-/// followed that message.
+/// assistant message settled, whether a retry episode's outcome row
+/// followed that message, and the usage of its messages so far (a turn
+/// that may go on past the next prompt carries it there).
 #[derive(Debug, Default)]
 pub(super) struct TurnFold {
     last: Option<(TurnOutcome, bool)>,
     outcome_after: bool,
+    usage: TurnUsage,
 }
 
 impl TurnFold {
-    /// An assistant message of the turn.
-    pub(super) fn assistant(&mut self, message: &eukhe_types::ai::AssistantMessage) {
+    /// A turn that starts with the usage an unfinished turn carried.
+    pub(super) fn carrying(usage: TurnUsage) -> Self {
+        Self {
+            usage,
+            ..Self::default()
+        }
+    }
+
+    /// An assistant message of the turn; `counted` is false for the open
+    /// run's in-flight partial, whose `message_end` the live pump counts.
+    pub(super) fn assistant(&mut self, message: &eukhe_types::ai::AssistantMessage, counted: bool) {
         let (_, tool_calls) = super::assistant_message_parts(message);
         self.last = Some((
             super::decoder::message_outcome(message),
             !tool_calls.is_empty(),
         ));
         self.outcome_after = false;
+        if counted {
+            self.usage.add_message(message);
+        }
+    }
+
+    /// A tool result of the turn that reported an error.
+    pub(super) fn tool_failed(&mut self) {
+        self.usage.tool_failed();
     }
 
     /// A `provider_retry_outcome` row: the episode's one line now shows its
@@ -98,17 +119,25 @@ impl TurnFold {
         self.outcome_after = true;
     }
 
-    /// The row the turn leaves at `boundary`, the one the live event pump
-    /// pushed at its end (`apply.rs` `TurnEnded` and `Idle`).
-    pub(super) fn end(self, boundary: TurnBoundary<'_>) -> Option<ChatEntry> {
-        match self.last {
+    /// The usage the turn's messages have added so far.
+    pub(super) fn usage(&self) -> TurnUsage {
+        self.usage
+    }
+
+    /// The rows the turn leaves at `boundary`, the ones the live event
+    /// pump pushed at its end (`apply.rs` `TurnEnded` and `Idle`): its end
+    /// row, then its usage footer. A turn that may go on past the next
+    /// prompt leaves nothing yet and hands its usage on (the second
+    /// value).
+    pub(super) fn end(self, boundary: TurnBoundary<'_>) -> (Vec<ChatEntry>, TurnUsage) {
+        let row = match self.last {
             // No answer yet, or a tool round with no answering turn after
             // it: over only when the run is, with the cap's failure when
             // the run stopped at it.
             None | Some((TurnOutcome::Continues, _)) => match boundary {
                 TurnBoundary::RunEnded(Some(error)) => Some(failure_row(error)),
                 TurnBoundary::RunEnded(None) => Some(no_reply_row()),
-                TurnBoundary::NextPrompt => None,
+                TurnBoundary::NextPrompt => return (Vec::new(), self.usage),
             },
             Some((TurnOutcome::Empty | TurnOutcome::Unreported, _)) => Some(no_reply_row()),
             // A failure whose tool cards carry it shows no row of its own;
@@ -119,6 +148,16 @@ impl TurnFold {
             Some((TurnOutcome::Failed(_) | TurnOutcome::Answered | TurnOutcome::Aborted, _)) => {
                 None
             }
-        }
+        };
+        let footer = turn_footer(self.usage);
+        (
+            row.into_iter().chain(footer).collect(),
+            TurnUsage::default(),
+        )
     }
+}
+
+/// The usage footer of a turn that ended, when it used any tokens.
+pub(crate) fn turn_footer(usage: TurnUsage) -> Option<ChatEntry> {
+    (!usage.is_empty()).then(|| ChatEntry::TurnFooter(Box::new(usage)))
 }

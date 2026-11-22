@@ -219,7 +219,7 @@ impl WorkflowView {
 #[must_use]
 pub fn agent_glyph(status: WorkflowAgentStatus) -> &'static str {
     match status {
-        WorkflowAgentStatus::Queued => "·",
+        WorkflowAgentStatus::Queued => crate::glyphs::DOT_HALF,
         WorkflowAgentStatus::Running => "▶",
         WorkflowAgentStatus::Done => "✓",
         WorkflowAgentStatus::Cached => "↺",

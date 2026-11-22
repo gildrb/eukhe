@@ -147,6 +147,9 @@ pub enum ChatEntry {
     /// `@name` message the user sent to another agent, that agent's
     /// reply, or the `/agents` roster. Display only.
     Swarm(Box<crate::swarm_block::SwarmRow>),
+    /// The usage footer a turn that used tokens ends with (rendered by
+    /// [`crate::turn_usage`]).
+    TurnFooter(Box<crate::turn_usage::TurnUsage>),
 }
 
 // The card types live in `tool_card`; re-exported here because the
