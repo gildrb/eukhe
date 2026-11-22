@@ -235,11 +235,6 @@ def join(ps: List<&2, List<&2, Nat>>) -> List<&2, Nat>:
 type Part is Data:
   Part{own: List<&2, Nat>, secret: Bool}
 
-def Part.secret(p: Part) -> Bool:
-  match p:
-    case Part{o, s}:
-      s
-
 # c, unless drop
 def plain.add(drop: Bool, c: Nat, acc: List<&2, Nat>) -> List<&2, Nat>:
   match drop:
@@ -273,14 +268,6 @@ def parts.effs(ps: List<&2, Part>) -> List<&2, List<&2, Nat>>:
       Nil{}
     case p <> rest:
       part.effs(p) <> parts.effs(rest)
-
-# some part names a path that is or holds a secret
-def parts.secret(ps: List<&2, Part>) -> Bool:
-  match ps:
-    case Nil{}:
-      False{}
-    case p <> rest:
-      Bool.or(Part.secret(p), parts.secret(rest))
 
 # A part of a step as its verdict reads it: its own effect codes, whether
 # it names a path that is or holds a secret, and whether it writes an own

@@ -29,6 +29,12 @@ import ./base.bend as LawsBase
 #     wire) with the verdict of R1-R3, reads exactly the request and
 #     nothing after it, and answers any other input with the exact error
 #     form `E dash_policy: malformed request`.
+#
+# Not pinned on their own: the code's name comparison (`same`, `listed`)
+# is pinned through `verdict` (dash_policy_rust_names,
+# dash_policy_listed_only), and the entry's reply builder (`answer`,
+# bend/ffi_dash_policy.bend) through `ffi` (the entry laws); same, listed
+# and answer have no law of their own.
 
 # Spec helpers
 # ------------
