@@ -5,15 +5,20 @@ Eukhe is an agent harness that works a task with no person watching and gives a 
 ## Install
 
 ```sh
-curl -fsSL https://eukhe.com/install | sh  # macOS (Apple Silicon), Linux (x64, arm64)
+# macOS (Apple Silicon), Linux (x64, arm64)
+curl -fsSL https://eukhe.com/install | sh
 ```
 
 ## Use
 
 ```sh
 cd project
-eukhe                                                     # start; /login at the first start
-eukhe -p --accept-cmd 'npm test' "fix the failing tests"  # script; exit 0 only when all checks pass
+
+# start; /login at the first start
+eukhe
+
+# script; exit 0 only when all checks pass
+eukhe -p --accept-cmd 'npm test' "fix the failing tests"
 ```
 
 In a session, `/accept cmd --protect tests/app.test.js npm test` sets a check. Then type the task. `eukhe --help` shows all commands.
@@ -70,4 +75,4 @@ Eukhe is a fork of Prime Intellect's [Prime Agent](https://github.com/PrimeIntel
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
