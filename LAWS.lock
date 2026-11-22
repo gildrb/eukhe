@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "e1831542dabcb36fb1f50e9d54d9f4bd547f4cf9f75fa688d4a189850a352603",
+      "spec/README.md": "a5aed32f1cd7ad21385ce402a7fc2496e6e4ac3a1fb0a6adb8b4f567b8309577",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3099,6 +3099,7 @@
     "laws/run/model.bend::run_no_answer_is_an_error": "699a35c12a2e1cd9c3360a16d18d1516ba8d3cf37568f575ba4415c756eaca79",
     "laws/run/model.bend::run_note_budget": "86f81cae47d6db47c59b484f343e792933e0c3936a50ce3b266e96f611d23942",
     "laws/run/model.bend::run_note_counts_down": "07704b4168d0a9667a97f08830d84ca9ad3de138da9f0cc5af9003fd5be7a641",
+    "laws/run/model.bend::run_note_fails_past_the_notes": "c9541f7576556d71e91191114f3d0b852a53ae563e133a81ccd677ef853183c9",
     "laws/run/model.bend::run_note_is_never_logged": "67311689400facce504a34881787bf177ed483d927651f0403464b40c877c1f6",
     "laws/run/model.bend::run_note_is_read": "292c0b7a4713c40fd2fc60442b75995f1fad50fae4068d5e3ea01a720822e19b",
     "laws/run/model.bend::run_note_keeps_the_retries": "0ff4d1b641ba4436a1cfae5c6538177770cf76ab68e41b76b9faf25e9324c707",
