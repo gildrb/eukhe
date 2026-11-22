@@ -354,7 +354,10 @@ def did.add(s: Step, d: Did) -> Did:
       Did{s <> ss, e}
 
 # run a script: each step runs in order, until a step that writes an own
-# path; that one and every later step do not run
+# path; that one and every later step do not run. A step is a pipeline,
+# whose stages start together: one stage that writes an own path keeps
+# them all from running. The model of the loop Rust runs
+# (crates/eukhe-shell/src/run.rs); no entry runs it.
 def script(ss: List<&2, Planned>) -> Did:
   match ss:
     case Nil{}:

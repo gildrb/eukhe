@@ -521,6 +521,24 @@ law step_holds_every_part:
   for has: {Tl.elem(p, c) == True{} : Bool}
   {Tl.elem(Tl.join(List.append(&2, List<&2, Nat>, pre, p <> post)), c) == True{} : Bool}
 
+# some list of xs holds c
+def tools_some_has(xs: List<&2, List<&2, Nat>>, +c: Nat) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(Tl.elem(x, c), tools_some_has(rest, c))
+
+# LAW step_holds_only_its_parts: a step made of parts has no effect that
+# no part has: every effect of the step is an effect of one of its parts
+# EXCLUDES: an effect the join adds (a secret effect between parts, a
+#   code no part holds)
+law step_holds_only_its_parts:
+  for +xs: List<&2, List<&2, Nat>>
+  for +c: Nat
+  for has: {Tl.elem(Tl.join(xs), c) == True{} : Bool}
+  {tools_some_has(xs, c) == True{} : Bool}
+
 # LAW secret_needs_a_secret_path: a step has the secret effect (6) only when one of its parts names
 # a path that is or holds a secret (an operand, an option value, a
 # redirection target, the working directory of a command that reads it

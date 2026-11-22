@@ -1,6 +1,6 @@
 # irreversible: the model of which effects are irreversible and of the
 # ledger of the irreversible effects that ran (spec/README.md I1, I4, I6;
-# spec/irreversible/effects.bend restates it). Rust:
+# laws/irreversible.bend states it). Rust:
 # crates/eukhe-bend/src/rules/irreversible.rs through
 # bend/ffi_irreversible.bend, asked when an effect runs (a `bash` step, a
 # document tool's access, a `python` cell, an MCP call) and by the
