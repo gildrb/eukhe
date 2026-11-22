@@ -1247,6 +1247,85 @@ fn session_command_rows_respect_display_and_shape() {
     );
 }
 
+/// An engine continuation (the daemon's hidden custom message, origin in
+/// its details) shows as its labelled injected row live and after a
+/// re-attach; goal prompts and bookkeeping stay hidden on both paths.
+#[test]
+fn hidden_continuations_show_live_and_after_reattach() {
+    use crate::custom_message::{ContinuationOrigin, InjectedPromptKind, InjectedPromptRow};
+    let hidden = |origin: &InputOrigin| {
+        json!({
+            "role": "custom",
+            "customType": origin.hidden_custom_type().expect("an engine input"),
+            "content": "<system-reminder>Run the tests before you answer.</system-reminder>",
+            "display": false,
+            "details": { "origin": origin },
+            "timestamp": 2,
+        })
+    };
+    for (origin, shown) in [
+        (InputOrigin::Director, ContinuationOrigin::Director),
+        (
+            InputOrigin::Autonomous {
+                nudge: eukhe_types::input_origin::AutonomousNudge::Continuation,
+            },
+            ContinuationOrigin::Autonomous,
+        ),
+        (InputOrigin::QuotaResume, ContinuationOrigin::QuotaResume),
+        (
+            InputOrigin::CompactionResume,
+            ContinuationOrigin::CompactionResume,
+        ),
+    ] {
+        let row = ChatEntry::InjectedPrompt(Box::new(InjectedPromptRow {
+            kind: InjectedPromptKind::Continuation { origin: shown },
+            body: Some("Run the tests before you answer.".to_string()),
+        }));
+        assert_eq!(
+            event_to_update(&event(json!({
+                "type": "message_start",
+                "message": hidden(&origin),
+            }))),
+            TurnUpdate::CustomRow(row.clone()),
+            "{origin:?} live"
+        );
+        let chat = transcript_to_entries(&msgs([
+            json!({ "role": "user", "content": "fix it", "timestamp": 1 }),
+            hidden(&origin),
+        ]));
+        assert_eq!(
+            chat,
+            vec![
+                ChatEntry::User {
+                    text: "fix it".to_string()
+                },
+                row
+            ],
+            "{origin:?} after re-attach"
+        );
+    }
+    for custom_type in ["goal_prompt", "harness_digest"] {
+        let message = json!({
+            "role": "custom",
+            "customType": custom_type,
+            "content": "kept out of the transcript",
+            "display": false,
+            "timestamp": 2,
+        });
+        assert_eq!(
+            event_to_update(&event(
+                json!({ "type": "message_start", "message": message.clone() })
+            )),
+            TurnUpdate::StatusUpdate,
+            "{custom_type} live"
+        );
+        assert!(
+            message_value_to_entries(&msg(message)).is_empty(),
+            "{custom_type} after re-attach"
+        );
+    }
+}
+
 /// A transcript with tool calls replays the way the TS attach does: the
 /// assistant's tool card stays pending until the matching
 /// `role: "toolResult"` message completes it; orphan results render
@@ -2105,25 +2184,42 @@ fn hidden_continuation() -> Value {
     })
 }
 
-/// Live: the continuation's `message_start`/`message_end` pair adds no
-/// row (neither a user block nor a custom panel).
-#[test]
-fn a_hidden_continuation_streams_no_row() {
-    for kind in ["message_start", "message_end"] {
-        assert_eq!(
-            event_to_update(&event(
-                json!({ "type": kind, "message": hidden_continuation() })
-            )),
-            TurnUpdate::StatusUpdate,
-            "{kind}"
-        );
-    }
+/// The continuation's labelled injected row.
+fn continuation_row() -> ChatEntry {
+    ChatEntry::InjectedPrompt(Box::new(crate::custom_message::InjectedPromptRow {
+        kind: crate::custom_message::InjectedPromptKind::Continuation {
+            origin: crate::custom_message::ContinuationOrigin::Autonomous,
+        },
+        body: Some(
+            "[autonomous-continuation]\n\nAutoresearch mode is on: continue the experiment loop."
+                .to_string(),
+        ),
+    }))
 }
 
-/// Attach and resume: the transcript shows the user's prompt and the
-/// answers; the continuation leaves no row and is no human prompt.
+/// Live: the continuation's `message_start` adds its labelled row, never
+/// a user block or a custom panel; the `message_end` twin adds nothing.
 #[test]
-fn a_hidden_continuation_leaves_no_row_on_attach() {
+fn a_hidden_continuation_streams_its_labelled_row() {
+    assert_eq!(
+        event_to_update(&event(
+            json!({ "type": "message_start", "message": hidden_continuation() })
+        )),
+        TurnUpdate::CustomRow(continuation_row())
+    );
+    assert_eq!(
+        event_to_update(&event(
+            json!({ "type": "message_end", "message": hidden_continuation() })
+        )),
+        TurnUpdate::StatusUpdate
+    );
+}
+
+/// Attach and resume: the transcript shows the user's prompt, the
+/// continuation's labelled row and the answers; the continuation is no
+/// human prompt.
+#[test]
+fn a_hidden_continuation_shows_its_labelled_row_on_attach() {
     let mut attach = slim_attach();
     let messages = attach["snapshot"]["messages"]
         .as_array_mut()
@@ -2137,11 +2233,10 @@ fn a_hidden_continuation_leaves_no_row_on_attach() {
     })));
     let view = reconstruct(&attach_data_from_response(attach).unwrap()).expect("reconstructs");
     let rows = format!("{:?}", view.chat);
-    assert!(!rows.contains("autonomous-continuation"), "{rows}");
-    assert!(!rows.contains("Autoresearch mode is on"), "{rows}");
-    assert_eq!(view.chat.len(), 4, "{rows}");
-    assert!(matches!(&view.chat[3], ChatEntry::TurnFooter(_)), "{rows}");
+    assert_eq!(view.chat.len(), 5, "{rows}");
+    assert!(matches!(&view.chat[4], ChatEntry::TurnFooter(_)), "{rows}");
     assert!(matches!(&view.chat[0], ChatEntry::User { text } if text == "hello"));
+    assert_eq!(view.chat[2], continuation_row(), "{rows}");
     assert_eq!(view.last_user_prompt_ms, Some(1_700_000_000_000));
 }
 

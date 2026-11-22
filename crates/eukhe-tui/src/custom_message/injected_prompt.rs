@@ -9,8 +9,14 @@
 //! child-originated mail, so those rows render in the `agent_message`
 //! class now, superseding the 2026-09-23 diamond-row divergence): the
 //! kinds here are the engine-injected turn prompts only -- the heartbeat
-//! prompt, the goal context, the kernel-state restore, and the
-//! skills-unavailable report.
+//! prompt, the goal context, the kernel-state restore, the
+//! skills-unavailable report, and the engine continuations.
+//!
+//! The engine continuations (the Director's reminders, autonomous
+//! continuations, the quota and compaction resumes) arrive as hidden
+//! custom messages; each shows as one dim `[<label>] <first line>` row at
+//! the step column, the whole body at `all`. Goal prompts and engine
+//! bookkeeping (`harness_digest`, refine results) stay hidden.
 //!
 //! Second divergence (operator directive 2026-09-23): the heartbeat prompt
 //! row renders the `o` clock glyph -- the unified activity dock's
@@ -22,10 +28,17 @@ use super::custom_content_text;
 use super::render::{spacer, text_rows, truncate_text};
 use crate::chat::Detail;
 use crate::theme::{Theme, ThemeColor};
+use crate::width::{pad_line, str_width, truncate_to_width, wrap_text};
 use crate::{Line, Span};
 use eukhe_types::ai::UserContent;
 use eukhe_types::custom_type::CustomType;
+use eukhe_types::input_origin::{AutonomousNudge, InputOrigin};
 use serde_json::Value;
+
+/// The column a continuation row's label starts at, and the column its
+/// wrapped rows hang at: the step gutter of a turn.
+const STEP_COLUMN: usize = 3;
+const HANG_COLUMN: usize = 5;
 
 /// One injected prompt row (TS `InjectedPromptMessageComponent`); the kind
 /// picks the header shape, `body` renders as markdown when expanded.
@@ -53,6 +66,98 @@ pub enum InjectedPromptKind {
     /// names; TS PR #2381's header -- no marker glyph), expandable to the
     /// full report.
     PythonSkillsUnavailable { skills: Vec<String> },
+    /// `[<label>] <first body line>` (dim): an engine continuation the
+    /// model read as user input.
+    Continuation { origin: ContinuationOrigin },
+}
+
+/// The engine continuations a transcript shows: the allow-list over
+/// `InputOrigin::hidden_custom_type`. Goal prompts and every other hidden
+/// type stay out of the transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinuationOrigin {
+    /// A Director layer's continuation (`[reminder]`).
+    Director,
+    /// An autonomous-mode continuation (`[auto]`).
+    Autonomous,
+    /// The marker that resumes a session the provider quota parked
+    /// (`[resume]`).
+    QuotaResume,
+    /// The prompt that resumes a turn a compaction interrupted
+    /// (`[compaction]`).
+    CompactionResume,
+}
+
+impl ContinuationOrigin {
+    /// The continuation whose hidden custom type is `custom_type`; `None`
+    /// for every type off the allow-list.
+    fn of(custom_type: &CustomType) -> Option<Self> {
+        [
+            (InputOrigin::Director, Self::Director),
+            (
+                InputOrigin::Autonomous {
+                    nudge: AutonomousNudge::Continuation,
+                },
+                Self::Autonomous,
+            ),
+            (InputOrigin::QuotaResume, Self::QuotaResume),
+            (InputOrigin::CompactionResume, Self::CompactionResume),
+        ]
+        .into_iter()
+        .find_map(|(input, origin)| {
+            (input.hidden_custom_type() == Some(custom_type.as_str())).then_some(origin)
+        })
+    }
+
+    /// The row's bracketed label.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Director => "[reminder]",
+            Self::Autonomous => "[auto]",
+            Self::QuotaResume => "[resume]",
+            Self::CompactionResume => "[compaction]",
+        }
+    }
+}
+
+/// The row of an engine continuation (a hidden custom message on the
+/// allow-list), its body the content without an enclosing `<tag>`
+/// wrapper (`<system-reminder>`, `<provider_quota_resumed>`); `None` for
+/// every other custom type.
+pub(crate) fn continuation_row(
+    custom_type: &CustomType,
+    content: &UserContent,
+) -> Option<InjectedPromptRow> {
+    let origin = ContinuationOrigin::of(custom_type)?;
+    let text = custom_content_text(content);
+    Some(InjectedPromptRow {
+        kind: InjectedPromptKind::Continuation { origin },
+        body: Some(unwrapped(&text).to_string()),
+    })
+}
+
+/// `text` trimmed, without one `<tag>...</tag>` pair around all of it.
+fn unwrapped(text: &str) -> &str {
+    let trimmed = text.trim();
+    trimmed
+        .strip_prefix('<')
+        .and_then(|rest| rest.split_once('>'))
+        .filter(|(tag, _)| {
+            !tag.is_empty()
+                && tag
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+        .and_then(|(tag, inner)| inner.strip_suffix(&format!("</{tag}>")))
+        .map_or(trimmed, str::trim)
+}
+
+/// A line that is only a bracketed header (`[autonomous-continuation]`):
+/// the row's label already names it.
+fn is_header_line(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('[') && line.ends_with(']')
 }
 
 /// One injected-prompt row (TS `isInjectedPromptMessage` kinds); `None`
@@ -118,22 +223,35 @@ pub(crate) fn injected_prompt_row(
         InjectedPromptKind::KernelRestored { .. } => None,
         InjectedPromptKind::Heartbeat { .. }
         | InjectedPromptKind::Goal { .. }
-        | InjectedPromptKind::PythonSkillsUnavailable { .. } => Some(custom_content_text(content)),
+        | InjectedPromptKind::PythonSkillsUnavailable { .. }
+        | InjectedPromptKind::Continuation { .. } => Some(custom_content_text(content)),
     };
     Some(InjectedPromptRow { kind, body })
 }
 
 /// One injected-prompt row (TS `InjectedPromptMessageComponent`): a leading
-/// blank, the kind's header, then the guttered markdown body below it when
-/// expanded (the kernel-state row stays header-only in both states).
+/// blank unless `leading` is false (the row joins the injected row above
+/// it), the kind's header, then the guttered markdown body below it when
+/// expanded (the kernel-state row stays header-only in both states). A
+/// continuation renders its dim gutter rows instead.
 pub(crate) fn render_injected_prompt(
     row: &InjectedPromptRow,
     detail: Detail,
     theme: &Theme,
     width: usize,
+    leading: bool,
 ) -> Vec<Line> {
-    let mut out = vec![spacer()];
+    let mut out = if leading { vec![spacer()] } else { Vec::new() };
     let header = prompt_header(row, theme);
+    if let InjectedPromptKind::Continuation { .. } = row.kind {
+        out.extend(continuation_rows(
+            &header,
+            row.body.as_deref().unwrap_or_default(),
+            detail,
+            width,
+        ));
+        return out;
+    }
     out.extend(text_rows(&header, width));
     if let Some(body) = expanded_prompt_body(row, detail) {
         out.extend(crate::branch::branch_markdown(
@@ -144,6 +262,67 @@ pub(crate) fn render_injected_prompt(
         ));
     }
     out
+}
+
+/// A continuation's rows on the step gutter, in the label's style: the
+/// label at the step column, then the body's first line past its bracketed
+/// headers, cut to the width (`...` when more lines follow); at `all`
+/// every body line, wrapped rows hanging at the step's text column.
+fn continuation_rows(label: &Line, body: &str, detail: Detail, width: usize) -> Vec<Line> {
+    let Some(label) = label.first() else {
+        return Vec::new();
+    };
+    let lead_width = STEP_COLUMN + str_width(&label.content) + 1;
+    let first_width = width.saturating_sub(lead_width + 1).max(1);
+    let hang_width = width.saturating_sub(HANG_COLUMN + 1).max(1);
+    let lines: Vec<&str> = body
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let text: Vec<String> = if detail.tool_output_expanded() {
+        let plain = |line: Line| line.into_iter().map(|span| span.content).collect();
+        lines
+            .iter()
+            .enumerate()
+            .flat_map(|(index, line)| {
+                wrap_text(line, if index == 0 { first_width } else { hang_width })
+            })
+            .map(plain)
+            .collect()
+    } else {
+        let shown = lines
+            .iter()
+            .position(|line| !is_header_line(line))
+            .unwrap_or_default();
+        let first = lines.get(shown).copied().unwrap_or_default();
+        let row = if shown + 1 < lines.len() {
+            format!("{first} {}", crate::glyphs::ELLIPSIS)
+        } else {
+            first.to_string()
+        };
+        vec![truncate_to_width(
+            &row,
+            first_width,
+            crate::glyphs::ELLIPSIS,
+        )]
+    };
+    let mut rows = text.into_iter();
+    let lead = vec![
+        Span::raw(" ".repeat(STEP_COLUMN)),
+        label.clone(),
+        Span::raw(" "),
+        Span::styled(rows.next().unwrap_or_default(), label.style),
+    ];
+    std::iter::once(lead)
+        .chain(rows.map(|row| {
+            vec![
+                Span::raw(" ".repeat(HANG_COLUMN)),
+                Span::styled(row, label.style),
+            ]
+        }))
+        .map(|row| pad_line(row, width))
+        .collect()
 }
 
 fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
@@ -200,6 +379,9 @@ fn prompt_header(row: &InjectedPromptRow, theme: &Theme) -> Line {
                 ));
             }
             spans
+        }
+        InjectedPromptKind::Continuation { origin } => {
+            vec![Span::styled(origin.label().to_string(), dim)]
         }
     };
     header
@@ -290,7 +472,7 @@ mod tests {
             },
             body: Some("nudge".to_string()),
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60, true);
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert!(rows[0].is_empty());
         assert_eq!(flat(&rows[1]).trim_end(), " @ Heartbeat prompt - every 10m");
@@ -309,7 +491,7 @@ mod tests {
             },
             body: Some("continue".to_string()),
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60, true);
         assert_eq!(
             flat(&rows[1]).trim_end(),
             " Goal continuation - ship it today"
@@ -327,7 +509,7 @@ mod tests {
                 },
                 body: None,
             };
-            let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60);
+            let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 60, true);
             assert_eq!(flat(&rows[1]).trim_end(), format!(" {label}"));
         }
         // A long objective truncates to the TS budget with the default
@@ -343,7 +525,7 @@ mod tests {
             },
             body: None,
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 120);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 120, true);
         let rendered = flat(&rows[1]);
         let meta = rendered.trim_end();
         assert!(meta.ends_with("..."), "ellipsized meta: {meta:?}");
@@ -369,7 +551,7 @@ mod tests {
             },
             body: Some("[python-skills-unavailable]\n\n...".to_string()),
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 80);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 80, true);
         assert_eq!(rows.len(), 2, "{rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
@@ -378,7 +560,7 @@ mod tests {
         assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Muted));
         assert_eq!(rows[1][2].style, theme().fg_style(ThemeColor::Dim));
         // Expanded: no hint, the full report renders as the body.
-        let rows = render_injected_prompt(&row, Detail::All, &theme(), 80);
+        let rows = render_injected_prompt(&row, Detail::All, &theme(), 80, true);
         assert!(rows.len() > 2, "body renders expanded: {rows:?}");
         assert_eq!(
             flat(&rows[1]).trim_end(),
@@ -390,7 +572,7 @@ mod tests {
             kind: InjectedPromptKind::PythonSkillsUnavailable { skills: long },
             body: None,
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 120);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 120, true);
         let row_text = flat(&rows[1]);
         let meta = row_text.trim_end();
         let names = meta.trim_start_matches(" Python skills unavailable - ");
@@ -401,7 +583,7 @@ mod tests {
             kind: InjectedPromptKind::PythonSkillsUnavailable { skills: Vec::new() },
             body: None,
         };
-        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 80);
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 80, true);
         assert_eq!(flat(&rows[1]).trim_end(), " Python skills unavailable");
     }
 
@@ -415,10 +597,143 @@ mod tests {
                 kind: InjectedPromptKind::KernelRestored { restored },
                 body: None,
             };
-            let rows = render_injected_prompt(&row, Detail::All, &theme(), 60);
+            let rows = render_injected_prompt(&row, Detail::All, &theme(), 60, true);
             // Header only, no body even expanded.
             assert_eq!(rows.len(), 2, "{rows:?}");
             assert_eq!(flat(&rows[1]).trim_end(), format!(" * {label}"));
+        }
+    }
+
+    fn continuation(custom_type: &str, content: &str) -> InjectedPromptRow {
+        continuation_row(
+            &CustomType::parse(custom_type),
+            &UserContent::Text(content.to_string()),
+        )
+        .expect("a continuation on the allow-list")
+    }
+
+    fn texts(rows: &[Line]) -> Vec<String> {
+        rows.iter()
+            .map(|row| flat(row).trim_end().to_string())
+            .collect()
+    }
+
+    /// Every engine continuation shows as one dim row at the step column:
+    /// its label, then the body.
+    #[test]
+    fn continuations_render_one_dim_labelled_row() {
+        for (custom_type, label) in [
+            ("director_continuation", "[reminder]"),
+            ("autonomous_continuation", "[auto]"),
+            ("quota_resume", "[resume]"),
+            ("compaction_resume", "[compaction]"),
+        ] {
+            let row = continuation(custom_type, "Run the tests before you answer.");
+            for detail in [Detail::Overview, Detail::Details, Detail::All] {
+                let rows = render_injected_prompt(&row, detail, &theme(), 100, true);
+                assert_eq!(
+                    texts(&rows),
+                    vec![
+                        String::new(),
+                        format!("   {label} Run the tests before you answer.")
+                    ],
+                    "{custom_type} at {detail:?}"
+                );
+                assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Dim));
+            }
+        }
+    }
+
+    /// The default levels show the body's first line (`...` when more
+    /// follows, cut at the width); `all` shows the whole body. A
+    /// `<system-reminder>` wrapper never shows.
+    #[test]
+    fn a_continuation_shows_its_first_line_until_all() {
+        let row = continuation(
+            "director_continuation",
+            "<system-reminder>Run the tests.\n\nThen report the failures.</system-reminder>",
+        );
+        assert_eq!(
+            row.body.as_deref(),
+            Some("Run the tests.\n\nThen report the failures.")
+        );
+        let rows = render_injected_prompt(&row, Detail::Details, &theme(), 100, false);
+        assert_eq!(texts(&rows), vec!["   [reminder] Run the tests. ..."]);
+        let rows = render_injected_prompt(&row, Detail::All, &theme(), 100, false);
+        assert_eq!(
+            texts(&rows),
+            vec![
+                "   [reminder] Run the tests.",
+                "     Then report the failures."
+            ]
+        );
+        // A bracketed header line is the label's twin: the row starts past
+        // it. An enclosing tag pair never shows.
+        let row = continuation(
+            "autonomous_continuation",
+            "[autonomous-continuation]\n\nContinue until the tests pass.",
+        );
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 100, false);
+        assert_eq!(
+            texts(&rows),
+            vec!["   [auto] Continue until the tests pass."]
+        );
+        let row = continuation(
+            "quota_resume",
+            "<provider_quota_resumed>\nThe usage limit was reset.\nContinue the task.\n</provider_quota_resumed>",
+        );
+        assert_eq!(
+            row.body.as_deref(),
+            Some("The usage limit was reset.\nContinue the task.")
+        );
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 100, false);
+        assert_eq!(
+            texts(&rows),
+            vec!["   [resume] The usage limit was reset. ..."]
+        );
+        let row = continuation(
+            "director_continuation",
+            "[director: forced call to `lookup`]",
+        );
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 100, false);
+        assert_eq!(
+            texts(&rows),
+            vec!["   [reminder] [director: forced call to `lookup`]"]
+        );
+        let row = continuation("autonomous_continuation", &"word ".repeat(40));
+        let rows = render_injected_prompt(&row, Detail::Overview, &theme(), 40, false);
+        let [cut] = texts(&rows).try_into().expect("one row");
+        assert!(cut.starts_with("   [auto] word word"), "{cut:?}");
+        assert!(cut.ends_with("..."), "{cut:?}");
+        assert!(str_width(&cut) < 40, "{cut:?}");
+        let rows = render_injected_prompt(&row, Detail::All, &theme(), 40, false);
+        assert!(rows.len() > 1, "{rows:?}");
+        assert!(texts(&rows)
+            .iter()
+            .all(|row| row.starts_with("   ") && str_width(row) < 40));
+    }
+
+    /// Goal prompts, displayed injected prompts and engine bookkeeping are
+    /// off the allow-list.
+    #[test]
+    fn only_the_engine_continuations_are_on_the_allow_list() {
+        for custom_type in [
+            "goal_prompt",
+            "goal_context",
+            "heartbeat_prompt",
+            "harness_digest",
+            "refinement_notice",
+            "session_slash_command_result",
+            "eukhe.worker_recovery",
+        ] {
+            assert_eq!(
+                continuation_row(
+                    &CustomType::parse(custom_type),
+                    &UserContent::Text("body".to_string())
+                ),
+                None,
+                "{custom_type}"
+            );
         }
     }
 }
