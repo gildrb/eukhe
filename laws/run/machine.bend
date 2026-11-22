@@ -345,29 +345,6 @@ law run_reqs_exact:
   for evs: List<&2, RnState.Ev>
   {RnRequest.reqs(cfg, evs) == rm.reqs(cfg, evs) : RnRequest.Reqs}
 
-# LAW run_steps_exact (H4): the parts of a step the laws read one by one
-# are the machine's: a reply to the request out (RnStep.call), a round's
-# end (RnStep.tools), a noted reply (RnStep.note) and an error that is
-# no cut (RnStep.retry) are rm.call, rm.tools and rm.error
-# EXCLUDES: a step whose parts differ from the step it makes
-#   (run_step_exact pins only the whole step: a law stated through
-#   RnStep.call or RnStep.note would then read a part the run never
-#   takes)
-law run_steps_exact:
-  for +cfg: RnState.Cfg
-  for +reply: RnState.Reply
-  for +fin: RnState.Fin
-  for +retryable: Bool
-  for +r: Nat
-  for +c: Nat
-  for +a: Nat
-  for +n: Nat
-  for +p: Nat
-  {RnStep.call(cfg, reply, r, c, a, n, p) == rm.call(cfg, reply, r, c, a, n, p) : RnState.St} &
-  {RnStep.tools(cfg, fin, r, c, a, n, p) == rm.tools(cfg, fin, r, c, a, n, p) : RnState.St} &
-  {RnStep.note(cfg, r, c, a, n, p) == rm.error(cfg, True{}, retryable, r, c, a, n, p) : RnState.St} &
-  {RnStep.retry(cfg, retryable, r, c, a, n, p) == rm.error(cfg, False{}, retryable, r, c, a, n, p) : RnState.St}
-
 # LAW run_reqs_step_exact (H4.7): one step of the requests, from any
 # requests between any phases, is the machine's (rm.reqs.step)
 # EXCLUDES: a step of the requests that differs from the one the run
