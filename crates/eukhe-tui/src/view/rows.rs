@@ -213,12 +213,18 @@ impl AgentView {
                     !first,
                 )
             }
+            // Injected rows above one turn group: only the first leads
+            // with a blank row.
             ChatEntry::InjectedPrompt(row) => {
                 crate::custom_message::injected_prompt::render_injected_prompt(
                     row,
                     detail,
                     &self.theme,
                     width,
+                    !matches!(
+                        index.checked_sub(1).map(|above| &self.chat[above]),
+                        Some(ChatEntry::InjectedPrompt(_))
+                    ),
                 )
             }
             ChatEntry::ShellCompletion(row) => {
