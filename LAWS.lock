@@ -9,7 +9,7 @@
   "freeze": {
     "files": {
       "spec/PILLARS.md": "3317d10daa0e6665496425485996ebf2ee44cb3969fda40a4ddb930cd06f2ea9",
-      "spec/README.md": "df0c14bbce5910472df7322e1779f08153fec992a9d22ec853e8a0959c6c7d53",
+      "spec/README.md": "536da4064b705d118045b19a254cca44472cfce6749642aebf70f936b87c1ea1",
       "spec/agents/agent_crown.bend": "e1ac154d8dac832a9351faa4f42c2a836b1ca3ce53caaa4471d29c06114800c1",
       "spec/agents/agent_tree.bend": "7f36184ec0a5fc1ee14a1e6b632700851e1d76685270a3f47946dbffcd63677a",
       "spec/agents/kin.bend": "c53962121fa3b2c83d5a71328b5d37b2f8fafa9e48e554640b710661be02c9a2",
@@ -3146,6 +3146,7 @@
     "laws/run/recover.bend::rec_redirect_row_starts_at_one": "8a78349b219b5d3cee4cde51371c28a830ca5877e7d7e7d551b9d417f81b9d74",
     "laws/run/recover.bend::rec_redo_retries_with_a_note": "0af9c67070d1eb53a810bb352920c7036ed3388f582c6f56525c909619eaacb7",
     "laws/run/recover.bend::rec_repeat_ladder_ends": "650c810c5ba1e4013a83e42a9ac76127e6a51756670729bd8fd3029761918950",
+    "laws/run/recover.bend::rec_repeat_never_runs": "93be61bcf5f872e770cab48f86a5e4bc2a4a1246e52ff1a56d381edf1ebe4b6a",
     "laws/run/recover.bend::rec_repeat_redirects_then_fails": "4ba240c560fb07cc50e5424592265b6d5a9f778163f8fa6ca2401ad6deb1b78d",
     "laws/run/recover.bend::rec_repeat_runs_below_cap": "b96ed69f3a10ae62a673b8f2d2edae44ede4ff91e1f8d7f284ed9d13e2854ff2",
     "laws/run/recover.bend::rec_row_zero_is_no_note": "d1d14f9ac0e641755323829a1d90d8390587afeb782d0de931dc9fccd45c2977",
@@ -9059,6 +9060,9 @@
     "laws/run/recover.bend::notes_then_quit": "d2bd0d14880cf5586e4e7fb2a2ee2470f6e7cb9fe699b80f1eca9e485ca7e697",
     "laws/run/recover.bend::passes": "377dec24539b126b5dafe31817c497c1a61b0b027b2d1eab95c4caf268496501",
     "laws/run/recover.bend::rec_helps": "562e11856a997100411b50168789b269219f4a57625ab6ef897f441f603e8438",
+    "laws/run/recover.bend::redirects": "694038b1b6cc94b4a32c0a44a012127519add3a0c48b43a4ea0bc045e051ff76",
+    "laws/run/recover.bend::repeat_help": "763b3a77b824868c148c886229bba5581a29d728fec808969488f19619e65963",
+    "laws/run/recover.bend::repeat_help.go": "56efb3749b7694a5678d40bf270dc25b2b3f4fd526c20ef1a2e9524411ab2e7e",
     "laws/run/recover.bend::rounds": "28bf72ad7587381f80627506c16beac74e8a1cafb275c1c0796637ea439366b9",
     "laws/run/recover.bend::rounds.eq": "95a15c30785a0669e2ddb1ac226fd061e03361d4033336732d45c1697c6ec71b",
     "laws/run/recover.bend::rounds_of": "2034bd71068d14326ec7e5fd7165908a8442646fc0aa87b58df7eb421ccf56f6",

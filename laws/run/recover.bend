@@ -293,6 +293,60 @@ law rec_repeat_ladder_ends:
   {rec_helps(1n+RnRecovery.RCfg.redirect(rc), rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last})) == notes_then_quit(RnRecovery.RCfg.redirect(rc), 0n) : List<&2, RnDecision.Help>} &
   {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{RnRecovery.Loops{}, Nat.add(RnRecovery.RCfg.redirect(rc), x), same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
 
+# the redirect notes in a row the next request's note makes: its row
+# after a redirect note, else none
+def redirects(k: RnRecovery.Rk, +row: Nat) -> Nat:
+  match k:
+    case RnRecovery.Free{}:
+      0n
+    case RnRecovery.Longs{}:
+      0n
+    case RnRecovery.Leaks{}:
+      0n
+    case RnRecovery.Loops{}:
+      row
+    case RnRecovery.Empties{}:
+      0n
+
+# what calls that would make `repeat` or more rounds in a row get, after
+# n redirect notes in a row (under: n is below the redirect cap): the next
+# redirect note, the rounds in a row and the last calls' hash kept; else
+# the failed run, the record as it was
+def repeat_help.go(under: Bool, +n: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  match under:
+    case True{}:
+      RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Loops{}, 1n+n, same, last}}
+    case False{}:
+      RnRecovery.Dec{RnRecovery.Quit{}, RnRecovery.Rec{k, row, same, last}}
+
+def repeat_help(+rd: Nat, +k: RnRecovery.Rk, +row: Nat, +same: Nat, +last: Nat) -> RnRecovery.Dec:
+  repeat_help.go(Nat.is_lt(redirects(k, row), rd), redirects(k, row), k, row, same, last)
+
+# LAW rec_repeat_never_runs (H4.8): in the recoveries' model, under any
+# caps (a redirect cap of 0 included), after any note of any row (any
+# rounds in a row, any last calls' hash), calls that would make `repeat`
+# or more rounds in a row (rounds: one more than the record's when they
+# are the last round's calls, else one), rebuilt leaked calls included,
+# never run: while redirect notes are left they get the next redirect
+# note; with none left (a redirect note of row `redirect` or more, or a
+# redirect cap of 0 after any note) the run fails at once
+# EXCLUDES: a repeat run when no redirect note is left (a 5th identical
+#   round run under a redirect cap of 0, failing one round late: blind
+#   adversary RunAdv22, attack-run-20), whatever the act reads as through
+#   Help.of; a repeat redirected past the cap; a row that skips or
+#   restarts a note
+law rec_repeat_never_runs:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +rep: {Nat.is_le(RnRecovery.RCfg.repeat(rc), rounds(same, last, h)) == True{} : Bool}
+  {RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}) == repeat_help(RnRecovery.RCfg.redirect(rc), k, row, same, last) : RnRecovery.Dec} &
+  {RnRecovery.Rec.step(rc, RnRecovery.Leak{True{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == repeat_help(RnRecovery.RCfg.redirect(rc), k, row, same, last) : RnRecovery.Dec}
+
 # LAW rec_notes_keep_the_rounds (H4.8; R4 of laws/stop.bend): in the
 # recoveries' model, under any caps, after any note of any row (any
 # rounds in a row, any last calls' hash), the record a stuck reply leaves
