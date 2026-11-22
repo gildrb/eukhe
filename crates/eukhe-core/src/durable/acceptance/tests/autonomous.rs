@@ -2,10 +2,13 @@
 //! claim the checks end stops the run with its label, unless it passed
 //! and the final answer states work left.
 
+use eukhe_types::budget::BudgetLimits;
+
 use super::*;
 use crate::autonomous::{AgentAutonomousConfig, AgentAutonomousGateConfig, AutonomousStop};
 use crate::durable::autonomous::{autonomous_state, set_autonomous, AutonomousChange};
-use crate::durable::directors::{left_continuation, DIRECTOR_NOTICE_CUSTOM_TYPE};
+use crate::durable::budget::wrap_models_with_budget;
+use crate::durable::directors::{left_continuation, run_left, DIRECTOR_NOTICE_CUSTOM_TYPE};
 
 /// AU1, AU2: the commands of an autonomous run's removed gates are command
 /// checks beside the intent check; a refuted claim goes back to the worker
@@ -172,6 +175,77 @@ async fn a_passing_claim_whose_answer_states_work_left_goes_on() {
     assert_eq!(
         (run.enabled, run.continuations_used, run.last_stop),
         (true, 1, Some(AutonomousStop::Checks(label)))
+    );
+    assert_eq!(setup.faux.get_pending_response_count(), 1);
+    harness.close(cx()).await.expect("close");
+}
+
+/// AU7 and the run's report: the work a passing claim's answer states left
+/// is what the run found left of its task, and the next answer, which the
+/// used-up budget leaves unread, keeps it: the run that ends on its budget
+/// reports that work at its end.
+#[tokio::test]
+async fn a_run_that_ends_on_its_budget_reports_the_work_its_answer_left() {
+    let setup = setup();
+    wrap_models_with_budget(&setup.models, &setup.budget);
+    let (harness, root) = setup.memory().await;
+    set_autonomous(
+        &harness,
+        &setup.budget,
+        root.id(),
+        AutonomousChange::On(AgentAutonomousConfig::default()),
+        setup.cwd(),
+        cx(),
+    )
+    .await
+    .expect("autonomous on");
+    // Three model requests: the answer, the work, the next answer.
+    setup
+        .budget
+        .set(BudgetLimits {
+            requests: Some(3),
+            ..BudgetLimits::default()
+        })
+        .expect("the budget is set");
+    setup.judge.replies.lock().expect("replies").extend([
+        JudgeReply::Text("PASS\n1. a todo CLI: todo/".to_owned()),
+        JudgeReply::Text("FAIL\n- test_cli fails\n- the README".to_owned()),
+        JudgeReply::Text("PASS\n1. a todo CLI: todo/".to_owned()),
+    ]);
+    setup.faux.set_responses(vec![
+        answer("Six tests pass; test_cli fails and the README is not written."),
+        call("work", "w1"),
+        answer("test_cli is half fixed."),
+        answer("unused"),
+    ]);
+
+    run(&harness, &root, "build the todo CLI").await;
+
+    let run = autonomous_state(&harness, root.id(), cx())
+        .await
+        .expect("the run reads");
+    assert_eq!(
+        (
+            user_origins(&entries(&root).await),
+            judge_requests(&setup)
+                .iter()
+                .filter(|request| request.question == JudgeQuestion::Report)
+                .count(),
+            setup
+                .budget
+                .report()
+                .and_then(|report| report.short)
+                .is_some(),
+            run.continuations_used,
+            run_left(&harness, &root, cx()).await.expect("read"),
+        ),
+        (
+            vec![InputOrigin::User, InputOrigin::Director],
+            1,
+            true,
+            1,
+            Some(vec!["test_cli fails".to_owned(), "the README".to_owned()]),
+        )
     );
     assert_eq!(setup.faux.get_pending_response_count(), 1);
     harness.close(cx()).await.expect("close");

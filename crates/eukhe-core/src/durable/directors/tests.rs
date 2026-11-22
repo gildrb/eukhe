@@ -93,6 +93,7 @@ async fn the_global_budget_hands_back_whatever_the_layers_say() {
                 end: Some(End::Hand),
             }),
             work_left: None,
+            found_left: None,
         }
     );
     // The continuation the global budget refused was not charged.
@@ -129,6 +130,7 @@ fn spent(state: &DirectorState) -> DirectorState {
             end: Some(End::Hand),
         }),
         work_left: None,
+        found_left: None,
     }
 }
 
@@ -252,6 +254,7 @@ async fn a_forced_tool_layer_forces_the_requests_until_the_model_calls_it() {
                 end: Some(End::Hand),
             }),
             work_left: None,
+            found_left: None,
         }
     );
     harness.close(cx()).await.expect("close");
@@ -356,6 +359,7 @@ async fn a_reminder_waits_on_the_stack_until_a_continuation_comes() {
                 end: Some(End::Hand),
             }),
             work_left: None,
+            found_left: None,
         }
     );
 
@@ -487,6 +491,7 @@ async fn a_reopen_reads_the_stack_back_and_a_fork_restores_the_stack_of_its_entr
                 end: None,
             }),
             work_left: None,
+            found_left: None,
         }
     );
     let at_input = root
@@ -601,6 +606,7 @@ fn a_stack_with_the_removed_goal_layer_migrates_without_it() {
                 end: None,
             }),
             work_left: None,
+            found_left: None,
         }
     );
 }

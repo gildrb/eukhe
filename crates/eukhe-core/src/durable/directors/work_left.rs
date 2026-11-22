@@ -43,11 +43,11 @@ use super::{
     director_state, DirectorLimits, DirectorState, RunLoop, DIRECTORS_DOC,
     DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
-use crate::autonomous::{no_progress_reason, now_millis, AutonomousStop, SessionBudget};
+use crate::autonomous::{now_millis, SessionBudget};
 use crate::durable::acceptance::{read_final_answer, AnswerReading, Judge};
 use crate::durable::autonomous::{
     budget_report, conversation_of, open_doc, read_doc, user_input_queued, write_doc,
-    AUTONOMOUS_DOC, LOOP_DOC,
+    AUTONOMOUS_DOC,
 };
 use crate::durable::budget::BudgetGate;
 use crate::durable::children::{has_unsettled_children, WorkLedger};
@@ -84,14 +84,23 @@ pub struct WorkLeftRecord {
     /// counted them.
     pub stalls: u64,
     pub outcome: WorkLeftOutcome,
-    /// What the run last found left of its task, for its report: the items
-    /// of its latest reading of work left (an answer of the same run that
-    /// stands unread keeps them), or why it stopped for want of progress;
-    /// empty when nothing is left.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub left: Vec<String>,
+}
+
+/// What the conversation's last run found left of its task, for its
+/// report (`eukhe.directors`): each final answer the autonomous run's step
+/// or the work-left Director decides rewrites it ([`found_left`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundLeft {
+    /// The first input of the run: a later answer of the same run that
+    /// stands unread keeps `items`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<SubmissionId>,
+    /// The items of the run's latest reading of work left, or why it
+    /// stopped for want of progress; never empty.
+    pub items: Vec<String>,
     /// The conversation's newest input entry at the decision: a newer one
-    /// starts another run, which `left` does not tell of.
+    /// starts another run, which `items` does not tell of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub newest_input: Option<EntryId>,
 }
@@ -176,14 +185,12 @@ pub(crate) fn work_left_hook(host: WorkLeftHost) -> HookRegistration {
 }
 
 /// The facts the step reads, with the progress check's count and the
-/// work it compared, and the continuations in a row without new work after
-/// which the autonomous run stopped at this answer.
+/// work it compared.
 #[derive(Debug, Clone, Copy)]
 struct Gathered {
     facts: Facts,
     work: u64,
     stalls: u64,
-    autonomous_stop: Option<u64>,
 }
 
 impl WorkLeftHost {
@@ -224,7 +231,12 @@ impl WorkLeftHost {
                 }
                 step @ (Step::Continue { .. } | Step::Yield) => (step, Reading::Unread, Vec::new()),
             };
-        let left = found_left(state.work_left.as_ref(), input, gathered, reading, &items);
+        let no_progress = match gathered.facts.progress {
+            Progress::Stop { stalls } => Some(format!(
+                "no progress: {stalls} continuations in a row made no tool call with a new result"
+            )),
+            Progress::Go { .. } => None,
+        };
         let newest_input = newest_input(&conversation, cx).await?;
         conversation
             .commit(
@@ -257,9 +269,15 @@ impl WorkLeftHost {
                         work: gathered.work,
                         stalls: gathered.stalls,
                         outcome: outcome.clone(),
-                        left,
-                        newest_input,
                     });
+                    state.found_left = found_left(
+                        state.found_left.as_ref(),
+                        input,
+                        no_progress,
+                        reading,
+                        &items,
+                        newest_input,
+                    );
                     write_doc(&draft, &state)?;
                     Ok(outcome.continuation())
                 },
@@ -280,19 +298,9 @@ impl WorkLeftHost {
     ) -> SessionResult<Gathered> {
         let conversation_id = api.conversation_id();
         let limits = (self.limits)();
-        let autonomous = read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx).await?;
-        // The autonomous run stopped for want of progress at this answer:
-        // its stop and its progress check are of this run.
-        let autonomous_stop = match autonomous.as_ref().and_then(|state| state.last_stop) {
-            Some(AutonomousStop::NoProgress { stalls }) => {
-                read_doc(api, &LOOP_DOC, conversation_id, cx)
-                    .await?
-                    .and_then(|state| state.progress)
-                    .filter(|progress| progress.input == input && progress.stalls == stalls)
-                    .map(|_| stalls)
-            }
-            Some(AutonomousStop::Checks(_) | AutonomousStop::Budget) | None => None,
-        };
+        let autonomous = read_doc(api, &AUTONOMOUS_DOC, conversation_id, cx)
+            .await?
+            .is_some_and(|state| state.enabled);
         let looping = read_doc(api, &LOOP_MODE_DOC, conversation_id, cx)
             .await?
             .is_some_and(|doc| doc.state.phase.is_on());
@@ -323,7 +331,7 @@ impl WorkLeftHost {
             .map_or(limits.max_steps, |run| run.left);
         Ok(Gathered {
             facts: Facts {
-                driven: autonomous.is_some_and(|state| state.enabled) || looping,
+                driven: autonomous || looping,
                 queued,
                 acted,
                 funded,
@@ -333,7 +341,6 @@ impl WorkLeftHost {
             },
             work,
             stalls,
-            autonomous_stop,
         })
     }
 }
@@ -362,39 +369,43 @@ pub(crate) async fn judge_answer(
     }
 }
 
-/// What the run has found left of its task once an answer is decided:
-/// why it stopped for want of progress (the autonomous run's stop, or the
-/// work-left chain's), else the items of the judge's reading of work left.
-/// A reading of no work left, or no verdict, clears it; an answer that
-/// stands unread keeps what the run's last decision found.
-fn found_left(
-    last: Option<&WorkLeftRecord>,
+/// What the run whose first input is `input` has found left of its task
+/// once a Director decided its answer, from `last`, what the conversation's
+/// last decision found: `stop`, why the run stopped for want of progress,
+/// else the items of the judge's reading of work left. A reading of no
+/// work left, or no verdict, clears it, and so does another run; an answer
+/// that stands unread keeps what the run last found. `None`: nothing is
+/// left. `newest_input` is the conversation's newest input entry now.
+pub(crate) fn found_left(
+    last: Option<&FoundLeft>,
     input: Option<SubmissionId>,
-    gathered: Gathered,
+    stop: Option<String>,
     reading: Reading,
     items: &[String],
-) -> Vec<String> {
-    if let Some(stalls) = gathered.autonomous_stop {
-        return vec![no_progress_reason(stalls)];
-    }
-    if let Progress::Stop { stalls } = gathered.facts.progress {
-        return vec![format!(
-            "no progress: {stalls} continuations in a row made no tool call with a new result"
-        )];
-    }
-    match reading {
-        Reading::Left => items.to_vec(),
-        Reading::Finished | Reading::Unjudged => Vec::new(),
-        Reading::Unread => last
-            .filter(|record| record.input == input)
-            .map(|record| record.left.clone())
+    newest_input: Option<EntryId>,
+) -> Option<FoundLeft> {
+    let items = match (stop, reading) {
+        (Some(stop), _) => vec![stop],
+        (None, Reading::Left) => items.to_vec(),
+        (None, Reading::Finished | Reading::Unjudged) => Vec::new(),
+        (None, Reading::Unread) => last
+            .filter(|last| last.input == input)
+            .map(|last| last.items.clone())
             .unwrap_or_default(),
-    }
+    };
+    (!items.is_empty()).then_some(FoundLeft {
+        input,
+        items,
+        newest_input,
+    })
 }
 
 /// The conversation's newest input entry (a user entry, whatever its
 /// origin): each run starts with one.
-async fn newest_input(conversation: &Conversation, cx: &Context) -> SessionResult<Option<EntryId>> {
+pub(crate) async fn newest_input(
+    conversation: &Conversation,
+    cx: &Context,
+) -> SessionResult<Option<EntryId>> {
     let mut cursor = None;
     loop {
         let page = conversation
@@ -415,8 +426,8 @@ async fn newest_input(conversation: &Conversation, cx: &Context) -> SessionResul
 }
 
 /// What the conversation's last run found left of its task, for its
-/// report ([`WorkLeftRecord::left`]): `None` when nothing is left, and once
-/// another run started (an input entry newer than the last decision's).
+/// report ([`FoundLeft`]): `None` when nothing is left, and once another
+/// run started (an input entry newer than the last decision's).
 ///
 /// # Errors
 ///
@@ -426,14 +437,14 @@ pub async fn run_left(
     conversation: &Conversation,
     cx: &Context,
 ) -> SessionResult<Option<Vec<String>>> {
-    let Some(record) = director_state(harness, conversation.id(), cx)
+    let Some(found) = director_state(harness, conversation.id(), cx)
         .await?
-        .work_left
-        .filter(|record| !record.left.is_empty() && record.newest_input.is_some())
+        .found_left
+        .filter(|found| found.newest_input.is_some())
     else {
         return Ok(None);
     };
-    Ok((newest_input(conversation, cx).await? == record.newest_input).then_some(record.left))
+    Ok((newest_input(conversation, cx).await? == found.newest_input).then_some(found.items))
 }
 
 /// The text of a final answer, when it has any.

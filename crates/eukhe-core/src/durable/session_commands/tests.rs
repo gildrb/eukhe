@@ -675,6 +675,7 @@ async fn remind_and_force_put_their_layers_on_the_director_stack() {
             ],
             run: None,
             work_left: None,
+            found_left: None,
         }
     );
     fixture.close().await;

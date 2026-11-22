@@ -423,8 +423,8 @@ async fn the_chain_ends_after_stall_steps_continuations_without_new_work() {
 /// The run's report tells what the run last found left: an answer read as
 /// leaving work continues the run, and the next one, with the Director
 /// loop out of steps, stands unread and keeps the items. The next run
-/// clears them as it starts. A record written before the run's report
-/// kept them still decodes and tells nothing.
+/// clears them as it starts. A Director state written before the run's
+/// report kept them still decodes and tells nothing.
 #[tokio::test]
 async fn the_report_keeps_what_the_run_last_found_left_until_the_next_run() {
     let WorkLeftSetup { setup, judge, .. } =
@@ -461,15 +461,14 @@ async fn the_report_keeps_what_the_run_last_found_left_until_the_next_run() {
     let mut old = serde_json::to_value(
         director_state(&harness, root.id(), cx())
             .await
-            .expect("read")
-            .work_left
-            .expect("a decision"),
+            .expect("read"),
     )
     .expect("json");
-    let fields = old.as_object_mut().expect("an object");
-    fields.remove("left");
-    fields.remove("newestInput");
-    let old: super::WorkLeftRecord = serde_json::from_value(old).expect("an old record decodes");
+    old.as_object_mut()
+        .expect("an object")
+        .remove("foundLeft")
+        .expect("what the run found left");
+    let old: super::DirectorState = serde_json::from_value(old).expect("an old state decodes");
     submit(&root, "thanks").await;
     harness.wait_for_idle(cx()).await.expect("idle");
     let during = during
@@ -482,14 +481,14 @@ async fn the_report_keeps_what_the_run_last_found_left_until_the_next_run() {
             after_run,
             during,
             run_left(&harness, &root, cx()).await.expect("read"),
-            (old.left, old.newest_input),
+            old.found_left,
             judge.asked().len(),
         ),
         (
             Some(vec!["step 2: migrate the callers".to_owned()]),
             Some(None),
             None,
-            (Vec::new(), None),
+            None,
             1,
         )
     );

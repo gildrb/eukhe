@@ -41,7 +41,7 @@ use eukhe_durable::harness::types::{
 };
 use eukhe_durable::harness::{Conversation, ForcedToolError, GENERATION_TASK, LIVE_DOC};
 use eukhe_durable::session::{SessionError, SessionResult};
-use eukhe_durable::types::{EntryDraft, SubmissionId, TaskId};
+use eukhe_durable::types::{EntryDraft, EntryId, SubmissionId, TaskId};
 use eukhe_types::custom_type::OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE;
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, StopReason, UserContent};
@@ -57,9 +57,9 @@ use crate::autonomous::{no_progress_reason, now_millis, AutonomousStop, SessionB
 use crate::durable::acceptance::{checks_at, AnswerChecks};
 use crate::durable::children::has_unsettled_children;
 use crate::durable::directors::{
-    compared, judge_answer, left_continuation, left_notice, read_work, stall_check, DirectorLimits,
-    DirectorState, End, Last, Layer, LayerKind, Loop, RunLoop, Stall, Verdict, DIRECTORS_DOC,
-    DIRECTOR_NOTICE_CUSTOM_TYPE,
+    compared, found_left, judge_answer, left_continuation, left_notice, newest_input, read_work,
+    stall_check, DirectorLimits, DirectorState, End, Last, Layer, LayerKind, Loop, RunLoop, Stall,
+    Verdict, DIRECTORS_DOC, DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::entries::custom_entry_draft;
 use crate::durable::workflow::unsettled_runs;
@@ -190,6 +190,7 @@ impl AutonomousHost {
         let (reading, left) = self
             .read_passing_claim(answer, autonomous.as_ref(), checks, budget, api, cx)
             .await?;
+        let newest_input = newest_input(&conversation, cx).await?;
         let Step {
             continuation,
             abort,
@@ -207,6 +208,7 @@ impl AutonomousHost {
                 },
                 limits,
                 work,
+                newest_input,
                 session: SessionTerms { budget },
             },
             cx,
@@ -635,6 +637,8 @@ struct StepInput {
     limits: DirectorLimits,
     /// The session's work now (`WorkLedger::count`).
     work: u64,
+    /// The conversation's newest input entry now.
+    newest_input: Option<EntryId>,
     /// The session's budget at the step.
     session: SessionTerms,
 }
@@ -648,9 +652,10 @@ struct Step {
 }
 
 /// One step of the loop in one commit: judge the stack on the committed
-/// state, tick the loop, and write the stack, the autonomous changes, the
-/// run's progress check (and the notice of a run it ended), and the
-/// decision for `task_id` (a rerun repeats it).
+/// state, tick the loop, and write the stack, what the run found left of
+/// its task, the autonomous changes, the run's progress check (and the
+/// notice of a run it ended), and the decision for `task_id` (a rerun
+/// repeats it).
 #[tracing::instrument(skip_all)]
 async fn commit_step(
     conversation: &Conversation,
@@ -668,6 +673,7 @@ async fn commit_step(
                     answer,
                     limits,
                     work,
+                    newest_input,
                     session,
                 } = step;
                 let now = now_millis();
@@ -712,6 +718,20 @@ async fn commit_step(
                     left: ticked.left,
                     end: ticked.end,
                 });
+                // What the run found left: the work the judge read in its
+                // answer, or why the progress check ended it.
+                let no_progress = match pass.stall {
+                    Some(Stall::Stop { stalls }) => Some(no_progress_reason(stalls)),
+                    Some(Stall::Go { .. } | Stall::Steer { .. }) | None => None,
+                };
+                state.found_left = found_left(
+                    state.found_left.as_ref(),
+                    input,
+                    no_progress,
+                    answer.reading,
+                    &answer.left,
+                    newest_input,
+                );
                 write_doc(&directors_draft, &state)?;
                 if let (Some(stopped), Some((draft, _))) = (pass.autonomous_stopped, &autonomous) {
                     write_doc(draft, &stopped)?;

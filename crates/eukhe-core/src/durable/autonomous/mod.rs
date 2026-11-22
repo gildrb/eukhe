@@ -25,7 +25,7 @@ use eukhe_durable::harness::define::define_extension;
 use eukhe_durable::harness::types::{Extension, HookRegistration};
 
 pub use docs::AUTONOMOUS_DOC;
-pub(crate) use docs::{open_doc, read_doc, write_doc, LOOP_DOC};
+pub(crate) use docs::{open_doc, read_doc, write_doc};
 pub use ops::budget_report;
 pub(crate) use ops::{conversation_of, user_input_queued};
 pub(crate) use run::set_internal_autonomous;

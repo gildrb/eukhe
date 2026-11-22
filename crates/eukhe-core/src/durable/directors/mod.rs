@@ -11,7 +11,8 @@
 //! `on_yield` hook runs the steps (`autonomous/hooks.rs`); after it, the
 //! work-left Director's extension (`work_left.rs`) continues a run whose
 //! final answer leaves task work undone, and records its decision in the
-//! same document.
+//! same document. The autonomous run's step and the work-left Director
+//! both record there what the run found left of its task, for its report.
 
 mod pending;
 mod progress;
@@ -38,9 +39,12 @@ pub(crate) use pending::pending_work_hook;
 pub(crate) use progress::{compared, stall_check, Last, Stall};
 pub use stack::{End, Layer, LayerKind, Loop, Verdict};
 pub use work_left::{
-    extension as work_left_extension, run_left, tool_acted, WorkLeftOutcome, WorkLeftRecord,
+    extension as work_left_extension, run_left, tool_acted, FoundLeft, WorkLeftOutcome,
+    WorkLeftRecord,
 };
-pub(crate) use work_left::{judge_answer, left_continuation, left_notice, read_work};
+pub(crate) use work_left::{
+    found_left, judge_answer, left_continuation, left_notice, newest_input, read_work,
+};
 
 use super::autonomous::{conversation_of, open_doc, read_doc, write_doc};
 use crate::settings::Settings;
@@ -114,7 +118,8 @@ pub static DIRECTORS_DOC: RewindableConversationDoc<DirectorState> =
     };
 
 /// `eukhe.directors`: the stack (bottom first), the loop of the
-/// conversation's last run, and the work-left Director's last decision.
+/// conversation's last run, the work-left Director's last decision, and
+/// what the last run found left of its task.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectorState {
@@ -124,6 +129,8 @@ pub struct DirectorState {
     pub run: Option<RunLoop>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_left: Option<WorkLeftRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found_left: Option<FoundLeft>,
 }
 
 /// The loop of one run: the run's first input, the steps left, and how it
