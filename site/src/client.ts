@@ -210,6 +210,20 @@ function setVar(name: string, value: number) {
   if (term.style.getPropertyValue(name) !== next) term.style.setProperty(name, next);
 }
 
+/** The tab's title: the file or folder on screen, as the page's own title names it. */
+function tabTitle(tgt: Frame["tgt"]): string {
+  switch (tgt.$) {
+    case "File":
+      return `${files[tgt.i]?.path ?? ""} | Eukhe`;
+    case "Dir":
+      return `/${tgt.path} | Eukhe`;
+    default: {
+      const _: never = tgt;
+      throw new Error(`unknown target ${JSON.stringify(_)}`);
+    }
+  }
+}
+
 /** The cells left of the page's text: the sign column (2), the number column (4), one to spare. */
 const pageGutter = 7;
 
@@ -262,6 +276,8 @@ function paint(frame: Frame) {
   if (statusLeft.textContent !== left) statusLeft.textContent = left;
   if (statusRight.textContent !== right) statusRight.textContent = right;
   if (cmdline.textContent !== frame.cmd) cmdline.textContent = frame.cmd;
+  const title = tabTitle(tgt);
+  if (document.title !== title) document.title = title;
   show(floatLayer, floatRows(frame));
   if (frame.float.$ === "Some") {
     const float = frame.float.value;
