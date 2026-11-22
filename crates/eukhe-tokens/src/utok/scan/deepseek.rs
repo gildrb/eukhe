@@ -204,16 +204,20 @@ mod tests {
         out
     }
 
+    /// The fancy-regex oracle, compiled once: in an unoptimized test build
+    /// compiling the three stages costs far more than splitting one string,
+    /// and the random-text test checks 3200 strings.
+    static ORACLE: std::sync::LazyLock<crate::utok::pretoken::Splitter> =
+        std::sync::LazyLock::new(|| {
+            crate::utok::pretoken::Splitter::new(&[
+                crate::utok::tables::DEEPSEEK_STAGE_DIGITS,
+                crate::utok::tables::DEEPSEEK_STAGE_CJK,
+                crate::utok::tables::DEEPSEEK_STAGE_MAIN,
+            ])
+        });
+
     fn regex_pieces(text: &str) -> Vec<String> {
-        crate::utok::pretoken::Splitter::new(&[
-            crate::utok::tables::DEEPSEEK_STAGE_DIGITS,
-            crate::utok::tables::DEEPSEEK_STAGE_CJK,
-            crate::utok::tables::DEEPSEEK_STAGE_MAIN,
-        ])
-        .split(text)
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
+        ORACLE.split(text).into_iter().map(str::to_owned).collect()
     }
 
     fn check(text: &str) {
