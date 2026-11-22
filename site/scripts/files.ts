@@ -7,10 +7,13 @@
  * The files are the repository's tracked files (`git ls-files`), as they are in the work tree.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 
 import type { SourceFile } from "../src/render.tsx";
+import type { Shown } from "../src/rendered.ts";
 
 /** The repository's tracked files, outside site/ (the site never serves itself). */
 function tracked(repository: string): Set<string> {
@@ -88,9 +91,31 @@ export function imageSize(image: Image): readonly [number, number] {
   throw new Error(`${image.path}: not a GIF or a PNG`);
 }
 
-/** The images' sizes by the path the README names them by. */
-export function sizes(shown: readonly Image[]): Record<string, readonly [number, number]> {
-  return Object.fromEntries(shown.map((image) => [image.path, imageSize(image)]));
+/**
+ * Where the site serves an image: beside its source, as WebP, named by the source's content, so a
+ * changed image is a new file and each file can be cached for good.
+ */
+export function servedPath(image: Image): string {
+  const hash = createHash("sha256").update(image.bytes).digest("hex").slice(0, 12);
+  return `${image.path.replace(/\.[^./]+$/, "")}.${hash}.webp`;
+}
+
+/** An image as lossless (animated) WebP: every frame, delay and loop of its source, in fewer bytes. */
+export function webp(image: Image): Promise<Buffer> {
+  // The README's own tracked images: an animation's frames together pass sharp's pixel limit.
+  return sharp(image.bytes, { animated: true, limitInputPixels: false })
+    .webp({ lossless: true, effort: 6 })
+    .toBuffer();
+}
+
+/** The images as served, by the path the README names them by. */
+export function shown(read: readonly Image[]): Shown {
+  return Object.fromEntries(
+    read.map((image) => {
+      const [width, height] = imageSize(image);
+      return [image.path, { src: `/${servedPath(image)}`, width, height }];
+    }),
+  );
 }
 
 /** The README's reach but the README itself, in path order; `root` is the site's directory. */

@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentChildren } from "preact";
-import { greekLine } from "./paint.ts";
-import { type Placement, repository, type Sizes } from "./rendered.ts";
+import { escape, greekLine } from "./paint.ts";
+import { type Placement, repository, served, type Shown } from "./rendered.ts";
 import { colors, type } from "./tokens.stylex.ts";
 
 /**
@@ -255,25 +255,27 @@ function greek(text: string): Readonly<Record<string, string>> {
  * The page: one block per row group, each wrapping at the screen's width; list items and quotes
  * hang their marker. Each fence that opens commands gets a copy button for them.
  */
-function body(entries: readonly Entry[]): ComponentChildren[] {
+function body(entries: readonly Entry[], shown: Shown): ComponentChildren[] {
   const fenced = fences(entries);
+  let images = 0;
   return toBlocks(entries).map((block) => {
     switch (block.$) {
       case "Blank":
         return <span {...stylex.props(styles.row)}> </span>;
       case "Para": {
         // The README's own HTML (a centred image and its caption), rendered: the README is this
-        // repository's, read at build time; its relative image paths are the site's, and each image
-        // links the source.
+        // repository's, read at build time; its images are the files the site serves for them, and
+        // each image links the source.
         const html = /^<p\b[^>]*>(.*)<\/p>$/.exec(block.text)?.[1];
         if (html !== undefined)
           return (
             <span
               {...stylex.props(styles.row, styles.figure)}
               dangerouslySetInnerHTML={{
-                __html: html
-                  .replaceAll(/\bsrc="(?![a-z]+:|\/)/g, 'src="/')
-                  .replaceAll(/<img\b[^>]*>/g, (img) => `<a href="${repository}">${img}</a>`),
+                __html: html.replaceAll(/<img\b[^>]*>/g, (img) => {
+                  images += 1;
+                  return `<a href="${repository}">${figure(img, shown, images === 1)}</a>`;
+                }),
               }}
             />
           );
@@ -345,8 +347,8 @@ export type EditorFile = {
   runs: Run[][];
   copies: Copy[];
   images: Placement[];
-  /** The home page: its Markdown and its images' sizes, to render again at a narrower width. */
-  page: { source: string; sizes: Sizes; width: number; linkHome: boolean } | null;
+  /** The home page: its Markdown and its images as served, to render again at a narrower width. */
+  page: { source: string; shown: Shown; width: number; linkHome: boolean } | null;
 };
 
 /** Code points in a string: the editor's columns. */
@@ -466,12 +468,32 @@ export function editorFile(
   };
 }
 
+/**
+ * A README `<img>` as the page shows it: the served file, its width and height, and the page's
+ * first image fetched first (its largest paint), the others when they come near.
+ */
+function figure(img: string, shown: Shown, first: boolean): string {
+  const attr = (name: string) => new RegExp(`\\b${name}="([^"]*)"`).exec(img)?.[1];
+  const width = Number(attr("width") ?? "640");
+  const file = served(attr("src") ?? "", width, shown);
+  const alt = attr("alt") ?? "";
+  return `<img src="${escape(file.src)}" alt="${alt}" width="${width}" height="${file.height}" ${first ? 'fetchpriority="high"' : 'loading="lazy"'}>`;
+}
+
 /** The page (and the 404 page) as Markdown, for phones and browsers without the script. */
-export function Markdown({ source, linkHome }: { source: string; linkHome: boolean }) {
+export function Markdown({
+  source,
+  linkHome,
+  shown,
+}: {
+  source: string;
+  linkHome: boolean;
+  shown: Shown;
+}) {
   const entries = classify(source.replace(/\n$/, ""), false, linkHome);
   return (
     <pre {...stylex.props(styles.pre)}>
-      <code {...stylex.props(styles.code)}>{body(entries)}</code>
+      <code {...stylex.props(styles.code)}>{body(entries, shown)}</code>
     </pre>
   );
 }
