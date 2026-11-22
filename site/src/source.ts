@@ -27,6 +27,23 @@ function titleLine(lines: readonly string[]): number {
   });
 }
 
+/** The README's definition: the first sentence of the first paragraph under its title. */
+function definitionOf(lines: readonly string[]): string {
+  const title = titleLine(lines);
+  if (title === -1) throw new Error("README.md has no `# ` heading");
+  const rest = lines.slice(title + 1);
+  const start = rest.findIndex((line) => line.trim() !== "");
+  if (start === -1) throw new Error("README.md has no paragraph under its title");
+  const after = rest.slice(start);
+  const end = after.findIndex((line) => line.trim() === "");
+  const paragraph = (end === -1 ? after : after.slice(0, end)).map((l) => l.trim()).join(" ");
+  const sentence = /^.+?\.(?=\s|$)/.exec(paragraph)?.[0];
+  if (sentence === undefined) throw new Error("README.md's first paragraph has no sentence");
+  return sentence;
+}
+
+export const definition = definitionOf(readme.split("\n"));
+
 /**
  * The README, each epigraph's quote under its heading; the README's own lines stay as they are. The
  * title epigraph goes under the README's first level-1 heading, whatever its text; any other

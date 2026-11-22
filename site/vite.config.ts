@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import stylexVite from "@stylexjs/unplugin/vite";
 import { defineConfig, type Plugin } from "vite-plus";
-import { gather, images, servedPath, shown, webp } from "./scripts/files.ts";
+import { gather, images, servedPath, shown } from "./scripts/files.ts";
 import type * as RenderModule from "./src/render.tsx";
 
 type Render = typeof RenderModule;
@@ -67,8 +67,8 @@ const site: Plugin = {
             // The README's images, read again on every request, as its linked files are.
             const image = read.find((file) => servedPath(file) === name);
             if (image === undefined) return next();
-            response.setHeader("Content-Type", "image/webp");
-            return response.end(await webp(image));
+            response.setHeader("Content-Type", contentType(name));
+            return response.end(image.bytes);
           }
           const html = name.endsWith(".html");
           response.setHeader("Content-Type", html ? "text/html" : contentType(name));
@@ -83,6 +83,7 @@ function contentType(name: string): string {
   if (name.endsWith(".svg")) return "image/svg+xml";
   if (name.endsWith(".gif")) return "image/gif";
   if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
   if (name.endsWith(".xml")) return "application/xml";
   if (name.endsWith(".md")) return "text/markdown; charset=utf-8";
   return "text/plain; charset=utf-8";
@@ -154,12 +155,7 @@ export default defineConfig({
         throw new Error(`README images clash with the site's files: ${taken.join(", ")}`);
       const out: [string, string | Buffer][] = [
         ...Object.entries(pages),
-        ...(await Promise.all(
-          read.map(async (image): Promise<[string, Buffer]> => [
-            servedPath(image),
-            await webp(image),
-          ]),
-        )),
+        ...read.map((image): [string, Buffer] => [servedPath(image), image.bytes]),
       ];
       await Promise.all(
         out.map(async ([file, body]) => {

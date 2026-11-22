@@ -6,15 +6,15 @@ import about from "./content/about.md?raw";
 import contact from "./content/contact.md?raw";
 import privacy from "./content/privacy.md?raw";
 import { desktop, imagesHtml, pageFile, type Shown, textWidth } from "./rendered.ts";
-import { install, notFound, source } from "./source.ts";
+import { definition, install, notFound, source } from "./source.ts";
 import { colors, palette, type } from "./tokens.stylex.ts";
 import Vim, { type BendList, type Buf } from "./vim.mjs";
 
 export const origin = "https://eukhe.com";
 
 const name = "Eukhe";
-const summary =
-  "A harness and embeddable core for agents that work toward a goal, within limits, until checks pass";
+/** The title a shared link to the home page shows. */
+const sharedTitle = "Eukhe Harness";
 const author = { name: "Gil Rodrigues", url: "https://gildrb.com", email: "g@gildrb.com" };
 
 /** A page of the site: where it is, its title and description, and its Markdown. */
@@ -23,7 +23,7 @@ type Doc = { path: string; title: string; description: string; markdown: string 
 const home: Doc = {
   path: "/",
   title: "index.md | Eukhe",
-  description: `${summary}. ${install}`,
+  description: definition,
   markdown: source,
 };
 
@@ -65,14 +65,13 @@ const structured = JSON.stringify({
       "@id": `${origin}/#app`,
       name,
       url: `${origin}/`,
-      description: summary,
+      description: definition,
       applicationCategory: "DeveloperApplication",
       operatingSystem: "macOS, Linux",
       license: "https://opensource.org/licenses/MIT",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       installUrl: `${origin}/install`,
       sameAs: ["https://github.com/gildrb/eukhe"],
-      image: `${origin}/og.png`,
       author: { "@id": `${author.url}/#person` },
       publisher: { "@id": `${origin}/#org` },
     },
@@ -81,7 +80,6 @@ const structured = JSON.stringify({
       "@id": `${origin}/#org`,
       name,
       url: `${origin}/`,
-      logo: `${origin}/og.png`,
       founder: { "@id": `${author.url}/#person` },
       contactPoint: {
         "@type": "ContactPoint",
@@ -268,14 +266,10 @@ function Page({
         <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content={name} />
-        <meta property="og:title" content={doc.title} />
+        <meta property="og:title" content={doc === home ? sharedTitle : doc.title} />
         <meta property="og:description" content={doc.description} />
         <meta property="og:url" content={url} />
-        <meta property="og:image" content={`${origin}/og.png`} />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="eukhe.com: the page as a Neovim terminal" />
-        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:card" content="summary" />
         <link
           rel="preload"
           href={fonts[0]?.file}
@@ -333,7 +327,7 @@ function Page({
 /** llms.txt: what Eukhe is, the wish, its laws, SDK and components, how to install it, then the whole page. */
 const llms = `# Eukhe
 
-> ${summary}
+> ${definition}
 
 ## What it is
 

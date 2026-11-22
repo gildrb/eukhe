@@ -1,6 +1,6 @@
 # Eukhe
 
-Eukhe is an agent harness that works a task with no person watching and gives a report at the end. The name is εὐχή, Greek for wish.
+Eukhe is an agent harness that works a task with no person watching, counts it done only when the user's checks pass on the final code, and gives a report at the end. The name is εὐχή, Greek for wish.
 
 > διὸ δὴ καὶ ὄκνος τις αὐτῶν ἅπτεσθαι, μὴ εὐχὴ δοκῇ εἶναι ὁ λόγος,
 > ὦ φίλε ἑταῖρε.
