@@ -3,9 +3,11 @@
 //! sockets bind/connect through it without touching the supervisor or
 //! worker loops).
 
+mod allocator;
 mod executable;
 mod paths;
 
+pub use allocator::set_allocator_options;
 pub(crate) use executable::worker_image;
 
 #[cfg(test)]
