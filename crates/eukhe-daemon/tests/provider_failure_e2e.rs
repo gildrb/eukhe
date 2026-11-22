@@ -485,6 +485,16 @@ fn event_types(events: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// The end of the episode's `provider_retry_outcome` row pair. The row can
+/// trail the turn's `agent_end`, so the prompt's response and a quiet
+/// socket after it can both come before it: a test that reads the row
+/// waits for this event first.
+fn is_retry_outcome_end(event: &Value) -> bool {
+    event.get("type").and_then(Value::as_str) == Some("message_end")
+        && event["message"]["role"] == "custom"
+        && event["message"]["customType"] == "provider_retry_outcome"
+}
+
 #[test]
 fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
     let (_dir, mock, _supervisor, mut client, session_id) = setup("failing", 5, "never reached");
@@ -494,6 +504,7 @@ fn provider_failure_is_retried_then_surfaced_to_attached_clients() {
     );
     let done = client.request("p1");
     assert_eq!(done["success"], false, "prompt must fail: {done}");
+    client.wait_for_event("the episode's outcome row", is_retry_outcome_end);
     client.drain_events(Duration::from_secs(1));
 
     // The retry policy applied: one initial request plus two retries.
@@ -667,6 +678,7 @@ fn storm_429_caps_requests_and_leaves_one_outcome_row() {
     );
     let done = client.request("p1");
     assert_eq!(done["success"], true, "prompt must recover: {done}");
+    client.wait_for_event("the episode's outcome row", is_retry_outcome_end);
     client.drain_events(Duration::from_secs(1));
 
     // The request cap: one initial request + maxRetries (2) retries. A
@@ -784,6 +796,7 @@ fn payment_402_settles_once_with_the_disclosure() {
     );
     let done = client.request("p1");
     assert_eq!(done["success"], false, "prompt must fail: {done}");
+    client.wait_for_event("the episode's outcome row", is_retry_outcome_end);
     client.drain_events(Duration::from_secs(1));
 
     // The 402 is permanent on the first attempt: exactly ONE provider
