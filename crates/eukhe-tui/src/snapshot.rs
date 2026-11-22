@@ -175,7 +175,7 @@ fn tool_result_message_view(message: &AgentMessage) -> Option<ToolResultReplay> 
                 .iter()
                 .map(crate::tool_card::content_block_value)
                 .collect(),
-            details: result.details.clone().unwrap_or(Value::Null),
+            details: crate::tool_card::card_details(&result.tool_name, result.details.as_ref()),
             is_error: result.is_error,
         },
     })

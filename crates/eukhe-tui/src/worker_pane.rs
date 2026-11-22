@@ -232,13 +232,13 @@ impl WorkerPane {
             TurnUpdate::ToolExecutionUpdate {
                 tool_call_id,
                 partial,
-            } => self.tool_result(&tool_call_id, ToolResultView::new(&partial, false), true),
+            } => self.tool_result(&tool_call_id, &partial, false, true),
             TurnUpdate::ToolExecutionEnd {
                 tool_call_id,
                 result,
                 is_error,
             } => {
-                self.tool_result(&tool_call_id, ToolResultView::new(&result, is_error), false);
+                self.tool_result(&tool_call_id, &result, is_error, false);
                 self.loader(TurnPhase::Requesting);
             }
             TurnUpdate::TurnEnded { .. } => self.end_open_message(),
@@ -357,14 +357,20 @@ impl WorkerPane {
     }
 
     /// A (partial or final) result lands on the newest card of its call.
-    fn tool_result(&mut self, tool_call_id: &str, result: ToolResultView, partial: bool) {
+    fn tool_result(
+        &mut self,
+        tool_call_id: &str,
+        result: &eukhe_types::daemon::ToolOutput,
+        is_error: bool,
+        partial: bool,
+    ) {
         let Some(index) = self.view.chat.iter().rposition(
             |entry| matches!(entry, ChatEntry::Tool(card) if card.id == tool_call_id && !card.aborted),
         ) else {
             return;
         };
         if let Some(ChatEntry::Tool(card)) = self.view.chat.get_mut(index) {
-            card.result = Some(result);
+            card.result = Some(ToolResultView::new(&card.name, result, is_error));
             card.result_partial = partial;
             if !partial {
                 card.ended_at = Some(std::time::Instant::now());

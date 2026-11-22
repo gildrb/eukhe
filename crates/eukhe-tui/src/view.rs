@@ -483,7 +483,7 @@ impl AgentView {
                         } else {
                             content.clone()
                         },
-                        details: details.clone(),
+                        details: crate::tool_card::card_details(tool_name, Some(details)),
                         is_error: *is_error,
                     });
                     card.result_partial = false;
@@ -497,7 +497,7 @@ impl AgentView {
                 } else {
                     content.clone()
                 },
-                details: details.clone(),
+                details: crate::tool_card::card_details(tool_name, Some(details)),
                 is_error: *is_error,
             };
             self.push_entry(ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
@@ -642,22 +642,25 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             content,
             details,
             is_error,
-        } => ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
-            id: tool_call_id,
-            name: tool_name,
-            args: serde_json::Value::Null,
-            started: true,
-            result: Some(crate::chat::ToolResultView {
-                content: if content.is_empty() {
-                    vec![serde_json::json!({ "type": "text", "text": text })]
-                } else {
-                    content
-                },
-                details,
-                is_error,
-            }),
-            ..Default::default()
-        })),
+        } => {
+            let details = crate::tool_card::card_details(&tool_name, Some(&details));
+            ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
+                id: tool_call_id,
+                name: tool_name,
+                args: serde_json::Value::Null,
+                started: true,
+                result: Some(crate::chat::ToolResultView {
+                    content: if content.is_empty() {
+                        vec![serde_json::json!({ "type": "text", "text": text })]
+                    } else {
+                        content
+                    },
+                    details,
+                    is_error,
+                }),
+                ..Default::default()
+            }))
+        }
         TranscriptItem::BashExecution {
             command,
             output,

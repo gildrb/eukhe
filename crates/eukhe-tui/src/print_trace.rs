@@ -121,7 +121,7 @@ impl PrintTrace {
                 };
                 let mut card = self.running.swap_remove(index);
                 card.ended_at = Some(Instant::now());
-                card.result = Some(ToolResultView::new(result, *is_error));
+                card.result = Some(ToolResultView::new(&card.name, result, *is_error));
                 // The footer counts the calls their cards mark failed.
                 if marks_failed(&card) {
                     self.usage.tool_failed();

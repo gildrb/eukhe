@@ -61,17 +61,18 @@ pub(crate) fn content_block_value(block: &eukhe_types::ai::UserContentBlock) -> 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ToolResultView {
     pub content: Vec<Value>,
+    /// The part of the result's details its card reads ([`card_details`]).
     pub details: Value,
     pub is_error: bool,
 }
 
 impl ToolResultView {
-    /// The view of one tool output.
+    /// The view of one tool output, as the card of `tool_name` keeps it.
     #[must_use]
-    pub fn new(output: &eukhe_types::daemon::ToolOutput, is_error: bool) -> Self {
+    pub fn new(tool_name: &str, output: &eukhe_types::daemon::ToolOutput, is_error: bool) -> Self {
         Self {
             content: output.content.iter().map(content_block_value).collect(),
-            details: output.details.clone().unwrap_or(Value::Null),
+            details: card_details(tool_name, output.details.as_ref()),
             is_error,
         }
     }
@@ -139,6 +140,32 @@ pub(crate) fn image_block_bytes(block: &Value) -> usize {
             },
             |bytes| bytes as usize,
         )
+}
+
+/// The part of a result's `details` the card of `tool_name` reads (the
+/// [`render_tool_card`] shells); the rest is dropped when the result
+/// lands, so a card holds its output once: a `read` result's details
+/// repeat the whole output twice (`rendered`, `text`), and the generic
+/// card reads none of them.
+#[must_use]
+pub(crate) fn card_details(tool_name: &str, details: Option<&Value>) -> Value {
+    let keys: &[&str] = match tool_name {
+        "python" | "ipython" | "worker_assign" | "worker_forward" => {
+            return details.cloned().unwrap_or(Value::Null);
+        }
+        "bash" => bash::DETAIL_KEYS,
+        "edit" => generic::EDIT_DETAIL_KEYS,
+        _ => return Value::Null,
+    };
+    match details {
+        Some(Value::Object(details)) => Value::Object(
+            keys.iter()
+                .filter_map(|key| details.get_key_value(*key))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        ),
+        _ => Value::Null,
+    }
 }
 
 /// Render one tool-call card through its tool shell. `show_images` is the
@@ -337,6 +364,35 @@ mod tests {
         bytes.extend(width.to_be_bytes());
         bytes.extend(height.to_be_bytes());
         base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// A card keeps only the details its shell reads: a `read` result's
+    /// copies of the output (`rendered`, `text`) are dropped, `bash` keeps
+    /// its status and truncation keys, `edit` its diffs, `python` all.
+    #[test]
+    fn a_card_keeps_only_the_details_its_shell_reads() {
+        let read = serde_json::json!({ "rendered": "1:a", "text": "a", "path": "f" });
+        assert_eq!(card_details("read", Some(&read)), Value::Null);
+        let bash = serde_json::json!({
+            "version": "bash@1",
+            "steps": [{ "command": "ls" }],
+            "end": { "kind": "finished", "status": 0 },
+            "fullOutputPath": "/tmp/out",
+        });
+        assert_eq!(
+            card_details("bash", Some(&bash)),
+            serde_json::json!({
+                "end": { "kind": "finished", "status": 0 },
+                "fullOutputPath": "/tmp/out",
+            })
+        );
+        let edit = serde_json::json!({ "files": [{ "path": "f", "diff": "+a" }], "rendered": "x" });
+        assert_eq!(
+            card_details("edit", Some(&edit)),
+            serde_json::json!({ "files": [{ "path": "f", "diff": "+a" }] })
+        );
+        assert_eq!(card_details("python", Some(&read)), read);
+        assert_eq!(card_details("bash", None), Value::Null);
     }
 
     fn image_result(data: &str, mime: &str) -> Option<ToolResultView> {
