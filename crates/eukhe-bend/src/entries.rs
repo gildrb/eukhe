@@ -98,8 +98,6 @@ pub enum Entry {
     ToolSurface = 51,
     /// `bend/ffi_runners.bend`: a call.
     Runners = 52,
-    /// `bend/ffi_approvals.bend`: a call and a stepper.
-    Approvals = 53,
     /// `bend/ffi_frames.bend`: a call.
     Frames = 54,
     /// `bend/ffi_config.bend`: a call.
@@ -272,12 +270,24 @@ pub enum Entry {
     HeadlessTask = 464,
     /// `bend/ffi_strength.bend`: a call.
     Strength = 465,
+    /// `bend/ffi_attack.bend`: a call.
+    Attack = 466,
+    /// `bend/ffi_undo.bend`: a call.
+    Undo = 467,
+    /// `bend/ffi_restart_turn.bend`: a call.
+    RestartTurn = 468,
+    /// `bend/ffi_irreversible.bend`: a call.
+    Irreversible = 469,
     /// `bend/ffi_work_left.bend`: a call.
     WorkLeft = 470,
+    /// `bend/ffi_gateway_report.bend`: a call.
+    GatewayReport = 471,
     /// `bend/ffi_fallback.bend`: a call.
     Fallback = 472,
+    /// `bend/ffi_path_own.bend`: a call.
+    PathOwn = 473,
     /// `bend/ffi_autonomous.bend`: a call.
-    Autonomous = 473,
+    Autonomous = 474,
 }
 
 impl Entry {
@@ -329,7 +339,6 @@ impl Entry {
         Entry::Shell,
         Entry::ToolSurface,
         Entry::Runners,
-        Entry::Approvals,
         Entry::Frames,
         Entry::Config,
         Entry::Quirks,
@@ -416,8 +425,14 @@ impl Entry {
         Entry::WorkList,
         Entry::HeadlessTask,
         Entry::Strength,
+        Entry::Attack,
+        Entry::Undo,
+        Entry::RestartTurn,
+        Entry::Irreversible,
         Entry::WorkLeft,
+        Entry::GatewayReport,
         Entry::Fallback,
+        Entry::PathOwn,
         Entry::Autonomous,
     ];
 

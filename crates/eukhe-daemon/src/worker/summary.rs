@@ -13,6 +13,7 @@ use super::{
 };
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_core::durable::directors::run_left;
 use eukhe_core::durable::jobs::JobKind;
 use eukhe_core::durable::pending::{pending_work, PendingWorkError};
 use eukhe_durable::entries::{ASSISTANT_ENTRY, COMPACTION_ENTRY, USER_ENTRY};
@@ -448,6 +449,21 @@ pub(crate) async fn read_waiting_on(
     Ok((waiting != WaitingOn::default()).then_some(waiting))
 }
 
+/// What the session's last run found left of its task, as `get_state`
+/// carries it ([`run_left`]); `None` when nothing is left, the next run
+/// started, no session is hosted, or the read failed (logged).
+pub(crate) async fn read_left(session: &SessionSlot) -> Option<Vec<String>> {
+    let hosted = session.get()?;
+    let read = match hosted.main() {
+        Ok(main) => run_left(hosted.harness(), &main, &BACKGROUND_CONTEXT).await,
+        Err(error) => Err(error),
+    };
+    read.unwrap_or_else(|error| {
+        tracing::warn!(%error, "the run's left work read failed");
+        None
+    })
+}
+
 /// The wire kind of a pending job (the user's bash never waits a session,
 /// [`pending_work`] leaves it out).
 fn waiting_job_kind(kind: JobKind) -> WaitingJobKind {
@@ -749,6 +765,7 @@ pub(crate) fn session_summary(
         is_running_tools: streaming && running_tools,
         has_running_subagents: false,
         waiting_on: core.waiting_on.clone(),
+        left: None,
         admission: core.model_admission,
         attached_clients: u32::try_from(core.attached_client_ids.len()).unwrap_or(u32::MAX),
         message_count: messages,

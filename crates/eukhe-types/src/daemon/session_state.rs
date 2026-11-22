@@ -81,6 +81,12 @@ pub struct SessionSummary {
     /// ended while it is set is waiting, not done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_on: Option<WaitingOn>,
+    /// What the session's last run found left of its task (`get_state`
+    /// only): the items of its latest reading of work left, or why it
+    /// stopped for want of progress; absent when nothing is left, and once
+    /// the next run starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<Vec<String>>,
     /// `queued` while a model request waits for its provider's admission
     /// slot (`providerMaxInFlight`), `generating` while one holds a slot;
     /// absent otherwise.
@@ -480,14 +486,16 @@ mod tests {
         }"#;
         let summary: SessionSummary =
             serde_json::from_str(wire).expect("parses camelCase wire format");
-        assert_eq!(summary.message_count, 3);
+        assert_eq!((summary.message_count, summary.left.clone()), (3, None));
         let out = serde_json::to_value(&summary).unwrap();
         assert_eq!(out["messageCount"], 3);
+        // A summary without `left` (an old daemon's) writes none back.
+        assert!(out.get("left").is_none());
     }
 
     /// The live fields of the pinned agents block (the running tool, the
-    /// retry wait, the context use) read from their camelCase wire form
-    /// and write it back unchanged.
+    /// retry wait, the context use) and what the last run found left read
+    /// from their camelCase wire form and write it back unchanged.
     #[test]
     fn the_live_summary_fields_round_trip() {
         let live = serde_json::json!({
@@ -499,6 +507,7 @@ mod tests {
                 "error": "overloaded",
             },
             "contextUsage": { "tokens": 12_000, "contextWindow": 128_000, "percent": 9.375 },
+            "left": ["step 2: migrate the callers"],
         });
         let mut wire = serde_json::json!({
             "id": "a", "lifecycle": "live", "activity": "working", "isSessionActive": true,
@@ -514,7 +523,8 @@ mod tests {
             (
                 summary.current_tool.clone(),
                 summary.retry.clone(),
-                summary.context_usage.clone()
+                summary.context_usage.clone(),
+                summary.left.clone(),
             ),
             (
                 Some(CurrentTool {
@@ -528,10 +538,11 @@ mod tests {
                     error: "overloaded".to_string(),
                 }),
                 Some(live["contextUsage"].clone()),
+                Some(vec!["step 2: migrate the callers".to_string()]),
             )
         );
         let out = serde_json::to_value(&summary).expect("serializes");
-        for key in ["currentTool", "retry", "contextUsage"] {
+        for key in ["currentTool", "retry", "contextUsage", "left"] {
             assert_eq!(out[key], live[key], "{key}");
         }
     }

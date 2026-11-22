@@ -448,18 +448,21 @@ impl Worker {
     }
 
     /// `get_state`: the session summary, its `waitingOn` read fresh (a
-    /// failed read keeps the last one the summary showed).
+    /// failed read keeps the last one the summary showed), with what the
+    /// last run found left (`left`).
     async fn handle_get_state(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_state") {
             return response;
         }
         let waiting_on = super::summary::read_waiting_on(&self.session).await;
+        let left = super::summary::read_left(&self.session).await;
         let mut core = self
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         core.note_waiting_on(waiting_on);
-        let summary = self.summary_locked(&core);
+        let mut summary = self.summary_locked(&core);
+        summary.left = left;
         response_success(
             None,
             "get_state",
