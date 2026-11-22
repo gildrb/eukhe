@@ -584,11 +584,12 @@ impl Worker {
             .core
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let messages = core
+        let messages: Vec<Value> = core
             .view
             .as_ref()
             .map(|view| {
-                crate::state_getters::mirror_context_messages(&view.translator.mirror().entries)
+                crate::state_getters::mirror_context_rows(&view.translator.mirror().entries)
+                    .collect()
             })
             .unwrap_or_default();
         response_success(None, "get_messages", Some(json!({ "messages": messages })))

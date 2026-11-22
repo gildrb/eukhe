@@ -569,20 +569,31 @@ pub fn response_line_bytes(response: &DaemonResponse) -> Vec<u8> {
     buf
 }
 
+/// The line of a successful answer whose `data` serializes as it is
+/// written: the bytes [`response_line_bytes`] writes for the response
+/// holding `data` as a tree, without building that tree.
+pub(crate) fn success_line_bytes(
+    command: &str,
+    data: &impl serde::Serialize,
+) -> serde_json::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    write_response_head(&mut buf, /*id*/ None, command, /*success*/ true)?;
+    buf.extend_from_slice(b",\"data\":");
+    serde_json::to_writer(&mut buf, data)?;
+    buf.push(b'}');
+    Ok(buf)
+}
+
 /// Write the response line's wire bytes into `buf`: the TS key order from
 /// [`response_line`], each value serialized in place instead of being
 /// cloned into an intermediate tree first.
 fn write_response_line(buf: &mut Vec<u8>, response: &DaemonResponse) -> serde_json::Result<()> {
-    buf.push(b'{');
-    if let Some(id) = &response.id {
-        buf.extend_from_slice(b"\"id\":");
-        serde_json::to_writer(&mut *buf, id)?;
-        buf.push(b',');
-    }
-    buf.extend_from_slice(b"\"type\":\"response\",\"command\":");
-    serde_json::to_writer(&mut *buf, &response.command)?;
-    buf.extend_from_slice(b",\"success\":");
-    serde_json::to_writer(&mut *buf, &response.success)?;
+    write_response_head(
+        buf,
+        response.id.as_deref(),
+        &response.command,
+        response.success,
+    )?;
     match (&response.data, &response.error) {
         (Some(data), _) => {
             buf.extend_from_slice(b",\"data\":");
@@ -600,6 +611,26 @@ fn write_response_line(buf: &mut Vec<u8>, response: &DaemonResponse) -> serde_js
         serde_json::to_writer(&mut *buf, &error_info)?;
     }
     buf.push(b'}');
+    Ok(())
+}
+
+/// The opening of a response line, through its `success`.
+fn write_response_head(
+    buf: &mut Vec<u8>,
+    id: Option<&str>,
+    command: &str,
+    success: bool,
+) -> serde_json::Result<()> {
+    buf.push(b'{');
+    if let Some(id) = id {
+        buf.extend_from_slice(b"\"id\":");
+        serde_json::to_writer(&mut *buf, id)?;
+        buf.push(b',');
+    }
+    buf.extend_from_slice(b"\"type\":\"response\",\"command\":");
+    serde_json::to_writer(&mut *buf, command)?;
+    buf.extend_from_slice(b",\"success\":");
+    serde_json::to_writer(&mut *buf, &success)?;
     Ok(())
 }
 

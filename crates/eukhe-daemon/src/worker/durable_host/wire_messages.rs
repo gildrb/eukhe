@@ -94,11 +94,18 @@ pub fn transcript_messages(entries: &[EntryRecord]) -> Vec<Value> {
 pub(crate) fn transcript_messages_of<'a>(
     entries: impl IntoIterator<Item = &'a EntryRecord>,
 ) -> Vec<Value> {
-    let entries = entries.into_iter();
+    transcript_rows(entries).collect()
+}
+
+/// [`transcript_messages_of`] one row at a time: a caller that serializes
+/// the rows as they come holds one row, never the whole transcript.
+pub(crate) fn transcript_rows<'a, I>(entries: I) -> impl Iterator<Item = Value> + use<'a, I>
+where
+    I: IntoIterator<Item = &'a EntryRecord>,
+{
     let mut context_tokens = 0;
-    let mut messages = Vec::with_capacity(entries.size_hint().0);
-    let mut previous: Option<&EntryRecord> = None;
-    for entry in entries {
+    let mut previous: Option<&'a EntryRecord> = None;
+    entries.into_iter().filter_map(move |entry| {
         let covered = entry.kind.as_str() == USER_ENTRY.kind()
             && previous.is_some_and(|row| {
                 row.kind.as_str() == CUSTOM_ENTRY.kind()
@@ -107,16 +114,14 @@ pub(crate) fn transcript_messages_of<'a>(
             });
         previous = Some(entry);
         if covered {
-            continue;
+            return None;
         }
-        if let Some(message) = entry_wire_message_with(entry, context_tokens) {
-            messages.push(message);
-        }
+        let message = entry_wire_message_with(entry, context_tokens);
         if let Some(tokens) = assistant_context_tokens(entry) {
             context_tokens = tokens;
         }
-    }
-    messages
+        message
+    })
 }
 
 /// [`entry_wire_message`] with the `tokensBefore` a compaction summary shows.
