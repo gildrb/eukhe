@@ -460,7 +460,7 @@ impl ContextMeter {
 /// roster summary): the [`context_usage`] of the view the mirror's entries
 /// derive ([`derive_view`]), the one `get_context_tree` reads through the
 /// Harness, so the attach can fill it under the core lock it already holds.
-pub(crate) fn mirror_context_usage(entries: &[EntryRecord], meter: &ContextMeter) -> Value {
+pub(crate) fn mirror_context_usage(entries: &[Arc<EntryRecord>], meter: &ContextMeter) -> Value {
     context_usage(&derive_view(entries), meter)
 }
 
@@ -470,12 +470,15 @@ pub(crate) fn mirror_context_usage(entries: &[EntryRecord], meter: &ContextMeter
 /// head on -- the entries the Harness derives -- without a Harness read.
 /// The summary's `tokensBefore` is the context the last answer before it
 /// measured. Without a marker every entry is kept.
-pub(crate) fn mirror_context_rows(entries: &[EntryRecord]) -> impl Iterator<Item = Value> + '_ {
+pub(crate) fn mirror_context_rows(
+    entries: &[Arc<EntryRecord>],
+) -> impl Iterator<Item = Value> + '_ {
     let marker = entries.iter().rposition(|entry| entry.head.is_some());
     let summary = marker.and_then(|position| {
         let tokens_before = entries[..position]
             .iter()
             .rev()
+            .map(Arc::as_ref)
             .find_map(assistant_context_tokens)
             .unwrap_or(0);
         entry_wire_message_with(&entries[position], tokens_before)
@@ -483,6 +486,7 @@ pub(crate) fn mirror_context_rows(entries: &[EntryRecord]) -> impl Iterator<Item
     let start = marker.and_then(|position| entries[position].head);
     let kept = entries
         .iter()
+        .map(Arc::as_ref)
         .filter(move |entry| entry.head.is_none() && start.is_none_or(|start| entry.id >= start));
     summary.into_iter().chain(transcript_rows(kept))
 }

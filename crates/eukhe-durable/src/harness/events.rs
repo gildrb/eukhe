@@ -121,7 +121,9 @@ pub struct SnapshotRun {
 /// The state of one conversation at attachment, or at an overflow.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotEvent {
-    pub entries: Vec<EntryRecord>,
+    /// Shared: the stream, its observer and every reader's mirror hold the
+    /// same records.
+    pub entries: Vec<Arc<EntryRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<SnapshotRun>,
     /// Current generation attempt: its in-flight partial, retry backoff, or
@@ -206,8 +208,10 @@ pub enum AgentEvent {
         usage: Usage,
         changes: Vec<MessageChange>,
     },
+    /// `entry` is the committed record, shared with the view (as in every
+    /// event that carries one).
     MessageEnd {
-        entry: EntryRecord,
+        entry: Arc<EntryRecord>,
     },
     ToolExecutionStart {
         #[serde(flatten)]
@@ -233,7 +237,7 @@ pub enum AgentEvent {
         #[serde(flatten)]
         call: ToolEventCall,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        entry: Option<EntryRecord>,
+        entry: Option<Arc<EntryRecord>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result: Option<NestedToolExecutionResult>,
     },
@@ -255,7 +259,7 @@ pub enum AgentEvent {
         poll_at: f64,
     },
     EntryAppended {
-        entry: EntryRecord,
+        entry: Arc<EntryRecord>,
     },
     AgentChanged {
         agent: AgentState,
@@ -704,7 +708,7 @@ pub fn watch_events(
 }
 
 /// The tool result for `call_id` among `entries`.
-fn result_of<'a>(entries: &[&'a EntryRecord], call_id: &str) -> Option<&'a EntryRecord> {
+fn result_of<'a>(entries: &[&'a Arc<EntryRecord>], call_id: &str) -> Option<&'a Arc<EntryRecord>> {
     entries.iter().copied().find(|entry| {
         matches!(
             entry.model.as_ref().and_then(|model| model.first()),
@@ -752,7 +756,7 @@ fn is_nested(slot: &JsonValue) -> bool {
 /// One `tool_execution_end` of a model-issued call before its entry is placed.
 struct ToolEnd<'a> {
     slot: &'a JsonValue,
-    entry: Option<&'a EntryRecord>,
+    entry: Option<&'a Arc<EntryRecord>>,
 }
 
 impl ToolEnd<'_> {
@@ -778,7 +782,7 @@ fn translate(
     publication: &CommitPublication,
     held: &mut HashSet<TaskId>,
 ) -> Vec<AgentEvent> {
-    let mut entries: Vec<&EntryRecord> = Vec::new();
+    let mut entries: Vec<&Arc<EntryRecord>> = Vec::new();
     // Insertion-ordered, as a JS Map: a later record replaces an earlier one in place.
     let mut tasks: Vec<&AnyTaskRecord> = Vec::new();
     let mut submissions: Vec<&SubmissionRecord> = Vec::new();
@@ -1011,7 +1015,7 @@ fn translate(
         );
         let Some(message) = entry.model.as_ref().and_then(|model| model.first()) else {
             events.push(AgentEvent::EntryAppended {
-                entry: (*entry).clone(),
+                entry: Arc::clone(entry),
             });
             continue;
         };
@@ -1027,7 +1031,7 @@ fn translate(
             });
         }
         events.push(AgentEvent::MessageEnd {
-            entry: (*entry).clone(),
+            entry: Arc::clone(entry),
         });
     }
     // Ends without a result entry: a faulted or orphaned tool, or one whose run ended.

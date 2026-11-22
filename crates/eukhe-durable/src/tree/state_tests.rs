@@ -114,7 +114,7 @@ fn publications() -> Vec<CommitPublication> {
         CommitPublication {
             seq: seq(1),
             changes: vec![
-                CommitChange::Entry(entry(3, CONVERSATION)),
+                CommitChange::Entry(Arc::new(entry(3, CONVERSATION))),
                 CommitChange::Conversation(conversation()),
                 document_change(session_document(), 1, None),
             ],
@@ -515,7 +515,7 @@ fn an_unknown_parent_or_node_is_an_error() {
     let results = state.record(&CommitPublication {
         seq: seq(4),
         changes: vec![
-            CommitChange::Entry(entry(7, ConversationId::from_number(99))),
+            CommitChange::Entry(Arc::new(entry(7, ConversationId::from_number(99)))),
             document_change(session_document(), 1, Some(4)),
         ],
     });

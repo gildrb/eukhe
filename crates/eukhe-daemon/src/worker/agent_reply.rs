@@ -127,11 +127,12 @@ impl AgentReplies {
             // Only the tail from the latest owed row converts to wire
             // messages; a session that owes nothing converts none.
             let entries = &view.translator.mirror().entries;
-            let Some(start) = entries.iter().rposition(is_owed_row) else {
+            let Some(start) = entries.iter().map(Arc::as_ref).rposition(is_owed_row) else {
                 return;
             };
             let messages: Vec<Value> = entries[start..]
                 .iter()
+                .map(Arc::as_ref)
                 .filter_map(entry_wire_message)
                 .collect();
             let Some((owed, Some(answer))) = latest_owed_reply(&messages) else {

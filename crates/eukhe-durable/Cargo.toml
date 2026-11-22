@@ -18,7 +18,8 @@ eukhe-tokens.workspace = true
 # rule as a stepper (`tree/`, bend/ffi_tree.bend).
 eukhe-bend.workspace = true
 futures.workspace = true
-serde.workspace = true
+# rc: `SnapshotEvent.entries` are shared `Arc`s.
+serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

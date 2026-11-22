@@ -500,7 +500,7 @@ mod tests {
     const CONVERSATION: ConversationId = ConversationId::from_number(1);
 
     fn assistant_entry(id: u64, message: AssistantMessage) -> CommitChange {
-        CommitChange::Entry(EntryRecord {
+        CommitChange::Entry(Arc::new(EntryRecord {
             model: Some(vec![Message::Assistant(message)]),
             data: None,
             edits: None,
@@ -509,7 +509,7 @@ mod tests {
             conversation_id: CONVERSATION,
             head: None,
             by_task_id: None,
-        })
+        }))
     }
 
     /// The conversation's `pi.live` revision `value`, or its retirement.

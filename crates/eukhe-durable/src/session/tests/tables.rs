@@ -399,7 +399,7 @@ async fn creates_conversations_entries_and_tasks_with_minted_ids() {
         let write = match change {
             CommitChange::Conversation(value) => StorageWrite::Conversation { value: *value },
             CommitChange::Entry(value) => StorageWrite::Entry {
-                value: value.clone(),
+                value: value.as_ref().clone(),
             },
             CommitChange::Task(value) => StorageWrite::Task {
                 value: value.clone(),
@@ -426,7 +426,7 @@ async fn creates_conversations_entries_and_tasks_with_minted_ids() {
     let entries = changes
         .iter()
         .filter_map(|change| match change {
-            CommitChange::Entry(value) => Some(value.clone()),
+            CommitChange::Entry(value) => Some(value.as_ref().clone()),
             _ => None,
         })
         .collect::<Vec<_>>();

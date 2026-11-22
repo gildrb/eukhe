@@ -18,6 +18,7 @@
 //! moves bytes: it hashes each block's bytes into a fingerprint, sends the
 //! transcript's entries, and keeps the core's last answer.
 
+use std::borrow::Borrow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use eukhe_bend::wire::{Reader, WireError, Writer, NAT_MAX};
@@ -51,8 +52,8 @@ impl WorkLedger {
     /// Read the shown view's entries (the whole transcript, append order):
     /// the core reads those it did not read yet, or all of them again when
     /// the view no longer holds the last entry it read at its place (a
-    /// replaced view).
-    pub fn read_entries(&mut self, entries: &[EntryRecord]) {
+    /// replaced view). The entries are records or shared records.
+    pub fn read_entries<E: Borrow<EntryRecord>>(&mut self, entries: &[E]) {
         let answer = match self.view(entries) {
             Ok(Answer::Again) => {
                 self.read = 0;
@@ -104,7 +105,7 @@ impl WorkLedger {
 
     /// Send the view: the id of its entry at the place of the last entry
     /// the core read, and its entries from that place on.
-    fn view(&mut self, entries: &[EntryRecord]) -> Result<Answer, eukhe_bend::Error> {
+    fn view<E: Borrow<EntryRecord>>(&mut self, entries: &[E]) -> Result<Answer, eukhe_bend::Error> {
         let at = self
             .read
             .checked_sub(1)
@@ -113,7 +114,7 @@ impl WorkLedger {
         request.tag(0);
         match at {
             None => request.none(),
-            Some(entry) => request.some().nat(entry.id.get().min(NAT_MAX)),
+            Some(entry) => request.some().nat(entry.borrow().id.get().min(NAT_MAX)),
         };
         put_entries(&mut request, entries.get(self.read..).unwrap_or_default());
         self.send(request)
@@ -171,9 +172,10 @@ fn short(hasher: &DefaultHasher) -> u64 {
 /// its id, and of its name and arguments), a result (the fingerprints of
 /// its call's id, and of its tool name, content and error flag), text,
 /// thinking, a user message, a system message.
-fn put_entries(request: &mut Writer, entries: &[EntryRecord]) {
+fn put_entries<E: Borrow<EntryRecord>>(request: &mut Writer, entries: &[E]) {
     request.count(entries.len());
     for entry in entries {
+        let entry = entry.borrow();
         request.nat(entry.id.get().min(NAT_MAX));
         let blocks = entry
             .model

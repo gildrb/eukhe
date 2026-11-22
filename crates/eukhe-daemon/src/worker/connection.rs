@@ -74,24 +74,26 @@ impl ImagePayloads {
 }
 
 /// The attach transcript (`messages`), serialized one row at a time: the
-/// active context off the mirror, then the streaming partial.
-struct AttachTranscript<'a> {
-    entries: &'a [eukhe_durable::types::EntryRecord],
-    partial: Option<&'a eukhe_types::pi_ai::AssistantMessage>,
+/// active context off the mirror, then the streaming partial. It holds the
+/// mirror's shared records, so it serializes after the core lock is gone.
+struct AttachTranscript {
+    entries: Vec<Arc<eukhe_durable::types::EntryRecord>>,
+    partial: Option<eukhe_types::pi_ai::AssistantMessage>,
     images: ImagePayloads,
 }
 
-impl serde::Serialize for AttachTranscript<'_> {
+impl serde::Serialize for AttachTranscript {
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
         let partial = self
             .partial
+            .as_ref()
             .and_then(super::durable_host::wire_messages::assistant_wire_message)
             .and_then(|partial| serde_json::to_value(partial).ok());
         serializer.collect_seq(
-            crate::state_getters::mirror_context_rows(self.entries)
+            crate::state_getters::mirror_context_rows(&self.entries)
                 .chain(partial)
                 .map(|row| self.images.applied(row)),
         )
@@ -109,7 +111,7 @@ struct AttachResult<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<&'a Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    messages: Option<&'a AttachTranscript<'a>>,
+    messages: Option<&'a AttachTranscript>,
     snapshot: AttachSnapshot<'a>,
     replay: Value,
     last_event_sequence: u64,
@@ -124,7 +126,7 @@ struct AttachSnapshot<'a> {
     active_session_id: &'a str,
     summary: &'a Value,
     state: &'a Value,
-    messages: &'a AttachTranscript<'a>,
+    messages: &'a AttachTranscript,
     last_event_sequence: u64,
     last_event_cursor: &'a Value,
     /// RLM child roster; empty for top-level daemon sessions.
@@ -1271,16 +1273,19 @@ impl Worker {
         let state_value = serde_json::to_value(&state).unwrap_or(Value::Null);
         // The shown conversation's active context (TS `session.state.messages`:
         // the compaction summary first, then the kept entries), from the same
-        // mirror (and under the same lock) the event sequence advances with.
-        // A streaming assistant message is part of the attach state: the
-        // client shows the in-flight partial, later `message_update`s
-        // continue it.
+        // mirror the event sequence advances with: its shared records are
+        // taken under the lock and serialized after it. A streaming assistant
+        // message is part of the attach state: the client shows the in-flight
+        // partial, later `message_update`s continue it.
         let mirror = core.view.as_ref().map(|view| view.translator.mirror());
         let transcript = AttachTranscript {
-            entries: mirror.map_or(&[][..], |mirror| mirror.entries.as_slice()),
-            partial: mirror.and_then(|mirror| mirror.partial.as_ref()),
+            entries: mirror
+                .map(|mirror| mirror.entries.clone())
+                .unwrap_or_default(),
+            partial: mirror.and_then(|mirror| mirror.partial.clone()),
             images,
         };
+        drop(core);
         // Slim clients read summary/messages from the snapshot; duplicating
         // them at the top level would serialize the history twice per attach
         // (port of `createAttachResult`).
@@ -1310,7 +1315,6 @@ impl Worker {
                 }),
             },
         );
-        drop(core);
         // Client-env adoption (TS `adoptClientEnv`): a pane opening an
         // env-less session (e.g. cron-created) hands its Herdr identity
         // to the reporter — adopt-if-absent, never overwrite: a session

@@ -560,6 +560,7 @@ pub(super) fn first_message(view: &ShownView) -> Option<String> {
         .entries
         .iter()
         .filter(|entry| entry.kind == USER_ENTRY.kind())
+        .map(AsRef::as_ref)
         .filter_map(entry_wire_message)
         .find(|message| crate::types::message_role(message) == Some("user"))
         .map(|message| crate::types::message_text(&message))
@@ -781,7 +782,7 @@ pub(crate) fn session_summary(
         modified: last_activity_at,
         first_message: view.and_then(first_message),
         note: view.and_then(|view| {
-            let entries = view.translator.mirror().entries.iter();
+            let entries = view.translator.mirror().entries.iter().map(AsRef::as_ref);
             roster_note(&NoteCandidates {
                 progress: core.progress_note.clone(),
                 ..note_candidates(entries.filter_map(entry_wire_message))
