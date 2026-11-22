@@ -185,8 +185,8 @@ async fn ensure_daemon_running_spawns_supervisor_and_tui_attaches() {
         eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,
         "15000",
     );
-    // The supervisor's sessions prewarm on this checkout's runtime, never
-    // the user's `~/.eukhe/kernel`.
+    // The supervisor's sessions boot kernels on this checkout's runtime,
+    // never the user's `~/.eukhe/kernel`.
     std::env::set_var(
         "EUKHE_KERNEL_PYTHON",
         crate::eukhe::kernel_runtime::kernel_python(),

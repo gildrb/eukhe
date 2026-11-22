@@ -17,7 +17,7 @@ pub fn daemon_command() -> Command {
 
 /// The environment every test daemon gets, for a command that runs the
 /// daemon some other way (a launcher, a private copy of the binary). Its
-/// sessions prewarm kernels on this checkout's runtime: without the
+/// sessions boot kernels on this checkout's runtime: without the
 /// interpreter they would fetch Eukhe's pinned Python into `~/.eukhe/kernel`.
 pub fn daemon_env(command: &mut Command) -> &mut Command {
     command.env("EUKHE_KERNEL_PYTHON", kernel_runtime::kernel_python())

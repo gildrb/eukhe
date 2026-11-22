@@ -465,15 +465,6 @@ fn worker_fd_count_stable_across_prompts() {
 // Worker fd table across connection churn (the EMFILE class)
 // ---------------------------------------------------------------------------
 
-/// A live session kernel: spawned as `python -P -m rlm.repl`; the
-/// interpreter probes before it run `python -P -c ...`.
-fn is_kernel_process(pid: u32) -> bool {
-    process_table::snapshot()
-        .iter()
-        .any(|row| row.pid == pid && row.runs(&["-m", "rlm.repl"]))
-        && process_alive(pid)
-}
-
 fn read_exact_timeout(stream: &mut UnixStream, buffer: &mut [u8], deadline: Instant) {
     use std::io::Read as _;
     let mut read = 0usize;
@@ -565,13 +556,6 @@ fn worker_fd_table_stable_across_client_connection_churn() {
     let pid = worker_pid(&agent_dir, &socket, &session_id).expect("worker pid");
     let worker_socket = worker_socket_path(&agent_dir, &socket, &session_id);
     assert!(process_alive(pid), "worker {pid} is alive");
-    // The session prewarms its kernel at open, about a second later (the
-    // interpreter probes run first): the kernel's stdio pipes, pidfd, and
-    // stderr log join the worker's table once, with no connection behind
-    // them. The baseline waits for that boot.
-    wait_until(Duration::from_secs(30), || {
-        child_pids_of(pid).into_iter().any(is_kernel_process)
-    });
 
     // Warm-up probes, then the baseline.
     for _ in 0..2 {
