@@ -128,10 +128,11 @@ impl DocumentReader for HookApi {
 /// The request of `before_request`, and its replacement: the messages and
 /// the tool the request forces ([`ForcedTool`]; first the settings'
 /// `stream.forceTool`). A hook that replaces the request carries the forced
-/// tool it does not change.
+/// tool it does not change. The messages are shared with the committed
+/// context: a hook copies only those it changes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestMessages {
-    pub messages: Vec<Message>,
+    pub messages: Vec<Arc<Message>>,
     pub force_tool: Option<ForcedTool>,
 }
 
