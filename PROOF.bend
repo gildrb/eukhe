@@ -863,6 +863,7 @@ import ./proof/run/rec_calls_run.bend as PRecCallsRun
 import ./proof/run/rec_repeat_redirects.bend as PRecRepeatRedirects
 import ./proof/run/rec_leak_ladder_ends.bend as PRecLeakLadderEnds
 import ./proof/run/rec_repeat_ladder_ends.bend as PRecRepeatLadderEnds
+import ./proof/run/rec_repeat_never_runs.bend as PRecRepeatNeverRuns
 import ./proof/run/rec_notes_keep_the_rounds.bend as PRecNotesKeepTheRounds
 import ./proof/run/rec_user_breaks_the_row.bend as PRecUserBreaksTheRow
 import ./proof/run/rec_other_replies_pass.bend as PRecOtherRepliesPass
