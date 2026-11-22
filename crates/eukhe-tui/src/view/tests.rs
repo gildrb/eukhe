@@ -657,7 +657,7 @@ fn tool_card_after_user_message_has_one_blank_seam() {
         .expect("user row");
     assert_eq!(flat[user + 1], "", "tool leading spacer row");
     assert!(
-        flat[user + 2].trim().starts_with("ok bash - echo done"),
+        flat[user + 2].trim().starts_with("ok bash  echo done"),
         "card after the one blank: {:?}",
         &flat[user + 2..]
     );
@@ -964,7 +964,7 @@ fn hidden_thinking_after_an_agent_message_renders_zero_height() {
     // The card is one row; the seam check looks above it.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("ok bash - echo done"))
+        .position(|line| line.contains("ok bash  echo done"))
         .expect("the tool card row renders");
     // Flush: the row directly above the card header is the agent
     // message block's own last row (its body), never the hidden
@@ -1015,7 +1015,7 @@ fn hidden_thinking_after_a_bash_card_renders_zero_height() {
     // The tool card is one row; the seam sits above it.
     let header_row = lines
         .iter()
-        .position(|line| line.contains("ok bash - echo done"))
+        .position(|line| line.contains("ok bash  echo done"))
         .expect("the tool card row renders");
     // Flush: the row directly above the tool card header is the bash
     // card's own closing border, never a hidden-thinking spacer.
@@ -1267,7 +1267,7 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     let mut view = collapsed_view(entries);
     let text = transcript_text(&mut view, 80);
     assert!(
-        text.matches("ok bash - echo done").count() == 5,
+        text.matches("ok bash  echo done").count() == 5,
         "every tool card renders its own row: {text}"
     );
     assert!(
@@ -1293,7 +1293,7 @@ fn the_collapsed_view_renders_every_activity_item_as_details_does() {
     assert_eq!(view.detail, Detail::Details);
     let details = transcript_text(&mut view, 80);
     assert!(
-        details.matches("ok bash - echo done").count() == 5,
+        details.matches("ok bash  echo done").count() == 5,
         "every card keeps its own rows at details: {details}"
     );
     assert!(
@@ -1328,7 +1328,7 @@ fn a_running_card_updates_between_frames() {
     view.pulse_frame = 0;
     let frame0 = transcript_text(&mut view, 80);
     assert!(
-        frame0.contains(" .  bash - sleep 1"),
+        frame0.contains(" .  bash  sleep 1"),
         "the running card renders its own row with the working icon: {frame0}"
     );
     view.pulse_frame = 1;
@@ -1365,14 +1365,14 @@ fn streamed_cards_render_their_own_rows_immediately() {
     view.push_entry(streamed("c0"));
     let one = transcript_text(&mut view, 80);
     assert!(
-        one.contains(" .  bash - ls"),
+        one.contains(" .  bash  ls"),
         "the first streamed card renders at once: {one}"
     );
     view.push_entry(streamed("c1"));
     view.push_entry(streamed("c2"));
     let three = transcript_text(&mut view, 80);
     assert_eq!(
-        three.matches(" .  bash - ls").count(),
+        three.matches(" .  bash  ls").count(),
         3,
         "every streamed card keeps its own row: {three}"
     );
@@ -1416,7 +1416,7 @@ fn a_landing_result_with_receipts_settles_the_card() {
     view.mark_entry_stale(index);
     let text = transcript_text(&mut view, 80);
     assert!(
-        text.contains("python - print(1)"),
+        text.contains("python  print(1)"),
         "the settled cell renders its own rows: {text}"
     );
     assert!(

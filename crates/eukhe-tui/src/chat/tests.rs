@@ -445,7 +445,7 @@ fn python_card_done_line() {
         .map(|s| s.content.as_str())
         .collect::<String>();
     assert!(
-        text.contains("ok python - print('visual parity ok') - ^ 1 v 1 lines"),
+        text.contains("ok python  print('visual parity ok') - ^ 1 v 1 lines"),
         "got: {text}"
     );
 }

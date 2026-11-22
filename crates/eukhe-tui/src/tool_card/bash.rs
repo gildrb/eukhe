@@ -1,14 +1,16 @@
 //! The `bash` tool-call card: one summary row at the default detail
-//! (`ok bash - <script's first line> - <N lines> - <duration>`, `x` with
-//! `exit N` or the refusal on failure, the working icon while running);
-//! the expanded detail hangs the whole script, its output and the
-//! truncation warning below the same row.
+//! (`ok bash  <script's first line> - <N lines> - <duration>`, `x` with
+//! `exit N` or the refusal on failure, the working icon while running). A
+//! failed run shows the head and the tail of its output below the row; the
+//! expanded detail hangs the whole script, the other arguments, the whole
+//! output and the truncation warning below the same row.
 
 use serde_json::Value;
 
 use super::layout::{collapsed_images, images};
 use super::summary::{
-    body_row, duration, first_line, line_count, output_rows, string_arg, SummaryRow,
+    argument_rows, body_row, duration, failed_output_rows, first_line, line_count, output_rows,
+    string_arg, SummaryRow,
 };
 use super::{panel_status, ToolCallCard, ToolResultView};
 use crate::chat::Detail;
@@ -33,36 +35,43 @@ pub fn render(
         .map(|result| result.text_output(show_images))
         .unwrap_or_default();
     let output = output.trim();
-    let mut rows = vec![summary_row(card, script, output).element(width)];
+    let mut summary = summary_row(card, script, output);
+    let failed = summary.status == Status::Error;
+    if failed && !output.is_empty() {
+        summary.error = None;
+    }
+    let mut rows = vec![summary.element(width)];
     if detail.tool_output_expanded() {
-        let mut first = true;
-        for line in script
+        for (index, line) in script
             .filter(|script| !script.is_empty())
             .into_iter()
             .flat_map(|script| script.split('\n'))
+            .enumerate()
         {
-            let text = if first {
+            let text = if index == 0 {
                 format!("$ {line}")
             } else {
-                line.to_string()
+                format!("  {line}")
             };
-            rows.push(body_row(
-                first,
-                vec![Inline::role(text, ThemeColor::BashMode)],
-            ));
-            first = false;
+            rows.push(body_row(vec![Inline::role(text, ThemeColor::BashMode)]));
         }
+        argument_rows(&mut rows, &card.args, &["script", "command"]);
         if !output.is_empty() {
-            output_rows(&mut rows, output, ThemeColor::ToolOutput);
+            let role = if failed {
+                ThemeColor::Muted
+            } else {
+                ThemeColor::ToolOutput
+            };
+            output_rows(&mut rows, output, role, theme, width);
         }
         if let Some(warning) = card.result.as_ref().and_then(truncation_warning) {
-            rows.push(body_row(
-                false,
-                vec![Inline::role(warning, ThemeColor::Warning)],
-            ));
+            rows.push(body_row(vec![Inline::role(warning, ThemeColor::Warning)]));
         }
         rows.extend(images(card.result.as_ref(), show_images, theme));
     } else {
+        if failed && !output.is_empty() {
+            failed_output_rows(&mut rows, output, theme, width);
+        }
         rows.extend(collapsed_images(card.result.as_ref(), show_images, theme));
     }
     element::render(&Element::Column(rows), theme, width, Tick(frame))
@@ -262,7 +271,7 @@ mod tests {
         for detail in [Detail::Overview, Detail::Details] {
             assert_eq!(
                 flat(&render(&card, 0, detail, &theme(), 120, true)),
-                vec![" ok bash - grep -n width src/media.ts - 83 lines - 120ms"]
+                vec!["   ok bash  grep -n width src/media.ts - 83 lines - 120ms"]
             );
         }
     }
@@ -272,17 +281,53 @@ mod tests {
         let card = done_card("\ncd /tmp\nls -la\n", "a\nb", finished(0));
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" ok bash - cd /tmp - 2 lines - 120ms"]
+            vec!["   ok bash  cd /tmp - 2 lines - 120ms"]
         );
     }
 
     #[test]
-    fn a_non_zero_exit_is_an_error_row() {
+    fn a_non_zero_exit_is_an_error_row_over_its_output() {
         let card = done_card("false", "$ false\n[step 1 exited 1]", finished(1));
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x  bash - false - 2 lines - exit 1 - 120ms"]
+            vec![
+                "   x  bash  false - 2 lines - exit 1 - 120ms",
+                "      | $ false",
+                "      | [step 1 exited 1]",
+            ]
         );
+    }
+
+    /// The audit's mock bash card (`tui-audit.md` slice 4): a failed call
+    /// shows its output below the row, behind the dim bar, at the default
+    /// detail.
+    #[test]
+    fn a_failed_call_shows_its_output_at_the_default_detail() {
+        let mut card = done_card(
+            "cargo test -q",
+            "error[E0425]: cannot find function `greet2` in this scope\n --> src/main.rs:9:5\nerror: could not compile `demo` (bin \"demo\") due to 1 previous error",
+            json!({}),
+        );
+        card.ended_at = card
+            .started_at
+            .map(|start| start + Duration::from_millis(1));
+        card.result.as_mut().expect("result").is_error = true;
+        let rows = render(&card, 0, Detail::Overview, &theme(), 100, true);
+        assert_eq!(
+            flat(&rows),
+            vec![
+                "   x  bash  cargo test -q - 3 lines - 1ms",
+                "      | error[E0425]: cannot find function `greet2` in this scope",
+                "      |  --> src/main.rs:9:5",
+                "      | error: could not compile `demo` (bin \"demo\") due to 1 previous error",
+            ]
+        );
+        assert_eq!(rows[0][1].style, theme().fg_style(ThemeColor::Error));
+        assert_eq!(rows[1][1].style, theme().fg_style(ThemeColor::Dim));
+        assert_eq!(rows[1][2].style, theme().fg_style(ThemeColor::Muted));
+        for row in &rows {
+            assert!(row.iter().all(|span| span.content.is_ascii()), "{row:?}");
+        }
     }
 
     #[test]
@@ -295,17 +340,24 @@ mod tests {
         card.result.as_mut().expect("result").is_error = true;
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x  bash - rm -rf / - 1 line - denied - 120ms"]
+            vec![
+                "   x  bash  rm -rf / - 1 line - denied - 120ms",
+                "      | [stopped at step 1 (write): `rm -rf /` and the steps after it did not run: the user denied it. Do not try it",
+                "      | again unless the user asks for it.]",
+            ]
         );
     }
 
     #[test]
-    fn an_error_result_without_an_end_summarizes_the_text() {
+    fn an_error_result_without_an_end_shows_its_text() {
         let mut card = done_card("ls", "bash needs a `script` string", json!({}));
         card.result.as_mut().expect("result").is_error = true;
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" x  bash - ls - 1 line - 120ms - bash needs a `script` string"]
+            vec![
+                "   x  bash  ls - 1 line - 120ms",
+                "      | bash needs a `script` string",
+            ]
         );
     }
 
@@ -317,10 +369,10 @@ mod tests {
             .join("\n");
         let card = done_card("seq 1 12", &output, finished(0));
         let rows = flat(&render(&card, 0, Detail::All, &theme(), 120, true));
-        assert_eq!(rows[0], " ok bash - seq 1 12 - 12 lines - 120ms");
-        assert_eq!(rows[1], " `- $ seq 1 12");
-        assert_eq!(rows[2], "  > 1");
-        assert_eq!(rows[13], "    12");
+        assert_eq!(rows[0], "   ok bash  seq 1 12 - 12 lines - 120ms");
+        assert_eq!(rows[1], "      $ seq 1 12");
+        assert_eq!(rows[2], "      | 1");
+        assert_eq!(rows[13], "      | 12");
         assert_eq!(rows.len(), 14, "{rows:?}");
     }
 
@@ -388,7 +440,7 @@ mod tests {
             ..Default::default()
         };
         let rows = flat(&render(&card, 3, Detail::Overview, &theme(), 120, true));
-        assert_eq!(rows, vec![" o  bash - sleep 1"]);
+        assert_eq!(rows, vec!["   o  bash  sleep 1"]);
         // Settling the same card turns the row into the settled row.
         let settled = ToolCallCard {
             ended_at: Some(card.started_at.expect("started") + Duration::from_millis(1000)),
@@ -402,7 +454,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&settled, 3, Detail::Overview, &theme(), 120, true)),
-            vec![" ok bash - sleep 1 - 1 line - 1.0s"]
+            vec!["   ok bash  sleep 1 - 1 line - 1.0s"]
         );
     }
 
@@ -417,7 +469,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o  bash - [invalid arg]"]
+            vec!["   o  bash  [invalid arg]"]
         );
         let card = ToolCallCard {
             id: "t".into(),
@@ -428,7 +480,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o  bash"]
+            vec!["   o  bash"]
         );
         // A pi-era session's `command` still names the command.
         let card = ToolCallCard {
@@ -440,7 +492,7 @@ mod tests {
         };
         assert_eq!(
             flat(&render(&card, 0, Detail::Overview, &theme(), 120, true)),
-            vec![" o  bash - ls"]
+            vec!["   o  bash  ls"]
         );
     }
 }

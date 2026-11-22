@@ -2049,7 +2049,7 @@ fn elided_image_tool_results_render_their_marker_metadata() {
     let flat: Vec<String> = rows.iter().map(line_text).collect();
     assert!(
         flat.iter()
-            .any(|row| row.contains("`- [image/png - 64x32]")),
+            .any(|row| row.trim_end() == "      [image/png - 64x32]"),
         "the marker's dimensions render: {flat:?}"
     );
     // The hidden form renders the same metadata with its size.
