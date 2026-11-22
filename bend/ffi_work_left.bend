@@ -24,7 +24,7 @@ import ./work_left.bend as Wl
 # Requests
 # --------
 
-def get_stall.count(stop: Bool, r: W.Dec<Nat>) -> W.Dec<Pg.Goal>:
+def get_stall.count(stop: Bool, r: W.Dec<Nat>) -> W.Dec<Pg.Run>:
   match stop:
     case True{}:
       match r:
@@ -39,7 +39,7 @@ def get_stall.count(stop: Bool, r: W.Dec<Nat>) -> W.Dec<Pg.Goal>:
         case W.Bad{}:
           W.Bad{}
 
-def get_stall(r: W.Dec<Nat>) -> W.Dec<Pg.Goal>:
+def get_stall(r: W.Dec<Nat>) -> W.Dec<Pg.Run>:
   match r:
     case W.Got{t, s}:
       match t:
@@ -69,21 +69,21 @@ def get_reading(r: W.Dec<Nat>) -> W.Dec<Wl.Reading>:
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.reading(d: Bool, q: Bool, a: Bool, b: Bool, s: Pg.Goal, n: Nat, x: W.Dec<Wl.Reading>) -> W.Dec<Wl.Facts>:
+def get_facts.reading(d: Bool, q: Bool, a: Bool, b: Bool, s: Pg.Run, n: Nat, x: W.Dec<Wl.Reading>) -> W.Dec<Wl.Facts>:
   match x:
     case W.Got{r, t}:
       W.Got{Wl.Facts{d, q, a, b, s, n, r}, t}
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.left(d: Bool, q: Bool, a: Bool, b: Bool, s: Pg.Goal, x: W.Dec<Nat>) -> W.Dec<Wl.Facts>:
+def get_facts.left(d: Bool, q: Bool, a: Bool, b: Bool, s: Pg.Run, x: W.Dec<Nat>) -> W.Dec<Wl.Facts>:
   match x:
     case W.Got{n, t}:
       get_facts.reading(d, q, a, b, s, n, get_reading(W.get_nat(t)))
     case W.Bad{}:
       W.Bad{}
 
-def get_facts.stall(d: Bool, q: Bool, a: Bool, b: Bool, x: W.Dec<Pg.Goal>) -> W.Dec<Wl.Facts>:
+def get_facts.stall(d: Bool, q: Bool, a: Bool, b: Bool, x: W.Dec<Pg.Run>) -> W.Dec<Wl.Facts>:
   match x:
     case W.Got{s, t}:
       get_facts.left(d, q, a, b, s, W.get_nat(t))

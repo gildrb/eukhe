@@ -12,7 +12,8 @@
 #     an effect), the session's budget admits more work, the progress
 #     check (bend/progress.bend `judge`: directors.stallSteps continuations
 #     in a row with no new tool result stop it) goes on, and the Director
-#     loop has a step left.
+#     loop has a step left. The check's steer goes on; Rust sends it as a
+#     stop (K6).
 # K2: an answer the run judges that the judge did not read yet: the core
 #     asks for the reading (one model request, no tools, the answer alone).
 # K3: an answer the run judges that the judge read as stating work left:
@@ -24,7 +25,8 @@
 # K6: a request is four Bools: driven, queued, acted, funded, then the
 #     progress check: 0 go | 1 stop, each with its count of stalls (Nat),
 #     the loop's steps left (Nat), then the reading: 0 not read | 1 no
-#     work left | 2 work left | 3 no verdict.
+#     work left | 2 work left | 3 no verdict. The check's steer (2) is no
+#     request: Rust sends a steer as a stop.
 # K7: a reply is 0 continue, with the steps left after it (Nat) | 1 yield
 #     | 2 ask the judge.
 # K8: anything else is no request: the entry answers it with exactly
@@ -39,12 +41,14 @@ import ../../bend/wire.bend as Wr
 # ----------------
 
 # K1: the progress check stopped
-def stopped(s: Pg.Goal) -> Bool:
+def stopped(s: Pg.Run) -> Bool:
   match s:
     case Pg.Go{k}:
       False{}
     case Pg.Stop{k}:
       True{}
+    case Pg.Steer{k}:
+      False{}
 
 # K1: the loop has no step left
 def no_step(n: Nat) -> Bool:
@@ -144,12 +148,14 @@ def steps_before(+f: Wl.Facts, s: Wl.Step) -> Nat:
 # Requests and replies (K6-K7)
 # ----------------------------
 
-def w_stall(s: Pg.Goal, rest: String) -> String:
+def w_stall(s: Pg.Run, rest: String) -> String:
   match s:
     case Pg.Go{k}:
       Wr.put_nat(0n, Wr.put_nat(k, rest))
     case Pg.Stop{k}:
       Wr.put_nat(1n, Wr.put_nat(k, rest))
+    case Pg.Steer{k}:
+      Wr.put_nat(2n, Wr.put_nat(k, rest))
 
 def w_reading(r: Wl.Reading, rest: String) -> String:
   match r:
