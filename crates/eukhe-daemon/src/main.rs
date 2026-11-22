@@ -23,6 +23,7 @@ fn main() -> Result<ExitCode> {
     // stderr pipe.
     eukhe_core::platform::process::enter_requested_session().context("start a new session")?;
     eukhe_core::platform::process::claim_startup_stderr();
+    eukhe_daemon::platform::take_allocator_options();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

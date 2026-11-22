@@ -7,7 +7,7 @@ mod allocator;
 mod executable;
 mod paths;
 
-pub use allocator::set_allocator_options;
+pub use allocator::{set_allocator_options, take_allocator_options};
 pub(crate) use executable::worker_image;
 
 #[cfg(test)]
