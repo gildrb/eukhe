@@ -216,4 +216,32 @@ mod tests {
             [Verdict::Bound, Verdict::Catalog, Verdict::Refused]
         );
     }
+
+    /// The laws' table of the names Rust can send (`dp_wire`,
+    /// `laws/dash_policy.bend`) is `wire_name`'s match, name by name and in
+    /// its order: the law that gives each name its verdict covers every
+    /// daemon command, a new one included.
+    #[test]
+    fn dp_wire_lists_every_wire_name_in_order() {
+        fn quoted_after<'a>(text: &'a str, mark: &str) -> Vec<&'a str> {
+            text.split(mark)
+                .skip(1)
+                .filter_map(|rest| rest.split('"').next())
+                .collect()
+        }
+        let arms = include_str!("command_policy.rs")
+            .split("fn wire_name")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("wire_name's match");
+        let table = include_str!("../../../laws/dash_policy.bend")
+            .split("def dp_wire()")
+            .nth(1)
+            .and_then(|rest| rest.lines().nth(1))
+            .expect("dp_wire's table");
+        assert_eq!(
+            quoted_after(arms, "=> \""),
+            quoted_after(table, "DpEntry{\"")
+        );
+    }
 }

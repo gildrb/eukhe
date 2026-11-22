@@ -202,6 +202,50 @@ async fn every_step_runs_unasked_and_an_own_write_stops_the_script() {
     );
 }
 
+/// A pipeline is checked whole before any of its stages starts (they run
+/// together): a pipeline with no own write runs every stage; one whose
+/// second stage writes an own path runs no stage, the script ends refused
+/// at that stage's id, and no later step runs.
+#[tokio::test]
+async fn an_own_write_in_a_pipeline_runs_none_of_its_stages() {
+    let bench = Bench::new();
+    let record = Record::default();
+    let mut shell = bench.shell();
+    let got = shell
+        .run(
+            "echo a | cat\necho b | cat > ../agent/settings.json\ntouch never",
+            &bench.paths(),
+            &Unasked,
+            &record,
+        )
+        .await;
+    assert_eq!(
+        (seen(&got, &record), got.end),
+        (
+            vec![
+                ran(0, "echo a", &[Read], "", 0),
+                ran(1, "cat", &[Read], "a\n", 0),
+            ],
+            End::Refused {
+                step: 3,
+                command: "cat >../agent/settings.json".to_string(),
+                effects: ShellEffects::of(&[Read, Write, Outside]),
+                own: OwnWrite {
+                    path: bench.agent("settings.json"),
+                    kind: OwnKind::Config,
+                },
+            },
+        )
+    );
+    assert_eq!(
+        (
+            bench.agent("settings.json").exists(),
+            bench.work().join("never").exists()
+        ),
+        (false, false)
+    );
+}
+
 #[tokio::test]
 async fn shell_state_chains_and_external_programs() {
     let bench = Bench::new();
