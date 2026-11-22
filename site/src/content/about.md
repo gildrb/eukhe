@@ -9,7 +9,7 @@ Eukhe is an agent harness that works a task with no person watching and gives a 
 
 ## Maker
 
-Eukhe is made by Gil Rodrigues ([gildrb.com](https://gildrb.com)), a designer and developer. The source is at [github.com/gildrb/eukhe](https://github.com/gildrb/eukhe) under the MIT license. The releases for macOS (Apple Silicon) and Linux (x64, arm64) are built from it.
+Eukhe is made by Gil Rodrigues ([gildrb.com](https://gildrb.com)), a designer and developer. The source is at [github.com/gildrb/eukhe](https://github.com/gildrb/eukhe) under the Apache-2.0 license. The releases for macOS (Apple Silicon) and Linux (x64, arm64) are built from it.
 
 ## This site
 
