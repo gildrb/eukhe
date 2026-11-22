@@ -64,6 +64,10 @@ pub(crate) const CONNECT_ATTEMPTS: u32 = 3;
 /// The first retry's backoff; each further attempt doubles it.
 const CONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
 
+/// The reader keeps its line buffer between lines up to this capacity; a
+/// larger one (an attach transcript) is released after its dispatch.
+const KEPT_LINE_BYTES: usize = 64 * 1024;
+
 /// A non-response frame forwarded to the UI event loop.
 #[derive(Debug, Clone)]
 pub enum DaemonClientEvent {
@@ -478,7 +482,13 @@ impl DaemonClient {
             let mut line = String::new();
             let mut hello_tx = Some(hello_tx);
             loop {
-                line.clear();
+                // A large line (an attach transcript) leaves no resident
+                // copy of itself in the buffer once dispatched.
+                if line.capacity() > KEPT_LINE_BYTES {
+                    line = String::new();
+                } else {
+                    line.clear();
+                }
                 match reader.read_line(&mut line).await {
                     Ok(0) | Err(_) => break,
                     Ok(_) => {}

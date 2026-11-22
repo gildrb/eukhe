@@ -1452,7 +1452,6 @@ impl SessionUi {
         partial: bool,
         view: &mut AgentView,
     ) -> bool {
-        let result = ToolResultView::new(result, is_error);
         // The result lands on the newest card carrying the id: a re-armed
         // invocation pushed its own card, and the older settled card keeps
         // its sweep-written result (TS's pending map only ever holds the
@@ -1469,7 +1468,7 @@ impl SessionUi {
                 if self.aborted_tools.contains(tool_call_id) || card.aborted {
                     return false;
                 }
-                card.result = Some(result);
+                card.result = Some(ToolResultView::new(&card.name, result, is_error));
                 card.result_partial = partial;
                 if !partial {
                     card.ended_at = Some(std::time::Instant::now());

@@ -83,6 +83,10 @@ pub struct PrivateFrameDecoder {
     limits: PrivateFrameLimits,
 }
 
+/// The decoder keeps its buffer up to this capacity between frames; the
+/// excess of a larger frame is released once the frame is out.
+const KEPT_BUFFER_BYTES: usize = 64 * 1024;
+
 impl PrivateFrameDecoder {
     #[must_use]
     pub fn new(limits: PrivateFrameLimits) -> Self {
@@ -157,6 +161,12 @@ impl PrivateFrameDecoder {
         }
         if offset > 0 {
             self.buffer.drain(..offset);
+            // A drained large frame (an attach transcript) leaves no
+            // resident copy of itself in the buffer.
+            if self.buffer.capacity() > KEPT_BUFFER_BYTES {
+                self.buffer
+                    .shrink_to(KEPT_BUFFER_BYTES.max(self.buffer.len()));
+            }
         }
         Ok(frames)
     }
@@ -302,6 +312,21 @@ mod tests {
 
     fn header(kind: &str) -> serde_json::Value {
         serde_json::json!({ "kind": kind })
+    }
+
+    /// A drained large frame leaves no resident copy behind: the buffer
+    /// drops back to the kept capacity once the frame is out.
+    #[test]
+    fn a_large_frame_does_not_stay_resident() {
+        let payload = vec![b'x'; 4 * KEPT_BUFFER_BYTES];
+        let frame =
+            encode_private_frame(&header("response"), &payload, DEFAULT_PRIVATE_FRAME_LIMITS)
+                .unwrap();
+        let mut decoder = PrivateFrameDecoder::new(DEFAULT_PRIVATE_FRAME_LIMITS);
+        let frames = decoder.push(&frame).unwrap();
+        assert_eq!(frames[0].payload, payload);
+        assert_eq!(decoder.buffered_bytes(), 0);
+        assert!(decoder.buffer.capacity() <= KEPT_BUFFER_BYTES);
     }
 
     #[test]

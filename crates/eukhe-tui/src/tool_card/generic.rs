@@ -20,6 +20,9 @@ use crate::element::{self, Element, Status, Tick};
 use crate::theme::{Theme, ThemeColor};
 use crate::Line;
 
+/// The result details an edit card reads: the per-file diffs.
+pub(super) const EDIT_DETAIL_KEYS: &[&str] = &["files"];
+
 /// The diff rows an edit card shows at the `details` level; `all` shows
 /// every row.
 const DETAILS_DIFF_ROWS: usize = 20;

@@ -90,6 +90,10 @@ fn script(card: &ToolCallCard) -> Option<&str> {
     string_arg(&card.args, "script").or_else(|| string_arg(&card.args, "command"))
 }
 
+/// The result details this card reads: the exit status (`status`, `end`)
+/// and the truncation warning's (`truncation`, `fullOutputPath`).
+pub(super) const DETAIL_KEYS: &[&str] = &["status", "end", "truncation", "fullOutputPath"];
+
 /// The script's exit status from the result details (`end.status`), the
 /// refusal word when a step was refused, and `detached` when the script
 /// outlived the blocking budget and went on as a job.
