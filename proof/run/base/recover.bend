@@ -1,7 +1,7 @@
 # eukhe: lemmas the proofs of laws/run/recover.bend share: what
-# decide.recover does with leaked calls and a repeat, each row fed back
-# (rr.*); the row lemmas of the stop area's proofs (LR.str.*) do the
-# arithmetic
+# decide.recover does with leaked calls and a repeat, each row fed back,
+# and the spec's rounds in a row as the model counts them (rr.*); the
+# row lemmas of the stop area's proofs (LR.str.*) do the arithmetic
 
 import Base
 import ../../../bend/run/state.bend as RnState
@@ -162,3 +162,31 @@ def rr.rep_part(+k: RnRecovery.Rk, +row: Nat, +before: Nat, +l0: Nat, +le: Nat, 
   %Equal.sym(RnDecision.Help, RnDecision.decide.recover(RnRecovery.RCfg{l0, le, re, rp}, RnDecision.Repeats{before}, k, row), RnDecision.decide.recover(RnRecovery.RCfg{l0, le, re, rp}, RnDecision.Repeats{before}, RnRecovery.Loops{}, 0n), rr.rep_first(k, row, before, l0, le, re, rp, rep, other)) : {RunRecover.helps(1n+re, RnRecovery.RCfg{l0, le, re, rp}, RnDecision.Repeats{before}, RnRecovery.Loops{}, _) == RunRecover.notes_then_quit(re, 0n) : List<&2, RnDecision.Help>}
   %LR.str.add_zero(re) : {RunRecover.helps(1n+re, RnRecovery.RCfg{l0, le, _, rp}, RnDecision.Repeats{before}, RnRecovery.Loops{}, RnDecision.decide.recover(RnRecovery.RCfg{l0, le, _, rp}, RnDecision.Repeats{before}, RnRecovery.Loops{}, 0n)) == RunRecover.notes_then_quit(re, 0n) : List<&2, RnDecision.Help>}
   rr.rep_go(re, 0n, before, l0, le, rp, rep)
+
+def rr.rounds_zero(b: Bool) -> {RunRecover.rounds.eq(b, 0n) == 1n : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def rr.rounds_succ(b: Bool, +k: Nat) -> {RunRecover.rounds.eq(b, 1n+k) == RnRecovery.again.eq(b, k) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# the spec's rounds in a row (RunRecover.rounds) are the model's
+def rr.rounds_eq(+s: Nat, +l: Nat, +h: Nat) -> {RunRecover.rounds(s, l, h) == RnRecovery.again(s, l, h) : Nat}:
+  match s:
+    case 0n:
+      rr.rounds_zero(Nat.is_eq(l, h))
+    case 1n+k:
+      rr.rounds_succ(Nat.is_eq(l, h), k)
+
+# calls that make `repeat` or more rounds in a row, as the spec counts
+# them, are no fresh calls
+def rr.rounds_off(+s: Nat, +l: Nat, +h: Nat, +rp: Nat, rep: {Nat.is_le(rp, RunRecover.rounds(s, l, h)) == True{} : Bool}) -> {RnRecovery.below(RnRecovery.again(s, l, h), rp) == False{} : Bool}:
+  %rr.rounds_eq(s, l, h) : {RnRecovery.below(_, rp) == False{} : Bool}
+  rr.le_not_below(RunRecover.rounds(s, l, h), rp, rep)

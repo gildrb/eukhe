@@ -197,6 +197,126 @@ law rec_leak_row_starts_at_one:
   for other: {leak_note(k) == False{} : Bool}
   {RnRecovery.Rec.step(RnRecovery.RCfg{lg, 1n+lk, rd, rp}, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}) == RnRecovery.Dec{RnRecovery.Redo{}, RnRecovery.Rec{RnRecovery.Leaks{}, 1n, same, last}} : RnRecovery.Dec}
 
+# the helps the recoveries' model gives a row of the same stuck reply o,
+# d its decision on the first: each next reply is read with the record
+# the decision before left (Rec.run); a decision that makes no note ends
+# the row, and so do `fuel` replies
+def rec_helps(fuel: Nat, +rc: RnRecovery.RCfg, +o: RnRecovery.Out, d: RnRecovery.Dec) -> List<&2, RnDecision.Help>:
+  match fuel:
+    case 0n:
+      [RnDecision.Help.of(d)]
+    case 1n+f:
+      match d:
+        case RnRecovery.Dec{a, +r}:
+          match a:
+            case RnRecovery.Pass{}:
+              [RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Pass{}, r})]
+            case RnRecovery.Exec{}:
+              [RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Exec{}, r})]
+            case RnRecovery.Redo{}:
+              RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Redo{}, r}) <> rec_helps(f, rc, o, RnRecovery.Rec.step(rc, o, r))
+            case RnRecovery.Quit{}:
+              [RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Quit{}, r})]
+            case RnRecovery.Shrink{}:
+              [RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Shrink{}, r})]
+            case RnRecovery.Lower{}:
+              [RnDecision.Help.of(RnRecovery.Dec{RnRecovery.Lower{}, r})]
+
+# what a record counts of the rounds before: the rounds in a row and the
+# last calls' hash, its note left out
+def rounds_of(r: RnRecovery.Rec) -> RnRecovery.Rec:
+  match r:
+    case RnRecovery.Rec{k, row, same, last}:
+      RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last}
+
+# the rounds in a row the calls of hash h make after `same` rounds of the
+# calls of hash `last`: one more when they are the last round's calls, else
+# a new row of one
+def rounds.eq(eq: Bool, +same: Nat) -> Nat:
+  match eq:
+    case True{}:
+      1n+same
+    case False{}:
+      1n
+
+def rounds(+same: Nat, +last: Nat, +h: Nat) -> Nat:
+  rounds.eq(Nat.is_eq(last, h), same)
+
+# LAW rec_leak_ladder_ends (H4.8): in the recoveries' model, under any
+# caps (`leak` leak notes), leaked calls the harness could not rebuild
+# (any hash, kept or not), given again and again after a request whose
+# note is no leak note (any row, rounds in a row and last calls' hash),
+# each read with the record the reply before left, get leak notes 1 to
+# `leak`, then the run fails: markup is never the answer; after a leak
+# note of row `leak` or more they fail the run (the rounds a leak note
+# keeps: rec_notes_keep_the_rounds)
+# EXCLUDES: markup retried forever, run or answered once the leak notes
+#   ran out; a row that skips, repeats or restarts a note, or fails the
+#   run before the cap, in the model the run reads
+law rec_leak_ladder_ends:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +x: Nat
+  for other: {leak_note(k) == False{} : Bool}
+  {rec_helps(1n+RnRecovery.RCfg.leak(rc), rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last})) == notes_then_quit(RnRecovery.RCfg.leak(rc), 0n) : List<&2, RnDecision.Help>} &
+  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{RnRecovery.Leaks{}, Nat.add(RnRecovery.RCfg.leak(rc), x), same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+
+# LAW rec_repeat_ladder_ends (H4.8): in the recoveries' model, under any
+# caps (`redirect` redirect notes, `repeat` rounds), calls that would make
+# `repeat` or more rounds in a row (rounds: one more than the record's
+# when they are the last round's calls, else one), given again and again
+# after a request whose note is no redirect note (any row), each read
+# with the record the reply before left, never run: they get redirect
+# notes 1 to `redirect`, then the run fails; after a redirect note of row
+# `redirect` or more they fail the run (the rounds a redirect note keeps:
+# rec_notes_keep_the_rounds)
+# EXCLUDES: a repeat run once the redirect notes ran out (the loop the
+#   guard stops, run again on every next identical reply), a repeat
+#   redirected forever; a row that skips, repeats or restarts a note in
+#   the model the run reads
+law rec_repeat_ladder_ends:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +x: Nat
+  for +rep: {Nat.is_le(RnRecovery.RCfg.repeat(rc), rounds(same, last, h)) == True{} : Bool}
+  for other: {loop_note(k) == False{} : Bool}
+  {rec_helps(1n+RnRecovery.RCfg.redirect(rc), rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last})) == notes_then_quit(RnRecovery.RCfg.redirect(rc), 0n) : List<&2, RnDecision.Help>} &
+  {RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{RnRecovery.Loops{}, Nat.add(RnRecovery.RCfg.redirect(rc), x), same, last})) == RnRecovery.Quit{} : RnRecovery.Act}
+
+# LAW rec_notes_keep_the_rounds (H4.8; R4 of laws/stop.bend): in the
+# recoveries' model, under any caps, after any note of any row (any
+# rounds in a row, any last calls' hash), the record a stuck reply leaves
+# when its calls do not run keeps the rounds in a row and the last calls'
+# hash: leaked calls not rebuilt (a leak note or the failed run), calls
+# that would make `repeat` or more rounds in a row (a redirect note or
+# the failed run), an empty reply (an empty note or the failed run). A
+# note is no round: the guard counts the rounds of the calls that ran
+# EXCLUDES: a note that resets or bumps the rounds in a row, or forgets
+#   the last calls, at any row of its ladder, so that a repeat after it
+#   counts from scratch or a fresh call counts as a repeat
+law rec_notes_keep_the_rounds:
+  for +rc: RnRecovery.RCfg
+  for +h: Nat
+  for +kept: Bool
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +rep: {Nat.is_le(RnRecovery.RCfg.repeat(rc), rounds(same, last, h)) == True{} : Bool}
+  {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Leak{False{}, h, kept}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec} &
+  {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec} &
+  {rounds_of(RnRecovery.Dec.r(RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}))) == RnRecovery.Rec{RnRecovery.Free{}, 0n, same, last} : RnRecovery.Rec}
+
 # LAW rec_redirect_row_starts_at_one (H4.8): in the recoveries' model, under a redirect cap of
 # at least one note (any other caps), after a request whose note is no
 # redirect note (any row, any rounds in a row, any last calls' hash),
@@ -300,6 +420,46 @@ law rec_stuck_gets_help:
   for o: RnRecovery.Out
   for r: RnRecovery.Rec
   {Bool.or(Bool.not(RnRecovery.Out.stuck(o)), RnRecovery.Act.helps(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, o, r)))) == True{} : Bool}
+
+# the act passes the reply on as it is
+def passes(a: RnRecovery.Act) -> Bool:
+  match a:
+    case RnRecovery.Pass{}:
+      True{}
+    case RnRecovery.Exec{}:
+      False{}
+    case RnRecovery.Redo{}:
+      False{}
+    case RnRecovery.Quit{}:
+      False{}
+    case RnRecovery.Shrink{}:
+      False{}
+    case RnRecovery.Lower{}:
+      False{}
+
+# LAW rec_stuck_never_passes (H4.8): in the recoveries' model, under any
+# caps (a cap of 0 included), after any note of any row, a stuck reply is
+# never passed on as it is: leaked calls (rebuilt or not, any hash), tool
+# calls (any hash, kept or not), a reply with no text and no call, a
+# length stop the stop walk continues (any compaction and lower level)
+# EXCLUDES: leaked calls, a repeat, an empty reply or a length stop passed
+#   on as the answer, at a cap of 0 or past a cap (where the help Rust
+#   reads, Help.of, cannot tell a pass from a failed run)
+law rec_stuck_never_passes:
+  for +rc: RnRecovery.RCfg
+  for +k: RnRecovery.Rk
+  for +row: Nat
+  for +same: Nat
+  for +last: Nat
+  for +rebuilt: Bool
+  for +h: Nat
+  for +kept: Bool
+  for +shrink: Bool
+  for +lower: Bool
+  {passes(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Leak{rebuilt, h, kept}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool} &
+  {passes(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Ran{h, kept}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool} &
+  {passes(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Empty{}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool} &
+  {passes(RnRecovery.Dec.act(RnRecovery.Rec.step(rc, RnRecovery.Think{shrink, lower}, RnRecovery.Rec{k, row, same, last}))) == False{} : Bool}
 
 # LAW rec_quit_fails: a recovery at its cap fails the run on the model, at once
 law rec_quit_fails:
