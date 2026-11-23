@@ -46,8 +46,9 @@ use super::evidence::{judge_prompt, ModelJudge};
 use super::strength::{AttackProbe, Measurement, Probe};
 use super::{
     acceptance_exit_code, acceptance_extension, acceptance_state, read_final_answer,
-    set_acceptance, uncertified_line, watch_acceptance_updates, AnswerReading, Attacker, Breaker,
-    Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services, ACCEPTANCE_CUSTOM_TYPE,
+    read_work_left, set_acceptance, uncertified_line, watch_acceptance_updates, AnswerReading,
+    Attacker, Breaker, Judge, JudgeQuestion, JudgeReply, JudgeRequest, Services,
+    ACCEPTANCE_CUSTOM_TYPE,
 };
 use crate::autonomous::{ChildProcessResult, GateCommandRunner};
 use crate::durable::autonomous::tests::{open_jsonl, user_origins, user_texts};
@@ -1501,6 +1502,75 @@ async fn the_final_answer_judge_sends_one_request_with_the_answer_only() {
     harness.close(cx()).await.expect("close");
 }
 
+/// A4: the work-left Director's judge request asks whether the answer
+/// leaves task work the worker itself can still do now, without the user:
+/// its own system prompt says a step that needs the user, one the worker
+/// declined with a stated reason, an assumption and a next step addressed
+/// to the user are no such work, and asks for short items in the judge's
+/// own words, never the answer's sentences. The answer is the evidence,
+/// nothing of the conversation; FAIL's lines are the items.
+#[tokio::test]
+async fn the_work_left_judge_asks_only_for_work_the_worker_can_do_now() {
+    let setup = setup();
+    let (harness, root) = setup.memory().await;
+    setup
+        .faux
+        .set_responses(vec![answer("the worker talks first")]);
+    run(&harness, &root, "a private task the judge never sees").await;
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let record = |reply: &str| {
+        let (seen, reply) = (Arc::clone(&seen), reply.to_owned());
+        FauxResponseStep::factory(move |context, _, _, _| {
+            seen.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(format!("{context:?}"));
+            Ok(faux_assistant_message(
+                reply.as_str(),
+                FauxAssistantMessageOptions::default(),
+            ))
+        })
+    };
+    // A model's reply to this prompt on this answer, recorded.
+    setup.faux.set_responses(vec![record(
+        "FAIL\nFix the parser panic on empty input lines\nGet the failing parse_empty_line test passing",
+    )]);
+    let judge = ModelJudge {
+        harness: setup.cell.clone(),
+        models: setup.models.clone(),
+    };
+    let answer = "Implemented the parser and the CLI flags. `cargo test` shows 41 passed, 1 failed: `parse_empty_line` panics on an empty input line. I haven't fixed that yet; the rest is done.";
+
+    let reading = read_work_left(&judge, root.id(), answer, cx()).await;
+
+    assert_eq!(
+        reading,
+        AnswerReading::Left(vec![
+            "Fix the parser panic on empty input lines".to_owned(),
+            "Get the failing parse_empty_line test passing".to_owned(),
+        ])
+    );
+    let seen = seen.lock().expect("seen").clone();
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    for part in [
+        "It fails only when the answer leaves task work that the worker itself can still do now, with its tools and without the user",
+        "a step that needs the user (their login, credentials or account, a decision only they can make, a physical action, their hardware or devices)",
+        "a step the worker declined with a stated reason (intrusive, risky, destructive, out of scope)",
+        "an assumption; a next step or instruction addressed to the user",
+        "each a few words of your own naming the work: never copy the answer's sentences",
+        "<condition>\\nThe final answer leaves no task work the worker itself can still do now, without the user.\\n</condition>",
+    ] {
+        assert!(seen[0].contains(part), "{part}\n{}", seen[0]);
+    }
+    assert!(
+        seen[0].contains(&format!("<evidence>\\n{answer}\\n</evidence>")),
+        "{}",
+        seen[0]
+    );
+    assert!(!seen[0].contains("a private task"), "{}", seen[0]);
+    assert!(!seen[0].contains("the worker talks first"), "{}", seen[0]);
+    harness.close(cx()).await.expect("close");
+}
+
 /// V2, V7: a check that timed out and a judge with no readable answer are
 /// broken: never passed, never failed. The claim goes back to the worker
 /// with that evidence and both checks run again at its next claim; at the
@@ -1723,7 +1793,9 @@ fn intent_messages(request: &JudgeRequest) -> Vec<String> {
         JudgeQuestion::Condition(condition) | JudgeQuestion::Stated(condition) => {
             panic!("a condition, not the intent: {condition}")
         }
-        JudgeQuestion::Report => panic!("a final answer, not the intent"),
+        JudgeQuestion::Report | JudgeQuestion::WorkLeft => {
+            panic!("a final answer, not the intent")
+        }
         JudgeQuestion::Attack(_) | JudgeQuestion::Witness { .. } => {
             panic!("a blind attack, not the intent")
         }

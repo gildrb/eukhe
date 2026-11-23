@@ -155,15 +155,15 @@ async fn a_passing_claim_whose_answer_states_work_left_goes_on() {
             .collect::<Vec<_>>(),
         vec![
             intent.clone(),
-            JudgeQuestion::Report,
+            JudgeQuestion::WorkLeft,
             intent,
-            JudgeQuestion::Report
+            JudgeQuestion::WorkLeft
         ]
     );
     assert_eq!(
         requests
             .iter()
-            .filter(|request| request.question == JudgeQuestion::Report)
+            .filter(|request| request.question == JudgeQuestion::WorkLeft)
             .map(|request| request.evidence.as_str())
             .collect::<Vec<_>>(),
         vec![left, done]
@@ -229,7 +229,7 @@ async fn a_run_that_ends_on_its_budget_reports_the_work_its_answer_left() {
             user_origins(&entries(&root).await),
             judge_requests(&setup)
                 .iter()
-                .filter(|request| request.question == JudgeQuestion::Report)
+                .filter(|request| request.question == JudgeQuestion::WorkLeft)
                 .count(),
             setup
                 .budget

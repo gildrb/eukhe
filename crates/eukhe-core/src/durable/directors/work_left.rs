@@ -1,7 +1,10 @@
-//! The work-left Director: a final answer that leaves task work undone
-//! continues the run. Nobody watches a run; an answer that asks for leave
-//! to do part of the task, offers to do the rest, or asks how to go on
-//! would stop it until a person comes back.
+//! The work-left Director: a final answer that leaves task work the agent
+//! itself can still do continues the run. Nobody watches a run; an answer
+//! that asks for leave to do part of the task, offers to do the rest, or
+//! asks how to go on would stop it until a person comes back. What needs
+//! the user (a login, a decision, a physical action), what the agent
+//! declined for a stated reason, assumptions and next steps for the user
+//! are no such work: the run never goes on into them.
 //!
 //! Its extension installs after the one whose `on_yield` hook runs the
 //! Director stack (`durable/registry.rs`): the first continuation wins, so
@@ -10,8 +13,8 @@
 //! (`eukhe_bend::rules::work_left`, model `bend/work_left.bend`): this
 //! module gathers the facts (a driver, queued input, whether the run
 //! acted, the session's budget, the progress check, the Director loop's
-//! steps left), asks the final-answer judge when the core asks
-//! (`acceptance::read_final_answer`: one request, no tools, the answer
+//! steps left), asks the work-left judge when the core asks
+//! (`acceptance::read_work_left`: one request, no tools, the answer
 //! alone), and records the decision in `eukhe.directors` keyed by the
 //! generation, so a rerun after a crash repeats it.
 
@@ -44,7 +47,7 @@ use super::{
     DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::autonomous::{now_millis, SessionBudget};
-use crate::durable::acceptance::{read_final_answer, AnswerReading, Judge};
+use crate::durable::acceptance::{read_work_left, AnswerReading, Judge};
 use crate::durable::autonomous::{
     budget_report, conversation_of, open_doc, read_doc, user_input_queued, write_doc,
     AUTONOMOUS_DOC,
@@ -353,10 +356,10 @@ fn recorded(state: &DirectorState, task_id: TaskId) -> Option<&WorkLeftRecord> {
         .filter(|record| record.task_id == task_id)
 }
 
-/// The final-answer judge's reading of `answer`, the final answer of
-/// `conversation_id` (`acceptance::read_final_answer`: one request, no
-/// tools, the answer alone), with the items it listed as left. An answer
-/// with no text has no verdict.
+/// The work-left judge's reading of `answer`, the final answer of
+/// `conversation_id` (`acceptance::read_work_left`: one request, no tools,
+/// the answer alone), with the items it listed as work the agent can still
+/// do now. An answer with no text has no verdict.
 pub(crate) async fn judge_answer(
     judge: &dyn Judge,
     conversation_id: ConversationId,
@@ -364,7 +367,7 @@ pub(crate) async fn judge_answer(
     cx: &Context,
 ) -> (Reading, Vec<String>) {
     match answer_text(answer) {
-        Some(text) => reading_of(read_final_answer(judge, conversation_id, &text, cx).await),
+        Some(text) => reading_of(read_work_left(judge, conversation_id, &text, cx).await),
         None => (Reading::Unjudged, Vec::new()),
     }
 }
@@ -471,20 +474,23 @@ fn reading_of(reading: AnswerReading) -> (Reading, Vec<String>) {
 }
 
 /// The harness continuation of an answer that left the work `items`
-/// undone (the judge's words; none when it listed none): the work-left
-/// Director's, and an autonomous run's whose passing claim left work.
+/// undone (the judge's own short items; none when it listed none): the
+/// work-left Director's, and an autonomous run's whose passing claim left
+/// work. It sends the agent to that work only: nothing beyond it, nothing
+/// intrusive the user did not ask for, and what needs the user stays
+/// undone.
 pub(crate) fn left_continuation(items: &[String]) -> String {
     let left = if items.is_empty() {
-        "[director: work left] The final answer leaves task work undone.".to_owned()
+        "[director: work left] The final answer leaves task work you can still do now.".to_owned()
     } else {
         let list: Vec<String> = items.iter().map(|item| format!("- {item}")).collect();
         format!(
-            "[director: work left] The final answer leaves task work undone:\n{}",
+            "[director: work left] The final answer leaves task work you can still do now:\n{}",
             list.join("\n")
         )
     };
     format!(
-        "{left}\n\nNobody is watching this run to answer a question or grant leave. Decide and act: do the remaining work now, then give the final answer. State each assumption made in the final answer. Work that truly cannot be done (a refusal, a missing credential, a check's protected file) goes into the final answer; the rest gets done."
+        "{left}\n\nNobody is watching this run to answer a question or grant leave. Do only this work now, deciding what it needs yourself, then give the final answer and state each assumption in it. Start nothing beyond it, and nothing intrusive the user did not ask for: no GUI automation, no acting in other apps, no playing or recording sound. A step that needs the user (their login, credentials, a decision, a physical action) or one you declined for a stated reason stays undone and goes into the final answer."
     )
 }
 

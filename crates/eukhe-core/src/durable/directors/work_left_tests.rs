@@ -1,8 +1,10 @@
 //! The work-left Director on a real Harness with faux models and a
-//! scripted final-answer judge: an answer that asks to go on continues the
-//! run with no user input; an answer the judge reads as done, or gives no
-//! verdict on, stands; a run that only read, or has input queued, is never
-//! judged; the progress check ends a chain that makes no new tool result.
+//! scripted final-answer judge (recorded replies): an answer that asks to
+//! go on continues the run with no user input; an answer the judge reads
+//! as done, or gives no verdict on, stands, and so does one that leaves
+//! only the user's steps; a run that only read, or has input queued, is
+//! never judged; the progress check ends a chain that makes no new tool
+//! result.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -29,7 +31,7 @@ use futures::FutureExt;
 
 use super::work_left::{work_left_hook, WorkLeftHost};
 use super::{
-    director_state, run_left, tool_acted, DirectorLimits, WorkLeftOutcome,
+    director_state, left_continuation, run_left, tool_acted, DirectorLimits, WorkLeftOutcome,
     DIRECTOR_NOTICE_CUSTOM_TYPE,
 };
 use crate::durable::acceptance::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
@@ -60,7 +62,7 @@ impl ScriptedJudge {
 
 impl Judge for ScriptedJudge {
     fn judge(&self, request: JudgeRequest, _cx: &Context) -> BoxFuture<'_, JudgeReply> {
-        assert_eq!(request.question, JudgeQuestion::Report);
+        assert_eq!(request.question, JudgeQuestion::WorkLeft);
         self.asked
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -232,7 +234,7 @@ async fn an_answer_that_asks_to_go_on_continues_the_run_without_the_user() {
         (
             vec![InputOrigin::User, InputOrigin::Director],
             Some(
-                "[director: work left] The final answer leaves task work undone:\n- step 2: migrate the callers\n\nNobody is watching this run to answer a question or grant leave. Decide and act: do the remaining work now, then give the final answer. State each assumption made in the final answer. Work that truly cannot be done (a refusal, a missing credential, a check's protected file) goes into the final answer; the rest gets done."
+                "[director: work left] The final answer leaves task work you can still do now:\n- step 2: migrate the callers\n\nNobody is watching this run to answer a question or grant leave. Do only this work now, deciding what it needs yourself, then give the final answer and state each assumption in it. Start nothing beyond it, and nothing intrusive the user did not ask for: no GUI automation, no acting in other apps, no playing or recording sound. A step that needs the user (their login, credentials, a decision, a physical action) or one you declined for a stated reason stays undone and goes into the final answer."
                     .to_owned()
             ),
             vec![
@@ -289,6 +291,120 @@ async fn a_done_or_unjudged_answer_stands() {
         );
         harness.close(cx()).await.expect("close");
     }
+}
+
+/// The owner's final answer of 2026-11-23, trimmed: the rest needs the
+/// user's login, it names what it declined on purpose and why (copying
+/// another tool's login, a test dictation that would paste into the
+/// focused app), its assumptions, and a next step for the user.
+const NEEDS_THE_USERS_LOGIN: &str = "Hex is ready for the new rewrite, but it still can't run it. OpenCode has no model it can use, and connecting one needs your login, which I can't do. One command fixes it:
+
+```
+opencode auth login
+```
+
+1. **Done:** I restarted Hex so it finds the OpenCode I installed. It's running normally, and the new prompt is saved in `default_mode`.
+2. **Not done, on purpose:**
+   - I could have copied your Codex login into OpenCode. I didn't, because two programs sharing one login can sign Codex out.
+   - I didn't make a test dictation by playing speech into the mic. Hex would paste the result into whatever app has focus, and with no model it would only show the plain-text fallback.
+3. **Assumptions:**
+   - Leaving `model` unset lets Hex pick a fast model once a provider is connected.
+
+Next: run `opencode auth login`, connect a provider, then dictate one long message and check what Hex pastes.";
+
+/// Regression (the owner's live run of 2026-11-23): the Director read the
+/// answer above as work left, listed its sentences (among them "I didn't
+/// make a test dictation by playing speech into the mic.") and continued,
+/// and the agent then played speech into the mic. An answer that leaves
+/// only the user's steps (their login, what the agent declined with a
+/// reason, assumptions, a next step for the user) is finished: the judge
+/// (its recorded reply) reads PASS and the answer stands, with nothing
+/// left and no continuation. So does an answer whose one open item needs
+/// the user's login.
+#[tokio::test]
+async fn an_answer_that_leaves_only_the_users_steps_stands() {
+    for left_to_the_user in [
+        NEEDS_THE_USERS_LOGIN,
+        "The CLI is built and its tests pass. Publishing the crate needs your crates.io login, which I can't do: run `cargo login`, then `cargo publish`.",
+    ] {
+        let WorkLeftSetup { setup, judge, .. } = work_left_setup(vec![verdict("PASS")]);
+        let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+        setup.faux.set_responses(vec![
+            write_call(),
+            answer(left_to_the_user),
+            answer("unused"),
+        ]);
+
+        submit(&root, "set up the rewrite").await;
+        harness.wait_for_idle(cx()).await.expect("idle");
+
+        let entries = entries(&root).await;
+        assert_eq!(
+            (
+                user_origins(&entries),
+                notices(&entries),
+                judge.asked(),
+                setup.faux.get_pending_response_count(),
+                run_left(&harness, &root, cx()).await.expect("read"),
+            ),
+            (
+                vec![InputOrigin::User],
+                Vec::<String>::new(),
+                vec![left_to_the_user.to_owned()],
+                1,
+                None,
+            ),
+            "{left_to_the_user}"
+        );
+        harness.close(cx()).await.expect("close");
+    }
+}
+
+/// A failing test the agent could fix is work left: the judge (its
+/// recorded reply) lists it in its own short words, and the run goes on
+/// with exactly those items, told to do only them.
+#[tokio::test]
+async fn a_failing_test_the_agent_can_fix_is_still_work_left() {
+    let items = [
+        "Fix the parser panic on empty input lines".to_owned(),
+        "Get the failing parse_empty_line test passing".to_owned(),
+    ];
+    let WorkLeftSetup { setup, judge, .. } = work_left_setup(vec![
+        verdict(&format!("FAIL\n{}", items.join("\n"))),
+        verdict("PASS"),
+    ]);
+    let (harness, root) = setup.open(Arc::new(MemoryStorage::new())).await;
+    let failing = "Implemented the parser and the CLI flags. `cargo test` shows 41 passed, 1 failed: `parse_empty_line` panics on an empty input line. I haven't fixed that yet; the rest is done.";
+    setup.faux.set_responses(vec![
+        write_call(),
+        answer(failing),
+        answer("Fixed parse_empty_line; `cargo test` passes all 42 tests."),
+    ]);
+
+    submit(&root, "implement the parser").await;
+    harness.wait_for_idle(cx()).await.expect("idle");
+
+    let entries = entries(&root).await;
+    assert_eq!(
+        (
+            user_origins(&entries),
+            user_texts(&entries).get(1).cloned(),
+            notices(&entries),
+            judge.asked().len(),
+            setup.faux.get_pending_response_count(),
+        ),
+        (
+            vec![InputOrigin::User, InputOrigin::Director],
+            Some(left_continuation(&items)),
+            vec![format!(
+                "The final answer left task work undone ({}); the run went on.",
+                items.join("; ")
+            )],
+            2,
+            0,
+        )
+    );
+    harness.close(cx()).await.expect("close");
 }
 
 /// A run that only answered (no tool call with an effect since the user's

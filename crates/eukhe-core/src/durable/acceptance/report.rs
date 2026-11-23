@@ -1,8 +1,12 @@
-//! The reading of a run's final answer: whether it states work of its
-//! task left. The acceptance judge decides it (one model request with no
-//! tools and no transcript, `JudgeQuestion::Report`), on the answer alone;
-//! the headless task rule (`eukhe_bend::rules::headless::task`) and the
-//! work-left Director (`eukhe_bend::rules::work_left`) read the result.
+//! The readings of a run's final answer. The acceptance judge decides each
+//! one (one model request with no tools and no transcript), on the answer
+//! alone: whether it states work of its task left, whatever the reason
+//! (`JudgeQuestion::Report`, which the headless task rule
+//! `eukhe_bend::rules::headless::task` reads), and whether it leaves task
+//! work the worker itself can still do now, without the user
+//! (`JudgeQuestion::WorkLeft`, which the work-left Director
+//! `eukhe_bend::rules::work_left` and an autonomous run's passing claim
+//! read).
 
 use std::sync::Arc;
 
@@ -19,10 +23,12 @@ use crate::durable::{EukheSession, HarnessCell};
 /// What the judge read in a final answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnswerReading {
-    /// The answer states no work of the task left.
+    /// The answer states no work of the task left (for
+    /// `JudgeQuestion::WorkLeft`: none the worker can still do now).
     Done,
-    /// The answer states work left: the items the judge listed, in the
-    /// answer's words (empty when it listed none).
+    /// The answer states work left (for `JudgeQuestion::WorkLeft`: work the
+    /// worker can still do now): the items the judge listed, in its own
+    /// words (empty when it listed none).
     Left(Vec<String>),
     /// The judge gave no verdict, and why.
     Unjudged(String),
@@ -85,9 +91,34 @@ impl Judge for AnswerJudge {
 const FAUX_API: &str = "faux";
 
 /// Ask `judge` whether `answer`, the final answer of `conversation_id`,
-/// states work of its task left: one request.
+/// states work of its task left, whatever the reason: one request.
 pub async fn read_final_answer(
     judge: &dyn Judge,
+    conversation_id: ConversationId,
+    answer: &str,
+    cx: &Context,
+) -> AnswerReading {
+    read_answer_for(judge, JudgeQuestion::Report, conversation_id, answer, cx).await
+}
+
+/// Ask `judge` whether `answer`, the final answer of `conversation_id`,
+/// leaves task work the worker itself can still do now, without the user:
+/// one request. A step that needs the user, one the worker declined for a
+/// stated reason, an assumption or a next step for the user is no such
+/// work.
+pub(crate) async fn read_work_left(
+    judge: &dyn Judge,
+    conversation_id: ConversationId,
+    answer: &str,
+    cx: &Context,
+) -> AnswerReading {
+    read_answer_for(judge, JudgeQuestion::WorkLeft, conversation_id, answer, cx).await
+}
+
+/// One judge request on `answer` for `question`, and its reading.
+async fn read_answer_for(
+    judge: &dyn Judge,
+    question: JudgeQuestion,
     conversation_id: ConversationId,
     answer: &str,
     cx: &Context,
@@ -96,7 +127,7 @@ pub async fn read_final_answer(
         .judge(
             JudgeRequest {
                 conversation_id,
-                question: JudgeQuestion::Report,
+                question,
                 evidence: answer.chars().take(MAX_JUDGE_EVIDENCE_CHARS).collect(),
                 model: None,
             },
