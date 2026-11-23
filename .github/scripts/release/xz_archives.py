@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Write the `.tar.xz` twin of each release `.tar.gz`: the same tar bytes.
 
-The release publishes both archives of every platform. install.sh (when the
-machine can unpack it) and `eukhe update` download the `.tar.xz`, about a
-third smaller; the `.tar.gz` stays for the Nix flake, machines without xz and
+The release publishes both archives of every platform. The installer
+(eukhe.com/install, kept in gildrb/eukhe-site), when the machine can unpack
+it, and `eukhe update` download the `.tar.xz`, about a third smaller; the
+`.tar.gz` stays for the Nix flake, machines without xz and
 the updaters of releases before the twins. The tar inside is byte-identical:
 the twin is decompressed again and compared before it is kept.
 
 xz runs single-threaded (`-T1`, so the bytes do not depend on the runner's
 core count) at preset 9e, after the branch-call filter of the platform's
 machine code: x86 on linux-x64 (every xz decodes it), ARM64 on the arm64
-platforms (xz >= 5.4 decodes it; install.sh falls back to the `.tar.gz` on
+platforms (xz >= 5.4 decodes it; the installer falls back to the `.tar.gz` on
 an older one). Encoding needs xz >= 5.4 here.
 
 Usage:
