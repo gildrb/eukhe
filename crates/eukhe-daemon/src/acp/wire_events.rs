@@ -1,19 +1,25 @@
 //! Daemon session-event mapping: the TS `acpUpdatesForSessionEvent` port
 //! for the wire shapes a daemon worker streams (`message_start/update/end`,
-//! `tool_execution_*`, `bash_*`, `compaction_end`,
-//! `loop_update`, ...): the
-//! ACP frames the daemon worker's session events produce.
+//! `tool_execution_*`, `bash_*`, `compaction_end`, `loop_update`,
+//! `acceptance_update`, `session_info_changed`, ...): the ACP frames the
+//! daemon worker's session events produce.
 //!
 //! Events with no ACP counterpart (`turn_end`, `auto_retry_*`,
 //! `agent_begin/end`, `session_action_update`) map to nothing, exactly like
 //! the TS switch's default arm.
 
+use std::collections::HashMap;
+
+use eukhe_types::acceptance::{AcceptanceCheck, AcceptanceState, CheckSpec, CheckVerdict};
 use eukhe_types::budget::BudgetReport;
 use serde::Deserialize as _;
 use serde_json::{json, Value};
 
 use super::meta::{eukhe_meta, EukheCompactionMeta, EukheSessionMeta};
-use super::types::{AcpSessionUpdate, AcpToolKind, AcpToolStatus, TextBlock};
+use super::types::{
+    AcpSessionUpdate, AcpToolKind, AcpToolStatus, PlanEntry, PlanPriority, PlanStatus, TextBlock,
+    ToolCallContent, ToolCallLocation, ToolCallStart,
+};
 
 /// The model-facing Python REPL tool.
 const PYTHON_TOOL_NAME: &str = "python";
@@ -23,12 +29,27 @@ const PYTHON_TOOL_NAME: &str = "python";
 /// output chunks with the run that produced them.
 #[derive(Debug, Default)]
 pub struct WireMappingState {
+    /// The session's cwd: a tool's relative path becomes absolute in it.
+    cwd: std::path::PathBuf,
     next_assistant_message_sequence: u64,
     active_assistant_message_id: Option<String>,
     /// The active assistant message's text and thinking already published
     /// as chunks, each concatenated across its blocks.
     published: PublishedChunks,
     active_bash_run_id: Option<String>,
+    /// The output each running tool call reported so far: an aborted call
+    /// keeps it in front of its abort note.
+    partial_outputs: HashMap<String, String>,
+    /// Whether the session's checks were last published as a non-empty plan.
+    plan: PlanShown,
+}
+
+/// What the client holds of the checks' plan.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum PlanShown {
+    #[default]
+    Nothing,
+    Entries,
 }
 
 /// What one assistant message has published so far.
@@ -39,6 +60,14 @@ struct PublishedChunks {
 }
 
 impl WireMappingState {
+    /// The mapping of a session that runs in `cwd`.
+    pub fn in_cwd(cwd: std::path::PathBuf) -> Self {
+        WireMappingState {
+            cwd,
+            ..WireMappingState::default()
+        }
+    }
+
     fn start_assistant_message(&mut self) -> String {
         self.next_assistant_message_sequence += 1;
         let id = format!("eukhe-assistant-{}", self.next_assistant_message_sequence);
@@ -213,49 +242,43 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
             chunks
         }
         "tool_execution_start" => {
-            let tool_call_id = event
-                .get("toolCallId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let tool_name = event
-                .get("toolName")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
+            let tool_call_id = string_field(event, "toolCallId");
+            let tool_name = string_field(event, "toolName");
             let args = event.get("args").cloned().unwrap_or(Value::Null);
-            let cell = if tool_name == PYTHON_TOOL_NAME {
-                args.get("code").and_then(Value::as_str).map(str::to_string)
-            } else {
-                None
-            };
-            let title = if tool_name == PYTHON_TOOL_NAME {
-                "Python cell".to_string()
-            } else {
-                tool_name.clone()
-            };
-            vec![AcpSessionUpdate::ToolCall {
+            vec![AcpSessionUpdate::ToolCall(tool_call_start(
                 tool_call_id,
-                title,
-                kind: AcpToolKind::of_tool(&tool_name),
-                status: AcpToolStatus::InProgress,
-                raw_input: match cell {
-                    Some(code) => json!({ "code": code }),
-                    None => args,
-                },
+                &tool_name,
+                args,
+                &state.cwd,
+            ))]
+        }
+        "tool_execution_update" => {
+            let tool_call_id = string_field(event, "toolCallId");
+            let Some(text) = tool_result_text(event.get("partialResult")) else {
+                return Vec::new();
+            };
+            state
+                .partial_outputs
+                .insert(tool_call_id.clone(), text.clone());
+            vec![AcpSessionUpdate::ToolCallUpdate {
+                tool_call_id,
+                status: Some(AcpToolStatus::InProgress),
+                content: Some(vec![ToolCallContent::new(text)]),
+                meta: None,
             }]
         }
         "tool_execution_end" => {
-            let tool_call_id = event
-                .get("toolCallId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
+            let tool_call_id = string_field(event, "toolCallId");
             let is_error = event
                 .get("isError")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let text = tool_result_text(event.get("result"));
+            let partial = state.partial_outputs.remove(&tool_call_id);
+            let text = final_output(
+                partial,
+                tool_result_text(event.get("result")),
+                ToolEnd::of(is_error),
+            );
             let rich = python_rich_output(event.get("result"));
             let update = AcpSessionUpdate::ToolCallUpdate {
                 tool_call_id,
@@ -264,7 +287,7 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 } else {
                     AcpToolStatus::Completed
                 }),
-                content: text.map(|text| vec![super::types::ToolCallContent::new(text)]),
+                content: text.map(|text| vec![ToolCallContent::new(text)]),
                 meta: rich.map(|rich| {
                     eukhe_meta(&EukheSessionMeta {
                         python: Some(rich),
@@ -287,13 +310,16 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 .and_then(Value::as_str)
                 .map(str::to_string);
             state.active_bash_run_id.clone_from(&run_id);
-            vec![AcpSessionUpdate::ToolCall {
+            vec![AcpSessionUpdate::ToolCall(ToolCallStart {
                 tool_call_id: bash_tool_call_id(run_id),
-                title: command.clone(),
+                title: format!("Run `{command}`"),
+                name: "bash".to_string(),
                 kind: AcpToolKind::Execute,
                 status: AcpToolStatus::InProgress,
                 raw_input: json!({ "command": command }),
-            }]
+                locations: Vec::new(),
+                content: Vec::new(),
+            })]
         }
         "bash_output" => {
             let chunk = event
@@ -494,8 +520,193 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 }),
             }]
         }
+        "session_info_changed" => vec![AcpSessionUpdate::TitleUpdate {
+            title: event
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }],
+        "acceptance_update" => {
+            let Some(acceptance) = event
+                .get("acceptance")
+                .and_then(|acceptance| AcceptanceState::deserialize(acceptance).ok())
+            else {
+                return Vec::new();
+            };
+            let entries: Vec<PlanEntry> = acceptance.checks.iter().map(plan_entry).collect();
+            let (shown, updates) = plan_updates(state.plan, entries);
+            state.plan = shown;
+            updates
+        }
         _ => Vec::new(),
     }
+}
+
+/// A string field of an event, empty when absent.
+fn string_field(event: &Value, key: &str) -> String {
+    event
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The `tool_call` of one tool execution: a title for people, the tool's
+/// name, its input (a shell step's `command` beside its `script`), and the
+/// file it names, absolute in `cwd`.
+pub(super) fn tool_call_start(
+    tool_call_id: String,
+    tool_name: &str,
+    args: Value,
+    cwd: &std::path::Path,
+) -> ToolCallStart {
+    let locations = args
+        .get("path")
+        .and_then(Value::as_str)
+        .map(|path| {
+            vec![ToolCallLocation {
+                path: cwd.join(path).display().to_string(),
+            }]
+        })
+        .unwrap_or_default();
+    ToolCallStart {
+        tool_call_id,
+        title: tool_title(tool_name, &args),
+        name: tool_name.to_string(),
+        kind: AcpToolKind::of_tool(tool_name),
+        status: AcpToolStatus::InProgress,
+        raw_input: tool_raw_input(tool_name, args),
+        locations,
+        content: Vec::new(),
+    }
+}
+
+/// The call's own intent (`i`), else what it runs or touches.
+fn tool_title(tool_name: &str, args: &Value) -> String {
+    let text = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    if let Some(intent) = text("i") {
+        return intent.to_string();
+    }
+    match (tool_name, text("script"), text("path")) {
+        (PYTHON_TOOL_NAME, _, _) => "Python cell".to_string(),
+        (_, Some(script), _) => format!("Run `{}`", script.lines().next().unwrap_or(script)),
+        (_, None, Some(path)) => format!("{tool_name} {path}"),
+        (_, None, None) => tool_name.to_string(),
+    }
+}
+
+/// The `rawInput` of a call: a Python cell's code; a shell step's args
+/// with its script also as `command`; any other tool's args.
+fn tool_raw_input(tool_name: &str, args: Value) -> Value {
+    if tool_name == PYTHON_TOOL_NAME {
+        return match args.get("code").and_then(Value::as_str) {
+            Some(code) => json!({ "code": code }),
+            None => args,
+        };
+    }
+    match (args, tool_name) {
+        (Value::Object(mut fields), "bash") => {
+            if let Some(script) = fields.get("script").cloned() {
+                fields.entry("command").or_insert(script);
+            }
+            Value::Object(fields)
+        }
+        (args, _) => args,
+    }
+}
+
+/// How a tool call ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolEnd {
+    Completed,
+    Failed,
+}
+
+impl ToolEnd {
+    fn of(is_error: bool) -> ToolEnd {
+        if is_error {
+            ToolEnd::Failed
+        } else {
+            ToolEnd::Completed
+        }
+    }
+}
+
+/// A call's last content: its result; a failed (aborted) call keeps the
+/// output it reported before its error.
+fn final_output(partial: Option<String>, result: Option<String>, end: ToolEnd) -> Option<String> {
+    match (end, partial, result) {
+        (ToolEnd::Failed, Some(partial), Some(result)) if !result.contains(&partial) => {
+            Some(format!("{partial}\n{result}"))
+        }
+        (ToolEnd::Failed, Some(partial), None) => Some(partial),
+        (ToolEnd::Failed | ToolEnd::Completed, _, result) => result,
+    }
+}
+
+/// What one acceptance check asks, for people.
+pub(super) fn check_text(spec: &CheckSpec) -> String {
+    match spec {
+        CheckSpec::Command { command, .. } => format!("`{command}` passes"),
+        CheckSpec::Judge { condition, .. } => condition.clone(),
+        CheckSpec::Until { command, .. } => format!("Until `{command}` passes"),
+        CheckSpec::Intent { .. } => "The result meets the task's intent".to_string(),
+    }
+}
+
+/// One check as a plan entry: done once confirmed, in progress while its
+/// last verdict is any other.
+fn plan_entry(check: &AcceptanceCheck) -> PlanEntry {
+    PlanEntry {
+        content: check_text(&check.spec),
+        priority: PlanPriority::High,
+        status: match check.result.as_ref().map(|result| result.verdict) {
+            None => PlanStatus::Pending,
+            Some(CheckVerdict::Confirmed) => PlanStatus::Completed,
+            Some(CheckVerdict::Refuted | CheckVerdict::Broken | CheckVerdict::Unjudged) => {
+                PlanStatus::InProgress
+            }
+        },
+    }
+}
+
+/// The `plan` updates for the checks now: their entries, an empty plan
+/// once the checks are gone, nothing while there were and are none.
+fn plan_updates(shown: PlanShown, entries: Vec<PlanEntry>) -> (PlanShown, Vec<AcpSessionUpdate>) {
+    match (shown, entries.is_empty()) {
+        (PlanShown::Nothing, true) => (PlanShown::Nothing, Vec::new()),
+        (PlanShown::Entries, true) => (
+            PlanShown::Nothing,
+            vec![AcpSessionUpdate::Plan {
+                entries: Vec::new(),
+            }],
+        ),
+        (PlanShown::Nothing | PlanShown::Entries, false) => {
+            (PlanShown::Entries, vec![AcpSessionUpdate::Plan { entries }])
+        }
+    }
+}
+
+/// The text of an assistant message that `message_end` settles: the
+/// turn's latest answer.
+pub fn assistant_answer(event: &Value) -> Option<String> {
+    if event.get("type").and_then(Value::as_str) != Some("message_end") || !is_assistant(event) {
+        return None;
+    }
+    let text = event
+        .get("message")?
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<String>();
+    (!text.trim().is_empty()).then_some(text)
 }
 
 /// The synthetic tool-call id of a user-level bash run:
@@ -512,7 +723,7 @@ fn bash_tool_call_id(run_id: Option<String>) -> String {
 /// carries it. Empty text blocks drop out before the join and an empty
 /// text yields `None`, so no update carries empty content (the TS call
 /// site's `text ? { content } : {}`).
-fn tool_result_text(result: Option<&Value>) -> Option<String> {
+pub(super) fn tool_result_text(result: Option<&Value>) -> Option<String> {
     let result = result?;
     if let Some(text) = result.as_str() {
         return (!text.is_empty()).then(|| text.to_string());
@@ -802,6 +1013,84 @@ mod tests {
         assert_eq!(value["sessionUpdate"], "tool_call_update");
         assert_eq!(value["status"], "completed");
         assert_eq!(value["content"][0]["content"]["text"], "1\n");
+    }
+
+    /// A shell step's call: its intent as the title, the tool's name, the
+    /// script also as `command`, the file it names made absolute; its
+    /// output streams and stays in front of the abort note.
+    #[test]
+    fn a_shell_call_streams_its_output_and_keeps_it_on_abort() {
+        let mut state = WireMappingState::in_cwd("/work".into());
+        let args = json!({ "i": "Listing files", "script": "ls", "path": "src" });
+        let frames: Vec<Value> = [
+            json!({ "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": args }),
+            json!({ "type": "tool_execution_update", "toolCallId": "c1", "toolName": "bash", "args": args,
+                "partialResult": { "content": [{ "type": "text", "text": "a.rs" }] } }),
+            json!({ "type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash",
+                "result": { "content": [{ "type": "text", "text": "[error] Tool bash was aborted" }] }, "isError": true }),
+        ]
+        .iter()
+        .flat_map(|event| wire_updates(event, &mut state))
+        .map(|update| update.to_bare_value())
+        .collect();
+        assert_eq!(
+            frames,
+            [
+                json!({
+                    "sessionUpdate": "tool_call", "toolCallId": "c1", "title": "Listing files",
+                    "name": "bash", "kind": "execute", "status": "in_progress",
+                    "rawInput": { "i": "Listing files", "script": "ls", "path": "src", "command": "ls" },
+                    "locations": [{ "path": "/work/src" }],
+                }),
+                json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "in_progress",
+                    "content": [{ "type": "content", "content": { "type": "text", "text": "a.rs" } }],
+                }),
+                json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "failed",
+                    "content": [{ "type": "content", "content": { "type": "text",
+                        "text": "a.rs\n[error] Tool bash was aborted" } }],
+                }),
+            ]
+        );
+    }
+
+    /// The checks are a plan: each change republishes every entry, and the
+    /// checks' removal empties it once. The session name is the title.
+    #[test]
+    fn checks_map_to_the_plan_and_the_name_to_the_title() {
+        let mut state = WireMappingState::default();
+        let acceptance = |checks: Value| {
+            json!({ "type": "acceptance_update", "acceptance": {
+                "label": "unverified", "state": 1, "revision": 1, "checks": checks,
+                "claimed": false, "tries": 0, "maxReturns": 3,
+            }})
+        };
+        let frames: Vec<Value> = [
+            acceptance(json!([
+                { "spec": { "kind": "command", "command": "cargo test" } },
+                { "spec": { "kind": "intent" }, "result": {
+                    "verdict": "confirmed", "at": 1, "summary": "met", "evidence": "", "judgedAt": 2 } },
+            ])),
+            acceptance(json!([])),
+            acceptance(json!([])),
+            json!({ "type": "session_info_changed", "name": "Fix the parser" }),
+        ]
+        .iter()
+        .flat_map(|event| wire_updates(event, &mut state))
+        .map(|update| update.to_bare_value())
+        .collect();
+        assert_eq!(
+            frames,
+            [
+                json!({ "sessionUpdate": "plan", "entries": [
+                    { "content": "`cargo test` passes", "priority": "high", "status": "pending" },
+                    { "content": "The result meets the task's intent", "priority": "high", "status": "completed" },
+                ]}),
+                json!({ "sessionUpdate": "plan", "entries": [] }),
+                json!({ "sessionUpdate": "session_info_update", "title": "Fix the parser" }),
+            ]
+        );
     }
 
     #[test]

@@ -11,9 +11,9 @@ use serde_json::{json, Map, Value};
 use tokio::sync::Mutex;
 
 use super::error::DaemonCommandError;
+use super::sessions::Connection;
 use super::{
-    clear_connection_servers, fetch_rlm_children, jsonrpc, producer, CancelOrder, CancelStop,
-    DaemonAcpState, DaemonBinding, DaemonLink,
+    fetch_rlm_children, jsonrpc, producer, CancelOrder, CancelStop, DaemonAcpState, DaemonLink,
 };
 
 pub(super) async fn cancel_order(
@@ -94,10 +94,6 @@ pub(super) async fn run_cancel_stop(
     .map_err(Arc::new);
     {
         let mut guard = state.lock().await;
-        let released_closed = matches!(
-            &outcome,
-            Ok(lease) if guard.closed_input_pause_id.as_deref() == Some(&lease.pause_id)
-        );
         if let Some(hosted) = guard
             .session
             .as_mut()
@@ -117,10 +113,6 @@ pub(super) async fn run_cancel_stop(
                 }
                 Err(error) => hosted.stop_failure = Some(Arc::clone(error)),
             }
-        }
-        if released_closed {
-            guard.closed_input_pause_id = None;
-            guard.closed_input_pause_key = None;
         }
     }
     let _ = stop.done.send(true);
@@ -288,7 +280,7 @@ pub(super) async fn handle_session_close(
     state: &Arc<Mutex<DaemonAcpState>>,
     tx: producer::FrameSink,
     close_done: tokio::sync::watch::Sender<bool>,
-    owner_id: String,
+    connection: &Connection,
 ) {
     let session_id = params
         .get("sessionId")
@@ -341,28 +333,21 @@ pub(super) async fn handle_session_close(
                     // producer fences (TS `await configTask`).
                     let _ = config.queue.lock().await;
                     producer.close().await;
-                    let _ =
-                        clear_connection_servers(link, &daemon_session_id, &owner_id, state).await;
-                    let mut guard = state.lock().await;
-                    guard.closed_input_pause_id = Some(lease.pause_id.clone());
-                    guard.closed_input_pause_key = Some(lease.lease_key.clone());
-                    if let Some(hosted) = guard
-                        .session
-                        .as_mut()
-                        .filter(|hosted| hosted.acp_session_id == session_id)
-                    {
-                        if hosted.input_pause_id.as_deref() == Some(&lease.pause_id) {
-                            hosted.input_pause_id = None;
-                        }
-                        if hosted.input_pause_key.as_deref() == Some(&lease.lease_key) {
-                            hosted.input_pause_key = None;
-                        }
-                        hosted.stop_failure = None;
+                    let released = {
+                        let mut guard = state.lock().await;
+                        guard
+                            .session
+                            .take_if(|hosted| hosted.acp_session_id == session_id)
+                    };
+                    // The stop's pause ends with the attachment: the
+                    // session stays resumable by id.
+                    let unpaused =
+                        release_session_input_pause(link, &daemon_session_id, &lease.pause_id)
+                            .await;
+                    if let Some(hosted) = released {
+                        super::sessions::release(link, connection, &hosted.daemon_session()).await;
                     }
-                    guard
-                        .session
-                        .take_if(|hosted| hosted.acp_session_id == session_id);
-                    Ok(())
+                    unpaused
                 }
                 Err(error) => Err(error),
             }
@@ -397,55 +382,31 @@ pub(super) async fn handle_session_close(
 
 /// Release the connection's hold after stdin closes (TS dispose): the
 /// running prompt is cancelled (TS EOF abort → `cancel_prompt_admission`
-/// with `cancelOwned`), the MCP servers go and the producer fences. A
-/// client-owned session ends with the connection; a resident one stays
-/// and is detached when the link drops.
+/// with `cancelOwned`), the producer fences and the hosted session is let
+/// go (`sessions::release`).
 pub(super) async fn teardown(
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
-    binding: &DaemonBinding,
+    connection: &Connection,
 ) {
     let hosted = {
         let mut guard = state.lock().await;
         guard.turn_lost.notify_waiters();
         guard.session.take()
     };
-    if let Some(hosted) = hosted.as_ref() {
-        if let Some(turn) = hosted.turn.as_ref() {
-            cancel_owned_admission(link, &binding.active_session_id, &turn.admission_id).await;
-        }
-        if let Some(pause_id) = hosted.input_pause_id.as_ref() {
-            let _ = release_session_input_pause(link, &binding.active_session_id, pause_id).await;
-        }
-    }
-    let closed_pause = {
-        let mut guard = state.lock().await;
-        guard.closed_input_pause_key = None;
-        guard.closed_input_pause_id.take()
+    let Some(hosted) = hosted else {
+        return;
     };
-    if let Some(pause_id) = closed_pause {
-        let _ = release_session_input_pause(link, &binding.active_session_id, &pause_id).await;
+    let daemon = hosted.daemon_session();
+    if let Some(turn) = hosted.turn.as_ref() {
+        cancel_owned_admission(link, &daemon.active_session_id, &turn.admission_id).await;
     }
-    let _ = clear_connection_servers(
-        link,
-        &binding.active_session_id,
-        &binding.mcp_owner_id,
-        state,
-    )
-    .await;
-    // The owned worker stops before the config queue drains: a stalled
+    if let Some(pause_id) = hosted.input_pause_id.as_ref() {
+        let _ = release_session_input_pause(link, &daemon.active_session_id, pause_id).await;
+    }
+    // The session is let go before the config queue drains: a stalled
     // config operation holding the queue on a wire request fails fast.
-    if binding.client_owned {
-        let _ = link
-            .request(DaemonCommand::CompleteOwnedSession {
-                id: None,
-                active_session_id: binding.active_session_id.clone(),
-                rest: Map::default(),
-            })
-            .await;
-    }
-    if let Some(hosted) = hosted {
-        let _ = hosted.config.queue.lock().await;
-        hosted.producer.close().await;
-    }
+    super::sessions::release(link, connection, &daemon).await;
+    let _ = hosted.config.queue.lock().await;
+    hosted.producer.close().await;
 }

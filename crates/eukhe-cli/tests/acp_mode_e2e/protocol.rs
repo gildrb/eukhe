@@ -22,15 +22,21 @@ fn acp_initialize_matches_the_ts_golden() {
     let result = &response["result"];
     assert_eq!(result["protocolVersion"], 1);
     let capabilities = &result["agentCapabilities"];
-    assert_eq!(capabilities["loadSession"], false);
+    assert_eq!(capabilities["loadSession"], true);
     assert_eq!(
         capabilities["promptCapabilities"],
-        json!({ "image": true, "embeddedContext": true })
+        json!({ "image": true, "audio": false, "embeddedContext": true })
     );
-    assert_eq!(capabilities["sessionCapabilities"], json!({ "close": {} }));
-    // ACP MCP server admission is served, so the TS `mcpCapabilities`
-    // flag (http support) is advertised.
-    assert_eq!(capabilities["mcpCapabilities"], json!({ "http": true }));
+    assert_eq!(
+        capabilities["sessionCapabilities"],
+        json!({ "close": {}, "list": {}, "resume": {}, "delete": {} })
+    );
+    assert_eq!(
+        capabilities["mcpCapabilities"],
+        json!({ "http": true, "sse": false })
+    );
+    assert_eq!(capabilities["_meta"]["eukhe"]["version"], "1.0");
+    assert_eq!(result["authMethods"][0]["id"], "eukhe-login");
     let info = &result["agentInfo"];
     assert_eq!(info["name"], "eukhe");
     assert_eq!(info["title"], "Eukhe");
@@ -200,25 +206,20 @@ fn acp_error_shapes_match_the_ts_goldens() {
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
 
-    // Unknown session (ts-errors.jsonl): -32603 with the details string.
+    // Unknown session: ACP's -32002 with the id.
     let prompt = client.request(
         "session/prompt",
         &json!({ "sessionId": "bogus-session", "prompt": [{ "type": "text", "text": "hi" }] }),
     );
     let (response, _) = client.wait_response(prompt, TIMEOUT);
-    assert_eq!(response["error"]["code"], -32603);
-    assert_eq!(response["error"]["message"], "Internal error");
     assert_eq!(
-        response["error"]["data"]["details"],
-        "Unknown ACP session: bogus-session"
+        response["error"],
+        json!({ "code": -32002, "message": "Resource not found", "data": { "sessionId": "bogus-session" } })
     );
 
     let close = client.request("session/close", &json!({ "sessionId": "bogus-session" }));
     let (response, _) = client.wait_response(close, TIMEOUT);
-    assert_eq!(
-        response["error"]["data"]["details"],
-        "Unknown ACP session: bogus-session"
-    );
+    assert_eq!(response["error"]["code"], -32002);
 
     let new = client.request("session/new", &json!({ "mcpServers": [] }));
     let (new_response, _) = client.wait_response(new, TIMEOUT);
