@@ -353,6 +353,37 @@ identity, and the local time a usage limit resets while it lasts.",
 provider's only account; a provider with several lists them.",
     ),
     CommandSpec::new(
+        &["login"],
+        "login [<provider>] [--key | --device] [--no-browser] [--json]",
+        "Log in to a provider, or list the logins and their state",
+    )
+    .description(
+        "Runs the logins of /login and stores the same accounts: a login as a new identity adds \
+an account, as a known one it replaces it. A subscription (anthropic, openai-codex, \
+github-copilot, xai) prints its sign-in URL on stderr, opens it in the browser, and waits for \
+the browser's callback or the redirect URL on stdin; xai and github-copilot print a device \
+code. An API key comes from EUKHE_LOGIN_API_KEY, else from stdin. Prints one line when logged \
+in. Without a provider, lists each login with its state and exits 0 when a provider is logged \
+in. Exit codes: 0 logged in, 1 failed, 2 usage.",
+    )
+    .options(&[
+        "--key         Store an API key instead of the subscription login",
+        "--device      Use the device-code login (openai-codex)",
+        "--no-browser  Print the sign-in URL without opening the browser",
+        "--json        Print the list as JSON",
+    ])
+    .examples(&[
+        "login anthropic",
+        "login openai < key.txt",
+        "login --json",
+    ]),
+    CommandSpec::new(
+        &["logout"],
+        "logout <provider> [n|identity]",
+        "Remove one stored account of a provider",
+    )
+    .description("The same as `provider logout`."),
+    CommandSpec::new(
         &["budget"],
         "budget <on|off|show|set|add|audit> [--account <account>]",
         "Read or change a budget account",

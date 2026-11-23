@@ -16,14 +16,30 @@ use crate::auth::types::{
     AuthEvent, LoginOptions, ModelAuth, OAuthAuth, OAuthCredential, ProviderAuthInteraction,
 };
 use crate::utils::diagnostics::Thrown;
+use crate::utils::provider_env::get_provider_env_value;
 
 const XAI_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 const XAI_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access";
-const XAI_DEVICE_CODE_URL: &str = "https://auth.x.ai/oauth2/device/code";
-const XAI_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
+/// The xAI OAuth origin: the device authorization at
+/// [`XAI_DEVICE_CODE_PATH`], the tokens at [`XAI_TOKEN_PATH`].
+const XAI_AUTH_URL: &str = "https://auth.x.ai";
+const XAI_DEVICE_CODE_PATH: &str = "/oauth2/device/code";
+const XAI_TOKEN_PATH: &str = "/oauth2/token";
+/// eukhe addition: `EUKHE_XAI_AUTH_URL` points the device authorization,
+/// the token polling and the refresh at a local stub (end-to-end tests);
+/// unset or empty means [`XAI_AUTH_URL`].
+const XAI_AUTH_URL_ENV: &str = "EUKHE_XAI_AUTH_URL";
+
 /// Refresh slightly before the reported expiry to avoid using a token that dies mid-request.
 const REFRESH_SKEW_MS: f64 = 5.0 * 60.0 * 1000.0;
 const DEFAULT_TOKEN_LIFETIME_SECONDS: f64 = 3600.0;
+
+fn xai_auth_url(path: &str) -> String {
+    let origin = get_provider_env_value(XAI_AUTH_URL_ENV, None)
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| XAI_AUTH_URL.to_owned());
+    format!("{origin}{path}")
+}
 
 struct OAuthHttpResponse {
     ok: bool,
@@ -173,7 +189,7 @@ fn credentials_from_token_response(
 
 async fn request_device_code(signal: &AbortSignal) -> Result<XaiDeviceCode, Thrown> {
     let response = post_form(
-        XAI_DEVICE_CODE_URL,
+        &xai_auth_url(XAI_DEVICE_CODE_PATH),
         &[
             ("client_id", XAI_CLIENT_ID),
             ("scope", XAI_SCOPE),
@@ -193,7 +209,7 @@ async fn poll_once(
     signal: &AbortSignal,
 ) -> Result<OAuthDeviceCodePollResult<OAuthCredential>, Thrown> {
     let response = post_form(
-        XAI_TOKEN_URL,
+        &xai_auth_url(XAI_TOKEN_PATH),
         &[
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ("client_id", XAI_CLIENT_ID),
@@ -261,7 +277,7 @@ async fn refresh_xai_token(
     signal: &AbortSignal,
 ) -> Result<OAuthCredential, Thrown> {
     let response = post_form(
-        XAI_TOKEN_URL,
+        &xai_auth_url(XAI_TOKEN_PATH),
         &[
             ("grant_type", "refresh_token"),
             ("client_id", XAI_CLIENT_ID),
