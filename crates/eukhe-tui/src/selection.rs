@@ -115,7 +115,9 @@ pub(crate) enum Event<'a> {
     Key,
     Esc,
     Wheel,
-    /// The rows under the shown range changed.
+    /// The text the selection covers changed, or the width it was laid
+    /// out at (rows that only moved are not a change: the view follows
+    /// them).
     Changed,
 }
 
