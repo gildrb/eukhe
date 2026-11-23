@@ -373,7 +373,7 @@ in. Exit codes: 0 logged in, 1 failed, 2 usage.",
         "--json        Print the list as JSON",
     ])
     .examples(&[
-        "login anthropic",
+        "login openai-codex",
         "login openai < key.txt",
         "login --json",
     ]),

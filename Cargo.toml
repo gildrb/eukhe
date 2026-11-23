@@ -36,7 +36,7 @@ crossterm = { git = "https://github.com/gildrb/crossterm", rev = "012fb0a23cb51c
 [workspace.package]
 version = "0.10.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "MIT"
 # Never published to a registry: the release is the GitHub tarball built by
 # eukhe-release.yml. cargo-deny's allow-wildcard-paths accepts the
 # workspace's version-less path dependencies only for unpublished crates.

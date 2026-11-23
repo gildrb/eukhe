@@ -15,7 +15,7 @@ npx eukhe install
 
 The client needs Eukhe 0.10.81 or newer (`MINIMUM_EUKHE_VERSION`), the first release with `eukhe acp`. Update an older Eukhe with `eukhe update`. `Eukhe.start` runs `eukhe --version` first and throws `TooOld` for an older release instead of starting it.
 
-Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login anthropic`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
+Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login openai-codex`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
 
 ## Use
 
@@ -135,4 +135,4 @@ The client speaks ACP protocol version 1 plus Eukhe's `_eukhe/*` extension metho
 
 ## License
 
-Apache-2.0
+MIT

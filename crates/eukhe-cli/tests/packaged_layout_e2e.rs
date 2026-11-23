@@ -739,7 +739,7 @@ fn packaging_dry_run_produces_artifact() {
     )
     .unwrap();
     std::fs::write(tree.path().join("README.md"), "# readme\n").unwrap();
-    std::fs::write(tree.path().join("LICENSE"), "Apache-2.0\n").unwrap();
+    std::fs::write(tree.path().join("LICENSE"), "MIT License\n").unwrap();
     std::fs::write(tree.path().join("THIRD-PARTY-NOTICES"), "notices\n").unwrap();
     // The fixture repo's version must be the workspace version: the packer
     // derives the local build's version from it (`<workspace>-dev`, the
