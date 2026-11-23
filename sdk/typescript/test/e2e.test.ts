@@ -39,9 +39,12 @@ async function sandbox(t: TestContext, script: unknown): Promise<Sandbox> {
   return { home, socket, env };
 }
 
-/** Stop the sandboxed supervisor (eukhe leaves its shared daemon running; a test owns its own). */
+/**
+ * Stop the sandboxed supervisor (eukhe leaves its shared daemon running; a
+ * test owns its own). On Linux eukhe binds its socket path in the abstract namespace.
+ */
 async function shutdownDaemon(socket: string): Promise<void> {
-  const stream = connect(socket);
+  const stream = connect(process.platform === "linux" ? `\0${socket}` : socket);
   const { promise: connected, resolve: opened, reject: refused } = Promise.withResolvers<boolean>();
   stream.once("connect", () => opened(true));
   stream.once("error", (error: NodeJS.ErrnoException) =>
@@ -55,7 +58,7 @@ async function shutdownDaemon(socket: string): Promise<void> {
   for await (const line of createInterface({ input: stream })) {
     const frame: unknown = JSON.parse(line);
     if (typeof frame === "object" && frame !== null && "id" in frame && frame.id === id) {
-      assert.ok(!("error" in frame) || frame.error === undefined, `daemon shutdown refused: ${line}`);
+      assert.ok("success" in frame && frame.success === true, `daemon shutdown refused: ${line}`);
       break;
     }
   }

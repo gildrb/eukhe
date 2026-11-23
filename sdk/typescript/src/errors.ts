@@ -30,16 +30,22 @@ export class NotInstalled extends EukheError {
   }
 }
 
-/** How a person logs eukhe in to a model provider: run `command`, then type `slashCommand` in it. */
-export type Login = { command: string; slashCommand: string | null; instructions: string };
+/** How a person logs eukhe in to a model provider, as the agent words it. */
+export type Login = {
+  /** The shell command to run (e.g. `eukhe login anthropic`). */
+  command: string;
+  /** The same inside an interactive `eukhe`, when there is one. */
+  slashCommand: string | null;
+  /** One sentence for people. */
+  instructions: string;
+};
 
-/** eukhe has no model provider login; a person runs `login.command` once (then `login.slashCommand`). */
+/** eukhe has no model provider login; a person runs `login.command` once. */
 export class NotLoggedIn extends EukheError {
   readonly $ = "NotLoggedIn";
   readonly login: Login;
   constructor(login: Login) {
-    const how = login.slashCommand === null ? login.command : `run ${login.command}, then type ${login.slashCommand}`;
-    super(`eukhe has no model provider login; log in once: ${how}${login.instructions === "" ? "" : ` (${login.instructions})`}`);
+    super(`eukhe has no model provider login: ${login.instructions === "" ? `run ${login.command}` : login.instructions}`);
     this.login = login;
   }
 }
