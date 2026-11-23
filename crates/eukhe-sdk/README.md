@@ -31,7 +31,7 @@ This uses the installed Eukhe, its model provider login and its default model. I
 Eukhe needs one model provider login per machine:
 
 ```sh
-eukhe login anthropic                    # a subscription: sign-in URL on stderr, opened in the browser
+eukhe login openai-codex                    # a subscription: sign-in URL on stderr, opened in the browser
 printf %s "$KEY" | eukhe login openai    # an API key from stdin
 eukhe login                              # the providers and their login state
 ```

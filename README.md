@@ -18,7 +18,7 @@ cd project
 eukhe
 
 # log in without the terminal UI; `eukhe login` lists the providers
-eukhe login anthropic
+eukhe login openai-codex
 
 # script; exit 0 only when all checks pass
 eukhe -p --accept-cmd 'npm test' "fix the failing tests"
