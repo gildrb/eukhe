@@ -47,7 +47,7 @@ pub(crate) use docs::ACCEPTANCE_DOC;
 pub use evidence::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 pub use ops::{acceptance_exit_code, acceptance_state, seed_acceptance, set_acceptance};
 pub(crate) use ops::{autonomous_checks, checks_at, protected_files, AnswerChecks};
-pub(crate) use report::answer_judge;
+pub(crate) use report::{answer_judge, read_work_left};
 pub use report::{read_final_answer, session_judge, AnswerReading};
 pub(crate) use verifier::describe;
 pub use watch::{watch_acceptance_updates, AcceptanceUpdates};
