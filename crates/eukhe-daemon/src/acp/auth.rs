@@ -1,6 +1,7 @@
 //! Login for ACP clients: the methods `initialize` advertises and the
 //! `-32000` answer a session start (or `authenticate`) gets while no model
-//! provider is logged in. The login itself runs in eukhe's own terminal UI.
+//! provider is logged in. The login itself runs in a terminal:
+//! `eukhe login <provider>`, or `/login` in eukhe's own terminal UI.
 
 use serde_json::{json, Value};
 
@@ -12,11 +13,10 @@ pub(super) const AUTH_REQUIRED: i64 = -32000;
 pub(super) const AGENT_METHOD_ID: &str = "eukhe-login";
 /// The method a terminal-capable client runs as `eukhe` in a terminal.
 pub(super) const TERMINAL_METHOD_ID: &str = "eukhe-terminal-login";
-/// The command that logs in, then the command typed in it.
-const LOGIN_COMMAND: &str = "eukhe";
+/// The command that logs in, then the command typed in eukhe's terminal UI.
+const LOGIN_COMMAND: &str = "eukhe login <provider>";
 const LOGIN_SLASH_COMMAND: &str = "/login";
-const INSTRUCTIONS: &str =
-    "Run `eukhe` in a terminal, type /login and pick a model provider, then start the session again.";
+const INSTRUCTIONS: &str = "Run `eukhe login <provider>` in a terminal (`eukhe login` lists the providers), or type /login in eukhe, then start the session again.";
 
 /// Whether the client runs terminal login methods
 /// (`clientCapabilities.auth.terminal`).
@@ -52,7 +52,7 @@ pub(super) fn auth_methods(terminal: TerminalLogin) -> Value {
             "type": "terminal",
             "id": TERMINAL_METHOD_ID,
             "name": "Log in in a terminal",
-            "description": "Opens eukhe; type /login and pick a model provider, then quit.",
+            "description": "Opens eukhe; type /login and pick a model provider, then quit. Outside the client: `eukhe login <provider>`.",
             "args": [],
         }]),
     }

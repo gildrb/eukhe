@@ -169,8 +169,10 @@ fn acp_daemon_attached_eof_during_session_new_exits() {
     assert!(client.child.wait().expect("the ACP child exits").success());
 }
 
+/// `--no-session`: `session/close` ends the connection's owned session,
+/// and the next `session/new` opens a fresh daemon session.
 #[test]
-fn acp_daemon_attached_close_keeps_the_worker_and_new_rebinds_it() {
+fn acp_daemon_attached_close_ends_the_owned_session_and_new_opens_a_fresh_one() {
     let mut client = AcpChild::spawn(
         &["--mode", "acp", "--no-session"],
         &json!({ "engine": "faux", "responses": ["The Nile.", "Everest."] }),
@@ -180,11 +182,14 @@ fn acp_daemon_attached_close_keeps_the_worker_and_new_rebinds_it() {
     let wrong = client.request("session/close", &json!({ "sessionId": "not-the-session" }));
     let (wrong_response, _) = client.wait_response(wrong, TIMEOUT);
     assert_eq!(
-        wrong_response["error"]["data"]["details"], "Unknown ACP session: not-the-session",
+        wrong_response["error"],
+        json!({ "code": -32002, "message": "Resource not found", "data": { "sessionId": "not-the-session" } }),
         "{wrong_response}"
     );
     assert_prompt_ends_turn(&mut client, &first, "Name a river.");
-    let active_session_id = live_sessions(&socket)[0]["activeSessionId"].clone();
+    let sessions = live_sessions(&socket);
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    let active_session_id = sessions[0]["activeSessionId"].clone();
     let descriptor = worker_descriptor(socket.parent().unwrap());
     let owner = json!(format!("acp:{}", client.child.id()));
     assert_eq!(descriptor["ownerClientId"], owner, "{descriptor}");
@@ -193,8 +198,19 @@ fn acp_daemon_attached_close_keeps_the_worker_and_new_rebinds_it() {
     let (close_response, _) = client.wait_response(close, TIMEOUT);
     assert_eq!(close_response["result"], json!({}));
     let sessions = live_sessions(&socket);
-    assert_eq!(sessions.len(), 1, "close keeps the worker: {sessions:?}");
-    assert_eq!(sessions[0]["activeSessionId"], active_session_id);
+    assert!(
+        sessions.is_empty(),
+        "close ends the connection's owned session: {sessions:?}"
+    );
+    let prompt = client.request(
+        "session/prompt",
+        &json!({ "sessionId": first, "prompt": [{ "type": "text", "text": "after the close" }] }),
+    );
+    let (prompt_response, _) = client.wait_response(prompt, TIMEOUT);
+    assert_eq!(
+        prompt_response["error"]["code"], -32002,
+        "the closed session is gone: {prompt_response}"
+    );
 
     let second = new_session(&mut client);
     assert_ne!(second, first);
@@ -207,9 +223,9 @@ fn acp_daemon_attached_close_keeps_the_worker_and_new_rebinds_it() {
     assert_eq!(chunk["params"]["update"]["messageId"], "eukhe-assistant-1");
     let sessions = live_sessions(&socket);
     assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(
+    assert_ne!(
         sessions[0]["activeSessionId"], active_session_id,
-        "session/new binds the same daemon session"
+        "session/new opens a fresh daemon session"
     );
 }
 

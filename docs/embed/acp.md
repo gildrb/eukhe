@@ -26,7 +26,7 @@ Session flags (`--model`, `--provider`, `--thinking`, `--budget-*`, `--accept-*`
   "agentInfo":{"name":"eukhe","title":"Eukhe","version":"..."}}}
 ```
 
-- A `terminal` auth method (`eukhe-terminal-login`, runs `eukhe`) is listed only when `clientCapabilities.auth.terminal` is true.
+- A `terminal` auth method (`eukhe-terminal-login`, runs `eukhe`, where `/login` logs in) is listed only when `clientCapabilities.auth.terminal` is true. Outside the client, `eukhe login <provider>` logs in (`eukhe login` lists the providers).
 - `_meta.eukhe.version` is `major.minor`; a minor only adds.
 
 ## Served methods
@@ -46,7 +46,7 @@ Session flags (`--model`, `--provider`, `--thinking`, `--budget-*`, `--accept-*`
 - One session per connection at a time; start another process for a second.
 - Updates: message and thought chunks, `tool_call` (human `title`, tool `name`, `rawInput`, absolute `locations`) and streamed `tool_call_update`, `plan` (the session's acceptance checks), `usage_update`, `available_commands_update` (`compact`, prompt templates, `skill:<name>`), `config_option_update`, `session_info_update` (title).
 - `session/request_permission` asks before an irreversible effect runs; a client answering `-32601` is not asked again and the effect runs.
-- No model provider logged in: `session/new|load|resume` answer `-32000` with `data.login` (`{"command":"eukhe","slashCommand":"/login","instructions":"..."}`) and `data.authMethods`.
+- No model provider logged in: `session/new|load|resume` answer `-32000` with `data.login` (`{"command":"eukhe login <provider>","slashCommand":"/login","instructions":"..."}`) and `data.authMethods`.
 - Unknown session id: `-32002` with `data.sessionId`.
 
 ## Extensions

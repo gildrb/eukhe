@@ -23,7 +23,7 @@
           "type": "object",
           "required": ["command", "slashCommand", "instructions"],
           "properties": {
-            "command": { "const": "eukhe" },
+            "command": { "const": "eukhe login <provider>" },
             "slashCommand": { "const": "/login" },
             "instructions": { "type": "string" }
           }

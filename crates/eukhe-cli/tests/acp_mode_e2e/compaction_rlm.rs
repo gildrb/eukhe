@@ -380,10 +380,14 @@ fn acp_prompt_settles_after_rlm_quiescence() {
         "the terminal reports a quiet family: {terminal}"
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
-    assert!(
-        updates.is_empty(),
-        "the terminal frame is the last notification before the response: {updates:?}"
+    assert_eq!(
+        updates.len(),
+        1,
+        "the terminal frame is the last frame before the run report: {updates:?}"
     );
+    let report = turn_run_report(&updates, &session_id);
+    assert_eq!(report["stopReason"], "end_turn", "{report}");
+    assert_eq!(report["answer"], "notice seen", "{report}");
     assert_eq!(
         prompt_response["result"],
         json!({ "stopReason": "end_turn" })
@@ -526,7 +530,7 @@ fn acp_user_bash_maps_to_a_synthetic_tool_call() {
         frame["params"]["update"]["sessionUpdate"] == "tool_call"
     });
     assert_eq!(start["params"]["update"]["toolCallId"], "eukhe-bash-r1");
-    assert_eq!(start["params"]["update"]["title"], "printf hi");
+    assert_eq!(start["params"]["update"]["title"], "Run `printf hi`");
     assert_eq!(start["params"]["update"]["kind"], "execute");
     assert_eq!(
         start["params"]["update"]["rawInput"],
