@@ -45,6 +45,9 @@ pub(crate) enum DaemonCommandError {
     NoPauseId,
     #[error("get_rlm_children answered no children array")]
     NoChildrenArray,
+    /// An answer lacks a field the command promises.
+    #[error("the daemon's answer lacks {0}")]
+    MissingField(&'static str),
     /// The stop targets a session this connection no longer hosts.
     #[error("Unknown ACP session: {session_id}")]
     UnknownSession { session_id: String },

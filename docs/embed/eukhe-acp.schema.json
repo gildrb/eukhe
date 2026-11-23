@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eukhe.com/schema/eukhe-acp/1.0.json",
+  "title": "eukhe ACP extensions 1.0",
+  "description": "The `_eukhe/` requests and notifications `eukhe acp` serves beside ACP protocolVersion 1 (docs/embed/acp.md). A minor version only adds.",
+  "$defs": {
+    "sessionId": { "type": "string", "minLength": 1 },
+    "capability": {
+      "description": "agentCapabilities._meta.eukhe in the initialize result.",
+      "type": "object",
+      "required": ["version", "features"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+        "features": { "type": "array", "items": { "enum": ["run_report", "session_info", "budget", "acceptance", "undo", "diff", "effects"] } }
+      }
+    },
+    "authRequiredData": {
+      "description": "`data` of the -32000 error session/new, session/load, session/resume and authenticate answer while no model provider is logged in.",
+      "type": "object",
+      "required": ["login", "authMethods"],
+      "properties": {
+        "login": {
+          "type": "object",
+          "required": ["command", "slashCommand", "instructions"],
+          "properties": {
+            "command": { "const": "eukhe" },
+            "slashCommand": { "const": "/login" },
+            "instructions": { "type": "string" }
+          }
+        },
+        "authMethods": { "type": "array", "items": { "type": "object", "required": ["id", "name"] } }
+      }
+    },
+    "stopReason": { "enum": ["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"] },
+    "acceptanceLabel": { "enum": ["verified", "failed", "unverified", "checks_passed_unconfined", "checks_passed_not_certified"] },
+    "checkVerdict": { "enum": ["confirmed", "refuted", "broken", "unjudged"] },
+    "effectClass": { "enum": ["read", "write", "exec", "net", "outside", "protected", "secret", "unknown"] },
+    "ranEffect": {
+      "type": "object",
+      "required": ["id", "key", "run", "kind", "command", "classes", "sessionId", "atMs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^e[0-9]+$" },
+        "key": { "type": "string" },
+        "run": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["shellStep", "documentAccess", "mcpCall"] },
+        "command": { "type": "string" },
+        "classes": { "type": "array", "items": { "$ref": "#/$defs/effectClass" } },
+        "agent": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "atMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unknownEffect": {
+      "type": "object",
+      "required": ["id", "kind", "what", "at"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["tool", "request", "job", "write", "spawn", "fire", "message"] },
+        "what": { "type": "string" },
+        "at": { "type": "number" },
+        "cause": { "type": "string" },
+        "settledRun": { "type": "integer", "minimum": 0 },
+        "resolution": { "enum": ["ran", "notRun"] }
+      }
+    },
+    "runReport": {
+      "description": "Params of the `_eukhe/run_report` notification: one per prompt turn, sent before the turn's session/prompt response.",
+      "type": "object",
+      "required": ["sessionId", "promptTurnId", "stopReason", "answer", "label", "certified", "checks", "ran", "unknown", "left"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "promptTurnId": { "type": "integer", "minimum": 1 },
+        "stopReason": { "oneOf": [{ "$ref": "#/$defs/stopReason" }, { "type": "null" }] },
+        "error": { "type": "string" },
+        "answer": { "type": ["string", "null"] },
+        "label": { "oneOf": [{ "$ref": "#/$defs/acceptanceLabel" }, { "type": "null" }] },
+        "certified": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "text", "verdict", "summary"],
+            "properties": {
+              "kind": { "enum": ["command", "judge", "until", "intent"] },
+              "text": { "type": "string" },
+              "verdict": { "oneOf": [{ "$ref": "#/$defs/checkVerdict" }, { "type": "null" }] },
+              "summary": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "ran": { "type": "array", "items": { "$ref": "#/$defs/ranEffect" } },
+        "unknown": { "type": "array", "items": { "$ref": "#/$defs/unknownEffect" } },
+        "left": { "type": "array", "items": { "type": "string" } },
+        "unreadable": { "type": "array", "items": { "enum": ["acceptance", "effects", "left"] } }
+      }
+    },
+    "sessionInfo": {
+      "description": "Params of the `_eukhe/session_info` notification: eukhe-only session state.",
+      "type": "object",
+      "required": ["sessionId", "update"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "update": {
+          "type": "object",
+          "required": ["sessionUpdate", "_meta"],
+          "properties": {
+            "sessionUpdate": { "const": "session_info_update" },
+            "_meta": {
+              "type": "object",
+              "required": ["com.eukhe"],
+              "properties": {
+                "com.eukhe": {
+                  "type": "object",
+                  "required": ["promptTurnId", "eventSequence", "phase"],
+                  "properties": {
+                    "promptTurnId": { "type": "integer", "minimum": 0 },
+                    "eventSequence": { "type": "integer", "minimum": 1 },
+                    "phase": { "enum": ["event", "responseBoundary", "terminalQuiescence"] },
+                    "outcome": { "enum": ["result", "error"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "limitValue": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unlimited" }] },
+    "runLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "costMicros": { "$ref": "#/$defs/limitValue" },
+        "tokens": { "$ref": "#/$defs/limitValue" },
+        "timeMs": { "$ref": "#/$defs/limitValue" },
+        "toolCalls": { "$ref": "#/$defs/limitValue" },
+        "requests": { "$ref": "#/$defs/limitValue" }
+      }
+    },
+    "amounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "costMicros": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "timeMs": { "type": "integer", "minimum": 0 },
+        "toolCalls": { "type": "integer", "minimum": 0 },
+        "requests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budgetResult": {
+      "type": "object",
+      "required": ["budget"],
+      "properties": {
+        "budget": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["sessionId", "agentSessionId", "limits", "free", "held", "spent", "lent", "over", "phase"],
+              "properties": { "phase": { "enum": ["working", "wrap_up", "exhausted"] } }
+            }
+          ]
+        }
+      }
+    },
+    "checkSpec": {
+      "oneOf": [
+        { "type": "object", "required": ["kind", "command"], "properties": { "kind": { "const": "command" }, "command": { "type": "string" }, "expect": { "type": "integer" }, "timeoutMs": { "type": "integer" }, "protect": { "type": "array", "items": { "type": "string" } }, "strength": { "type": "integer" } } },
+        { "type": "object", "required": ["kind", "condition"], "properties": { "kind": { "const": "judge" }, "condition": { "type": "string" }, "evidence": { "type": "array", "items": { "type": "string" } }, "model": { "type": "string" } } },
+        { "type": "object", "required": ["kind", "command"], "properties": { "kind": { "const": "until" }, "command": { "type": "string" }, "timeoutMs": { "type": "integer" }, "strength": { "type": "integer" } } },
+        { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "intent" }, "model": { "type": "string" } } }
+      ]
+    },
+    "acceptanceResult": {
+      "type": "object",
+      "required": ["acceptance"],
+      "properties": {
+        "acceptance": {
+          "type": "object",
+          "required": ["label", "state", "revision", "checks", "claimed", "tries", "maxReturns"],
+          "properties": {
+            "label": { "$ref": "#/$defs/acceptanceLabel" },
+            "checks": { "type": "array", "items": { "type": "object", "required": ["spec"], "properties": { "spec": { "$ref": "#/$defs/checkSpec" } } } }
+          }
+        }
+      }
+    },
+    "requests": {
+      "description": "Params and results of each `_eukhe/` request, by method.",
+      "type": "object",
+      "properties": {
+        "_eukhe/budget/get": { "params": { "type": "object", "required": ["sessionId"] }, "result": { "$ref": "#/$defs/budgetResult" } },
+        "_eukhe/budget/set": { "params": { "type": "object", "required": ["sessionId", "limits"], "properties": { "limits": { "$ref": "#/$defs/runLimits" }, "standing": { "type": "boolean" } } }, "result": { "$ref": "#/$defs/budgetResult" } },
+        "_eukhe/budget/add": { "params": { "type": "object", "required": ["sessionId", "amounts"], "properties": { "amounts": { "$ref": "#/$defs/amounts" } } }, "result": { "$ref": "#/$defs/budgetResult" } },
+        "_eukhe/acceptance/get": { "params": { "type": "object", "required": ["sessionId"] }, "result": { "$ref": "#/$defs/acceptanceResult" } },
+        "_eukhe/acceptance/set": { "params": { "type": "object", "required": ["sessionId"], "properties": { "checks": { "type": "array", "items": { "$ref": "#/$defs/checkSpec" } }, "maxReturns": { "type": "integer", "minimum": 0 }, "intent": { "type": "boolean" } } }, "result": { "$ref": "#/$defs/acceptanceResult" } },
+        "_eukhe/undo": { "params": { "type": "object", "required": ["sessionId"] }, "result": { "type": "object", "required": ["restored", "turn", "left", "notUndone"], "properties": { "restored": { "type": "array", "items": { "type": "string" } }, "turn": { "type": "integer" }, "left": { "type": "integer" }, "notUndone": { "type": "array", "items": { "$ref": "#/$defs/ranEffect" } } } } },
+        "_eukhe/diff": { "params": { "type": "object", "required": ["sessionId"], "properties": { "scope": { "enum": ["turn", "all"] } } }, "result": { "type": "object", "required": ["diff", "paths", "skipped"], "properties": { "diff": { "type": "string" }, "paths": { "type": "array", "items": { "type": "string" } }, "skipped": { "type": "array", "items": { "type": "string" } } } } },
+        "_eukhe/effects": { "params": { "type": "object", "required": ["sessionId"] }, "result": { "type": "object", "required": ["ran", "unknown"], "properties": { "ran": { "type": "array", "items": { "$ref": "#/$defs/ranEffect" } }, "unknown": { "type": "array", "items": { "$ref": "#/$defs/unknownEffect" } } } } }
+      }
+    },
+    "errorData": {
+      "description": "`data` of a -32603 answer to a `_eukhe/` request the daemon refused.",
+      "type": "object",
+      "required": ["details"],
+      "properties": { "details": { "type": "string" }, "code": { "type": "string" } }
+    }
+  }
+}

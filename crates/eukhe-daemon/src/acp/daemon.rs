@@ -1,15 +1,16 @@
-//! The daemon-attached ACP transport: the same ACP JSON-RPC surface served
-//! over a daemon session (TS
-//! `runAcpModeWithConnection(DaemonAgentConnection)`).
+//! The daemon-attached ACP transport: the ACP JSON-RPC surface served over
+//! daemon sessions (TS `runAcpModeWithConnection(DaemonAgentConnection)`).
 //!
-//! Startup creates and attaches the daemon session the CLI session flags
-//! select. `session/new` binds it, admits its MCP servers through the
+//! `session/new`, `session/load` and `session/resume` open and attach a
+//! daemon session (`sessions.rs`), admit its MCP servers through the
 //! `replace_acp_mcp_servers` wire command, and every prompt runs
 //! `prompt_and_wait` while the streamed session events fan out as ACP
 //! updates. The turn settlement (response boundary, completion envelope
 //! with the live outstanding-subagent count, terminal frame after the RLM
 //! family settles, stop reason) mirrors the TS captures, and the stop
-//! sequence cancels the outstanding children (TS #1612).
+//! sequence cancels the outstanding children (TS #1612). Each turn ends
+//! with `_eukhe/run_report` (`run_report.rs`) before its response; the
+//! `_eukhe/` requests run in `extensions.rs`.
 //! The daemon worker's `loop_update` session events
 //! surface through the wire mapping (`wire_events.rs`), and the autonomous
 //! accounting rides the
@@ -39,26 +40,26 @@ use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+use super::auth::{self, TerminalLogin};
 use super::jsonrpc::{self, Incoming};
 use super::meta::{self, EukheEventPhase, EukheOutcome, EukheSessionMeta};
 use super::permission::{self, EditorRequests};
 use super::producer::{self, UpdateProducer};
 use super::types;
-use super::wire_config::{
-    fetch_available_models, fetch_connection_state, handle_set_config_option,
-    picker_options_from_state, refresh_wire_config, HostedConfig,
-};
+use super::wire_config::{handle_set_config_option, refresh_wire_config, HostedConfig};
 use super::wire_events::{self, WireMappingState};
 
 pub(super) mod error;
+mod extensions;
+mod run_report;
+mod sessions;
 mod stop;
 
 use error::{AcpRefusal, DaemonCommandError, DaemonLinkError};
+pub use sessions::SavedSessionTarget;
+use sessions::{Connection, DaemonSession, StartKind};
 
-use stop::{
-    cancel_order, handle_session_close, release_session_input_pause, run_cancel_stop, teardown,
-    wait_for_session_close,
-};
+use stop::{cancel_order, handle_session_close, run_cancel_stop, teardown, wait_for_session_close};
 
 /// Response timeout for session-scoped commands.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -280,28 +281,37 @@ impl DaemonLink {
 #[derive(Clone)]
 pub struct DaemonAcpOptions {
     pub socket_path: PathBuf,
-    pub actual_cwd: PathBuf,
     pub product_version: String,
-    /// The startup `create` built from the CLI session flags.
-    pub create: DaemonCommand,
+    /// The process cwd: a new session runs in it.
+    pub cwd: PathBuf,
+    /// The create config of every session (the CLI session flags); each
+    /// create sets its `cwd`.
+    pub create_config: Value,
+    /// Where a `session/new` session lives.
+    pub storage: SessionStorage,
+    /// The saved session the first `session/new` opens (`--resume`,
+    /// `--continue`, `--fork`); later ones start new.
+    pub first_session: Option<SavedSessionTarget>,
 }
 
-/// The daemon session this connection created at startup; every
-/// `session/new` binds it.
-#[derive(Clone)]
-struct DaemonBinding {
-    active_session_id: String,
-    /// The create's `client_owned` lifecycle (`--no-session`): the
-    /// session ends with the connection.
-    client_owned: bool,
-    mcp_owner_id: String,
+/// Where a `session/new` session lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStorage {
+    /// Saved in the session dir, resident in the daemon.
+    Saved,
+    /// In memory, ended with the connection (`--no-session`).
+    Memory,
 }
 
 /// The hosted daemon session: the ACP identity, the daemon routing id,
 /// the update producer, and the stop state.
 pub(crate) struct HostedSession {
+    /// The session's durable id.
     pub(crate) acp_session_id: String,
     pub(crate) daemon_active_session_id: String,
+    session_file: Option<String>,
+    lifecycle: DaemonSessionLifecycle,
+    cwd: PathBuf,
     pub(crate) producer: Arc<UpdateProducer>,
     /// The picker state (TS `AcpSessionEntry`'s configOptions/models) and
     /// the serialized config queue (`configTask`).
@@ -319,12 +329,57 @@ pub(crate) struct HostedSession {
     /// previous turn's stop reason (read after the settlement for the
     /// stop-reason response).
     assistant_stop_reason: Option<eukhe_types::ai::StopReason>,
+    /// The text of the newest assistant message, cleared like the stop
+    /// reason: the turn's answer in its run report.
+    turn_answer: Option<String>,
     /// The event mapping state lives and dies with the session, like TS.
     mapping: WireMappingState,
     observed_children: std::collections::HashSet<String>,
     /// The editor answered `session/request_permission` as an unknown
     /// method: it is not asked again in this session.
     pub(crate) editor_unsupported: bool,
+}
+
+impl HostedSession {
+    fn new(
+        daemon: DaemonSession,
+        producer: Arc<UpdateProducer>,
+        config: Arc<HostedConfig>,
+        mapping: WireMappingState,
+        observed_children: std::collections::HashSet<String>,
+    ) -> HostedSession {
+        HostedSession {
+            acp_session_id: daemon.session_id,
+            daemon_active_session_id: daemon.active_session_id,
+            session_file: daemon.session_file,
+            lifecycle: daemon.lifecycle,
+            cwd: daemon.cwd,
+            producer,
+            config,
+            cancelling: false,
+            stop_failure: None,
+            input_pause_key: None,
+            input_pause_id: None,
+            cancel_task: None,
+            turn: None,
+            assistant_stop_reason: None,
+            turn_answer: None,
+            mapping,
+            observed_children,
+            editor_unsupported: false,
+        }
+    }
+
+    /// The daemon session this hosts.
+    fn daemon_session(&self) -> DaemonSession {
+        DaemonSession {
+            active_session_id: self.daemon_active_session_id.clone(),
+            session_id: self.acp_session_id.clone(),
+            session_file: self.session_file.clone(),
+            lifecycle: self.lifecycle,
+            cwd: self.cwd.clone(),
+        }
+    }
 }
 
 struct ActiveTurn {
@@ -340,9 +395,10 @@ pub(crate) struct DaemonAcpState {
     pub(crate) session: Option<HostedSession>,
     pub(crate) session_new_in_flight: bool,
     pub(crate) session_close_done: Option<tokio::sync::watch::Receiver<bool>>,
-    pub(crate) closed_input_pause_id: Option<String>,
-    pub(crate) closed_input_pause_key: Option<String>,
-    pub(crate) mcp_server_names: Vec<String>,
+    /// The CLI's selection, until the first `session/new` opens it.
+    first_session: Option<SavedSessionTarget>,
+    /// The client's terminal login capability (`initialize`).
+    terminal_login: TerminalLogin,
     /// Fires when a cancel or a close takes the running prompt's turn: a
     /// prompt holding for the session's background work answers at once
     /// instead of after that work ends.
@@ -383,7 +439,10 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
     });
 
     let link = Arc::new(DaemonLink::connect(&options.socket_path).await?);
-    let state = Arc::new(Mutex::new(DaemonAcpState::default()));
+    let state = Arc::new(Mutex::new(DaemonAcpState {
+        first_session: options.first_session.clone(),
+        ..DaemonAcpState::default()
+    }));
     let editor_requests = Arc::new(EditorRequests::default());
 
     // Session events and responses share one socket, so one consumer owns
@@ -401,70 +460,7 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
             let mut frames = link.frames.lock().await;
             while let Some(frame) = frames.recv().await {
                 match frame {
-                    LinkFrame::Event(frame) => {
-                        let event = frame.get("event").cloned().unwrap_or(Value::Null);
-                        // The picker refresh triggers (TS refreshes on
-                        // `agent_end`, `auto_retry_start`, and
-                        // `auto_retry_end` — the runs that can restore a
-                        // failover model or clamp a level): captured under
-                        // the guard, spawned once it is released.
-                        let mut refresh: Option<(Arc<HostedConfig>, Arc<UpdateProducer>, String)> =
-                            None;
-                        {
-                            let mut guard = state.lock().await;
-                            let Some(current) = guard.session.as_mut() else {
-                                continue;
-                            };
-                            if let Some(stop) = wire_events::assistant_stop(&event) {
-                                current.assistant_stop_reason = stop.stop_reason;
-                            }
-                            if event.get("type").and_then(Value::as_str) == Some("rlm_child_update")
-                            {
-                                if let Some(id) = event
-                                    .get("child")
-                                    .and_then(|child| child.get("id"))
-                                    .and_then(Value::as_str)
-                                {
-                                    current.observed_children.insert(id.to_string());
-                                }
-                            }
-                            let turn_id = current.producer.active_prompt_turn().await;
-                            for update in wire_events::wire_updates(&event, &mut current.mapping) {
-                                let _ = current
-                                    .producer
-                                    .publish(&update, turn_id, EukheEventPhase::Event, None)
-                                    .await;
-                            }
-                            if matches!(
-                                event.get("type").and_then(Value::as_str),
-                                Some("agent_end" | "auto_retry_start" | "auto_retry_end")
-                            ) {
-                                refresh = Some((
-                                    Arc::clone(&current.config),
-                                    Arc::clone(&current.producer),
-                                    current.daemon_active_session_id.clone(),
-                                ));
-                            }
-                        }
-                        if let Some((config, producer, daemon_session_id)) = refresh {
-                            let link = Arc::clone(&link);
-                            tokio::spawn(async move {
-                                // Serialized like every config operation
-                                // (TS `enqueueConfig`).
-                                let _guard = config.queue.lock().await;
-                                // The background trigger drops refresh
-                                // failures (TS's `.catch(() => undefined)`
-                                // on the enqueue site).
-                                let _ = refresh_wire_config(
-                                    &link,
-                                    &daemon_session_id,
-                                    &config,
-                                    &producer,
-                                )
-                                .await;
-                            });
-                        }
-                    }
+                    LinkFrame::Event(frame) => on_session_event(&frame, &link, &state).await,
                     LinkFrame::Response(response) => {
                         let id = response.id.clone().unwrap_or_default();
                         if let Some(tx) = link.pending.lock().unwrap().remove(&id) {
@@ -505,7 +501,10 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
                             .await
                             .session
                             .as_ref()
-                            .filter(|hosted| !hosted.editor_unsupported)
+                            .filter(|hosted| {
+                                !hosted.editor_unsupported
+                                    && hosted.daemon_active_session_id == frame.active_session_id
+                            })
                             .map(|hosted| permission::Asked {
                                 acp_session_id: hosted.acp_session_id.clone(),
                                 params: permission::request_params(
@@ -533,7 +532,10 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
             link.pending.lock().unwrap().clear();
         });
     }
-    let binding = bind_daemon_session(&link, &state, options.create.clone()).await?;
+    let connection = Arc::new(Connection {
+        options,
+        mcp_owner_id: uuid::Uuid::new_v4().to_string(),
+    });
 
     // Only the prompt handlers stay owned: EOF aborts them (TS aborts the
     // controller and exits), so the process never waits on a prompt still
@@ -572,21 +574,18 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
         // frame's handler).
         match frame_order_prefix(&incoming, &state).await {
             FrameOrder::Spawn => {
-                // `session/new` settles before the next frame is read, so
+                // A session start settles before the next frame is read, so
                 // EOF's teardown always sees the session it installs.
-                if matches!(&incoming, Incoming::Request { method, .. } if method == "session/new")
+                if matches!(&incoming, Incoming::Request { method, .. } if StartKind::of_method(method).is_some())
                 {
-                    let options_tx = tx.clone();
-                    handle_incoming(incoming, &link, &state, &options, &binding, options_tx).await;
+                    handle_incoming(incoming, &link, &state, &connection, tx.clone()).await;
                 } else {
                     let link = Arc::clone(&link);
                     let state = Arc::clone(&state);
-                    let options = options.clone();
-                    let binding = binding.clone();
+                    let connection = Arc::clone(&connection);
                     let options_tx = tx.clone();
                     tokio::spawn(async move {
-                        handle_incoming(incoming, &link, &state, &options, &binding, options_tx)
-                            .await;
+                        handle_incoming(incoming, &link, &state, &connection, options_tx).await;
                     });
                 }
             }
@@ -606,15 +605,15 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
             // A refused prompt or close answers from the prefix; the
             // running turn is untouched.
             FrameOrder::Refused { id, refusal } => {
-                let _ = tx.send(super::internal_error(&id, &refusal.to_string()));
+                let _ = tx.send(refusal_response(&id, &refusal));
             }
             FrameOrder::Close { id, params, done } => {
                 let link = Arc::clone(&link);
                 let state = Arc::clone(&state);
+                let connection = Arc::clone(&connection);
                 let options_tx = tx.clone();
-                let owner_id = binding.mcp_owner_id.clone();
                 tokio::spawn(async move {
-                    handle_session_close(id, params, &link, &state, options_tx, done, owner_id)
+                    handle_session_close(id, params, &link, &state, options_tx, done, &connection)
                         .await;
                 });
             }
@@ -650,78 +649,86 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
     // A close frame is reserved synchronously but its stop runs detached.
     // Let it finish before EOF teardown takes the hosted session away.
     wait_for_session_close(&state).await;
-    teardown(&link, &state, &binding).await;
+    teardown(&link, &state, &connection).await;
     drop(tx);
     let _ = writer.await;
     Ok(0)
 }
 
-/// Create and attach the startup daemon session (TS main.ts, before the
-/// ACP connection serves). A failed attach releases the created session
-/// the way EOF does.
-async fn bind_daemon_session(
+/// One daemon session event: published as ACP updates on the hosted
+/// session it belongs to; its answer and stop reason recorded for the turn.
+async fn on_session_event(
+    frame: &Value,
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
-    create: DaemonCommand,
-) -> Result<DaemonBinding, DaemonCommandError> {
-    let client_owned = matches!(
-        create,
-        DaemonCommand::Create {
-            lifecycle: Some(DaemonSessionLifecycle::ClientOwned),
-            ..
+) {
+    let event = frame.get("event").cloned().unwrap_or(Value::Null);
+    let event_type = event.get("type").and_then(Value::as_str);
+    // The picker refresh triggers (TS refreshes on `agent_end`,
+    // `auto_retry_start`, and `auto_retry_end` — the runs that can restore
+    // a failover model or clamp a level): captured under the guard,
+    // spawned once it is released.
+    let (config, producer, daemon_session_id) = {
+        let mut guard = state.lock().await;
+        let Some(current) = guard.session.as_mut().filter(|hosted| {
+            frame.get("activeSessionId").and_then(Value::as_str)
+                == Some(hosted.daemon_active_session_id.as_str())
+        }) else {
+            return;
+        };
+        if let Some(stop) = wire_events::assistant_stop(&event) {
+            current.assistant_stop_reason = stop.stop_reason;
         }
-    );
-    let created = link.request(create).await?;
-    if !created.success {
-        return Err(DaemonCommandError::Refused {
-            message: created.error,
-        });
-    }
-    let binding = DaemonBinding {
-        active_session_id: created
-            .data
-            .as_ref()
-            .and_then(|summary| summary.get("activeSessionId"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        client_owned,
-        mcp_owner_id: uuid::Uuid::new_v4().to_string(),
-    };
-    let attached = link
-        .request(DaemonCommand::Attach {
-            id: None,
-            active_session_id: binding.active_session_id.clone(),
-            client_id: None,
-            client_kind: None,
-            capabilities: Some(
-                crate::protocol::default_client_capabilities()
-                    .into_iter()
-                    .chain([permission::CAPABILITY.to_string()])
-                    .collect(),
-            ),
-            resume_cursor: None,
-            recovery_config: None,
-            env: None,
-            launch_env: None,
-            rest: Map::default(),
-        })
-        .await
-        .map_err(DaemonCommandError::from)
-        .and_then(|response| {
-            if response.success {
-                Ok(())
-            } else {
-                Err(DaemonCommandError::Refused {
-                    message: response.error,
-                })
+        if let Some(answer) = wire_events::assistant_answer(&event) {
+            current.turn_answer = Some(answer);
+        }
+        if event_type == Some("rlm_child_update") {
+            if let Some(id) = event
+                .get("child")
+                .and_then(|child| child.get("id"))
+                .and_then(Value::as_str)
+            {
+                current.observed_children.insert(id.to_string());
             }
+        }
+        let turn_id = current.producer.active_prompt_turn().await;
+        for update in wire_events::wire_updates(&event, &mut current.mapping) {
+            let _ = current
+                .producer
+                .publish(&update, turn_id, EukheEventPhase::Event, None)
+                .await;
+        }
+        (
+            Arc::clone(&current.config),
+            Arc::clone(&current.producer),
+            current.daemon_active_session_id.clone(),
+        )
+    };
+    if matches!(
+        event_type,
+        Some("agent_end" | "auto_retry_start" | "auto_retry_end")
+    ) {
+        let link = Arc::clone(link);
+        tokio::spawn(async move {
+            // Serialized like every config operation (TS `enqueueConfig`);
+            // the background trigger drops refresh failures (TS's
+            // `.catch(() => undefined)`).
+            let _guard = config.queue.lock().await;
+            let _ = refresh_wire_config(&link, &daemon_session_id, &config, &producer).await;
         });
-    if let Err(error) = attached {
-        teardown(link, state, &binding).await;
-        return Err(error);
     }
-    Ok(binding)
+}
+
+/// The answer to a prompt or close refused before it reached the daemon.
+fn refusal_response(id: &Value, refusal: &AcpRefusal) -> Value {
+    match refusal {
+        AcpRefusal::UnknownSession { session_id } => jsonrpc::session_not_found(id, session_id),
+        AcpRefusal::Closing { .. }
+        | AcpRefusal::AlreadyClosing { .. }
+        | AcpRefusal::Cancelling { .. }
+        | AcpRefusal::StopFailed { .. }
+        | AcpRefusal::TurnRunning => super::internal_error(id, &refusal.to_string()),
+    }
 }
 
 enum FrameOrder {
@@ -854,6 +861,7 @@ async fn admit_prompt(
     // The stop reason is per-turn: a turn that runs no model call (a
     // slash command) must not inherit the previous turn's stop reason.
     hosted.assistant_stop_reason = None;
+    hosted.turn_answer = None;
     hosted.turn = Some(ActiveTurn {
         admission_id: admission_id.clone(),
         cancelled: false,
@@ -866,41 +874,98 @@ async fn handle_incoming(
     incoming: Incoming,
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
-    options: &DaemonAcpOptions,
-    binding: &DaemonBinding,
+    connection: &Arc<Connection>,
     tx: producer::FrameSink,
 ) {
     let Incoming::Request { id, method, params } = incoming else {
         return;
     };
+    if let Some(kind) = StartKind::of_method(&method) {
+        sessions::handle_session_start(kind, id, params, link, state, connection, tx).await;
+        return;
+    }
+    if method.starts_with(extensions::PREFIX) {
+        handle_extension(id, &method, &params, link, state, tx).await;
+        return;
+    }
     match method.as_str() {
         "initialize" => {
-            handle_initialize(&id, &params, &options.product_version, &tx);
+            handle_initialize(&id, &params, state, connection, &tx).await;
         }
-        "session/new" => {
-            handle_session_new(id, params, link, state, options, binding, tx).await;
+        "authenticate" => {
+            sessions::handle_authenticate(id, params, link, state, connection, tx).await;
+        }
+        "session/list" => {
+            sessions::handle_session_list(id, params, link, connection, tx).await;
+        }
+        "session/delete" => {
+            sessions::handle_session_delete(id, params, link, state, connection, tx).await;
         }
         "session/set_config_option" => {
             handle_set_config_option(id, params, link, state, tx).await;
         }
         other => {
-            let _ = tx.send(jsonrpc::error_response(
-                &id,
-                jsonrpc::METHOD_NOT_FOUND,
-                &format!("\"Method not found\": {other}"),
-                Some(&json!({ "method": other })),
-            ));
+            let _ = tx.send(jsonrpc::method_not_found(&id, other));
         }
     }
 }
 
-fn handle_initialize(id: &Value, params: &Value, product_version: &str, tx: &producer::FrameSink) {
+/// One `_eukhe/` request on the hosted session.
+async fn handle_extension(
+    id: Value,
+    method: &str,
+    params: &Value,
+    link: &DaemonLink,
+    state: &Arc<Mutex<DaemonAcpState>>,
+    tx: producer::FrameSink,
+) {
+    let extension = match extensions::parse(method, params) {
+        Ok(extension) => extension,
+        Err(error) => {
+            let _ = tx.send(extensions::error_response(&id, method, &error));
+            return;
+        }
+    };
+    let session_id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let daemon_session_id = state
+        .lock()
+        .await
+        .session
+        .as_ref()
+        .filter(|hosted| hosted.acp_session_id == session_id)
+        .map(|hosted| hosted.daemon_active_session_id.clone());
+    let Some(daemon_session_id) = daemon_session_id else {
+        let _ = tx.send(jsonrpc::session_not_found(&id, session_id));
+        return;
+    };
+    let reply = match extensions::run(link, &daemon_session_id, extension).await {
+        Ok(result) => jsonrpc::response(&id, &result),
+        Err(error) => extensions::error_response(&id, method, &error),
+    };
+    let _ = tx.send(reply);
+}
+
+async fn handle_initialize(
+    id: &Value,
+    params: &Value,
+    state: &Arc<Mutex<DaemonAcpState>>,
+    connection: &Connection,
+    tx: &producer::FrameSink,
+) {
     if let Err(error_response) = validate_initialize(id, params) {
         let _ = tx.send(error_response);
         return;
     }
-    let result =
-        serde_json::to_value(types::initialize_result(product_version)).expect("serializes");
+    let terminal = TerminalLogin::of_initialize(params);
+    state.lock().await.terminal_login = terminal;
+    let result = serde_json::to_value(types::initialize_result(
+        &connection.options.product_version,
+        auth::auth_methods(terminal),
+    ))
+    .expect("serializes");
     let _ = tx.send(jsonrpc::response(id, &result));
 }
 
@@ -930,279 +995,8 @@ fn validate_initialize(id: &Value, params: &Value) -> std::result::Result<(), Va
     }
 }
 
-/// Admit one session over the startup daemon session and admit its MCP
-/// servers through the wire command.
-async fn handle_session_new(
-    id: Value,
-    params: Value,
-    link: &Arc<DaemonLink>,
-    state: &Arc<Mutex<DaemonAcpState>>,
-    options: &DaemonAcpOptions,
-    binding: &DaemonBinding,
-    tx: producer::FrameSink,
-) {
-    {
-        let mut guard = state.lock().await;
-        if guard.session.is_some()
-            || guard.session_new_in_flight
-            || guard.session_close_done.is_some()
-        {
-            let _ = tx.send(super::internal_error(
-                &id,
-                "eukhe ACP mode hosts one session per connection; start another eukhe process for a second session",
-            ));
-            return;
-        }
-        guard.session_new_in_flight = true;
-    }
-    // Failures below clear the in-flight flag on the way out; on success
-    // the hosted session takes the slot.
-    let params = types::NewSessionParams::parse(&params);
-    if !state.lock().await.mcp_server_names.is_empty() {
-        if let Err(error) = clear_connection_servers(
-            link,
-            &binding.active_session_id,
-            &binding.mcp_owner_id,
-            state,
-        )
-        .await
-        {
-            state.lock().await.session_new_in_flight = false;
-            let _ = tx.send(super::internal_error(&id, &error.to_string()));
-            return;
-        }
-    }
-    // MCP admission runs after the pending-clear retry: a rejected list
-    // fails the request with the same error payloads.
-    let resolved =
-        match super::mcp::resolve_acp_mcp_servers(&params.mcp_servers, &options.actual_cwd) {
-            Ok(resolved) => resolved,
-            Err(reason) => {
-                state.lock().await.session_new_in_flight = false;
-                let _ = tx.send(jsonrpc::error_response(
-                    &id,
-                    jsonrpc::INVALID_PARAMS,
-                    "Invalid params",
-                    Some(&json!({ "reason": reason.to_string() })),
-                ));
-                return;
-            }
-        };
-    if let Err(details) = super::mcp::acp_mcp_tool_names(&resolved) {
-        state.lock().await.session_new_in_flight = false;
-        let _ = tx.send(super::internal_error(&id, &details.to_string()));
-        return;
-    }
-
-    let acp_session_id = uuid::Uuid::new_v4().to_string();
-    let producer = UpdateProducer::new(acp_session_id.clone(), tx.clone());
-    // The pickers ride the worker's own state and discovery seams: neither
-    // fetch may fail the admission (TS catches discovery failures to an
-    // empty list, and a state fetch failure degrades to no options).
-    let (state_value, models) = (
-        fetch_connection_state(link, &binding.active_session_id).await,
-        fetch_available_models(link, &binding.active_session_id)
-            .await
-            .unwrap_or_default(),
-    );
-    let published = picker_options_from_state(state_value.as_ref(), &models);
-    let config = Arc::new(HostedConfig {
-        queue: tokio::sync::Mutex::new(()),
-        published: tokio::sync::Mutex::new(published),
-        models: tokio::sync::Mutex::new(models),
-    });
-    let mut hosted = HostedSession {
-        acp_session_id: acp_session_id.clone(),
-        daemon_active_session_id: binding.active_session_id.clone(),
-        producer,
-        config,
-        cancelling: false,
-        stop_failure: None,
-        input_pause_key: None,
-        input_pause_id: None,
-        cancel_task: None,
-        turn: None,
-        assistant_stop_reason: None,
-        mapping: WireMappingState::default(),
-        observed_children: std::collections::HashSet::new(),
-        editor_unsupported: false,
-    };
-    // The ACP MCP servers ride the wire command, not a local manager.
-    let replace_skipped = resolved.is_empty() && state.lock().await.mcp_server_names.is_empty();
-    if !replace_skipped {
-        // A failed response does not prove the worker rejected this list.
-        // Keep the names until a clear is acknowledged, even if the
-        // best-effort clear below also loses its acknowledgement.
-        if !resolved.is_empty() {
-            state.lock().await.mcp_server_names = resolved
-                .iter()
-                .map(eukhe_core::mcp::AcpMcpServerConfig::name)
-                .map(str::to_string)
-                .collect();
-        }
-        if let Err(error) = replace_connection_servers(
-            link,
-            &binding.active_session_id,
-            &binding.mcp_owner_id,
-            &resolved,
-        )
-        .await
-        {
-            // The worker may have applied the list before this failed (a
-            // lost acknowledgement); the clear is best-effort, like TS.
-            let _ = clear_connection_servers(
-                link,
-                &binding.active_session_id,
-                &binding.mcp_owner_id,
-                state,
-            )
-            .await;
-            state.lock().await.session_new_in_flight = false;
-            let _ = tx.send(super::internal_error(&id, &error.to_string()));
-            return;
-        }
-        if resolved.is_empty() {
-            state.lock().await.mcp_server_names.clear();
-        }
-    }
-
-    // The admission response is queued below, after the session takes its
-    // slot and before the producer gate opens.
-    let mut result = json!({
-        "sessionId": acp_session_id,
-        "configOptions": *hosted.config.published.lock().await,
-    });
-    if let Some(requested) = params.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
-        let actual = options.actual_cwd.display().to_string();
-        if !super::same_cwd(Path::new(requested), &options.actual_cwd) {
-            result["_meta"] = meta::eukhe_meta(&EukheSessionMeta {
-                cwd: Some(meta::EukheCwdMeta {
-                    requested: requested.to_string(),
-                    actual,
-                }),
-                ..Default::default()
-            });
-        }
-    }
-    // Install the hosted session before the admission response leaves: a
-    // client that immediately sends `session/set_config_option` resolves
-    // against the installed session, not "Unknown ACP session" (TS
-    // assigns `session = entry` before returning the response). The
-    // producer gate opens only after the response is queued on the
-    // sink, so no held update can precede the admission response.
-    let producer = Arc::clone(&hosted.producer);
-    let inherited_pause = {
-        let mut guard = state.lock().await;
-        guard.session_new_in_flight = false;
-        if let Some(pause_id) = guard.closed_input_pause_id.clone() {
-            hosted.input_pause_id = Some(pause_id);
-            hosted.input_pause_key = guard.closed_input_pause_key.clone();
-        }
-        guard.session = Some(hosted);
-        guard
-            .closed_input_pause_id
-            .clone()
-            .zip(guard.closed_input_pause_key.clone())
-    };
-    let children = match fetch_rlm_children(link, &binding.active_session_id).await {
-        Ok(children) => children,
-        Err(error) => {
-            let _ = clear_connection_servers(
-                link,
-                &binding.active_session_id,
-                &binding.mcp_owner_id,
-                state,
-            )
-            .await;
-            let mut guard = state.lock().await;
-            guard.session = None;
-            guard.session_new_in_flight = false;
-            drop(guard);
-            let _ = tx.send(super::internal_error(&id, &error.to_string()));
-            return;
-        }
-    };
-    {
-        let mut guard = state.lock().await;
-        if let Some(current) = guard.session.as_mut() {
-            for child in children {
-                let id = child.get("id").and_then(Value::as_str).unwrap_or_default();
-                if !current.observed_children.insert(id.to_string()) {
-                    continue;
-                }
-                let event = json!({ "type": "rlm_child_update", "child": child });
-                for update in wire_events::wire_updates(&event, &mut current.mapping) {
-                    let _ = current
-                        .producer
-                        .publish(&update, 0, EukheEventPhase::Event, None)
-                        .await;
-                }
-            }
-        }
-    }
-    let _ = tx.send(jsonrpc::response(&id, &result));
-    if let Some((pause_id, lease_key)) = inherited_pause {
-        match release_session_input_pause(link, &binding.active_session_id, &pause_id).await {
-            Ok(()) => {
-                let mut guard = state.lock().await;
-                if guard.closed_input_pause_id.as_deref() == Some(&pause_id) {
-                    guard.closed_input_pause_id = None;
-                    guard.closed_input_pause_key = None;
-                }
-                if let Some(hosted) = guard
-                    .session
-                    .as_mut()
-                    .filter(|hosted| hosted.input_pause_id.as_deref() == Some(&pause_id))
-                {
-                    hosted.input_pause_id = None;
-                    if hosted.input_pause_key.as_deref() == Some(&lease_key) {
-                        hosted.input_pause_key = None;
-                    }
-                }
-            }
-            Err(error) => {
-                if let Some(hosted) = state
-                    .lock()
-                    .await
-                    .session
-                    .as_mut()
-                    .filter(|hosted| hosted.input_pause_id.as_deref() == Some(&pause_id))
-                {
-                    hosted.stop_failure = Some(Arc::new(error));
-                }
-            }
-        }
-    }
-    producer.commit_session_new_response().await;
-}
-
-async fn replace_connection_servers(
-    link: &Arc<DaemonLink>,
-    daemon_session_id: &str,
-    owner_id: &str,
-    resolved: &[eukhe_core::mcp::AcpMcpServerConfig],
-) -> Result<(), DaemonCommandError> {
-    link.request_ok(DaemonCommand::ReplaceAcpMcpServers {
-        id: None,
-        active_session_id: daemon_session_id.to_string(),
-        owner_id: owner_id.to_string(),
-        servers: serde_json::to_value(resolved).map_err(DaemonCommandError::Encode)?,
-        rest: Map::default(),
-    })
-    .await
-}
-
-async fn clear_connection_servers(
-    link: &Arc<DaemonLink>,
-    daemon_session_id: &str,
-    owner_id: &str,
-    state: &Arc<Mutex<DaemonAcpState>>,
-) -> Result<(), DaemonCommandError> {
-    replace_connection_servers(link, daemon_session_id, owner_id, &[]).await?;
-    state.lock().await.mcp_server_names.clear();
-    Ok(())
-}
-
+/// One admitted prompt: its turn on the hosted session, then the turn's
+/// run report, then its response.
 async fn handle_session_prompt(
     id: Value,
     params: Value,
@@ -1211,9 +1005,65 @@ async fn handle_session_prompt(
     state: &Arc<Mutex<DaemonAcpState>>,
     tx: producer::FrameSink,
 ) {
-    let reply = prompt_turn(id, params, &admission_id, link, state).await;
+    let params = types::PromptParams::parse(&params);
+    let hosted = {
+        let guard = state.lock().await;
+        guard
+            .session
+            .as_ref()
+            .filter(|hosted| hosted.acp_session_id == params.session_id)
+            .map(|hosted| {
+                (
+                    Arc::clone(&hosted.producer),
+                    hosted.daemon_active_session_id.clone(),
+                )
+            })
+    };
+    let reply = match (types::AdmittedPrompt::parse(&params.prompt), hosted) {
+        (Err(error), _) => prompt_block_error(&id, &error),
+        // Admission checked the session id: a miss is a close since.
+        (Ok(_), None) => cancelled_response(&id),
+        (Ok(admitted), Some((producer, daemon_session_id))) => {
+            let turn_id = producer.begin_prompt().await;
+            let before = run_report::effects_before(link, &daemon_session_id).await;
+            let turn = PromptTurn {
+                producer,
+                daemon_session_id,
+                turn_id,
+            };
+            let reply = prompt_turn(id, admitted, &turn, &admission_id, link, state).await;
+            let answer = state
+                .lock()
+                .await
+                .session
+                .as_mut()
+                .filter(|hosted| hosted.acp_session_id == params.session_id)
+                .and_then(|hosted| hosted.turn_answer.take());
+            let report = run_report::report(
+                link,
+                run_report::Turn {
+                    acp_session_id: &params.session_id,
+                    daemon_session_id: &turn.daemon_session_id,
+                    turn_id,
+                    reply: &reply,
+                    answer,
+                    before,
+                },
+            )
+            .await;
+            let _ = tx.send(report);
+            reply
+        }
+    };
     release_turn_slot(state, &admission_id).await;
     let _ = tx.send(reply);
+}
+
+/// The turn a prompt runs: its session's producer and daemon id, its id.
+struct PromptTurn {
+    producer: Arc<UpdateProducer>,
+    daemon_session_id: String,
+    turn_id: u64,
 }
 
 /// Release this prompt's turn slot, after its stop sequence if it was
@@ -1278,28 +1128,15 @@ fn prompt_block_error(id: &Value, error: &types::PromptBlockError) -> Value {
 /// Run one admitted prompt turn and return its reply frame.
 async fn prompt_turn(
     id: Value,
-    params: Value,
+    admitted: types::AdmittedPrompt,
+    turn: &PromptTurn,
     admission_id: &str,
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
 ) -> Value {
-    let params = types::PromptParams::parse(&params);
-    let admitted = match types::AdmittedPrompt::parse(&params.prompt) {
-        Ok(admitted) => admitted,
-        Err(error) => return prompt_block_error(&id, &error),
-    };
-    let (producer, hosted_daemon_session_id) = {
-        let guard = state.lock().await;
-        match guard.session.as_ref() {
-            Some(hosted) if hosted.acp_session_id == params.session_id => (
-                Arc::clone(&hosted.producer),
-                hosted.daemon_active_session_id.clone(),
-            ),
-            // Admission checked the session id: a miss is a close since.
-            _ => return cancelled_response(&id),
-        }
-    };
-    let turn_id = producer.begin_prompt().await;
+    let producer = Arc::clone(&turn.producer);
+    let hosted_daemon_session_id = turn.daemon_session_id.clone();
+    let turn_id = turn.turn_id;
     // TS `abort.signal.aborted` before `promptAndWait`.
     let cancelled = turn_cancelled(&*state.lock().await, admission_id);
     if cancelled {
@@ -1482,6 +1319,8 @@ async fn prompt_turn(
         .as_ref()
         .filter(|status| status.enabled)
         .map(meta::autonomous_meta);
+    // The context in use after the turn's answer, ahead of its boundary.
+    sessions::publish_usage(link, &hosted_daemon_session_id, &producer).await;
     // The boundary, completion, and terminal quiescence frames match the
     // TS captures.
     let boundary = types::AcpSessionUpdate::SessionInfoUpdate {
@@ -1760,26 +1599,23 @@ mod tests {
 
     fn hosted_session() -> HostedSession {
         let (sink, _drain) = mpsc::unbounded_channel();
-        HostedSession {
-            acp_session_id: "acp-1".to_string(),
-            daemon_active_session_id: "daemon-1".to_string(),
-            producer: UpdateProducer::new("acp-1", sink),
-            config: Arc::new(HostedConfig {
+        HostedSession::new(
+            DaemonSession {
+                active_session_id: "daemon-1".to_string(),
+                session_id: "acp-1".to_string(),
+                session_file: None,
+                lifecycle: DaemonSessionLifecycle::ClientOwned,
+                cwd: PathBuf::from("/tmp"),
+            },
+            UpdateProducer::new("acp-1", sink),
+            Arc::new(HostedConfig {
                 queue: tokio::sync::Mutex::new(()),
                 published: tokio::sync::Mutex::new(Vec::new()),
                 models: tokio::sync::Mutex::new(Vec::new()),
             }),
-            cancelling: false,
-            stop_failure: None,
-            input_pause_key: None,
-            input_pause_id: None,
-            cancel_task: None,
-            turn: None,
-            assistant_stop_reason: None,
-            mapping: WireMappingState::default(),
-            observed_children: std::collections::HashSet::new(),
-            editor_unsupported: false,
-        }
+            WireMappingState::default(),
+            std::collections::HashSet::new(),
+        )
     }
 
     fn state(session: Option<HostedSession>) -> DaemonAcpState {
@@ -1834,108 +1670,6 @@ mod tests {
         )
         .await
         .expect("an already completed close must not strand EOF");
-    }
-
-    #[tokio::test]
-    async fn lost_replace_and_clear_ack_retries_clear_before_an_empty_session() {
-        let (writer, mut commands) = mpsc::unbounded_channel::<String>();
-        let (_frames_tx, frames) = mpsc::unbounded_channel();
-        let pending = Arc::new(std::sync::Mutex::new(HashMap::new()));
-        let link = Arc::new(DaemonLink {
-            writer,
-            pending: Arc::clone(&pending),
-            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            frames: Mutex::new(frames),
-            protocol_version: DAEMON_PROTOCOL_VERSION,
-            next_request_id: std::sync::atomic::AtomicU64::new(0),
-        });
-        let worker = tokio::spawn(async move {
-            let mut replacements = Vec::new();
-            let mut installed = Vec::<String>::new();
-            while let Some(line) = commands.recv().await {
-                let envelope: DaemonCommandEnvelope = serde_json::from_str(&line).unwrap();
-                let id = envelope.id;
-                let (command, data, lose_ack) = match envelope.command {
-                    DaemonCommand::GetConnectionState { .. } => {
-                        ("get_connection_state", None, false)
-                    }
-                    DaemonCommand::GetAvailableModels { .. } => {
-                        ("get_available_models", Some(json!({ "models": [] })), false)
-                    }
-                    DaemonCommand::GetRlmChildren { .. } => {
-                        ("get_rlm_children", Some(json!({ "children": [] })), false)
-                    }
-                    DaemonCommand::ReplaceAcpMcpServers { servers, .. } => {
-                        installed = servers
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .map(|server| server.get("name").unwrap().as_str().unwrap().to_string())
-                            .collect();
-                        replacements.push(installed.clone());
-                        ("replace_acp_mcp_servers", None, replacements.len() <= 2)
-                    }
-                    other => panic!("unexpected command: {other:?}"),
-                };
-                let reply = pending.lock().unwrap().remove(&id).unwrap();
-                if !lose_ack {
-                    reply
-                        .send(DaemonResponse {
-                            id: Some(id),
-                            command: command.to_string(),
-                            success: true,
-                            data,
-                            error: None,
-                            error_info: None,
-                        })
-                        .unwrap();
-                }
-                // Dropping the reply simulates an applied command whose
-                // acknowledgement never reaches the ACP connection.
-            }
-            (replacements, installed)
-        });
-        let state = Arc::new(Mutex::new(state(None)));
-        let binding = DaemonBinding {
-            active_session_id: "daemon-1".to_string(),
-            client_owned: false,
-            mcp_owner_id: "owner-1".to_string(),
-        };
-        let options = DaemonAcpOptions {
-            socket_path: PathBuf::new(),
-            actual_cwd: PathBuf::from("/tmp"),
-            product_version: "test".to_string(),
-            create: DaemonCommand::GetConnectionState {
-                id: None,
-                active_session_id: "daemon-1".to_string(),
-                rest: Map::default(),
-            },
-        };
-        let (tx, mut responses) = mpsc::unbounded_channel();
-        handle_session_new(
-            json!(1),
-            json!({ "mcpServers": [{ "name": "example", "command": "echo", "args": [], "env": [] }] }),
-            &link, &state, &options, &binding, tx.clone(),
-        ).await;
-        assert!(responses.recv().await.unwrap().get("error").is_some());
-        assert_eq!(state.lock().await.mcp_server_names, vec!["example"]);
-
-        handle_session_new(
-            json!(2),
-            json!({ "mcpServers": [] }),
-            &link,
-            &state,
-            &options,
-            &binding,
-            tx,
-        )
-        .await;
-        assert!(responses.recv().await.unwrap().get("result").is_some());
-        assert!(state.lock().await.mcp_server_names.is_empty());
-        drop(link);
-        let (replacements, installed) = worker.await.unwrap();
-        assert_eq!(replacements, vec![vec!["example"], vec![], vec![]]);
-        assert!(installed.is_empty());
     }
 
     #[tokio::test]

@@ -156,8 +156,10 @@ impl WireConfigError {
     /// The JSON-RPC error frame (the TS `invalidParams` data shape).
     fn response(self, id: &Value) -> Value {
         match self {
-            WireConfigError::UnknownSession { .. }
-            | WireConfigError::SessionClosed
+            WireConfigError::UnknownSession { session_id } => {
+                jsonrpc::session_not_found(id, &session_id)
+            }
+            WireConfigError::SessionClosed
             | WireConfigError::DiscoveryUnavailable { .. }
             | WireConfigError::UnavailableModel { .. }
             | WireConfigError::UnsupportedEffort { .. }

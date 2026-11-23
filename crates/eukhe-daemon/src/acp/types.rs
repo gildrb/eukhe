@@ -1,14 +1,13 @@
 //! ACP wire types: the method surface, `session/update` payload shapes,
 //! and prompt-block parsing.
 //!
-//! The served surface is exactly what the TS product serves: `initialize`,
-//! `session/new`, `session/prompt`, `session/close` (requests),
-//! `session/cancel` (notification), `session/set_config_option` (the
-//! model/effort pickers, TS #2455), the outgoing `session/update`
-//! notification, and the outgoing `session/request_permission` request
-//! (the editor's say on an irreversible effect, `permission.rs`).
-//! ACP-spec methods the TS product does not serve (`session/load`,
-//! `session/read`, `session/clone`, cwd adoption) are not invented here.
+//! The served surface: `initialize`, `authenticate`, `session/new`,
+//! `session/load`, `session/resume`, `session/list`, `session/delete`,
+//! `session/prompt`, `session/close`, `session/set_config_option`
+//! (requests), `session/cancel` (notification), the outgoing
+//! `session/update` notification, the outgoing `session/request_permission`
+//! request (the editor's say on an irreversible effect, `permission.rs`),
+//! and the `_eukhe/` extensions (`extensions.rs`, `run_report.rs`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,6 +18,7 @@ use serde_json::Value;
 pub struct InitializeResult {
     pub protocol_version: u64,
     pub agent_capabilities: AgentCapabilities,
+    pub auth_methods: Value,
     pub agent_info: AgentInfo,
     #[serde(rename = "_meta")]
     pub meta: Value,
@@ -30,31 +30,39 @@ pub struct InitializeResult {
 pub struct AgentCapabilities {
     pub load_session: bool,
     pub prompt_capabilities: PromptCapabilities,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_capabilities: Option<McpCapabilities>,
+    pub mcp_capabilities: McpCapabilities,
     pub session_capabilities: SessionCapabilities,
+    /// `{"eukhe": {"version", "features"}}`: the `_eukhe/` extensions.
+    #[serde(rename = "_meta")]
+    pub meta: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptCapabilities {
     pub image: bool,
+    pub audio: bool,
     pub embedded_context: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpCapabilities {
     pub http: bool,
+    pub sse: bool,
 }
 
+/// Each `{}` member: that session method is served.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionCapabilities {
-    pub close: CloseCapability,
+    pub close: ServedMethod,
+    pub list: ServedMethod,
+    pub resume: ServedMethod,
+    pub delete: ServedMethod,
 }
 
-/// `{}`: present means `session/close` is served.
+/// `{}`: present means the method is served.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct CloseCapability {}
+pub struct ServedMethod {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,11 +144,14 @@ pub struct AcpStopReasonResponse {
 
 /// The `session/update` payload body (the `update` object).
 ///
-/// Every variant carries its TS `sessionUpdate` tag; fields are the exact
+/// Every variant carries its `sessionUpdate` tag; fields are the exact
 /// wire names ACP clients read.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "sessionUpdate")]
 pub enum AcpSessionUpdate {
+    /// A user message of the history `session/load` replays.
+    #[serde(rename = "user_message_chunk")]
+    UserMessageChunk { content: TextBlock },
     /// A streaming chunk of the assistant's visible answer.
     #[serde(rename = "agent_message_chunk")]
     AgentMessageChunk {
@@ -155,17 +166,9 @@ pub enum AcpSessionUpdate {
         message_id: String,
         content: TextBlock,
     },
-    /// A tool call started executing.
+    /// A tool call started executing (or, replayed, ran).
     #[serde(rename = "tool_call")]
-    ToolCall {
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        title: String,
-        kind: AcpToolKind,
-        status: AcpToolStatus,
-        #[serde(rename = "rawInput")]
-        raw_input: Value,
-    },
+    ToolCall(ToolCallStart),
     /// A tool call progressed or finished.
     #[serde(rename = "tool_call_update")]
     ToolCallUpdate {
@@ -178,11 +181,33 @@ pub enum AcpSessionUpdate {
         #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
         meta: Option<Value>,
     },
-    /// Namespaced eukhe state (compaction, quiescence, ...).
+    /// The session's acceptance checks as a checklist: every entry, each
+    /// time one changes.
+    #[serde(rename = "plan")]
+    Plan { entries: Vec<PlanEntry> },
+    /// The session's name changed (`null`: cleared).
+    #[serde(rename = "session_info_update")]
+    TitleUpdate { title: Option<String> },
+    /// Eukhe-only state (budget, compaction, quiescence, ...): published
+    /// as `_eukhe/session_info`, never as `session/update`.
     #[serde(rename = "session_info_update")]
     SessionInfoUpdate {
         #[serde(rename = "_meta")]
         meta: Value,
+    },
+    /// The context window in use and the session's cost so far.
+    #[serde(rename = "usage_update")]
+    UsageUpdate {
+        used: u64,
+        size: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cost: Option<UsageCost>,
+    },
+    /// The commands a prompt may start with (`/compact`, templates, skills).
+    #[serde(rename = "available_commands_update")]
+    AvailableCommandsUpdate {
+        #[serde(rename = "availableCommands")]
+        available_commands: Vec<AvailableCommand>,
     },
     /// The session's configuration options changed (TS #2455): the full
     /// set with current values, connection-scoped like the TS publish.
@@ -193,6 +218,24 @@ pub enum AcpSessionUpdate {
     },
 }
 
+/// The notification an update rides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateMethod {
+    /// `session/update`: an ACP update every client reads.
+    SessionUpdate,
+    /// `_eukhe/session_info`: eukhe-only state a plain client never sees.
+    EukheSessionInfo,
+}
+
+impl UpdateMethod {
+    pub fn name(self) -> &'static str {
+        match self {
+            UpdateMethod::SessionUpdate => "session/update",
+            UpdateMethod::EukheSessionInfo => "_eukhe/session_info",
+        }
+    }
+}
+
 impl AcpSessionUpdate {
     /// Serialize to the wire value. `ToolCallUpdate::meta` carries a
     /// namespaced `_meta` payload (see [`meta::eukhe_meta`]); the
@@ -200,6 +243,91 @@ impl AcpSessionUpdate {
     pub fn to_bare_value(&self) -> Value {
         serde_json::to_value(self).expect("session updates serialize")
     }
+
+    /// The notification this update rides.
+    pub fn method(&self) -> UpdateMethod {
+        match self {
+            AcpSessionUpdate::SessionInfoUpdate { .. } => UpdateMethod::EukheSessionInfo,
+            AcpSessionUpdate::UserMessageChunk { .. }
+            | AcpSessionUpdate::AgentMessageChunk { .. }
+            | AcpSessionUpdate::AgentThoughtChunk { .. }
+            | AcpSessionUpdate::ToolCall(_)
+            | AcpSessionUpdate::ToolCallUpdate { .. }
+            | AcpSessionUpdate::Plan { .. }
+            | AcpSessionUpdate::TitleUpdate { .. }
+            | AcpSessionUpdate::UsageUpdate { .. }
+            | AcpSessionUpdate::AvailableCommandsUpdate { .. }
+            | AcpSessionUpdate::ConfigOptionUpdate { .. } => UpdateMethod::SessionUpdate,
+        }
+    }
+}
+
+/// The `tool_call` body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallStart {
+    pub tool_call_id: String,
+    /// What the call does, for people.
+    pub title: String,
+    /// The tool's own name.
+    pub name: String,
+    pub kind: AcpToolKind,
+    pub status: AcpToolStatus,
+    pub raw_input: Value,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<ToolCallLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub content: Vec<ToolCallContent>,
+}
+
+/// A file a tool call reads or changes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ToolCallLocation {
+    pub path: String,
+}
+
+/// One checklist entry of a `plan` update.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanEntry {
+    pub content: String,
+    pub priority: PlanPriority,
+    pub status: PlanStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanPriority {
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+/// A `usage_update` cost.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UsageCost {
+    pub amount: f64,
+    pub currency: &'static str,
+}
+
+/// One `available_commands_update` entry.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AvailableCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<CommandInput>,
+}
+
+/// The text a command takes after its name.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CommandInput {
+    pub hint: String,
 }
 
 /// `{ "type": "text", "text": ... }`.
@@ -317,18 +445,24 @@ impl AdmittedPrompt {
     }
 }
 
-/// The `session/new` request params.
+/// The `session/new`, `session/load` and `session/resume` request params
+/// (`sessionId` only on the last two).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewSessionParams {
+    pub session_id: Option<String>,
     pub cwd: Option<String>,
     pub mcp_servers: Vec<Value>,
 }
 
 impl NewSessionParams {
-    /// Parse `session/new` params. Unknown fields are ignored, matching the
-    /// TS SDK's tolerance of forward-compatible params.
+    /// Parse the session-start params. Unknown fields are ignored, matching
+    /// the SDK's tolerance of forward-compatible params.
     pub fn parse(params: &Value) -> NewSessionParams {
         NewSessionParams {
+            session_id: params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(String::from),
             cwd: params.get("cwd").and_then(Value::as_str).map(String::from),
             mcp_servers: params
                 .get("mcpServers")
@@ -392,21 +526,47 @@ impl SetConfigOptionParams {
     }
 }
 
+/// The `_eukhe/` extension features `initialize` advertises.
+pub const EUKHE_FEATURES: [&str; 7] = [
+    "run_report",
+    "session_info",
+    "budget",
+    "acceptance",
+    "undo",
+    "diff",
+    "effects",
+];
+
+/// The version of the `_eukhe/` surface: a minor only adds.
+pub const EUKHE_EXTENSIONS_VERSION: &str = "1.0";
+
 /// The initialize result with the served capability set.
-pub fn initialize_result(product_version: &str) -> InitializeResult {
+pub fn initialize_result(product_version: &str, auth_methods: Value) -> InitializeResult {
     InitializeResult {
         protocol_version: 1,
         agent_capabilities: AgentCapabilities {
-            load_session: false,
+            load_session: true,
             prompt_capabilities: PromptCapabilities {
                 image: true,
+                audio: false,
                 embedded_context: true,
             },
-            mcp_capabilities: Some(McpCapabilities { http: true }),
-            session_capabilities: SessionCapabilities {
-                close: CloseCapability::default(),
+            mcp_capabilities: McpCapabilities {
+                http: true,
+                sse: false,
             },
+            session_capabilities: SessionCapabilities {
+                close: ServedMethod::default(),
+                list: ServedMethod::default(),
+                resume: ServedMethod::default(),
+                delete: ServedMethod::default(),
+            },
+            meta: serde_json::json!({ "eukhe": {
+                "version": EUKHE_EXTENSIONS_VERSION,
+                "features": EUKHE_FEATURES,
+            }}),
         },
+        auth_methods,
         agent_info: AgentInfo {
             name: "eukhe".to_string(),
             title: "Eukhe".to_string(),
@@ -423,17 +583,23 @@ mod tests {
 
     #[test]
     fn initialize_result_matches_the_served_surface() {
-        let value = serde_json::to_value(initialize_result("9.9.9")).unwrap();
+        let value =
+            serde_json::to_value(initialize_result("9.9.9", json!([{ "id": "m" }]))).unwrap();
         assert_eq!(
             value,
             json!({
                 "protocolVersion": 1,
                 "agentCapabilities": {
-                    "loadSession": false,
-                    "promptCapabilities": { "image": true, "embeddedContext": true },
-                    "mcpCapabilities": { "http": true },
-                    "sessionCapabilities": { "close": {} },
+                    "loadSession": true,
+                    "promptCapabilities": { "image": true, "audio": false, "embeddedContext": true },
+                    "mcpCapabilities": { "http": true, "sse": false },
+                    "sessionCapabilities": { "close": {}, "list": {}, "resume": {}, "delete": {} },
+                    "_meta": { "eukhe": {
+                        "version": "1.0",
+                        "features": ["run_report", "session_info", "budget", "acceptance", "undo", "diff", "effects"],
+                    }},
                 },
+                "authMethods": [{ "id": "m" }],
                 "agentInfo": { "name": "eukhe", "title": "Eukhe", "version": "9.9.9" },
                 "_meta": { "com.eukhe": {} },
             })
@@ -517,17 +683,35 @@ mod tests {
             chunk.to_bare_value()["sessionUpdate"],
             "agent_message_chunk"
         );
-        let call = AcpSessionUpdate::ToolCall {
+        let call = AcpSessionUpdate::ToolCall(ToolCallStart {
             tool_call_id: "t1".into(),
             title: "Python cell".into(),
+            name: "python".into(),
             kind: AcpToolKind::Execute,
             status: AcpToolStatus::InProgress,
             raw_input: json!({ "code": "1+1" }),
-        };
-        let value = call.to_bare_value();
-        assert_eq!(value["sessionUpdate"], "tool_call");
-        assert_eq!(value["kind"], "execute");
-        assert_eq!(value["status"], "in_progress");
+            locations: Vec::new(),
+            content: Vec::new(),
+        });
+        assert_eq!(
+            call.to_bare_value(),
+            json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "t1",
+                "title": "Python cell",
+                "name": "python",
+                "kind": "execute",
+                "status": "in_progress",
+                "rawInput": { "code": "1+1" },
+            })
+        );
+        assert_eq!(
+            [
+                AcpSessionUpdate::TitleUpdate { title: None }.method(),
+                AcpSessionUpdate::SessionInfoUpdate { meta: json!({}) }.method(),
+            ],
+            [UpdateMethod::SessionUpdate, UpdateMethod::EukheSessionInfo]
+        );
         let update = AcpSessionUpdate::ToolCallUpdate {
             tool_call_id: "t1".into(),
             status: Some(AcpToolStatus::Completed),
