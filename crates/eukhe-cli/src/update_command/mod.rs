@@ -252,7 +252,7 @@ fn daemon_note(version: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "A running daemon (eukhe {}) keeps the old version until it restarts: the next interactive \"eukhe\" replaces it once it has no work, and \"eukhe shutdown\" stops it and its agents now.",
+        "A running daemon (eukhe {}) keeps the old version until it restarts: the next interactive \"eukhe\" replaces it, after the work it runs finishes, and \"eukhe shutdown\" stops it and its agents now.",
         versions.join(", ")
     ))
 }

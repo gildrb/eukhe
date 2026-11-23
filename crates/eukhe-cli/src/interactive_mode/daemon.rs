@@ -46,12 +46,24 @@ pub(crate) enum Launch {
 static OWNED_SUPERVISORS: std::sync::LazyLock<std::sync::Mutex<Vec<std::process::Child>>> =
     std::sync::LazyLock::new(std::sync::Mutex::default);
 
-/// The CLI's way to free a daemon socket on an interactive start: the
-/// supervisor's whole drain for an agreed idle shutdown, then a stop of
-/// the holder when it is this user's eukhe supervisor on that socket.
-struct CliTakeover;
+/// What an interactive start tells the user while it replaces an older
+/// daemon (what it waits for, the replacement it made): one line each.
+pub(crate) type Tell<'a> = &'a (dyn Fn(&str) + Send + Sync);
 
-impl SocketTakeover for CliTakeover {
+/// The lines of a start that has the terminal to itself: on stderr.
+fn tell_stderr(line: &str) {
+    eprintln!("{line}");
+}
+
+/// The CLI's way to free a daemon socket on an interactive start: the
+/// supervisor's whole drain for an agreed stop, then a stop of the holder
+/// when it is this user's eukhe supervisor on that socket. Its lines go to
+/// `tell`.
+struct CliTakeover<'a> {
+    tell: Tell<'a>,
+}
+
+impl SocketTakeover for CliTakeover<'_> {
     fn shutdown_wait(&self) -> Duration {
         shutdown_wait()
     }
@@ -62,6 +74,10 @@ impl SocketTakeover for CliTakeover {
         why: &str,
     ) -> impl Future<Output = Result<()>> + Send {
         stop_socket_holder(socket_path, why)
+    }
+
+    fn tell(&self, line: &str) {
+        (self.tell)(line);
     }
 }
 
@@ -135,7 +151,8 @@ pub(crate) fn own_launcher(socket_path: &Path, spawn_cwd: &Path) -> Result<Proce
 }
 
 /// Ensure a daemon is listening on `socket_path`, spawning this executable
-/// in `--mode daemon` when none is (TS `ensureDaemonRunning`).
+/// in `--mode daemon` when none is (TS `ensureDaemonRunning`); an
+/// interactive start's lines go to stderr.
 ///
 /// # Errors
 /// See [`ensure_daemon_running_with`]; also errors when this process's
@@ -145,12 +162,37 @@ pub async fn ensure_daemon_running(
     spawn_cwd: &Path,
     caller: Caller,
 ) -> Result<DaemonReady> {
+    ensure_daemon_running_telling(socket_path, spawn_cwd, caller, &tell_stderr).await
+}
+
+/// [`ensure_daemon_running`] with an interactive start's lines going to
+/// `tell` (the TUI shows them in its frame while the daemon starts).
+///
+/// # Errors
+/// See [`ensure_daemon_running`].
+pub(crate) async fn ensure_daemon_running_telling(
+    socket_path: &Path,
+    spawn_cwd: &Path,
+    caller: Caller,
+    tell: Tell<'_>,
+) -> Result<DaemonReady> {
     let exe = std::env::current_exe().context("resolve the eukhe executable")?;
-    ensure_daemon_running_with(&exe, Build::THIS, socket_path, spawn_cwd, caller).await
+    ensure_daemon(
+        &exe,
+        Build::THIS,
+        socket_path,
+        spawn_cwd,
+        caller,
+        SupervisorLife::Detached,
+        tell,
+    )
+    .await
+    .map(|(ready, _launch)| ready)
 }
 
 /// [`ensure_daemon`] for a supervisor that outlives the caller (the TS
-/// `ensureDaemonRunning` the integration tests drive).
+/// `ensureDaemonRunning` the integration tests drive); an interactive
+/// start's lines go to stderr.
 ///
 /// # Errors
 ///
@@ -169,6 +211,7 @@ pub async fn ensure_daemon_running_with(
         spawn_cwd,
         caller,
         SupervisorLife::Detached,
+        &tell_stderr,
     )
     .await
     .map(|(ready, _launch)| ready)
@@ -179,12 +222,13 @@ pub async fn ensure_daemon_running_with(
 /// build (the product path uses this process's own binary and build, TS
 /// parity); also reports whether this call started it. An interactive
 /// start ([`ProcessLauncher::launch_interactive`], with the CLI's
-/// takeover) or a background one ([`ProcessLauncher::launch_background`]).
+/// takeover, its lines going to `tell`) or a background one
+/// ([`ProcessLauncher::launch_background`]).
 ///
 /// # Errors
 /// Returns an error when an incompatible daemon is kept (newer than the
-/// client, started by a background client, or busy), when a foreign holder
-/// of the socket cannot or may not be stopped, when the supervisor would
+/// client, or started by a background client), when a foreign holder of
+/// the socket cannot or may not be stopped, when the supervisor would
 /// refuse the socket dir, when the supervisor process cannot be spawned, or
 /// when no daemon starts before the startup timeout.
 pub(crate) async fn ensure_daemon(
@@ -194,10 +238,15 @@ pub(crate) async fn ensure_daemon(
     spawn_cwd: &Path,
     caller: Caller,
     life: SupervisorLife,
+    tell: Tell<'_>,
 ) -> Result<(DaemonReady, Launch)> {
     let launcher = cli_launcher(exe, socket_path, spawn_cwd, life);
     let Launched { ready, spawned } = match caller {
-        Caller::Interactive => launcher.launch_interactive(client, &CliTakeover).await?,
+        Caller::Interactive => {
+            launcher
+                .launch_interactive(client, &CliTakeover { tell })
+                .await?
+        }
         Caller::Background => launcher.launch_background(client).await?,
     };
     // Only the supervisor this call spawned is the caller's own.
@@ -297,6 +346,7 @@ mod tests {
             home.path(),
             Caller::Interactive,
             SupervisorLife::Detached,
+            &tell_stderr,
         )
         .await
         else {

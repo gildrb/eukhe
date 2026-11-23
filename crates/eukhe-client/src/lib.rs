@@ -31,6 +31,7 @@
 
 pub mod daemon_build;
 pub mod daemon_client;
+pub mod daemon_work;
 pub mod direct_transport;
 pub mod launcher;
 pub mod paths;

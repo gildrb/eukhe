@@ -15,8 +15,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eukhe_client::daemon_build::{Build, Caller};
@@ -86,6 +86,13 @@ fn pin_state_env(command: &mut Command, root: &Path) {
 /// daemon-backed mode takes first) in a child process, as `client` started
 /// by `caller`.
 fn run_launcher(root: &Path, socket: &Path, client: Build<'_>, caller: Caller) -> Output {
+    launcher_command(root, socket, client, caller)
+        .output()
+        .expect("spawn launcher child")
+}
+
+/// The command of a [`run_launcher`] child.
+fn launcher_command(root: &Path, socket: &Path, client: Build<'_>, caller: Caller) -> Command {
     let caller = match caller {
         Caller::Interactive => "interactive",
         Caller::Background => "background",
@@ -102,7 +109,17 @@ fn run_launcher(root: &Path, socket: &Path, client: Build<'_>, caller: Caller) -
         )
         .stdin(Stdio::null());
     pin_state_env(&mut command, root);
-    command.output().expect("spawn launcher child")
+    command
+}
+
+/// The lines an interactive start told the user (on the child's stderr):
+/// the older daemon it waits for, the replacement it made.
+fn told_lines(stderr: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .filter(|line| line.starts_with("Waiting for ") || line.starts_with("Replaced "))
+        .map(str::to_string)
+        .collect()
 }
 
 /// The launcher outcome lines the child printed (`ready: ...`,
@@ -342,12 +359,20 @@ impl Drop for DetachedDaemon {
     }
 }
 
-/// A mock supervisor: its build, its schema, and whether it has work.
+/// A mock supervisor: its build, its schema, whether it refuses an idle
+/// shutdown, and the resident sessions its `list` answers with.
 struct MockDaemon {
     version: String,
     build_id: String,
     schema: &'static str,
-    busy: bool,
+    /// Refuses `shutdown` with `ifIdle` (a session holds work, or a worker
+    /// does not answer its quiesce); the test may change it.
+    refuses_idle_shutdown: Arc<AtomicBool>,
+    /// The resident session summaries of its `list`; the test may change
+    /// them.
+    sessions: Arc<Mutex<Vec<Value>>>,
+    /// Counts its drains (`shutdown` without `ifIdle`).
+    drains: Arc<AtomicUsize>,
 }
 
 impl MockDaemon {
@@ -357,15 +382,69 @@ impl MockDaemon {
             version: version.to_string(),
             build_id: build_id.to_string(),
             schema: eukhe_types::daemon::DAEMON_SCHEMA_ID,
-            busy: false,
+            refuses_idle_shutdown: Arc::new(AtomicBool::new(false)),
+            sessions: Arc::new(Mutex::new(vec![session_row("docs", false)])),
+            drains: Arc::new(AtomicUsize::new(0)),
         }
     }
+
+    /// A mock with a turn in flight: it refuses an idle shutdown and lists
+    /// the streaming session.
+    fn busy(version: &str, build_id: &str) -> Self {
+        let mock = Self::idle(version, build_id);
+        mock.refuses_idle_shutdown.store(true, Ordering::SeqCst);
+        *mock.sessions.lock().expect("sessions") =
+            vec![session_row("fix tests", true), session_row("docs", false)];
+        mock
+    }
+
+    /// A 0.10.78 supervisor as it was released: its schema (this build
+    /// cannot attach to it) and its build id, refusing an idle shutdown.
+    /// Its version is [`OLD_VERSION`], so this build (a `-dev` build in a
+    /// test run, which ranks below every 0.10 release) ranks above it as
+    /// 0.10.79 ranks above 0.10.78.
+    fn release_0_10_78() -> Self {
+        let mock = Self {
+            schema: "protocol-7-schema-31-556a78d5ef8d",
+            ..Self::idle(OLD_VERSION, "eukhe-daemon-rs-0.10.78+8a3c2f9d4e1b")
+        };
+        mock.refuses_idle_shutdown.store(true, Ordering::SeqCst);
+        mock
+    }
+}
+
+/// A resident session's summary as a 0.10.78 supervisor lists it: idle, or
+/// streaming a turn.
+fn session_row(name: &str, streaming: bool) -> Value {
+    json!({
+        "id": format!("{:0>12}", name.len()), "lifecycle": "live",
+        "activity": if streaming { "working" } else { "idle" },
+        "isSessionActive": false, "sessionName": name, "sessionId": "", "cwd": "/",
+        "isStreaming": streaming, "isCompacting": false, "isQuotaParked": false,
+        "isBashRunning": false, "isRunningTools": false, "hasRunningSubagents": false,
+        "attachedClients": 0, "messageCount": 4, "workerState": "ready",
+        "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+    })
+}
+
+/// The row a 0.10.78 supervisor lists for a resident worker that does not
+/// answer (`offline_summary`): the hung child worker of a parent that is
+/// gone, which also never answers the idle shutdown's quiesce.
+fn unanswering_row(worker_id: &str) -> Value {
+    json!({
+        "id": worker_id, "lifecycle": "recovering", "activity": "idle",
+        "isSessionActive": false, "sessionId": "", "cwd": "", "isStreaming": false,
+        "isCompacting": false, "attachedClients": 0, "messageCount": 0,
+        "sessionActions": { "queuedCount": 0, "steering": [], "followUps": [] },
+    })
 }
 
 /// An in-process supervisor stand-in of the eukhe protocol: the hello of
 /// `mock` with the idle-shutdown capability. Each `shutdown` request is
-/// counted; an idle mock agrees and stops its listener, a busy mock
-/// refuses. Every other command gets an empty success.
+/// counted. One with `ifIdle` is refused while the mock refuses idle
+/// shutdowns; a drain always stops it; an agreed stop stops its listener.
+/// `list` answers with the mock's sessions; every other command gets an
+/// empty success.
 async fn serve_mock_daemon(
     listener: tokio::net::UnixListener,
     socket: PathBuf,
@@ -388,7 +467,9 @@ async fn serve_mock_daemon(
                 let stop_tx = stop_tx.clone();
                 let shutdowns = Arc::clone(&shutdowns);
                 let hello = hello.clone();
-                let busy = mock.busy;
+                let refuses = Arc::clone(&mock.refuses_idle_shutdown);
+                let sessions = Arc::clone(&mock.sessions);
+                let drains = Arc::clone(&mock.drains);
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     if writer.write_all(format!("{hello}\n").as_bytes()).await.is_err() {
@@ -398,13 +479,23 @@ async fn serve_mock_daemon(
                     while let Ok(Some(line)) = lines.next_line().await {
                         let Ok(envelope) = serde_json::from_str::<Value>(&line) else { continue };
                         let command = envelope["command"]["type"].as_str().unwrap_or_default().to_string();
-                        let stops = command == "shutdown" && !busy;
+                        let if_idle = envelope["command"]["ifIdle"] == json!(true);
+                        let stops = command == "shutdown"
+                            && (!if_idle || !refuses.load(Ordering::SeqCst));
+                        let data = if command == "list" {
+                            json!({ "sessions": sessions.lock().expect("sessions").clone() })
+                        } else {
+                            json!({})
+                        };
                         let response = json!({
                             "type": "response", "id": envelope["id"], "command": command,
-                            "success": command != "shutdown" || stops, "data": {},
+                            "success": command != "shutdown" || stops, "data": data,
                         });
                         if command == "shutdown" {
                             shutdowns.fetch_add(1, Ordering::SeqCst);
+                            if !if_idle {
+                                drains.fetch_add(1, Ordering::SeqCst);
+                            }
                         }
                         let _ = writer.write_all(format!("{response}\n").as_bytes()).await;
                         if stops {
@@ -436,12 +527,20 @@ fn start_mock(socket: &Path, mock: MockDaemon) -> (tokio::task::JoinHandle<()>, 
 
 /// [`run_launcher`] off the runtime that serves the mocks; its report.
 async fn launch(root: &Path, socket: &Path, client: Build<'static>, caller: Caller) -> Vec<String> {
+    launcher_report(&launch_output(root, socket, client, caller).await)
+}
+
+/// [`run_launcher`] off the runtime that serves the mocks; its output.
+async fn launch_output(
+    root: &Path,
+    socket: &Path,
+    client: Build<'static>,
+    caller: Caller,
+) -> Output {
     let (root, socket) = (root.to_path_buf(), socket.to_path_buf());
-    tokio::task::spawn_blocking(move || {
-        launcher_report(&run_launcher(&root, &socket, client, caller))
-    })
-    .await
-    .expect("launcher join")
+    tokio::task::spawn_blocking(move || run_launcher(&root, &socket, client, caller))
+        .await
+        .expect("launcher join")
 }
 
 /// The hello of whatever listens on `socket`, off the runtime.
@@ -561,10 +660,7 @@ async fn an_earlier_release_with_work_or_a_background_start_keeps_its_daemon() {
     let _ = idle.await;
     let _ = std::fs::remove_file(&legacy);
 
-    let busy = MockDaemon {
-        busy: true,
-        ..MockDaemon::idle(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old")
-    };
+    let busy = MockDaemon::busy(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old");
     let (old, shutdowns) = start_mock(&legacy, busy);
     assert_eq!(
         launch(root, &socket, Build::THIS, Caller::Interactive).await,
@@ -580,30 +676,169 @@ async fn an_earlier_release_with_work_or_a_background_start_keeps_its_daemon() {
     old.abort();
 }
 
-/// A busy daemon of an older eukhe version refuses the idle shutdown and
-/// keeps running: the launcher uses it and reports the notice naming its
-/// version.
+/// A daemon of an older eukhe version with a turn in flight keeps running:
+/// the launcher uses it (this build speaks its protocol) and reports the
+/// notice naming its version, without asking it to stop.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_busy_older_version_daemon_is_kept_with_a_notice() {
     let fixture = tempfile::tempdir().expect("fixture");
     let (root, socket) = (fixture.path(), fixture.path().join("d.sock"));
-    let mock = MockDaemon {
-        busy: true,
-        ..MockDaemon::idle(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old")
-    };
+    let mock = MockDaemon::busy(OLD_VERSION, "eukhe-daemon-rs-0.0.1-old");
     let (old, shutdowns) = start_mock(&socket, mock);
 
     assert_eq!(
         launch(root, &socket, Build::THIS, Caller::Interactive).await,
         kept(&older_daemon_notice(OLD_VERSION))
     );
-    assert_eq!(shutdowns.load(Ordering::SeqCst), 1, "asked once, refused");
+    assert_eq!(
+        shutdowns.load(Ordering::SeqCst),
+        0,
+        "its listed turn keeps it: not asked"
+    );
     assert_eq!(
         hello_now(&socket).await["appVersion"],
         OLD_VERSION,
         "the old daemon still serves"
     );
     old.abort();
+}
+
+/// The line a start says once it replaced a daemon of `version`.
+fn replaced_line(version: &str) -> String {
+    format!(
+        "Replaced the background service (eukhe {version}) with eukhe {}; its sessions resume here.",
+        eukhe_build_info::VERSION
+    )
+}
+
+// Regression (`eukhe update` 0.10.78 -> 0.10.79): the new `eukhe` exited
+// with "An incompatible Eukhe daemon is running ... (the running daemon
+// has active work). Run: eukhe shutdown --force" while every session was
+// idle. The 0.10.78 supervisor refuses the idle shutdown whenever one
+// resident worker does not answer its quiesce in time (two hung child
+// workers whose parent was gone), and lists every session idle. The start
+// reads that list, drains the daemon itself, starts this build's daemon,
+// and says so in one line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_0_10_78_daemon_that_refuses_with_every_session_idle_is_drained_and_replaced() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let (root, socket) = (fixture.path(), private_socket(fixture.path()));
+    let _replacement = DetachedDaemon {
+        socket: socket.clone(),
+    };
+    let mock = MockDaemon::release_0_10_78();
+    *mock.sessions.lock().expect("sessions") = vec![
+        session_row("docs", false),
+        unanswering_row("21e8a8e407b4"),
+        unanswering_row("7fec2b30c005"),
+    ];
+    let drains = Arc::clone(&mock.drains);
+    let (old, shutdowns) = start_mock(&socket, mock);
+
+    let output = launch_output(root, &socket, Build::THIS, Caller::Interactive).await;
+    assert_eq!(
+        (launcher_report(&output), told_lines(&output.stderr)),
+        (current(), vec![replaced_line(OLD_VERSION)])
+    );
+    assert_eq!(
+        (
+            shutdowns.load(Ordering::SeqCst),
+            drains.load(Ordering::SeqCst)
+        ),
+        (2, 1),
+        "the idle shutdown refused, then one drain"
+    );
+    old.await.expect("old daemon task");
+    assert_eq!(identity(&hello_now(&socket).await), current_identity());
+}
+
+/// A 0.10.78 daemon with a turn in flight is never stopped under it: the
+/// start says once what it waits for, and replaces the daemon once the
+/// turn ended (the supervisor then agrees to the idle shutdown).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_0_10_78_daemon_with_a_turn_in_flight_is_replaced_once_the_turn_ends() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let (root, socket) = (fixture.path(), private_socket(fixture.path()));
+    let _replacement = DetachedDaemon {
+        socket: socket.clone(),
+    };
+    let mock = MockDaemon::release_0_10_78();
+    *mock.sessions.lock().expect("sessions") = vec![
+        session_row("fix tests", true),
+        unanswering_row("21e8a8e407b4"),
+    ];
+    let (refuses, sessions, drains) = (
+        Arc::clone(&mock.refuses_idle_shutdown),
+        Arc::clone(&mock.sessions),
+        Arc::clone(&mock.drains),
+    );
+    let (old, shutdowns) = start_mock(&socket, mock);
+
+    let mut child = launcher_command(root, &socket, Build::THIS, Caller::Interactive)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn launcher child");
+    let stderr = child.stderr.take().expect("child stderr");
+    let (line_tx, mut lines) = tokio::sync::mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if line_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let waiting = loop {
+        let line = lines
+            .recv()
+            .await
+            .expect("the start says what it waits for before it ends");
+        if line.starts_with("Waiting for ") {
+            break line;
+        }
+    };
+    assert_eq!(
+        waiting,
+        format!(
+            "Waiting for the background service (eukhe {OLD_VERSION}) to finish a turn in \"fix tests\" before eukhe {} replaces it.",
+            eukhe_build_info::VERSION
+        )
+    );
+    assert_eq!(
+        shutdowns.load(Ordering::SeqCst),
+        0,
+        "nothing is asked to stop while the turn runs"
+    );
+
+    // The turn ends: the supervisor lists the session idle and agrees.
+    *sessions.lock().expect("sessions") = vec![session_row("fix tests", false)];
+    refuses.store(false, Ordering::SeqCst);
+    let mut rest = Vec::new();
+    while let Some(line) = lines.recv().await {
+        rest.push(line);
+    }
+    let output = tokio::task::spawn_blocking(move || child.wait_with_output())
+        .await
+        .expect("launcher join")
+        .expect("launcher output");
+    assert_eq!(
+        (
+            launcher_report(&output),
+            told_lines(rest.join("\n").as_bytes())
+        ),
+        (current(), vec![replaced_line(OLD_VERSION)]),
+        "the wait is said once"
+    );
+    assert_eq!(
+        (
+            shutdowns.load(Ordering::SeqCst),
+            drains.load(Ordering::SeqCst)
+        ),
+        (1, 0),
+        "one idle shutdown, agreed"
+    );
+    old.await.expect("old daemon task");
+    assert_eq!(identity(&hello_now(&socket).await), current_identity());
 }
 
 // Regression (the replacement ping-pong): an old `eukhe dashboard`

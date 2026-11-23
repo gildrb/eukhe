@@ -62,9 +62,10 @@ async fn a_failed_daemon_start_ends_the_run_with_its_error() {
             width: 80,
             height: 24,
         }),
-        DaemonLink::Starting(Box::pin(async {
-            Err(anyhow::anyhow!("the daemon did not start"))
-        })),
+        DaemonLink::Starting {
+            started: Box::pin(async { Err(anyhow::anyhow!("the daemon did not start")) }),
+            lines: tokio::sync::mpsc::unbounded_channel().1,
+        },
     )
     .await;
     let error = result.err().map(|error| format!("{error:#}"));

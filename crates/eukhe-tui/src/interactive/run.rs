@@ -182,18 +182,28 @@ async fn run_interactive_surface(
     // pre-mount failure, so the CLI open keeps its no-restore teardown); a
     // daemon still starting connects inside the open task, behind the
     // painted frame. A wait retry reconnects against the successor daemon.
-    let connection: StartupConnection = match link {
-        DaemonLink::Up => Box::pin(std::future::ready(Ok(
-            connect_ui(&options.socket_path).await?
-        ))),
-        DaemonLink::Starting(started) => {
+    // The lines the daemon start tells while it replaces an older daemon:
+    // each shows in the frame as it comes, and all of them again in the
+    // opened session's transcript (the attach rebuilds the view).
+    let (connection, mut start_lines): (StartupConnection, _) = match link {
+        DaemonLink::Up => (
+            Box::pin(std::future::ready(Ok(
+                connect_ui(&options.socket_path).await?
+            ))),
+            None,
+        ),
+        DaemonLink::Starting { started, lines } => {
             let socket_path = options.socket_path.clone();
-            Box::pin(async move {
-                started.await?;
-                connect_ui(&socket_path).await
-            })
+            (
+                Box::pin(async move {
+                    started.await?;
+                    connect_ui(&socket_path).await
+                }),
+                Some(lines),
+            )
         }
     };
+    let mut told_lines: Vec<String> = Vec::new();
     // Background notes (a failed abort request, the parked messages an
     // Escape withdrew) fold into the transcript and the editor through
     // the same loop that renders daemon events.
@@ -468,6 +478,33 @@ async fn run_interactive_surface(
                     ))),
                 };
             }
+            start_line = async {
+                match start_lines.as_mut() {
+                    Some(lines) => lines.recv().await,
+                    None => std::future::pending::<Option<String>>().await,
+                }
+            } => {
+                match start_line {
+                    // The start ended: nothing more comes.
+                    None => start_lines = None,
+                    Some(told) => {
+                        view.push_entry(crate::chat::ChatEntry::Status {
+                            text: told.clone(),
+                            kind: crate::chat::StatusKind::Info,
+                        });
+                        told_lines.push(told);
+                        // A start that waits for an older daemon's work
+                        // may wait long: its line paints now, on a held
+                        // surface too.
+                        if !headless {
+                            renderer.draw(&mut view)?;
+                            last_render_at = Some(Instant::now());
+                            opening_dirty = false;
+                            render_deadline = None;
+                        }
+                    }
+                }
+            }
             maybe_input = async {
                 if ui_input_closed {
                     std::future::pending::<Option<UiInput>>().await
@@ -643,6 +680,20 @@ async fn run_interactive_surface(
     // composition-root snapshot keeps serving the picker.
     session.spawn_model_catalog_refresh();
     session.rebuild_view(&mut view, &crate::session_ui::RebuildKind::Rebind);
+    // The daemon start's lines (an older daemon waited for and replaced),
+    // the ones the open outran included.
+    if let Some(lines) = start_lines.as_mut() {
+        while let Ok(line) = lines.try_recv() {
+            told_lines.push(line);
+        }
+    }
+    for line in told_lines {
+        view.push_entry(crate::chat::ChatEntry::Status {
+            text: line,
+            kind: crate::chat::StatusKind::Info,
+        });
+        session.dirty = true;
+    }
     // The launcher kept a daemon of another build (it had active work, it
     // is newer than this window, or it is another build of this version):
     // say so once.
