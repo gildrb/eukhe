@@ -29,40 +29,48 @@ use serde_json::{json, Value};
 
 use crate::backpressure::RouteAdmission;
 use crate::registry::ResidentWorker;
-use crate::supervisor::{Supervisor, ROUTE_TIMEOUT_MS};
-use eukhe_types::daemon::DaemonWorkerDescriptor;
+use crate::supervisor::Supervisor;
+use crate::timeouts;
+use eukhe_types::daemon::{DaemonWorkerDescriptor, StopOutcome};
 
-/// Retries for a child that could not be closed at death time (a child
-/// worker may still be starting: the supervisor registers a resident
-/// before its worker process connects, so the kill route can arrive
-/// before the socket exists).
+/// Retries for a child the death close left open: one that refused the
+/// close (a child worker may still be starting: the supervisor registers
+/// a resident before its worker process connects, so the kill route can
+/// arrive before the session exists), or whose stop failed to persist.
 const CHILD_CLOSE_RETRY_ATTEMPTS: u32 = 3;
 /// Space between the close retries: long enough for a starting child to
 /// finish connecting, short enough to bound the orphan window.
 const CHILD_CLOSE_RETRY_DELAY_MS: u64 = 5_000;
+
+/// Where one child's parent-death close stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildClose {
+    /// The child closed through its own kill handler, which closed its
+    /// children first.
+    Closed,
+    /// The child was stopped by signal (or its stop is carried to the
+    /// next boot): its own resident children are orphaned in turn.
+    Signaled,
+    /// The child is still resident: a later retry owns it.
+    Open,
+}
 
 impl Supervisor {
     /// Close the resident RLM children of a worker whose process died
     /// without a teardown (the SIGKILL class: none of the #246 worker-side
     /// close paths ran). Runs once per unexpected exit, before the crash
     /// recovery, so a relaunched parent never resumes beside an orphaned
-    /// child worker. Best-effort, like the TS daemon kill handler's
-    /// swallowed close error: a child that cannot be closed yet is handed
-    /// to a bounded retry walk (never a fresh join - the respawned parent
-    /// keeps the dead worker's active session id, so only the residents
-    /// captured here belong to the dead instance), and the close never
-    /// blocks the restart that follows.
+    /// child worker; a hung child holds the restart for one stop grace
+    /// plus its escalation. Best-effort, like the TS daemon kill handler's
+    /// swallowed close error: a child still open is handed to a bounded
+    /// retry walk (never a fresh join - the respawned parent keeps the
+    /// dead worker's active session id, so only the residents captured
+    /// here belong to the dead instance).
     pub(crate) async fn close_children_of_dead_parent(
         self: &Arc<Self>,
         parent: &Arc<ResidentWorker>,
     ) {
-        let parent_id = {
-            let descriptor = parent.descriptor.lock().await;
-            descriptor.root_active_session_id.clone()
-        };
-        let mut children = self.resident_children_of(&parent_id).await;
-        // The dead parent itself never matches.
-        children.retain(|child| child.worker_id != parent.worker_id);
+        let children = self.resident_children_of_worker(parent).await;
         self.close_orphaned_children(
             &format!("session worker {} died", parent.worker_id),
             children,
@@ -83,7 +91,10 @@ impl Supervisor {
     }
 
     /// Close `children`, whose parent is gone (`why` says how, for the
-    /// log); the ones not closable yet go to the bounded retry walk.
+    /// log), all at once, so one hung child holds the close for one stop
+    /// grace at most. A child stopped by signal orphans its own children
+    /// in turn: they close in the next round. The ones still open go to
+    /// the bounded retry walk.
     async fn close_orphaned_children(
         self: &Arc<Self>,
         why: &str,
@@ -96,11 +107,23 @@ impl Supervisor {
             "{why} with {} resident RLM child(ren); closing them with the parent",
             children.len()
         ));
-        let mut unclosed: Vec<Arc<ResidentWorker>> = Vec::new();
-        for child in children {
-            if !self.close_dead_child(&child).await {
-                unclosed.push(child);
+        let mut round = children;
+        let mut unclosed = Vec::new();
+        while !round.is_empty() {
+            let closes =
+                futures::future::join_all(round.iter().map(|child| self.close_dead_child(child)))
+                    .await;
+            let mut orphaned = Vec::new();
+            for (child, close) in round.into_iter().zip(closes) {
+                match close {
+                    ChildClose::Closed => {}
+                    ChildClose::Signaled => {
+                        orphaned.extend(self.resident_children_of_worker(&child).await);
+                    }
+                    ChildClose::Open => unclosed.push(child),
+                }
             }
+            round = orphaned;
         }
         if !unclosed.is_empty() {
             let supervisor = Arc::clone(self);
@@ -110,12 +133,14 @@ impl Supervisor {
         }
     }
 
-    /// Bounded retries for children the death close could not reach: the
+    /// Bounded retries for children the death close left open: the
     /// same per-child close, never a fresh registry join (the respawned
     /// parent shares the dead worker's active session id, so a re-join
-    /// could catch its legitimately spawned children). Gives up loudly
-    /// when a child stays unreachable - its durable parent link keeps it
-    /// joinable for an explicit kill.
+    /// could catch its legitimately spawned children); a child stopped by
+    /// signal adds its own children to the walk. A child whose process is
+    /// gone, or that left the registry, leaves the walk. Gives up loudly
+    /// when a child stays open - its durable parent link keeps it joinable
+    /// for an explicit kill.
     async fn retry_close_children(self: Arc<Self>, children: Vec<Arc<ResidentWorker>>) {
         let mut unclosed = children;
         for _ in 0..CHILD_CLOSE_RETRY_ATTEMPTS {
@@ -125,8 +150,19 @@ impl Supervisor {
             }
             let mut still_open = Vec::new();
             for child in unclosed {
-                if !self.close_dead_child(&child).await {
-                    still_open.push(child);
+                if self.child_is_gone(&child).await {
+                    self.log_line(&format!(
+                        "RLM child worker {} is gone; its parent-death close ends",
+                        child.worker_id
+                    ));
+                    continue;
+                }
+                match self.close_dead_child(&child).await {
+                    ChildClose::Closed => {}
+                    ChildClose::Signaled => {
+                        still_open.extend(self.resident_children_of_worker(&child).await);
+                    }
+                    ChildClose::Open => still_open.push(child),
                 }
             }
             unclosed = still_open;
@@ -142,6 +178,22 @@ impl Supervisor {
         }
     }
 
+    /// Whether a child of the retry walk is gone: another path took it
+    /// out of the registry, or its process exited.
+    async fn child_is_gone(&self, child: &Arc<ResidentWorker>) -> bool {
+        let resident = self
+            .registry
+            .get(&child.worker_id)
+            .await
+            .is_some_and(|current| Arc::ptr_eq(&current, child));
+        let pid = child.descriptor.lock().await.pid;
+        let exited = u32::try_from(pid)
+            .ok()
+            .filter(|pid| *pid != 0)
+            .is_some_and(|pid| matches!(crate::lease::is_process_alive(pid), Ok(false)));
+        !resident || exited
+    }
+
     /// Close one child of a dead parent: the same kill route the #246
     /// `close_children` drives per child (a plain stop - the child
     /// worker's kill handler aborts its in-flight turn and closes its own
@@ -149,8 +201,9 @@ impl Supervisor {
     /// recursion) plus the supervisor-side completion of a kill (the
     /// steps the client kill route runs after the worker answers): drop
     /// the worker from the registry and the live roster, then reseed the
-    /// ledger so the closed child's passive row appears. `false` means the
-    /// child is still resident (a later retry owns it).
+    /// ledger so the closed child's passive row appears. The kill gets the
+    /// stop grace; a child that leaves it unanswered (hung, or never
+    /// connected) is stopped by signal ([`Self::stop_unanswered_child`]).
     ///
     /// The close carries the `shutdown` reason marker: the parent died,
     /// the child did not (TS's in-process child dies with the parent
@@ -158,13 +211,13 @@ impl Supervisor {
     /// keeps its resume entry — no job cancel, no `archived` state — so
     /// its passive row and its scheduled jobs survive the orphaning,
     /// exactly like TS (the wake model owns reviving it later).
-    async fn close_dead_child(self: &Arc<Self>, child: &Arc<ResidentWorker>) -> bool {
+    async fn close_dead_child(self: &Arc<Self>, child: &Arc<ResidentWorker>) -> ChildClose {
         match self
             .route_command_typed(
                 child,
                 "kill",
                 json!({ "rlmCloseReason": "shutdown" }),
-                ROUTE_TIMEOUT_MS,
+                timeouts::derived().stop_grace_ms,
                 RouteAdmission::Control,
             )
             .await
@@ -184,7 +237,7 @@ impl Supervisor {
                         child.worker_id
                     ));
                 }
-                true
+                ChildClose::Closed
             }
             Ok(response) => {
                 self.log_line(&format!(
@@ -194,16 +247,60 @@ impl Supervisor {
                         .error
                         .unwrap_or_else(|| "worker refused the close".to_string())
                 ));
-                false
+                ChildClose::Open
             }
             Err(error) => {
                 self.log_line(&format!(
-                    "parent-death close of RLM child worker {} failed: {error:#}",
+                    "parent-death close of RLM child worker {} failed: {error:#}; stopping its process",
                     child.worker_id
                 ));
-                false
+                self.stop_unanswered_child(child).await
             }
         }
+    }
+
+    /// Stop a child that left its parent-death close unanswered: SIGTERM,
+    /// then the process group's SIGKILL. Its session stays as after a
+    /// crash (no archive, its run declared interrupted). Its own children
+    /// lost their parent with it ([`ChildClose::Signaled`]): its kill
+    /// handler, which closes them on a cooperative stop, never ran.
+    async fn stop_unanswered_child(self: &Arc<Self>, child: &Arc<ResidentWorker>) -> ChildClose {
+        match self.stop_unanswering_worker(child).await {
+            Ok(outcome) => {
+                match outcome {
+                    StopOutcome::Settled | StopOutcome::ForcedEffectsUnknown => {}
+                    StopOutcome::Survived => self.log_line(&format!(
+                        "RLM child worker {} survived its parent-death stop; its tombstoned descriptor carries the stop to the next boot",
+                        child.worker_id
+                    )),
+                }
+                ChildClose::Signaled
+            }
+            Err(error) => {
+                self.log_line(&format!(
+                    "parent-death stop of RLM child worker {} failed: {error:#}",
+                    child.worker_id
+                ));
+                ChildClose::Open
+            }
+        }
+    }
+
+    /// The resident RLM children of `parent`'s worker (never `parent`
+    /// itself).
+    async fn resident_children_of_worker(
+        &self,
+        parent: &Arc<ResidentWorker>,
+    ) -> Vec<Arc<ResidentWorker>> {
+        let parent_id = parent
+            .descriptor
+            .lock()
+            .await
+            .root_active_session_id
+            .clone();
+        let mut children = self.resident_children_of(&parent_id).await;
+        children.retain(|child| child.worker_id != parent.worker_id);
+        children
     }
 
     /// The resident workers whose durable create names `parent_id` as

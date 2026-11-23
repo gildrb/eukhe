@@ -28,6 +28,9 @@
 //! 2. Exactly-once spawns: a parent killed at each point of a spawn's life
 //!    (`EUKHE_TEST_KILL_AT=spawn:<point>`) resumes with at most one child,
 //!    never two.
+//! 3. A hung child (SIGSTOP) leaves the close unanswered for the stop
+//!    grace and is stopped by signal (SIGTERM, then SIGKILL); its session
+//!    stays, and the idle shutdown then commits.
 //!
 //! The kernel Python is this checkout's runtime
 //! (`eukhe-core/tests/support/kernel_runtime.rs`).
@@ -354,18 +357,17 @@ fn create_parent(
     created["data"].clone()
 }
 
-/// The parent worker's process id, read from its durable descriptor (the
+/// A worker's process id, read from its durable descriptor (the
 /// supervisor persists the live pid and its start identity at every
-/// spawn). The identity check guards the kill against a stale pid: the
-/// process we SIGKILL must be the worker that owns `parent_id`.
-fn parent_worker_pid(agent_dir: &Path, socket: &Path, parent_id: &str) -> u32 {
-    let descriptor_path = eukhe_daemon::descriptor::descriptor_dir(agent_dir, socket)
-        .join(format!("{parent_id}.json"));
+/// spawn). The identity check guards the signal against a stale pid: the
+/// process we signal must be the worker that owns `active_session_id`.
+fn worker_pid(agent_dir: &Path, socket: &Path, active_session_id: &str) -> u32 {
+    let descriptor_path = worker_descriptor_path(agent_dir, socket, active_session_id);
     let descriptor: Value = serde_json::from_str(
         &std::fs::read_to_string(&descriptor_path)
-            .unwrap_or_else(|_| panic!("read parent descriptor {}", descriptor_path.display())),
+            .unwrap_or_else(|_| panic!("read worker descriptor {}", descriptor_path.display())),
     )
-    .expect("parent descriptor json");
+    .expect("worker descriptor json");
     let pid = descriptor["pid"].as_u64().expect("descriptor pid") as u32;
     assert_eq!(
         eukhe_types::platform::process::process_start_id(pid).as_deref(),
@@ -374,31 +376,47 @@ fn parent_worker_pid(agent_dir: &Path, socket: &Path, parent_id: &str) -> u32 {
                 .as_str()
                 .expect("descriptor start id")
         ),
-        "pid {pid} is not the worker for session {parent_id}"
+        "pid {pid} is not the worker for session {active_session_id}"
     );
     pid
 }
 
-/// SIGKILL the parent worker (the failure class that bypasses every
-/// worker-side close path).
-fn sigkill(pid: u32) {
+/// The durable descriptor of the worker serving `active_session_id`; a
+/// stop removes it once the process is provably gone.
+fn worker_descriptor_path(agent_dir: &Path, socket: &Path, active_session_id: &str) -> PathBuf {
+    eukhe_daemon::descriptor::descriptor_dir(agent_dir, socket)
+        .join(format!("{active_session_id}.json"))
+}
+
+/// Send `signal` (`KILL`, `STOP`) to the process `pid`.
+fn send_signal(pid: u32, signal: &str) {
     let status = Command::new("kill")
-        .arg("-9")
+        .arg(format!("-{signal}"))
         .arg(pid.to_string())
         .status()
         .expect("run kill");
-    assert!(status.success(), "kill -9 {pid} failed: {status}");
+    assert!(status.success(), "kill -{signal} {pid} failed: {status}");
 }
 
-/// A parent worker killed with SIGKILL cannot run any teardown (#246's
-/// closes all live in the worker), so the supervisor's death monitoring
-/// closes its resident children: the spawned child's worker leaves the
-/// roster, its session archives, the respawned parent relists the child
-/// as a settled row from the surviving spawn edge, and the child stays
-/// visible as a passive ledger row (the close is a plain stop - the
-/// spawn edge survives, no delete record).
-#[test]
-fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
+/// A supervisor whose parent session spawned one RLM child that is still
+/// running its task turn (its scripted response is held). Fields drop in
+/// order: the client and the supervisor before the temp dir.
+struct RunningChild {
+    client: Client,
+    _daemon: Daemon,
+    agent_dir: PathBuf,
+    socket: PathBuf,
+    parent_id: String,
+    parent_session_id: String,
+    child_id: String,
+    child_active_session_id: String,
+    _dir: tempfile::TempDir,
+}
+
+/// Start a supervisor, create the parent, and run its spawn turn; return
+/// once the child is resident in the supervisor and tracked as running by
+/// the parent.
+fn spawn_running_child() -> RunningChild {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
     std::fs::create_dir_all(&agent_dir).expect("agent dir");
@@ -410,7 +428,7 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
 
     let child_script = write_child_script(dir.path());
     let parent_script = write_parent_script(dir.path(), &spawn_cell(&spawn_receipt, &spawn_error));
-    let _daemon = spawn_supervisor(&socket, &agent_dir);
+    let daemon = spawn_supervisor(&socket, &agent_dir);
     let (mut client, hello) = Client::connect(&socket);
     assert_eq!(hello["type"], "daemon_hello");
     let parent = create_parent(&mut client, dir.path(), &parent_script, &child_script, "c1");
@@ -419,7 +437,10 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
         .or_else(|| parent["id"].as_str())
         .expect("parent active session id")
         .to_string();
-    let parent_session_id = parent["sessionId"].as_str().expect("parent session id");
+    let parent_session_id = parent["sessionId"]
+        .as_str()
+        .expect("parent session id")
+        .to_string();
 
     // Turn 1: the kernel cell spawns the child through the parent's own
     // registry (the `rlm.spawn` host surface).
@@ -457,10 +478,61 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
         .as_str()
         .expect("child active session id")
         .to_string();
+    RunningChild {
+        client,
+        _daemon: daemon,
+        agent_dir,
+        socket,
+        parent_id,
+        parent_session_id,
+        child_id,
+        child_active_session_id,
+        _dir: dir,
+    }
+}
+
+/// The child's durable session text (its storage directory
+/// `<child-dir>/<session-id>/`).
+fn child_session_text(agent_dir: &Path, parent_session_id: &str, child_id: &str) -> String {
+    let child_dir = agent_dir
+        .join("session-artifacts")
+        .join(parent_session_id)
+        .join(child_id);
+    let storage = std::fs::read_dir(&child_dir)
+        .expect("child session dir")
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.join("main.jsonl").is_file())
+        .expect("one child session storage");
+    storage_text(&storage)
+}
+
+/// A parent worker killed with SIGKILL cannot run any teardown (#246's
+/// closes all live in the worker), so the supervisor's death monitoring
+/// closes its resident children: the spawned child's worker leaves the
+/// roster, its session archives, the respawned parent relists the child
+/// as a settled row from the surviving spawn edge, and the child stays
+/// visible as a passive ledger row (the close is a plain stop - the
+/// spawn edge survives, no delete record).
+#[test]
+fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
+    // Bindings drop in reverse: the client and the supervisor before the
+    // temp dir.
+    let RunningChild {
+        _dir,
+        agent_dir,
+        socket,
+        parent_id,
+        parent_session_id,
+        child_id,
+        child_active_session_id,
+        _daemon,
+        mut client,
+    } = spawn_running_child();
 
     // The hard kill: SIGKILL bypasses every worker-side close path.
-    let pid = parent_worker_pid(&agent_dir, &socket, &parent_id);
-    sigkill(pid);
+    let pid = worker_pid(&agent_dir, &socket, &parent_id);
+    send_signal(pid, "KILL");
 
     // The supervisor's death monitoring closes the child: its worker
     // leaves the resident roster.
@@ -478,21 +550,8 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
     // the child's session keeps its live state and its scheduled jobs, so
     // the wake model can still own reviving it later — it is NOT archived
     // like a killed close (the stop lifecycle lane). The durable child
-    // session is its storage directory (`<child-dir>/<session-id>/`), whose
-    // session document carries `archived` only after a killed close.
-    let child_storage = {
-        let child_dir = agent_dir
-            .join("session-artifacts")
-            .join(parent_session_id)
-            .join(&child_id);
-        std::fs::read_dir(&child_dir)
-            .expect("child session dir")
-            .filter_map(std::result::Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| path.join("main.jsonl").is_file())
-            .expect("one child session storage")
-    };
-    let child_session = storage_text(&child_storage);
+    // session's document carries `archived` only after a killed close.
+    let child_session = child_session_text(&agent_dir, &parent_session_id, &child_id);
     assert!(
         !child_session.contains("\"archived\""),
         "the parent-death close keeps the child's resume entry (no archive): {child_session}"
@@ -536,6 +595,78 @@ fn sigkill_closes_the_spawned_child_and_passivates_the_row() {
     assert!(
         !ledger.contains("\"op\":\"delete\""),
         "a parent-death close is a stop, never a ledger delete: {ledger}"
+    );
+}
+
+/// A child worker that hangs (SIGSTOP) is still stopped when its parent
+/// dies: it leaves the parent-death close unanswered for the stop grace,
+/// so the supervisor stops its process (SIGTERM, then the group's
+/// SIGKILL) well before the responsiveness probe would, keeps its session
+/// (no archive), relaunches the parent, and the idle shutdown then
+/// commits.
+#[test]
+fn a_hung_child_of_a_dead_parent_is_stopped_within_the_grace() {
+    let RunningChild {
+        _dir,
+        agent_dir,
+        socket,
+        parent_id,
+        parent_session_id,
+        child_id,
+        child_active_session_id,
+        _daemon,
+        mut client,
+    } = spawn_running_child();
+    let child_pid = worker_pid(&agent_dir, &socket, &child_active_session_id);
+    let child_descriptor = worker_descriptor_path(&agent_dir, &socket, &child_active_session_id);
+    let parent_pid = worker_pid(&agent_dir, &socket, &parent_id);
+
+    // The child hangs, then its parent dies.
+    send_signal(child_pid, "STOP");
+    send_signal(parent_pid, "KILL");
+    let killed = Instant::now();
+
+    // The stop removes the child's descriptor once its process is
+    // provably gone: within the close's stop grace plus the escalation
+    // (SIGTERM, its grace, SIGKILL), far inside the responsiveness probe's
+    // window.
+    let grace = Duration::from_millis(eukhe_daemon::timeouts::derived().stop_grace_ms);
+    let escalation = Duration::from_millis(eukhe_daemon::timeouts::WORKER_TERM_GRACE_MS)
+        + Duration::from_secs(10);
+    wait_until(&mut client, grace + escalation, |_| {
+        (!child_descriptor.exists()).then_some(())
+    });
+    assert!(
+        killed.elapsed() >= grace,
+        "the hung child got its stop grace: stopped after {:?}",
+        killed.elapsed()
+    );
+
+    // Its session stays as after a crash: not archived.
+    let child_session = child_session_text(&agent_dir, &parent_session_id, &child_id);
+    assert!(
+        !child_session.contains("\"archived\""),
+        "the stop of a hung orphan keeps its session (no archive): {child_session}"
+    );
+
+    // The parent relaunches after the close and settles the child's row;
+    // with no work left anywhere, the idle shutdown commits.
+    wait_until(&mut client, Duration::from_mins(1), |client| {
+        rlm_children_rows(client, "g2", &parent_id)
+            .into_iter()
+            .find(|row| row["id"] == json!(child_id) && row["status"] == "error")
+    });
+    client.send_command(
+        "idle",
+        &json!({ "type": "wait_for_idle", "activeSessionId": parent_id }),
+    );
+    let idle = client.read_response("idle");
+    assert_eq!(idle["success"], true, "wait_for_idle failed: {idle}");
+    client.send_command("stop", &json!({ "type": "shutdown", "ifIdle": true }));
+    let stopped = client.read_response("stop");
+    assert_eq!(
+        stopped["success"], true,
+        "the idle shutdown refused: {stopped}"
     );
 }
 
@@ -830,7 +961,7 @@ fn spawn_killed_at(point: &str) -> usize {
         .as_str()
         .expect("parent session id")
         .to_string();
-    let first_pid = parent_worker_pid(&agent_dir, &socket, &parent_id);
+    let first_pid = worker_pid(&agent_dir, &socket, &parent_id);
     client.send_command(
         "p1",
         &json!({ "type": "prompt", "activeSessionId": parent_id, "message": "spawn the kid" }),
@@ -842,8 +973,7 @@ fn spawn_killed_at(point: &str) -> usize {
     }
     // The relaunched parent serves the session again and its turn ends.
     wait_until(&mut client, Duration::from_mins(2), |_| {
-        let pid =
-            std::panic::catch_unwind(|| parent_worker_pid(&agent_dir, &socket, &parent_id)).ok()?;
+        let pid = std::panic::catch_unwind(|| worker_pid(&agent_dir, &socket, &parent_id)).ok()?;
         (pid != first_pid).then_some(())
     });
     let mut attempt = 0;
