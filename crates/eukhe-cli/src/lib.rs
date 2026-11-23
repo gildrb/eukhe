@@ -53,6 +53,7 @@ pub(crate) mod interactive_mode;
 pub(crate) mod json_out;
 pub(crate) mod kernel_command;
 pub(crate) mod list_models;
+pub(crate) mod login_command;
 pub(crate) mod mcp_command;
 pub(crate) mod mcp_login;
 pub(crate) mod mode;

@@ -90,10 +90,11 @@ impl ScriptedPane {
             }
         });
         ScriptedPane {
-            surface: LoginSurface {
-                panel: AuthPanelHandle::new(tx),
-                open_browser: count_browser_open,
-            },
+            surface: LoginSurface::with(
+                AuthPanelHandle::new(tx),
+                count_browser_open,
+                LoginMethod::Default,
+            ),
             seen,
             driver,
         }
@@ -517,6 +518,61 @@ async fn a_failed_flow_reports_the_ts_error_row() {
         )
     );
     assert!(!agent.join("auth.json").exists());
+}
+
+/// A flow's login method select: the device-code choice takes the flow's
+/// `device_code` option, and a flow without one fails naming it.
+#[tokio::test]
+async fn the_device_code_method_takes_the_flows_device_option() {
+    fn method_flow(options: &'static [&'static str]) -> ScriptedFlow {
+        ScriptedFlow::new(Arc::new(move |interaction, _| {
+            Box::pin(async move {
+                let method = interaction
+                    .prompt(AuthPrompt::new(AuthPromptKind::Select {
+                        message: "Select login method:".to_string(),
+                        options: options
+                            .iter()
+                            .map(|id| AuthSelectOption::new(id, id))
+                            .collect(),
+                    }))
+                    .await?;
+                assert_eq!(method, "device_code");
+                Ok(codex_credential())
+            })
+        }))
+    }
+    let dir = tempfile::tempdir().expect("temp dir");
+    let agent = agent_dir(&dir);
+    let mut pane = ScriptedPane::start(Vec::new());
+    pane.surface.method = LoginMethod::DeviceCode;
+    let codex = method_flow(&["browser", "device_code"]);
+    let outcome = run_subscription_login(
+        &agent,
+        OPENAI_CODEX_PROVIDER_ID,
+        "Codex",
+        &codex,
+        &pane.surface,
+    )
+    .await;
+    assert!(
+        matches!(&outcome, ProviderAuthOutcome::Status(status) if status.starts_with("Logged in to Codex as [acct-1]")),
+        "{outcome:?}"
+    );
+    let anthropic = method_flow(&["browser", "copy_code"]);
+    assert_eq!(
+        run_subscription_login(
+            &agent,
+            ANTHROPIC_PROVIDER_ID,
+            "Anthropic",
+            &anthropic,
+            &pane.surface
+        )
+        .await,
+        ProviderAuthOutcome::Error(
+            "Failed to login to Anthropic: Select login method: offers no device-code login"
+                .to_string()
+        )
+    );
 }
 
 /// The credential round-trip: the stored credential reloads, resolves

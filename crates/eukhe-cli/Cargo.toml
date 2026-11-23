@@ -37,6 +37,9 @@ thiserror = { workspace = true }
 # The subscription logins' paste validation (the authorization URL's state,
 # the code query the flow receives).
 url = "2"
+# `eukhe login --key`: the hidden API-key prompt on a terminal (raw mode,
+# key events); the TUI already builds it.
+crossterm = "0.28"
 # `eukhe update`: the release download (the client and TLS stack the
 # workspace already builds), its sha256 check, and unpacking its `.tar.xz`
 # (liblzma built from its bundled source: no system library at run time).
@@ -65,7 +68,6 @@ eukhe-docs = { path = "../eukhe-docs" }
 # numbers); the syscalls go through nix/rustix.
 libc = "0.2"
 futures = { workspace = true }
-crossterm = "0.28"
 # `user`: the unit tests' never-touch guard reads the account's own home
 # (passwd), whatever HOME a test sets. `poll`: the irreversible pty e2e
 # waits until the pty is readable.
