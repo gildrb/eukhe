@@ -23,8 +23,9 @@ check:
 # reach (.github/scripts/bend_proofs.py), the embedded JavaScript, the dashboard UI
 # (when they touch crates/eukhe-dashboard/ui/), the laws against
 # LAWS.lock. ci-local is
-# the full gate (< 30 min): every test (nextest profile nightly) and `bend
-# PROOF.bend --verdict`; the nightly run (.github/scripts/ci_nightly.py, a systemd
+# the full gate (< 30 min): every test (nextest profile nightly), `bend
+# PROOF.bend --verdict` and the TypeScript SDK (sdk-ts); the nightly run
+# (.github/scripts/ci_nightly.py, a systemd
 # user timer) runs it on origin/main and starts the release only when it
 # passes. lock re-locks the laws in seconds: the proofs the change since
 # origin/main can reach, then LAWS.lock. Tools: mise.toml.
@@ -280,6 +281,20 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
+# The TypeScript SDK (sdk/typescript, the npm package `eukhe`): install the
+# locked packages, check (build, types, lint), then every test, the e2e
+# included: this checkout's eukhe (a debug build) on the faux provider, its
+# kernel the venv of the real-kernel tests (kernel and dev groups of
+# rlm/uv.lock, the Python skills editable) in target/sdk-ts-venv.
+SDK_TS_VENV = $(CURDIR)/target/sdk-ts-venv
+
+sdk-ts:
+	cargo build --locked -p eukhe-cli --bin eukhe
+	UV_PROJECT_ENVIRONMENT=$(SDK_TS_VENV) uv sync --no-config --locked --group kernel --group dev --python 3.14 --project rlm
+	uv pip install --no-config --python $(SDK_TS_VENV)/bin/python --no-deps --no-index --no-build-isolation $(addprefix --editable ,$(patsubst %/pyproject.toml,%,$(wildcard skills/*/pyproject.toml)))
+	cd sdk/typescript && npm ci --no-audit --no-fund && npm run check && \
+		EUKHE_E2E_BIN=$(CURDIR)/target/debug/eukhe EUKHE_KERNEL_PYTHON=$(SDK_TS_VENV)/bin/python npm test
+
 # The website (site/, eukhe.com; site/AGENTS.md): apart from eukhe but for
 # reading the repository's files (README.md and what it links to) when it
 # builds. Its own toolchain (Vite+ `vp`, site/package-lock.json), laws
@@ -294,4 +309,4 @@ site-check:
 site-deploy:
 	cd site && vp install --frozen-lockfile && vp run deploy
 
-.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check nix-vendor laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui site-check site-deploy
+.PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check nix-vendor laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui sdk-ts site-check site-deploy
