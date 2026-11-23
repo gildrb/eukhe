@@ -1,16 +1,27 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { Eukhe, NotInstalled, NotLoggedIn, Unsupported, UnknownModel, type EukheEvent } from "../src/index.ts";
+import {
+  Eukhe,
+  EukheError,
+  MINIMUM_EUKHE_VERSION,
+  NotInstalled,
+  NotLoggedIn,
+  TooOld,
+  Unsupported,
+  UnknownModel,
+  type EukheEvent,
+} from "../src/index.ts";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-agent.ts", import.meta.url));
 
-async function stub(mode: "plain" | "eukhe" | "logged-out"): Promise<Eukhe> {
-  return Eukhe.start({ cwd: await mkdtemp(join(tmpdir(), "eukhe-sdk-")), bin: STUB, env: { STUB_MODE: mode } });
+async function stub(mode: "plain" | "eukhe" | "logged-out", version: string = MINIMUM_EUKHE_VERSION): Promise<Eukhe> {
+  const cwd = await mkdtemp(join(tmpdir(), "eukhe-sdk-"));
+  return Eukhe.start({ cwd, bin: STUB, env: { STUB_MODE: mode, STUB_VERSION: version } });
 }
 
 async function collect(events: AsyncIterable<EukheEvent>): Promise<EukheEvent[]> {
@@ -28,6 +39,55 @@ test("a missing binary is NotInstalled, naming the install command", async () =>
     assert.equal(error.installCommand, "npx eukhe install");
     return true;
   });
+});
+
+test("a release older than the minimum is TooOld and never receives acp", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "eukhe-old-"));
+  const old = join(dir, "eukhe");
+  const ran = join(dir, "ran");
+  await writeFile(old, `#!/bin/sh\nif [ "$1" = --version ]; then echo 0.10.80; exit 0; fi\necho "$@" > '${ran}'\n`);
+  await chmod(old, 0o755);
+  await assert.rejects(Eukhe.start({ cwd: dir, bin: old }), (error: unknown) => {
+    assert.ok(error instanceof TooOld);
+    assert.equal(error.found, "0.10.80");
+    assert.equal(error.minimum, MINIMUM_EUKHE_VERSION);
+    assert.equal(error.updateCommand, "eukhe update");
+    return true;
+  });
+  await assert.rejects(access(ran), { code: "ENOENT" });
+});
+
+test("a newer release and a source build (X.Y.Z-dev) start", async () => {
+  for (const version of ["0.11.0", "1.0.0", "0.10.0-dev"]) {
+    const eukhe = await stub("plain", version);
+    await eukhe.close();
+  }
+});
+
+test("instanceof EukheError narrows to the failure union", async () => {
+  try {
+    await stub("plain", "0.9.99");
+    assert.fail("started an old release");
+  } catch (error) {
+    if (!(error instanceof EukheError)) throw error;
+    switch (error.$) {
+      case "TooOld":
+        assert.equal(error.found, "0.9.99");
+        break;
+      case "NotInstalled":
+      case "NotLoggedIn":
+      case "Unsupported":
+      case "UnknownModel":
+      case "TurnInProgress":
+      case "AgentFailed":
+      case "AgentExited":
+        assert.fail(error.message);
+      default: {
+        const _: never = error;
+        return _;
+      }
+    }
+  }
 });
 
 test("an empty PATH and install dir is NotInstalled", async () => {

@@ -5,7 +5,9 @@ description: Adds the Eukhe coding agent to a project - the npm package `eukhe` 
 
 # Embed Eukhe
 
-Eukhe runs inside another program as `eukhe acp`: an Agent Client Protocol (ACP) agent, JSON-RPC 2.0 lines on stdin and stdout, its sessions in the local Eukhe daemon. Each turn ends with a run report: the answer, the checks and the irreversible effects that ran.
+The npm package `eukhe` is a library that embeds the Eukhe coding agent in your application; the `eukhe` command-line agent itself is installed with `npx eukhe install`.
+
+Eukhe runs inside another program as `eukhe acp`: an Agent Client Protocol (ACP) agent, JSON-RPC 2.0 lines on stdin and stdout, its sessions in the local Eukhe daemon. Each turn ends with a run report: the answer, the checks and the irreversible effects that ran. `eukhe acp` needs Eukhe 0.10.81 or newer; update an older one with `eukhe update` (an older Eukhe takes `acp` as a chat prompt and spends a model request).
 
 ## 1. Pick the route
 
@@ -20,11 +22,11 @@ Platforms: macOS (Apple Silicon), Linux (x64, arm64). On Windows, stop and repor
 ## 2. Node.js and TypeScript
 
 1. Add the package with the project's package manager (the lockfile decides): `npm install eukhe`, `pnpm add eukhe` or `yarn add eukhe`.
-2. Binary: when `eukhe --version` runs, keep that one. Else `npx eukhe install` (checks SHA256SUMS, installs `~/.local/bin/eukhe`, no root).
+2. Binary: when `eukhe --version` prints 0.10.81 or newer, keep that one; an older one: `eukhe update`. Else `npx eukhe install` (checks SHA256SUMS, installs `~/.local/bin/eukhe`, no root).
 3. Code: start one `Eukhe` per process at startup, one session per conversation, close both on shutdown.
 
 ```ts
-import { Eukhe, NotLoggedIn } from "eukhe";
+import { Eukhe, EukheError } from "eukhe";
 
 const eukhe = await Eukhe.start({ cwd: projectDir }); // the directory the agent works in
 try {
@@ -38,15 +40,19 @@ try {
     }
   }
 } catch (error) {
-  if (error instanceof NotLoggedIn) console.error(`run once: ${error.login.command}`);
-  else throw error;
+  if (!(error instanceof EukheError)) throw error; // narrows to the failures: switch on error.$
+  switch (error.$) {
+    case "NotLoggedIn": console.error(`run once: ${error.login.command}`); break;
+    case "TooOld": console.error(`eukhe ${error.found} < ${error.minimum}: run ${error.updateCommand}`); break;
+    default: console.error(`${error.$}: ${error.message}`);
+  }
 } finally {
   await eukhe.close();
 }
 ```
 
 - Events (`event.$`): `Text`, `Thinking`, `ToolCallStart`, `ToolCallUpdate`, `ToolCallEnd`, `Plan`, `RunReport`, then always `TurnEnd` last.
-- `Eukhe.start` throws `NotInstalled` (with `installCommand`) when no binary is found; `eukhe.session()` throws `NotLoggedIn` without a login.
+- `Eukhe.start` throws `NotInstalled` (with `installCommand`) when no binary is found and `TooOld` (with `updateCommand`, `eukhe update`) for a release older than 0.10.81, before starting it; `eukhe.session()` throws `NotLoggedIn` without a login.
 - Leaving the `for await` loop cancels the turn; `session.cancel()` does too.
 - HTTP server streaming turns: copy the shape of https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/ts/examples/sse-server.ts (Server-Sent Events, one session per request, cancel on disconnect).
 - Session calls: `session.budget`, `session.acceptance`, `session.undo()`, `session.diff()`, `session.effects()`. Read `node_modules/eukhe/README.md` before using them.
@@ -54,7 +60,7 @@ try {
 
 ## 3. Any other language: ACP over stdio
 
-1. Install: `curl -fsSL https://eukhe.com/install | sh` (or `nix run github:gildrb/eukhe`).
+1. Install: `curl -fsSL https://eukhe.com/install | sh` (or `nix run github:gildrb/eukhe`). An installed Eukhe older than 0.10.81 (`eukhe --version`) lacks `eukhe acp`: run `eukhe update` first.
 2. Use the language's ACP client library when the project already has one or one exists for the language (agentclientprotocol.com); else plain JSON lines as below.
 3. Spawn `eukhe acp` with the project directory as cwd. Messages are one JSON object per line.
 

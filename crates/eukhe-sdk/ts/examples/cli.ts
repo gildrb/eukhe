@@ -52,6 +52,18 @@ try {
   }
 } catch (error) {
   if (!(error instanceof EukheError)) throw error;
-  console.error(error.message);
+  switch (error.$) {
+    case "NotInstalled":
+      console.error(`eukhe is not installed; run: ${error.installCommand}`);
+      break;
+    case "TooOld":
+      console.error(`eukhe ${error.found} is older than ${error.minimum}; run: ${error.updateCommand}`);
+      break;
+    case "NotLoggedIn":
+      console.error(`eukhe has no model provider login; run: ${error.login.command}`);
+      break;
+    default:
+      console.error(error.message);
+  }
   process.exitCode = 1;
 }

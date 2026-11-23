@@ -4,9 +4,16 @@ export type Feature = "run_report" | "budget" | "acceptance" | "undo" | "diff" |
 /** The command that installs the eukhe release (no root). */
 export const INSTALL_COMMAND = "npx eukhe install";
 
-/** Every error the SDK throws; switch on `$`. */
+/** The oldest eukhe release the SDK starts: the first that serves `eukhe acp`. */
+export const MINIMUM_EUKHE_VERSION = "0.10.81";
+
+/** The command that updates an installed eukhe to the newest release. */
+export const UPDATE_COMMAND = "eukhe update";
+
+/** Every error the SDK throws; `error instanceof EukheError` narrows to it, then switch on `$`. */
 export type EukheFailure =
   | NotInstalled
+  | TooOld
   | NotLoggedIn
   | Unsupported
   | UnknownModel
@@ -14,9 +21,21 @@ export type EukheFailure =
   | AgentFailed
   | AgentExited;
 
-/** Base class of {@link EukheFailure}: `err instanceof EukheError`, then `err.$`. */
+/** Base class of {@link EukheFailure}. */
 export abstract class EukheError extends Error {
   abstract readonly $: EukheFailure["$"];
+
+  /**
+   * `error instanceof EukheError` narrows to the {@link EukheFailure} union, so
+   * `switch (error.$)` reaches each failure's fields; `error instanceof TooOld`
+   * narrows to that one class.
+   */
+  static override [Symbol.hasInstance]<T>(
+    this: abstract new (...args: never) => T,
+    value: unknown,
+  ): value is EukheError extends T ? EukheFailure : T {
+    return Function.prototype[Symbol.hasInstance].call(this, value);
+  }
 }
 
 /** No eukhe binary at the given path, EUKHE_BIN, PATH or ~/.local/bin. */
@@ -27,6 +46,19 @@ export class NotInstalled extends EukheError {
   constructor(searched: readonly string[]) {
     super(`eukhe is not installed (looked at ${searched.join(", ")}); install it with: ${INSTALL_COMMAND}`);
     this.searched = searched;
+  }
+}
+
+/** The eukhe binary is a release older than {@link MINIMUM_EUKHE_VERSION}; the SDK did not start `eukhe acp` on it. */
+export class TooOld extends EukheError {
+  readonly $ = "TooOld";
+  /** The version the binary reported. */
+  readonly found: string;
+  readonly minimum: string = MINIMUM_EUKHE_VERSION;
+  readonly updateCommand: string = UPDATE_COMMAND;
+  constructor(found: string) {
+    super(`eukhe ${found} is older than ${MINIMUM_EUKHE_VERSION}, the first release the SDK runs; update it with: ${UPDATE_COMMAND}`);
+    this.found = found;
   }
 }
 

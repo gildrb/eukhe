@@ -2,6 +2,7 @@ import { AgentProcess } from "./agent.ts";
 import { findEukhe, type Env } from "./discover.ts";
 import type { Extensions } from "./extensions.ts";
 import { Session, type SessionOptions } from "./session.ts";
+import { requireMinimumVersion } from "./version.ts";
 
 /** Options of {@link Eukhe.start}. */
 export type StartOptions = {
@@ -37,11 +38,13 @@ export class Eukhe {
 
   /**
    * Find the eukhe binary and start its ACP agent (`eukhe acp`).
-   * Throws `NotInstalled` when no binary is found.
+   * Throws `NotInstalled` when no binary is found, `TooOld` for a release
+   * older than `MINIMUM_EUKHE_VERSION` (checked with `<bin> --version` before `acp` runs).
    */
   static async start(options: StartOptions): Promise<Eukhe> {
     const env = { ...options.env };
     const bin = await findEukhe(options.bin, { ...process.env, ...env });
+    await requireMinimumVersion(bin, options.cwd, env);
     const first = await AgentProcess.launch(bin, options.cwd, env);
     return new Eukhe({ ...options, bin, env }, first);
   }
