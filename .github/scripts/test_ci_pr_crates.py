@@ -67,15 +67,6 @@ class TheMappingTestCase(unittest.TestCase):
         self.assertEqual(outputs["scope"], "all")
         self.assertIn("non-crate path .github/workflows/eukhe-release.yml", out)
 
-    def test_the_runtime_and_skills_under_crates_select_everything(self):
-        rc, out, outputs = run_mapper([
-            "crates/eukhe-core/src/lib.rs",
-            "crates/rlm/src/rlm/repl.py",
-        ])
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(outputs["crates"], "")
-        self.assertIn("non-crate path crates/rlm/src/rlm/repl.py", out)
-
     def test_a_renames_removed_side_counts_too(self):
         # A rename from a non-crate path INTO a crate: the change removed the
         # old path, so the full selection runs.

@@ -83,7 +83,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // checkout so the skill resolves wherever the binary was built.
             .env(
                 "EUKHE_PACKAGE_DIR",
-                Path::new(env!("CARGO_MANIFEST_DIR")).join(".."),
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
             // A supervisor killed at teardown must not leak its session workers
             // into later test binaries: the worker's supervisor-lost exit (TS

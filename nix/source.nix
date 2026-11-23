@@ -51,8 +51,8 @@ rustPlatform.buildRustPackage {
     payload="$out/libexec/eukhe"
     mkdir -p "$payload/rlm"
     mv "$out/bin/eukhe" "$payload/"
-    cp -R crates/rlm/pyproject.toml crates/rlm/requirements-kernel.txt crates/rlm/src "$payload/rlm/"
-    cp -R crates/skills "$payload/skills"
+    cp -R rlm/pyproject.toml rlm/requirements-kernel.txt rlm/src "$payload/rlm/"
+    cp -R skills "$payload/skills"
     cp LICENSE THIRD-PARTY-NOTICES "$payload/"
     python3 .github/scripts/release/bundle_catalog.py generate --out "$payload"
     ${import ./kernel-bytecode.nix { inherit lib python314; } "$payload"}

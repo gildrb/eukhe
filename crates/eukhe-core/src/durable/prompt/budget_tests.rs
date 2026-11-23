@@ -131,11 +131,10 @@ impl Drop for EnvVar {
 /// request of a default root session, and their breakdown.
 async fn default_root_request(kernel: Kernel) -> (usize, String) {
     let _env_lock = crate::kernel::bootstrap::KERNEL_ENV_LOCK.lock().await;
-    // eukhe's bundled skills and kernel runtime, from this checkout's
-    // `crates/` (`skills/` and `rlm/`, as in the release): the test binary
-    // finds them beside itself only when it is built in the checkout's
-    // `target`, and `CARGO_TARGET_DIR` may build it elsewhere.
-    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    // eukhe's bundled skills and kernel runtime, from this checkout: the
+    // test binary finds them beside itself only when it is built in the
+    // checkout's `target`, and `CARGO_TARGET_DIR` may build it elsewhere.
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let _package_dir = EnvVar::set("EUKHE_PACKAGE_DIR", Some(checkout.as_os_str()));
     let dir = tempfile::tempdir().expect("tempdir");
     let agent_dir = dir.path().join("agent");

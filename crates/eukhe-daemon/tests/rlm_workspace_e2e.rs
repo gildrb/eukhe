@@ -44,7 +44,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // dir.
             .env(
                 "EUKHE_PACKAGE_DIR",
-                Path::new(env!("CARGO_MANIFEST_DIR")).join(".."),
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
             )
             .stderr(Stdio::from(log)),
         socket,

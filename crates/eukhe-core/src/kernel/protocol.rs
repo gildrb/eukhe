@@ -2,7 +2,7 @@
 //!
 //! Requests are newline-delimited JSON objects written to the kernel's stdin;
 //! events arrive as newline-delimited JSON objects on the runtime's private
-//! protocol dup of fd 1. See `crates/rlm/src/rlm/repl.md`.
+//! protocol dup of fd 1. See `rlm/src/rlm/repl.md`.
 
 use serde_json::{json, Value};
 

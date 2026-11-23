@@ -38,13 +38,12 @@ use eukhe_core::prompts::system_prompt::{
 use eukhe_core::skills::load_skills_from_dir;
 
 /// The workspace bundled skills directory (source-checkout layout):
-/// eukhe-core lives at `<root>/crates/eukhe-core`, the skills at
-/// `<root>/crates/skills`.
+/// eukhe-core lives at `<root>/crates/eukhe-core`.
 fn bundled_skills_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
-        .nth(1)
-        .expect("crates/")
+        .nth(2)
+        .expect("workspace root")
         .join("skills")
 }
 
