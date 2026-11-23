@@ -324,7 +324,7 @@ function Page({
   );
 }
 
-/** llms.txt: what Eukhe is, the wish, its laws, SDK and components, how to install it, then the whole page. */
+/** llms.txt: what Eukhe is, the wish, its laws, embedding and components, how to install it, then the whole page. */
 const llms = `# Eukhe
 
 > ${definition}
@@ -362,14 +362,21 @@ law is a theorem that the core, the part of Eukhe written in
 them. The proofs cover the Bend core and say nothing about what the
 model writes.
 
-## SDK
+## Embed
 
-[\`eukhe-sdk\`](${origin}/crates/eukhe-sdk/) is a Rust crate that runs
-sessions inside your process.
-[\`eukhe-client\`](${origin}/crates/eukhe-client/) is a Rust crate that
-connects to the Eukhe daemon over its socket. A program in any language
-starts \`eukhe --mode <json|rpc|acp>\` and talks to it over stdio. The
-crates are not on crates.io. Their API may change with any release.
+The npm package \`eukhe\` runs Eukhe from TypeScript:
+\`npm install eukhe && npx eukhe install\`, then \`Eukhe.start({ cwd })\`,
+\`eukhe.session()\` and \`session.prompt(text)\`, which streams typed events
+and ends with the run report
+([sdk/typescript/README.md](${origin}/sdk/typescript/README.md)). Any other
+language starts \`eukhe acp\`, an Agent Client Protocol agent on stdio; the
+budget, checks, undo, diff and irreversible effects are \`_eukhe/\` methods
+([docs/embed/acp.md](${origin}/docs/embed/acp.md), JSON Schema
+[docs/embed/eukhe-acp.schema.json](${origin}/docs/embed/eukhe-acp.schema.json)).
+A machine needs one model provider login: \`eukhe login <provider>\`.
+[docs/embed/README.md](${origin}/docs/embed/README.md) holds the T3 Code
+settings and an agent skill for adding Eukhe to a project
+(\`npx skills add https://github.com/gildrb/eukhe/tree/main/docs/embed/skills/embed-eukhe\`).
 
 ## Components
 

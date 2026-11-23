@@ -17,6 +17,9 @@ cd project
 # start; /login at the first start
 eukhe
 
+# log in without the terminal UI; `eukhe login` lists the providers
+eukhe login anthropic
+
 # script; exit 0 only when all checks pass
 eukhe -p --accept-cmd 'npm test' "fix the failing tests"
 ```
@@ -64,6 +67,28 @@ Each child works on its own files in its own copy. A parent can set the checks o
 Each step runs without a question in the terminal, the browser, the phone and a script. After the agent acts, a separate model request reads its final answer; when that request finds work of the task left in the answer, or a question whether to go on, the run continues with that work, also after the checks pass. At the end, one report gives the agent's final answer and the result of each check, and one message lists each irreversible effect that ran, such as a push.
 
 `/undo` puts the files back to their state at the start of the last prompt and names the irreversible effects that it cannot undo; each further `/undo` goes back one more prompt. `/diff` shows what changed since the last prompt started.
+
+## Embed
+
+The npm package `eukhe` runs Eukhe from TypeScript and streams each turn as typed events, ending with the report of the checks and the irreversible effects that ran.
+
+```sh
+npm install eukhe && npx eukhe install
+```
+
+```ts
+import { Eukhe } from "eukhe";
+
+const eukhe = await Eukhe.start({ cwd: "/path/to/project" });
+const session = await eukhe.session();
+for await (const event of session.prompt("fix the failing tests")) {
+  if (event.$ === "Text") process.stdout.write(event.text);
+  if (event.$ === "RunReport") console.log(event.report.label, event.report.ran);
+}
+await eukhe.close();
+```
+
+Other languages start `eukhe acp` and speak the [Agent Client Protocol](https://agentclientprotocol.com) over stdio; the budget, checks, `/undo`, `/diff` and irreversible effects are `_eukhe/` methods: [docs/embed/acp.md](docs/embed/acp.md). T3 Code settings and the agent skill: [docs/embed](docs/embed/README.md).
 
 ## Limitations
 
