@@ -24,16 +24,16 @@ and releases only when it passes.
   ci_local.py full      `make ci-local`, the nightly gate (< 30 min):
                         everything, on the current tree: every test (nextest
                         profile nightly, and the doctests), `bend PROOF.bend
-                        --verdict`.
+                        --verdict`, the TypeScript SDK (`make sdk-ts`).
   ci_local.py lock      `make lock`: re-lock the laws in seconds. The proofs
                         the change since origin/main can reach, then
                         LAWS.lock written.
 
 Each gate prints its name; a failed gate prints `ci-<mode>: gate <name>
 FAILED` and the script stops with its exit code. The full gate runs the Rust
-lane (clippy, tests) and the other lane (secrets, deny, laws, the embedded
-JavaScript, runtime tests, dashboard UI) at the same time; the second lane's
-log prints when it ends.
+lane (clippy, tests, the TypeScript SDK) and the other lane (secrets, deny,
+laws, the embedded JavaScript, runtime tests, dashboard UI) at the same time;
+the second lane's log prints when it ends.
 
 A failed test runs once more (.config/nextest.toml, retries = 1): a pass then
 is flaky, named as `  flaky: <test>`, and does not fail the gate (the nightly
@@ -455,6 +455,13 @@ def workspace_tests() -> None:
     run("cargo", "test", "--workspace", "--doc", "--locked", env=clean_env())
 
 
+def sdk_ts() -> None:
+    """The TypeScript SDK (`make sdk-ts`) in the tests' clean environment:
+    its e2e starts eukhe agents, which an inherited EUKHE_* would point at
+    real state. After the tests: the eukhe it builds reuses their build."""
+    run("make", "--no-print-directory", "sdk-ts", env=clean_env())
+
+
 def side_lane() -> None:
     gate("secrets", secrets_range, os.environ.get("CI_LOCAL_SECRETS_RANGE") or "origin/main..HEAD")
     gate("deny", make, "deny")
@@ -478,6 +485,7 @@ def lane(steps) -> int:
 def rust_lane() -> None:
     gate("clippy", run, "cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings")
     gate("test", workspace_tests)
+    gate("sdk-ts", sdk_ts)
 
 
 def full() -> int:
