@@ -1,0 +1,44 @@
+{
+  "name": "eukhe",
+  "version": "0.1.0",
+  "description": "TypeScript client for the eukhe coding agent over ACP (Agent Client Protocol)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gildrb/eukhe.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://github.com/gildrb/eukhe/tree/main/sdk/typescript#readme",
+  "keywords": ["eukhe", "agent", "acp", "agent-client-protocol", "coding-agent", "sdk"],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "os": ["darwin", "linux"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "eukhe": "dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run build && tsc --noEmit && oxlint --type-aware --deny-warnings src test examples",
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^2.9.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2008",
+    "typescript": "^7.0.2"
+  }
+}
