@@ -1,7 +1,7 @@
 //! A minimal embedding: one SDK run of a prompt, its budget report after.
 //!
 //! `cargo run -p eukhe-sdk --example prompt -- <agent dir> <cwd> <model> <prompt>`
-//! (`<model>` as `provider/pattern`, e.g. `anthropic/claude-haiku-5-5`).
+//! (`<model>` as `provider/pattern`).
 //! Prints the agent's answers, then the run's budget report as JSON.
 
 use eukhe_sdk::context::BACKGROUND_CONTEXT;

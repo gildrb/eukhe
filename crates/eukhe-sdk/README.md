@@ -1,15 +1,10 @@
-# Embedding Eukhe
+# SDK
 
-Eukhe runs inside another program as `eukhe acp`: an [Agent Client Protocol](https://agentclientprotocol.com) (ACP) agent that reads and writes JSON-RPC 2.0 lines on stdio and runs its sessions in the local Eukhe daemon. Budget, checks, undo, diff and irreversible effects are `_eukhe/` extension methods beside the standard ACP methods.
+The npm package `eukhe` embeds Eukhe in a Node.js (>= 22) process. It starts the local agent, opens sessions in one project directory, and streams each prompt turn as typed events, ending with a run report: the answer, the acceptance checks and the irreversible effects that ran.
 
-- Node.js or TypeScript: the npm package `eukhe` ([ts/](ts/))
-- Rust: this crate, `eukhe-sdk`, sessions inside the process
-- Any other language: `eukhe acp` over stdio
-- T3 Code: a local ACP provider instance
+For another language or a separate process, see [ACP](#acp). For sessions inside a Rust process, see [Rust](#rust).
 
 Platforms: macOS (Apple Silicon), Linux (x64, arm64).
-
-## TypeScript
 
 ```sh
 npm install eukhe && npx eukhe install
@@ -19,15 +14,29 @@ npm install eukhe && npx eukhe install
 import { Eukhe } from "eukhe";
 
 const eukhe = await Eukhe.start({ cwd: "/path/to/project" });
-const session = await eukhe.session();
-for await (const event of session.prompt("Add a --verbose flag to the CLI")) {
-  if (event.$ === "Text") process.stdout.write(event.text);
-  if (event.$ === "RunReport") console.log(event.report.label, event.report.ran);
+try {
+  const session = await eukhe.session();
+  for await (const event of session.prompt("What files are in the current directory?")) {
+    if (event.$ === "Text") process.stdout.write(event.text);
+  }
+} finally {
+  await eukhe.close();
 }
-await eukhe.close();
 ```
 
-`npx eukhe install` installs the Eukhe release to `~/.local/bin/eukhe` after checking it against the release's SHA256SUMS. Events, session calls and errors: [ts/README.md](ts/README.md).
+This uses the installed Eukhe, its model provider login and its default model. Install, events, session calls, errors and binary lookup: [ts/README.md](ts/README.md).
+
+## Login
+
+Eukhe needs one model provider login per machine:
+
+```sh
+eukhe login anthropic                    # a subscription: sign-in URL on stderr, opened in the browser
+printf %s "$KEY" | eukhe login openai    # an API key from stdin
+eukhe login                              # the providers and their login state
+```
+
+Without a login, `eukhe.session()` throws `NotLoggedIn` with `login.command`; over ACP, `session/new` answers `-32000` with `data.login.command`.
 
 ## Rust
 
@@ -44,9 +53,11 @@ eukhe_sdk::prompt(&session, &conversation, "Summarize README.md", cx).await?;
 session.close(cx).await?;
 ```
 
-Runnable: [examples/prompt.rs](examples/prompt.rs) (`cargo run -p eukhe-sdk --example prompt -- <agent dir> <cwd> <provider/model> <prompt>`). API: `cargo doc -p eukhe-sdk --open`.
+Run the example: `cargo run -p eukhe-sdk --example prompt -- <agent dir> <cwd> <provider/model> <prompt>`. API: `cargo doc -p eukhe-sdk --open`.
 
 ## ACP
+
+Any language embeds Eukhe through `eukhe acp`, an [Agent Client Protocol](https://agentclientprotocol.com) (ACP) agent that reads and writes JSON-RPC 2.0 lines on stdio. Budget, checks, undo, diff and irreversible effects are `_eukhe/` extension methods beside the standard ACP methods.
 
 1. Install Eukhe: `curl -fsSL https://eukhe.com/install | sh`.
 2. Start `eukhe acp` in the project directory and speak ACP protocol version 1 over its stdin and stdout, with the language's ACP client library or plain JSON lines.
@@ -148,28 +159,6 @@ Eukhe-only session state (budget, loop, compaction, subagents, the turn's respon
 {"jsonrpc":"2.0","id":8,"method":"_eukhe/undo","params":{"sessionId":"019a..."}}
 {"jsonrpc":"2.0","id":8,"result":{"restored":["src/lib.rs"],"turn":2,"left":1,"notUndone":[]}}
 ```
-
-## T3 Code
-
-Eukhe is not in the ACP registry. T3 Code runs it as a local command from its settings file, `userdata/settings.json` in the T3 home (`~/.t3` by default); the settings form hides `commandArgs`:
-
-```json
-"providerInstances": {"eukhe": {"driver":"acpRegistry","displayName":"Eukhe","config":{"source":"local","commandPath":"<path to eukhe>","commandArgs":["--mode","acp"]}}}
-```
-
-`<path to eukhe>` is the absolute path `command -v eukhe` prints. Untested against a running T3 Code server.
-
-## Login
-
-Eukhe needs one model provider login per machine:
-
-```sh
-eukhe login openai-codex                 # a subscription: sign-in URL on stderr, opened in the browser
-printf %s "$KEY" | eukhe login openai    # an API key from stdin
-eukhe login                              # the providers and their login state
-```
-
-Without a login, `session/new` answers `-32000` with `data.login.command` (`eukhe login <provider>`); the TypeScript client throws `NotLoggedIn` with the same data.
 
 ## Agent skill
 

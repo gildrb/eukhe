@@ -64,7 +64,7 @@ export class TooOld extends EukheError {
 
 /** How a person logs eukhe in to a model provider, as the agent words it. */
 export type Login = {
-  /** The shell command to run (e.g. `eukhe login openai-codex`). */
+  /** The shell command to run (e.g. `eukhe login anthropic`). */
   command: string;
   /** The same inside an interactive `eukhe`, when there is one. */
   slashCommand: string | null;

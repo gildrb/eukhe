@@ -7,7 +7,7 @@ import * as ext from "./extensions.ts";
 
 /** Options of {@link Eukhe.session}. */
 export type SessionOptions = {
-  /** `provider/model-id` (e.g. `anthropic/claude-sonnet-4-5`); the agent's default otherwise. */
+  /** `provider/model-id`; the agent's default otherwise. */
   model?: string;
   /** MCP servers the session may call, in ACP form. */
   mcpServers?: McpServer[];

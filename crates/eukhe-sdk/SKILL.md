@@ -1,6 +1,6 @@
 ---
 name: embed-eukhe
-description: Adds the Eukhe coding agent to a project - the npm package `eukhe` for Node.js and TypeScript, `eukhe acp` over stdio for any other language, or a provider instance in T3 Code. Use when asked to add, embed or integrate Eukhe in an app, service, CLI or editor.
+description: Adds the Eukhe coding agent to a project - the npm package `eukhe` for Node.js and TypeScript, or `eukhe acp` over stdio for any other language. Use when asked to add, embed or integrate Eukhe in an app, service, CLI or editor.
 ---
 
 # Embed Eukhe
@@ -15,7 +15,6 @@ Eukhe runs inside another program as `eukhe acp`: an Agent Client Protocol (ACP)
 |---|---|
 | `package.json`, Node.js >= 22 or TypeScript | section 2, the npm package `eukhe` |
 | Python, Go, Rust, any other language | section 3, `eukhe acp` over stdio |
-| The user runs T3 Code and wants Eukhe in it | section 4, settings |
 
 Platforms: macOS (Apple Silicon), Linux (x64, arm64). On Windows, stop and report that Eukhe does not run there.
 
@@ -30,7 +29,7 @@ import { Eukhe, EukheError } from "eukhe";
 
 const eukhe = await Eukhe.start({ cwd: projectDir }); // the directory the agent works in
 try {
-  const session = await eukhe.session(); // or { model: "anthropic/claude-sonnet-4-5" }
+  const session = await eukhe.session(); // or { model: "<provider>/<model-id>" }
   for await (const event of session.prompt(task)) {
     switch (event.$) {
       case "Text": process.stdout.write(event.text); break;
@@ -97,16 +96,6 @@ result = request(3, "session/prompt", {"sessionId": session, "prompt": [{"type":
 - `session/cancel` (a notification) stops the turn; the prompt then answers `stopReason: "cancelled"`.
 - One session per process at a time; start another `eukhe acp` for a second.
 - Every method, update and `_eukhe/` extension (budget, acceptance, undo, diff, effects): https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/README.md#acp. JSON Schema: https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/acp.schema.json.
-
-## 4. T3 Code
-
-Merge into `providerInstances` of `userdata/settings.json` in the T3 home (`~/.t3` by default); `commandPath` is the absolute path `command -v eukhe` prints:
-
-```json
-"providerInstances": {"eukhe": {"driver":"acpRegistry","displayName":"Eukhe","config":{"source":"local","commandPath":"<path to eukhe>","commandArgs":["--mode","acp"]}}}
-```
-
-Install Eukhe first (section 3, step 1). Eukhe is not in the ACP registry.
 
 ## Login
 

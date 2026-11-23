@@ -15,7 +15,7 @@ npx eukhe install
 
 The client needs Eukhe 0.10.81 or newer (`MINIMUM_EUKHE_VERSION`), the first release with `eukhe acp`. Update an older Eukhe with `eukhe update`. `Eukhe.start` runs `eukhe --version` first and throws `TooOld` for an older release instead of starting it.
 
-Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login openai-codex`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
+Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login anthropic`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
 
 ## Use
 
@@ -24,7 +24,7 @@ import { Eukhe, EukheError } from "eukhe";
 
 const eukhe = await Eukhe.start({ cwd: "/path/to/project" });
 try {
-  const session = await eukhe.session(); // or { model: "anthropic/claude-sonnet-4-5" }
+  const session = await eukhe.session(); // or { model: "<provider>/<model-id>" }
   for await (const event of session.prompt("Add a --verbose flag to the CLI")) {
     if (event.$ === "Text") process.stdout.write(event.text);
     if (event.$ === "ToolCallStart") console.error(`> ${event.title}`);
@@ -44,21 +44,29 @@ Runnable examples: [examples/cli.ts](examples/cli.ts) (a terminal command) and [
 
 ## Events
 
-`session.prompt(text)` yields `EukheEvent`; switch on `$`:
+`session.prompt(text)` yields `EukheEvent`s. Switch on `event.$`:
 
-```ts
-type EukheEvent =
-  | { $: "Text"; text: string }                       // a piece of the answer
-  | { $: "Thinking"; text: string }                   // a piece of the model's reasoning
-  | { $: "ToolCallStart"; id: string; title: string; kind: ToolKind | null; input: unknown }
-  | { $: "ToolCallUpdate"; id: string; title: string | null; content: ToolCallContent[] | null; output: unknown }
-  | { $: "ToolCallEnd"; id: string; outcome: "completed" | "failed"; content: ToolCallContent[] | null; output: unknown }
-  | { $: "Plan"; entries: PlanEntry[] }               // the whole current plan
-  | { $: "RunReport"; report: RunReport }             // once per turn, just before TurnEnd
-  | { $: "TurnEnd"; stopReason: StopReason };         // always last
-```
+| `$` | Fields | Meaning |
+|---|---|---|
+| `Text` | `text` | a piece of the answer |
+| `Thinking` | `text` | a piece of the model's reasoning |
+| `ToolCallStart` | `id`, `title`, `kind`, `input` | a tool call began; `input` is the tool's raw arguments |
+| `ToolCallUpdate` | `id`, `title`, `content`, `output` | a running tool call changed; `null` fields are unchanged |
+| `ToolCallEnd` | `id`, `outcome`, `content`, `output` | a tool call finished; `outcome` is `completed` or `failed` |
+| `Plan` | `entries` | the whole current plan, replacing the previous one |
+| `RunReport` | `report` | once per turn, just before `TurnEnd` |
+| `TurnEnd` | `stopReason` | always last; `cancelled` after `session.cancel()` |
 
-`RunReport` holds the final `answer`, the acceptance `label` (`verified`, `failed`, `unverified`, ...) and `checks`, `ran` (the irreversible effects that ran this turn: pushes, network calls, ...), `unknown` (steps a crash left unknown, treated as not run) and `left` (work the run found left).
+`report` fields:
+
+| Field | Meaning |
+|---|---|
+| `answer` | the final answer text |
+| `label`, `checks` | the acceptance verdict (`verified`, `failed`, `unverified`, ...) and each check's result |
+| `ran` | irreversible effects that ran this turn (pushes, network calls, ...) |
+| `unknown` | steps a crash left unknown, treated as not run |
+| `left` | work the run found left |
+| `stopReason`, `error` | how the turn ended; `stopReason` is `null` and `error` is set when it failed |
 
 ## Session
 
