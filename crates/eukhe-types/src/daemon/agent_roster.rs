@@ -219,6 +219,37 @@ pub fn session_activity_detail(summary: &Value, options: &SessionActivityOptions
     options.idle_label.clone()
 }
 
+/// The work in flight a session summary (wire form) reports, if any: a
+/// compaction, a user shell command, a turn waiting out a usage limit, a
+/// turn retrying its provider, a turn, running subagents, or the
+/// background work its turn left (`waitingOn`: jobs, kernel commands,
+/// children, workflow runs). A field the summary lacks reports no work.
+#[must_use]
+pub fn summary_work(summary: &Value) -> Option<&'static str> {
+    let flag = |key: &str| summary.get(key).and_then(Value::as_bool) == Some(true);
+    let present = |key: &str| summary.get(key).is_some_and(|value| !value.is_null());
+    if flag("isCompacting") {
+        Some("a compaction")
+    } else if flag("isBashRunning") {
+        Some("a shell command")
+    } else if flag("isQuotaParked") {
+        Some("a turn waiting out a usage limit")
+    } else if present("retry") {
+        Some("a turn retrying its provider")
+    } else if flag("isStreaming")
+        || flag("isRunningTools")
+        || summary.get("activity").and_then(Value::as_str) == Some("working")
+    {
+        Some("a turn")
+    } else if flag("hasRunningSubagents") {
+        Some("running subagents")
+    } else if present("waitingOn") {
+        Some("background work")
+    } else {
+        None
+    }
+}
+
 /// One roster entry (TS `AgentRosterEntry`): the agent's slim session
 /// summary with the supervisor's classification. `statusLabel` is set only
 /// for exceptional states; viewers key label display on its presence.
@@ -404,6 +435,39 @@ mod tests {
             _ => panic!("summary fixtures must be objects"),
         }
         summary
+    }
+
+    #[test]
+    fn summary_work_names_each_kind_of_reported_work() {
+        let work = |overrides: Value| summary_work(&activity_summary(overrides));
+        assert_eq!(
+            [
+                work(json!({})),
+                work(json!({ "waitingOn": null, "retry": null })),
+                work(json!({ "isCompacting": true, "activity": "working" })),
+                work(json!({ "isBashRunning": true })),
+                work(json!({ "isQuotaParked": true })),
+                work(json!({ "retry": { "attempt": 1 } })),
+                work(json!({ "isStreaming": true })),
+                work(json!({ "isRunningTools": true })),
+                work(json!({ "activity": "working" })),
+                work(json!({ "hasRunningSubagents": true })),
+                work(json!({ "waitingOn": { "jobs": 1 } })),
+            ],
+            [
+                None,
+                None,
+                Some("a compaction"),
+                Some("a shell command"),
+                Some("a turn waiting out a usage limit"),
+                Some("a turn retrying its provider"),
+                Some("a turn"),
+                Some("a turn"),
+                Some("a turn"),
+                Some("running subagents"),
+                Some("background work"),
+            ]
+        );
     }
 
     #[test]
