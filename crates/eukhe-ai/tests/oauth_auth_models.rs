@@ -11,7 +11,6 @@ use std::sync::Arc;
 use common::{now_f64, oauth, store};
 use eukhe_ai::auth::{AuthResolutionOverrides, CredentialStore, InMemoryCredentialStore};
 use eukhe_ai::models::{create_models, CreateModelsOptions};
-use eukhe_ai::providers::anthropic::anthropic_provider;
 use eukhe_ai::providers::github_copilot::github_copilot_provider;
 use eukhe_ai::providers::openai::openai_provider;
 use eukhe_ai::providers::openrouter::openrouter_provider;
@@ -28,32 +27,6 @@ fn openai_exposes_chatgpt_oauth_alongside_api_key_auth() {
     assert_eq!(oauth.name(), "OpenAI (ChatGPT subscription)");
     assert_eq!(oauth.is_subscription(), Some(true));
     assert_eq!(oauth.login_label(), Some("Sign in with ChatGPT"));
-}
-
-#[tokio::test]
-async fn resolves_stored_anthropic_oauth_credentials_via_the_lazy_flow_import() {
-    let credentials = Arc::new(InMemoryCredentialStore::new());
-    store(
-        credentials.as_ref(),
-        "anthropic",
-        // Keep this beyond get_auth()'s refresh window.
-        oauth("oauth-access-token", "r", now_f64() + 10.0 * 60_000.0),
-    )
-    .await;
-    let models = create_models(CreateModelsOptions {
-        credentials: Some(credentials as Arc<dyn CredentialStore>),
-        ..CreateModelsOptions::default()
-    });
-    models.set_provider(anthropic_provider());
-
-    let model = models.get_models(Some("anthropic")).remove(0);
-    let result = models
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
-        .await
-        .expect("auth")
-        .expect("configured");
-    assert_eq!(result.auth.api_key.as_deref(), Some("oauth-access-token"));
-    assert_eq!(result.source.as_deref(), Some("OAuth"));
 }
 
 #[tokio::test]

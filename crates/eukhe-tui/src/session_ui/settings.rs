@@ -246,7 +246,6 @@ impl SessionUi {
             values.workflow_size = settings.workflow_size();
             values.quiet_startup = settings.quiet_startup();
             values.tree_filter_mode = settings.tree_filter_mode();
-            values.warnings_anthropic_extra_usage = settings.warnings_anthropic_extra_usage();
             values.theme = settings
                 .theme()
                 .unwrap_or_else(|| eukhe_theme::DEFAULT_THEME_NAME.to_string());
@@ -263,7 +262,6 @@ impl SessionUi {
             values.mermaid = "streaming".to_string();
             values.workflow_size = "medium".to_string();
             values.tree_filter_mode = "user-only".to_string();
-            values.warnings_anthropic_extra_usage = true;
             values.theme = eukhe_theme::DEFAULT_THEME_NAME.to_string();
             // No settings seam: the tier row reads the TS default tier
             // (getDefaultServiceTier's "default"), never a blank value.
@@ -607,13 +605,6 @@ impl SessionUi {
                 }
                 // The `/tree` selector reads the live field.
                 self.tree_filter_mode = crate::tree_list::filter_mode_from_str(value);
-            }
-            "warnings-anthropic-extra-usage" => {
-                self.persist_bool_setting(
-                    |settings, enabled| settings.set_warnings_anthropic_extra_usage(enabled),
-                    value,
-                    view,
-                );
             }
             "thinking" => {
                 self.apply_thinking_level(value, view).await;

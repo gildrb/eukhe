@@ -1,7 +1,7 @@
 //! The built-in subscription providers' OAuth integration (TS the auth
 //! storage delegates to the AI library's oauth registry): the stored
-//! `openai-codex`, `anthropic`, `github-copilot`, and `xai`
-//! credentials refresh through the pi-ai OAuth flows
+//! `openai-codex`, `github-copilot`, and `xai` credentials refresh
+//! through the pi-ai OAuth flows
 //! ([`OAuthAuth::refresh`]) when they expire. Every other provider
 //! serves its access token until expiry (no refresh flow exists for
 //! it), so refresh answers that reason and resolution keeps the stored
@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eukhe_ai::auth::oauth::{anthropic_oauth, github_copilot_oauth, openai_codex_oauth, xai_oauth};
+use eukhe_ai::auth::oauth::{github_copilot_oauth, openai_codex_oauth, xai_oauth};
 use eukhe_ai::auth::{OAuthAuth, OAuthCredential};
 use eukhe_chord::context::AbortController;
 
@@ -30,7 +30,8 @@ use crate::auth::types::{AuthCredential, AuthStorageData};
 /// The Codex Subscription provider id (the wire identifiers the TS
 /// product registers; branding never renames a provider id).
 pub const OPENAI_CODEX_PROVIDER_ID: &str = "openai-codex";
-/// The Anthropic (Claude Pro/Max) subscription provider id.
+/// The Anthropic provider id: its stored OAuth credential is a Claude
+/// subscription login eukhe ignores.
 pub const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
 /// The GitHub Copilot subscription provider id.
 pub const GITHUB_COPILOT_PROVIDER_ID: &str = "github-copilot";
@@ -48,7 +49,6 @@ const ENTERPRISE_URL_EXTRA: &str = "enterpriseUrl";
 pub fn subscription_oauth_flow(provider_id: &str) -> Option<Arc<dyn OAuthAuth>> {
     match provider_id {
         OPENAI_CODEX_PROVIDER_ID => Some(openai_codex_oauth()),
-        ANTHROPIC_PROVIDER_ID => Some(anthropic_oauth()),
         GITHUB_COPILOT_PROVIDER_ID => Some(github_copilot_oauth()),
         XAI_PROVIDER_ID => Some(xai_oauth()),
         _ => None,
@@ -143,7 +143,6 @@ impl ProviderOAuth {
         Self::with_flows(
             [
                 OPENAI_CODEX_PROVIDER_ID,
-                ANTHROPIC_PROVIDER_ID,
                 GITHUB_COPILOT_PROVIDER_ID,
                 XAI_PROVIDER_ID,
             ]
@@ -328,7 +327,7 @@ mod tests {
         }
     }
 
-    /// The scripted refreshes of the four subscription flows.
+    /// The scripted refreshes of the three subscription flows.
     fn integrations() -> Arc<ProviderOAuth> {
         let in_an_hour = 4_000_000_000_000.0;
         let flow = |credential: OAuthCredential| -> Arc<dyn OAuthAuth> {
@@ -343,14 +342,6 @@ mod tests {
                         serde_json::Value::String("acct-2".to_string()),
                     ),
                 ),
-            ),
-            (
-                ANTHROPIC_PROVIDER_ID.to_string(),
-                flow(OAuthCredential::new(
-                    "anthropic-refresh",
-                    "anthropic-access",
-                    in_an_hour,
-                )),
             ),
             (
                 GITHUB_COPILOT_PROVIDER_ID.to_string(),
@@ -377,13 +368,12 @@ mod tests {
     }
 
     #[test]
-    fn the_builtin_integration_maps_the_four_subscription_flows() {
+    fn the_builtin_integration_maps_the_three_subscription_flows() {
         let builtin = ProviderOAuth::new();
         let ids: Vec<&str> = builtin.flows.keys().map(String::as_str).collect();
         assert_eq!(
             ids,
             vec![
-                ANTHROPIC_PROVIDER_ID,
                 GITHUB_COPILOT_PROVIDER_ID,
                 OPENAI_CODEX_PROVIDER_ID,
                 XAI_PROVIDER_ID
@@ -456,27 +446,6 @@ mod tests {
         assert_eq!(refresh.as_deref(), Some("r-new"));
         assert!(expires > 1, "the fresh expiry landed");
         assert_eq!(account_id.as_deref(), Some("acct-2"));
-    }
-
-    #[test]
-    fn an_expired_anthropic_credential_refreshes_and_resolves() {
-        let mut auth = storage_with_credential(
-            ANTHROPIC_PROVIDER_ID,
-            &expired_credential(ANTHROPIC_PROVIDER_ID),
-        );
-        let api_key = auth
-            .get_api_key(ANTHROPIC_PROVIDER_ID)
-            .expect("the refreshed access token resolves");
-        assert_eq!(api_key, "anthropic-access");
-        let stored = auth.get_all().credential(ANTHROPIC_PROVIDER_ID).unwrap();
-        let AuthCredential::Oauth {
-            refresh, expires, ..
-        } = stored
-        else {
-            panic!("the stored credential is OAuth");
-        };
-        assert_eq!(refresh.as_deref(), Some("anthropic-refresh"));
-        assert!(expires > 1, "the fresh expiry landed");
     }
 
     #[test]
@@ -555,7 +524,7 @@ mod tests {
 
     #[test]
     fn non_subscription_providers_do_not_refresh() {
-        // A stored OAuth credential for a provider outside the four
+        // A stored OAuth credential for a provider outside the three
         // subscription ids never refreshes: resolution stays absent and
         // the credential stays.
         let mut auth = storage_with_credential("other-oauth", &expired_credential("other-oauth"));

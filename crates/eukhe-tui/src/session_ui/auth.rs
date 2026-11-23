@@ -152,14 +152,19 @@ impl SessionUi {
     }
 
     /// `/accounts`: each provider's stored accounts, the one this session
-    /// uses marked, in the read-only info panel.
+    /// uses marked, in the read-only info panel; the composition root's
+    /// notice (a Claude subscription login eukhe ignores) heads it once.
     pub(crate) async fn show_accounts(&mut self, view: &mut AgentView) {
         let Some(auth) = self.provider_auth.clone() else {
             self.note("/accounts is not available in this client yet", view);
             return;
         };
         let providers = auth.0.accounts().await;
-        let text = crate::provider_auth::accounts_text(&providers, &self.own_accounts());
+        let listing = crate::provider_auth::accounts_text(&providers, &self.own_accounts());
+        let text = match auth.0.accounts_notice().await {
+            Some(notice) => format!("{notice}\n{listing}"),
+            None => listing,
+        };
         if providers.is_empty() {
             self.note(&text, view);
             return;
@@ -213,15 +218,6 @@ impl SessionUi {
                     let auth = self.provider_auth.clone().expect("the selector was open");
                     let outcome = auth.0.login(&provider, Some(&api_key)).await;
                     self.apply_auth_outcome(outcome, &provider.id, view).await;
-                    // TS `onLoginCompleted`: re-check the Anthropic
-                    // subscription warning after credentials change -- the
-                    // credential's shape decides (a plain API key never
-                    // warns).
-                    self.maybe_warn_anthropic_subscription_auth_if_subscribed(
-                        Some(provider.id.as_str()),
-                        view,
-                    )
-                    .await;
                 } else {
                     let auth = self.provider_auth.clone().expect("the selector was open");
                     if provider.id.starts_with("mcp:")
@@ -444,17 +440,7 @@ impl SessionUi {
             AuthPanelRequest::ProviderSettled { provider, outcome } => {
                 self.auth_panel_cancel = None;
                 view.auth_panel = None;
-                // TS `onLoginCompleted` fires on a COMPLETED login: a
-                // cancelled or errored flow never draws the warning (and
-                // never consumes the once-per-session gate).
-                let completed = matches!(
-                    outcome,
-                    crate::provider_auth::ProviderAuthOutcome::Status(_)
-                );
                 self.apply_auth_outcome(outcome, &provider, view).await;
-                if completed {
-                    self.maybe_warn_anthropic_subscription_auth(&provider, view);
-                }
             }
             AuthPanelRequest::McpSettled { note } => {
                 view.auth_panel = None;

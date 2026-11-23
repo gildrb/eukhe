@@ -389,11 +389,6 @@ unicode_suite!(
     || Target::env("anthropic", "claude-haiku-4-5", &["ANTHROPIC_API_KEY"])
 );
 unicode_suite!(
-    anthropic_oauth,
-    "needs ANTHROPIC_OAUTH_TOKEN; run with --ignored",
-    || Target::oauth("anthropic", "claude-haiku-4-5", "ANTHROPIC_OAUTH_TOKEN")
-);
-unicode_suite!(
     github_copilot_claude_haiku_4_5,
     "needs GITHUB_COPILOT_OAUTH_TOKEN; run with --ignored",
     || Target::oauth(

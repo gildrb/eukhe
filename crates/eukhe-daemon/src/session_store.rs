@@ -164,13 +164,6 @@ pub struct SessionFile {
     pub(crate) by_id: HashMap<String, usize>,
     pub(crate) leaf_id: Option<String>,
     pub(crate) window: Option<SessionWindow>,
-    /// Whether this session has already drawn the Anthropic subscription
-    /// ban-risk warning (the once-per-session-lifecycle gate, operator
-    /// directive 2026-09-29): hydrated from the persisted
-    /// [`eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] row at open
-    /// (full or windowed). Client-facing reads serve it through `get_state`
-    /// (`SessionSummary::anthropic_warning_shown`).
-    pub(crate) anthropic_warning_shown: bool,
 }
 
 #[derive(Debug, Clone)]

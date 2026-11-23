@@ -327,12 +327,6 @@ impl eukhe_tui::client_settings::ClientSettings for StubSettings {
     fn set_factory_enabled(&self, _enabled: bool) -> Result<()> {
         Ok(())
     }
-    fn warnings_anthropic_extra_usage(&self) -> bool {
-        true
-    }
-    fn set_warnings_anthropic_extra_usage(&self, _enabled: bool) -> Result<()> {
-        Ok(())
-    }
 }
 
 fn options(socket: PathBuf, settings: Arc<StubSettings>) -> InteractiveOptions {

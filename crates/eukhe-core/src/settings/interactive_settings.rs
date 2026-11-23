@@ -302,24 +302,6 @@ impl SettingsManager {
         self.set_global_cvar(&table::WORKFLOW_SIZE, &serde_json::to_value(parsed)?)
     }
 
-    /// `warnings.anthropicExtraUsage`.
-    #[must_use]
-    pub fn get_warnings_anthropic_extra_usage(&self) -> bool {
-        self.cvars().bool(&table::WARNINGS_ANTHROPIC_EXTRA_USAGE)
-    }
-
-    /// `warnings.anthropicExtraUsage` setter.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the global settings scope cannot be saved.
-    pub fn set_warnings_anthropic_extra_usage(&mut self, enabled: bool) -> Result<Persisted> {
-        self.set_global_cvar(
-            &table::WARNINGS_ANTHROPIC_EXTRA_USAGE,
-            &Value::Bool(enabled),
-        )
-    }
-
     /// `treeFilterMode` setter (the getter lives with the manager's
     /// startup accessors); TS `setTreeFilterMode` writes the global scope.
     ///

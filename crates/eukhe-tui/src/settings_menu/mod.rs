@@ -5,7 +5,7 @@
 //! rows with descriptions, the arrows and Enter/Space cycling values
 //! (the operator's 2026-09-28 rebind: the tabs move on Tab and the number
 //! keys only), Enter opening the submenus (thinking level, theme,
-//! warnings), Esc closing, and type-to-search over the active tab's
+//! service tier), Esc closing, and type-to-search over the active tab's
 //! labels. The caller owns the row data (daemon state + settings seam
 //! reads) and executes the change actions; this module owns navigation,
 //! filtering, and rendering, and `tabs` owns the grouping and the strip.
@@ -39,8 +39,6 @@ pub enum SettingsSubmenu {
     Thinking { levels: Vec<String> },
     /// "Theme" (the registered themes; selection change previews).
     Theme { themes: Vec<String> },
-    /// "Warnings" (the single warning toggle as its own settings list).
-    Warnings,
     /// "Default Service Tier" (TS `SERVICE_TIER_OPTIONS`: default/flex/
     /// priority/auto with their descriptions).
     ServiceTier,
@@ -323,14 +321,6 @@ pub fn settings_menu_rows(current: &SettingsCurrentValues) -> Vec<SettingsMenuRo
             submenu: None,
         },
         SettingsMenuRow {
-            id: "warnings",
-            label: "Warnings",
-            description: "Enable or disable individual warnings",
-            current: "configure".to_string(),
-            values: None,
-            submenu: Some(SettingsSubmenu::Warnings),
-        },
-        SettingsMenuRow {
             id: "thinking",
             label: "Thinking level",
             description: "Reasoning depth for thinking-capable models",
@@ -378,7 +368,6 @@ pub struct SettingsCurrentValues {
     pub workflow_size: String,
     pub quiet_startup: bool,
     pub tree_filter_mode: String,
-    pub warnings_anthropic_extra_usage: bool,
     pub thinking_level: Option<String>,
     pub available_thinking_levels: Vec<String>,
     pub theme: String,
@@ -613,7 +602,6 @@ impl SettingsMenu {
         let options = match &sub.kind {
             SettingsSubmenu::Thinking { levels } => levels.len(),
             SettingsSubmenu::Theme { themes } => themes.len(),
-            SettingsSubmenu::Warnings => 1,
             SettingsSubmenu::ServiceTier => SERVICE_TIER_CHOICES.len(),
         };
         if kb.matches(key, "tui.select.up") {
@@ -655,14 +643,6 @@ impl SettingsMenu {
                             value: name,
                         })
                 }
-                SettingsSubmenu::Warnings => Some(SettingsMenuAction::Change {
-                    id: "warnings-anthropic-extra-usage",
-                    value: if sub.selected == 0 {
-                        "true".into()
-                    } else {
-                        "false".into()
-                    },
-                }),
                 SettingsSubmenu::ServiceTier => SERVICE_TIER_CHOICES
                     .get(sub.selected)
                     .copied()
@@ -872,11 +852,6 @@ impl SettingsMenu {
                     "Theme",
                     "Select color theme",
                     themes.iter().map(|name| (name.clone(), None)).collect(),
-                ),
-                SettingsSubmenu::Warnings => (
-                    "Warnings",
-                    "Enable or disable individual warnings",
-                    vec![(String::from("Anthropic extra usage"), None)],
                 ),
                 SettingsSubmenu::ServiceTier => (
                     "Default Service Tier",

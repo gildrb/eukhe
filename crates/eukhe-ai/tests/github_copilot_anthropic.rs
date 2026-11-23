@@ -11,6 +11,7 @@ use eukhe_ai::api::anthropic_messages::stream;
 use eukhe_ai::models::get_supported_thinking_levels;
 use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
+use eukhe_ai::utils::pi_user_agent::get_pi_user_agent;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_types::pi_ai::{Context, JsonValue, Model, TranscriptContext};
 use serde_json::json;
@@ -110,11 +111,11 @@ async fn uses_bearer_auth_copilot_headers_and_valid_anthropic_messages_payload()
         Some("Bearer tid_copilot_session_test_token")
     );
 
-    // Copilot static headers from model.headers
-    assert!(request
-        .header("user-agent")
-        .unwrap_or_default()
-        .contains("GitHubCopilotChat"));
+    // eukhe's own User-Agent; the Copilot static headers from model.headers
+    assert_eq!(
+        request.header("user-agent").as_deref(),
+        Some(get_pi_user_agent())
+    );
     assert_eq!(
         request.header("copilot-integration-id").as_deref(),
         Some("vscode-chat")

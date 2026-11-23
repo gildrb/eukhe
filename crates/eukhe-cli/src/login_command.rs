@@ -90,8 +90,21 @@ pub fn run_login_command(args: &[String]) -> i32 {
         Err(error) => return usage_failure(&error),
     };
     let agent_dir = crate::config::get_agent_dir();
-    let rows = ProviderAuth::new(std::env::current_dir().unwrap_or_default(), &agent_dir)
-        .login_rows_blocking();
+    let auth = ProviderAuth::new(std::env::current_dir().unwrap_or_default(), &agent_dir);
+    // A stored Claude subscription login, or an `anthropic` login asked
+    // without `--key` (once the subscription login): the migration notice,
+    // once, on stderr.
+    let asks_claude_subscription = matches!(
+        &command,
+        LoginCommand::Login { provider, credential: Credential::Default, .. }
+            if provider == "anthropic"
+    );
+    if let Some(notice) = auth.claude_login_notice().or_else(|| {
+        asks_claude_subscription.then_some(eukhe_ai::api::anthropic_messages::CLAUDE_LOGIN_MOVED)
+    }) {
+        eprintln!("{notice}");
+    }
+    let rows = auth.login_rows_blocking();
     match command {
         LoginCommand::List { output } => print_listing(&rows, output),
         LoginCommand::Login {

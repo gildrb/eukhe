@@ -468,7 +468,6 @@ async fn resolves_anthropic_bearer_auth_from_env_with_auth_token_precedence() {
     let models = models_with_env(
         &[
             ("ANTHROPIC_AUTH_TOKEN", "auth-token"),
-            ("ANTHROPIC_OAUTH_TOKEN", "oauth-token"),
             ("ANTHROPIC_API_KEY", "api-key"),
         ],
         &[],
@@ -487,26 +486,6 @@ async fn resolves_anthropic_bearer_auth_from_env_with_auth_token_precedence() {
             "source": "ANTHROPIC_AUTH_TOKEN",
         })
     );
-}
-
-#[tokio::test]
-async fn preserves_anthropic_oauth_token_precedence_over_the_api_key() {
-    let models = models_with_env(
-        &[
-            ("ANTHROPIC_API_KEY", "key"),
-            ("ANTHROPIC_OAUTH_TOKEN", "oauth-token"),
-        ],
-        &[],
-    );
-    models.set_provider(anthropic_provider());
-
-    let result = models
-        .get_auth("anthropic", AuthResolutionOverrides::default())
-        .await
-        .expect("auth")
-        .expect("configured");
-    assert_eq!(result.auth.api_key.as_deref(), Some("oauth-token"));
-    assert_eq!(result.source.as_deref(), Some("ANTHROPIC_OAUTH_TOKEN"));
 }
 
 #[tokio::test]

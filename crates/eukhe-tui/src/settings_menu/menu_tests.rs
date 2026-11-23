@@ -51,8 +51,7 @@ fn tabs_partition_the_settings_rows() {
                     "autocompact",
                     "steering-mode",
                     "follow-up-mode",
-                    "quiet-startup",
-                    "warnings"
+                    "quiet-startup"
                 ]
             ),
             (
@@ -485,7 +484,7 @@ fn switching_tabs_keeps_each_tabs_search_and_selection() {
     // Each tab keeps its own query: typing on General, switching to
     // Models and back, the filter and the field still hold. Tab
     // switches even under an active query (digits would type).
-    for key in ["w", "a", "r", "n"] {
+    for key in ["q", "u", "i", "e"] {
         menu.handle_key(key, &kb());
     }
     menu.handle_key("tab", &kb());
@@ -494,9 +493,9 @@ fn switching_tabs_keeps_each_tabs_search_and_selection() {
         .any(|row| row.contains("Transport")));
     menu.handle_key("shift+tab", &kb());
     let text = render_text(&menu);
-    assert!(text.iter().any(|row| row.contains("warn")));
-    assert!(text.iter().any(|row| row.contains("Warnings")));
-    assert!(!text.iter().any(|row| row.contains("Quiet startup")));
+    assert!(text.iter().any(|row| row.contains("quie")));
+    assert!(text.iter().any(|row| row.contains("Quiet startup")));
+    assert!(!text.iter().any(|row| row.contains("Steering mode")));
 }
 
 #[test]

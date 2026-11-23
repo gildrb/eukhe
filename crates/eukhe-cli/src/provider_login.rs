@@ -1,9 +1,9 @@
 //! The composition root's provider auth flows behind the TUI's `/login`
 //! and `/logout` (TS `ProviderAuthFlows`): the provider catalog rows with
 //! their auth status, the API-key store, the MCP device flow, and the
-//! four subscription logins (`subscription_login`: the Codex
-//! Subscription, Anthropic, GitHub Copilot, and xAI pi-ai OAuth flows on
-//! the inline auth panel, and the credential writes).
+//! three subscription logins (`subscription_login`: the Codex
+//! Subscription, GitHub Copilot, and xAI pi-ai OAuth flows on the inline
+//! auth panel, and the credential writes).
 
 use std::path::{Path, PathBuf};
 
@@ -11,15 +11,14 @@ use eukhe_core::auth::{AuthCredential, AuthSource, AuthStatus};
 use eukhe_core::models::ModelRegistry;
 use eukhe_tui::provider_auth::{
     AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccountsFuture,
-    ProviderAuthCommands, ProviderAuthFuture, ProviderAuthOutcome, ProviderRow, ProviderRowsFuture,
-    ProviderWarningFuture,
+    ProviderAuthCommands, ProviderAuthFuture, ProviderAuthOutcome, ProviderNoticeFuture,
+    ProviderRow, ProviderRowsFuture,
 };
 use serde_json::Value;
 
 /// The TS OAuth provider rows (`the TS AI library/oauth` registry): the
 /// subscription logins, every flow ported.
-const SUBSCRIPTION_PROVIDERS: [(&str, &str); 4] = [
-    ("anthropic", "Anthropic (Claude Pro/Max)"),
+const SUBSCRIPTION_PROVIDERS: [(&str, &str); 3] = [
     ("github-copilot", "GitHub Copilot"),
     ("openai-codex", "ChatGPT Plus/Pro (Codex Subscription)"),
     ("xai", "xAI (Grok)"),
@@ -180,11 +179,6 @@ fn ts_row_order(a: &ProviderRow, b: &ProviderRow) -> std::cmp::Ordering {
     a.name.cmp(&b.name)
 }
 
-/// TS `ANTHROPIC_SUBSCRIPTION_AUTH_WARNING` (#2645): subscription
-/// requests identify as Claude Code, which may violate Anthropic's
-/// terms; an API key avoids the risk.
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms -- your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
-
 /// The provider auth surface against one daemon's shared directories.
 #[derive(Clone)]
 pub struct ProviderAuth {
@@ -212,21 +206,13 @@ impl ProviderAuth {
         (credential, status)
     }
 
-    /// TS `getAnthropicSubscriptionAuthWarning` (#2645, blocking body):
-    /// the ban-risk warning applies when the stored Anthropic credential
-    /// is an OAuth login, or the resolved key is a subscription token
-    /// (`sk-ant-oat...` -- the same prefix the provider layer treats as
-    /// OAuth). `None` = the auth is not a subscription.
-    fn anthropic_subscription_warning_blocking(&self) -> Option<&'static str> {
-        let mut auth = self.auth_storage();
-        if let Some(credential) = auth.get_all().credential("anthropic") {
-            if matches!(credential, AuthCredential::Oauth { .. }) {
-                return Some(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
-            }
-        }
-        auth.get_api_key("anthropic")
-            .is_some_and(|key| key.starts_with("sk-ant-oat"))
-            .then_some(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING)
+    /// The Claude subscription migration notice when `auth.json` holds a
+    /// Claude subscription login, which eukhe ignores.
+    pub(crate) fn claude_login_notice(&self) -> Option<&'static str> {
+        self.auth_storage()
+            .get_all()
+            .has_moved_claude_login()
+            .then_some(eukhe_ai::api::anthropic_messages::CLAUDE_LOGIN_MOVED)
     }
 }
 
@@ -301,27 +287,15 @@ impl ProviderAuthCommands for ProviderAuth {
         })
     }
 
-    /// TS `getAnthropicSubscriptionAuthWarning` (#2645): the ban-risk
-    /// warning for an active Anthropic subscription auth, for the session
-    /// surface to show once per run. The store lock (and the key
-    /// resolution, which may run a `!command` credential) stay off the
-    /// async workers.
-    fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
+    /// `/accounts`' notice: a Claude subscription login in `auth.json`
+    /// ([`ProviderAuth::claude_login_notice`]); the store read stays off
+    /// the async workers.
+    fn accounts_notice(&self) -> ProviderNoticeFuture {
         let provider = self.clone();
         Box::pin(async move {
-            // The lookup is warning-only (TS ignores auth lookup failures
-            // the same way), so a hung `!command` credential must not pin
-            // the session surface: the TS resolution caps command
-            // execution at 10s (`execSyncHidden`/`spawnSyncHidden`
-            // `timeout: 10000`), and the check resolves no-warning at the
-            // same bound.
-            let lookup = tokio::task::spawn_blocking(move || {
-                provider.anthropic_subscription_warning_blocking()
-            });
-            match tokio::time::timeout(std::time::Duration::from_secs(10), lookup).await {
-                Ok(joined) => joined.unwrap_or(None),
-                Err(_) => None,
-            }
+            tokio::task::spawn_blocking(move || provider.claude_login_notice())
+                .await
+                .expect("the notice task ran")
         })
     }
 
@@ -561,7 +535,7 @@ pub(crate) fn login_blocking(
 }
 
 /// The login flow body for the panel-driven rows (the MCP OAuth logins,
-/// the four subscription logins): blocking on the dedicated thread --
+/// the three subscription logins): blocking on the dedicated thread --
 /// the flow awaits its transport AND the panel's prompt replies (the
 /// answers arrive from the TUI loop's thread), and the inline auth panel
 /// carries every surface the plain terminal used to.
@@ -592,8 +566,8 @@ fn login_blocking_on_panel(
             ProviderAuthOutcome::Status(outcome)
         };
     }
-    // The four subscription logins (TS `loginProvider`'s dispatch to the
-    // AI library's `openaiCodex`, `anthropic`, `githubCopilot`, and `xai`
+    // The three subscription logins (TS `loginProvider`'s dispatch to the
+    // AI library's `openaiCodex`, `githubCopilot`, and `xai`
     // OAuth providers): the provider's pi-ai flow -- the browser
     // authorization URL block and the manual paste racing the localhost
     // callback, or the device flow -- and the credential write, all

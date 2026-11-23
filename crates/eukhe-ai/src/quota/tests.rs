@@ -56,172 +56,14 @@ async fn stub(body: serde_json::Value) -> (mock::FetchMockGuard, Arc<Mutex<Vec<F
     (guard, seen)
 }
 
-#[test]
-fn anthropic_unified_headers_are_the_plan_windows() {
-    let reading = anthropic::parse_headers(
-        "anthropic",
-        &headers(&[
-            ("anthropic-ratelimit-unified-status", "allowed"),
-            ("anthropic-ratelimit-unified-5h-status", "allowed"),
-            ("anthropic-ratelimit-unified-5h-utilization", "0.42"),
-            ("anthropic-ratelimit-unified-5h-reset", "1785003600"),
-            ("anthropic-ratelimit-unified-7d-utilization", "0.815"),
-            ("anthropic-ratelimit-unified-7d-reset", "1785400000"),
-            (
-                "anthropic-ratelimit-unified-representative-claim",
-                "five_hour",
-            ),
-        ]),
-        NOW,
-    );
-    assert_eq!(
-        reading,
-        Some(PlanQuota {
-            provider: "anthropic".to_owned(),
-            plan: None,
-            windows: vec![
-                window("5h", Some(300), 420, Some(1_785_003_600_000)),
-                window("7d", Some(10_080), 815, Some(1_785_400_000_000)),
-            ],
-            read_at_ms: NOW,
-            source: QuotaSource::Headers,
-        })
-    );
-}
-
-/// The unified headers of a plan login's Haiku response (recorded
-/// 2026-11-13): only the 7-day window reported.
-#[test]
-fn recorded_plan_response_headers_read_the_seven_day_window() {
-    let recorded = headers(&[
-        ("anthropic-ratelimit-unified-overage-status", "rejected"),
-        (
-            "anthropic-ratelimit-unified-representative-claim",
-            "seven_day",
-        ),
-        ("anthropic-ratelimit-unified-upgrade-paths", "overage"),
-        ("anthropic-ratelimit-unified-reset", "1794625200"),
-        ("anthropic-ratelimit-unified-7d-surpassed-threshold", "0.75"),
-        ("anthropic-ratelimit-unified-7d-reset", "1794625200"),
-        ("anthropic-ratelimit-unified-7d-status", "allowed_warning"),
-        ("anthropic-ratelimit-unified-fallback-percentage", "0.5"),
-        (
-            "anthropic-ratelimit-unified-overage-disabled-reason",
-            "out_of_credits",
-        ),
-        ("anthropic-ratelimit-unified-7d-utilization", "0.95"),
-        ("anthropic-ratelimit-unified-status", "allowed_warning"),
-    ]);
-    assert_eq!(
-        anthropic::parse_headers("anthropic", &recorded, NOW).map(|reading| reading.windows),
-        Some(vec![window(
-            "7d",
-            Some(10_080),
-            950,
-            Some(1_794_625_200_000)
-        )])
-    );
-}
-
-#[test]
-fn a_response_without_unified_headers_is_no_reading() {
-    let api_key_response = headers(&[
-        ("anthropic-ratelimit-requests-limit", "4000"),
-        ("anthropic-ratelimit-requests-remaining", "3999"),
-    ]);
-    assert_eq!(
-        anthropic::parse_headers("anthropic", &api_key_response, NOW),
-        None
-    );
-}
-
-fn anthropic_usage_body() -> serde_json::Value {
-    json!({
-        "five_hour": { "utilization": 37.0, "resets_at": "2026-07-25T18:00:00.512345+00:00" },
-        "seven_day": { "utilization": 81.5, "resets_at": "2026-07-29T09:00:00+00:00" },
-        "seven_day_opus": null,
-        "seven_day_sonnet": null,
-        "limits": [
-            { "kind": "session", "percent": 37, "resets_at": "2026-07-25T18:00:00Z", "is_active": true },
-            { "kind": "weekly_scoped", "percent": 5, "resets_at": "2026-07-29T09:00:00Z",
-              "scope": { "model": { "display_name": "Opus" } }, "is_active": false },
-        ],
-        "extra_usage": { "is_enabled": false, "monthly_limit": null, "used_credits": null },
-    })
-}
-
-#[test]
-fn anthropic_usage_endpoint_buckets_and_scoped_limits_are_windows() {
-    assert_eq!(
-        anthropic::parse_usage(&anthropic_usage_body(), NOW),
-        Some(PlanQuota {
-            provider: "anthropic".to_owned(),
-            plan: None,
-            windows: vec![
-                window("5h", Some(300), 370, Some(1_785_002_400_512)),
-                window("7d", Some(10_080), 815, Some(1_785_315_600_000)),
-                window("7d opus", Some(10_080), 50, Some(1_785_315_600_000)),
-            ],
-            read_at_ms: NOW,
-            source: QuotaSource::UsageEndpoint,
-        })
-    );
-}
-
-#[test]
-fn anthropic_usage_falls_back_to_the_limit_kinds() {
-    let body = json!({
-        "five_hour": null,
-        "seven_day": null,
-        "limits": [
-            { "kind": "session", "percent": 12, "resets_at": "2026-07-25T18:00:00Z" },
-            { "kind": "weekly_all", "percent": 64, "resets_at": "2026-07-29T09:00:00Z" },
-        ],
-    });
-    let reading = anthropic::parse_usage(&body, NOW).expect("reading");
-    assert_eq!(
-        reading.windows,
-        vec![
-            window("5h", Some(300), 120, Some(1_785_002_400_000)),
-            window("7d", Some(10_080), 640, Some(1_785_315_600_000)),
-        ]
-    );
-}
-
-#[tokio::test]
-async fn anthropic_fetch_reads_the_oauth_usage_endpoint_onto_the_board() {
-    let (_guard, seen) = stub(anthropic_usage_body()).await;
-    let token = "sk-ant-oat01-test";
-    let reading = fetch_plan_quota("anthropic", &oauth(token))
-        .await
-        .expect("read")
-        .expect("reading");
-    let requests = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].url, "https://api.anthropic.com/api/oauth/usage");
-    assert_eq!(
-        requests[0].header_value("authorization"),
-        Some("Bearer sk-ant-oat01-test")
-    );
-    assert_eq!(
-        requests[0].header_value("anthropic-beta"),
-        Some("oauth-2025-04-20")
-    );
-    assert_eq!(
-        QuotaBoard::latest_for("anthropic", &CredentialId::of(token)),
-        Some(reading.clone())
-    );
-    assert_eq!(QuotaBoard::latest("anthropic"), Some(reading));
-}
-
 #[tokio::test]
 async fn an_api_key_has_no_plan_quota_and_sends_nothing() {
-    let (_guard, seen) = stub(anthropic_usage_body()).await;
+    let (_guard, seen) = stub(codex_usage_body()).await;
     let key = PlanCredential {
         kind: CredentialKind::ApiKey,
-        ..oauth("sk-ant-api03-test")
+        ..oauth("sk-test")
     };
-    for provider in ["anthropic", "openai-codex", "github-copilot", "openai"] {
+    for provider in ["openai-codex", "github-copilot", "openai"] {
         assert_eq!(fetch_plan_quota(provider, &key).await, Ok(None));
     }
     assert!(seen
@@ -239,8 +81,12 @@ async fn a_refused_usage_read_names_the_status() {
         ))
     })
     .await;
+    let credential = PlanCredential {
+        account_id: Some("acct"),
+        ..oauth("expired-token")
+    };
     assert_eq!(
-        fetch_plan_quota("anthropic", &oauth("sk-ant-oat01-expired")).await,
+        fetch_plan_quota("openai-codex", &credential).await,
         Err(QuotaError::Status { status: 401 })
     );
 }
@@ -466,9 +312,9 @@ fn the_board_keeps_the_newest_reading_per_credential() {
 
 #[test]
 fn a_credential_id_keeps_no_token() {
-    let token = "sk-ant-oat01-secret-token";
+    let token = "codex-secret-token";
     let id = CredentialId::of(token);
     assert!(!format!("{id:?}").contains("secret"));
     assert_eq!(id, CredentialId::of(token));
-    assert_ne!(id, CredentialId::of("sk-ant-oat01-other"));
+    assert_ne!(id, CredentialId::of("codex-other-token"));
 }

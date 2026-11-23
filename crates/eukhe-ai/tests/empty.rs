@@ -423,15 +423,6 @@ empty_suite!(
     )
 );
 empty_suite!(
-    anthropic_oauth,
-    "needs PI_TEST_ANTHROPIC_TOKEN; run with --ignored",
-    Target::new(
-        "anthropic",
-        "claude-haiku-4-5",
-        Auth::OAuthToken("anthropic")
-    )
-);
-empty_suite!(
     github_copilot_claude_haiku_4_5,
     "needs PI_TEST_GITHUB_COPILOT_TOKEN; run with --ignored",
     Target::new(

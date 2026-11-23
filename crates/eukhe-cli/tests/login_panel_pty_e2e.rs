@@ -49,8 +49,8 @@ use eukhe_tui::interactive::{
 };
 use eukhe_tui::provider_auth::{
     AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccountsFuture,
-    ProviderAuthCommands, ProviderAuthCommandsHandle, ProviderAuthOutcome, ProviderRow,
-    ProviderRowsFuture, ProviderWarningFuture, OPENAI_CODEX_PROVIDER_ID,
+    ProviderAuthCommands, ProviderAuthCommandsHandle, ProviderAuthOutcome, ProviderNoticeFuture,
+    ProviderRow, ProviderRowsFuture, OPENAI_CODEX_PROVIDER_ID,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -188,8 +188,8 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
         Box::pin(async move { Vec::new() })
     }
 
-    fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
-        // The panel PTY e2e drives no Anthropic subscription auth.
+    fn accounts_notice(&self) -> ProviderNoticeFuture {
+        // The panel PTY e2e stores no Claude subscription login.
         Box::pin(async move { None })
     }
 }
@@ -366,8 +366,8 @@ impl ProviderAuthCommands for ScriptedModelPickerAuth {
         Box::pin(async move { Vec::new() })
     }
 
-    fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
-        // The scripted picker drives no Anthropic subscription auth.
+    fn accounts_notice(&self) -> ProviderNoticeFuture {
+        // The scripted picker stores no Claude subscription login.
         Box::pin(async move { None })
     }
 }

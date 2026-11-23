@@ -15,6 +15,8 @@ pub mod baseten;
 pub mod baseten_models;
 pub mod cerebras;
 pub mod cerebras_models;
+pub mod claude_code;
+pub mod claude_code_models;
 pub mod cloudflare_ai_gateway;
 pub mod cloudflare_ai_gateway_models;
 pub mod cloudflare_auth;

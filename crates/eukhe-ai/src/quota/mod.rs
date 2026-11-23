@@ -8,7 +8,6 @@
 //! [`QuotaBoard`] keeps the newest reading per provider and credential for
 //! the whole process. A provider with no readable quota has no reading.
 
-mod anthropic;
 mod codex;
 mod copilot;
 mod parse;
@@ -20,7 +19,6 @@ pub use eukhe_types::quota::{PlanQuota, QuotaSource, QuotaWindow};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
-pub(crate) use anthropic::record_headers as record_anthropic_headers;
 pub(crate) use codex::{
     record_frame as record_codex_frame, record_headers as record_codex_headers,
 };
@@ -165,7 +163,6 @@ pub async fn fetch_plan_quota(
     credential: &PlanCredential<'_>,
 ) -> Result<Option<PlanQuota>, QuotaError> {
     let reading = match provider {
-        anthropic::PROVIDER => anthropic::fetch(credential).await?,
         codex::PROVIDER => codex::fetch(credential).await?,
         copilot::PROVIDER => copilot::fetch(credential).await?,
         _ => None,

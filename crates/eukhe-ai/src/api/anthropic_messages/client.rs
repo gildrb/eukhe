@@ -351,9 +351,7 @@ impl SdkClient {
                 .map_err(|error| ErrorObject::named("TypeError", error.to_string()).thrown())?;
             map.insert(name, value);
         }
-        let mut body = json_stringify(body).into_bytes();
-        super::billing::patch_cch(&mut body);
-        *request.body_mut() = Some(body.into());
+        *request.body_mut() = Some(json_stringify(body).into_bytes().into());
         Ok(request)
     }
 

@@ -337,10 +337,6 @@ fn the_headless_settle_names_every_stuck_member() {
             mcp_auth_pending: true,
             ..Default::default()
         },
-        HeadlessSettle {
-            anthropic_warning_mark_pending: true,
-            ..Default::default()
-        },
     ] {
         assert!(!stuck.settled(), "one stuck member holds the gate shut");
         assert_eq!(
@@ -371,9 +367,8 @@ fn the_headless_settle_names_every_stuck_member() {
         reload_pending: true,
         auth_panel_open: true,
         mcp_auth_pending: true,
-        anthropic_warning_mark_pending: true,
     };
-    assert_eq!(all.blockers().len(), 11);
+    assert_eq!(all.blockers().len(), 10);
     assert!(
         all.blockers()
             .iter()

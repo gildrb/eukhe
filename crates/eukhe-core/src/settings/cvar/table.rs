@@ -1146,15 +1146,6 @@ pub const AGENT_TREE_CHECK_TIMEOUT_SECS: Decl = Decl {
     init: Init::Nat(900),
 };
 
-pub const WARNINGS_ANTHROPIC_EXTRA_USAGE: Decl = Decl {
-    id: "warnings.anthropicExtraUsage",
-    ty: CvarType::Bool,
-    scope: CvarScope::Local,
-    persist: true,
-    replicate: true,
-    init: Init::Bool(true),
-};
-
 /// `~`-relative allowed; unset is `<agentDir>/sessions`.
 pub const SESSION_DIR: Decl = Decl {
     id: "sessionDir",
@@ -1507,7 +1498,6 @@ pub const DECLS: &[Decl] = &[
     WORKFLOW_SIZE,
     AGENT_TREE_CHECK_COMMAND,
     AGENT_TREE_CHECK_TIMEOUT_SECS,
-    WARNINGS_ANTHROPIC_EXTRA_USAGE,
     SESSION_DIR,
     REQUEST_TIMING,
     TRUSTED_PROJECTS,

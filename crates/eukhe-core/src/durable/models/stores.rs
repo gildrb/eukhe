@@ -474,8 +474,8 @@ mod tests {
 
     fn todays_auth_json() -> Value {
         json!({
-            "anthropic": {
-                "type": "oauth", "access": "sk-ant-oat-old", "refresh": "rt-old",
+            "xai": {
+                "type": "oauth", "access": "xai-old", "refresh": "rt-old",
                 "expires": 1_700_000_000_000_u64
             },
             "github-copilot": {
@@ -527,10 +527,10 @@ mod tests {
 
         let read = |id: &'static str| store.read(id, options());
         assert_eq!(
-            read("anthropic").await.unwrap(),
+            read("xai").await.unwrap(),
             Some(Credential::OAuth(OAuthCredential::new(
                 "rt-old",
-                "sk-ant-oat-old",
+                "xai-old",
                 1_700_000_000_000.0
             )))
         );
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(
             store.list(options()).await.unwrap(),
             [
-                ("anthropic", AuthType::OAuth),
+                ("xai", AuthType::OAuth),
                 ("github-copilot", AuthType::OAuth),
                 ("openai-codex", AuthType::OAuth),
                 ("openai", AuthType::ApiKey),
@@ -575,11 +575,11 @@ mod tests {
         );
 
         // An OAuth refresh rewrites only its entry, as its one account.
-        let refreshed = OAuthCredential::new("rt-new", "sk-ant-oat-new", 1_800_000_000_000.0);
+        let refreshed = OAuthCredential::new("rt-new", "xai-new", 1_800_000_000_000.0);
         assert_eq!(
             store
                 .modify(
-                    "anthropic",
+                    "xai",
                     replace_with(Some(Credential::OAuth(refreshed.clone()))),
                     options()
                 )
@@ -590,17 +590,17 @@ mod tests {
         let written = read_json(&path);
         let mut expected = fixture.as_object().unwrap().clone();
         expected.insert(
-            "anthropic".to_owned(),
+            "xai".to_owned(),
             json!({ "accounts": [{
-                "type": "oauth", "refresh": "rt-new", "access": "sk-ant-oat-new",
+                "type": "oauth", "refresh": "rt-new", "access": "xai-new",
                 "expires": 1_800_000_000_000_u64
             }] }),
         );
         assert_eq!(written, expected);
         assert_eq!(
-            AuthStorageData(written).credential("anthropic"),
+            AuthStorageData(written).credential("xai"),
             Some(AuthCredential::Oauth {
-                access: "sk-ant-oat-new".to_owned(),
+                access: "xai-new".to_owned(),
                 refresh: Some("rt-new".to_owned()),
                 expires: 1_800_000_000_000,
                 account_id: None,
@@ -654,7 +654,7 @@ mod tests {
                         "type": "oauth", "access": "peer-access", "refresh": "peer-refresh",
                         "expires": 1_900_000_000_000_u64
                     });
-                    (Some(config::Edit::Set("anthropic".to_owned(), peer)), ())
+                    (Some(config::Edit::Set("xai".to_owned(), peer)), ())
                 })
                 .unwrap();
                 Ok(Some(Credential::OAuth(OAuthCredential::new(
@@ -666,11 +666,11 @@ mod tests {
         });
         let peer = OAuthCredential::new("peer-refresh", "peer-access", 1_900_000_000_000.0);
         assert_eq!(
-            store.modify("anthropic", modify, options()).await.unwrap(),
+            store.modify("xai", modify, options()).await.unwrap(),
             Some(Credential::OAuth(peer.clone()))
         );
         assert_eq!(
-            store.read("anthropic", options()).await.unwrap(),
+            store.read("xai", options()).await.unwrap(),
             Some(Credential::OAuth(peer))
         );
     }
@@ -687,7 +687,7 @@ mod tests {
         let path = dir.path().join("auth.json");
         write_json(&path, &todays_auth_json());
         let refreshes = Arc::new(AtomicUsize::new(0));
-        let fresh = OAuthCredential::new("rt-new", "sk-ant-oat-new", 4_102_444_800_000.0);
+        let fresh = OAuthCredential::new("rt-new", "xai-new", 4_102_444_800_000.0);
         let processes: Vec<_> = (0..6)
             .map(|_| {
                 let store = store_at(&path);
@@ -708,7 +708,7 @@ mod tests {
                             Ok(Some(Credential::OAuth(fresh)))
                         })
                     });
-                    store.modify("anthropic", refresh, options()).await
+                    store.modify("xai", refresh, options()).await
                 })
             })
             .collect();
@@ -733,7 +733,7 @@ mod tests {
         let before = std::fs::read_to_string(&path).unwrap();
         let keep: ModifyFn = Box::new(|current| Box::pin(async move { Ok(current) }));
         let kept = store_at(&path)
-            .modify("anthropic", keep, options())
+            .modify("xai", keep, options())
             .await
             .unwrap();
         assert_eq!(

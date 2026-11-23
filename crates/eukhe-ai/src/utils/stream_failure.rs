@@ -810,12 +810,18 @@ pub(crate) fn diagnostic_error_info(error: &ProviderError) -> DiagnosticErrorInf
     }
 }
 
+/// The clause a GitHub Copilot refusal (400, 403, 415) adds to its error:
+/// eukhe sends its own User-Agent, which Copilot may refuse.
+const COPILOT_USER_AGENT_HINT: &str =
+    " (GitHub Copilot may refuse eukhe's own User-Agent for this request)";
+
 /// Record a terminal stream failure on the message (structured
 /// `provider_stream_failure` diagnostic that persists with the transcript)
 /// and emit one structured `provider stream failure` log line (target
 /// `ai.provider`). Call from the provider's terminal catch after
 /// `stop_reason/error_message` are set; no-op unless the stop reason is
-/// `error` (user-initiated aborts).
+/// `error` (user-initiated aborts). A GitHub Copilot refusal's
+/// `error_message` gains [`COPILOT_USER_AGENT_HINT`].
 ///
 /// `model` is the `(provider, model, api)` triple of the failed request.
 pub fn record_stream_failure(
@@ -827,6 +833,11 @@ pub fn record_stream_failure(
         return;
     }
     let info = extract_stream_failure_info(error);
+    if model.0 == "github-copilot" && matches!(info.status, Some(400 | 403 | 415)) {
+        if let Some(message) = output.error_message.as_mut() {
+            message.push_str(COPILOT_USER_AGENT_HINT);
+        }
+    }
     let details = match serde_json::to_value(&info) {
         Ok(serde_json::Value::Object(map)) => Some(map),
         Ok(_) | Err(_) => None,

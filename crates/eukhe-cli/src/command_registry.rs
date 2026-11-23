@@ -359,7 +359,7 @@ provider's only account; a provider with several lists them.",
     )
     .description(
         "Runs the logins of /login and stores the same accounts: a login as a new identity adds \
-an account, as a known one it replaces it. A subscription (anthropic, openai-codex, \
+an account, as a known one it replaces it. A subscription (openai-codex, \
 github-copilot, xai) prints its sign-in URL on stderr, opens it in the browser, and waits for \
 the browser's callback or the redirect URL on stdin; xai and github-copilot print a device \
 code. An API key comes from EUKHE_LOGIN_API_KEY, else from stdin. Prints one line when logged \

@@ -183,15 +183,15 @@ async fn cycle_model_applies_the_scoped_thinking_level() {
     let dir = tempfile::tempdir().expect("tempdir");
     models_fixture(dir.path(), 2);
     let worker = created_worker(dir.path(), None).await;
-    let current = connection_state(&worker).await["model"]["id"]
-        .as_str()
-        .expect("model id")
-        .to_string();
-    let other = if current == "mock-1" {
-        "mock-2"
-    } else {
-        "mock-1"
-    };
+    // The session starts on mock-1 whatever other provider the host has.
+    let start = worker
+        .dispatch(
+            "set_model",
+            &json!({ "provider": "local-inference", "modelId": "mock-1" }),
+        )
+        .await;
+    assert!(start.success, "start model: {start:?}");
+    let (current, other) = ("mock-1", "mock-2");
     let scoped = worker
         .dispatch(
             "set_scoped_models",

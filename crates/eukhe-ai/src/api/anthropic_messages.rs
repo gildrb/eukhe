@@ -3,8 +3,7 @@
 //! Submodules: [`client`] emulates the `@anthropic-ai/sdk` request path the
 //! TS module drives, [`federation`] the SDK's workload identity federation,
 //! [`params`] builds the request body, [`sse`] decodes the event stream,
-//! [`events`] folds stream events into the assistant message, and
-//! [`client_version`] keeps the client version of subscription requests.
+//! and [`events`] folds stream events into the assistant message.
 //!
 //! eukhe additions on top of v1.0.4:
 //! - explicit prompt-cache breakpoints (`TextContent::cache_breakpoint`):
@@ -15,9 +14,7 @@
 //!   `provider_stream_failure` diagnostic
 //!   ([`crate::utils::stream_failure::record_stream_failure`]).
 
-mod billing;
 mod client;
-pub(crate) mod client_version;
 mod events;
 mod federation;
 pub(crate) mod params;
@@ -34,8 +31,7 @@ use eukhe_types::pi_ai::{
 use serde::Deserialize;
 
 use self::client::{ClientAuth, SdkClient};
-pub use self::client_version::ClientVersion;
-use self::client_version::Refusal;
+pub(crate) use self::events::EventFold;
 use self::federation::{get_anthropic_federation, has_request_auth, AnthropicFederationConfig};
 use super::ProviderStreams;
 use crate::api::cache_breakpoints::excess_breakpoints_error;
@@ -48,10 +44,12 @@ use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::now_ms;
 use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::stream_failure::record_stream_failure;
-use crate::utils::transcript::{get_current_tools, resolve_transcript};
+use crate::utils::transcript::resolve_transcript;
 
-/// The Claude Code identity system block required with OAuth tokens.
-const CLAUDE_CODE_SYSTEM_PROMPT: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
+/// The failure of a Claude subscription token (`sk-ant-oat…`) in the
+/// API-key slot, and the notice of a stored Claude subscription login:
+/// eukhe sends neither.
+pub const CLAUDE_LOGIN_MOVED: &str = "Claude subscription login moved: install Claude Code and sign in with `claude`; eukhe uses it through the claude-code provider";
 
 /// TS `AnthropicEffort` (`"low" | "medium" | "high" | "xhigh" | "max"`).
 /// Kept as the wire string: TS casts `thinkingLevelMap` values to it unchecked.
@@ -138,9 +136,6 @@ pub struct AnthropicOptions {
     pub tool_choice: Option<AnthropicToolChoice>,
     /// Pre-built client; skips internal client construction.
     pub client: Option<AnthropicClient>,
-    /// The client version subscription (OAuth) requests send; the requests
-    /// of one provider share it ([`streams_sharing`]).
-    pub client_version: ClientVersion,
 }
 
 /// The `extra` keys of [`ProviderStreamOptions`] this API reads.
@@ -209,7 +204,6 @@ impl AnthropicOptions {
                 .map(parse_tool_choice)
                 .transpose()?,
             client: None,
-            client_version: ClientVersion::default(),
         })
     }
 }
@@ -346,8 +340,9 @@ fn browser_headers() -> ProviderHeaders {
     headers
 }
 
-/// TS `isOAuthToken`.
-pub(crate) fn is_oauth_token(api_key: &str) -> bool {
+/// Whether `api_key` is a Claude subscription token, which eukhe never
+/// sends ([`CLAUDE_LOGIN_MOVED`]).
+pub(crate) fn is_subscription_token(api_key: &str) -> bool {
     api_key.contains("sk-ant-oat")
 }
 
@@ -358,17 +353,15 @@ struct ClientInputs<'a> {
     fetch: Option<&'a FetchFunction>,
     dynamic_headers: Option<&'a ProviderHeaders>,
     session_id: Option<&'a str>,
-    /// The client version a subscription (OAuth) request sends.
-    client_version: &'a str,
     federation: Option<&'a AnthropicFederationConfig>,
 }
 
-/// TS `createClient`: the client and whether the key is an OAuth token.
-fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) {
+/// TS `createClient`.
+fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> SdkClient {
     let model_headers = model.headers.as_ref().map(to_provider_headers);
     let fetch = inputs.fetch.cloned();
     if model.provider == "github-copilot" {
-        let client = SdkClient {
+        return SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Static {
                 api_key: None,
@@ -382,39 +375,6 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
             ]),
             fetch,
         };
-        return (client, false);
-    }
-
-    if let Some(api_key) = inputs.api_key.filter(|key| is_oauth_token(key)) {
-        let mut identity = browser_headers();
-        identity.insert(
-            "user-agent".into(),
-            Some(format!(
-                "claude-cli/{} (external, cli)",
-                inputs.client_version
-            )),
-        );
-        identity.insert("x-app".into(), Some("cli".into()));
-        if let Some(session_id) = inputs.session_id.filter(|id| !id.is_empty()) {
-            identity.insert(
-                "x-claude-code-session-id".into(),
-                Some(session_id.to_owned()),
-            );
-        }
-        let client = SdkClient {
-            base_url: model.base_url.clone(),
-            auth: ClientAuth::Static {
-                api_key: None,
-                auth_token: Some(api_key.to_owned()),
-            },
-            default_headers: merge_client_headers(&[
-                Some(&identity),
-                model_headers.as_ref(),
-                inputs.options_headers,
-            ]),
-            fetch,
-        };
-        return (client, true);
     }
 
     let compat = get_anthropic_compat(model);
@@ -436,15 +396,14 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
     ]);
     if let Some(federation) = inputs.federation {
         let auth = federation::federation_auth(&model.base_url, federation, inputs.fetch);
-        let client = SdkClient {
+        return SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Federation(auth),
             default_headers,
             fetch,
         };
-        return (client, false);
     }
-    let client = SdkClient {
+    SdkClient {
         base_url: model.base_url.clone(),
         auth: ClientAuth::Static {
             api_key: inputs.api_key.map(str::to_owned),
@@ -452,8 +411,7 @@ fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) 
         },
         default_headers,
         fetch,
-    };
-    (client, false)
+    }
 }
 
 /// The failure of a stream: the TS thrown error, plus the provider error
@@ -476,7 +434,7 @@ impl StreamFailure {
     }
 }
 
-fn empty_output(model: &Model) -> AssistantMessage {
+pub(crate) fn empty_output(model: &Model) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
         api: model.api.clone(),
@@ -521,25 +479,8 @@ pub fn stream(
     context: &TranscriptContext,
     options: ProviderStreamOptions,
 ) -> AssistantMessageEventStream {
-    stream_sharing(model, context, options, &ClientVersion::default())
-}
-
-/// [`stream`] sending `client_version` with a subscription token.
-fn stream_sharing(
-    model: &Model,
-    context: &TranscriptContext,
-    options: ProviderStreamOptions,
-    client_version: &ClientVersion,
-) -> AssistantMessageEventStream {
     match AnthropicOptions::from_provider_options(options) {
-        Ok(options) => stream_anthropic(
-            model,
-            context,
-            AnthropicOptions {
-                client_version: client_version.clone(),
-                ..options
-            },
-        ),
+        Ok(options) => stream_anthropic(model, context, options),
         Err(error) => error_stream(model, error.to_string()),
     }
 }
@@ -565,61 +506,75 @@ pub fn stream_anthropic(
     tokio::spawn(async move {
         let mut output = empty_output(&model);
         let result = run(&model, &normalized, &options, &mut output, &target).await;
-        let signal = options.stream.request.signal.as_ref();
-        match result {
-            Ok(()) => {
-                let reason = match output.stop_reason {
-                    StopReason::Length => DoneReason::Length,
-                    StopReason::ToolUse => DoneReason::ToolUse,
-                    StopReason::Deferred => DoneReason::Deferred,
-                    StopReason::Stop
-                    | StopReason::Pending
-                    | StopReason::Error
-                    | StopReason::Aborted => DoneReason::Stop,
-                };
-                target.push(AssistantMessageEvent::Done {
-                    reason,
-                    message: output.clone(),
-                });
-                target.end(Some(output));
-            }
-            Err(failure) => {
-                let aborted = signal.is_some_and(eukhe_chord::context::AbortSignal::aborted);
-                output.stop_reason = if aborted {
-                    StopReason::Aborted
-                } else {
-                    StopReason::Error
-                };
-                output.error_message = Some(failure.thrown.to_string());
-                let diagnostic = if aborted {
-                    crate::utils::stream_failure::ProviderError::Aborted
-                } else {
-                    *failure.diagnostic
-                };
-                record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
-                    &mut output,
-                    &diagnostic,
-                );
-                target.push(AssistantMessageEvent::Error {
-                    reason: if aborted {
-                        ErrorReason::Aborted
-                    } else {
-                        ErrorReason::Error
-                    },
-                    error: output.clone(),
-                });
-                target.end(Some(output));
-            }
-        }
+        settle(
+            &model,
+            output,
+            result,
+            options.stream.request.signal.as_ref(),
+            &target,
+        );
     });
     stream
 }
 
-/// The request and stream loop of TS `stream`. A subscription request the
-/// provider refuses for its client version sends again with the version the
-/// refusal names, once per newer version ([`client_version::refusal`]), and
-/// the provider's [`ClientVersion`] keeps it for its later requests.
+/// Ends `target` with the outcome of a request into `output`: `done`, or
+/// `error` with the failure (aborted when `signal` fired) recorded.
+pub(crate) fn settle(
+    model: &Model,
+    mut output: AssistantMessage,
+    result: Result<(), StreamFailure>,
+    signal: Option<&eukhe_chord::context::AbortSignal>,
+    target: &AssistantMessageEventStream,
+) {
+    match result {
+        Ok(()) => {
+            let reason = match output.stop_reason {
+                StopReason::Length => DoneReason::Length,
+                StopReason::ToolUse => DoneReason::ToolUse,
+                StopReason::Deferred => DoneReason::Deferred,
+                StopReason::Stop
+                | StopReason::Pending
+                | StopReason::Error
+                | StopReason::Aborted => DoneReason::Stop,
+            };
+            target.push(AssistantMessageEvent::Done {
+                reason,
+                message: output.clone(),
+            });
+            target.end(Some(output));
+        }
+        Err(failure) => {
+            let aborted = signal.is_some_and(eukhe_chord::context::AbortSignal::aborted);
+            output.stop_reason = if aborted {
+                StopReason::Aborted
+            } else {
+                StopReason::Error
+            };
+            output.error_message = Some(failure.thrown.to_string());
+            let diagnostic = if aborted {
+                crate::utils::stream_failure::ProviderError::Aborted
+            } else {
+                *failure.diagnostic
+            };
+            record_stream_failure(
+                (&model.provider, &model.id, &model.api),
+                &mut output,
+                &diagnostic,
+            );
+            target.push(AssistantMessageEvent::Error {
+                reason: if aborted {
+                    ErrorReason::Aborted
+                } else {
+                    ErrorReason::Error
+                },
+                error: output.clone(),
+            });
+            target.end(Some(output));
+        }
+    }
+}
+
+/// The request and stream loop of TS `stream`.
 async fn run(
     model: &Model,
     context: &TranscriptContext,
@@ -628,46 +583,9 @@ async fn run(
     stream: &AssistantMessageEventStream,
 ) -> Result<(), StreamFailure> {
     let request = &options.stream.request;
-    let mut version = options.client_version.current();
-    let (response, is_oauth) = loop {
-        let (client, is_oauth) = request_client(model, context, options, &version)?;
-        let params = request_params(model, context, is_oauth, &version, options, output).await?;
-        let failure = match events::send_with_retries(&client, params, options).await {
-            Ok(response) => break (response, is_oauth),
-            Err(failure) => failure,
-        };
-        if !is_oauth {
-            return Err(failure);
-        }
-        let detail = failure.thrown.to_string();
-        match client_version::refusal(&detail, &version) {
-            Refusal::Other => return Err(failure),
-            Refusal::Retry { required } => {
-                tracing::warn!(
-                    model = %model.id,
-                    sent = %version,
-                    required = %required,
-                    "client version refused: sending again with the required version"
-                );
-                options.client_version.learn(&required);
-                version = required;
-            }
-            Refusal::Final { required } => {
-                return Err(StreamFailure {
-                    thrown: ErrorObject::new(client_version::refusal_message(
-                        &version,
-                        required.as_deref(),
-                        &detail,
-                    ))
-                    .thrown(),
-                    diagnostic: failure.diagnostic,
-                });
-            }
-        }
-    };
-    if let Some(token) = request.api_key.as_deref().filter(|_| is_oauth) {
-        crate::quota::record_anthropic_headers(&model.provider, token, response.headers());
-    }
+    let client = request_client(model, context, options)?;
+    let params = request_params(model, context, options, output).await?;
+    let response = events::send_with_retries(&client, params, options).await?;
     if let Some(on_response) = &request.on_response {
         on_response(
             crate::types::ProviderResponse {
@@ -680,32 +598,24 @@ async fn run(
         .map_err(StreamFailure::plain)?;
     }
     stream.push_partial(output, |partial| AssistantMessageEvent::Start { partial });
-    let current_tools = get_current_tools(context.messages());
-    events::consume(
-        model,
-        response,
-        options,
-        is_oauth,
-        &current_tools,
-        output,
-        stream,
-    )
-    .await
+    events::consume(model, response, options, output, stream).await
 }
 
-/// The SDK client of one send, and whether it sends a subscription (OAuth)
-/// token (with `version` as its client version).
+/// The SDK client of one send. A Claude subscription token in the API-key
+/// slot fails with [`CLAUDE_LOGIN_MOVED`] before anything is sent.
 fn request_client(
     model: &Model,
     context: &TranscriptContext,
     options: &AnthropicOptions,
-    version: &str,
-) -> Result<(SdkClient, bool), StreamFailure> {
+) -> Result<SdkClient, StreamFailure> {
     if let Some(client) = &options.client {
-        return Ok((client.inner.clone(), false));
+        return Ok(client.inner.clone());
     }
     let request = &options.stream.request;
     let api_key = request.api_key.as_deref();
+    if api_key.is_some_and(is_subscription_token) {
+        return Err(StreamFailure::message(CLAUDE_LOGIN_MOVED));
+    }
     let federation = get_anthropic_federation(
         model,
         api_key,
@@ -740,7 +650,6 @@ fn request_client(
             fetch: request.fetch.as_ref(),
             dynamic_headers: copilot_headers.as_ref(),
             session_id: cache_session_id,
-            client_version: version,
             federation: federation.as_ref(),
         },
     ))
@@ -752,14 +661,11 @@ fn request_client(
 async fn request_params(
     model: &Model,
     context: &TranscriptContext,
-    is_oauth: bool,
-    version: &str,
     options: &AnthropicOptions,
     output: &mut AssistantMessage,
 ) -> Result<JsonObject, StreamFailure> {
     let (mut params, recorded_effort) =
-        params::build_params(model, context.messages(), is_oauth, version, options)
-            .map_err(StreamFailure::plain)?;
+        params::build_params(model, context.messages(), options).map_err(StreamFailure::plain)?;
     // The effort controls this request leaves in force, replayed by the next.
     output.provider_thinking_level = recorded_effort;
     if let Some(on_payload) = &options.stream.request.on_payload {
@@ -801,17 +707,14 @@ pub fn stream_simple(
     context: &TranscriptContext,
     options: &SimpleStreamOptions,
 ) -> AssistantMessageEventStream {
-    stream_simple_sharing(model, context, options, &ClientVersion::default())
-}
-
-/// [`stream_simple`] sending `client_version` with a subscription token.
-fn stream_simple_sharing(
-    model: &Model,
-    context: &TranscriptContext,
-    options: &SimpleStreamOptions,
-    client_version: &ClientVersion,
-) -> AssistantMessageEventStream {
     let request = &options.stream.request;
+    if request
+        .api_key
+        .as_deref()
+        .is_some_and(is_subscription_token)
+    {
+        return error_stream(model, CLAUDE_LOGIN_MOVED.to_owned());
+    }
     if get_anthropic_federation(
         model,
         request.api_key.as_deref(),
@@ -856,7 +759,6 @@ fn stream_simple_sharing(
                 stream: base,
                 thinking_enabled: Some(false),
                 tool_choice,
-                client_version: client_version.clone(),
                 ..AnthropicOptions::default()
             },
         );
@@ -872,7 +774,6 @@ fn stream_simple_sharing(
                 thinking_enabled: Some(true),
                 effort: Some(effort),
                 tool_choice,
-                client_version: client_version.clone(),
                 ..AnthropicOptions::default()
             },
         );
@@ -902,32 +803,17 @@ fn stream_simple_sharing(
             // rulebook's `budget_effort`).
             effort: Some(map_thinking_level_to_effort(model, reasoning)),
             tool_choice,
-            client_version: client_version.clone(),
             ..AnthropicOptions::default()
         },
     )
 }
 
-/// The `anthropic-messages` module (no deferred responses), its requests
-/// sharing a fresh [`ClientVersion`].
+/// The `anthropic-messages` module (no deferred responses).
 #[must_use]
 pub fn streams() -> ProviderStreams {
-    streams_sharing(ClientVersion::default())
-}
-
-/// The `anthropic-messages` module whose subscription requests share
-/// `client_version`: a version one refused request learns, the later ones
-/// send.
-#[must_use]
-pub fn streams_sharing(client_version: ClientVersion) -> ProviderStreams {
-    let simple_version = client_version.clone();
     ProviderStreams {
-        stream: Arc::new(move |model, context, options| {
-            stream_sharing(model, context, options, &client_version)
-        }),
-        stream_simple: Arc::new(move |model, context, options| {
-            stream_simple_sharing(model, context, &options, &simple_version)
-        }),
+        stream: Arc::new(stream),
+        stream_simple: Arc::new(|model, context, options| stream_simple(model, context, &options)),
         fetch_deferred: None,
         cancel_deferred: None,
     }

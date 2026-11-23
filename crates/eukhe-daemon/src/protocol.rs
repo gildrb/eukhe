@@ -148,7 +148,6 @@ pub const KNOWN_COMMAND_TYPES: &[&str] = &[
     "get_mcp_connections",
     "set_mcp_static_token",
     "remove_mcp_connection",
-    "mark_anthropic_warning_shown",
     "get_chat_view",
     "get_memory",
     "get_memory_tree",
@@ -1007,9 +1006,6 @@ pub fn command_active_session_id(command: &DaemonCommand) -> Option<&str> {
         | DaemonCommand::SetSessionEntryLabel {
             active_session_id, ..
         }
-        | DaemonCommand::MarkAnthropicWarningShown {
-            active_session_id, ..
-        }
         | DaemonCommand::AgentReply {
             active_session_id, ..
         }
@@ -1214,7 +1210,6 @@ pub fn command_type_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::UnsubscribeStateTree { .. } => "unsubscribe_state_tree",
         DaemonCommand::GetToolDefinition { .. } => "get_tool_definition",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
-        DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
         DaemonCommand::AgentReply { .. } => "agent_reply",
         DaemonCommand::AckResult { .. } => "ack_result",
         DaemonCommand::RetryWorker { .. } => "retry_worker",

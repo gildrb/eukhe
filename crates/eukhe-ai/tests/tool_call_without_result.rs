@@ -475,15 +475,6 @@ tool_call_case!(
     )
 );
 tool_call_case!(
-    anthropic_oauth_should_filter_out_tool_calls_without_corresponding_tool_results,
-    "needs PI_TEST_ANTHROPIC_TOKEN; run with --ignored",
-    Target::new(
-        "anthropic",
-        "claude-haiku-4-5",
-        Auth::OAuthToken("anthropic")
-    )
-);
-tool_call_case!(
     github_copilot_claude_haiku_4_5_should_filter_out_tool_calls_without_corresponding_tool_results,
     "needs PI_TEST_GITHUB_COPILOT_TOKEN; run with --ignored",
     Target::new(

@@ -627,8 +627,6 @@ impl SessionUi {
                         .unwrap_or_default();
                     self.note(&all_roles_note(&selector, &overrides), view);
                 }
-                self.maybe_warn_anthropic_subscription_auth_if_subscribed(Some(provider), view)
-                    .await;
                 SetModelOutcome::Switched
             }
             Err(error) => {

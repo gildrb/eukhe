@@ -1,7 +1,6 @@
 //! Built-in OAuth flows and their shared pieces (PKCE, loopback callback
 //! server, device-code polling). Port of `auth/oauth/*`.
 
-mod anthropic;
 mod callback_server;
 mod device_code;
 pub(crate) mod github_copilot;
@@ -21,7 +20,6 @@ mod xai;
 
 use std::sync::Arc;
 
-pub use anthropic::anthropic_oauth;
 pub use callback_server::{
     start_oauth_callback_server, wait_for_callback_or_manual_input, CallbackOrManual, CompleteFn,
     OAuthCallbackServer, OAuthCallbackServerOptions,
@@ -34,9 +32,8 @@ pub use github_copilot::{get_github_copilot_base_url, github_copilot_oauth};
 pub use identity::{oauth_identity, EMAIL_EXTRA, ORGANIZATION_EXTRA};
 pub use kimi_coding::kimi_coding_oauth;
 pub use load::{
-    load_anthropic_oauth, load_github_copilot_oauth, load_kimi_coding_oauth, load_meta_oauth,
-    load_openai_chatgpt_oauth, load_openai_codex_oauth, load_openrouter_oauth, load_radius_oauth,
-    load_xai_oauth,
+    load_github_copilot_oauth, load_kimi_coding_oauth, load_meta_oauth, load_openai_chatgpt_oauth,
+    load_openai_codex_oauth, load_openrouter_oauth, load_radius_oauth, load_xai_oauth,
 };
 pub use meta::meta_oauth;
 pub use openai_chatgpt::openai_chatgpt_oauth;
@@ -47,7 +44,6 @@ pub use radius::{create_radius_oauth, RadiusOAuthOptions};
 pub use xai::xai_oauth;
 
 use crate::auth::types::ModelAuth;
-use crate::utils::diagnostics::Thrown;
 
 /// A code (and state) pasted by the user.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -57,7 +53,7 @@ pub(crate) struct AuthorizationInput {
 }
 
 /// Parse a pasted redirect URL, `code#state`, query string, or bare code
-/// (the `parseAuthorizationInput` shared by the Anthropic and Codex flows).
+/// (TS `parseAuthorizationInput`).
 pub(crate) fn parse_authorization_input(input: &str) -> AuthorizationInput {
     let value = input.trim();
     if value.is_empty() {
@@ -119,11 +115,6 @@ pub(crate) fn api_key_auth(access: &str) -> ModelAuth {
         api_key: Some(access.to_owned()),
         ..ModelAuth::default()
     }
-}
-
-/// The JS `error.name` of a thrown value.
-pub(crate) fn error_name(error: &Thrown) -> String {
-    crate::utils::diagnostics::error_name(error.as_ref())
 }
 
 /// `Arc` of a fresh flow, the TS module-level `const xOAuth: OAuthAuth`.

@@ -1,6 +1,6 @@
 //! Daemon-owned session metadata kept in the durable storage: the session
-//! name (`rename` / `set_session_name`) and the once-per-session Anthropic
-//! warning marker. One session-scope document, `eukhe.daemon.session`.
+//! name (`rename` / `set_session_name`), the archive marker and the RLM
+//! lineage. One session-scope document, `eukhe.daemon.session`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -21,8 +21,6 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) name: Option<String>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) anthropic_warning_shown: bool,
     /// A `kill` (not a `shutdown`) archived the session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) archived: bool,
@@ -103,27 +101,6 @@ pub(crate) async fn set_session_name(
                 } else {
                     assign_json(&draft, "name", &value)?;
                 }
-                Ok(())
-            },
-            cx,
-        )
-        .await
-}
-
-/// Record that the session showed the Anthropic warning.
-///
-/// # Errors
-///
-/// The commit fails.
-pub(crate) async fn mark_anthropic_warning_shown(
-    harness: &Harness,
-    cx: &Context,
-) -> SessionResult<()> {
-    harness
-        .commit(
-            move |tx| async move {
-                let draft = tx.doc(&SESSION_META_DOC, ()).await?;
-                assign_json(&draft, "anthropicWarningShown", &JsonValue::Bool(true))?;
                 Ok(())
             },
             cx,

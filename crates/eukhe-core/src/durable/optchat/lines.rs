@@ -298,6 +298,8 @@ fn classify_custom(custom_type: &str) -> CustomRow {
         | crate::durable::rlm::kernel_unavailable_notice::KERNEL_UNAVAILABLE_CUSTOM_TYPE
         | "session_slash_command"
         | "session_slash_command_result"
+        // Legacy: the once-per-session subscription warning marker older
+        // sessions still carry.
         | "anthropic_subscription_warning_shown"
         | crate::agent_messaging::AGENT_REPLY_OWED_CUSTOM_TYPE
         | crate::durable::settings::SETTINGS_ERROR_CUSTOM_TYPE

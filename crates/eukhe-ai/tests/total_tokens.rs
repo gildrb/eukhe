@@ -279,21 +279,6 @@ async fn anthropic_api_key_claude_sonnet_4_5_should_return_total_tokens_equal_to
     .await;
 }
 
-#[tokio::test]
-#[ignore = "needs PI_TEST_ANTHROPIC_TOKEN (Anthropic OAuth); run with --ignored"]
-async fn anthropic_oauth_claude_sonnet_4_should_return_total_tokens_equal_to_sum_of_components() {
-    let token = oauth_token("anthropic");
-    let llm = model("anthropic", "claude-sonnet-4-6");
-    run(
-        "Anthropic OAuth",
-        &llm,
-        Some(&token),
-        &json!({}),
-        CacheActivity::Expected,
-    )
-    .await;
-}
-
 // OpenAI
 
 #[tokio::test]

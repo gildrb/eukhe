@@ -972,7 +972,6 @@ impl Worker {
                 core.session_id = hosted.session_id().to_string();
                 core.session_dir = hosted.storage_dir().map(Path::to_path_buf);
                 core.session_name = session_meta.name;
-                core.anthropic_warning_shown = session_meta.anthropic_warning_shown;
                 core.created_at = Some(crate::util::iso_from_unix_ms(crate::util::now_ms()));
                 core.cwd.clone_from(&params.cwd);
                 core.rlm_depth = params.rlm_depth.unwrap_or(0);

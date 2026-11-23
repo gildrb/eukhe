@@ -826,7 +826,6 @@ pub(crate) fn session_summary(
         accounts: std::collections::BTreeMap::new(),
         runtime_kind: Some(core.runtime_kind.clone()),
         unfinished_action_count: Some(0),
-        anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
         workers: view
             .map(|view| view.workers.clone())
             .filter(|workers| !workers.is_empty()),

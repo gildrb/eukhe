@@ -36,7 +36,6 @@ const TAB_LAYOUT: &[TabLayout] = &[
             "steering-mode",
             "follow-up-mode",
             "quiet-startup",
-            "warnings",
         ],
     },
     TabLayout {

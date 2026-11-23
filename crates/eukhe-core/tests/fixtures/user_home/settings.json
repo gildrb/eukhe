@@ -52,9 +52,6 @@
   "trustedProjects": [
     "/home/user/project"
   ],
-  "warnings": {
-    "anthropicExtraUsage": false
-  },
   "defaultProvider": "anthropic",
   "defaultModel": "claude-fable-5",
   "recentModels": [

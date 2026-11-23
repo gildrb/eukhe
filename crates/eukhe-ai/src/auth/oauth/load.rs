@@ -10,8 +10,8 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::{
-    anthropic_oauth, create_radius_oauth, github_copilot_oauth, kimi_coding_oauth, meta_oauth,
-    open_router_oauth, openai_chatgpt_oauth, openai_codex_oauth, xai_oauth, RadiusOAuthOptions,
+    create_radius_oauth, github_copilot_oauth, kimi_coding_oauth, meta_oauth, open_router_oauth,
+    openai_chatgpt_oauth, openai_codex_oauth, xai_oauth, RadiusOAuthOptions,
 };
 use crate::auth::types::OAuthAuth;
 use crate::utils::diagnostics::Thrown;
@@ -20,12 +20,6 @@ type Loaded = BoxFuture<'static, Result<Arc<dyn OAuthAuth>, Thrown>>;
 
 fn ready(auth: Arc<dyn OAuthAuth>) -> Loaded {
     Box::pin(async move { Ok(auth) })
-}
-
-/// Loads [`anthropic_oauth`].
-#[must_use]
-pub fn load_anthropic_oauth() -> Loaded {
-    ready(anthropic_oauth())
 }
 
 /// Loads [`openai_codex_oauth`].

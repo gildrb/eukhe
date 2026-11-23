@@ -522,10 +522,6 @@ const WIRE_FIXTURES: &[(&str, &str)] = &[
         r#"{"type": "get_mcp_connections", "activeSessionId": "sess"}"#,
     ),
     (
-        "mark_anthropic_warning_shown",
-        r#"{"type": "mark_anthropic_warning_shown", "activeSessionId": "sess"}"#,
-    ),
-    (
         "get_chat_view",
         r#"{"type": "get_chat_view", "activeSessionId": "sess"}"#,
     ),
@@ -667,7 +663,6 @@ fn known_command_types_match_the_ts_list() {
                     | "answer_editor_permission"
                     | "relay_editor_permission"
                     | "relay_ran_effect"
-                    | "mark_anthropic_warning_shown"
                     | "get_chat_view"
                     | "get_memory"
                     | "get_memory_tree"

@@ -843,18 +843,6 @@ async fn run_oauth(case: Case, provider: &str, id: &str) {
 }
 
 #[tokio::test]
-#[ignore = "needs PI_TEST_ANTHROPIC_TOKEN (Anthropic OAuth); run with --ignored"]
-async fn anthropic_oauth_should_handle_tool_result_with_only_image() {
-    run_oauth(Case::OnlyImage, "anthropic", "claude-sonnet-4-5").await;
-}
-
-#[tokio::test]
-#[ignore = "needs PI_TEST_ANTHROPIC_TOKEN (Anthropic OAuth); run with --ignored"]
-async fn anthropic_oauth_should_handle_tool_result_with_text_and_image() {
-    run_oauth(Case::TextAndImage, "anthropic", "claude-sonnet-4-5").await;
-}
-
-#[tokio::test]
 #[ignore = "needs PI_TEST_GITHUB_COPILOT_TOKEN; run with --ignored"]
 async fn github_copilot_claude_haiku_4_5_should_handle_tool_result_with_only_image() {
     run_oauth(Case::OnlyImage, "github-copilot", "claude-haiku-4.5").await;

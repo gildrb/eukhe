@@ -13,8 +13,8 @@ use eukhe_types::pi_ai::{
 use serde_json::json;
 
 use super::{
-    adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
-    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT,
+    adaptive_only_thinking, get_anthropic_compat, model_compat, AnthropicOptions,
+    AnthropicToolChoice, ADAPTIVE_TAG_EFFORT,
 };
 use crate::api::cache_breakpoints::{
     has_assistant_cache_breakpoint, has_cache_breakpoint, placed_marks,
@@ -40,46 +40,6 @@ const SERVER_SIDE_FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 const MID_CONVERSATION_OUTPUT_CONFIG_BETA: &str = "mid-conversation-output-config-2026-07-01";
 const THINKING_BINDING_CONTROLS_BETA: &str = "thinking-binding-controls-2026-08-01";
 const INLINE_TOOLS_BETA: &str = "inline-tools-2026-09-15";
-
-/// Claude Code 2.x tool names (canonical casing).
-const CLAUDE_CODE_TOOLS: [&str; 17] = [
-    "Read",
-    "Write",
-    "Edit",
-    "Bash",
-    "Grep",
-    "Glob",
-    "AskUserQuestion",
-    "EnterPlanMode",
-    "ExitPlanMode",
-    "KillShell",
-    "NotebookEdit",
-    "Skill",
-    "Task",
-    "TaskOutput",
-    "TodoWrite",
-    "WebFetch",
-    "WebSearch",
-];
-
-/// TS `toClaudeCodeName`: CC canonical casing when the name matches
-/// case-insensitively.
-pub(crate) fn to_claude_code_name(name: &str) -> String {
-    let lower = name.to_lowercase();
-    CLAUDE_CODE_TOOLS
-        .iter()
-        .find(|tool| tool.to_lowercase() == lower)
-        .map_or_else(|| name.to_owned(), |tool| (*tool).to_owned())
-}
-
-/// TS `fromClaudeCodeName`.
-pub(crate) fn from_claude_code_name(name: &str, tools: &[Tool]) -> String {
-    let lower = name.to_lowercase();
-    tools
-        .iter()
-        .find(|tool| tool.name.to_lowercase() == lower)
-        .map_or_else(|| name.to_owned(), |tool| tool.name.clone())
-}
 
 /// TS `resolveCacheRetention`: defaults to short; `PI_CACHE_RETENTION=long`
 /// for backward compatibility.
@@ -217,7 +177,6 @@ struct ConvertedMessages {
 
 /// Settings of [`convert_messages`].
 struct ConvertSettings<'a> {
-    is_oauth_token: bool,
     cache_control: Option<&'a JsonValue>,
     allow_empty_signature: bool,
     managed_provider: Option<&'a str>,
@@ -262,19 +221,13 @@ fn convert_messages(
                         if redefined.contains(tool.name.as_str()) {
                             continue;
                         }
-                        let name = if settings.is_oauth_token {
-                            to_claude_code_name(&tool.name)
-                        } else {
-                            tool.name.clone()
-                        };
                         blocks.push(json!({
                             "type": "tool_removal",
-                            "tool": { "type": "tool_reference", "name": name },
+                            "tool": { "type": "tool_reference", "name": tool.name },
                         }));
                     }
                     for definition in convert_tools(
                         &added,
-                        settings.is_oauth_token,
                         native.supports_eager_tool_input_streaming,
                         native.strict,
                         None,
@@ -373,15 +326,10 @@ fn convert_messages(
                             });
                         }
                         AssistantContentBlock::ToolCall(call) => {
-                            let name = if settings.is_oauth_token {
-                                to_claude_code_name(&call.name)
-                            } else {
-                                call.name.clone()
-                            };
                             blocks.push(json!({
                                 "type": "tool_use",
                                 "id": call.id,
-                                "name": name,
+                                "name": call.name,
                                 "input": call.arguments,
                             }));
                         }
@@ -661,7 +609,6 @@ fn is_anthropic_strict_unsupported_keyword(key: &str, value: &JsonValue) -> bool
 /// TS `convertTools`.
 pub(crate) fn convert_tools(
     tools: &[Tool],
-    is_oauth_token: bool,
     supports_eager_tool_input_streaming: bool,
     strict_plan: &StrictPlan,
     cache_control: Option<&JsonValue>,
@@ -702,12 +649,7 @@ pub(crate) fn convert_tools(
                 json!({ "type": "object", "properties": properties, "required": required })
             };
             let mut converted = JsonObject::new();
-            let name = if is_oauth_token {
-                to_claude_code_name(&tool.name)
-            } else {
-                tool.name.clone()
-            };
-            converted.insert("name".into(), name.into());
+            converted.insert("name".into(), tool.name.clone().into());
             converted.insert("description".into(), tool.description.clone().into());
             if supports_eager_tool_input_streaming {
                 converted.insert("eager_input_streaming".into(), true.into());
@@ -738,7 +680,6 @@ fn deferred_tool_placeholder() -> JsonValue {
 fn get_beta_features(
     model: &Model,
     messages: &[Message],
-    is_oauth_token: bool,
     native_tool_changes: bool,
     thinking_binding: bool,
     options: &AnthropicOptions,
@@ -776,10 +717,6 @@ fn get_beta_features(
     }
     let compat = model_compat(model);
     let mut features: Vec<String> = Vec::new();
-    if is_oauth_token {
-        features.push("claude-code-20250219".into());
-        features.push("oauth-2025-04-20".into());
-    }
     if !get_current_tools(messages).is_empty()
         && !get_anthropic_compat(model).supports_eager_tool_input_streaming
     {
@@ -813,8 +750,7 @@ fn get_beta_features(
 
 /// TS `buildParams`; also returns what the reply of a per-message-effort
 /// model records in `providerThinkingLevel` (the effort the request left in
-/// force, or [`NO_EFFORT`]); `None` for other models. An OAuth token's
-/// billing header carries `client_version`.
+/// force, or [`NO_EFFORT`]); `None` for other models.
 ///
 /// eukhe addition: marked user blocks spend cache-mark slots first; the
 /// optional marks take the slots left, in this order
@@ -826,8 +762,6 @@ fn get_beta_features(
 pub(crate) fn build_params(
     model: &Model,
     messages: &[Message],
-    is_oauth_token: bool,
-    client_version: &str,
     options: &AnthropicOptions,
 ) -> Result<(JsonObject, Option<String>), Thrown> {
     let cache_control = get_cache_control(
@@ -885,7 +819,6 @@ pub(crate) fn build_params(
     let converted = convert_messages(
         conversation,
         &ConvertSettings {
-            is_oauth_token,
             cache_control: cache_control.as_ref(),
             allow_empty_signature: compat.allow_empty_signature,
             managed_provider: mid_convo_effort.then_some(model.provider.as_str()),
@@ -942,7 +875,6 @@ pub(crate) fn build_params(
     let betas = get_beta_features(
         model,
         messages,
-        is_oauth_token,
         native_tool_changes,
         effort_thinking
             .as_ref()
@@ -982,20 +914,6 @@ pub(crate) fn build_params(
         block
     };
     let mut system = Vec::new();
-    if is_oauth_token {
-        // Claude Code's billing attribution opens `system`, uncached; the
-        // client patches its `cch` into the serialized body. The identity
-        // block after it is too short to be worth a mark.
-        let first_user_text = params
-            .get("messages")
-            .and_then(JsonValue::as_array)
-            .map_or("", |messages| billing::first_user_text(messages));
-        system.push(json!({
-            "type": "text",
-            "text": billing::billing_header(first_user_text, client_version),
-        }));
-        system.push(json!({ "type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT }));
-    }
     for (text, marked) in [(&system_prefix, prefix_mark), (&system_tail, tail_mark)] {
         if !text.is_empty() {
             system.push(system_block(&sanitize_surrogates(text), marked));
@@ -1021,7 +939,6 @@ pub(crate) fn build_params(
     if native_tool_changes {
         let mut tools = convert_tools(
             &initial_tools,
-            is_oauth_token,
             compat.supports_eager_tool_input_streaming,
             &strict,
             tools_cache,
@@ -1033,7 +950,6 @@ pub(crate) fn build_params(
             "tools".into(),
             JsonValue::Array(convert_tools(
                 &request_tools,
-                is_oauth_token,
                 compat.supports_eager_tool_input_streaming,
                 &strict,
                 tools_cache,
@@ -1215,11 +1131,5 @@ mod tests {
         assert_eq!(normalize_tool_call_id("call|abc.def"), "call_abc_def");
         assert_eq!(normalize_tool_call_id(&"a".repeat(70)), "a".repeat(64));
         assert_eq!(normalize_tool_call_id("x😀"), "x__");
-    }
-
-    #[test]
-    fn claude_code_names() {
-        assert_eq!(to_claude_code_name("todowrite"), "TodoWrite");
-        assert_eq!(to_claude_code_name("custom"), "custom");
     }
 }

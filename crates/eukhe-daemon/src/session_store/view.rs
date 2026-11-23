@@ -18,33 +18,7 @@ const CONTENT_ENTRY_TYPES: &[&str] = &[
     "branch_summary",
 ];
 
-/// Whether `entry` is the session's Anthropic subscription warning shown
-/// marker: a `custom` row carrying
-/// [`eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`] with
-/// `data.shown == true` (the once-per-session-lifecycle gate's persisted
-/// state).
-pub(crate) fn is_warning_shown_row(entry: &SessionEntry) -> bool {
-    entry.type_ == "custom"
-        && entry.fields.get("customType").and_then(Value::as_str)
-            == Some(eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE)
-        && entry
-            .fields
-            .get("data")
-            .and_then(|data| data.get("shown"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-}
-
 impl SessionFile {
-    /// Whether this session has already drawn the Anthropic subscription
-    /// ban-risk warning (the once-per-session-lifecycle gate): hydrated from
-    /// the persisted marker row at open; `get_state` serves it as
-    /// `SessionSummary::anthropic_warning_shown`.
-    #[must_use]
-    pub fn anthropic_warning_shown(&self) -> bool {
-        self.anthropic_warning_shown
-    }
-
     #[must_use]
     pub fn entries(&self) -> &[SessionEntry] {
         &self.entries

@@ -6,7 +6,7 @@
 //! the chat APIs `anthropic-messages`, `openai-completions`,
 //! `openai-responses`, `azure-openai-responses`, `openai-codex-responses`,
 //! `google-generative-ai`, `google-vertex`, `mistral-conversations`,
-//! `bedrock-converse-stream`, and `pi-messages`; the image API
+//! `bedrock-converse-stream`, `pi-messages`, and `claude-code`; the image API
 //! `openrouter-images`; and the classifier APIs `typesafe-system-one`,
 //! `cloudflare-workers-ai-system-one`, `llama-cpp-classify`, and
 //! `openai-decisions`. Every model names its API in `model.api`.
@@ -70,6 +70,7 @@ pub mod bedrock_converse_stream;
 pub mod builtin;
 pub mod cache_breakpoints;
 pub(crate) mod classifier_shared;
+pub mod claude_code;
 pub mod cloudflare_ai_binding;
 pub mod cloudflare_workers_ai_system_one;
 pub mod constrained_sampling;

@@ -1096,7 +1096,7 @@ async fn prompt_sections_join_to_the_old_system_prompt() {
     session.close(cx()).await.expect("close");
 }
 
-/// The Anthropic Messages body an OAuth client sends for a request the
+/// The Anthropic Messages body an API-key client sends for a request the
 /// faux provider captured: the payload hook keeps it and fails the request
 /// before anything goes out.
 pub(crate) async fn anthropic_body(
@@ -1108,7 +1108,7 @@ pub(crate) async fn anthropic_body(
     let payload: Arc<Mutex<Option<serde_json::Value>>> = Arc::default();
     let sink = Arc::clone(&payload);
     let mut options = options.clone();
-    options.stream.request.api_key = Some("sk-ant-oat-test".to_owned());
+    options.stream.request.api_key = Some("sk-ant-api-test".to_owned());
     options.stream.request.on_payload = Some(Arc::new(move |body, _model| {
         *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(body);
         Box::pin(async {
@@ -1173,9 +1173,9 @@ async fn sessions_in_two_projects_send_one_marked_prompt_prefix() {
     let [(_, _, alpha), (_, _, beta)] = &systems[..] else {
         panic!("two sessions");
     };
-    // Billing, identity, the shared prefix, the project's tail: the prefix
-    // is byte for byte the same block, marked at the same position.
-    assert_eq!(alpha[2], beta[2]);
+    // The shared prefix, the project's tail: the prefix is byte for byte
+    // the same block, marked at the same position.
+    assert_eq!(alpha[0], beta[0]);
     for (project, cwd, system) in &systems {
         let marked: Vec<usize> = system
             .iter()
@@ -1183,11 +1183,11 @@ async fn sessions_in_two_projects_send_one_marked_prompt_prefix() {
             .filter(|(_, block)| block.get("cache_control").is_some())
             .map(|(at, _)| at)
             .collect();
-        assert_eq!(marked, vec![2, 3], "{project}: {system:?}");
+        assert_eq!(marked, vec![0, 1], "{project}: {system:?}");
         let text = |at: usize| system[at]["text"].as_str().expect("text").to_owned();
         let cwd = cwd.display().to_string();
-        assert!(!text(2).contains("Rules of") && !text(2).contains(&cwd));
-        assert!(text(3).contains(&format!("Rules of {project}.")) && text(3).contains(&cwd));
+        assert!(!text(0).contains("Rules of") && !text(0).contains(&cwd));
+        assert!(text(1).contains(&format!("Rules of {project}.")) && text(1).contains(&cwd));
     }
 }
 

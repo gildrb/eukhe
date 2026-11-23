@@ -122,12 +122,6 @@ const EXIT_DETACH_TIMEOUT_MS: u64 = 600;
 /// best-effort like the detach, never able to hold the exit open.
 const EXIT_STATS_TIMEOUT_MS: u64 = 500;
 
-/// TS `ANTHROPIC_SUBSCRIPTION_AUTH_WARNING` (auth-flows.ts, #2645): the
-/// ban-risk warning a completed Anthropic subscription login shows once
-/// per session (the settings toggle `warnings.anthropicExtraUsage`
-/// gates it).
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING: &str = "Anthropic subscription auth is active. Usage draws from your plan limits, but Eukhe identifies as Claude Code and this may violate Anthropic's terms -- your account can be restricted or banned. An Anthropic API key avoids the risk. Manage usage at https://claude.ai/settings/usage.";
-
 /// A landed `get_commands` refresh (TS `refreshCommandCatalogForCurrentSession`
 /// over `connectionCommands`): the session's `skill:` commands for the
 /// autocomplete provider. A response from an older refresh (a rebind raced
@@ -241,19 +235,6 @@ pub(crate) struct SessionUi {
     /// The client-process settings seam (`/settings`);
     /// the composition root supplies it.
     client_settings: Option<std::sync::Arc<dyn crate::client_settings::ClientSettings>>,
-    /// The ban-risk warning's view-local dedup (TS
-    /// `anthropicSubscriptionWarningShown`): this VIEW's own
-    /// once-per-instance gate. The once-per-SESSION-lifecycle gate (the
-    /// operator 2026-09-29 fix for the every-open re-warn) is the
-    /// daemon-side marker read through `get_state` -- see
-    /// [`Self::anthropic_warning_already_shown`] and
-    /// [`Self::mark_anthropic_warning_shown`].
-    anthropic_subscription_warning_shown: bool,
-    /// The in-flight `mark_anthropic_warning_shown` fire-and-forget: set
-    /// when the mark task is spawned, cleared by the task itself at its
-    /// end (ack, error, or bound) -- the headless exit gate reads it so a
-    /// scripted run never ends with the durable write still in flight.
-    anthropic_warning_mark_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The side-question run currently streaming (TS `activeSideQuestionId`):
     /// at most one run per client, exactly like the daemon enforces.
     active_side_question_id: Option<String>,
@@ -780,27 +761,6 @@ impl SessionUi {
         if was_pending && !view.editor.has_pending_autocomplete() {
             self.dirty = true;
         }
-    }
-
-    /// The active model's provider from the daemon's state (TS
-    /// `getCurrentModel().provider`); best-effort, silent on failure.
-    pub(crate) async fn current_model_provider(&mut self) -> Option<String> {
-        let state = self
-            .bounded_request(
-                Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
-                DaemonCommand::GetState {
-                    id: None,
-                    active_session_id: self.active_session_id.clone(),
-                    rest: Map::default(),
-                },
-            )
-            .await
-            .ok()?;
-        state
-            .get("model")?
-            .get("provider")?
-            .as_str()
-            .map(str::to_string)
     }
 
     /// One daemon request with a hard await cap: the UI loop only ever

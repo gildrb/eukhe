@@ -85,13 +85,7 @@ filter = 'binary_id(eukhe-cli::packaged_layout_e2e)'
 test-group = "packaged-layout"
 
 [[profile.default.overrides]]
-filter = 'package(eukhe-cli) & binary(/^(chat_open_first_frame_pty|input_live_open_pty|kitty_early_typing|kitty_exit_routes|kitty_verdict_time|suspend_signal|terminal_state_differential|anthropic_remote_login_pty|slash_completion_pty|irreversible_pty)_e2e$/)'
-test-group = "pty"
-
-# `eukhe login`'s browser login binds the Anthropic callback port that the
-# remote-login pty e2e needs free.
-[[profile.default.overrides]]
-filter = 'binary_id(eukhe-cli::login_command) & test(/browser_login/)'
+filter = 'package(eukhe-cli) & binary(/^(chat_open_first_frame_pty|input_live_open_pty|kitty_early_typing|kitty_exit_routes|kitty_verdict_time|suspend_signal|terminal_state_differential|slash_completion_pty|irreversible_pty)_e2e$/)'
 test-group = "pty"
 
 # Compiles two release builds of eukhe before its run (the first run

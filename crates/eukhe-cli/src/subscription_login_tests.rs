@@ -7,9 +7,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 
 use eukhe_ai::auth::{AuthSelectOption, LoginOptions, ModelAuth, OAuthCredential};
-use eukhe_core::auth::{
-    AuthCredential, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, XAI_PROVIDER_ID,
-};
+use eukhe_core::auth::{AuthCredential, OPENAI_CODEX_PROVIDER_ID, XAI_PROVIDER_ID};
 use eukhe_tui::auth_panel::AuthPanelRequest;
 
 use super::*;
@@ -327,14 +325,8 @@ async fn a_rejected_paste_notices_and_re_prompts() {
         Some("http://localhost:1455/auth/callback"),
         Some("abc"),
     ]);
-    let outcome = run_subscription_login(
-        &agent,
-        ANTHROPIC_PROVIDER_ID,
-        "Anthropic (Claude Pro/Max)",
-        &flow,
-        &pane.surface,
-    )
-    .await;
+    let outcome =
+        run_subscription_login(&agent, XAI_PROVIDER_ID, "xAI (Grok)", &flow, &pane.surface).await;
     assert!(
         matches!(outcome, ProviderAuthOutcome::Status(_)),
         "{outcome:?}"
@@ -366,14 +358,7 @@ async fn a_failed_exchange_notices_and_retries() {
     }));
     let pane = ScriptedPane::start(vec![Some("abc#st")]);
     assert_eq!(
-        run_subscription_login(
-            &agent,
-            ANTHROPIC_PROVIDER_ID,
-            "Anthropic (Claude Pro/Max)",
-            &flow,
-            &pane.surface,
-        )
-        .await,
+        run_subscription_login(&agent, XAI_PROVIDER_ID, "xAI (Grok)", &flow, &pane.surface,).await,
         ProviderAuthOutcome::Cancelled
     );
     assert_eq!(
@@ -558,19 +543,11 @@ async fn the_device_code_method_takes_the_flows_device_option() {
         matches!(&outcome, ProviderAuthOutcome::Status(status) if status.starts_with("Logged in to Codex as [acct-1]")),
         "{outcome:?}"
     );
-    let anthropic = method_flow(&["browser", "copy_code"]);
+    let browser_only = method_flow(&["browser", "copy_code"]);
     assert_eq!(
-        run_subscription_login(
-            &agent,
-            ANTHROPIC_PROVIDER_ID,
-            "Anthropic",
-            &anthropic,
-            &pane.surface
-        )
-        .await,
+        run_subscription_login(&agent, XAI_PROVIDER_ID, "xAI", &browser_only, &pane.surface).await,
         ProviderAuthOutcome::Error(
-            "Failed to login to Anthropic: Select login method: offers no device-code login"
-                .to_string()
+            "Failed to login to xAI: Select login method: offers no device-code login".to_string()
         )
     );
 }

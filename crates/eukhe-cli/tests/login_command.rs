@@ -1,11 +1,9 @@
 //! `eukhe login` and `eukhe logout` as a host runs them: no terminal
 //! (stdin a pipe or closed), a clean environment, an isolated agent dir,
-//! and fake OAuth endpoints (`EUKHE_ANTHROPIC_TOKEN_URL`,
-//! `EUKHE_XAI_AUTH_URL`). The browser login prints its URL and waits for
-//! the callback the test plays; the device login prints its code and
-//! polls; an API key comes from stdin or `EUKHE_LOGIN_API_KEY`.
+//! and a fake OAuth endpoint (`EUKHE_XAI_AUTH_URL`). The device login
+//! prints its code and polls; an API key comes from stdin or
+//! `EUKHE_LOGIN_API_KEY`.
 
-use std::collections::VecDeque;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -314,117 +312,6 @@ fn read_request(stream: &TcpStream) -> Option<(String, String)> {
         request_line.trim_end().to_owned(),
         String::from_utf8(body).ok()?,
     ))
-}
-
-/// A login's stderr lines, read as they come.
-fn stderr_lines(child: &mut Child) -> mpsc::Receiver<String> {
-    let stderr = child.stderr.take().expect("stderr");
-    let (lines_tx, lines) = mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines() {
-            let Ok(line) = line else { return };
-            if lines_tx.send(line).is_err() {
-                return;
-            }
-        }
-    });
-    lines
-}
-
-/// The first stderr line that starts with `prefix`.
-fn line_starting(lines: &mpsc::Receiver<String>, prefix: &str) -> String {
-    let mut seen = Vec::new();
-    loop {
-        match lines.recv_timeout(LOGIN_DEADLINE) {
-            Ok(line) if line.starts_with(prefix) => return line,
-            Ok(line) => seen.push(line),
-            Err(error) => panic!("no line starts with {prefix} ({error}): {seen:#?}"),
-        }
-    }
-}
-
-fn query(url: &url::Url, name: &str) -> String {
-    url.query_pairs().find(|(key, _)| key == name).map_or_else(
-        || panic!("{url} carries {name}"),
-        |(_, value)| value.into_owned(),
-    )
-}
-
-/// One browser login with no terminal: the URL on stderr, then the
-/// browser's callback, which the test plays; answers the login's output.
-fn browser_login(world: &World, tokens: &FakeServer, code: &str) -> Output {
-    let mut child = world
-        .eukhe(&["login", "anthropic", "--no-browser"])
-        .env(
-            "EUKHE_ANTHROPIC_TOKEN_URL",
-            format!("{}/v1/oauth/token", tokens.origin),
-        )
-        .spawn()
-        .expect("eukhe starts");
-    let lines = stderr_lines(&mut child);
-    let url = url::Url::parse(&line_starting(&lines, "https://claude.ai/oauth/authorize?"))
-        .expect("the sign-in URL");
-    let redirect = url::Url::parse(&query(&url, "redirect_uri")).expect("redirect");
-    let mut stream = TcpStream::connect(("127.0.0.1", redirect.port().expect("port")))
-        .expect("the callback server listens");
-    write!(
-        stream,
-        "GET {}?code={code}&state={} HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n",
-        redirect.path(),
-        query(&url, "state")
-    )
-    .expect("the browser redirect");
-    let mut response = String::new();
-    let _ = stream.read_to_string(&mut response);
-    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-    finish(child)
-}
-
-/// The browser login without a terminal prints the URL and waits for the
-/// callback; a login as the same identity replaces its account, another
-/// identity adds one.
-#[test]
-fn the_browser_login_without_a_terminal_waits_for_the_callback() {
-    let world = World::new();
-    let mut emails: VecDeque<&str> = ["a@x.com", "a@x.com", "b@x.com"].into();
-    let tokens = FakeServer::start(move |request_line| {
-        if !request_line.starts_with("POST /v1/oauth/token ") {
-            return (404, String::new());
-        }
-        let email = emails.pop_front().unwrap_or("z@x.com");
-        (
-            200,
-            json!({
-                "access_token": format!("access-{email}"),
-                "refresh_token": "refresh",
-                "expires_in": 3600,
-                "account": { "email_address": email },
-            })
-            .to_string(),
-        )
-    });
-    let expected = [
-        "Logged in to Anthropic (Claude Pro/Max) as a@x.com (1 account).",
-        "Logged in to Anthropic (Claude Pro/Max) as a@x.com (1 account).",
-        "Logged in to Anthropic (Claude Pro/Max) as b@x.com (2 accounts).",
-    ];
-    for (at, expected) in expected.iter().enumerate() {
-        let code = format!("callback-code-{at}");
-        let line = one_line(&browser_login(&world, &tokens, &code));
-        assert_eq!(line, format!("{expected} {}", world.saved_to()));
-        let exchange: Value =
-            serde_json::from_str(tokens.bodies().last().expect("an exchange")).expect("JSON");
-        assert_eq!(exchange["code"], json!(code));
-    }
-    let access: Vec<Value> = world
-        .accounts("anthropic")
-        .iter()
-        .map(|account| account["access"].clone())
-        .collect();
-    assert_eq!(
-        access,
-        vec![json!("access-a@x.com"), json!("access-b@x.com")]
-    );
 }
 
 /// The device login prints the verification URL and code, then polls the

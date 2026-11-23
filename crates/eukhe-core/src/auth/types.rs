@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::provider_oauth::ANTHROPIC_PROVIDER_ID;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthCredential {
@@ -86,8 +88,8 @@ impl AuthStorageData {
         self.0.get(provider)
     }
 
-    /// The provider's credential: its first account's, or an MCP server's
-    /// own.
+    /// The provider's credential: its first account's (a Claude
+    /// subscription login skipped), or an MCP server's own.
     #[must_use]
     pub fn credential(&self, provider: &str) -> Option<AuthCredential> {
         let entry = self.0.get(provider)?;
@@ -96,8 +98,17 @@ impl AuthStorageData {
         }
         let first = super::accounts::accounts_of(provider, entry)
             .into_iter()
-            .next()?;
+            .find(|account| !is_moved_claude_login(provider, &account.credential))?;
         serde_json::from_value(serde_json::Value::Object(first.credential)).ok()
+    }
+
+    /// Whether `auth.json` holds a Claude subscription login: an
+    /// `anthropic` OAuth credential, which eukhe ignores.
+    #[must_use]
+    pub fn has_moved_claude_login(&self) -> bool {
+        self.accounts(ANTHROPIC_PROVIDER_ID)
+            .iter()
+            .any(|account| is_moved_claude_login(ANTHROPIC_PROVIDER_ID, &account.credential))
     }
 
     /// The provider's accounts, in order (none for an MCP server).
@@ -131,6 +142,18 @@ impl AuthStorageData {
     pub fn keys(&self) -> Vec<String> {
         self.0.keys().cloned().collect()
     }
+}
+
+/// Whether `credential`, stored for `provider`, is a Claude subscription
+/// login: an `anthropic` OAuth credential. eukhe never sends nor refreshes
+/// it; the claude-code provider serves the subscription
+/// (`eukhe_ai::api::anthropic_messages::CLAUDE_LOGIN_MOVED`).
+pub(crate) fn is_moved_claude_login(
+    provider: &str,
+    credential: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+    provider == ANTHROPIC_PROVIDER_ID
+        && credential.get("type").and_then(serde_json::Value::as_str) == Some("oauth")
 }
 
 /// Where a usable credential came from.
@@ -208,6 +231,36 @@ mod tests {
             AuthCredential::ApiKey {
                 key: "sk".to_string()
             }
+        );
+    }
+
+    /// A stored Claude subscription login is never the `anthropic`
+    /// credential: the next account serves, and the document reports it.
+    #[test]
+    fn a_claude_subscription_login_is_skipped_and_reported() {
+        let data = AuthStorageData(
+            serde_json::from_value(serde_json::json!({
+                "anthropic": { "accounts": [
+                    { "type": "oauth", "access": "sk-ant-oat01-a", "refresh": "r", "expires": 1 },
+                    { "type": "api_key", "key": "sk-ant-api03-k" },
+                ] },
+                "xai": { "type": "oauth", "access": "a", "refresh": "r", "expires": 1 },
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            (
+                data.credential("anthropic"),
+                data.has_moved_claude_login(),
+                AuthStorageData::default().has_moved_claude_login(),
+            ),
+            (
+                Some(AuthCredential::ApiKey {
+                    key: "sk-ant-api03-k".to_string()
+                }),
+                true,
+                false,
+            )
         );
     }
 }

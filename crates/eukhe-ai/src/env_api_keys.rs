@@ -37,11 +37,7 @@ const PROVIDER_API_KEY_ENV_VARS: &[(&str, &[&str])] = &[
     ("github-copilot", &["COPILOT_GITHUB_TOKEN"]),
     (
         "anthropic",
-        &[
-            ANTHROPIC_AUTH_TOKEN_ENV,
-            ANTHROPIC_OAUTH_TOKEN_ENV,
-            ANTHROPIC_API_KEY_ENV,
-        ],
+        &[ANTHROPIC_AUTH_TOKEN_ENV, ANTHROPIC_API_KEY_ENV],
     ),
     ("ant-ling", &["ANT_LING_API_KEY"]),
     ("qwen-token-plan", &["QWEN_TOKEN_PLAN_API_KEY"]),
@@ -86,7 +82,8 @@ const PROVIDER_API_KEY_ENV_VARS: &[(&str, &[&str])] = &[
 /// The other credentials the providers read from the environment: AWS
 /// keys and tokens (Bedrock), the Google API key and the Application
 /// Default Credentials file (Gemini, Vertex), and the Anthropic workload
-/// identity token file.
+/// identity token file; and `ANTHROPIC_OAUTH_TOKEN`, a Claude subscription
+/// token eukhe never sends, kept from children all the same.
 const OTHER_CREDENTIAL_ENV_VARS: &[&str] = &[
     AWS_ACCESS_KEY_ID_ENV,
     AWS_SECRET_ACCESS_KEY_ENV,
@@ -97,6 +94,7 @@ const OTHER_CREDENTIAL_ENV_VARS: &[&str] = &[
     GOOGLE_API_KEY_ENV,
     GOOGLE_APPLICATION_CREDENTIALS_ENV,
     ANTHROPIC_IDENTITY_TOKEN_FILE_ENV,
+    ANTHROPIC_OAUTH_TOKEN_ENV,
 ];
 
 /// Every variable the provider and auth code reads a credential from: the

@@ -445,14 +445,6 @@ async fn qwen_token_plan_cn_should_include_token_stats_when_aborted_mid_stream()
 // OAuth-based providers (TS: credentials from ~/.pi/agent/oauth.json).
 
 #[tokio::test]
-#[ignore = "needs PI_TEST_ANTHROPIC_TOKEN (Anthropic OAuth); run with --ignored"]
-async fn anthropic_oauth_should_include_token_stats_when_aborted_mid_stream() {
-    let token = oauth_token("anthropic");
-    let llm = model("anthropic", "claude-sonnet-4-6");
-    run(&llm, Some(&token), &json!({})).await;
-}
-
-#[tokio::test]
 #[ignore = "needs PI_TEST_GITHUB_COPILOT_TOKEN; run with --ignored"]
 async fn github_copilot_claude_haiku_4_5_should_include_token_stats_when_aborted_mid_stream() {
     let token = oauth_token("github-copilot");

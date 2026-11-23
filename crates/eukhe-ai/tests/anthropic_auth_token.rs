@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eukhe_ai::auth::{ApiKeyResolveInput, AuthContext};
-use eukhe_ai::env_api_keys::{ANTHROPIC_AUTH_TOKEN_ENV, ANTHROPIC_OAUTH_TOKEN_ENV};
+use eukhe_ai::env_api_keys::ANTHROPIC_AUTH_TOKEN_ENV;
 use eukhe_ai::providers::anthropic::anthropic_provider;
 use eukhe_chord::context::AbortController;
 use futures::future::BoxFuture;
@@ -56,7 +56,6 @@ async fn resolve(env: &[(&str, &str)]) -> serde_json::Value {
 async fn resolves_anthropic_auth_token_as_a_bearer_authorization_header() {
     let auth = resolve(&[
         ("ANTHROPIC_AUTH_TOKEN", "auth-token"),
-        ("ANTHROPIC_OAUTH_TOKEN", "oauth-token"),
         ("ANTHROPIC_API_KEY", "api-key"),
     ])
     .await;
@@ -66,23 +65,6 @@ async fn resolves_anthropic_auth_token_as_a_bearer_authorization_header() {
         json!({
             "auth": { "headers": { "Authorization": "Bearer auth-token" } },
             "source": ANTHROPIC_AUTH_TOKEN_ENV,
-        })
-    );
-}
-
-#[tokio::test]
-async fn preserves_anthropic_oauth_token_as_oauth_shaped_api_auth() {
-    let auth = resolve(&[
-        ("ANTHROPIC_OAUTH_TOKEN", "oauth-token"),
-        ("ANTHROPIC_API_KEY", "api-key"),
-    ])
-    .await;
-
-    assert_eq!(
-        auth,
-        json!({
-            "auth": { "apiKey": "oauth-token" },
-            "source": ANTHROPIC_OAUTH_TOKEN_ENV,
         })
     );
 }

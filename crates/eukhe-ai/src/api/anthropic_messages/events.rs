@@ -8,12 +8,11 @@ use std::sync::{Mutex, PoisonError};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
     JsonObject, JsonValue, Model, StopReason, StreamFailureKind, TextContent, ThinkingContent,
-    Tool, ToolCall, Usage,
+    ToolCall, Usage,
 };
 use reqwest::header::HeaderMap;
 
 use super::client::{RequestFailure, RequestOptions, SdkClient};
-use super::params::from_claude_code_name;
 use super::sse::{AnthropicEvents, EventStreamError};
 use super::{model_compat, AnthropicOptions, StreamFailure};
 use crate::models::calculate_cost;
@@ -353,6 +352,39 @@ enum BlockStart {
     Unknown,
 }
 
+/// What the wire `content_block` of a `content_block_start` opens.
+fn block_start(block: &JsonValue) -> BlockStart {
+    let text = |key: &str| block.get(key).and_then(JsonValue::as_str);
+    match text("type") {
+        Some("fallback") => BlockStart::Fallback,
+        Some("text") => BlockStart::Block(AssistantContentBlock::Text(TextContent::new(
+            text("text").unwrap_or(""),
+        ))),
+        Some("thinking") => BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
+            thinking: text("thinking").unwrap_or("").to_owned(),
+            thinking_signature: Some(text("signature").unwrap_or("").to_owned()),
+            redacted: None,
+        })),
+        Some("redacted_thinking") => {
+            BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
+                thinking: "[Reasoning redacted]".to_owned(),
+                thinking_signature: text("data").map(str::to_owned),
+                redacted: Some(true),
+            }))
+        }
+        Some("tool_use") => BlockStart::Block(AssistantContentBlock::ToolCall(ToolCall {
+            id: text("id").unwrap_or("").to_owned(),
+            name: text("name").unwrap_or("").to_owned(),
+            arguments: match block.get("input") {
+                Some(JsonValue::Object(input)) => input.clone(),
+                _ => JsonObject::new(),
+            },
+            ..ToolCall::default()
+        })),
+        _ => BlockStart::Unknown,
+    }
+}
+
 /// A partial event to emit, by content index; its kind follows the block
 /// at that index.
 enum Emission {
@@ -362,11 +394,10 @@ enum Emission {
 }
 
 /// The assistant message being folded from the stream, and the state kept
-/// beside it between events.
-struct EventFold<'a> {
+/// beside it between events. Any source of Anthropic stream events feeds
+/// it: an SSE body, or a CLI's stream-json output.
+pub(crate) struct EventFold<'a> {
     model: &'a Model,
-    is_oauth: bool,
-    current_tools: &'a [Tool],
     output: &'a mut AssistantMessage,
     /// The model whose prices bill the usage ([`billed_model`]).
     usage_model: Model,
@@ -374,7 +405,44 @@ struct EventFold<'a> {
     scratch: BlockScratch,
 }
 
-impl EventFold<'_> {
+impl<'a> EventFold<'a> {
+    /// A fold of a new response into `output`.
+    pub(crate) fn new(model: &'a Model, output: &'a mut AssistantMessage) -> Self {
+        Self {
+            model,
+            output,
+            usage_model: model.clone(),
+            input_transformations: None,
+            scratch: BlockScratch::default(),
+        }
+    }
+
+    /// Fold `event` into the message and emit its partial event.
+    pub(crate) fn push(
+        &mut self,
+        event: &JsonValue,
+        stream: &AssistantMessageEventStream,
+    ) -> Result<(), StreamFailure> {
+        if let Some(emission) = self.apply(event)? {
+            emit(stream, self.output, emission);
+        }
+        Ok(())
+    }
+
+    /// The checks of a finished response: its stop reason, then the
+    /// diagnostic of the server's input transformations.
+    pub(crate) fn finish(self, request_id: Option<&str>) -> Result<(), StreamFailure> {
+        check_stop_reason(self.output, request_id)?;
+        if let Some(transformations) = self.input_transformations.filter(|items| !items.is_empty())
+        {
+            append_assistant_message_diagnostic(
+                self.output,
+                input_transformations_diagnostic(&transformations, now_ms()),
+            );
+        }
+        Ok(())
+    }
+
     /// Fold one wire event into the message; the partial event it emits.
     fn apply(&mut self, event: &JsonValue) -> Result<Option<Emission>, StreamFailure> {
         match event.get("type").and_then(JsonValue::as_str) {
@@ -415,47 +483,6 @@ impl EventFold<'_> {
         Ok(())
     }
 
-    fn block_start(&self, block: &JsonValue) -> BlockStart {
-        let text = |key: &str| block.get(key).and_then(JsonValue::as_str);
-        match text("type") {
-            Some("fallback") => BlockStart::Fallback,
-            Some("text") => BlockStart::Block(AssistantContentBlock::Text(TextContent::new(
-                text("text").unwrap_or(""),
-            ))),
-            Some("thinking") => {
-                BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
-                    thinking: text("thinking").unwrap_or("").to_owned(),
-                    thinking_signature: Some(text("signature").unwrap_or("").to_owned()),
-                    redacted: None,
-                }))
-            }
-            Some("redacted_thinking") => {
-                BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
-                    thinking: "[Reasoning redacted]".to_owned(),
-                    thinking_signature: text("data").map(str::to_owned),
-                    redacted: Some(true),
-                }))
-            }
-            Some("tool_use") => {
-                let name = text("name").unwrap_or("");
-                BlockStart::Block(AssistantContentBlock::ToolCall(ToolCall {
-                    id: text("id").unwrap_or("").to_owned(),
-                    name: if self.is_oauth {
-                        from_claude_code_name(name, self.current_tools)
-                    } else {
-                        name.to_owned()
-                    },
-                    arguments: match block.get("input") {
-                        Some(JsonValue::Object(input)) => input.clone(),
-                        _ => JsonObject::new(),
-                    },
-                    ..ToolCall::default()
-                }))
-            }
-            _ => BlockStart::Unknown,
-        }
-    }
-
     fn content_block_start(
         &mut self,
         event: &JsonValue,
@@ -463,7 +490,7 @@ impl EventFold<'_> {
         let Some(block) = event.get("content_block") else {
             return Err(type_error("type"));
         };
-        match self.block_start(block) {
+        match block_start(block) {
             BlockStart::Fallback if !self.output.content.is_empty() => Err(StreamFailure::message(
                 "Anthropic performed an unsupported mid-output model fallback",
             )),
@@ -662,8 +689,6 @@ pub(crate) async fn consume(
     model: &Model,
     response: reqwest::Response,
     options: &AnthropicOptions,
-    is_oauth: bool,
-    current_tools: &[Tool],
     output: &mut AssistantMessage,
     stream: &AssistantMessageEventStream,
 ) -> Result<(), StreamFailure> {
@@ -674,15 +699,7 @@ pub(crate) async fn consume(
         .or_else(|| response.headers().get("x-request-id"))
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let mut fold = EventFold {
-        model,
-        is_oauth,
-        current_tools,
-        output,
-        usage_model: model.clone(),
-        input_transformations: None,
-        scratch: BlockScratch::default(),
-    };
+    let mut fold = EventFold::new(model, output);
     let mut events = AnthropicEvents::new(response, request.signal.clone());
     while let Some(event) = events
         .next()
@@ -694,12 +711,8 @@ pub(crate) async fn consume(
                 .await
                 .map_err(StreamFailure::plain)?;
         }
-        if let Some(emission) = fold.apply(&event)? {
-            emit(stream, fold.output, emission);
-        }
+        fold.push(&event, stream)?;
     }
-    let input_transformations = fold.input_transformations;
-
     if request
         .signal
         .as_ref()
@@ -707,12 +720,5 @@ pub(crate) async fn consume(
     {
         return Err(StreamFailure::message("Request was aborted"));
     }
-    check_stop_reason(output, request_id.as_deref())?;
-    if let Some(transformations) = input_transformations.filter(|items| !items.is_empty()) {
-        append_assistant_message_diagnostic(
-            output,
-            input_transformations_diagnostic(&transformations, now_ms()),
-        );
-    }
-    Ok(())
+    fold.finish(request_id.as_deref())
 }

@@ -111,11 +111,6 @@ pub(super) struct HeadlessSettle {
     pub(super) auth_panel_open: bool,
     /// An MCP auth flow is pending.
     pub(super) mcp_auth_pending: bool,
-    /// The Anthropic subscription warning's `mark_anthropic_warning_shown`
-    /// write is still in flight (fire-and-forget in the product -- the run
-    /// must still not end with the durable write un-acked; a lost mark
-    /// costs a repeated warning on the session's next open).
-    pub(super) anthropic_warning_mark_pending: bool,
 }
 
 impl HeadlessSettle {
@@ -138,7 +133,6 @@ impl HeadlessSettle {
             reload_pending: session.reload_pending(),
             auth_panel_open: view.auth_panel.is_some(),
             mcp_auth_pending: session.pending_mcp_auth(),
-            anthropic_warning_mark_pending: session.anthropic_warning_mark_pending(),
         }
     }
 
@@ -186,9 +180,6 @@ impl HeadlessSettle {
         }
         if self.mcp_auth_pending {
             blockers.push("a pending MCP auth flow".to_string());
-        }
-        if self.anthropic_warning_mark_pending {
-            blockers.push("the Anthropic warning's mark write in flight".to_string());
         }
         blockers
     }

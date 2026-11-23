@@ -538,7 +538,6 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
- "twox-hash",
  "unicode-normalization",
  "url",
  "uuid",

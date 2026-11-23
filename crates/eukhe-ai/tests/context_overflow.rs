@@ -194,14 +194,6 @@ async fn anthropic_api_key_claude_haiku_4_5_should_detect_overflow_via_is_contex
     expect_error_overflow(&model, &api_key, Some(&[&["prompt is too long"]])).await;
 }
 
-#[tokio::test]
-#[ignore = "needs ANTHROPIC_OAUTH_TOKEN; run with --ignored"]
-async fn anthropic_oauth_claude_sonnet_4_should_detect_overflow_via_is_context_overflow() {
-    let token = require_env("ANTHROPIC_OAUTH_TOKEN");
-    let model = builtin("anthropic", "claude-sonnet-4-6");
-    expect_error_overflow(&model, &token, Some(&[&["prompt is too long"]])).await;
-}
-
 // =============================================================================
 // GitHub Copilot (OAuth): Google and Anthropic models via Copilot
 // =============================================================================

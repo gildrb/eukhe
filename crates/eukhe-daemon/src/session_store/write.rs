@@ -39,7 +39,6 @@ impl SessionFile {
             by_id: HashMap::new(),
             leaf_id: None,
             window: None,
-            anthropic_warning_shown: false,
         }
     }
 

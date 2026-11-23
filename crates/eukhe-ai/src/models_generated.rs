@@ -8,15 +8,16 @@ use eukhe_types::pi_ai::IndexMap;
 use crate::model_catalog::{ChatModelCatalog, ClassifierModelCatalog, ImageModelCatalog};
 use crate::providers::{
     amazon_bedrock_models, ant_ling_models, anthropic_models, azure_models, baseten_models,
-    cerebras_models, cloudflare_ai_gateway_models, cloudflare_workers_ai_models, deepseek_models,
-    fireworks_models, github_copilot_models, google_models, google_vertex_models, groq_models,
-    huggingface_models, kimi_coding_models, meta_models, minimax_cn_models, minimax_models,
-    mistral_models, moonshotai_cn_models, moonshotai_models, nvidia_models, openai_codex_models,
-    openai_models, opencode_go_models, opencode_models, openrouter_models,
-    qwen_token_plan_cn_models, qwen_token_plan_individual_models, qwen_token_plan_models,
-    radius_models, together_models, typesafe_models, vercel_ai_gateway_models, xai_models,
-    xiaomi_models, xiaomi_token_plan_ams_models, xiaomi_token_plan_cn_models,
-    xiaomi_token_plan_sgp_models, zai_coding_cn_models, zai_models,
+    cerebras_models, claude_code_models, cloudflare_ai_gateway_models,
+    cloudflare_workers_ai_models, deepseek_models, fireworks_models, github_copilot_models,
+    google_models, google_vertex_models, groq_models, huggingface_models, kimi_coding_models,
+    meta_models, minimax_cn_models, minimax_models, mistral_models, moonshotai_cn_models,
+    moonshotai_models, nvidia_models, openai_codex_models, openai_models, opencode_go_models,
+    opencode_models, openrouter_models, qwen_token_plan_cn_models,
+    qwen_token_plan_individual_models, qwen_token_plan_models, radius_models, together_models,
+    typesafe_models, vercel_ai_gateway_models, xai_models, xiaomi_models,
+    xiaomi_token_plan_ams_models, xiaomi_token_plan_cn_models, xiaomi_token_plan_sgp_models,
+    zai_coding_cn_models, zai_models,
 };
 
 /// Chat models of every built-in provider, in provider order.
@@ -32,6 +33,7 @@ pub static MODELS: LazyLock<IndexMap<&'static str, &'static ChatModelCatalog>> =
             ("azure", &*azure_models::AZURE_MODELS),
             ("baseten", &*baseten_models::BASETEN_MODELS),
             ("cerebras", &*cerebras_models::CEREBRAS_MODELS),
+            ("claude-code", &*claude_code_models::CLAUDE_CODE_MODELS),
             (
                 "cloudflare-ai-gateway",
                 &*cloudflare_ai_gateway_models::CLOUDFLARE_AI_GATEWAY_MODELS,

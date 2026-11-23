@@ -165,7 +165,6 @@ fn wire_name(command: &DaemonCommand) -> &'static str {
         DaemonCommand::UnsubscribeStateTree { .. } => "unsubscribe_state_tree",
         DaemonCommand::GetStateRewindPlan { .. } => "get_state_rewind_plan",
         DaemonCommand::SetSessionEntryLabel { .. } => "set_session_entry_label",
-        DaemonCommand::MarkAnthropicWarningShown { .. } => "mark_anthropic_warning_shown",
         DaemonCommand::RelayRanEffect { .. } => "relay_ran_effect",
         DaemonCommand::AnswerEditorPermission { .. } => "answer_editor_permission",
         DaemonCommand::RelayEditorPermission { .. } => "relay_editor_permission",

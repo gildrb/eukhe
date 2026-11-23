@@ -422,12 +422,6 @@ pub struct AgentTreeSettings {
     pub check_timeout_secs: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WarningSettings {
-    pub anthropic_extra_usage: Option<bool>,
-}
-
 /// `factory` (the agent factory's opt-in gate): `factory.enabled` is
 /// unset/false by default, and the `/factory on` client command persists
 /// it. Both the daemon's `factory_activity` lane advertisement and the
@@ -600,7 +594,6 @@ pub struct Settings {
     pub markdown: Option<MarkdownSettings>,
     pub workflow: Option<WorkflowSettings>,
     pub agent_tree: Option<AgentTreeSettings>,
-    pub warnings: Option<WarningSettings>,
     pub session_dir: Option<String>,
     /// Log per-request provider timing phases to the diagnostic log (TS
     /// `requestTiming`; unset means OFF, exactly the TS default).

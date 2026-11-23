@@ -400,12 +400,6 @@ impl eukhe_tui::client_settings::ClientSettings for RecordingSettings {
         *self.factory_enabled.lock().expect("factory gate lock") = enabled;
         Ok(())
     }
-    fn warnings_anthropic_extra_usage(&self) -> bool {
-        true
-    }
-    fn set_warnings_anthropic_extra_usage(&self, _enabled: bool) -> Result<()> {
-        Ok(())
-    }
 }
 
 fn options(socket: PathBuf) -> InteractiveOptions {

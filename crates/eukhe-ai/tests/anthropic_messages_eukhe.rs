@@ -1,17 +1,12 @@
 //! eukhe additions of the `anthropic-messages` module: explicit
 //! prompt-cache breakpoints, provider stream-failure diagnostics, and the
-//! client version of subscription requests.
+//! refusal of a Claude subscription token.
 
 mod anthropic_support;
 
-use anthropic_support::{
-    collect, mock_fetch, mock_fetch_with, model, ok_fetch, requests, sse_of, text_response_events,
-    MockResponse,
-};
-use eukhe_ai::api::anthropic_messages::{
-    stream_anthropic, streams_sharing, AnthropicOptions, ClientVersion,
-};
-use eukhe_ai::types::{FetchFunction, ProviderStreamOptions};
+use anthropic_support::{collect, mock_fetch, model, ok_fetch, requests, MockResponse};
+use eukhe_ai::api::anthropic_messages::{stream_anthropic, AnthropicOptions, CLAUDE_LOGIN_MOVED};
+use eukhe_ai::types::FetchFunction;
 use eukhe_types::pi_ai::StopReason;
 use serde_json::{json, Value};
 
@@ -152,46 +147,25 @@ fn sectioned(messages: Value) -> eukhe_types::pi_ai::TranscriptContext {
 
 #[tokio::test]
 async fn a_cache_breakpoint_sends_the_shared_prefix_as_its_own_marked_block() {
-    for (key, system) in [
-        (
-            "sk-test",
-            json!([
-                { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
-                { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
-            ]),
-        ),
-        (
-            // OAuth: billing and identity lead, neither marked.
-            "sk-ant-oat-x",
-            json!([
-                { "type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.325.ff3; cc_entrypoint=cli; cch=00000;" },
-                { "type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude." },
-                { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
-                { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
-            ]),
-        ),
-    ] {
-        let (fetch, captured) = ok_fetch();
-        let mut options = options(fetch);
-        options.stream.request.api_key = Some(key.into());
-        options.stream.system_cache_breakpoint = Some("core".into());
-        let context = sectioned(json!([{ "role": "user", "content": "hi", "timestamp": 1 }]));
-        let (_, result) = collect(stream_anthropic(&model(&json!({})), &context, options)).await;
-        assert_eq!(result.stop_reason, StopReason::Stop);
-        let mut body = requests(&captured).pop().expect("request").body;
-        // The attestation hashes the whole body; it is not under test here.
-        if let Some(text) = body["system"][0]["text"].as_str() {
-            if let Some((head, _)) = text.split_once("cch=") {
-                body["system"][0]["text"] = json!(format!("{head}cch=00000;"));
-            }
-        }
-        assert_eq!(body["system"], system, "{key}");
-        // The end mark, the prefix, the tool, the tail: all four slots.
-        assert_eq!(
-            body["tools"][0]["cache_control"],
-            json!({ "type": "ephemeral" })
-        );
-    }
+    let (fetch, captured) = ok_fetch();
+    let mut options = options(fetch);
+    options.stream.system_cache_breakpoint = Some("core".into());
+    let context = sectioned(json!([{ "role": "user", "content": "hi", "timestamp": 1 }]));
+    let (_, result) = collect(stream_anthropic(&model(&json!({})), &context, options)).await;
+    assert_eq!(result.stop_reason, StopReason::Stop);
+    let body = requests(&captured).pop().expect("request").body;
+    assert_eq!(
+        body["system"],
+        json!([
+            { "type": "text", "text": "Core.", "cache_control": { "type": "ephemeral" } },
+            { "type": "text", "text": "Working directory: /a", "cache_control": { "type": "ephemeral" } },
+        ])
+    );
+    // The end mark, the prefix, the tool, the tail: all four slots.
+    assert_eq!(
+        body["tools"][0]["cache_control"],
+        json!({ "type": "ephemeral" })
+    );
 }
 
 #[tokio::test]
@@ -297,95 +271,20 @@ async fn in_stream_error_events_are_classified() {
     assert_eq!(details["providerErrorType"], json!("overloaded_error"));
 }
 
-/// Anthropic's refusal of a subscription request's client version `sent`,
-/// naming `required`.
-fn version_refusal(sent: &str, required: &str) -> String {
-    format!(
-        r#"{{"type":"error","error":{{"type":"invalid_request_error","message":"Claude Code {sent} does not support this model; version {required} or newer is required.","details":{{"error_code":"claude_code_version_too_old"}}}}}}"#
-    )
-}
-
-/// The client version of each captured request: its User-Agent, and the
-/// version of its billing header's `cc_version=<version>.<fingerprint>;`.
-fn sent_versions(captured: &anthropic_support::Captured) -> Vec<(String, String)> {
-    requests(captured)
-        .iter()
-        .map(|request| {
-            let billing = request.body["system"][0]["text"]
-                .as_str()
-                .unwrap_or_default();
-            let version = billing
-                .split_once("cc_version=")
-                .and_then(|(_, rest)| rest.split_once(';'))
-                .and_then(|(fingerprinted, _)| fingerprinted.rsplit_once('.'))
-                .map_or("", |(version, _)| version);
-            (
-                request.header("user-agent").unwrap_or_default(),
-                version.to_owned(),
-            )
-        })
-        .collect()
-}
-
-fn oauth_options(fetch: FetchFunction) -> AnthropicOptions {
+/// A Claude subscription token in the API-key slot fails with the
+/// migration text and is never sent.
+#[tokio::test]
+async fn a_subscription_token_fails_before_sending() {
+    let (fetch, captured) = ok_fetch();
     let mut options = options(fetch);
-    options.stream.request.api_key = Some("sk-ant-oat-x".into());
-    options
-}
-
-#[tokio::test]
-async fn a_refused_client_version_sends_again_and_later_requests_keep_it() {
-    let (fetch, captured) = mock_fetch_with(|request| {
-        if request.header("user-agent").as_deref() == Some("claude-cli/9.0.0 (external, cli)") {
-            MockResponse::sse(sse_of(&text_response_events("Hello")))
-        } else {
-            MockResponse::json(400, version_refusal("2.1.325", "9.0.0"))
-        }
-    });
+    options.stream.request.api_key = Some("sk-ant-oat01-x".into());
     let context = anthropic_support::context(&json!({
         "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }]
     }));
-    // One provider's API: its requests share the learned version.
-    let api = streams_sharing(ClientVersion::default());
-    for _ in 0..2 {
-        let mut options = ProviderStreamOptions::default();
-        options.stream.request.api_key = Some("sk-ant-oat-x".into());
-        options.stream.request.fetch = Some(fetch.clone());
-        let (_, result) = collect((api.stream)(&model(&json!({})), &context, options)).await;
-        assert_eq!(result.stop_reason, StopReason::Stop);
-    }
-    let sent = |version: &str| {
-        (
-            format!("claude-cli/{version} (external, cli)"),
-            version.to_owned(),
-        )
-    };
+    let (_, result) = collect(stream_anthropic(&model(&json!({})), &context, options)).await;
     assert_eq!(
-        sent_versions(&captured),
-        vec![sent("2.1.325"), sent("9.0.0"), sent("9.0.0")]
+        (result.stop_reason, result.error_message.as_deref()),
+        (StopReason::Error, Some(CLAUDE_LOGIN_MOVED))
     );
-}
-
-#[tokio::test]
-async fn a_client_version_refused_again_names_the_cause() {
-    let refusal = version_refusal("9.0.0", "9.0.0");
-    let body = refusal.clone();
-    let (fetch, captured) = mock_fetch_with(move |_| MockResponse::json(400, body.clone()));
-    let context = anthropic_support::context(&json!({
-        "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }]
-    }));
-    let (_, result) = collect(stream_anthropic(
-        &model(&json!({})),
-        &context,
-        oauth_options(fetch),
-    ))
-    .await;
-    assert_eq!(requests(&captured).len(), 2);
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(
-        result.error_message,
-        Some(format!(
-            "Anthropic refused the subscription request: client version 9.0.0 is too old for this model (it requires 9.0.0 or newer). Run `eukhe update`. Provider error: 400 {refusal}"
-        ))
-    );
+    assert!(requests(&captured).is_empty());
 }

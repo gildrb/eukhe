@@ -103,7 +103,7 @@ use std::sync::{Arc, Mutex};
 use eukhe_tui::provider_auth::{
     AccountRow, AuthFlow, AuthStatusIndicator, AuthStatusStyle, AuthType, ProviderAccounts,
     ProviderAccountsFuture, ProviderAuthCommands, ProviderAuthFuture, ProviderAuthOutcome,
-    ProviderRow, ProviderRowsFuture, ProviderWarningFuture,
+    ProviderNoticeFuture, ProviderRow, ProviderRowsFuture,
 };
 /// The login/logout flows the scripted hook serves: one API-key provider
 /// whose key the hook stores, like the composition root's auth store.
@@ -219,8 +219,8 @@ impl ProviderAuthCommands for ScriptedProviderAuth {
         })
     }
 
-    fn anthropic_subscription_warning(&self) -> ProviderWarningFuture {
-        // The clipboard e2e drives no Anthropic subscription auth.
+    fn accounts_notice(&self) -> ProviderNoticeFuture {
+        // The clipboard e2e stores no Claude subscription login.
         Box::pin(async move { None })
     }
 

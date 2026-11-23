@@ -227,15 +227,14 @@ pub trait ProviderAuthCommands: Send + Sync {
     /// Each provider's stored accounts (MCP servers left out), sorted by
     /// provider id.
     fn accounts(&self) -> ProviderAccountsFuture;
-    /// TS `getAnthropicSubscriptionAuthWarning`: the composition root
-    /// reports the subscription-auth warning text when the stored
-    /// Anthropic credential is an OAuth login or the resolved key is a
-    /// subscription token (`sk-ant-oat...`); `None` when it is not.
-    fn anthropic_subscription_warning(&self) -> ProviderWarningFuture;
+    /// The notice `/accounts` shows once above its list: the Claude
+    /// subscription migration text when `auth.json` holds a Claude
+    /// subscription login (which eukhe ignores); `None` otherwise.
+    fn accounts_notice(&self) -> ProviderNoticeFuture;
 }
 
-/// The boxed-future shape of the subscription-auth warning lookup.
-pub type ProviderWarningFuture =
+/// The boxed-future shape of the `/accounts` notice lookup.
+pub type ProviderNoticeFuture =
     Pin<Box<dyn std::future::Future<Output = Option<&'static str>> + Send>>;
 
 /// The handle the interactive options carry.
@@ -255,15 +254,13 @@ pub const OPENAI_CODEX_PROVIDER_ID: &str = "openai-codex";
 
 /// The other subscription providers' ids (the same wire identifiers,
 /// carried the same way).
-pub const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
 pub const GITHUB_COPILOT_PROVIDER_ID: &str = "github-copilot";
 pub const XAI_PROVIDER_ID: &str = "xai";
 
 /// The subscription rows whose logins run on the panel (TS
 /// `loginProvider`'s oauth dispatch): every flow checks the
 /// cooperative cancel flag (#2770).
-pub const SUBSCRIPTION_PROVIDER_IDS: [&str; 4] = [
-    ANTHROPIC_PROVIDER_ID,
+pub const SUBSCRIPTION_PROVIDER_IDS: [&str; 3] = [
     GITHUB_COPILOT_PROVIDER_ID,
     OPENAI_CODEX_PROVIDER_ID,
     XAI_PROVIDER_ID,

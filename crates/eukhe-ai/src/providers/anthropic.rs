@@ -8,14 +8,13 @@ use futures::future::BoxFuture;
 use super::anthropic_models::ANTHROPIC_MODELS;
 use super::{builtin_baseline, chat_models};
 use crate::api::builtin::anthropic_messages_api;
-use crate::auth::oauth::load_anthropic_oauth;
 use crate::auth::{
-    lazy_oauth, ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthPrompt, AuthPromptKind,
-    AuthResult, LazyOAuthInput, ModelAuth, ProviderAuth, ProviderAuthInteraction,
+    ApiKeyAuth, ApiKeyCredential, ApiKeyResolveInput, AuthPrompt, AuthPromptKind, AuthResult,
+    ModelAuth, ProviderAuth, ProviderAuthInteraction,
 };
 use crate::env_api_keys::{
     ANTHROPIC_API_KEY_ENV, ANTHROPIC_AUTH_TOKEN_ENV, ANTHROPIC_FEDERATION_RULE_ID_ENV,
-    ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, ANTHROPIC_OAUTH_TOKEN_ENV, ANTHROPIC_ORGANIZATION_ID_ENV,
+    ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, ANTHROPIC_ORGANIZATION_ID_ENV,
     ANTHROPIC_SERVICE_ACCOUNT_ID_ENV, ANTHROPIC_WORKSPACE_ID_ENV,
 };
 use crate::models::{build_provider, CreateProviderOptions, Provider, ProviderApi};
@@ -91,19 +90,17 @@ impl ApiKeyAuth for AnthropicApiKeyAuth {
                 }));
             }
 
-            for env_var in [ANTHROPIC_OAUTH_TOKEN_ENV, ANTHROPIC_API_KEY_ENV] {
-                let api_key = ctx.env(env_var).await;
-                signal.throw_if_aborted()?;
-                if let Some(api_key) = api_key.filter(|key| !key.is_empty()) {
-                    return Ok(Some(AuthResult {
-                        auth: ModelAuth {
-                            api_key: Some(api_key),
-                            ..ModelAuth::default()
-                        },
-                        env: None,
-                        source: Some(env_var.to_owned()),
-                    }));
-                }
+            let api_key = ctx.env(ANTHROPIC_API_KEY_ENV).await;
+            signal.throw_if_aborted()?;
+            if let Some(api_key) = api_key.filter(|key| !key.is_empty()) {
+                return Ok(Some(AuthResult {
+                    auth: ModelAuth {
+                        api_key: Some(api_key),
+                        ..ModelAuth::default()
+                    },
+                    env: None,
+                    source: Some(ANTHROPIC_API_KEY_ENV.to_owned()),
+                }));
             }
 
             // Workload identity federation: the Anthropic SDK exchanges the
@@ -149,12 +146,7 @@ pub fn anthropic_provider() -> Provider {
         base_url: Some("https://api.anthropic.com".to_owned()),
         auth: ProviderAuth {
             api_key: Some(Arc::new(AnthropicApiKeyAuth)),
-            oauth: Some(lazy_oauth(LazyOAuthInput {
-                name: "Anthropic (Claude Pro/Max)".to_owned(),
-                is_subscription: Some(true),
-                login_label: None,
-                load: Arc::new(load_anthropic_oauth),
-            })),
+            oauth: None,
         },
         models: builtin_baseline("anthropic", || chat_models(&ANTHROPIC_MODELS)),
         api: Some(ProviderApi::Single(anthropic_messages_api())),

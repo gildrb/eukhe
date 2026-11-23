@@ -338,16 +338,16 @@ fn anthropic_options() -> ProviderStreamOptions {
 }
 
 #[tokio::test]
-#[ignore = "needs ANTHROPIC_OAUTH_TOKEN; run with --ignored"]
+#[ignore = "needs ANTHROPIC_API_KEY; run with --ignored"]
 async fn anthropic_should_abort_mid_stream() {
-    require_env("ANTHROPIC_OAUTH_TOKEN");
+    require_env("ANTHROPIC_API_KEY");
     abort_mid_stream(&anthropic_llm(), &anthropic_options()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs ANTHROPIC_OAUTH_TOKEN; run with --ignored"]
+#[ignore = "needs ANTHROPIC_API_KEY; run with --ignored"]
 async fn anthropic_should_handle_immediate_abort() {
-    require_env("ANTHROPIC_OAUTH_TOKEN");
+    require_env("ANTHROPIC_API_KEY");
     immediate_abort(&anthropic_llm(), &anthropic_options()).await;
 }
 

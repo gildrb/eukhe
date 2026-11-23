@@ -21,6 +21,7 @@ use crate::auth::types::{
 };
 use crate::providers::github_copilot_models::GITHUB_COPILOT_MODELS;
 use crate::utils::diagnostics::Thrown;
+use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::sleep::sleep;
 
 static CLIENT_ID: LazyLock<String> = LazyLock::new(|| {
@@ -30,8 +31,9 @@ static CLIENT_ID: LazyLock<String> = LazyLock::new(|| {
     String::from_utf8(bytes).unwrap_or_default()
 });
 
-const COPILOT_HEADERS: [(&str, &str); 4] = [
-    ("User-Agent", "GitHubCopilotChat/0.35.0"),
+/// The Copilot API's client headers, sent beside eukhe's own User-Agent
+/// ([`copilot_request`]).
+const COPILOT_HEADERS: [(&str, &str); 3] = [
     ("Editor-Version", "vscode/1.107.0"),
     ("Editor-Plugin-Version", "copilot-chat/0.35.0"),
     ("Copilot-Integration-Id", "vscode-chat"),
@@ -337,11 +339,10 @@ async fn fetch_with_rate_limit_retry(
 }
 
 pub(crate) fn copilot_request(request: FetchRequest) -> FetchRequest {
-    COPILOT_HEADERS
-        .iter()
-        .fold(request, |request, (name, value)| {
-            request.header(name, *value)
-        })
+    COPILOT_HEADERS.iter().fold(
+        request.header("User-Agent", get_pi_user_agent()),
+        |request, (name, value)| request.header(name, *value),
+    )
 }
 
 async fn fetch_github_copilot_models(
@@ -391,7 +392,7 @@ async fn start_device_flow(
         FetchRequest::post(urls.device_code)
             .header("Accept", "application/json")
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("User-Agent", "GitHubCopilotChat/0.35.0")
+            .header("User-Agent", get_pi_user_agent())
             .form(&[("client_id", &CLIENT_ID), ("scope", "read:user")]),
         signal,
     )
@@ -444,7 +445,7 @@ async fn poll_access_token_once(
         FetchRequest::post(urls.access_token.clone())
             .header("Accept", "application/json")
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("User-Agent", "GitHubCopilotChat/0.35.0")
+            .header("User-Agent", get_pi_user_agent())
             .form(&[
                 ("client_id", &CLIENT_ID),
                 ("device_code", &device.device_code),

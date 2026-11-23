@@ -126,7 +126,6 @@ impl Worker {
             "worker_handover" => self.handle_handover().await,
             "rename" => self.handle_rename("rename", payload).await,
             "set_session_name" => self.handle_rename("set_session_name", payload).await,
-            "mark_anthropic_warning_shown" => self.handle_mark_anthropic_warning_shown().await,
             "agent_reply" => self.handle_agent_reply(payload).await,
             "rename_saved_session" => self.handle_rename_saved_session(payload).await,
             "delete_saved_session" => self.handle_delete_saved_session(payload).await,
@@ -797,33 +796,6 @@ impl Worker {
         hosted.events_delivered().await;
         if let Err(error) = hosted.close(&BACKGROUND_CONTEXT).await {
             eprintln!("eukhe-daemon worker: closing the session failed: {error}");
-        }
-    }
-
-    /// `mark_anthropic_warning_shown`: the once-per-session marker.
-    async fn handle_mark_anthropic_warning_shown(&self) -> DaemonResponse {
-        const NAME: &str = "mark_anthropic_warning_shown";
-        let hosted = match self.hosted(NAME) {
-            Ok(hosted) => hosted,
-            Err(response) => return response,
-        };
-        let shown = self
-            .core
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .anthropic_warning_shown;
-        if shown {
-            return response_success(None, NAME, None);
-        }
-        match meta::mark_anthropic_warning_shown(hosted.harness(), &BACKGROUND_CONTEXT).await {
-            Ok(()) => {
-                self.core
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .anthropic_warning_shown = true;
-                response_success(None, NAME, None)
-            }
-            Err(error) => response_failure(None, NAME, &error.to_string(), None),
         }
     }
 

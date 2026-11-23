@@ -405,15 +405,6 @@ pub trait ClientSettings: Send + Sync {
     /// Returns `Err` when opening or persisting the settings
     /// store fails.
     fn set_chat_detail(&self, detail: &str) -> Result<()>;
-    /// `warnings.anthropicExtraUsage` (TS default true).
-    fn warnings_anthropic_extra_usage(&self) -> bool;
-    /// Persists `warnings.anthropicExtraUsage` to the global scope.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` when opening or persisting the settings
-    /// store fails.
-    fn set_warnings_anthropic_extra_usage(&self, enabled: bool) -> Result<()>;
 }
 
 #[cfg(test)]

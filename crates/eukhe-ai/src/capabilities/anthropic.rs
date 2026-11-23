@@ -8,7 +8,7 @@ use serde_json::json;
 use super::http::{api_key, count, header_source, send, unexpected, unversioned_root, Body, Call};
 use super::{ListedModel, TokenCount, WebSearchRequest, WebSearchResult, WebSource};
 use crate::api::anthropic_messages::params::build_params;
-use crate::api::anthropic_messages::{client_version, is_oauth_token, AnthropicOptions};
+use crate::api::anthropic_messages::{is_subscription_token, AnthropicOptions, CLAUDE_LOGIN_MOVED};
 use crate::api::classifier_shared::error;
 use crate::types::{Model, ProviderRequestOptions, StreamOptions};
 use crate::utils::diagnostics::Thrown;
@@ -31,19 +31,17 @@ const WEB_SEARCH_MAX_TOKENS: u64 = 4096;
 /// The page size of the model catalog (the API maximum).
 const MODELS_PAGE_LIMIT: u32 = 1000;
 
-/// The version and auth headers: OAuth tokens go as a bearer with the
-/// OAuth beta, API keys as `x-api-key`.
-fn auth_headers(key: &str) -> ProviderHeaders {
-    let version = ("anthropic-version", "2023-06-01".to_owned());
-    if is_oauth_token(key) {
-        header_source([
-            version,
-            ("authorization", format!("Bearer {key}")),
-            ("anthropic-beta", "oauth-2025-04-20".to_owned()),
-        ])
-    } else {
-        header_source([version, ("x-api-key", key.to_owned())])
+/// The version and auth headers: the API key as `x-api-key`. A Claude
+/// subscription token fails with [`CLAUDE_LOGIN_MOVED`] before anything is
+/// sent.
+fn auth_headers(key: &str) -> Result<ProviderHeaders, Thrown> {
+    if is_subscription_token(key) {
+        return Err(error(CLAUDE_LOGIN_MOVED));
     }
+    Ok(header_source([
+        ("anthropic-version", "2023-06-01".to_owned()),
+        ("x-api-key", key.to_owned()),
+    ]))
 }
 
 /// The input tokens `context` costs on `model`.
@@ -61,13 +59,7 @@ pub(crate) async fn count_tokens(
         },
         ..AnthropicOptions::default()
     };
-    let (params, _) = build_params(
-        model,
-        context.messages(),
-        is_oauth_token(key),
-        client_version::PINNED,
-        &chat_options,
-    )?;
+    let (params, _) = build_params(model, context.messages(), &chat_options)?;
     let payload: JsonObject = params
         .into_iter()
         .filter(|(field, _)| COUNT_FIELDS.contains(&field.as_str()))
@@ -81,7 +73,7 @@ pub(crate) async fn count_tokens(
                 "{}/v1/messages/count_tokens",
                 unversioned_root(&model.base_url)
             ),
-            defaults: auth_headers(key),
+            defaults: auth_headers(key)?,
             body: Body::Post(JsonValue::Object(payload)),
         },
     )
@@ -112,7 +104,7 @@ pub(crate) async fn list_models(
             Call {
                 label: LABEL,
                 url,
-                defaults: auth_headers(key),
+                defaults: auth_headers(key)?,
                 body: Body::Get,
             },
         )
@@ -186,7 +178,7 @@ pub(crate) async fn web_search(
         Call {
             label: LABEL,
             url: format!("{}/v1/messages", unversioned_root(&model.base_url)),
-            defaults: auth_headers(key),
+            defaults: auth_headers(key)?,
             body: Body::Post(json!({
                 "model": model.id,
                 "max_tokens": model.max_tokens.min(WEB_SEARCH_MAX_TOKENS),
@@ -292,7 +284,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_models_follows_pages_with_an_oauth_token() {
+    async fn list_models_follows_pages() {
         let (root, server) = serve(vec![
             Reply::ok(json!({
                 "data": [{
@@ -320,7 +312,7 @@ mod tests {
             })),
         ])
         .await;
-        let listed = list_models(&claude(&root), &options("sk-ant-oat01-token"))
+        let listed = list_models(&claude(&root), &options("sk-ant-api"))
             .await
             .expect("models");
         assert_eq!(
@@ -342,11 +334,10 @@ mod tests {
                 },
             ]
         );
-        let oauth = headers([
+        let api_key = headers([
             ("accept", "application/json"),
-            ("anthropic-beta", "oauth-2025-04-20"),
             ("anthropic-version", "2023-06-01"),
-            ("authorization", "Bearer sk-ant-oat01-token"),
+            ("x-api-key", "sk-ant-api"),
         ]);
         assert_eq!(
             server.await.expect("server"),
@@ -354,13 +345,13 @@ mod tests {
                 Recorded {
                     method: "GET".to_owned(),
                     path: "/v1/models?limit=1000".to_owned(),
-                    headers: oauth.clone(),
+                    headers: api_key.clone(),
                     body: None,
                 },
                 Recorded {
                     method: "GET".to_owned(),
                     path: "/v1/models?limit=1000&after_id=claude-opus-4-1".to_owned(),
-                    headers: oauth,
+                    headers: api_key,
                     body: None,
                 },
             ]

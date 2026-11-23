@@ -23,6 +23,7 @@ use super::park::{is_quota_block_failure, quota_failure_reset_ms};
 use crate::durable::rlm::now_millis;
 
 use crate::auth::accounts::{accounts_of, entry_of, keeps_accounts, with_limit, Account};
+use crate::auth::types::is_moved_claude_login;
 use crate::auth::{
     edit_storage_data, parse_storage_data, AuthStorageBackend, FileAuthStorageBackend,
 };
@@ -99,8 +100,8 @@ impl AccountBook {
         &self.backend
     }
 
-    /// The provider's accounts as stored now, in order; none when the
-    /// document does not read.
+    /// The provider's accounts as stored now, in order (a Claude
+    /// subscription login left out); none when the document does not read.
     #[must_use]
     pub fn accounts(&self, provider: &str) -> Vec<Account> {
         if !keeps_accounts(provider) {
@@ -114,7 +115,7 @@ impl AccountBook {
                 document
                     .0
                     .get(provider)
-                    .map(|entry| accounts_of(provider, entry))
+                    .map(|entry| usable_accounts(provider, entry))
             })
             .unwrap_or_default()
     }
@@ -310,7 +311,7 @@ fn place(accounts: &[Account], at: u64) -> Option<Account> {
 /// The credential object of the account a session's request reads: the
 /// account the session sticks to (picked at its first read,
 /// [`AccountBook::stick`]), else the entry's first; an MCP entry is its
-/// own credential.
+/// own credential. A Claude subscription login is no account to read.
 pub(super) fn read_credential(
     book: &AccountBook,
     provider: &str,
@@ -321,10 +322,19 @@ pub(super) fn read_credential(
             .as_object()
             .map(|object| (String::new(), object.clone()));
     }
-    let accounts = accounts_of(provider, entry);
+    let accounts = usable_accounts(provider, entry);
     book.stick(provider, &accounts, crate::durable::rlm::now_millis());
     book.current(provider, &accounts)
         .map(|account| (account.identity, account.credential))
+}
+
+/// The provider's accounts in `entry`, a Claude subscription login left
+/// out: eukhe never reads it.
+fn usable_accounts(provider: &str, entry: &Value) -> Vec<Account> {
+    accounts_of(provider, entry)
+        .into_iter()
+        .filter(|account| !is_moved_claude_login(provider, &account.credential))
+        .collect()
 }
 
 #[cfg(test)]

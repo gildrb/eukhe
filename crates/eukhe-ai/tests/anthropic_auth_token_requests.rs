@@ -104,18 +104,6 @@ fn only_request(captured: &Captured) -> CapturedRequest {
     all[0].clone()
 }
 
-/// `expect(createParams?.betas ?? []).not.toContain("oauth-2025-04-20")`.
-fn assert_no_oauth_beta(params: &JsonValue) {
-    let betas = params.get("betas").cloned().unwrap_or_else(|| json!([]));
-    assert!(
-        !betas
-            .as_array()
-            .expect("betas array")
-            .contains(&json!("oauth-2025-04-20")),
-        "{betas}"
-    );
-}
-
 /// `expect(createParams?.system).toEqual([expect.objectContaining({ text: "System prompt." })])`.
 fn assert_system_prompt(params: &JsonValue) {
     let system = params["system"].as_array().expect("system blocks");
@@ -154,7 +142,7 @@ async fn run_models(
 // --- Anthropic auth token env ---
 
 #[tokio::test]
-async fn uses_authorization_headers_without_oauth_mode_request_shaping() {
+async fn uses_authorization_headers_for_a_gateway_token() {
     let mut options = ProviderStreamOptions::default();
     options.stream.request.headers =
         Some(headers(&[("Authorization", Some("Bearer gateway-token"))]));
@@ -165,7 +153,6 @@ async fn uses_authorization_headers_without_oauth_mode_request_shaping() {
         request.header("authorization").as_deref(),
         Some("Bearer gateway-token")
     );
-    assert_no_oauth_beta(&params);
     assert_system_prompt(&params);
 }
 
@@ -179,28 +166,7 @@ async fn threads_auth_context_anthropic_auth_token_through_request_headers() {
         request.header("authorization").as_deref(),
         Some("Bearer ctx-token")
     );
-    assert_no_oauth_beta(&params);
     assert_system_prompt(&params);
-}
-
-#[tokio::test]
-async fn preserves_oauth_request_shaping_for_anthropic_oauth_token() {
-    let models = models_with_env("ANTHROPIC_OAUTH_TOKEN", "sk-ant-oat-test");
-    let (request, params) = run_models(&models, SimpleStreamOptions::default()).await;
-
-    // `apiKey: null`, `authToken: "sk-ant-oat-test"`.
-    assert_eq!(request.header("x-api-key"), None);
-    assert_eq!(
-        request.header("authorization").as_deref(),
-        Some("Bearer sk-ant-oat-test")
-    );
-    assert!(
-        params["betas"]
-            .as_array()
-            .expect("betas")
-            .contains(&json!("oauth-2025-04-20")),
-        "{params}"
-    );
 }
 
 #[tokio::test]

@@ -23,8 +23,6 @@ pub(crate) struct SessionCore {
     pub(crate) session_dir: Option<std::path::PathBuf>,
     /// The session name (`eukhe.daemon.session` doc mirror).
     pub(crate) session_name: Option<String>,
-    /// Whether the Anthropic subscription warning was shown (doc mirror).
-    pub(crate) anthropic_warning_shown: bool,
     /// When the session was created here (ISO), for the summary.
     pub(crate) created_at: Option<String>,
     /// The session's budget as the last `budget_update` carried it (the
@@ -126,7 +124,6 @@ impl SessionCore {
             session_id: String::new(),
             session_dir: None,
             session_name: None,
-            anthropic_warning_shown: false,
             created_at: None,
             budget: None,
             budget_epoch: 0,

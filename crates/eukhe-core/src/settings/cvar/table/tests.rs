@@ -10,7 +10,7 @@ use crate::settings::types::{
     RetryFailoverSettings, RetrySettings, RlmSettings, Settings, SignalGatewaySettings,
     SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
     ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, UndoSettings,
-    UpdateSettings, WarningSettings,
+    UpdateSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -169,9 +169,6 @@ fn populated() -> Settings {
         agent_tree: Some(crate::settings::types::AgentTreeSettings {
             check_command: Some("make check".into()),
             check_timeout_secs: Some(60),
-        }),
-        warnings: Some(WarningSettings {
-            anthropic_extra_usage: Some(true),
         }),
         session_dir: Some("d".into()),
         request_timing: Some(true),

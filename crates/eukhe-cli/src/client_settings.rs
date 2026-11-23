@@ -513,13 +513,6 @@ impl ClientSettings for CliClientSettings {
         set_factory_enabled,
         bool
     );
-    setting!(
-        warnings_anthropic_extra_usage,
-        set_warnings_anthropic_extra_usage,
-        get_warnings_anthropic_extra_usage,
-        set_warnings_anthropic_extra_usage,
-        bool
-    );
 }
 
 #[cfg(test)]
@@ -569,7 +562,6 @@ mod tests {
         assert_eq!(settings.idle_eviction_minutes(), "90");
         assert_eq!(settings.mermaid_rendering_mode(), "streaming");
         assert_eq!(settings.tree_filter_mode(), "user-only");
-        assert!(settings.warnings_anthropic_extra_usage());
         assert_eq!(settings.stream_pace(), eukhe_tui::pace::PaceRate::DEFAULT);
 
         // Writes persist (the settings file lands in the agent dir).

@@ -158,14 +158,14 @@ async fn amazon_bedrock_should_do_interleaved_thinking_on_claude_opus_4_6() {
 }
 
 #[tokio::test]
-#[ignore = "needs ANTHROPIC_API_KEY (or ANTHROPIC_OAUTH_TOKEN); run with --ignored"]
+#[ignore = "needs ANTHROPIC_API_KEY; run with --ignored"]
 async fn anthropic_should_do_interleaved_thinking_on_claude_opus_4_5() {
     let llm = builtin_model("anthropic", "claude-opus-4-5", &json!({}));
     assert_second_tool_call_with_interleaved_thinking(&llm, ThinkingLevel::High).await;
 }
 
 #[tokio::test]
-#[ignore = "needs ANTHROPIC_API_KEY (or ANTHROPIC_OAUTH_TOKEN); run with --ignored"]
+#[ignore = "needs ANTHROPIC_API_KEY; run with --ignored"]
 async fn anthropic_should_do_interleaved_thinking_on_claude_opus_4_6() {
     let llm = builtin_model("anthropic", "claude-opus-4-6", &json!({}));
     assert_second_tool_call_with_interleaved_thinking(&llm, ThinkingLevel::High).await;

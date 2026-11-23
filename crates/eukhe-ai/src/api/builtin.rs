@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{ClassifierModel, ImageModel};
 
-use super::anthropic_messages::{streams_sharing, ClientVersion};
 use super::lazy::{lazy_api, LazyApiCapabilities, LoadApi};
 use super::{ProviderClassifier, ProviderImages, ProviderStreams};
 use crate::utils::diagnostics::Thrown;
@@ -28,6 +27,7 @@ static BUILTIN_STREAM_APIS: ApiTable<ProviderStreams> = &[
         "bedrock-converse-stream",
         super::bedrock_converse_stream::streams,
     ),
+    ("claude-code", super::claude_code::streams),
     ("google-generative-ai", super::google_generative_ai::streams),
     ("google-vertex", super::google_vertex::streams),
     (
@@ -122,22 +122,22 @@ fn lazy_builtin(api: &'static str) -> ProviderStreams {
     lazy_api(builtin_loader(api), LazyApiCapabilities::default())
 }
 
-/// TS `anthropicMessagesApi()`. The API owns one [`ClientVersion`]: its
-/// subscription requests send the version an earlier one learned.
+/// TS `anthropicMessagesApi()`.
 #[must_use]
 pub fn anthropic_messages_api() -> ProviderStreams {
-    let client_version = ClientVersion::default();
-    let load: LoadApi = Arc::new(move || {
-        let client_version = client_version.clone();
-        Box::pin(async move { Ok::<_, Thrown>(streams_sharing(client_version)) })
-    });
-    lazy_api(load, LazyApiCapabilities::default())
+    lazy_builtin("anthropic-messages")
 }
 
 /// TS `azureOpenAIResponsesApi()`.
 #[must_use]
 pub fn azure_openai_responses_api() -> ProviderStreams {
     lazy_builtin("azure-openai-responses")
+}
+
+/// The `claude-code` API: the user's `claude` CLI.
+#[must_use]
+pub fn claude_code_api() -> ProviderStreams {
+    lazy_builtin("claude-code")
 }
 
 /// Overrides the resolved Bedrock implementation: TS

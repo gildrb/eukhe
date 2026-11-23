@@ -9,13 +9,12 @@ use eukhe_ai::env_api_keys::{find_env_keys, get_env_api_key};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-const TOUCHED: [&str; 7] = [
+const TOUCHED: [&str; 6] = [
     "COPILOT_GITHUB_TOKEN",
     "GH_TOKEN",
     "GITHUB_TOKEN",
     "ZAI_CODING_CN_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
 ];
 
@@ -93,23 +92,21 @@ fn resolves_zai_china_coding_plan_credentials_from_zai_coding_cn_api_key() {
 }
 
 #[test]
-fn reports_anthropic_auth_token_but_preserves_oauth_token_api_key_lookup() {
+fn reports_anthropic_auth_token_but_returns_the_api_key() {
     let _env = EnvGuard::new();
     std::env::set_var("ANTHROPIC_AUTH_TOKEN", "auth-token");
-    std::env::set_var("ANTHROPIC_OAUTH_TOKEN", "oauth-token");
     std::env::set_var("ANTHROPIC_API_KEY", "api-key");
 
     assert_eq!(
         find_env_keys("anthropic", None),
         Some(vec![
             "ANTHROPIC_AUTH_TOKEN".to_owned(),
-            "ANTHROPIC_OAUTH_TOKEN".to_owned(),
             "ANTHROPIC_API_KEY".to_owned(),
         ])
     );
     assert_eq!(
         get_env_api_key("anthropic", None).as_deref(),
-        Some("oauth-token")
+        Some("api-key")
     );
 }
 
@@ -117,7 +114,6 @@ fn reports_anthropic_auth_token_but_preserves_oauth_token_api_key_lookup() {
 fn does_not_return_anthropic_auth_token_as_an_api_key() {
     let _env = EnvGuard::new();
     std::env::set_var("ANTHROPIC_AUTH_TOKEN", "auth-token");
-    std::env::remove_var("ANTHROPIC_OAUTH_TOKEN");
     std::env::remove_var("ANTHROPIC_API_KEY");
 
     assert_eq!(
@@ -128,27 +124,9 @@ fn does_not_return_anthropic_auth_token_as_an_api_key() {
 }
 
 #[test]
-fn preserves_anthropic_oauth_token_as_an_api_key() {
-    let _env = EnvGuard::new();
-    std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
-    std::env::set_var("ANTHROPIC_OAUTH_TOKEN", "oauth-token");
-    std::env::remove_var("ANTHROPIC_API_KEY");
-
-    assert_eq!(
-        find_env_keys("anthropic", None),
-        Some(vec!["ANTHROPIC_OAUTH_TOKEN".to_owned()])
-    );
-    assert_eq!(
-        get_env_api_key("anthropic", None).as_deref(),
-        Some("oauth-token")
-    );
-}
-
-#[test]
 fn falls_back_to_anthropic_api_key_for_api_key_lookup() {
     let _env = EnvGuard::new();
     std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
-    std::env::remove_var("ANTHROPIC_OAUTH_TOKEN");
     std::env::set_var("ANTHROPIC_API_KEY", "api-key");
 
     assert_eq!(

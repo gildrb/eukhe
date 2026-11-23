@@ -386,12 +386,6 @@ impl eukhe_tui::client_settings::ClientSettings for RecordingSettings {
     fn set_factory_enabled(&self, _enabled: bool) -> Result<()> {
         Ok(())
     }
-    fn warnings_anthropic_extra_usage(&self) -> bool {
-        true
-    }
-    fn set_warnings_anthropic_extra_usage(&self, _enabled: bool) -> Result<()> {
-        Ok(())
-    }
 }
 
 fn options(socket: PathBuf, settings: Arc<RecordingSettings>) -> InteractiveOptions {
@@ -636,7 +630,7 @@ fn tab_and_the_number_keys_move_the_tabs_not_the_arrows() {
     let after_tab = frame_with(&frames, "Transport");
     assert!(after_tab.iter().any(|row| row.contains("Thinking level")));
     // 1 jumped back to General.
-    assert!(frame_with(&frames, "Warnings")
+    assert!(frame_with(&frames, "Follow-up mode")
         .iter()
         .any(|row| row.contains("Quiet startup")));
     // 3 jumped to Display.

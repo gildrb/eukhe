@@ -9,6 +9,7 @@ use super::anthropic::anthropic_provider;
 use super::azure::azure_provider;
 use super::baseten::baseten_provider;
 use super::cerebras::cerebras_provider;
+use super::claude_code::claude_code_provider;
 use super::cloudflare_ai_gateway::cloudflare_ai_gateway_provider;
 use super::cloudflare_workers_ai::cloudflare_workers_ai_provider;
 use super::deepseek::deepseek_provider;
@@ -131,6 +132,7 @@ pub fn builtin_providers() -> Vec<Provider> {
         azure_provider(),
         baseten_provider(),
         cerebras_provider(),
+        claude_code_provider(),
         cloudflare_ai_gateway_provider(),
         cloudflare_workers_ai_provider(),
         deepseek_provider(),

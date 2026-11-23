@@ -6531,7 +6531,7 @@
     "laws/dash_policy.bend::dp_of": "ed9c2c8648a420702c64c49249009adae82e4fdb1c506bf0020c62c6906d072b",
     "laws/dash_policy.bend::dp_runs": "ec63a793b4c3546bc2c4739dde5b7f9c2f117e0c58567e3dec70c1aa6c5df22e",
     "laws/dash_policy.bend::dp_tag": "5e28364cec752ec0f2710458e9dded565c2bc62b77b052b51f318dc2bd085715",
-    "laws/dash_policy.bend::dp_wire": "5d41fc2523efcfd5eb40f041cdf72ce9720c34524d160a7aa62b203347f8ad91",
+    "laws/dash_policy.bend::dp_wire": "69123360c635589e115bf682a222dee41f63efb8551d453ac42afc9dab450c7b",
     "laws/default_model.bend::dm_fails_first": "ab701d0bcb5084d1be833af1092e381742ef9a820d557f5ce3c80685e5d820b6",
     "laws/default_model.bend::dmw_in_fits": "9ae077ceab8f88c1921f5f0b4a367df62018beba32cd7ae47c5f5ef286b76640",
     "laws/default_model.bend::dmw_key_fits": "c01e999d6bd61c668b23f40c73acdd21ec07658b8cb0cadefb6df745fa892b89",
