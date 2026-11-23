@@ -11,7 +11,7 @@ npx eukhe install
 
 `npx eukhe install` downloads the Eukhe release for macOS (Apple Silicon) or Linux (x64, arm64), checks it against the release's SHA256SUMS, and installs it to `~/.local/share/eukhe` with a launcher at `~/.local/bin/eukhe`. A specific release: `npx eukhe install 0.10.79`.
 
-Eukhe needs one model provider login per machine, done by a person: run `eukhe` in a terminal and type `/login`.
+Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login anthropic`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
 
 ## Use
 
@@ -78,7 +78,7 @@ Every error the client throws is an `EukheError`; switch on `error.$`:
 | `$` | Meaning | Fields |
 |---|---|---|
 | `NotInstalled` | no `eukhe` binary found | `installCommand` (`npx eukhe install`), `searched` |
-| `NotLoggedIn` | no model provider login | `login.command` (`eukhe`), `login.slashCommand` (`/login`), `login.instructions` |
+| `NotLoggedIn` | no model provider login | `login.command` (the command to run), `login.slashCommand` (the same inside `eukhe`, or `null`), `login.instructions` |
 | `Unsupported` | the agent lacks an Eukhe extension (an older Eukhe, or another ACP agent) | `feature` |
 | `UnknownModel` | `session({ model })` names a model the agent does not offer | `available` |
 | `TurnInProgress` | `prompt` while the session's turn still runs | |
@@ -97,7 +97,7 @@ The client speaks ACP protocol version 1 plus Eukhe's `_eukhe/*` extension metho
 
 - macOS on Apple Silicon and Linux (x64, arm64) only.
 - Irreversible effects run without asking the host; `RunReport.ran` and `session.effects()` list them.
-- Login is interactive (`/login` in a terminal).
+- Login is a step a person runs once (`eukhe login <provider>`); the client reports its absence as `NotLoggedIn`.
 
 ## License
 
