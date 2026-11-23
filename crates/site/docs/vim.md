@@ -2,12 +2,12 @@
 
 The page is a read-only Neovim with Gil's config, on every screen with the script. Without it, the plain page (Markdown reflowed to the screen's width).
 
-| Part  | File                                   | Does                                                                                                                 |
-| ----- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Core  | `vim/*.bend` (entry `vim/vim.bend`)    | `Vim.init`, `Vim.step(st, ev) -> Step{st, act}`, `Vim.frame(st)`, `Vim.lines(st)`; pure, decides everything          |
-| Host  | `src/client.ts`                        | browser events to `Ev`; paints `Frame` on a cell grid; runs `Act` (open URL, copy install command)                   |
-| Files | `scripts/files.ts`, `src/markdown.tsx` | `files.json`: the pages and eukhe's files (the repository's, `..`); each file's lines, highlights, the install fence |
-| Laws  | `LAWS.bend`, `laws/vim/`               | requirements `R1`-`R7`, `A1`-`A3` atop LAWS.bend; one law per claim, by section in `laws/vim/<section>.bend`         |
+| Part  | File                                   | Does                                                                                                                |
+| ----- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Core  | `vim/*.bend` (entry `vim/vim.bend`)    | `Vim.init`, `Vim.step(st, ev) -> Step{st, act}`, `Vim.frame(st)`, `Vim.lines(st)`; pure, decides everything         |
+| Host  | `src/client.ts`                        | browser events to `Ev`; paints `Frame` on a cell grid; runs `Act` (open URL, copy install command)                  |
+| Files | `scripts/files.ts`, `src/markdown.tsx` | `files.json`: the pages and eukhe's files (the repository's, `../..`); each file's lines, highlights, install fence |
+| Laws  | `LAWS.bend`, `laws/vim/`               | requirements `R1`-`R7`, `A1`-`A3` atop LAWS.bend; one law per claim, by section in `laws/vim/<section>.bend`        |
 
 ## Grid
 
@@ -44,7 +44,7 @@ Each place a tap opens is a browser history entry (same URL); back and forward s
 
 ```sh
 vp run bend                                               # vim/vim.bend -> src/vim.mjs (the pinned Bend)
-"$(python3 ../.github/scripts/pinned_bend.py)" vim/vim.bend --check-only  # type-check the core
+"$(python3 ../../.github/scripts/pinned_bend.py)" vim/vim.bend --check-only  # type-check the core
 python3 scripts/vim-diff.py                               # diff Bend screens against real nvim (pyte)
 node scripts/vim-smoke.ts                                 # drive the core from Node
 ```

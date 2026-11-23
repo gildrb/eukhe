@@ -61,10 +61,10 @@ class LayoutTestCase(unittest.TestCase):
         site_law = "import Base\n\nlaw site_one:\n  {1n == 1n : Nat}\n"
         site_fill = "import Base\nimport ../../laws/v.bend as V\n\ndef V.site_one():\n  {==}\n"
         root = self.tree({
-            "site/LAWS.bend": "import Base\nimport ./laws/v.bend as V\n",
-            "site/PROOF.bend": "import Base\nimport ./LAWS.bend as Laws\nimport ./proof/v/site_one.bend as P\n",
-            "site/laws/v.bend": site_law,
-            "site/proof/v/site_one.bend": site_fill,
+            "crates/site/LAWS.bend": "import Base\nimport ./laws/v.bend as V\n",
+            "crates/site/PROOF.bend": "import Base\nimport ./LAWS.bend as Laws\nimport ./proof/v/site_one.bend as P\n",
+            "crates/site/laws/v.bend": site_law,
+            "crates/site/proof/v/site_one.bend": site_fill,
         })
         self.assertEqual(gaps_of(root), [])
 

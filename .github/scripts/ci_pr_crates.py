@@ -57,9 +57,10 @@ WORKSPACE_DEPS = {
 }
 
 # The components under crates/ that are no cargo package: the kernel
-# runtime and the bundled skills. A change to one affects every crate that
-# runs a kernel or loads a skill, so it selects them all.
-NON_CRATES = frozenset({"rlm", "skills"})
+# runtime and the bundled skills (a change to one affects every crate that
+# runs a kernel or loads a skill, so it selects them all) and the website
+# (ci_local.py leaves it out before it asks).
+NON_CRATES = frozenset({"rlm", "skills", "site"})
 
 
 def read_rows(path: Path) -> list[tuple[str, str]]:

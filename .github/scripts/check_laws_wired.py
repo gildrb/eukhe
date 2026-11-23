@@ -18,8 +18,9 @@ proof/<area>/base.bend and proof/base.bend for shared lemmas):
 - no laws/ file but those LAWS.bend imports; no proof*.bend file but
   PROOF.bend;
 - no other .bend file declares a `law` or fills one.
-site/ (the website) is skipped: its laws and proofs are its own (site/LAWS.bend,
-site/PROOF.bend, site/LAWS.lock; `make site-check`).
+crates/site/ (the website) is skipped: its laws and proofs are its own
+(crates/site/LAWS.bend, crates/site/PROOF.bend, crates/site/LAWS.lock;
+`make site-check`).
 Exit 1 with the list of gaps."""
 import re
 import subprocess
@@ -31,11 +32,11 @@ LAW = re.compile(r"^law (\w+)", re.M)
 DEF = re.compile(r"^def ", re.M)
 SKIP = {".git", "target", "node_modules", "vendor"}
 # The website's tree: its laws are not eukhe's.
-SITE = "site"
+SITE = Path("crates/site")
 
 
 def bend_files(root: Path) -> list[Path]:
-    """Every .bend file of the tree outside site/: tracked and untracked, not ignored."""
+    """Every .bend file of the tree outside crates/site/: tracked and untracked, not ignored."""
     try:
         out = subprocess.run(
             ["git", "ls-files", "-co", "--exclude-standard", "--", "*.bend", f":(exclude){SITE}/"],
@@ -46,7 +47,7 @@ def bend_files(root: Path) -> list[Path]:
         return sorted(
             p
             for p in root.rglob("*.bend")
-            if not SKIP & set(p.relative_to(root).parts) and p.relative_to(root).parts[0] != SITE
+            if not SKIP & set(p.relative_to(root).parts) and not p.relative_to(root).is_relative_to(SITE)
         )
 
 

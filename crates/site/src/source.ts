@@ -3,8 +3,8 @@ import { repository } from "./rendered.ts";
 
 /** The source's line: under the title and at the page's end. */
 const sourceLine = `Source: [${repository}](${repository})`;
-// The repository's own README (the site lives in site/ of Eukhe's repository).
-import readme from "../../README.md?raw";
+// The repository's own README (the site lives in crates/site/ of Eukhe's repository).
+import readme from "../../../README.md?raw";
 
 /**
  * The install command: the one block with a `[copy]` button. Other commands (`cd /path/to/project`)

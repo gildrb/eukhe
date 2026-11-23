@@ -42,8 +42,13 @@ const NIX_DIRTY_SUFFIX: &str = "-dirty";
 /// The build inputs, relative to the workspace root.
 const INPUTS: [&str; 4] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates"];
 /// The trees under the inputs that are no cargo package: the TypeScript
-/// SDK (npm), the kernel runtime and the bundled skills.
-const NOT_INPUTS: [&str; 3] = ["crates/eukhe-sdk/ts", "crates/rlm", "crates/skills"];
+/// SDK (npm), the kernel runtime, the bundled skills and the website.
+const NOT_INPUTS: [&str; 4] = [
+    "crates/eukhe-sdk/ts",
+    "crates/rlm",
+    "crates/skills",
+    "crates/site",
+];
 /// Directories under the inputs that hold no build input.
 const SKIPPED_DIRS: [&str; 2] = ["target", "node_modules"];
 
