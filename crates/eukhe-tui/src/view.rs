@@ -22,7 +22,7 @@ mod streaming;
 mod viewport;
 
 pub use frame::{ChatFrame, FrameStart, TranscriptBreak};
-pub use viewport::{ScrollAmount, ScrollRequest};
+pub use viewport::{ScrollAmount, ScrollRequest, SelectionKey};
 
 pub struct AgentView {
     pub theme: Theme,

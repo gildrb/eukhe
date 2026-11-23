@@ -230,7 +230,225 @@ fn a_drag_highlights_and_esc_clears_it() {
     );
     assert_eq!(reversed(&mut view), lit, "the release keeps it shown");
     let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-    assert!(view.selection_key(&esc));
+    assert_eq!(view.selection_key(&esc), SelectionKey::Spent);
     assert_eq!(reversed(&mut view), "");
-    assert!(!view.selection_key(&esc));
+    assert_eq!(view.selection_key(&esc), SelectionKey::Pass);
+}
+
+/// A frame tall enough to keep the whole transcript in view.
+const TALL: usize = 60;
+
+const ANSWER: &str = "The answer is forty two.\n\nIt holds for every case we tried.";
+
+/// One tall frame's transcript rows and the text it paints reversed.
+fn tall(view: &mut AgentView) -> (Vec<String>, String) {
+    let frame = view.compose_fullscreen(WIDTH, TALL);
+    let dock = view.compose_dock(WIDTH).0.len();
+    let rows = &frame.live[..TALL - dock];
+    let lit = rows
+        .iter()
+        .flatten()
+        .filter(|span| {
+            span.style
+                .add_modifier
+                .contains(crate::style::Modifier::REVERSED)
+        })
+        .map(|span| span.content.as_str())
+        .collect();
+    (text(rows), lit)
+}
+
+/// The screen cell of `needle`'s first glyph in `shown`.
+fn cell_of(shown: &[String], needle: &str) -> (u16, u16) {
+    let y = shown
+        .iter()
+        .position(|r| r.contains(needle))
+        .unwrap_or_else(|| panic!("{needle:?} shown: {shown:#?}"));
+    let col = crate::width::str_width(&shown[y][..shown[y].find(needle).unwrap()]);
+    (u16::try_from(col).unwrap(), u16::try_from(y).unwrap())
+}
+
+/// Drag in a tall frame from `from`'s first glyph through `to`'s last
+/// and release: the text the release copies.
+fn select(view: &mut AgentView, from: &str, to: &str) -> String {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    let (shown, _) = tall(view);
+    let (c0, r0) = cell_of(&shown, from);
+    let (c1, r1) = cell_of(&shown, to);
+    let c1 = c1 + u16::try_from(crate::width::str_width(to)).unwrap() - 1;
+    let left = MouseButton::Left;
+    view.selection_mouse(MouseEventKind::Down(left), c0, r0);
+    view.selection_mouse(MouseEventKind::Drag(left), c1, r1);
+    view.selection_mouse(MouseEventKind::Up(left), c1, r1)
+        .expect("the release copies")
+}
+
+/// The copy key (`tui.editor.copySelection`, Cmd+C).
+fn copy_key(view: &mut AgentView) -> SelectionKey {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    view.selection_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER))
+}
+
+fn assistant(blocks: Vec<crate::chat::MessageBlock>, streaming: bool) -> ChatEntry {
+    ChatEntry::Assistant(Box::new(crate::chat::AssistantMessage {
+        blocks,
+        has_tool_calls: false,
+        streaming,
+        error: None,
+        aborted: false,
+    }))
+}
+
+/// A bash card still running, `output` streamed so far.
+fn running_bash(output: &str) -> ChatEntry {
+    ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
+        id: "call-1".to_string(),
+        name: "bash".to_string(),
+        args: serde_json::json!({ "command": "make test" }),
+        started: true,
+        started_at: Some(std::time::Instant::now()),
+        result: Some(crate::chat::ToolResultView {
+            content: vec![serde_json::json!({ "type": "text", "text": output })],
+            ..Default::default()
+        }),
+        result_partial: true,
+        ..Default::default()
+    }))
+}
+
+/// The transcript row `needle` is on.
+fn row_of(view: &mut AgentView, needle: &str) -> usize {
+    transcript(view)
+        .iter()
+        .position(|row| row.contains(needle))
+        .expect("in the transcript")
+}
+
+/// A selection in a finished answer keeps its text while the rows
+/// around it change (`all`, so tool output shows): a running tool card
+/// above it streams more output, the next message's thinking and text
+/// stream in below, and an entry arrives. The highlight stays on the
+/// same text and the copy key copies the same text.
+#[test]
+fn a_selection_keeps_its_text_while_rows_around_it_change() {
+    use crate::chat::MessageBlock::{Text, Thinking};
+    let mut view = view_with_messages(0);
+    view.splash_suppressed = true;
+    view.detail = crate::chat::Detail::All;
+    push_message(&mut view, 0);
+    view.push_entry(running_bash("line 1"));
+    view.push_entry(assistant(vec![Text(ANSWER.to_string())], false));
+    view.push_entry(assistant(vec![Thinking("Weighing it".to_string())], true));
+    let copied = select(&mut view, "forty", "holds");
+    assert!(
+        copied.starts_with("forty two.\n") && copied.ends_with("It holds"),
+        "{copied:?}"
+    );
+    let (_, lit) = tall(&mut view);
+    assert!(
+        lit.starts_with("forty two.") && lit.ends_with("holds"),
+        "{lit:?}"
+    );
+    let before = row_of(&mut view, "forty");
+
+    view.chat[1] = running_bash("line 1\nline 2\nline 3\nline 4");
+    view.mark_entry_stale(1);
+    tall(&mut view);
+    view.chat[3] = assistant(
+        vec![
+            Thinking("Weighing it again, more slowly. Then the rest.".to_string()),
+            Text("Next ".repeat(30)),
+        ],
+        true,
+    );
+    view.mark_entry_stale(3);
+    tall(&mut view);
+    push_message(&mut view, 1);
+
+    assert!(
+        row_of(&mut view, "forty") > before,
+        "rows above the answer grew"
+    );
+    assert_eq!(tall(&mut view).1, lit);
+    assert_eq!(copy_key(&mut view), SelectionKey::Copy(copied));
+    assert_eq!(tall(&mut view).1, lit, "the copy key keeps it shown");
+}
+
+/// Rows above the selection inside its own entry: the expanded thinking
+/// above an answer grows (`details`), and the selection moves with the
+/// answer's text.
+#[test]
+fn a_selection_moves_with_its_text_inside_its_entry() {
+    use crate::chat::MessageBlock::{Text, Thinking};
+    let mut view = view_with_messages(0);
+    view.splash_suppressed = true;
+    view.detail = crate::chat::Detail::Details;
+    push_message(&mut view, 0);
+    let message = |thinking: &str| {
+        assistant(
+            vec![Thinking(thinking.to_string()), Text(ANSWER.to_string())],
+            false,
+        )
+    };
+    view.push_entry(message("Short."));
+    let copied = select(&mut view, "answer", "two");
+    let (_, lit) = tall(&mut view);
+    let before = row_of(&mut view, "forty");
+
+    view.chat[1] = message("Short.\n\nA second thought.\n\nAnd a third one.");
+    view.mark_entry_stale(1);
+
+    assert!(row_of(&mut view, "forty") > before, "the thinking grew");
+    assert_eq!(tall(&mut view).1, lit);
+    assert_eq!(copy_key(&mut view), SelectionKey::Copy(copied));
+}
+
+/// A change of the selected text itself clears the selection: nothing is
+/// lit, and the copy key goes to the app.
+#[test]
+fn a_selection_clears_when_its_text_is_replaced() {
+    use crate::chat::MessageBlock::Text;
+    let mut view = view_with_messages(0);
+    view.splash_suppressed = true;
+    push_message(&mut view, 0);
+    view.push_entry(assistant(vec![Text(ANSWER.to_string())], false));
+    select(&mut view, "forty", "holds");
+    assert_ne!(tall(&mut view).1, "");
+
+    view.chat[1] = assistant(
+        vec![Text(ANSWER.replace("forty two", "forty three"))],
+        false,
+    );
+    view.mark_entry_stale(1);
+    assert_eq!(tall(&mut view).1, "");
+    assert_eq!(copy_key(&mut view), SelectionKey::Pass);
+}
+
+/// A press over a window that follows the bottom holds it still until
+/// the release: output that arrives meanwhile does not move the rows
+/// under the pointer, so the drag selects what was under it. The
+/// release lets the window follow again.
+#[test]
+fn a_held_press_holds_a_following_window() {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    let mut view = view_with_messages(40);
+    let shown = window(&mut view);
+    let (c0, r0) = cell_of(&shown, "message 37");
+    let (c1, r1) = cell_of(&shown, "message 38");
+    let left = MouseButton::Left;
+    view.selection_mouse(MouseEventKind::Down(left), c0, r0);
+    for index in 40..43 {
+        push_message(&mut view, index);
+    }
+    assert_eq!(window(&mut view), shown, "the held window stays");
+    view.selection_mouse(MouseEventKind::Drag(left), c1 + 9, r1);
+    let copied = view
+        .selection_mouse(MouseEventKind::Up(left), c1 + 9, r1)
+        .expect("the release copies");
+    assert!(
+        copied.starts_with("message 37") && copied.ends_with("message 38"),
+        "{copied:?}"
+    );
+    let follow = window(&mut view);
+    assert!(follow.iter().any(|row| row.contains("message 42")));
 }

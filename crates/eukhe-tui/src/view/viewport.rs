@@ -1,7 +1,8 @@
 //! The fullscreen chat frame: exactly `height` rows, a transcript window
 //! on top and the dock below it. The window shows the whole transcript
 //! (splash, every entry, the tail) through a scroll position that
-//! follows the bottom until the user scrolls up.
+//! follows the bottom until the user scrolls up (and holds still while a
+//! mouse press over it is held, so a selection being made stays put).
 //!
 //! The transcript is a list of blocks: block 0 is the splash, block
 //! `i + 1` is chat entry `i`, and the last block is the tail (pending
@@ -351,7 +352,13 @@ impl AgentView {
                     (Vec::new(), RowAt { block: 0, row: 0 })
                 }
                 Position::Follow => {
-                    let top = blocks.up(blocks.end(), window);
+                    // A held press keeps a following window where it was:
+                    // new output does not move the rows under the pointer.
+                    let bottom = blocks.up(blocks.end(), window);
+                    let top = match select.hold() {
+                        Some(at) if blocks.id(at) < blocks.id(bottom) => at,
+                        _ => bottom,
+                    };
                     (blocks.collect(top, window), top)
                 }
                 Position::Anchored(at) => (blocks.collect(at, window - 1), at),
@@ -413,6 +420,8 @@ impl AgentView {
 
 #[path = "viewport_select.rs"]
 mod select;
+
+pub use select::SelectionKey;
 
 #[cfg(test)]
 #[path = "viewport_tests.rs"]

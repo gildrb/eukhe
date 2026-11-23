@@ -15,6 +15,7 @@ use super::{
     RecoveryKind, Renderer, Result, SessionReconnect, SessionSelection, SessionUi, SurfaceExit,
     UiInput, UiMode, VecDeque,
 };
+use crate::view::SelectionKey;
 use anyhow::Context;
 use std::path::Path;
 
@@ -989,24 +990,28 @@ async fn run_interactive_surface(
             } else if let Some(input) = pending.pop_front() {
                 session.dirty = true;
                 match input {
-                    // The text selection sees the key first; an Esc that
-                    // cleared a shown selection is spent there.
-                    UiInput::Key(key) if view.selection_key(&key) => {}
-                    UiInput::Key(key) => {
-                        let handled = session.handle_key(key, &mut view, &mut running).await;
-                        surface_request_error(&mut session, &mut view, handled)?;
-                        hand_terminal_to_requests(&mut session, &mut view, &mut renderer).await;
-                        // The `/mcp` view resolved to an auth request (its
-                        // Enter on a connection, or the pasteable service's
-                        // paste flow): mount the inline auth panel and spawn
-                        // the client auth command against it -- the
-                        // typed-command arg path is gone, so the view never
-                        // resolves through a submitted `/mcp <args>`
-                        // string, and no flow touches the terminal.
-                        if session.pending_mcp_auth() {
-                            session.run_mcp_auth(&mut view);
+                    // The text selection sees the key first: the copy key
+                    // over a shown selection copies it again, and an Esc
+                    // that cleared a shown selection is spent there.
+                    UiInput::Key(key) => match view.selection_key(&key) {
+                        SelectionKey::Spent => {}
+                        SelectionKey::Copy(text) => session.copy_selection(&text, &mut view),
+                        SelectionKey::Pass => {
+                            let handled = session.handle_key(key, &mut view, &mut running).await;
+                            surface_request_error(&mut session, &mut view, handled)?;
+                            hand_terminal_to_requests(&mut session, &mut view, &mut renderer).await;
+                            // The `/mcp` view resolved to an auth request (its
+                            // Enter on a connection, or the pasteable service's
+                            // paste flow): mount the inline auth panel and spawn
+                            // the client auth command against it -- the
+                            // typed-command arg path is gone, so the view never
+                            // resolves through a submitted `/mcp <args>`
+                            // string, and no flow touches the terminal.
+                            if session.pending_mcp_auth() {
+                                session.run_mcp_auth(&mut view);
+                            }
                         }
-                    }
+                    },
                     UiInput::Paste(text) => {
                         // The inline auth panel owns the frame: the paste
                         // lands in its field, never in the editor behind
