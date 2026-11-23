@@ -1,6 +1,8 @@
 # eukhe
 
-`eukhe` is the TypeScript client of [Eukhe](https://github.com/gildrb/eukhe), a coding agent that works in a project directory and reports what it changed and which irreversible effects ran. The client starts the agent (`eukhe acp`, the [Agent Client Protocol](https://agentclientprotocol.com)) and streams each prompt turn as typed events.
+This package is a library that embeds the [Eukhe](https://github.com/gildrb/eukhe) coding agent in your application; the `eukhe` command-line agent itself is installed with `npx eukhe install`.
+
+Eukhe works in a project directory and reports what it changed and which irreversible effects ran. The client starts the agent (`eukhe acp`, the [Agent Client Protocol](https://agentclientprotocol.com)) and streams each prompt turn as typed events.
 
 ## Install
 
@@ -9,7 +11,9 @@ npm install eukhe
 npx eukhe install
 ```
 
-`npx eukhe install` downloads the Eukhe release for macOS (Apple Silicon) or Linux (x64, arm64), checks it against the release's SHA256SUMS, and installs it to `~/.local/share/eukhe` with a launcher at `~/.local/bin/eukhe`. A specific release: `npx eukhe install 0.10.79`.
+`npx eukhe install` downloads the Eukhe release for macOS (Apple Silicon) or Linux (x64, arm64), checks it against the release's SHA256SUMS, and installs it to `~/.local/share/eukhe` with a launcher at `~/.local/bin/eukhe`. A specific release: `npx eukhe install 0.10.81`.
+
+The client needs Eukhe 0.10.81 or newer (`MINIMUM_EUKHE_VERSION`), the first release with `eukhe acp`. Update an older Eukhe with `eukhe update`. `Eukhe.start` runs `eukhe --version` first and throws `TooOld` for an older release instead of starting it.
 
 Eukhe needs one model provider login per machine: `eukhe login <provider>` (for example `eukhe login anthropic`; an API key: `printf %s "$KEY" | eukhe login openai`). `eukhe login --json` lists the providers and which are logged in.
 
@@ -27,7 +31,7 @@ try {
     if (event.$ === "RunReport") console.error(event.report.label, event.report.ran);
   }
 } catch (error) {
-  if (error instanceof EukheError) console.error(error.$, error.message);
+  if (error instanceof EukheError) console.error(`${error.$}: ${error.message}`); // error.$ narrows: see Errors
   else throw error;
 } finally {
   await eukhe.close();
@@ -73,21 +77,51 @@ Each session runs in its own `eukhe acp` process; `eukhe.close()` ends them all.
 
 ## Errors
 
-Every error the client throws is an `EukheError`; switch on `error.$`:
+Every error the client throws is an `EukheError`. `error instanceof EukheError` narrows `error` to the `EukheFailure` union, so a `switch` on `error.$` reaches each failure's fields without a cast:
+
+```ts
+import { Eukhe, EukheError } from "eukhe";
+
+try {
+  const eukhe = await Eukhe.start({ cwd: process.cwd() });
+  await eukhe.close();
+} catch (error) {
+  if (!(error instanceof EukheError)) throw error;
+  switch (error.$) {
+    case "NotInstalled":
+      console.error(`install eukhe: ${error.installCommand}`);
+      break;
+    case "TooOld":
+      console.error(`eukhe ${error.found} is older than ${error.minimum}; run ${error.updateCommand}`);
+      break;
+    case "NotLoggedIn":
+      console.error(`log in once: ${error.login.command}`);
+      break;
+    case "UnknownModel":
+      console.error(`models: ${error.available.join(", ")}`);
+      break;
+    default:
+      console.error(`${error.$}: ${error.message}`);
+  }
+}
+```
+
+`error instanceof TooOld` (or any failure class) narrows to that class.
 
 | `$` | Meaning | Fields |
 |---|---|---|
 | `NotInstalled` | no `eukhe` binary found | `installCommand` (`npx eukhe install`), `searched` |
+| `TooOld` | the binary is a release older than `MINIMUM_EUKHE_VERSION`; `eukhe acp` was not started | `found`, `minimum`, `updateCommand` (`eukhe update`) |
 | `NotLoggedIn` | no model provider login | `login.command` (the command to run), `login.slashCommand` (the same inside `eukhe`, or `null`), `login.instructions` |
 | `Unsupported` | the agent lacks an Eukhe extension (an older Eukhe, or another ACP agent) | `feature` |
-| `UnknownModel` | `session({ model })` names a model the agent does not offer | `available` |
+| `UnknownModel` | `session({ model })` names a model the agent does not offer | `model`, `available` |
 | `TurnInProgress` | `prompt` while the session's turn still runs | |
 | `AgentFailed` | the agent answered with a JSON-RPC error | `method`, `code`, `data` |
 | `AgentExited` | the agent process ended | `exitCode`, `signal`, `stderr` |
 
 ## Binary lookup
 
-`Eukhe.start({ bin })` uses `bin`, else `EUKHE_BIN`, else the first `eukhe` on `PATH`, else `~/.local/bin/eukhe`. `env` adds variables to the agent's environment. `npx eukhe <args>` runs the found binary with `<args>`.
+`Eukhe.start({ bin })` uses `bin`, else `EUKHE_BIN`, else the first `eukhe` on `PATH`, else `~/.local/bin/eukhe`, then checks its `--version` (a source build's `X.Y.Z-dev` passes). `env` adds variables to the agent's environment. `npx eukhe <args>` runs the found binary with `<args>`.
 
 ## Protocol
 

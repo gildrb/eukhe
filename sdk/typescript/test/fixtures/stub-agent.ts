@@ -3,10 +3,16 @@
  * A scripted ACP agent the unit tests spawn in place of `eukhe acp`.
  * STUB_MODE: "plain" (no eukhe extensions), "eukhe" (advertises and serves
  * them), "logged-out" (session/new answers eukhe's auth error).
+ * `--version` prints STUB_VERSION and exits, as eukhe prints its version.
  */
 import { Readable, Writable } from "node:stream";
 
 import { agent, ndJsonStream, PROTOCOL_VERSION, RequestError, type AgentContext } from "@agentclientprotocol/sdk";
+
+if (process.argv.includes("--version")) {
+  console.log(process.env["STUB_VERSION"] ?? "");
+  process.exit(0);
+}
 
 const mode = process.env["STUB_MODE"] ?? "plain";
 const SESSION = "stub-session";
