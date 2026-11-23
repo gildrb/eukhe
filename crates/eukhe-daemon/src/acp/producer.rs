@@ -1,4 +1,5 @@
-//! The sole producer of ACP `session/update` notifications for one session.
+//! The sole producer of the session's ACP updates (`session/update`, and
+//! `_eukhe/session_info` for eukhe-only state) for one session.
 //!
 //! ACP notifications are asynchronous, so assigning an id at each call site
 //! is insufficient: detached calls can be observed out of order. This
@@ -6,7 +7,7 @@
 //! a strictly increasing `eventSequence` per connection, the
 //! `promptTurnId` allocated at prompt admission, and a phase
 //! (ordinary work / response boundary / terminal quiescence). Updates
-//! published before the `session/new` response is queued are held in a
+//! published before the session-start response is queued are held in a
 //! buffer and released after it, so no session-scoped update can precede
 //! the admission response.
 
@@ -127,17 +128,7 @@ impl UpdateProducer {
         let mut state = self.state.lock().await;
         state.event_sequence += 1;
         let frame = self.correlate(update, turn_id, phase, outcome, state.event_sequence);
-        match state.admission.mode {
-            AdmissionMode::Buffering => {
-                state.admission.held.push(frame);
-                true
-            }
-            AdmissionMode::Open => {
-                self.send(frame);
-                true
-            }
-            AdmissionMode::Closed => false,
-        }
+        self.deliver(&mut state.admission, frame)
     }
 
     /// Stamp the update with its `eventSequence` and namespace payload.
@@ -178,9 +169,24 @@ impl UpdateProducer {
         payload.outcome = correlation.outcome;
         *namespace = serde_json::to_value(&payload).expect("meta payload serializes");
         jsonrpc::notification(
-            "session/update",
+            update.method().name(),
             &json!({ "sessionId": self.session_id, "update": value }),
         )
+    }
+
+    /// Hold, send or drop one frame by the admission mode.
+    fn deliver(&self, admission: &mut AdmissionState, frame: Value) -> bool {
+        match admission.mode {
+            AdmissionMode::Buffering => {
+                admission.held.push(frame);
+                true
+            }
+            AdmissionMode::Open => {
+                self.send(frame);
+                true
+            }
+            AdmissionMode::Closed => false,
+        }
     }
 
     fn send(&self, frame: Value) {

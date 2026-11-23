@@ -264,6 +264,7 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "translate" => handled_with_exit(crate::tiny_command::run_translate_command(&rest)),
         "say" => handled_with_exit(crate::tiny_command::run_say_command(&rest)),
         "transcribe" => handled_with_exit(crate::tiny_command::run_transcribe_command(&rest)),
+        "acp" => run_acp(&rest),
         "completion" => handled_with_exit(crate::shell_completion::run_completion_command(&rest)),
         "config" => {
             if !rest.is_empty() {
@@ -286,6 +287,26 @@ pub(crate) fn with_command_alias(mut args: Vec<String>) -> Vec<String> {
         command.clone_into(word);
     }
     args
+}
+
+/// `eukhe acp [options]`: the ACP agent, `--mode acp` with the other flags kept.
+fn run_acp(rest: &[String]) -> PublicCommandResult {
+    if rest
+        .iter()
+        .any(|arg| arg == "--mode" || arg.starts_with("--mode="))
+    {
+        return fail_usage(
+            format!("Usage: {APP_NAME} acp [options]"),
+            Some(format!("\"{APP_NAME} acp\" sets the mode itself.")),
+        );
+    }
+    continue_with(
+        ["--mode", "acp"]
+            .into_iter()
+            .map(String::from)
+            .chain(rest.iter().cloned())
+            .collect(),
+    )
 }
 
 fn print_requested_help(path: &[String]) -> PublicCommandResult {
@@ -910,6 +931,26 @@ mod incident_dispatch_tests {
                 "Usage:\n  eukhe effects resolve <id> <ran|not-run> [<agent>] [--json]"
             ),
             "{resolve}"
+        );
+    }
+
+    /// `eukhe acp` is `--mode acp`; the other flags ride along, a second
+    /// mode is a usage error.
+    #[test]
+    fn acp_is_the_acp_mode() {
+        let outcomes = [
+            handle_public_command(&args(&["acp"])),
+            handle_public_command(&args(&["acp", "--no-session"])),
+            handle_public_command(&args(&["acp", "--mode", "rpc"])),
+        ]
+        .map(|result| (result.handled, result.args, result.exit_code));
+        assert_eq!(
+            outcomes,
+            [
+                (false, args(&["--mode", "acp"]), None),
+                (false, args(&["--mode", "acp", "--no-session"]), None),
+                (true, Vec::new(), Some(2)),
+            ]
         );
     }
 }

@@ -1,5 +1,6 @@
 //! ACP stdio mode served over a daemon session; see `daemon.rs`.
 
+mod auth;
 mod config_options;
 pub mod daemon;
 mod jsonrpc;
@@ -7,6 +8,7 @@ mod mcp;
 mod meta;
 mod permission;
 mod producer;
+mod replay;
 mod types;
 mod wire_config;
 mod wire_events;

@@ -196,37 +196,27 @@ async fn acp_mode_main(options: &RunOptions) -> Result<i32, HeadlessModeError> {
     if let Some(notice) = ready.notice() {
         eprintln!("{notice}");
     }
-    let (actual_cwd, create) = daemon_acp_create(options, &BACKGROUND_CONTEXT).await?;
-    eukhe_daemon::acp::daemon::run_daemon_attached_acp_mode(
-        eukhe_daemon::acp::daemon::DaemonAcpOptions {
-            socket_path,
-            actual_cwd,
-            product_version: crate::config::version().to_string(),
-            create,
-        },
-    )
-    .await
-    .map_err(HeadlessModeError::Acp)
+    let options = daemon_acp_options(options, socket_path, &BACKGROUND_CONTEXT).await?;
+    eukhe_daemon::acp::daemon::run_daemon_attached_acp_mode(options)
+        .await
+        .map_err(HeadlessModeError::Acp)
 }
 
-/// The ACP daemon session's create (TS main.ts `defaultSessionConfig` +
-/// the startup create): the session the flags select (a durable storage
-/// dir or a not-yet-imported legacy file; `--fork` forks into a fresh
-/// storage here first), client-owned only for `--no-session`, plus the
-/// session's cwd. The worker opens and leases the selected session itself.
-async fn daemon_acp_create(
+/// The ACP connection's sessions (TS main.ts `defaultSessionConfig`): the
+/// create config from the CLI session flags, where a new session lives
+/// (`--no-session`: in memory), and the saved session the first
+/// `session/new` opens (`--resume`, `--continue`; `--fork` forks into a
+/// fresh storage here first). The worker opens and leases each session.
+async fn daemon_acp_options(
     options: &RunOptions,
+    socket_path: PathBuf,
     cx: &Context,
-) -> Result<(PathBuf, eukhe_types::daemon::DaemonCommand), HeadlessModeError> {
-    use eukhe_types::daemon::DaemonSessionLifecycle;
+) -> Result<eukhe_daemon::acp::daemon::DaemonAcpOptions, HeadlessModeError> {
+    use eukhe_daemon::acp::daemon::{SavedSessionTarget, SessionStorage};
     let config = &options.config;
-    let (cwd, session_path, lifecycle) = match crate::headless_session::select(options, cx).await? {
-        Selection::Memory => (
-            config.cwd.clone(),
-            None,
-            DaemonSessionLifecycle::ClientOwned,
-        ),
-        Selection::Fresh { cwd } => (cwd, None, DaemonSessionLifecycle::Resident),
+    let (storage, first_session) = match crate::headless_session::select(options, cx).await? {
+        Selection::Memory => (SessionStorage::Memory, None),
+        Selection::Fresh { .. } => (SessionStorage::Saved, None),
         Selection::Open {
             location,
             cwd_override,
@@ -243,9 +233,11 @@ async fn daemon_acp_create(
                 eprintln!("eukhe: {notice}");
             }
             (
-                opened_cwd.cwd,
-                Some(location.path().to_path_buf()),
-                DaemonSessionLifecycle::Resident,
+                SessionStorage::Saved,
+                Some(SavedSessionTarget {
+                    session_path: location.path().display().to_string(),
+                    cwd: opened_cwd.cwd,
+                }),
             )
         }
         Selection::Fork {
@@ -260,16 +252,17 @@ async fn daemon_acp_create(
                 eprintln!("eukhe: {}", other.forked_as(session_id));
             }
             (
-                config.cwd.clone(),
-                Some(dir),
-                DaemonSessionLifecycle::Resident,
+                SessionStorage::Saved,
+                Some(SavedSessionTarget {
+                    session_path: dir.display().to_string(),
+                    cwd: config.cwd.clone(),
+                }),
             )
         }
     };
     // The CLI session flags, under the TS `runtimeConfigFromArgs` names.
     // `--api-key` stays off: the create config is persisted.
     let mut create_config = serde_json::json!({
-        "cwd": cwd.display().to_string(),
         "sessionDir": sessions_dir(options).display().to_string(),
     });
     if let Some(provider) = &config.provider {
@@ -305,8 +298,8 @@ async fn daemon_acp_create(
     if let Some(autonomous) = &config.autonomous {
         create_config["autonomous"] = serde_json::json!(autonomous_runtime_config(autonomous));
     }
-    // The `--budget-*` limits: the budget of the session this create
-    // starts (a reopened session that has one keeps its own).
+    // The `--budget-*` limits: the budget of each session a create starts
+    // (a reopened session that has one keeps its own).
     if let Some(budget) = config.budget {
         create_config["budget"] = serde_json::json!(budget);
     }
@@ -324,20 +317,14 @@ async fn daemon_acp_create(
         create_config["childScript"] =
             serde_json::Value::String(child_script.to_string_lossy().to_string());
     }
-    let create = eukhe_types::daemon::DaemonCommand::Create {
-        id: None,
-        session_path: session_path.map(|path| path.display().to_string()),
-        continue_recent: None,
-        no_session: options.session.no_session.then_some(true),
-        name: None,
-        config: Some(create_config),
-        runtime_metadata: None,
-        lifecycle: Some(lifecycle),
-        env: None,
-        launch_env: None,
-        rest: serde_json::Map::default(),
-    };
-    Ok((cwd, create))
+    Ok(eukhe_daemon::acp::daemon::DaemonAcpOptions {
+        socket_path,
+        product_version: crate::config::version().to_string(),
+        cwd: config.cwd.clone(),
+        create_config,
+        storage,
+        first_session,
+    })
 }
 
 /// The RPC headless mode: the TS `modes/rpc` JSONL command surface over

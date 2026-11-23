@@ -707,6 +707,18 @@ first of pw-play, paplay, or aplay; the voice defaults to tts.localVoice.",
     .description("Uses the dictation role's local model (whisper) and prints the text.")
     .options(&["--language <LANGUAGE>  The spoken language (default: detected)"]),
     CommandSpec::new(
+        &["acp"],
+        "acp [--resume <SESSION>] [--no-session] [--model <MODEL>] [--daemon-socket <PATH>]",
+        "Serve the Agent Client Protocol on stdin/stdout for an editor or app",
+    )
+    .description(
+        "Eukhe as an ACP agent (protocolVersion 1): an editor or app starts `eukhe acp` and \
+speaks JSON-RPC over its pipes; the sessions run in the daemon, which starts when none runs. \
+The same as `--mode acp`. Eukhe's own requests and notifications ride the `_eukhe/` prefix; \
+the reference is docs/embed/acp.md.",
+    )
+    .examples(&["acp", "acp --no-session"]),
+    CommandSpec::new(
         &["completion"],
         "completion <bash|zsh|fish|nu>",
         "Print the shell completion script",

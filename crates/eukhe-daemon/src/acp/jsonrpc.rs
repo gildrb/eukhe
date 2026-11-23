@@ -18,6 +18,8 @@ pub const METHOD_NOT_FOUND: i64 = -32601;
 pub const INVALID_PARAMS: i64 = -32602;
 /// A handler failed while processing the request.
 pub const INTERNAL_ERROR: i64 = -32603;
+/// ACP: the named resource (a session) does not exist.
+pub const RESOURCE_NOT_FOUND: i64 = -32002;
 
 /// One incoming frame off the stdio stream.
 #[derive(Debug, Clone, PartialEq)]
@@ -102,6 +104,28 @@ pub fn error_response(id: &Value, code: i64, message: &str, data: Option<&Value>
         None => json!({ "code": code, "message": message }),
     };
     json!({ "jsonrpc": "2.0", "id": id, "error": error })
+}
+
+/// ACP's answer for a session this agent does not know: `-32002` with the
+/// id (a client's `session/close` of it then resolves as closed).
+pub fn session_not_found(id: &Value, session_id: &str) -> Value {
+    error_response(
+        id,
+        RESOURCE_NOT_FOUND,
+        "Resource not found",
+        Some(&json!({ "sessionId": session_id })),
+    )
+}
+
+/// The answer for a method this agent does not serve, as the ACP SDK
+/// words it.
+pub fn method_not_found(id: &Value, method: &str) -> Value {
+    error_response(
+        id,
+        METHOD_NOT_FOUND,
+        &format!("\"Method not found\": {method}"),
+        Some(&json!({ "method": method })),
+    )
 }
 
 /// A request frame this agent sends the editor; its answer comes back as
