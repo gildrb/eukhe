@@ -91,7 +91,7 @@ Every error the client throws is an `EukheError`; switch on `error.$`:
 
 ## Protocol
 
-The client speaks ACP protocol version 1 plus Eukhe's `_eukhe/*` extension methods. Any ACP client can use them: [docs/embed/acp.md](https://github.com/gildrb/eukhe/blob/main/docs/embed/acp.md) is the reference, [docs/embed/eukhe-acp.schema.json](https://github.com/gildrb/eukhe/blob/main/docs/embed/eukhe-acp.schema.json) the JSON Schema.
+The client speaks ACP protocol version 1 plus Eukhe's `_eukhe/*` extension methods. Any ACP client can use them: [crates/eukhe-sdk/README.md](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/README.md#acp) is the reference, [crates/eukhe-sdk/acp.schema.json](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/acp.schema.json) the JSON Schema.
 
 ## Limitations
 

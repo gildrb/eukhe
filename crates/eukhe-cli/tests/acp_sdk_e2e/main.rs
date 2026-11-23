@@ -3,7 +3,7 @@
 //! `package-lock.json` here and installed by `npm ci` into the target
 //! dir) drives the real binary over stdio on the faux provider, and ajv
 //! checks every `_eukhe/` payload against
-//! `docs/embed/eukhe-acp.schema.json`. `client.mjs` holds the scenarios;
+//! `crates/eukhe-sdk/acp.schema.json`. `client.mjs` holds the scenarios;
 //! this file builds each one's sandbox (home, git workspace, daemon
 //! socket, faux scripts) and runs it. Needs `node` and `npm` on PATH.
 
@@ -126,8 +126,7 @@ impl Sandbox {
             .env("EUKHE_ACP_WORKSPACE", self.path())
             .env(
                 "EUKHE_ACP_SCHEMA",
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../docs/embed/eukhe-acp.schema.json"),
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../eukhe-sdk/acp.schema.json"),
             )
             .env(
                 eukhe_daemon::worker::WORKER_SUPERVISOR_LOST_EXIT_MS_ENV,

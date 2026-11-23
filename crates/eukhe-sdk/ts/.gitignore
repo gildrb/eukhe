@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.tgz
+# The agent skill, copied from ../SKILL.md at pack time.
+/SKILL.md

@@ -88,7 +88,7 @@ for await (const event of session.prompt("fix the failing tests")) {
 await eukhe.close();
 ```
 
-Other languages start `eukhe acp` and speak the [Agent Client Protocol](https://agentclientprotocol.com) over stdio; the budget, checks, `/undo`, `/diff` and irreversible effects are `_eukhe/` methods: [docs/embed/acp.md](docs/embed/acp.md). T3 Code settings and the agent skill: [docs/embed](docs/embed/README.md).
+Other languages start `eukhe acp` and speak the [Agent Client Protocol](https://agentclientprotocol.com) over stdio; the budget, checks, `/undo`, `/diff` and irreversible effects are `_eukhe/` methods. Rust embeds the sessions in-process. The protocol, the Rust crate, T3 Code settings and the agent skill: [crates/eukhe-sdk](crates/eukhe-sdk/README.md).
 
 ## Limitations
 

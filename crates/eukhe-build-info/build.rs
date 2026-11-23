@@ -19,8 +19,8 @@
 //! 3. Neither: `src.<hash>`, a hash of the build inputs.
 //!
 //! The build inputs are the files cargo compiles from: [`INPUTS`] (the
-//! workspace manifest, lockfile and toolchain, and `crates/`),
-//! without `target` and `node_modules` dirs. The script reruns when one
+//! workspace manifest, lockfile and toolchain, and `crates/`) without
+//! [`NOT_INPUTS`], and without `target` and `node_modules` dirs. The script reruns when one
 //! of them changes, so each changed build gets its own id; a release (one
 //! commit, one version) always gets the same id.
 
@@ -41,8 +41,20 @@ const RELEASE_ENV: &str = "EUKHE_RELEASE_VERSION";
 const NIX_DIRTY_SUFFIX: &str = "-dirty";
 /// The build inputs, relative to the workspace root.
 const INPUTS: [&str; 4] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates"];
+/// The trees under the inputs that no cargo package compiles from, each
+/// with its own build: the TypeScript SDK (npm).
+const NOT_INPUTS: [&str; 1] = ["crates/eukhe-sdk/ts"];
 /// Directories under the inputs that hold no build input.
 const SKIPPED_DIRS: [&str; 2] = ["target", "node_modules"];
+
+/// [`INPUTS`] without [`NOT_INPUTS`], as git pathspecs.
+fn pathspecs() -> Vec<String> {
+    INPUTS
+        .iter()
+        .map(|input| (*input).to_owned())
+        .chain(NOT_INPUTS.iter().map(|tree| format!(":(exclude){tree}")))
+        .collect()
+}
 
 fn main() {
     println!("cargo:rerun-if-env-changed={COMMIT_ENV}");
@@ -122,7 +134,9 @@ fn git_source(root: &Path) -> Option<GitState> {
     let top = PathBuf::from(git_text(root, &["rev-parse", "--show-toplevel"])?);
     let head = git_text(&top, &["rev-parse", "HEAD"])?;
     watch_git_state(&top);
-    let tracked = [&["ls-files", "-z", "--"][..], &INPUTS].concat();
+    let specs = pathspecs();
+    let specs = specs.iter().map(String::as_str).collect::<Vec<_>>();
+    let tracked = [&["ls-files", "-z", "--"][..], &specs].concat();
     for path in nul_separated(&git_bytes(&top, &tracked)?) {
         watch(&top.join(path));
     }
@@ -136,13 +150,13 @@ fn git_source(root: &Path) -> Option<GitState> {
             "--no-textconv",
             "--",
         ][..],
-        &INPUTS,
+        &specs,
     ]
     .concat();
     let changes = git_bytes(&top, &diff)?;
     let others = [
         &["ls-files", "-z", "--others", "--exclude-standard", "--"][..],
-        &INPUTS,
+        &specs,
     ]
     .concat();
     let mut untracked = nul_separated(&git_bytes(&top, &others)?);
@@ -188,7 +202,7 @@ fn files_digest(root: &Path) -> u64 {
 }
 
 /// The files under `root/relative` (a file or a directory), relative to
-/// `root`, skipping [`SKIPPED_DIRS`].
+/// `root`, skipping [`NOT_INPUTS`] and [`SKIPPED_DIRS`].
 fn collect_files(root: &Path, relative: &Path) -> Vec<PathBuf> {
     let path = root.join(relative);
     if path.is_file() {
@@ -202,10 +216,15 @@ fn collect_files(root: &Path, relative: &Path) -> Vec<PathBuf> {
         .flat_map(|entry| {
             let name = entry.file_name();
             let child = entry.path();
-            if SKIPPED_DIRS.iter().any(|dir| name == *dir) && child.is_dir() {
+            let relative_child = relative.join(&name);
+            let skipped = SKIPPED_DIRS.iter().any(|dir| name == *dir) && child.is_dir();
+            let excluded = NOT_INPUTS
+                .iter()
+                .any(|tree| relative_child == Path::new(tree));
+            if skipped || excluded {
                 Vec::new()
             } else {
-                collect_files(root, &relative.join(name))
+                collect_files(root, &relative_child)
             }
         })
         .collect()

@@ -1,6 +1,6 @@
 /**
- * The `_eukhe/*` ACP extension shapes (docs/embed/acp.md and
- * docs/embed/eukhe-acp.schema.json in the eukhe repository), as zod schemas
+ * The `_eukhe/*` ACP extension shapes (crates/eukhe-sdk/README.md, ACP, and
+ * crates/eukhe-sdk/acp.schema.json in the eukhe repository), as zod schemas
  * the SDK checks every agent payload against.
  */
 import { z } from "zod";

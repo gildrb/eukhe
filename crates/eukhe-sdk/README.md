@@ -1,8 +1,60 @@
-# eukhe acp
+# Embedding Eukhe
 
-`eukhe acp` is eukhe as an Agent Client Protocol agent (ACP protocolVersion 1): JSON-RPC 2.0, one JSON object per line on stdin/stdout. Sessions run in the eukhe daemon, which starts when none runs. Eukhe-only features ride `_eukhe/` methods, described by [eukhe-acp.schema.json](eukhe-acp.schema.json); a plain ACP client never sees them.
+Eukhe runs inside another program as `eukhe acp`: an [Agent Client Protocol](https://agentclientprotocol.com) (ACP) agent that reads and writes JSON-RPC 2.0 lines on stdio and runs its sessions in the local Eukhe daemon. Budget, checks, undo, diff and irreversible effects are `_eukhe/` extension methods beside the standard ACP methods.
 
-## Launch
+- Node.js or TypeScript: the npm package `eukhe` ([ts/](ts/))
+- Rust: this crate, `eukhe-sdk`, sessions inside the process
+- Any other language: `eukhe acp` over stdio
+- T3 Code: a local ACP provider instance
+
+Platforms: macOS (Apple Silicon), Linux (x64, arm64).
+
+## TypeScript
+
+```sh
+npm install eukhe && npx eukhe install
+```
+
+```ts
+import { Eukhe } from "eukhe";
+
+const eukhe = await Eukhe.start({ cwd: "/path/to/project" });
+const session = await eukhe.session();
+for await (const event of session.prompt("Add a --verbose flag to the CLI")) {
+  if (event.$ === "Text") process.stdout.write(event.text);
+  if (event.$ === "RunReport") console.log(event.report.label, event.report.ran);
+}
+await eukhe.close();
+```
+
+`npx eukhe install` installs the Eukhe release to `~/.local/bin/eukhe` after checking it against the release's SHA256SUMS. Events, session calls and errors: [ts/README.md](ts/README.md).
+
+## Rust
+
+`eukhe-sdk` opens sessions in the host's own process, without the daemon: `open_session`, `prompt`, `watch`, the budget, the run reports and the irreversible effects. It is not on crates.io; its API may change with any release.
+
+```rust
+use eukhe_sdk::{context::BACKGROUND_CONTEXT, open_session, SessionConfig, SessionStorage};
+
+let cx = &*BACKGROUND_CONTEXT;
+let config = SessionConfig::new("/home/me/.eukhe", "/home/me/project", eukhe_sdk::new_session_id(), SessionStorage::Memory);
+let session = open_session(config, cx).await?;
+let conversation = session.main();
+eukhe_sdk::prompt(&session, &conversation, "Summarize README.md", cx).await?;
+session.close(cx).await?;
+```
+
+Runnable: [examples/prompt.rs](examples/prompt.rs) (`cargo run -p eukhe-sdk --example prompt -- <agent dir> <cwd> <provider/model> <prompt>`). API: `cargo doc -p eukhe-sdk --open`.
+
+## ACP
+
+1. Install Eukhe: `curl -fsSL https://eukhe.com/install | sh`.
+2. Start `eukhe acp` in the project directory and speak ACP protocol version 1 over its stdin and stdout, with the language's ACP client library or plain JSON lines.
+3. `initialize`, `session/new`, then `session/prompt` per turn; `_eukhe/run_report` arrives before each `session/prompt` response.
+
+Sessions run in the Eukhe daemon, which starts when none runs. A plain ACP client never sees the `_eukhe/` methods. JSON Schema of the `_eukhe/` methods and the login error: [acp.schema.json](acp.schema.json).
+
+### Launch
 
 ```
 eukhe acp                 # same as eukhe --mode acp
@@ -12,7 +64,7 @@ eukhe acp --resume <id>   # the first session/new opens this saved session
 
 Session flags (`--model`, `--provider`, `--thinking`, `--budget-*`, `--accept-*`, `--daemon-socket`) apply to every session of the connection.
 
-## Handshake
+### Handshake
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
@@ -29,7 +81,7 @@ Session flags (`--model`, `--provider`, `--thinking`, `--budget-*`, `--accept-*`
 - A `terminal` auth method (`eukhe-terminal-login`, runs `eukhe`, where `/login` logs in) is listed only when `clientCapabilities.auth.terminal` is true. Outside the client, `eukhe login <provider>` logs in (`eukhe login` lists the providers).
 - `_meta.eukhe.version` is `major.minor`; a minor only adds.
 
-## Served methods
+### Served methods
 
 | Method | Notes |
 |---|---|
@@ -49,11 +101,11 @@ Session flags (`--model`, `--provider`, `--thinking`, `--budget-*`, `--accept-*`
 - No model provider logged in: `session/new|load|resume` answer `-32000` with `data.login` (`{"command":"eukhe login <provider>","slashCommand":"/login","instructions":"..."}`) and `data.authMethods`.
 - Unknown session id: `-32002` with `data.sessionId`.
 
-## Extensions
+### Extensions
 
 Every `_eukhe/` request takes the ACP `sessionId`. Unknown `_eukhe/` methods answer `-32601`; bad params `-32602` (`data.reason`); a daemon refusal `-32603` (`data.details`, `data.code` such as `nothing_to_undo`, `nothing_to_diff`, `run_in_progress`).
 
-### `_eukhe/run_report` (notification)
+#### `_eukhe/run_report` (notification)
 
 Sent once per prompt turn, before its `session/prompt` response, for finished, cancelled and failed turns.
 
@@ -70,11 +122,11 @@ Sent once per prompt turn, before its `session/prompt` response, for finished, c
 - `ran`: irreversible effects that ran in the turn; `unknown`: steps a restart treated as not run; `left`: work the run found left.
 - `unreadable` lists parts that could not be read (`acceptance`, `effects`, `left`).
 
-### `_eukhe/session_info` (notification)
+#### `_eukhe/session_info` (notification)
 
 Eukhe-only session state (budget, loop, compaction, subagents, the turn's response boundary and quiescence) as a `session_info_update` body under `_meta["com.eukhe"]`; `eventSequence` counts across it and `session/update`.
 
-### Requests
+#### Requests
 
 ```json
 {"jsonrpc":"2.0","id":7,"method":"_eukhe/budget/get","params":{"sessionId":"019a..."}}
@@ -95,4 +147,34 @@ Eukhe-only session state (budget, loop, compaction, subagents, the turn's respon
 ```json
 {"jsonrpc":"2.0","id":8,"method":"_eukhe/undo","params":{"sessionId":"019a..."}}
 {"jsonrpc":"2.0","id":8,"result":{"restored":["src/lib.rs"],"turn":2,"left":1,"notUndone":[]}}
+```
+
+## T3 Code
+
+Eukhe is not in the ACP registry. T3 Code runs it as a local command from its settings file, `userdata/settings.json` in the T3 home (`~/.t3` by default); the settings form hides `commandArgs`:
+
+```json
+"providerInstances": {"eukhe": {"driver":"acpRegistry","displayName":"Eukhe","config":{"source":"local","commandPath":"<path to eukhe>","commandArgs":["--mode","acp"]}}}
+```
+
+`<path to eukhe>` is the absolute path `command -v eukhe` prints. Untested against a running T3 Code server.
+
+## Login
+
+Eukhe needs one model provider login per machine:
+
+```sh
+eukhe login anthropic                    # a subscription: sign-in URL on stderr, opened in the browser
+printf %s "$KEY" | eukhe login openai    # an API key from stdin
+eukhe login                              # the providers and their login state
+```
+
+Without a login, `session/new` answers `-32000` with `data.login.command` (`eukhe login <provider>`); the TypeScript client throws `NotLoggedIn` with the same data.
+
+## Agent skill
+
+[SKILL.md](SKILL.md) tells a coding agent asked to add Eukhe to a project what to do per stack; the npm package ships it too. Install it in an Agent Skills host:
+
+```sh
+npx skills add https://github.com/gildrb/eukhe/tree/main/crates/eukhe-sdk
 ```
