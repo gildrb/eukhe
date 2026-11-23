@@ -736,7 +736,7 @@ const TOP_LEVEL_OPTION_GROUPS: &[OptionGroup] = &[
         options: &[
             (
                 "-p, --print",
-                "Print a response and exit: 0 done; 1 the run failed, or left work (after it acted, its final answer naming work left, read by one judge request; or its autonomous run ended without progress); 3 that judge could not read the answer",
+                "Print a response and exit: 0 done; 1 the run failed, or left work (after it acted, its final answer naming work left, read by one judge request; or its autonomous run ended without progress); 3 done but not certified (its checks were not shown to catch broken code), or that judge gave no verdict",
             ),
             (
                 "--mode <text|json|rpc|acp|daemon>",
