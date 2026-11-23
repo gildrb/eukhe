@@ -6,7 +6,7 @@
     "build": "vp run bend && vp build",
     "laws": "python3 scripts/laws.py",
     "deploy": "vp run build && vp exec wrangler deploy",
-    "bend": "bend=\"$(python3 ../.github/scripts/pinned_bend.py)\" && \"$bend\" vim/vim.bend -o src/vim.mjs"
+    "bend": "bend=\"$(python3 ../../.github/scripts/pinned_bend.py)\" && \"$bend\" vim/vim.bend -o src/vim.mjs"
   },
   "dependencies": {
     "@stylexjs/stylex": "^0.19.1",

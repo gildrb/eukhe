@@ -1,6 +1,6 @@
 /**
  * The files the editor holds beside the pages, read at build time from the repository this site
- * lives in (`..`, Eukhe's checkout): the README's relative links and every file they reach, then
+ * lives in (`../..`, Eukhe's checkout): the README's relative links and every file they reach, then
  * the links of each Markdown file reached, in turn, at their paths in the repository, so the
  * README's relative links open them. A linked folder, or a linked `README.md` (the index of its
  * folder), brings the whole folder. The README itself is the page (`index.md`, `src/source.ts`).
@@ -14,11 +14,15 @@ import path from "node:path";
 import type { SourceFile } from "../src/render.tsx";
 import type { Shown } from "../src/rendered.ts";
 
-/** The repository's tracked files, outside site/ (the site never serves itself). */
+/** The repository's tracked files, outside crates/site/ (the site never serves itself). */
 function tracked(repository: string): Set<string> {
-  const out = execFileSync("git", ["-C", repository, "ls-files", "-z", "--", ":(exclude)site/"], {
-    encoding: "utf8",
-  });
+  const out = execFileSync(
+    "git",
+    ["-C", repository, "ls-files", "-z", "--", ":(exclude)crates/site/"],
+    {
+      encoding: "utf8",
+    },
+  );
   return new Set(out.split("\0").filter((name) => name !== ""));
 }
 
@@ -70,7 +74,7 @@ export function imagePaths(markdown: string): string[] {
 
 /** The images the README shows, read from the repository; one it does not track fails the build. */
 export async function images(root: string): Promise<Image[]> {
-  const repository = path.resolve(root, "..");
+  const repository = path.resolve(root, "../..");
   const blobs = tracked(repository);
   const readme = await readFile(path.join(repository, "README.md"), "utf8");
   const paths = [...new Set(imagePaths(readme))];
@@ -116,7 +120,7 @@ export function shown(read: readonly Image[]): Shown {
 
 /** The README's reach but the README itself, in path order; `root` is the site's directory. */
 export async function gather(root: string): Promise<SourceFile[]> {
-  const repository = path.resolve(root, "..");
+  const repository = path.resolve(root, "../..");
   const blobs = tracked(repository);
   const reached = new Map<string, string>();
   const queue = ["README.md"];

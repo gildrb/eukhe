@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """The site's laws (LAWS.bend, laws/vim/), its own and apart from Eukhe's:
 every proof PROOF.bend imports checks, by the checker and by Lean
-(`--verdict`, Lean as ../.github/scripts/toolchain.env pins it), with the
-repository's pinned Bend (../.github/scripts/pinned_bend.py); then LAWS.lock
+(`--verdict`, Lean as ../../.github/scripts/toolchain.env pins it), with the
+repository's pinned Bend (../../.github/scripts/pinned_bend.py); then LAWS.lock
 holds the laws as they are (the bend skill's `gate.py --lock-only`;
 BEND_SKILL: the skill directory, default the commit
-../.github/scripts/toolchain.env pins, ../.github/scripts/pinned_skill.py).
+../../.github/scripts/toolchain.env pins, ../../.github/scripts/pinned_skill.py).
 
-Usage (in site/, `vp run laws`): python3 scripts/laws.py
+Usage (in crates/site/, `vp run laws`): python3 scripts/laws.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 SITE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SITE.parent / ".github" / "scripts"))
+sys.path.insert(0, str(SITE.parents[1] / ".github" / "scripts"))
 
 import pinned_bend  # noqa: E402
 import pinned_skill  # noqa: E402

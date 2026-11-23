@@ -12,9 +12,9 @@ paths = [
 ]
 
 [[allowlists]]
-description = "LAWS.lock (eukhe's, and the site's site/LAWS.lock): law names (some contain 'secret') with content hashes, not credentials"
+description = "LAWS.lock (eukhe's, and the site's crates/site/LAWS.lock): law names (some contain 'secret') with content hashes, not credentials"
 paths = [
-  '''^(site/)?LAWS\.lock$''',
+  '''^(crates/site/)?LAWS\.lock$''',
 ]
 
 [[allowlists]]

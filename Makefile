@@ -295,18 +295,19 @@ sdk-ts:
 	cd crates/eukhe-sdk/ts && npm ci --no-audit --no-fund && npm run check && \
 		EUKHE_E2E_BIN=$(CURDIR)/target/debug/eukhe EUKHE_KERNEL_PYTHON=$(SDK_TS_VENV)/bin/python npm test
 
-# The website (site/, eukhe.com; site/AGENTS.md): apart from eukhe but for
-# reading the repository's files (README.md and what it links to) when it
-# builds. Its own toolchain (Vite+ `vp`, site/package-lock.json), laws
-# (site/LAWS.bend, site/LAWS.lock) and check; no gate, hook, nightly run or
-# release runs these. site-check: install, format/lint/types, the site's
-# laws, the build. site-deploy: install, the build, then `wrangler deploy`
-# (site/wrangler.jsonc: the eukhe-site Worker on eukhe.com and
+# The website (crates/site/, eukhe.com; crates/site/AGENTS.md): apart from
+# eukhe but for reading the repository's files (README.md and what it links
+# to) when it builds. Its own toolchain (Vite+ `vp`,
+# crates/site/package-lock.json), laws (crates/site/LAWS.bend,
+# crates/site/LAWS.lock) and check; no gate, hook, nightly run or release
+# runs these. site-check: install, format/lint/types, the site's laws, the
+# build. site-deploy: install, the build, then `wrangler deploy`
+# (crates/site/wrangler.jsonc: the eukhe-site Worker on eukhe.com and
 # www.eukhe.com). A deploy happens only here, by hand.
 site-check:
-	cd site && vp install --frozen-lockfile && vp check && vp run laws && vp run build
+	cd crates/site && vp install --frozen-lockfile && vp check && vp run laws && vp run build
 
 site-deploy:
-	cd site && vp install --frozen-lockfile && vp run deploy
+	cd crates/site && vp install --frozen-lockfile && vp run deploy
 
 .PHONY: check ci-fast ci-local lock nightly nightly-status hooks runtime-test nix-test nix-check nix-vendor laws bend-core bend-core-check embedded-js embedded-js-check dashboard-tokens deny actionlint glibc-gate release-dry-run audit-build package catalog-assets models-dev-pin catalog-assets-gates runtime-lock runtime-lock-check dashboard-ui sdk-ts site-check site-deploy

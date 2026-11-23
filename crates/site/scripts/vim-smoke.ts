@@ -14,7 +14,7 @@ const list = <T>(v: BendList<T> | T[]): T[] => {
 
 const cons = <T>(xs: T[]): BendList<T> =>
   xs.reduceRight<BendList<T>>((tail, head) => ({ $: "Con", head, tail }), { $: "Nil" });
-const page = fs.readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+const page = fs.readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
 const files = cons<Buf>([
   { $: "Buf", path: "index.md", lines: cons(page.replace(/\n$/, "").split("\n")) },
   { $: "Buf", path: "docs/install.md", lines: cons(["# Install", "", "curl it"]) },
