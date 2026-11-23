@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { test, type TestContext } from "node:test";
 
-import { Eukhe, NotLoggedIn, type EukheEvent } from "../src/index.ts";
+import { Eukhe, NotLoggedIn, UnknownModel, type EukheEvent } from "../src/index.ts";
 
 const BIN = process.env["EUKHE_E2E_BIN"];
 const skip = BIN === undefined ? "EUKHE_E2E_BIN is not set" : false;
@@ -104,6 +104,14 @@ test("start, session, prompt with run report, cancel, close", { skip, timeout: 1
     const budget = await session.budget.get();
     assert.ok(budget === null || typeof budget.phase === "string");
     assert.deepEqual(await session.effects(), { ran: [], unknown: [] });
+    // No turn changed a file: undo restores nothing and reverses no effect.
+    const undone = await session.undo();
+    assert.deepEqual([undone.restored, undone.notUndone], [[], []]);
+    await assert.rejects(eukhe.session({ model: "no-such/model" }), (error: unknown) => {
+      assert.ok(error instanceof UnknownModel, String(error));
+      assert.ok(error.available.length > 0);
+      return true;
+    });
   } finally {
     await eukhe.close();
   }
