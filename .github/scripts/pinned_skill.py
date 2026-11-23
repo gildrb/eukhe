@@ -3,12 +3,14 @@
 BEND_SKILL_REV that .github/scripts/toolchain.env pins: a clone of
 github.com/gildrb/skills in ~/.cache/eukhe/bend-skill/<rev>, made once. The
 lock gate runs this gate.py (.github/scripts/ci_local.py laws_lock and
-relock, crates/site/scripts/laws.py): its verdict on LAWS.lock depends on the
-gate's code, so the gate is pinned like Bend. Exits 1, naming the commit,
-when the clone fails, or the cache holds another commit or changed files.
+relock; gildrb/eukhe-site's scripts/laws.py, from its checkout of eukhe):
+its verdict on LAWS.lock depends on the gate's code, so the gate is pinned
+like Bend. Exits 1, naming the commit, when the clone fails, or the cache
+holds another commit or changed files.
 
 Usage: python3 .github/scripts/pinned_skill.py
-(.github/scripts/ci_local.py and crates/site/scripts/laws.py import `skill_dir`.)
+(.github/scripts/ci_local.py and gildrb/eukhe-site's scripts/laws.py import
+`skill_dir`.)
 """
 
 from __future__ import annotations

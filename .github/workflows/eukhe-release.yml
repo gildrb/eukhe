@@ -341,20 +341,17 @@ jobs:
         with:
           path: incoming
           pattern: artifacts-*
-      # The installer of the released commit (https://eukhe.com/install
-      # redirects to releases/latest/download/install.sh), and the script
-      # that writes the .tar.xz twins.
+      # The script that writes the .tar.xz twins.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.version.outputs.sha }}
           path: src
           sparse-checkout: |
-            .github/scripts/release/install.sh
             .github/scripts/release/xz_archives.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       # Each .tar.gz gets its .tar.xz twin (.github/scripts/release/xz_archives.py:
-      # the same tar, a third smaller), which install.sh and `eukhe update`
+      # the same tar, a third smaller), which the installer (eukhe.com/install) and `eukhe update`
       # download; release.json lists it under the system's `xz`. The .tar.gz
       # stays the system's `url`: the updaters of earlier releases look it up
       # there.
@@ -404,8 +401,6 @@ jobs:
           (out / "SHA256SUMS").write_text("\n".join(sorted(sums, key=lambda line: line.split()[1])) + "\n")
           release = {"version": version, "tag": tag, "assets": dict(sorted(assets.items()))}
           pathlib.Path("release.json").write_text(json.dumps(release, indent=2) + "\n")
-      - name: Attach the installer of the released commit
-        run: install -m 0644 src/.github/scripts/release/install.sh release-out/install.sh
       # Verify a downloaded asset: gh attestation verify <file> --repo gildrb/eukhe
       - name: Attest build provenance (every release asset + SHA256SUMS + release.json)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

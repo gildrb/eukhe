@@ -181,11 +181,10 @@ def docs_only(paths: list[str]) -> bool:
 
 
 # The paths no crate builds or tests from: the gate tooling, the GitHub and
-# Nix files, the agent rules, the docs (spec/), the laws and proofs (the
-# proofs and laws lock gates check them, spec/'s Bend files included), and
-# crates/site/ (the website: no gate runs on it; `make site-check` is its own
-# check). (The other .github/scripts/ files, release/ among them, and
-# README.md stay code: eukhe-cli's packaging tests run and copy them.)
+# Nix files, the agent rules, the docs (spec/), and the laws and proofs (the
+# proofs and laws lock gates check them, spec/'s Bend files included). (The
+# other .github/scripts/ files, release/ among them, and README.md stay
+# code: eukhe-cli's packaging tests run and copy them.)
 GATE_TOOLING = (
     ".github/scripts/ci_*",
     ".github/scripts/test_ci_*",
@@ -196,7 +195,7 @@ OUTSIDE_CRATES = (
     ".github/*", "nix/*", "spec/*", ".config/nextest.toml", "mise.toml",
     ".pre-commit-config.yaml", ".gitleaks.toml", "AGENTS.md",
     "Makefile", "flake.nix", "flake.lock",
-    "LAWS.bend", "PROOF.bend", "LAWS.lock", "laws/*", "proof/*", "crates/site/*",
+    "LAWS.bend", "PROOF.bend", "LAWS.lock", "laws/*", "proof/*",
 )
 
 
@@ -209,9 +208,7 @@ def outside_crates(path: str) -> bool:
 
 
 # A change the proofs gate must check: a Bend file, the generated core and
-# its entry list, or the scripts and toolchain pin the gate runs. The Bend
-# files of crates/site/ are the website's (its own laws and proofs, `make
-# site-check`): no gate checks them.
+# its entry list, or the scripts and toolchain pin the gate runs.
 BEND_INPUTS = (
     "*.bend", "bend/*", "crates/eukhe-bend/*",
     ".github/scripts/bend_core.py", ".github/scripts/bend_proofs.py",
@@ -279,10 +276,10 @@ def tests_touched(rows: Rows) -> None:
     )
 
 
-# The TypeScript trees under crates/ with their own toolchain and check,
-# which no embedded JavaScript is generated from: the TypeScript SDK (`make
-# sdk-ts`) and the website (`make site-check`).
-OWN_TYPESCRIPT = ("crates/eukhe-sdk/ts/*", "crates/site/*")
+# The TypeScript tree under crates/ with its own toolchain and check, which
+# no embedded JavaScript is generated from: the TypeScript SDK (`make
+# sdk-ts`).
+OWN_TYPESCRIPT = ("crates/eukhe-sdk/ts/*",)
 
 
 def embedded_js(rows: Rows) -> None:
@@ -302,7 +299,7 @@ def proofs(rows: Rows, base: str) -> None:
     """The proofs a Bend change can reach (.github/scripts/bend_proofs.py:
     the proof files whose import closure holds a changed file), from the
     commit `base`."""
-    if not touched(rows, BEND_INPUTS, skip=("crates/site/*",)):
+    if not touched(rows, BEND_INPUTS):
         print("proofs skipped: no Bend input changed")
         return
     run("python3", ".github/scripts/check_laws_wired.py", ".")
