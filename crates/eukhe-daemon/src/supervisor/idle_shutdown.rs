@@ -7,19 +7,23 @@
 //!    makes the daemon busy).
 //! 2. Every worker is asked to quiesce, all at the same time, inside one
 //!    [`QUIESCE_ANSWER_MS`] window. An idle worker closes its run gate; a
-//!    worker with work, or one that does not answer, is busy.
-//! 3. When every worker quiesced, the normal shutdown runs. Else every
-//!    worker is released, the gate opens, and the shutdown is refused as
-//!    busy.
+//!    worker that reports work is busy. A worker that does not answer (hung,
+//!    or not connected) is busy only when the supervisor's roster records
+//!    work for it ([`summary_work`]); otherwise it holds none, and the log
+//!    says so.
+//! 3. When every worker quiesced, the normal shutdown runs (it kills a
+//!    hung worker after the stop grace). Else every worker is released,
+//!    the gate opens, and the shutdown is refused as busy.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use eukhe_types::daemon::agent_roster::summary_work;
 use serde_json::json;
 use tokio::sync::Notify;
 
-use super::{RouteAdmission, Supervisor};
+use super::{ResidentWorker, RouteAdmission, Supervisor};
 use crate::timeouts::QUIESCE_ANSWER_MS;
 use crate::work_gate::{idle_shutdown_commits, QuiesceAnswer};
 
@@ -115,7 +119,8 @@ impl Supervisor {
                 .await
             {
                 Ok(response) if response.success => QuiesceAnswer::Quiesced,
-                Ok(_) | Err(_) => QuiesceAnswer::Busy,
+                Ok(_) => QuiesceAnswer::Busy,
+                Err(error) => self.unanswered_quiesce(resident, &error),
             }
         }))
         .await;
@@ -145,6 +150,36 @@ impl Supervisor {
         gate.open();
         IdleShutdown::Busy
     }
+
+    /// The answer of a worker that left its quiesce unanswered: busy only
+    /// with work recorded in the supervisor's roster (the rows the worker
+    /// last pushed).
+    fn unanswered_quiesce(
+        &self,
+        resident: &ResidentWorker,
+        error: &anyhow::Error,
+    ) -> QuiesceAnswer {
+        let recorded = self
+            .roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entries_for_worker(&resident.worker_id)
+            .into_iter()
+            .find_map(|entry| summary_work(&entry.summary));
+        if let Some(work) = recorded {
+            self.log_line(&format!(
+                "session worker {} did not answer the idle check ({error:#}); it last reported {work}: busy",
+                resident.worker_id
+            ));
+            QuiesceAnswer::Busy
+        } else {
+            self.log_line(&format!(
+                "session worker {} did not answer the idle check ({error:#}) and has no work recorded: it holds no work",
+                resident.worker_id
+            ));
+            QuiesceAnswer::Quiesced
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,13 +205,14 @@ mod tests {
         )
     }
 
-    /// A resident whose worker is faux: it answers `worker_quiesce` with a
-    /// real [`WorkGate`] over the session's `work`, answers every other
-    /// command with success, and records the command types it received.
-    async fn faux_worker(
+    /// A registered resident with a live command channel: the receiver
+    /// gets every command routed to it.
+    async fn faux_resident(
         supervisor: &Supervisor,
-        work: Arc<Mutex<Work>>,
-    ) -> Arc<Mutex<Vec<String>>> {
+    ) -> (
+        Arc<ResidentWorker>,
+        tokio::sync::mpsc::Receiver<WorkerRequest>,
+    ) {
         let descriptor: DaemonWorkerDescriptor = serde_json::from_value(serde_json::json!({
             "version": 2,
             "workerId": "w-faux",
@@ -198,9 +234,20 @@ mod tests {
             descriptor,
             std::path::PathBuf::from("/tmp/none.descriptor.json"),
         );
-        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<WorkerRequest>(16);
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<WorkerRequest>(16);
         *resident.cmd_tx.lock().await = Some(cmd_tx);
         supervisor.registry.insert(Arc::clone(&resident)).await;
+        (resident, cmd_rx)
+    }
+
+    /// A resident whose worker is faux: it answers `worker_quiesce` with a
+    /// real [`WorkGate`] over the session's `work`, answers every other
+    /// command with success, and records the command types it received.
+    async fn faux_worker(
+        supervisor: &Supervisor,
+        work: Arc<Mutex<Work>>,
+    ) -> Arc<Mutex<Vec<String>>> {
+        let (resident, mut cmd_rx) = faux_resident(supervisor).await;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let record = Arc::clone(&seen);
         tokio::spawn(async move {
@@ -326,6 +373,61 @@ mod tests {
         let launch = supervisor.replacement_gate.enter_launch().await;
         assert_eq!(supervisor.decide_idle_shutdown().await, IdleShutdown::Busy);
         drop(launch);
+        assert_eq!(
+            supervisor.decide_idle_shutdown().await,
+            IdleShutdown::Commit
+        );
+    }
+
+    /// A hung worker (it takes its commands and never answers) holds no
+    /// work unless its last pushed roster rows report some: with none
+    /// recorded the idle shutdown commits; with a turn recorded it is busy.
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_worker_is_busy_only_with_recorded_work() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let supervisor = supervisor(dir.path());
+        let (_resident, _hung) = faux_resident(&supervisor).await;
+        assert_eq!(
+            supervisor.decide_idle_shutdown().await,
+            IdleShutdown::Commit
+        );
+        supervisor.replacement_gate.open();
+        let row = |busy: bool| {
+            serde_json::json!({
+                "id": "w-faux",
+                "sessionId": "s-faux",
+                "activeSessionId": "w-faux",
+                "activity": if busy { "working" } else { "idle" },
+                "isStreaming": busy,
+                "isCompacting": false,
+            })
+        };
+        supervisor
+            .roster
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .write_summary(row(false), Some("w-faux"), None);
+        assert_eq!(
+            supervisor.decide_idle_shutdown().await,
+            IdleShutdown::Commit
+        );
+        supervisor.replacement_gate.open();
+        supervisor
+            .roster
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .write_summary(row(true), Some("w-faux"), None);
+        assert_eq!(supervisor.decide_idle_shutdown().await, IdleShutdown::Busy);
+    }
+
+    /// A worker that is not connected (stuck starting) holds no work
+    /// either: the idle shutdown commits.
+    #[tokio::test(start_paused = true)]
+    async fn a_worker_not_connected_holds_no_work() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let supervisor = supervisor(dir.path());
+        let (resident, _commands) = faux_resident(&supervisor).await;
+        *resident.cmd_tx.lock().await = None;
         assert_eq!(
             supervisor.decide_idle_shutdown().await,
             IdleShutdown::Commit
