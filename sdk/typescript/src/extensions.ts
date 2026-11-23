@@ -46,14 +46,22 @@ export type RanEffect = z.output<typeof RanEffect>;
 /** A step a crash left of unknown outcome, treated as not run. */
 export const UnknownEffect = z.object({
   id: z.string(),
-  kind: z.string(),
+  kind: z.enum(["tool", "request", "job", "write", "spawn", "fire", "message"]),
   what: z.string(),
   at: z.number(),
   cause: z.string().optional(),
   settledRun: z.number().optional(),
-  resolution: z.string().optional(),
+  resolution: z.enum(["ran", "notRun"]).optional(),
 });
 export type UnknownEffect = z.output<typeof UnknownEffect>;
+
+const AcceptanceLabel = z.enum([
+  "verified",
+  "failed",
+  "unverified",
+  "checks_passed_unconfined",
+  "checks_passed_not_certified",
+]);
 
 /** One acceptance check of a turn and its verdict. */
 export const ReportCheck = z.object({
@@ -73,7 +81,8 @@ export const RunReportNotification = z.object({
   error: z.string().optional(),
   /** The final assistant text. */
   answer: z.string().nullable(),
-  label: z.enum(["verified", "failed", "unverified", "checks_passed_unconfined", "checks_passed_not_certified"]),
+  /** null: the turn ran without acceptance state. */
+  label: AcceptanceLabel.nullable(),
   certified: z.boolean(),
   checks: z.array(ReportCheck),
   /** Irreversible effects that ran this turn. */
@@ -81,6 +90,8 @@ export const RunReportNotification = z.object({
   unknown: z.array(UnknownEffect),
   /** Work the run found left; empty when none. */
   left: z.array(z.string()),
+  /** Parts of the report that could not be read. */
+  unreadable: z.array(z.enum(["acceptance", "effects", "left"])).optional(),
 });
 /** A turn's end-of-run report. */
 export type RunReport = Omit<z.output<typeof RunReportNotification>, "sessionId">;
@@ -103,16 +114,17 @@ export type BudgetAmounts = {
 };
 
 const Amounts = z.looseObject({
-  costMicros: z.number(),
-  tokens: z.number(),
-  timeMs: z.number(),
-  toolCalls: z.number(),
-  requests: z.number(),
+  costMicros: z.number().optional(),
+  tokens: z.number().optional(),
+  timeMs: z.number().optional(),
+  toolCalls: z.number().optional(),
+  requests: z.number().optional(),
 });
 
 /** A budget as the session sees it: in each limited dimension `free + held + spent + lent == limits + over`. */
 export const BudgetReport = z.looseObject({
   sessionId: z.string(),
+  agentSessionId: z.string(),
   limits: z.looseObject({
     costMicros: Limit.optional(),
     tokens: Limit.optional(),
@@ -137,14 +149,14 @@ export type Budget = z.output<typeof Budget>;
 
 /** One acceptance check to set. */
 export type CheckSpec =
-  | { kind: "command"; command: string; expect?: string; timeoutMs?: number; protect?: boolean; strength?: string }
-  | { kind: "judge"; condition: string; evidence?: string; model?: string }
-  | { kind: "until"; command: string; timeoutMs?: number; strength?: string }
+  | { kind: "command"; command: string; expect?: number; timeoutMs?: number; protect?: string[]; strength?: number }
+  | { kind: "judge"; condition: string; evidence?: string[]; model?: string }
+  | { kind: "until"; command: string; timeoutMs?: number; strength?: number }
   | { kind: "intent"; model?: string };
 
 /** The session's acceptance state. */
 export const AcceptanceState = z.looseObject({
-  label: z.string(),
+  label: AcceptanceLabel,
   state: z.unknown(),
   revision: z.number(),
   checks: z.array(z.looseObject({ spec: z.looseObject({ kind: z.string() }) })),

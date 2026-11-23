@@ -127,6 +127,18 @@ test("leaving the loop early cancels the turn and frees the session", async () =
   }
 });
 
+test("a malformed run report fails the turn as AgentFailed and frees the session", async () => {
+  const eukhe = await stub("eukhe");
+  try {
+    const session = await eukhe.session();
+    await assert.rejects(collect(session.prompt("bad-report")), { $: "AgentFailed", method: "_eukhe/run_report" });
+    const again = await collect(session.prompt("hi"));
+    assert.deepEqual(again.at(-1), { $: "TurnEnd", stopReason: "end_turn" });
+  } finally {
+    await eukhe.close();
+  }
+});
+
 test("eukhe extensions return parsed results and typed agent errors", async () => {
   const eukhe = await stub("eukhe");
   try {

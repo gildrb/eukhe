@@ -16,8 +16,12 @@ export type SessionOptions = {
 /** What a running turn receives, in arrival order. */
 type TurnItem =
   | { $: "Event"; event: EukheEvent }
+  /** The prompt request answered: the turn is over. */
   | { $: "Ended"; stopReason: StopReason }
-  | { $: "Failed"; error: unknown };
+  /** The prompt request failed: the turn is over. */
+  | { $: "Failed"; error: unknown }
+  /** The agent sent something malformed while the turn runs: the turn is cancelled and the error thrown. */
+  | { $: "Broken"; error: unknown };
 
 /** One eukhe conversation: prompt it, cancel its turn, and read its eukhe extensions. */
 export class Session {
@@ -33,7 +37,7 @@ export class Session {
     const turn: { mailbox: Mailbox | null } = { mailbox: null };
     this.#turn = turn;
     agent.listen((inbound) => {
-      for (const event of eventsOfInbound(inbound, id)) turn.mailbox?.push({ $: "Event", event });
+      for (const item of itemsOfInbound(inbound, id)) turn.mailbox?.push(item);
     });
   }
 
@@ -70,6 +74,8 @@ export class Session {
             return;
           case "Failed":
             this.#turn.mailbox = null;
+            throw item.error;
+          case "Broken":
             throw item.error;
           default: {
             const _: never = item;
@@ -164,12 +170,16 @@ function parseJson(text: string): unknown {
   }
 }
 
-function eventsOfInbound(inbound: Inbound, sessionId: string): readonly EukheEvent[] {
+function itemsOfInbound(inbound: Inbound, sessionId: string): readonly TurnItem[] {
   switch (inbound.$) {
     case "Update":
-      return inbound.notification.sessionId === sessionId ? eventsOfUpdate(inbound.notification.update) : [];
+      return inbound.notification.sessionId === sessionId
+        ? eventsOfUpdate(inbound.notification.update).map((event) => ({ $: "Event", event }))
+        : [];
     case "RunReport":
-      return inbound.sessionId === sessionId ? [{ $: "RunReport", report: inbound.report }] : [];
+      return inbound.sessionId === sessionId ? [{ $: "Event", event: { $: "RunReport", report: inbound.report } }] : [];
+    case "Malformed":
+      return [{ $: "Broken", error: inbound.failure }];
     default: {
       const _: never = inbound;
       return _;
@@ -183,6 +193,7 @@ async function settled(mailbox: Mailbox): Promise<void> {
     const item = await mailbox.take();
     switch (item.$) {
       case "Event":
+      case "Broken":
         break;
       case "Ended":
       case "Failed":

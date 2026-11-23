@@ -25,7 +25,9 @@ import { extensionsOf, RunReportNotification, type Extensions, type Feature, typ
 /** What the agent sends that a session turn consumes. */
 export type Inbound =
   | { $: "Update"; notification: SessionNotification }
-  | { $: "RunReport"; sessionId: string; report: RunReport };
+  | { $: "RunReport"; sessionId: string; report: RunReport }
+  /** A notification that does not match its documented shape; the running turn fails with it. */
+  | { $: "Malformed"; failure: AgentFailed };
 
 type Exit = { exitCode: number | null; signal: string | null };
 
@@ -90,9 +92,15 @@ export class AgentProcess {
     const inbox: { deliver: (inbound: Inbound) => void } = { deliver: () => {} };
     const connection = client({ name: "eukhe-sdk" })
       .onNotification("session/update", ({ params }) => inbox.deliver({ $: "Update", notification: params }))
-      .onNotification("_eukhe/run_report", RunReportNotification, ({ params: { sessionId, ...report } }) =>
-        inbox.deliver({ $: "RunReport", sessionId, report }),
-      )
+      .onNotification("_eukhe/run_report", (params) => ({ params, parsed: RunReportNotification.safeParse(params) }), ({ params }) => {
+        if (params.parsed.success) {
+          const { sessionId, ...report } = params.parsed.data;
+          inbox.deliver({ $: "RunReport", sessionId, report });
+        } else {
+          const failure = new AgentFailed("_eukhe/run_report", INVALID_RESULT, z.prettifyError(params.parsed.error), params.params);
+          inbox.deliver({ $: "Malformed", failure });
+        }
+      })
       .connect(ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout)));
     try {
       const init = await connection.agent.request("initialize", {

@@ -77,7 +77,10 @@ const app = agent({ name: "stub" })
     await update(client, { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed", rawOutput: "2" });
     await update(client, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `model=${state.model}` } });
     const stopReason = text === "wait" ? await cancelled() : "end_turn";
-    if (mode === "eukhe") await client.notify("_eukhe/run_report", { sessionId: SESSION, stopReason, ...report });
+    if (mode === "eukhe") {
+      const sent = text === "bad-report" ? { sessionId: SESSION, stopReason } : { sessionId: SESSION, stopReason, ...report };
+      await client.notify("_eukhe/run_report", sent);
+    }
     return { stopReason };
   })
   .onNotification("session/cancel", () => state.cancel())
