@@ -12,7 +12,8 @@
 //! sees it); a login that fails after its code reached the flow (the
 //! token exchange) shows the retry notice and starts the login again.
 //! The panel has no picker, so a method selection takes the flow's first
-//! (default) option: the browser login.
+//! (default) option, the browser login, unless the surface asks for the
+//! device-code login (`eukhe login --device`).
 //!
 //! Cancellation (#2770): the panel handle's shared flag is the seam -- the
 //! driving pane marks it on exit, the login's abort signal follows it, and
@@ -48,23 +49,49 @@ const COPILOT_WAITING: &str = "Waiting for browser authentication...";
 const LOGIN_CANCELLED: &str = "Login cancelled";
 /// How often the login re-checks the pane's cancel flag.
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// The select option id of a flow's device-code login.
+const DEVICE_CODE_METHOD: &str = "device_code";
 
 /// Opens a URL in the user's browser.
 pub(crate) type BrowserOpener = fn(&str);
+
+/// The login method a flow that offers several takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoginMethod {
+    /// The flow's first option: the browser login.
+    Default,
+    /// The flow's device-code option.
+    DeviceCode,
+}
 
 /// The surface one login drives: the inline auth panel and the browser.
 #[derive(Clone)]
 pub(crate) struct LoginSurface {
     panel: AuthPanelHandle,
     open_browser: BrowserOpener,
+    method: LoginMethod,
 }
 
 impl LoginSurface {
     /// The panel, with the system browser.
     pub(crate) fn new(panel: AuthPanelHandle) -> Self {
+        LoginSurface::with(
+            panel,
+            eukhe_core::platform::browser::open_in_browser,
+            LoginMethod::Default,
+        )
+    }
+
+    /// The panel, with this browser opener and method choice.
+    pub(crate) fn with(
+        panel: AuthPanelHandle,
+        open_browser: BrowserOpener,
+        method: LoginMethod,
+    ) -> Self {
         LoginSurface {
             panel,
-            open_browser: eukhe_core::platform::browser::open_in_browser,
+            open_browser,
+            method,
         }
     }
 }
@@ -210,11 +237,22 @@ impl AuthInteraction for PanelAuthInteraction {
             match prompt.kind {
                 // The panel has no picker: the flows list their default
                 // (the browser login) first.
-                AuthPromptKind::Select { message, options } => options
-                    .into_iter()
-                    .next()
-                    .map(|option| option.id)
-                    .ok_or_else(|| login_error(format!("{message} offers no option"))),
+                AuthPromptKind::Select { message, options } => {
+                    let chosen = match self.surface.method {
+                        LoginMethod::Default => options.into_iter().next(),
+                        LoginMethod::DeviceCode => options
+                            .into_iter()
+                            .find(|option| option.id == DEVICE_CODE_METHOD),
+                    };
+                    chosen.map(|option| option.id).ok_or_else(|| {
+                        login_error(match self.surface.method {
+                            LoginMethod::Default => format!("{message} offers no option"),
+                            LoginMethod::DeviceCode => {
+                                format!("{message} offers no device-code login")
+                            }
+                        })
+                    })
+                }
                 // A blank answer is the flow's to judge (the Copilot
                 // domain prompt's "blank for github.com").
                 AuthPromptKind::Text {

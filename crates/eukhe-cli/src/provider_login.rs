@@ -365,7 +365,7 @@ impl ProviderAuth {
     /// locks must stay off the async workers). The operator's 2026-09-24
     /// directive keeps `/login` providers only: the service rows (the MCP
     /// OAuth integrations) live on the `/mcp` view instead.
-    fn login_rows_blocking(self) -> Vec<ProviderRow> {
+    pub(crate) fn login_rows_blocking(self) -> Vec<ProviderRow> {
         let provider = self;
         {
             let mut rows: Vec<ProviderRow> = Vec::new();
@@ -522,7 +522,7 @@ fn stored_row(
 /// [`login_blocking_on_panel`]; this body serves the panel-prompted key
 /// store, and an OAuth row reaching it answers the silent cancel (the
 /// session routes the panel rows to the panel body).
-fn login_blocking(
+pub(crate) fn login_blocking(
     provider_row: &ProviderRow,
     agent_dir: &Path,
     api_key: Option<String>,
