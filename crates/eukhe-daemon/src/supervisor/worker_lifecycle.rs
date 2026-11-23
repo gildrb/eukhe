@@ -1,6 +1,7 @@
 //! Worker lifecycle: the launch/probe/connect plumbing for new workers
 //! and the stop, kill, retire, and tombstone passes for resident ones.
 
+use super::interrupted_runs::InterruptedRun;
 use super::launch_budget::{
     DEFAULT_WORKER_CONNECT_TIMEOUT_MS, WORKER_CONNECT_BACKOFF_MS, WORKER_CONNECT_PROBE_MS,
     WORKER_CONNECT_TIMEOUT_ENV,
@@ -774,7 +775,10 @@ impl Supervisor {
         ) else {
             return response_success(Some(command_id), type_name, None);
         };
-        match self.stop_worker_releasing(&resident, Some(fence)).await {
+        match self
+            .stop_worker_releasing(&resident, Some(fence), StopRoute::Shutdown)
+            .await
+        {
             Ok(_outcome) => {
                 self.log_line(&format!(
                     "session worker {} passivated idle (idleEvictionMinutes={threshold})",
@@ -795,7 +799,31 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
     ) -> anyhow::Result<StopOutcome> {
-        self.stop_worker_releasing(resident, None).await
+        self.stop_worker_releasing(resident, None, StopRoute::Shutdown)
+            .await
+    }
+
+    /// Stop a worker that left a routed stop unanswered for the whole
+    /// stop grace (a hung orphaned RLM child): no second routed
+    /// `shutdown`, straight to the escalation (SIGTERM, then the process
+    /// group's SIGKILL). Its session stays as after a crash: the stop
+    /// never archives, and the run it hung in is declared interrupted, so
+    /// the next open of the session stops that run instead of resuming it.
+    pub(crate) async fn stop_unanswering_worker(
+        self: &Arc<Self>,
+        resident: &Arc<ResidentWorker>,
+    ) -> anyhow::Result<StopOutcome> {
+        let session_file = resident.descriptor.lock().await.session_file.clone();
+        if let Some(session_file) = &session_file {
+            self.interrupted_runs.declare(
+                session_file,
+                InterruptedRun::Unresponsive {
+                    after_ms: timeouts::derived().stop_grace_ms,
+                },
+            );
+        }
+        self.stop_worker_releasing(resident, None, StopRoute::Signal)
+            .await
     }
 
     /// The graceful stop; `fence` (the idle passivation's) is released
@@ -804,6 +832,7 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
         fence: Option<tokio::sync::OwnedSemaphorePermit>,
+        route: StopRoute,
     ) -> anyhow::Result<StopOutcome> {
         // The stop's durable intent persists BEFORE the worker is told (TS
         // `stopWorkerUntracked(removeDescriptor)` ->
@@ -830,7 +859,10 @@ impl Supervisor {
         // descriptor dies only with a provably-gone process, so a worker
         // that missed the routed shutdown stays adoptable (or is
         // escalated away) instead of becoming an invisible lease holder.
-        let outcome = self.shut_down_within_grace(resident).await;
+        let outcome = match route {
+            StopRoute::Shutdown => self.shut_down_within_grace(resident).await,
+            StopRoute::Signal => self.escalate_stop(resident, RoutedStop::Missed).await,
+        };
         // TS `stopWorkerUntracked`: a client-owned (ephemeral) worker's
         // scheduled jobs die with the registration
         // (`cancelEphemeralWorkerScheduledJobs`) — every remove-descriptor
@@ -871,7 +903,7 @@ impl Supervisor {
         self: &Arc<Self>,
         resident: &Arc<ResidentWorker>,
     ) -> StopOutcome {
-        let settled = match self
+        let routed = match self
             .route_command_typed(
                 resident,
                 "shutdown",
@@ -881,26 +913,36 @@ impl Supervisor {
             )
             .await
         {
-            Ok(response) if response.success => true,
+            Ok(response) if response.success => RoutedStop::Settled,
             Ok(response) => {
                 self.log_line(&format!(
                     "session worker {} shutdown route refused: {:?}",
                     resident.worker_id, response.error
                 ));
-                false
+                RoutedStop::Missed
             }
             Err(error) => {
                 self.log_line(&format!(
                     "session worker {} shutdown route failed: {error:#}",
                     resident.worker_id
                 ));
-                false
+                RoutedStop::Missed
             }
         };
-        match (self.retire_worker_after_stop(resident).await, settled) {
-            (false, _) => StopOutcome::Survived,
-            (true, true) => StopOutcome::Settled,
-            (true, false) => {
+        self.escalate_stop(resident, routed).await
+    }
+
+    /// The stop past its routed part: [`Self::retire_worker_after_stop`]
+    /// escalates against a process that is still alive.
+    async fn escalate_stop(
+        self: &Arc<Self>,
+        resident: &Arc<ResidentWorker>,
+        routed: RoutedStop,
+    ) -> StopOutcome {
+        match (self.retire_worker_after_stop(resident).await, routed) {
+            (false, RoutedStop::Settled | RoutedStop::Missed) => StopOutcome::Survived,
+            (true, RoutedStop::Settled) => StopOutcome::Settled,
+            (true, RoutedStop::Missed) => {
                 self.log_line(&format!(
                     "session worker {} missed the {}ms stop grace and was killed with its process group; the effects of its in-flight work are unknown",
                     resident.worker_id,
@@ -994,6 +1036,26 @@ impl Supervisor {
             }
         }
     }
+}
+
+/// How a stop reaches its worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopRoute {
+    /// The routed `shutdown` with the stop grace, then the escalation.
+    Shutdown,
+    /// The escalation alone: the worker already left a routed stop
+    /// unanswered for the stop grace.
+    Signal,
+}
+
+/// How the routed part of a stop ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RoutedStop {
+    /// The worker answered its `shutdown`.
+    Settled,
+    /// The worker refused it, did not answer within the grace, or was
+    /// never asked.
+    Missed,
 }
 
 /// A dead process or a verified replacement identity proves the old writer
