@@ -39,6 +39,7 @@ class DecoderManifest(unittest.TestCase):
                 "dill==0.4.1 \\\n    --hash=sha256:" + "a" * 64 + "\n"
             )
             (repo / "LICENSE").write_text("fixture\n")
+            (repo / "THIRD-PARTY-NOTICES").write_text("fixture\n")
             (repo / "README.md").write_text("fixture\n")
             catalog = root / "catalog"
             run(sys.executable, str(CATALOG), "generate", "--out", str(catalog))

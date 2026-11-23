@@ -53,7 +53,7 @@ rustPlatform.buildRustPackage {
     mv "$out/bin/eukhe" "$payload/"
     cp -R crates/rlm/pyproject.toml crates/rlm/requirements-kernel.txt crates/rlm/src "$payload/rlm/"
     cp -R crates/skills "$payload/skills"
-    cp LICENSE "$payload/"
+    cp LICENSE THIRD-PARTY-NOTICES "$payload/"
     python3 .github/scripts/release/bundle_catalog.py generate --out "$payload"
     ${import ./kernel-bytecode.nix { inherit lib python314; } "$payload"}
     # git commits the chat memory after every turn; a user's own git
