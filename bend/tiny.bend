@@ -233,10 +233,10 @@ def elect(p: Probe, mine: String) -> Act:
 
 # what the shutdown of a worker of another tag heard
 type Heard is Data:
-  Bye{}    # the worker said bye
-  Other{}  # it answered with something else
-  Eof{}    # it closed first: it exited on its own meanwhile
-  Dropped{}   # the connection failed otherwise
+  Bye{}      # the worker said bye
+  Other{}    # it answered with something else
+  Eof{}      # it closed first: it exited on its own meanwhile
+  Dropped{}  # the connection failed otherwise
 
 type Shut is Data:
   Down{}   # the worker is gone: start one

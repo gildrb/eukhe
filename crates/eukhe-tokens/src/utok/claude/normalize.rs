@@ -238,7 +238,7 @@ pub(crate) fn nfc_units<U: Unit>(units: &[U], fold_quotes: bool) -> Cow<'_, str>
 
 /// Whether a codepoint uses the isolated character path for letters.
 fn is_hard_cp(o: u32) -> bool {
-    o >= 0x10000                  // all astral (CJK ext, astral scripts, emoji)
+    o >= 0x10000                            // all astral (CJK ext, astral scripts, emoji)
         || (0x4e00..=0x9fff).contains(&o)   // CJK Unified
         || (0x3400..=0x4dbf).contains(&o)   // CJK Ext A
         || (0xf900..=0xfaff).contains(&o)   // CJK Compatibility

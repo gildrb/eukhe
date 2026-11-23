@@ -27,10 +27,10 @@ import Base
 
 # what reading the token file met
 type Disk is Data:
-  NoFile{}         # the file does not exist
-  Unread{}         # it could not be read (or is not UTF-8)
+  NoFile{}          # the file does not exist
+  Unread{}          # it could not be read (or is not UTF-8)
   Holds{s: String}  # its text
-  Huge{}           # its text is longer than the wire carries
+  Huge{}            # its text is longer than the wire carries
 
 # a text a tab presented
 type Said is Data:

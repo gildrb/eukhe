@@ -140,13 +140,13 @@ type Kind:   Input{origin} | Decision{rule, inputs, answer} | Intent{effect} | O
 type Entry:  Entry{seq, prev, author, cause, kind, body}      # body: digest of the content
 type Head:   Head{len, digest}
 
-append(record, draft) -> Maybe<(record, Head)>      # T1 T2
-verify(record, anchors) -> Ok{head} | Bad{at, why}  # T4 T5 T8
-redact(record, seq) -> record                       # T10
-rebuild(record, decision) -> Request | Missing{at} | Redacted{at}    # T7
-replay(record, call) -> Same | Diverged{at, was, now} | Missing{at} | Redacted{at}   # T6 T7
-merge(records, links) -> order                      # T3
-audit(tree, filter) -> effects with agent, decision, origin         # T9
+append(record, draft) -> Maybe<(record, Head)>                                      # T1 T2
+verify(record, anchors) -> Ok{head} | Bad{at, why}                                  # T4 T5 T8
+redact(record, seq) -> record                                                       # T10
+rebuild(record, decision) -> Request | Missing{at} | Redacted{at}                   # T7
+replay(record, call) -> Same | Diverged{at, was, now} | Missing{at} | Redacted{at}  # T6 T7
+merge(records, links) -> order                                                      # T3
+audit(tree, filter) -> effects with agent, decision, origin                         # T9
 ```
 
 `call` is the core's own dispatcher (entry id, request bytes), so a replay

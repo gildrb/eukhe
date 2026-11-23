@@ -74,9 +74,9 @@ def gate_spec(q: Tc.Gate) -> Tc.Go:
 
 # Where the call's tool task is
 type Phase is Data:
-  NoTask{}                       # none: the call is speculation (streamed, not committed)
-  AtCall{}                       # at its call checkpoint: no intent recorded
-  AtExecute{q: Tc.Replay}        # its intent recorded, with policy q
+  NoTask{}                          # none: the call is speculation (streamed, not committed)
+  AtCall{}                          # at its call checkpoint: no intent recorded
+  AtExecute{q: Tc.Replay}           # its intent recorded, with policy q
   Settled{q: Maybe<&2, Tc.Replay>}  # its result settled (q: the policy its intent recorded, if any)
 
 # The world: whether the assistant entry is committed, the task's phase,

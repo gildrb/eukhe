@@ -256,7 +256,7 @@ type Schema:  Schema{version, commands, responses, events, errors, guarantees}
 compatible(old, new) -> Ok | Break{where, why}                       # W3 W4 W5
 history_ok(list of Schema, window) -> Ok | Break{where, why}         # W8
 decode(schema, json) -> Ok{value, kept} | Refused{why}               # W6 W7; kept: the unknown fields
-dispatch.step(conn, frame) -> (conn, frames)                        # W1 W6 W8 W10
+dispatch.step(conn, frame) -> (conn, frames)                         # W1 W6 W8 W10
 ```
 
 The laws tie `compatible` (the code: a structural walk over two schemas) to
@@ -280,11 +280,11 @@ type Kind:     Tool{name} | Budget
 type Outcome:  Answered{value} | Cancelled | HostGone
 type Input:    Register{host, names, grace} | Answer{id, value} | Progress{id}
              | Cancel{id} | Detach{host} | Attach{host} | Tick{now}
-hostcall.step(calls, input) -> (calls, frames)                       # W17 W18 W19
-register(held, host, names) -> Ok{held} | Taken{name}                # W17
-gone_default(kind) -> Outcome                                        # W18
-door_gate(door, op) -> Run | NeedsDaemon                             # W20
-handoff(session, lease, from, to) -> Moved{lease, cursor} | Refused{why}   # W21
+hostcall.step(calls, input) -> (calls, frames)                            # W17 W18 W19
+register(held, host, names) -> Ok{held} | Taken{name}                     # W17
+gone_default(kind) -> Outcome                                             # W18
+door_gate(door, op) -> Run | NeedsDaemon                                  # W20
+handoff(session, lease, from, to) -> Moved{lease, cursor} | Refused{why}  # W21
 ```
 
 In Rust, `eukhe-sdk` gets one session API with two implementations. The

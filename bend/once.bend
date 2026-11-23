@@ -60,8 +60,8 @@ type Life is Data:
   Absent{}             # no record
   Pending{}            # intended, never launched
   Running{again: Nat}  # launched 1 + again times, no end on record
-  Ran{}               # finished
-  Unsure{}               # settled unknown: treated as not run
+  Ran{}                # finished
+  Unsure{}             # settled unknown: treated as not run
   Void{}               # settled unstarted
 
 # What a restart does with an effect

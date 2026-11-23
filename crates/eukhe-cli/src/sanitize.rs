@@ -7,7 +7,7 @@
 /// controls, zero-width and soft-break format characters, and the BOM.
 pub(crate) fn is_invisible_format(c: char) -> bool {
     matches!(c as u32,
-        0x00..=0x08 | 0x0B..=0x0C | 0x0E..=0x1F | 0x7F          // C0 except \n \t
+        0x00..=0x08 | 0x0B..=0x0C | 0x0E..=0x1F | 0x7F           // C0 except \n \t
         | 0x80..=0x9F                                            // C1
         | 0x200B..=0x200F                                        // zero width + marks
         | 0x202A..=0x202E                                        // bidi embedding

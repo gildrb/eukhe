@@ -125,10 +125,10 @@ law loop_verdict_table:
   {Lp.judge(True{}, Lp.Exited{1n+k}) == Lp.Refuted{} : Lp.Verdict} &      # other exit, --until: continue
   {Lp.judge(False{}, Lp.Exited{0n}) == Lp.Refuted{} : Lp.Verdict} &       # exit 0, --while: continue
   {Lp.judge(False{}, Lp.Exited{1n+k}) == Lp.Confirmed{} : Lp.Verdict} &   # other exit, --while: halt, "no longer holds"
-  {Lp.judge(True{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &      # exit 126: error, "failed (exit 126)"
-  {Lp.judge(False{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &     # either polarity
-  {Lp.judge(True{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &      # exit 127: error, "failed (exit 127)"
-  {Lp.judge(False{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &     # either polarity
+  {Lp.judge(True{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &       # exit 126: error, "failed (exit 126)"
+  {Lp.judge(False{}, Lp.Exited{126n}) == Lp.Broken{} : Lp.Verdict} &      # either polarity
+  {Lp.judge(True{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &       # exit 127: error, "failed (exit 127)"
+  {Lp.judge(False{}, Lp.Exited{127n}) == Lp.Broken{} : Lp.Verdict} &      # either polarity
   {Lp.judge(True{}, Lp.NoStatus{}) == Lp.Broken{} : Lp.Verdict} &         # "no exit status": error
   {Lp.judge(False{}, Lp.NoStatus{}) == Lp.Broken{} : Lp.Verdict} &        # either polarity
   {Lp.judge(True{}, Lp.TimedOut{}) == Lp.Broken{} : Lp.Verdict} &         # timed out: error, before the abort check

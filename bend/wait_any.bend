@@ -32,7 +32,7 @@ type Pick is Data:
   Takes{i: Nat} # the wait ends with target i
   NoWork{}    # refused: nothing to wait for
   Capped{}    # the cap passed, nothing settled
-  Stopped{}  # the user's cancel
+  Stopped{}   # the user's cancel
 
 # Where a settled job's result goes
 type Route is Data:
