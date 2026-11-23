@@ -76,7 +76,7 @@ fn spawn_supervisor(socket: &Path, agent_dir: &Path) -> Daemon {
             // (`CARGO_TARGET_DIR`) finds it through the package dir.
             .env(
                 "EUKHE_PACKAGE_DIR",
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(".."),
             )
             // Workers orphaned by a supervisor `kill -9` must outlive the
             // restart window, yet never leak into later test binaries.

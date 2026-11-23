@@ -150,7 +150,7 @@ pub const FACTORY_SETTINGS_FILE_NAME: &str = "settings.json";
 
 /// The one refusal every gated factory surface raises while the opt-in is
 /// off. Byte-identical to the kernel's `FACTORY_DISABLED_MESSAGE`
-/// (`rlm/src/rlm/factory.py`), so one exact message pins
+/// (`crates/rlm/src/rlm/factory.py`), so one exact message pins
 /// both sides of the gate.
 pub const FACTORY_DISABLED_MESSAGE: &str = "the factory is disabled; run /factory on to enable it";
 
@@ -183,7 +183,7 @@ impl HarnessMemory {
 
 /// The refusal for a memory or prompt-note write in a chat-memory session.
 /// Byte-identical to the kernel's `CHAT_MEMORY_MESSAGE`
-/// (`rlm/src/rlm/harness.py`).
+/// (`crates/rlm/src/rlm/harness.py`).
 pub const CHAT_MEMORY_MESSAGE: &str = "eukhe's memory is the chat: say it in your reply";
 
 /// The `factory.enabled` opt-in setting (default off), read leniently from

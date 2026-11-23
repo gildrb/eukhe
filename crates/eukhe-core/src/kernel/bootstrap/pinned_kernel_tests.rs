@@ -72,8 +72,9 @@ fn tests_python() -> OsString {
 fn offline_machine(home: &Path) -> KernelEnv {
     tests_python();
     std::fs::create_dir_all(home).expect("the fresh HOME");
+    // This checkout's `crates/`: its `rlm/` and `skills/`, as in the release.
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
+        .join("..")
         .into_os_string();
     KernelEnv::set(vec![
         ("HOME", Some(home.as_os_str().to_owned())),

@@ -31,13 +31,13 @@ Scenarios (all by default):
 - print: `eukhe -p` mid-run (its faux answer is held 8 s).
 
 --eukhe is the binary (default target/release/eukhe); --kernel-python the
-kernel interpreter (default $EUKHE_KERNEL_PYTHON), a venv of rlm/ and the
-Python skills, as the real-kernel tests build it:
+kernel interpreter (default $EUKHE_KERNEL_PYTHON), a venv of crates/rlm/ and
+the Python skills, as the real-kernel tests build it:
 
     UV_PROJECT_ENVIRONMENT=$V uv sync --locked --group kernel --group dev \\
-        --python 3.14 --project rlm
+        --python 3.14 --project crates/rlm
     uv pip install --python $V/bin/python --no-deps --no-build-isolation \\
-        $(for s in skills/*/pyproject.toml; do echo --editable "${s%/*}"; done)
+        $(for s in crates/skills/*/pyproject.toml; do echo --editable "${s%/*}"; done)
 """
 import argparse
 import fcntl

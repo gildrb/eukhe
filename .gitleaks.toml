@@ -8,7 +8,7 @@ useDefault = true
 description = "Test fixtures: fake keys and tokens"
 paths = [
   '''^crates/eukhe-ai/src/api/bedrock_converse_stream/credentials/tests\.rs$''',
-  '''^rlm/test/test_bash\.py$''',
+  '''^crates/rlm/test/test_bash\.py$''',
 ]
 
 [[allowlists]]

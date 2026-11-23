@@ -35,7 +35,7 @@ mod kernel_runtime;
 use kernel_runtime::kernel_python;
 
 /// The repo root (crates/eukhe-cli -> crates -> root): the vendored
-/// rlm sidecar and skills live there.
+/// sidecar (`crates/rlm`) and skills (`crates/skills`) live under it.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -89,8 +89,8 @@ fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
         ),
     )
     .expect("version manifest");
-    for asset in ["skills", "README.md"] {
-        let source = repo_root().join(asset);
+    for (source, asset) in [("crates/skills", "skills"), ("README.md", "README.md")] {
+        let source = repo_root().join(source);
         let target = dir.join(asset);
         if source.is_dir() {
             copy_dir(&source, &target);
@@ -99,7 +99,7 @@ fn stage_packaged_layout(dir: &Path, with_runtime: bool) {
         }
     }
     if with_runtime {
-        copy_dir(&repo_root().join("rlm"), &dir.join("rlm"));
+        copy_dir(&repo_root().join("crates/rlm"), &dir.join("rlm"));
     }
 }
 
@@ -705,7 +705,7 @@ fn packaging_dry_run_produces_artifact() {
     // A synthetic tree: the packaging must ship the sidecar without its
     // .venv or bytecode caches.
     let tree = tempfile::TempDir::new().expect("packaging tree");
-    let runtime = tree.path().join("rlm");
+    let runtime = tree.path().join("crates").join("rlm");
     std::fs::create_dir_all(runtime.join("src").join("rlm")).expect("runtime tree");
     std::fs::write(runtime.join("pyproject.toml"), "[project]\nname = \"x\"\n").unwrap();
     // The hash-locked kernel requirements every shipped runtime carries.
@@ -731,7 +731,7 @@ fn packaging_dry_run_produces_artifact() {
         "cache",
     )
     .unwrap();
-    let skills = tree.path().join("skills").join("greet");
+    let skills = tree.path().join("crates").join("skills").join("greet");
     std::fs::create_dir_all(&skills).expect("skills tree");
     std::fs::write(
         skills.join("SKILL.md"),
@@ -1086,10 +1086,10 @@ fn sha256(data: &[u8]) -> [u8; 32] {
 // The pinned kernel, through the packaged binary
 // ---------------------------------------------------------------------------
 
-/// The Python version `rlm/kernel-toolchain.json` pins.
+/// The Python version `crates/rlm/kernel-toolchain.json` pins.
 fn pinned_python() -> String {
     let pin: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(repo_root().join("rlm/kernel-toolchain.json"))
+        &std::fs::read_to_string(repo_root().join("crates/rlm/kernel-toolchain.json"))
             .expect("read the pin file"),
     )
     .expect("the pin file parses");
@@ -1101,7 +1101,7 @@ fn pinned_python() -> String {
 
 /// The version Eukhe's lock pins for `distribution`.
 fn locked_version(distribution: &str) -> String {
-    let lock = std::fs::read_to_string(repo_root().join("rlm/requirements-kernel.txt"))
+    let lock = std::fs::read_to_string(repo_root().join("crates/rlm/requirements-kernel.txt"))
         .expect("read Eukhe's lock");
     lock.lines()
         .find_map(|line| line.strip_prefix(&format!("{distribution}==")))

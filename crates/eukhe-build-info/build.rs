@@ -41,9 +41,9 @@ const RELEASE_ENV: &str = "EUKHE_RELEASE_VERSION";
 const NIX_DIRTY_SUFFIX: &str = "-dirty";
 /// The build inputs, relative to the workspace root.
 const INPUTS: [&str; 4] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates"];
-/// The trees under the inputs that no cargo package compiles from, each
-/// with its own build: the TypeScript SDK (npm).
-const NOT_INPUTS: [&str; 1] = ["crates/eukhe-sdk/ts"];
+/// The trees under the inputs that are no cargo package: the TypeScript
+/// SDK (npm), the kernel runtime and the bundled skills.
+const NOT_INPUTS: [&str; 3] = ["crates/eukhe-sdk/ts", "crates/rlm", "crates/skills"];
 /// Directories under the inputs that hold no build input.
 const SKIPPED_DIRS: [&str; 2] = ["target", "node_modules"];
 

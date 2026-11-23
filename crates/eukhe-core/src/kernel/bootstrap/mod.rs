@@ -56,7 +56,7 @@ pub(crate) const KERNEL_OVERRIDE_MISSING: &str = "EUKHE_KERNEL_PYTHON points to"
 const OPEN_FETCH_WAIT: Duration = Duration::from_secs(2);
 
 /// The packages of Eukhe's lock the prompt offers, as `(distribution,
-/// import name)`: the direct entries of `rlm/pyproject.toml`'s
+/// import name)`: the direct entries of `crates/rlm/pyproject.toml`'s
 /// `kernel` group a model imports (the lock test keeps both in step).
 pub const LOCKED_PACKAGES: [(&str, &str); 13] = [
     ("requests", "requests"),

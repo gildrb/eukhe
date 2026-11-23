@@ -29,12 +29,14 @@ fn package_dir() -> PathBuf {
 /// not, so a miss can name them all): the packaged exe-adjacent sidecar
 /// (the TS `runtimeCandidateDirs` bun-binary candidates, `EUKHE_PACKAGE_DIR`
 /// included through [`package_dir`]), then the source checkout's
-/// `rlm/` — only for a binary running from inside that checkout
+/// `crates/rlm/` — only for a binary running from inside that checkout
 /// ([`crate::packages::source_checkout_root`]).
 fn runtime_candidate_dirs() -> Vec<PathBuf> {
     let package = package_dir();
     let mut candidates = vec![package.join("rlm"), package.join("dist").join("rlm")];
-    candidates.extend(crate::packages::source_checkout_root().map(|root| root.join("rlm")));
+    candidates.extend(
+        crate::packages::source_checkout_root().map(|root| root.join("crates").join("rlm")),
+    );
     candidates
 }
 

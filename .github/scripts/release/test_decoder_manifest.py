@@ -32,10 +32,10 @@ class DecoderManifest(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            for directory in ("rlm", "skills"):
-                (repo / directory).mkdir()
-            (repo / "rlm/pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n")
-            (repo / "rlm/requirements-kernel.txt").write_text(
+            for directory in ("crates/rlm", "crates/skills"):
+                (repo / directory).mkdir(parents=True)
+            (repo / "crates/rlm/pyproject.toml").write_text("[project]\nname = 'fixture'\nversion = '0.1.0'\n")
+            (repo / "crates/rlm/requirements-kernel.txt").write_text(
                 "dill==0.4.1 \\\n    --hash=sha256:" + "a" * 64 + "\n"
             )
             (repo / "LICENSE").write_text("fixture\n")

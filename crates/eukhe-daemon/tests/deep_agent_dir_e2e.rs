@@ -74,7 +74,7 @@ impl Lane {
                 .env("EUKHE_CODING_AGENT_DIR", self.agent_dir())
                 .env(
                     "EUKHE_PACKAGE_DIR",
-                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join(".."),
                 )
                 .stderr(Stdio::from(log)),
             &self.socket(),

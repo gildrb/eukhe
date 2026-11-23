@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Eukhe's kernel package lock (rlm/requirements-kernel.txt).
+"""Eukhe's kernel package lock (crates/rlm/requirements-kernel.txt).
 
-A kernel installs a package of this export of `rlm/uv.lock` the
+A kernel installs a package of this export of `crates/rlm/uv.lock` the
 first time a cell imports it, with `uv pip install --require-hashes
 --only-binary :all:` and the file as constraints. This module is the
 offline gate over that file: every entry is an exact `name==version` pin
@@ -120,7 +120,7 @@ def main() -> int:
     parser.add_argument("command", choices=["check"])
     parser.add_argument(
         "--runtime-dir", type=Path,
-        default=Path(__file__).resolve().parents[3] / "rlm",
+        default=Path(__file__).resolve().parents[3] / "crates" / "rlm",
     )
     args = parser.parse_args()
     try:
