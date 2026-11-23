@@ -90,15 +90,19 @@ fn input_live_open_child_mode() {
     let start = std::env::var(CHILD_START_ENV).ok();
     let link = match start.as_deref() {
         None => DaemonLink::Up,
-        Some("failing") => {
-            DaemonLink::Starting(Box::pin(async { Err(anyhow::anyhow!(FAILED_START)) }))
-        }
+        Some("failing") => DaemonLink::Starting {
+            started: Box::pin(async { Err(anyhow::anyhow!(FAILED_START)) }),
+            lines: tokio::sync::mpsc::unbounded_channel().1,
+        },
         Some(gated) => {
             let fifo = PathBuf::from(gated.strip_prefix("gated:").expect("a gated start"));
-            DaemonLink::Starting(Box::pin(async move {
-                tokio::task::spawn_blocking(move || std::fs::read(fifo)).await??;
-                Ok(())
-            }))
+            DaemonLink::Starting {
+                started: Box::pin(async move {
+                    tokio::task::spawn_blocking(move || std::fs::read(fifo)).await??;
+                    Ok(())
+                }),
+                lines: tokio::sync::mpsc::unbounded_channel().1,
+            }
         }
     };
     let result = runtime.block_on(run_interactive_with(options, UiMode::Terminal, link));

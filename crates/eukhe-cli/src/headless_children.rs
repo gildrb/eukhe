@@ -214,6 +214,9 @@ impl HeadlessChildHost {
                     &self.spawn_cwd,
                     eukhe_client::daemon_build::Caller::Background,
                     SupervisorLife::Caller,
+                    // A background start never replaces a daemon: it has
+                    // nothing to tell.
+                    &|_: &str| {},
                 )
                 .await
                 .with_context(|| {

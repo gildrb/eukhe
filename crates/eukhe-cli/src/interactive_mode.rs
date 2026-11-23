@@ -70,20 +70,30 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
             run_agents_view_flow(tui_options, None, None, notice).await
         } else {
             // The session view paints and takes typing while the daemon
-            // starts; it announces a kept daemon of another build itself
-            // (from its hello).
+            // starts; it shows the start's lines (an older daemon it waits
+            // for and replaces) and announces a kept daemon of another
+            // build itself (from its hello).
             let starting = {
                 let socket_path = tui_options.socket_path.clone();
                 let cwd = tui_options.cwd.clone();
-                DaemonLink::Starting(Box::pin(async move {
-                    ensure_daemon_running(
-                        &socket_path,
-                        &cwd,
-                        eukhe_client::daemon_build::Caller::Interactive,
-                    )
-                    .await
-                    .map(drop)
-                }))
+                let (lines_tx, lines) = tokio::sync::mpsc::unbounded_channel();
+                DaemonLink::Starting {
+                    started: Box::pin(async move {
+                        let tell = move |line: &str| {
+                            // The view may be gone (an exit during the start).
+                            let _ = lines_tx.send(line.to_string());
+                        };
+                        daemon::ensure_daemon_running_telling(
+                            &socket_path,
+                            &cwd,
+                            eukhe_client::daemon_build::Caller::Interactive,
+                            &tell,
+                        )
+                        .await
+                        .map(drop)
+                    }),
+                    lines,
+                }
             };
             let mut outcome = eukhe_tui::interactive::run_interactive_with(
                 tui_options.clone(),

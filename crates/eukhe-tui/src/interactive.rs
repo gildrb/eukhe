@@ -74,9 +74,15 @@ pub enum DaemonLink {
     /// failure leaves the caller's terminal as it was.
     Up,
     /// Still starting: the surface paints and takes typing at once, and the
-    /// open connects once this resolves. Its error, or the connect's, shows
-    /// in the painted frame and ends the run.
-    Starting(Pin<Box<dyn Future<Output = Result<()>> + Send>>),
+    /// open connects once `started` resolves. Its error, or the connect's,
+    /// shows in the painted frame and ends the run. Each of the start's
+    /// `lines` (what it waits for before it replaces an older daemon, the
+    /// replacement it made) shows in the frame as it comes, and stays in
+    /// the session's transcript.
+    Starting {
+        started: Pin<Box<dyn Future<Output = Result<()>> + Send>>,
+        lines: mpsc::UnboundedReceiver<String>,
+    },
 }
 
 use crossterm::event::KeyEvent;

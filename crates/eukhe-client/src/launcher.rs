@@ -10,8 +10,10 @@
 //! serves, and waits until the new daemon greets.
 //!
 //! Only an interactive start ([`ProcessLauncher::ensure_interactive`]) frees
-//! a socket: it asks an older idle daemon to stop, and hands a holder that
-//! must go to the caller's [`SocketTakeover`]. A background start
+//! a socket: it replaces an older daemon once no session on it holds work
+//! in flight (a daemon this build cannot attach to is waited for, with one
+//! line saying what it runs), and hands a holder that must go to the
+//! caller's [`SocketTakeover`]. A background start
 //! ([`ProcessLauncher::ensure_background`], the [`DaemonLauncher`] seam)
 //! never replaces a daemon.
 
@@ -92,14 +94,16 @@ impl DaemonReady {
 /// How an interactive start frees a daemon socket it must take over.
 ///
 /// The launcher calls it only for an interactive start: when something that
-/// does not greet as this product's daemon holds the socket, and when an
-/// older daemon agreed to an idle shutdown but still holds the socket after
-/// [`SocketTakeover::shutdown_wait`]. An implementation stops the holding
-/// process only when it is sure the process is this user's eukhe daemon on
-/// that socket; anything else it leaves running and names in its error.
+/// does not greet as this product's daemon holds the socket, when an older
+/// daemon agreed to stop but still holds the socket after
+/// [`SocketTakeover::shutdown_wait`], and for the lines the start tells the
+/// user while it replaces an older daemon. An implementation stops the
+/// holding process only when it is sure the process is this user's eukhe
+/// daemon on that socket; anything else it leaves running and names in its
+/// error.
 pub trait SocketTakeover: Send + Sync {
-    /// How long a daemon that agreed to an idle shutdown may take to
-    /// release its socket (the supervisor's whole drain).
+    /// How long a daemon that agreed to stop may take to release its
+    /// socket (the supervisor's whole drain).
     fn shutdown_wait(&self) -> Duration;
 
     /// Stop the process holding `socket_path`; `why` says why the socket
@@ -111,6 +115,10 @@ pub trait SocketTakeover: Send + Sync {
     /// socket, or it survived the stop) or could not be identified.
     fn stop_holder(&self, socket_path: &Path, why: &str)
         -> impl Future<Output = Result<()>> + Send;
+
+    /// Tell the user `line`: what the start waits for before it replaces
+    /// an older daemon (once per start), and the replacement it made.
+    fn tell(&self, line: &str);
 }
 
 /// The takeover of a background start, which never frees a socket: the
@@ -127,6 +135,10 @@ impl SocketTakeover for NoTakeover {
     // call (`match *self {}` diverges before it).
     #[allow(clippy::unused_async_trait_impl)]
     async fn stop_holder(&self, _socket_path: &Path, _why: &str) -> Result<()> {
+        match *self {}
+    }
+
+    fn tell(&self, _line: &str) {
         match *self {}
     }
 }
@@ -169,6 +181,30 @@ enum IdleStop {
     /// or it cannot stop only when idle.
     Busy,
 }
+
+/// What an interactive start's replacement of an older daemon left.
+enum Handoff {
+    /// The older daemon is gone: the socket is free.
+    Freed,
+    /// The older daemon keeps serving: it has work, and this build can
+    /// attach to it.
+    Kept,
+    /// Another daemon took the socket meanwhile: the start probes again.
+    Changed,
+}
+
+/// What a probe found where the daemon being replaced served.
+enum Reprobe {
+    /// That daemon still serves; a fresh connection to it.
+    Same(Box<DaemonClient>),
+    /// Nothing serves: it stopped.
+    Gone,
+    /// Another daemon, or another holder, serves.
+    Changed,
+}
+
+/// How often a start waiting for an older daemon's work reads it again.
+const WORK_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A check run on the socket path right before a spawn
 /// ([`ProcessLauncher::with_spawn_check`]).
@@ -341,68 +377,178 @@ impl ProcessLauncher {
                 Caller::Interactive
             }
         };
-        match probe_daemon(socket_path).await {
-            DaemonProbe::Absent => {}
-            DaemonProbe::Foreign(reason) => match start {
-                Start::Interactive(takeover) => takeover.stop_holder(socket_path, &reason).await?,
-                Start::Background => return Err(self.incompatible(&reason)),
-            },
-            DaemonProbe::Answered {
-                client: daemon_client,
-                protocol,
-            } => {
-                let daemon = daemon_client.daemon_build();
-                let verdict = replacement_verdict(client, daemon, caller);
-                let takeover = match (verdict, &start) {
-                    (Replacement::Replace, Start::Interactive(takeover)) => Some(*takeover),
-                    // A background start is never answered `Replace`
-                    // (`background_never_replaces`): it keeps the daemon.
-                    (Replacement::Replace, Start::Background) | (Replacement::Keep(_), _) => None,
-                };
-                let Some(takeover) = takeover else {
-                    let outcome = match (verdict, protocol) {
-                        (
-                            Replacement::Replace
-                            | Replacement::Keep(
-                                Relation::Same
-                                | Relation::Older
-                                | Relation::Newer
-                                | Relation::Other,
-                            ),
-                            Protocol::Compatible,
-                        ) => Ok(DaemonReady::using(client, daemon)),
-                        (Replacement::Keep(Relation::Newer), Protocol::Incompatible) => {
-                            Err(anyhow!("{}", older_client_notice(client, daemon)))
-                        }
-                        (
-                            Replacement::Replace
-                            | Replacement::Keep(Relation::Same | Relation::Older | Relation::Other),
-                            Protocol::Incompatible,
-                        ) => Err(self.incompatible("it is not replaced by this start")),
-                    };
-                    daemon_client.close();
-                    return outcome.map(Launched::found);
-                };
-                match (
-                    self.stop_daemon_if_idle(socket_path, &daemon_client, takeover)
-                        .await?,
-                    protocol,
-                ) {
-                    (IdleStop::Stopped, Protocol::Compatible | Protocol::Incompatible) => {}
-                    (IdleStop::Busy, Protocol::Compatible) => {
-                        return Ok(Launched::found(DaemonReady::using(client, daemon)));
+        // The version of the older daemon this start replaced, for the line
+        // that says so.
+        let mut replaced = None;
+        loop {
+            match probe_daemon(socket_path).await {
+                DaemonProbe::Absent => {}
+                DaemonProbe::Foreign(reason) => match start {
+                    Start::Interactive(takeover) => {
+                        takeover.stop_holder(socket_path, &reason).await?;
                     }
-                    (IdleStop::Busy, Protocol::Incompatible) => {
-                        return Err(self.incompatible("the running daemon has active work"));
+                    Start::Background => return Err(self.incompatible(&reason)),
+                },
+                DaemonProbe::Answered {
+                    client: daemon_client,
+                    protocol,
+                } => {
+                    let daemon = daemon_client.daemon_build();
+                    let verdict = replacement_verdict(client, daemon, caller);
+                    let takeover = match (verdict, &start) {
+                        (Replacement::Replace, Start::Interactive(takeover)) => Some(*takeover),
+                        // A background start is never answered `Replace`
+                        // (`background_never_replaces`): it keeps the daemon.
+                        (Replacement::Replace, Start::Background) | (Replacement::Keep(_), _) => {
+                            None
+                        }
+                    };
+                    let Some(takeover) = takeover else {
+                        let outcome = match (verdict, protocol) {
+                            (
+                                Replacement::Replace
+                                | Replacement::Keep(
+                                    Relation::Same
+                                    | Relation::Older
+                                    | Relation::Newer
+                                    | Relation::Other,
+                                ),
+                                Protocol::Compatible,
+                            ) => Ok(DaemonReady::using(client, daemon)),
+                            (Replacement::Keep(Relation::Newer), Protocol::Incompatible) => {
+                                Err(anyhow!("{}", older_client_notice(client, daemon)))
+                            }
+                            (
+                                Replacement::Replace
+                                | Replacement::Keep(
+                                    Relation::Same | Relation::Older | Relation::Other,
+                                ),
+                                Protocol::Incompatible,
+                            ) => Err(self.incompatible("it is not replaced by this start")),
+                        };
+                        daemon_client.close();
+                        return outcome.map(Launched::found);
+                    };
+                    match self
+                        .hand_off(client, &daemon_client, protocol, takeover)
+                        .await?
+                    {
+                        Handoff::Freed => replaced = Some(daemon.version.to_string()),
+                        Handoff::Kept => {
+                            return Ok(Launched::found(DaemonReady::using(client, daemon)));
+                        }
+                        Handoff::Changed => continue,
                     }
                 }
             }
+            break;
         }
         if let Some(check) = &self.spawn_check {
             check(socket_path)?;
         }
         let supervisor = self.spawn()?;
-        self.await_spawned(client, supervisor).await
+        let launched = self.await_spawned(client, supervisor).await?;
+        if let (Some(version), Start::Interactive(takeover)) = (replaced, start) {
+            takeover.tell(&format!(
+                "Replaced the background service (eukhe {version}) with eukhe {}; its sessions resume here.",
+                client.version
+            ));
+        }
+        Ok(launched)
+    }
+
+    /// Replace the older daemon `first` is connected to, once none of its
+    /// sessions holds work in flight. The supervisor's idle shutdown
+    /// decides first. A daemon that refuses it while its session list
+    /// shows no work, read before and after the refusal, is stopped by a
+    /// drain (a plain `shutdown`, what `eukhe shutdown` sends): a 0.10.78
+    /// supervisor refuses whenever one worker does not answer its quiesce
+    /// (a hung child worker whose parent is gone), which no wait ends. A
+    /// daemon with work is kept when this build can attach to it; else
+    /// the start tells the user once what it waits for, reads the daemon
+    /// again every [`WORK_POLL_INTERVAL`], and replaces it once its work
+    /// settled. The drained daemon's sessions persist and resume on the
+    /// new daemon, as after any restart.
+    async fn hand_off(
+        &self,
+        client: Build<'_>,
+        first: &DaemonClient,
+        protocol: Protocol,
+        takeover: &impl SocketTakeover,
+    ) -> Result<Handoff> {
+        let socket_path = self.socket_path.as_path();
+        let daemon = first.daemon_build();
+        let (daemon_id, daemon_version) = (daemon.id.to_string(), daemon.version.to_string());
+        let mut told = false;
+        let mut again: Option<Box<DaemonClient>> = None;
+        loop {
+            let daemon_client = again.as_deref().unwrap_or(first);
+            let work = crate::daemon_work::in_flight(daemon_client).await;
+            if work.is_empty() {
+                if let IdleStop::Stopped = self
+                    .stop_daemon_if_idle(socket_path, daemon_client, takeover)
+                    .await?
+                {
+                    return Ok(Handoff::Freed);
+                }
+                match reprobe(socket_path, &daemon_id).await {
+                    Reprobe::Gone => return Ok(Handoff::Freed),
+                    Reprobe::Changed => return Ok(Handoff::Changed),
+                    Reprobe::Same(reread) => {
+                        if crate::daemon_work::in_flight(&reread).await.is_empty() {
+                            self.drain(socket_path, &reread, takeover).await?;
+                            return Ok(Handoff::Freed);
+                        }
+                        // Work started meanwhile: the next round reads it.
+                        again = Some(reread);
+                        continue;
+                    }
+                }
+            }
+            if let Protocol::Compatible = protocol {
+                daemon_client.close();
+                return Ok(Handoff::Kept);
+            }
+            if !told {
+                takeover.tell(&format!(
+                    "Waiting for the background service (eukhe {daemon_version}) to finish {} before eukhe {} replaces it.",
+                    crate::daemon_work::describe(&work),
+                    client.version
+                ));
+                told = true;
+            }
+            daemon_client.close();
+            tokio::time::sleep(WORK_POLL_INTERVAL).await;
+            match reprobe(socket_path, &daemon_id).await {
+                Reprobe::Gone => return Ok(Handoff::Freed),
+                Reprobe::Changed => return Ok(Handoff::Changed),
+                Reprobe::Same(reread) => again = Some(reread),
+            }
+        }
+    }
+
+    /// Stop the daemon `client` is connected to with a drain: its workers
+    /// settle and exit (one that does not is killed after the stop grace),
+    /// and its sessions persist. A daemon still holding the socket after
+    /// [`SocketTakeover::shutdown_wait`] is stopped through `takeover`.
+    async fn drain(
+        &self,
+        socket_path: &Path,
+        client: &DaemonClient,
+        takeover: &impl SocketTakeover,
+    ) -> Result<()> {
+        // The daemon may stop before it answers: the socket decides.
+        let _ = client
+            .request(DaemonCommand::Shutdown {
+                id: None,
+                force: None,
+                if_idle: None,
+                rest: serde_json::Map::default(),
+            })
+            .await;
+        client.close();
+        self.await_release(socket_path, takeover, "did not stop after its drain")
+            .await
     }
 
     /// Waits for the daemon the `supervisor` this start spawned to serve
@@ -621,18 +767,34 @@ impl ProcessLauncher {
                 });
             }
         }
-        if !socket_released(socket_path, wait).await {
+        self.await_release(
+            socket_path,
+            takeover,
+            "did not stop after it agreed to an idle shutdown",
+        )
+        .await?;
+        Ok(IdleStop::Stopped)
+    }
+
+    /// Wait up to [`SocketTakeover::shutdown_wait`] for a daemon that is
+    /// stopping to release `socket_path`; stop it through `takeover` when
+    /// it still holds the socket (`what` ends the reason: "the Eukhe daemon
+    /// on <socket> <what>").
+    async fn await_release(
+        &self,
+        socket_path: &Path,
+        takeover: &impl SocketTakeover,
+        what: &str,
+    ) -> Result<()> {
+        if !socket_released(socket_path, takeover.shutdown_wait()).await {
             takeover
                 .stop_holder(
                     socket_path,
-                    &format!(
-                        "the Eukhe daemon on {} did not stop after it agreed to an idle shutdown",
-                        socket_path.display()
-                    ),
+                    &format!("the Eukhe daemon on {} {what}", socket_path.display()),
                 )
                 .await?;
         }
-        Ok(IdleStop::Stopped)
+        Ok(())
     }
 
     /// Spawn the supervisor command. A detached one outlives this process; a
@@ -692,6 +854,23 @@ async fn probe_daemon(socket_path: &Path) -> DaemonProbe {
         } else {
             Protocol::Incompatible
         },
+    }
+}
+
+/// Probe the socket where the daemon of build `daemon_id` served: a fresh
+/// connection to it when it still serves.
+async fn reprobe(socket_path: &Path, daemon_id: &str) -> Reprobe {
+    match probe_daemon(socket_path).await {
+        DaemonProbe::Absent => Reprobe::Gone,
+        DaemonProbe::Foreign(_) => Reprobe::Changed,
+        DaemonProbe::Answered { client, .. } => {
+            if client.daemon_build().id == daemon_id {
+                Reprobe::Same(client)
+            } else {
+                client.close();
+                Reprobe::Changed
+            }
+        }
     }
 }
 

@@ -185,8 +185,12 @@ pub async fn plan(client: &DaemonClient, target: &Target, release_wait: Duration
 
 /// Ask the daemon to stop only when idle; the supervisor decides it
 /// atomically with the stop. A daemon without the idle shutdown would stop
-/// unconditionally: it is not asked and counts as busy. An agreed stop
-/// waits up to `release_wait` for the socket to free.
+/// unconditionally: it is not asked and counts as busy. A daemon that
+/// refuses while its session list shows no work in flight (a 0.10.78
+/// supervisor refuses whenever one worker does not answer its quiesce, a
+/// hung child worker whose parent is gone) is stopped by a drain; its
+/// sessions persist. A stop waits up to `release_wait` for the socket to
+/// free.
 async fn stop_if_idle(client: &DaemonClient, release_wait: Duration) -> IdleStop {
     if !client.supports_server_capability(IDLE_SHUTDOWN_CAPABILITY) {
         return IdleStop::Busy;
@@ -206,7 +210,25 @@ async fn stop_if_idle(client: &DaemonClient, release_wait: Duration) -> IdleStop
             socket_released(client.socket_path(), release_wait).await;
             IdleStop::Stopped
         }
-        Ok(_) => IdleStop::Busy,
+        Ok(_) => {
+            if !crate::daemon_work::in_flight(client).await.is_empty() {
+                return IdleStop::Busy;
+            }
+            // The daemon may stop before it answers: the socket decides.
+            let _ = client
+                .request(DaemonCommand::Shutdown {
+                    id: None,
+                    force: None,
+                    if_idle: None,
+                    rest: serde_json::Map::default(),
+                })
+                .await;
+            if socket_released(client.socket_path(), release_wait).await {
+                IdleStop::Stopped
+            } else {
+                IdleStop::Busy
+            }
+        }
         // No answer: the daemon may stop before it answers, so the socket
         // decides.
         Err(_) => {
