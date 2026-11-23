@@ -279,13 +279,20 @@ def tests_touched(rows: Rows) -> None:
     )
 
 
+# The TypeScript trees under crates/ with their own toolchain and check,
+# which no embedded JavaScript is generated from: the TypeScript SDK (`make
+# sdk-ts`).
+OWN_TYPESCRIPT = ("crates/eukhe-sdk/ts/*",)
+
+
 def embedded_js(rows: Rows) -> None:
     """The embedded JavaScript against its TypeScript sources (`make
     embedded-js-check`: crates/eukhe-dashboard/ui/scripts/embedded-js.ts),
-    when a change touches a .ts or .js file under crates/, a tsconfig.json
-    there, or the dashboard UI's locked packages (the generator's tools)."""
+    when a change touches a .ts or .js file under crates/ (outside
+    OWN_TYPESCRIPT), a tsconfig.json there, or the dashboard UI's locked
+    packages (the generator's tools)."""
     sources = ("crates/*.ts", "crates/*.js", "crates/*/tsconfig.json", "crates/eukhe-dashboard/ui/package-lock.json")
-    if not touched(rows, sources):
+    if not touched(rows, sources, skip=OWN_TYPESCRIPT):
         print("embedded js skipped: no TypeScript source or generated file changed")
         return
     make("embedded-js-check")

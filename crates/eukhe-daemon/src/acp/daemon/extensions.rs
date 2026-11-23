@@ -1,5 +1,5 @@
 //! The `_eukhe/` request methods: each maps to the daemon commands of the
-//! hosted session (`docs/embed/acp.md`, `docs/embed/eukhe-acp.schema.json`).
+//! hosted session (`crates/eukhe-sdk/README.md`, `crates/eukhe-sdk/acp.schema.json`).
 
 use eukhe_types::acceptance::{AcceptanceState, CheckSpec};
 use eukhe_types::budget::{BudgetAmounts, RunLimits};

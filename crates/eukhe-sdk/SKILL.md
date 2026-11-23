@@ -48,7 +48,7 @@ try {
 - Events (`event.$`): `Text`, `Thinking`, `ToolCallStart`, `ToolCallUpdate`, `ToolCallEnd`, `Plan`, `RunReport`, then always `TurnEnd` last.
 - `Eukhe.start` throws `NotInstalled` (with `installCommand`) when no binary is found; `eukhe.session()` throws `NotLoggedIn` without a login.
 - Leaving the `for await` loop cancels the turn; `session.cancel()` does too.
-- HTTP server streaming turns: copy the shape of https://github.com/gildrb/eukhe/blob/main/sdk/typescript/examples/sse-server.ts (Server-Sent Events, one session per request, cancel on disconnect).
+- HTTP server streaming turns: copy the shape of https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/ts/examples/sse-server.ts (Server-Sent Events, one session per request, cancel on disconnect).
 - Session calls: `session.budget`, `session.acceptance`, `session.undo()`, `session.diff()`, `session.effects()`. Read `node_modules/eukhe/README.md` before using them.
 - A model id that the agent lacks throws `UnknownModel` with `available`; pick from that list.
 
@@ -90,7 +90,7 @@ result = request(3, "session/prompt", {"sessionId": session, "prompt": [{"type":
 - `session/request_permission` asks before an irreversible effect; answering `-32601` lets every effect run without asking again.
 - `session/cancel` (a notification) stops the turn; the prompt then answers `stopReason: "cancelled"`.
 - One session per process at a time; start another `eukhe acp` for a second.
-- Every method, update and `_eukhe/` extension (budget, acceptance, undo, diff, effects): https://github.com/gildrb/eukhe/blob/main/docs/embed/acp.md. JSON Schema: https://github.com/gildrb/eukhe/blob/main/docs/embed/eukhe-acp.schema.json.
+- Every method, update and `_eukhe/` extension (budget, acceptance, undo, diff, effects): https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/README.md#acp. JSON Schema: https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/acp.schema.json.
 
 ## 4. T3 Code
 

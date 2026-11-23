@@ -715,7 +715,7 @@ first of pw-play, paplay, or aplay; the voice defaults to tts.localVoice.",
         "Eukhe as an ACP agent (protocolVersion 1): an editor or app starts `eukhe acp` and \
 speaks JSON-RPC over its pipes; the sessions run in the daemon, which starts when none runs. \
 The same as `--mode acp`. Eukhe's own requests and notifications ride the `_eukhe/` prefix; \
-the reference is docs/embed/acp.md.",
+the reference is crates/eukhe-sdk/README.md.",
     )
     .examples(&["acp", "acp --no-session"]),
     CommandSpec::new(

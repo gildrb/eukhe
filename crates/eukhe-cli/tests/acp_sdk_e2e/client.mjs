@@ -1,7 +1,7 @@
 // The client side of the `eukhe acp` acceptance test (main.rs here runs it,
 // one scenario per process): the real @agentclientprotocol/sdk client,
 // pinned by package-lock.json, drives the real binary over stdio, and ajv
-// checks every `_eukhe/` payload against docs/embed/eukhe-acp.schema.json.
+// checks every `_eukhe/` payload against crates/eukhe-sdk/acp.schema.json.
 // A failed assertion exits non-zero with its message.
 
 import assert from "node:assert/strict";

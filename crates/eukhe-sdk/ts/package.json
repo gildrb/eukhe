@@ -6,9 +6,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gildrb/eukhe.git",
-    "directory": "sdk/typescript"
+    "directory": "crates/eukhe-sdk/ts"
   },
-  "homepage": "https://github.com/gildrb/eukhe/tree/main/sdk/typescript#readme",
+  "homepage": "https://github.com/gildrb/eukhe/tree/main/crates/eukhe-sdk/ts#readme",
   "keywords": ["eukhe", "agent", "acp", "agent-client-protocol", "coding-agent", "sdk"],
   "type": "module",
   "engines": {
@@ -24,12 +24,12 @@
   "bin": {
     "eukhe": "dist/cli.js"
   },
-  "files": ["dist"],
+  "files": ["dist", "SKILL.md"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run build && tsc --noEmit && oxlint --type-aware --deny-warnings src test examples",
     "test": "node --test --test-concurrency=1 test/*.test.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build && cp ../SKILL.md SKILL.md"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^2.9.1",

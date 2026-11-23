@@ -368,15 +368,15 @@ The npm package \`eukhe\` runs Eukhe from TypeScript:
 \`npm install eukhe && npx eukhe install\`, then \`Eukhe.start({ cwd })\`,
 \`eukhe.session()\` and \`session.prompt(text)\`, which streams typed events
 and ends with the run report
-([sdk/typescript/README.md](https://github.com/gildrb/eukhe/blob/main/sdk/typescript/README.md)). Any other
+([crates/eukhe-sdk/ts/README.md](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/ts/README.md)). Any other
 language starts \`eukhe acp\`, an Agent Client Protocol agent on stdio; the
 budget, checks, undo, diff and irreversible effects are \`_eukhe/\` methods
-([docs/embed/acp.md](https://github.com/gildrb/eukhe/blob/main/docs/embed/acp.md), JSON Schema
-[docs/embed/eukhe-acp.schema.json](https://github.com/gildrb/eukhe/blob/main/docs/embed/eukhe-acp.schema.json)).
+([crates/eukhe-sdk/README.md](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/README.md#acp), JSON Schema
+[crates/eukhe-sdk/acp.schema.json](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/acp.schema.json)).
 A machine needs one model provider login: \`eukhe login <provider>\`.
-[docs/embed/README.md](https://github.com/gildrb/eukhe/blob/main/docs/embed/README.md) holds the T3 Code
+[crates/eukhe-sdk/README.md](https://github.com/gildrb/eukhe/blob/main/crates/eukhe-sdk/README.md) holds the T3 Code
 settings and an agent skill for adding Eukhe to a project
-(\`npx skills add https://github.com/gildrb/eukhe/tree/main/docs/embed/skills/embed-eukhe\`).
+(\`npx skills add https://github.com/gildrb/eukhe/tree/main/crates/eukhe-sdk\`).
 
 ## Components
 

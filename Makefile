@@ -281,7 +281,7 @@ runtime-lock-check:
 dashboard-ui:
 	cd crates/eukhe-dashboard/ui && npm ci --no-audit --no-fund && npx vp check && npx vp test run && npx vp build
 
-# The TypeScript SDK (sdk/typescript, the npm package `eukhe`): install the
+# The TypeScript SDK (crates/eukhe-sdk/ts, the npm package `eukhe`): install the
 # locked packages, check (build, types, lint), then every test, the e2e
 # included: this checkout's eukhe (a debug build) on the faux provider, its
 # kernel the venv of the real-kernel tests (kernel and dev groups of
@@ -292,7 +292,7 @@ sdk-ts:
 	cargo build --locked -p eukhe-cli --bin eukhe
 	UV_PROJECT_ENVIRONMENT=$(SDK_TS_VENV) uv sync --no-config --locked --group kernel --group dev --python 3.14 --project rlm
 	uv pip install --no-config --python $(SDK_TS_VENV)/bin/python --no-deps --no-index --no-build-isolation $(addprefix --editable ,$(patsubst %/pyproject.toml,%,$(wildcard skills/*/pyproject.toml)))
-	cd sdk/typescript && npm ci --no-audit --no-fund && npm run check && \
+	cd crates/eukhe-sdk/ts && npm ci --no-audit --no-fund && npm run check && \
 		EUKHE_E2E_BIN=$(CURDIR)/target/debug/eukhe EUKHE_KERNEL_PYTHON=$(SDK_TS_VENV)/bin/python npm test
 
 # The website (site/, eukhe.com; site/AGENTS.md): apart from eukhe but for
