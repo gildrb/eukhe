@@ -4,7 +4,7 @@
 check:
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets --locked -- -D warnings
-	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from rlm/uv.lock"; exit 1; }
+	@command -v uv >/dev/null 2>&1 || { echo "uv not installed: the real-kernel tests build their venv from crates/rlm/uv.lock"; exit 1; }
 	cargo nextest run --workspace --locked
 	cargo test --workspace --doc --locked
 	$(MAKE) runtime-test
@@ -54,7 +54,7 @@ hooks:
 # The rlm Python suite on the uv-locked kernel env (the env the
 # real-kernel cargo tests build: crates/eukhe-core/tests/support/kernel_runtime.rs).
 runtime-test:
-	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project rlm python -m unittest discover -s rlm/test
+	UV_PROJECT_ENVIRONMENT=$(CURDIR)/target/runtime-venv uv run --no-config --locked --group kernel --python 3.14 --project crates/rlm python -m unittest discover -s crates/rlm/test
 
 # The Home Manager module's settings merge (nix/merge_settings.py): the
 # declared settings never drop the model choice eukhe saved.
@@ -162,7 +162,7 @@ glibc-gate:
 # Local mirror of eukhe-release.yml's build-job gates:
 # release build against the committed lockfile, deterministic tarball assembly,
 # then end-to-end verification of the host-target artifact. The vendored
-# rlm/ at the repo root is the default runtime sidecar
+# crates/rlm/ is the default runtime sidecar
 # (kernel-packaging lane); pass RUNTIME_DIR to re-anchor it. A local build
 # reports <workspace version>-dev (eukhe-build-info; only the release
 # workflow names a release), so the dry runs package that version.
@@ -257,9 +257,9 @@ catalog-assets-gates:
 	python3 .github/scripts/release/test_catalog_assets.py
 	python3 .github/scripts/release/test_models_dev.py
 
-# Eukhe's package lock: rlm/uv.lock (the `kernel` group, resolved
-# for the pinned Python of rlm/kernel-toolchain.json) exported to
-# rlm/requirements-kernel.txt, the only file a kernel installs
+# Eukhe's package lock: crates/rlm/uv.lock (the `kernel` group, resolved
+# for the pinned Python of crates/rlm/kernel-toolchain.json) exported to
+# crates/rlm/requirements-kernel.txt, the only file a kernel installs
 # Eukhe's packages from, on demand. runtime-lock re-resolves (network) and re-exports;
 # runtime-lock-check is offline: uv.lock must match pyproject.toml, the
 # committed export must equal a fresh frozen export, and every pin must be
@@ -267,11 +267,11 @@ catalog-assets-gates:
 RUNTIME_LOCK_EXPORT = uv export --frozen --no-header --format requirements-txt --no-emit-project --no-default-groups --group kernel
 
 runtime-lock:
-	cd rlm && uv lock && $(RUNTIME_LOCK_EXPORT) > requirements-kernel.txt
+	cd crates/rlm && uv lock && $(RUNTIME_LOCK_EXPORT) > requirements-kernel.txt
 
 runtime-lock-check:
-	cd rlm && uv lock --check --offline
-	cd rlm && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
+	cd crates/rlm && uv lock --check --offline
+	cd crates/rlm && $(RUNTIME_LOCK_EXPORT) | diff -u requirements-kernel.txt -
 	python3 .github/scripts/release/test_runtime_lock.py
 
 # The dashboard web app: install the locked packages, check (format, lint,
@@ -285,13 +285,13 @@ dashboard-ui:
 # locked packages, check (build, types, lint), then every test, the e2e
 # included: this checkout's eukhe (a debug build) on the faux provider, its
 # kernel the venv of the real-kernel tests (kernel and dev groups of
-# rlm/uv.lock, the Python skills editable) in target/sdk-ts-venv.
+# crates/rlm/uv.lock, the Python skills editable) in target/sdk-ts-venv.
 SDK_TS_VENV = $(CURDIR)/target/sdk-ts-venv
 
 sdk-ts:
 	cargo build --locked -p eukhe-cli --bin eukhe
-	UV_PROJECT_ENVIRONMENT=$(SDK_TS_VENV) uv sync --no-config --locked --group kernel --group dev --python 3.14 --project rlm
-	uv pip install --no-config --python $(SDK_TS_VENV)/bin/python --no-deps --no-index --no-build-isolation $(addprefix --editable ,$(patsubst %/pyproject.toml,%,$(wildcard skills/*/pyproject.toml)))
+	UV_PROJECT_ENVIRONMENT=$(SDK_TS_VENV) uv sync --no-config --locked --group kernel --group dev --python 3.14 --project crates/rlm
+	uv pip install --no-config --python $(SDK_TS_VENV)/bin/python --no-deps --no-index --no-build-isolation $(addprefix --editable ,$(patsubst %/pyproject.toml,%,$(wildcard crates/skills/*/pyproject.toml)))
 	cd crates/eukhe-sdk/ts && npm ci --no-audit --no-fund && npm run check && \
 		EUKHE_E2E_BIN=$(CURDIR)/target/debug/eukhe EUKHE_KERNEL_PYTHON=$(SDK_TS_VENV)/bin/python npm test
 

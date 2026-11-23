@@ -114,16 +114,16 @@ fn checkout_containing(root: &std::path::Path, exe: &std::path::Path) -> Option<
 
 /// The directory of built-in skills shipped with the package (TS
 /// `getBundledSkillsDir`): `skills/` next to the executable (the packaged
-/// layout), falling back to the workspace `skills/` for a binary running
-/// from inside its source checkout ([`source_checkout_root`]; TS keeps
-/// built-in skills at the package root next to `src/`).
+/// layout), falling back to the workspace `crates/skills/` for a binary
+/// running from inside its source checkout ([`source_checkout_root`]; TS
+/// keeps built-in skills at the package root next to `src/`).
 pub(crate) fn get_bundled_skills_dir() -> PathBuf {
     let packaged = package_dir().join("skills");
     if packaged.is_dir() {
         return packaged;
     }
     if let Some(root) = source_checkout_root() {
-        let source_checkout = root.join("skills");
+        let source_checkout = root.join("crates").join("skills");
         if source_checkout.is_dir() {
             return source_checkout;
         }

@@ -22,7 +22,7 @@
 //!                                      snapshot + restore (+ idempotence)
 //!
 //! Environment:
-//!   `EUKHE_BENCH_SKILLS_DIR`   — skills directory (repo `skills/`); defaults to
+//!   `EUKHE_BENCH_SKILLS_DIR`   — skills directory (repo `crates/skills/`); defaults to
 //!                           `../skills` relative to the crate
 //!   `EUKHE_KERNEL_DIR` / `EUKHE_KERNEL_PYTHON` / HOME as for the
 //!                           product paths themselves.

@@ -56,6 +56,11 @@ WORKSPACE_DEPS = {
                   "eukhe-client", "eukhe-tui", "eukhe-gateway", "eukhe-dashboard"},
 }
 
+# The components under crates/ that are no cargo package: the kernel
+# runtime and the bundled skills. A change to one affects every crate that
+# runs a kernel or loads a skill, so it selects them all.
+NON_CRATES = frozenset({"rlm", "skills"})
+
 
 def read_rows(path: Path) -> list[tuple[str, str]]:
     """The change rows, read raw: a leading-space path (` crates/...`)
@@ -75,10 +80,11 @@ def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
     selection.
 
     Only known `crates/<pkg>/**` narrows. Everything else (the workflow,
-    CI tooling, the runtime sidecar, workspace-level Cargo files, install
-    scripts, docs) affects more than any crate subset, and a rename
-    counts both sides. An undecidable list (empty rows, an empty path or an
-    unknown crate) fails safe to the full selection.
+    CI tooling, the runtime sidecar and skills under crates/,
+    workspace-level Cargo files, install scripts, docs) affects more than
+    any crate subset, and a rename counts both sides. An undecidable list
+    (empty rows, an empty path or an unknown crate) fails safe to the full
+    selection.
     """
     if not rows:
         return None
@@ -93,7 +99,7 @@ def select_crates(rows: list[tuple[str, str]]) -> list[str] | None:
             if not candidate:
                 continue  # an ordinary (non-rename) row has no removed side
             parts = candidate.split("/")
-            if len(parts) >= 2 and parts[0] == "crates" and parts[1]:
+            if len(parts) >= 2 and parts[0] == "crates" and parts[1] and parts[1] not in NON_CRATES:
                 if parts[1] not in WORKSPACE_DEPS:
                     print(f"unknown crate {parts[1]}: the full selection runs")
                     return None

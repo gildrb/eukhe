@@ -2,7 +2,7 @@
 //!
 //! Eukhe's lock (`rlm/requirements-kernel.txt`: exact versions
 //! with hashes) ships with Eukhe; the kernel installs a package of it the
-//! first time a cell imports it (`rlm/src/rlm/pip.py`). A package
+//! first time a cell imports it (`crates/rlm/src/rlm/pip.py`). A package
 //! outside it is refused until the project locks it: [`lock_project_packages`]
 //! resolves the requirement once, with Eukhe's lock and the project's
 //! existing lock as constraints (their pins never move), and records the
@@ -284,7 +284,7 @@ mod tests {
     fn eukhes_lock_holds_every_offered_package_with_hashes() {
         let lock = std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../rlm")
+                .join("../rlm")
                 .join(LOCK_FILE),
         )
         .expect("the checkout's lock");
