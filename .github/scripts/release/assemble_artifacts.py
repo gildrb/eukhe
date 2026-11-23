@@ -23,7 +23,7 @@ transport tuples).
 the dist profile) and falls back to `<repo>/target/dist/eukhe` (host builds).
 `--decoder` is the split-debug sidecar from split_debug.py, required (with an
 explicit `--binary`) on Linux targets and rejected elsewhere.
-`--runtime-dir` defaults to `<repo>/crates/rlm` (the vendored sidecar
+`--runtime-dir` defaults to `<repo>/rlm` (the vendored sidecar
 from the kernel-packaging lane).
 
 Archive naming: `eukhe-<version>-<platform-alias>.tar.gz` (e.g.
@@ -221,11 +221,11 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
     verbatim copy.
     """
     binary = resolve_binary(args)
-    runtime_dir = args.runtime_dir or (args.repo_root / "crates" / "rlm")
+    runtime_dir = args.runtime_dir or (args.repo_root / "rlm")
     sources = {
         BINARY_NAME: binary,
         "rlm": runtime_dir,
-        "skills": args.repo_root / "crates" / "skills",
+        "skills": args.repo_root / "skills",
         "LICENSE": args.repo_root / "LICENSE",
         "THIRD-PARTY-NOTICES": args.repo_root / "THIRD-PARTY-NOTICES",
         "README.md": args.repo_root / "README.md",

@@ -67,8 +67,8 @@ from assemble_artifacts import (  # noqa: E402
     fail_if_decoder_in_tree,
     pack_tarball,
 )
-# `--root` re-anchors asset discovery (workspace version, crates/rlm,
-# crates/skills, README, LICENSE) so integration tests can package synthetic trees.
+# `--root` re-anchors asset discovery (workspace version, rlm,
+# skills, README, LICENSE) so integration tests can package synthetic trees.
 
 
 # The TS copy-binary-assets exclusion set: development caches never ship and
@@ -103,9 +103,8 @@ REQUIRED_FILES = (
 )
 REQUIRED_DIRS = ("rlm/src/rlm", "skills")
 
-# Tree assets copied with the exclusion filter, by their staged name: their
-# source in the tree. Everything else is a single file.
-TREE_ASSETS = {"rlm": "crates/rlm", "skills": "crates/skills"}
+# Tree assets copied with the exclusion filter; everything else is a single file.
+TREE_ASSETS = ("rlm", "skills")
 
 
 def parse_args(argv):
@@ -214,13 +213,13 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
     # <packageDir>/models.bundled.json resolution).
     for name in BUNDLED_CATALOG_FILES:
         shutil.copy2(catalog_assets / name, stage_dir / name)
-    for name, source in TREE_ASSETS.items():
+    for name in TREE_ASSETS:
         if name == "rlm":
-            copy_tree(root / source, stage_dir / name,
+            copy_tree(root / name, stage_dir / name,
                       extra_excluded_names=RUNTIME_EXCLUDED_NAMES,
                       extra_excluded_suffixes=RUNTIME_EXCLUDED_SUFFIXES)
         else:
-            copy_tree(root / source, stage_dir / name)
+            copy_tree(root / name, stage_dir / name)
     shutil.copy2(root / "README.md", stage_dir / "README.md")
     # The license ships with the binary (TS binaryAssets keeps LICENSE beside
     # it; the release pipeline packages it the same way), and with it the
