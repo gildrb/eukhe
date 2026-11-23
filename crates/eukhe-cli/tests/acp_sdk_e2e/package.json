@@ -1,0 +1,9 @@
+{
+  "name": "eukhe-acp-sdk-e2e",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.9.1",
+    "ajv": "8.20.0"
+  }
+}
