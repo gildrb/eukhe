@@ -107,21 +107,14 @@ impl Worker {
     /// work is read after it: unsettled child tasks and workflow runs, kernel background
     /// jobs, a user bash, and a queued input or run the core does not show
     /// yet. Any work opens the gate again and answers busy. Success means
-    /// quiesced.
+    /// quiesced. Only that work counts: a worker still initializing, with
+    /// no open conversation, or stopping holds none.
     pub(crate) async fn handle_quiesce(&self) -> DaemonResponse {
         const COMMAND: &str = "worker_quiesce";
         let busy = || response_failure(None, COMMAND, "Session has work in flight", None);
-        // A worker with no open main conversation is never quiesced.
-        if self
-            .session
-            .get()
-            .is_none_or(|hosted| hosted.main().is_err())
-        {
-            return busy();
-        }
         let epoch = {
             let mut core = lock(&self.core);
-            let work = if core.shutdown_requested || !core.created || core.run_gate.admissions > 0 {
+            let work = if core.run_gate.admissions > 0 {
                 Work::Ongoing
             } else {
                 core.work()
@@ -253,8 +246,8 @@ mod tests {
         assert_eq!(lock(&core).run_gate.admissions, 0);
     }
 
-    /// A created worker on an in-memory session (no model call runs).
-    async fn created_worker(dir: &std::path::Path) -> Arc<Worker> {
+    /// A worker before its `create`: no session is open yet.
+    fn uncreated_worker(dir: &std::path::Path) -> Worker {
         std::fs::create_dir_all(dir.join("agent")).expect("agent dir");
         std::fs::create_dir_all(dir.join("work")).expect("cwd");
         let worker = Worker::new(
@@ -272,6 +265,12 @@ mod tests {
         );
         *worker.recovery.lock().unwrap() =
             Some(WorkerRecoveryJournal::open(&dir.join("recovery.jsonl")).expect("journal"));
+        worker
+    }
+
+    /// A created worker on an in-memory session (no model call runs).
+    async fn created_worker(dir: &std::path::Path) -> Arc<Worker> {
+        let worker = uncreated_worker(dir);
         let created = worker
             .dispatch(
                 "create",
@@ -280,6 +279,19 @@ mod tests {
             .await;
         assert!(created.success, "create failed: {created:?}");
         Arc::new(worker)
+    }
+
+    /// A worker still initializing reports no work: it quiesces, and its
+    /// closed gate holds back the run its create could start.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_worker_still_initializing_quiesces() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let worker = uncreated_worker(dir.path());
+        assert_eq!(
+            worker.dispatch("worker_quiesce", &json!({})).await,
+            response_success(None, "worker_quiesce", None)
+        );
+        assert_eq!(RunAdmission::try_enter(&worker.core).err(), Some(Quiesced));
     }
 
     /// A run start that passed the gate makes a quiesce busy (its input

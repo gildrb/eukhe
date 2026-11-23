@@ -44,7 +44,8 @@ pub const LAUNCHER_DRAIN_MARGIN_MS: u64 = 2_000;
 
 /// An idle shutdown asks every worker to quiesce at the same time and
 /// waits this long for all the answers (one window, not one per worker).
-/// A worker that does not answer in time counts as busy.
+/// A worker that does not answer in time is busy only when the
+/// supervisor's roster records work for it.
 pub const QUIESCE_ANSWER_MS: u64 = 5_000;
 
 /// A worker re-records its busy evidence this often while it has work.
