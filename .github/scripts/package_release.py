@@ -17,6 +17,7 @@ runtime (EUKHE_PACKAGE_DIR override, else the directory of the executable):
   package.json           version manifest ({"version": <version>})
   README.md
   LICENSE
+  THIRD-PARTY-NOTICES    the notices of the ported code and data
   models.bundled.json    bundled model catalog (spec §3.2 layer 2), staged
                          beside the executable
   rlm/                   the kernel runtime sidecar (dev caches excluded)
@@ -93,6 +94,7 @@ REQUIRED_FILES = (
     "package.json",
     "README.md",
     "LICENSE",
+    "THIRD-PARTY-NOTICES",
     "models.bundled.json",
     "rlm/pyproject.toml",
     # Eukhe's package lock: what a kernel installs on demand, with hashes.
@@ -221,8 +223,10 @@ def stage(root, binary, version, stage_dir, catalog_assets, binary_name):
             copy_tree(root / source, stage_dir / name)
     shutil.copy2(root / "README.md", stage_dir / "README.md")
     # The license ships with the binary (TS binaryAssets keeps LICENSE beside
-    # it; the release pipeline packages it the same way).
+    # it; the release pipeline packages it the same way), and with it the
+    # notices the licenses of the ported code and data require in every copy.
     shutil.copy2(root / "LICENSE", stage_dir / "LICENSE")
+    shutil.copy2(root / "THIRD-PARTY-NOTICES", stage_dir / "THIRD-PARTY-NOTICES")
     # The version manifest: the binary reads the exe-adjacent package.json
     # for `--version` (cargo embeds the same version, so the manifest
     # records the pin and the staged binary must agree with it).

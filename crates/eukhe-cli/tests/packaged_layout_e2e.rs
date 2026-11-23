@@ -740,6 +740,7 @@ fn packaging_dry_run_produces_artifact() {
     .unwrap();
     std::fs::write(tree.path().join("README.md"), "# readme\n").unwrap();
     std::fs::write(tree.path().join("LICENSE"), "Apache-2.0\n").unwrap();
+    std::fs::write(tree.path().join("THIRD-PARTY-NOTICES"), "notices\n").unwrap();
     // The fixture repo's version must be the workspace version: the packer
     // derives the local build's version from it (`<workspace>-dev`, the
     // decoder name and the two-sided version pin), while the staged decoder
@@ -877,6 +878,10 @@ fn packaging_dry_run_produces_artifact() {
         "skills missing"
     );
     assert!(stage.join("LICENSE").is_file(), "license missing");
+    assert!(
+        stage.join("THIRD-PARTY-NOTICES").is_file(),
+        "third-party notices missing"
+    );
     // The bundled catalog asset rides beside the executable (spec §3.2
     // layer 2: the runtime resolves <packageDir>/models.bundled.json).
     assert!(

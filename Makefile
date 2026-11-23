@@ -130,7 +130,7 @@ dashboard-tokens:
 
 deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed (cargo install cargo-deny --locked)"; exit 1; }
-	cargo deny --all-features --workspace check advisories bans licenses sources
+	cargo deny --all-features --workspace --config .config/deny.toml check advisories bans licenses sources
 
 # Lints the workflow files (.github/workflows/).
 actionlint:

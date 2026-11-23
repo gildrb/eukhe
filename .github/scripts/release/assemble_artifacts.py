@@ -60,6 +60,9 @@ STAGED_ENTRIES = [
     "rlm",
     "skills",
     "LICENSE",
+    # The notices the licenses of the ported code and data require in every
+    # copy of the binary.
+    "THIRD-PARTY-NOTICES",
     "README.md",
     # The bundled catalog asset (spec §3.2 layer 2): staged at the tarball
     # root beside the binary — the runtime resolves <packageDir>/<name>.
@@ -224,6 +227,7 @@ def stage_tree(staging: Path, args: argparse.Namespace) -> dict:
         "rlm": runtime_dir,
         "skills": args.repo_root / "crates" / "skills",
         "LICENSE": args.repo_root / "LICENSE",
+        "THIRD-PARTY-NOTICES": args.repo_root / "THIRD-PARTY-NOTICES",
         "README.md": args.repo_root / "README.md",
     }
     if not runtime_dir.joinpath("pyproject.toml").is_file():

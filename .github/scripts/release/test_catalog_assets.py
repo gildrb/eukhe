@@ -66,6 +66,7 @@ class SyntheticRepo:
         (root / "crates" / "skills").mkdir(parents=True)
         (root / "crates" / "skills" / "skill.md").write_text("# skill\n")
         (root / "LICENSE").write_text("license\n")
+        (root / "THIRD-PARTY-NOTICES").write_text("notices\n")
         (root / "README.md").write_text("readme\n")
         runtime = root / "runtime"
         runtime.mkdir()
