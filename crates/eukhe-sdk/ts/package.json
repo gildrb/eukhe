@@ -1,6 +1,6 @@
 {
   "name": "eukhe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Library that embeds the eukhe coding agent in a TypeScript application, over ACP (Agent Client Protocol); the eukhe CLI installs with npx eukhe install",
   "license": "MIT",
   "repository": {
