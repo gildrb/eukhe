@@ -58,7 +58,7 @@ function reach(blobs: Set<string>, file: string, link: string): string[] {
   return files;
 }
 
-/** An image the README shows (`<img src="media/x.webp">`): its repository path and its bytes. */
+/** An image the README shows (`<img src=".github/media/x.webp">`): its repository path and its bytes. */
 export type Image = { path: string; bytes: Buffer };
 
 /** The repository paths of the README's `<img src>` attributes, in the README's order. */
