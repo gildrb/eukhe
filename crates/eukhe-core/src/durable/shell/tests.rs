@@ -48,11 +48,10 @@ fn bash(call_id: &str, script: &str) -> FauxResponseStep {
 /// The transcript of `script` run under `truncation`.
 async fn transcript_of(script: &str, truncation: Truncation) -> (String, Option<ToolDiagnostic>) {
     let dir = tempfile::tempdir().expect("temp dir");
-    let transcript = Transcript::new(BoundedOutput::in_session(
-        Some(dir.path()),
-        "call-1",
-        truncation,
-    ));
+    let transcript = Transcript::new(
+        BoundedOutput::in_session(Some(dir.path()), "call-1", truncation),
+        None,
+    );
     let env = [("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())];
     let paths = eukhe_types::path_policy::PathPolicy::new(
         vec![dir.path().to_path_buf()],

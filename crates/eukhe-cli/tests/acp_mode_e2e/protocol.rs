@@ -4,9 +4,10 @@
 use super::*;
 
 /// Whether `update` carries the run's budget report: every run has a
-/// ledger, so its reports ride the stream beside the TS frames.
+/// ledger, so its reports ride `_eukhe/session_info` beside the TS frames.
 fn is_budget_frame(update: &Value) -> bool {
-    update["params"]["update"]["sessionUpdate"] == "session_info_update"
+    update["method"] == "_eukhe/session_info"
+        && update["params"]["update"]["sessionUpdate"] == "session_info_update"
         && update["params"]["update"]["_meta"]["com.eukhe"]["budget"].is_object()
 }
 
@@ -66,6 +67,7 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
         .as_str()
         .unwrap()
         .to_string();
+    wait_session_start(&mut client);
 
     let prompt = client.request(
         "session/prompt",
@@ -76,16 +78,24 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
     // Frame shape sequence from ts-happy_path.jsonl: the chunk stream, the
     // response boundary, the completion event, the terminal envelope, and
     // then the response. The faux provider emits its text in one chunk.
-    // The run's budget reports ride beside them.
+    // The run's budget reports ride beside them. The eukhe-only frames go
+    // out as `_eukhe/session_info`, never as `session/update`; the turn's
+    // `_eukhe/run_report` comes last.
     assert!(
         updates.iter().any(is_budget_frame),
         "the run reports its budget: {updates:#?}"
     );
+    let report = turn_run_report(&updates, &session_id);
+    assert_eq!(report["promptTurnId"], 1, "{report}");
+    assert_eq!(report["stopReason"], "end_turn", "{report}");
+    assert_eq!(report["answer"], "ACP-OK", "{report}");
+    let turn = &updates[..updates.len() - 1];
     let mut shapes = Vec::new();
-    for update in updates.iter().filter(|update| !is_budget_frame(update)) {
+    for update in turn.iter().filter(|update| !is_budget_frame(update)) {
         let body = &update["params"]["update"];
         let meta = &body["_meta"]["com.eukhe"];
         shapes.push((
+            update["method"].as_str().unwrap_or_default().to_string(),
             body["sessionUpdate"]
                 .as_str()
                 .unwrap_or_default()
@@ -95,27 +105,23 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
             meta["terminalQuiescenceExpected"].as_bool(),
         ));
     }
-    let boundary = (
-        "session_info_update".to_string(),
-        "responseBoundary".to_string(),
-        Some("result".to_string()),
-        Some(true),
-    );
-    let completion = (
-        "session_info_update".to_string(),
-        "event".to_string(),
-        None,
-        None,
-    );
-    let terminal = (
-        "session_info_update".to_string(),
-        "terminalQuiescence".to_string(),
-        Some("result".to_string()),
-        None,
-    );
+    let info = |phase: &str, outcome: Option<&str>, expected: Option<bool>| {
+        (
+            "_eukhe/session_info".to_string(),
+            "session_info_update".to_string(),
+            phase.to_string(),
+            outcome.map(str::to_string),
+            expected,
+        )
+    };
+    let boundary = info("responseBoundary", Some("result"), Some(true));
+    let completion = info("event", None, None);
+    let terminal = info("terminalQuiescence", Some("result"), None);
     assert_eq!(
-        shapes.first().map(|(tag, _, _, _)| tag.clone()),
-        Some("agent_message_chunk".to_string())
+        shapes
+            .first()
+            .map(|(method, tag, _, _, _)| (method.as_str(), tag.as_str())),
+        Some(("session/update", "agent_message_chunk"))
     );
     assert!(shapes.contains(&boundary), "shapes: {shapes:?}");
     assert!(shapes.contains(&completion), "shapes: {shapes:?}");
@@ -129,7 +135,7 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
 
     // Sequences are strictly increasing across the whole turn.
     let mut sequences: Vec<u64> = Vec::new();
-    for update in &updates {
+    for update in turn {
         sequences.push(
             update["params"]["update"]["_meta"]["com.eukhe"]["eventSequence"]
                 .as_u64()
@@ -307,6 +313,7 @@ fn acp_cancel_without_an_active_turn_is_a_noop() {
         .as_str()
         .unwrap()
         .to_string();
+    wait_session_start(&mut client);
 
     client.notify("session/cancel", &json!({ "sessionId": session_id }));
     // The no-op cancel answers nothing; the session still closes cleanly.
@@ -503,6 +510,7 @@ fn acp_daemon_attached_cancels_mid_turn() {
         .as_str()
         .unwrap()
         .to_string();
+    wait_session_start(&mut client);
     let prompt = client.request(
             "session/prompt",
             &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "a slow question" }] }),
@@ -511,9 +519,11 @@ fn acp_daemon_attached_cancels_mid_turn() {
     client.notify("session/cancel", &json!({ "sessionId": session_id }));
     let (prompt_response, updates) = client.wait_response(prompt, Duration::from_mins(1));
     assert_eq!(prompt_response["result"]["stopReason"], "cancelled");
+    let report = turn_run_report(&updates, &session_id);
+    assert_eq!(report["stopReason"], "cancelled", "{report}");
     assert!(
-        updates.iter().all(is_budget_frame),
-        "a cancelled turn publishes no frames after the cancel but the run's budget reports: {updates:#?}"
+        updates[..updates.len() - 1].iter().all(is_budget_frame),
+        "a cancelled turn publishes no frames after the cancel but the run's budget reports and its run report: {updates:#?}"
     );
     let close = client.request("session/close", &json!({ "sessionId": session_id }));
     let (close_response, _) = client.wait_response(close, Duration::from_mins(1));

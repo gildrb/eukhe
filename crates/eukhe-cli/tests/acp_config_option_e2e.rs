@@ -51,6 +51,9 @@ struct AcpChild {
     next_id: u64,
     /// Held (never read) so the child's cwd outlives the process.
     _home: tempfile::TempDir,
+    /// The sandboxed supervisor the child spawned: the drop shuts it
+    /// down, a failed assertion included.
+    socket: std::path::PathBuf,
 }
 
 impl AcpChild {
@@ -102,6 +105,7 @@ impl Drop for AcpChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        shutdown_sandboxed_daemon(&self.socket);
     }
 }
 
@@ -264,6 +268,7 @@ fn acp_daemon_attached_config_option_pickers() {
             lines: rx,
             next_id: 0,
             _home: home,
+            socket,
         }
     };
     let init = client.request("initialize", &initialize_params());
@@ -351,16 +356,16 @@ fn acp_daemon_attached_config_option_pickers() {
         assert_eq!(response["error"]["code"], -32602, "{config_id}: {response}");
         assert_eq!(response["error"]["data"]["reason"], reason);
     }
-    // An unknown session is invalid params, never an internal error.
+    // An unknown session is ACP's resource-not-found with the id, never an
+    // internal error.
     let select = client.request(
         "session/set_config_option",
         &select_params("missing-session", "thought_level", &json!("high")),
     );
     let (response, _) = client.wait_response(select, TIMEOUT);
-    assert_eq!(response["error"]["code"], -32602);
     assert_eq!(
-        response["error"]["data"]["reason"],
-        "Unknown ACP session: missing-session"
+        response["error"],
+        json!({ "code": -32002, "message": "Resource not found", "data": { "sessionId": "missing-session" } })
     );
     // A real model switch: the plain model drops the effort picker (its
     // supported levels are `off` only) and the effort selection now
@@ -478,5 +483,4 @@ fn acp_daemon_attached_config_option_pickers() {
     let (close_response, _) = client.wait_response(close, TIMEOUT);
     assert_eq!(close_response["result"], json!({}));
     drop(client);
-    shutdown_sandboxed_daemon(&socket);
 }

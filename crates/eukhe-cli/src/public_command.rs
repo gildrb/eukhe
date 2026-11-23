@@ -240,6 +240,10 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "prompt" => handled_with_exit(crate::prompt_command::run_prompt_command(&rest)),
         "factory" => handled_with_exit(crate::factory_command::run_factory_command(&rest)),
         "provider" => handled_with_exit(crate::provider_command::run_provider_command(&rest)),
+        "login" => handled_with_exit(crate::login_command::run_login_command(&rest)),
+        "logout" => handled_with_exit(crate::provider_command::run_provider_command(
+            &[vec!["logout".to_string()], rest].concat(),
+        )),
         "budget" => handled_with_exit(crate::budget_command::run_budget_command(&rest)),
         "usage" => handled_with_exit(crate::usage_command::run_usage_command(&rest)),
         "undo" => handled_with_exit(crate::undo_command::run_undo_command(

@@ -108,9 +108,12 @@ fn acp_prompt_holds_until_a_running_job_wakes_the_session() {
         "the terminal names no running work: {terminal}"
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
-    assert!(
-        updates.is_empty(),
-        "the terminal frame is the last notification before the response: {updates:?}"
+    assert_eq!(
+        updates.len(),
+        1,
+        "the terminal frame is the last frame before the run report: {updates:?}"
     );
+    let report = turn_run_report(&updates, &session_id);
+    assert_eq!(report["answer"], "woken: the build finished", "{report}");
     assert_end_turn(&prompt_response);
 }

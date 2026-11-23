@@ -387,9 +387,50 @@ fn daemon_request(socket: &std::path::Path, id: &str, command: &Value) -> Value 
         .unwrap_or_else(|| panic!("the daemon closed without answering {id}"))
 }
 
-/// The namespaced eukhe payload of one session/update frame.
+/// The namespaced eukhe payload of one `session/update` or
+/// `_eukhe/session_info` frame.
 fn update_meta(frame: &Value) -> &Value {
     &frame["params"]["update"]["_meta"]["com.eukhe"]
+}
+
+/// Read the frames a started session publishes right after its answer:
+/// the commands a prompt may start with (`available_commands_update`),
+/// then the context window in use (`usage_update`). Nothing else comes
+/// between the answer and them.
+fn wait_session_start(client: &mut AcpChild) {
+    let mut seen = Vec::new();
+    client.wait_frame(TIMEOUT, |frame| {
+        let kind = frame["params"]["update"]["sessionUpdate"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        seen.push(kind.clone());
+        kind == "usage_update"
+    });
+    assert_eq!(
+        seen,
+        ["available_commands_update", "usage_update"],
+        "the session start frames"
+    );
+}
+
+/// Whether `frame` is the `_eukhe/run_report` notification.
+fn is_run_report(frame: &Value) -> bool {
+    frame["method"] == "_eukhe/run_report"
+}
+
+/// The turn's `_eukhe/run_report` params: the last notification before its
+/// `session/prompt` response, and the only one in `frames`.
+fn turn_run_report<'a>(frames: &'a [Value], session_id: &str) -> &'a Value {
+    let reports: Vec<&Value> = frames.iter().filter(|frame| is_run_report(frame)).collect();
+    assert_eq!(reports.len(), 1, "one run report per turn: {frames:?}");
+    assert!(
+        frames.last().is_some_and(is_run_report),
+        "the run report is the last notification before the response: {frames:?}"
+    );
+    let report = &reports[0]["params"];
+    assert_eq!(report["sessionId"], session_id, "{report}");
+    report
 }
 
 mod compaction_rlm;

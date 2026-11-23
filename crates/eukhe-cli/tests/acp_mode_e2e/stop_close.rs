@@ -41,29 +41,30 @@ fn wait_live_session(socket: &std::path::Path) -> Value {
     }
 }
 
-#[test]
-fn acp_daemon_attached_close_clears_the_connection_mcp_servers() {
-    let script = json!({ "engine": "faux", "responses": ["unused"] });
-    let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
-    let socket = client.socket.clone();
+/// A saved, prompted session with one admitted MCP server: the session,
+/// its daemon id, and the client.
+fn spawn_prompted_with_server(name: &str) -> (AcpChild, String, String) {
+    let script = json!({ "engine": "faux", "responses": ["first"] });
+    let mut client = AcpChild::spawn(&["--mode", "acp"], &script);
     let init = client.request("initialize", &initialize_params());
     let _ = client.wait_response(init, TIMEOUT);
     let new = client.request(
         "session/new",
         &json!({ "mcpServers": [
-            { "name": "close-clear", "type": "http", "url": "https://mcp.invalid/close-clear", "headers": [] },
+            { "name": name, "type": "http", "url": format!("https://mcp.invalid/{name}"), "headers": [] },
         ]}),
     );
     let (new_response, _) = client.wait_response(new, TIMEOUT);
     let session_id = new_response["result"]["sessionId"]
         .as_str()
-        .expect("admission succeeds")
+        .unwrap_or_else(|| panic!("admission succeeds: {new_response}"))
         .to_string();
-    let active_session_id = wait_live_session(&socket)["activeSessionId"]
+    assert_prompt_ends_turn(&mut client, &session_id, "one");
+    let active_session_id = wait_live_session(&client.socket)["activeSessionId"]
         .as_str()
         .expect("the daemon session id")
         .to_string();
-    let owned = probe_acp_mcp_servers(&socket, &active_session_id);
+    let owned = probe_acp_mcp_servers(&client.socket, &active_session_id);
     assert_eq!(
         owned["success"], false,
         "the open session owns its admitted servers: {owned}"
@@ -72,6 +73,27 @@ fn acp_daemon_attached_close_clears_the_connection_mcp_servers() {
         owned["error"],
         "ACP MCP configuration is owned by another client"
     );
+    (client, session_id, active_session_id)
+}
+
+/// The ids `session/list` answers.
+fn listed_ids(client: &mut AcpChild) -> Vec<String> {
+    let list = client.request("session/list", &json!({}));
+    let (response, _) = client.wait_response(list, TIMEOUT);
+    response["result"]["sessions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a session list: {response}"))
+        .iter()
+        .filter_map(|session| session["sessionId"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// Close detaches a prompted saved session: the connection's servers are
+/// released, the session stays saved and listed.
+#[test]
+fn acp_daemon_attached_close_clears_the_connection_mcp_servers() {
+    let (mut client, session_id, active_session_id) = spawn_prompted_with_server("close-clear");
+    let socket = client.socket.clone();
     let close = client.request("session/close", &json!({ "sessionId": session_id }));
     let (close_response, _) = client.wait_response(close, TIMEOUT);
     assert_eq!(close_response["result"], json!({}));
@@ -80,41 +102,89 @@ fn acp_daemon_attached_close_clears_the_connection_mcp_servers() {
         released["success"], true,
         "session/close released the connection's servers: {released}"
     );
+    assert!(
+        listed_ids(&mut client).contains(&session_id),
+        "the closed session stays saved"
+    );
 }
 
 #[test]
 fn acp_daemon_attached_eof_teardown_clears_the_connection_mcp_servers() {
-    let script = json!({ "engine": "faux", "responses": ["unused"] });
-    let mut client = AcpChild::spawn(&["--mode", "acp"], &script);
+    let (mut client, _, active_session_id) = spawn_prompted_with_server("eof-clear");
     let socket = client.socket.clone();
-    let init = client.request("initialize", &initialize_params());
-    let _ = client.wait_response(init, TIMEOUT);
-    let new = client.request(
-        "session/new",
-        &json!({ "mcpServers": [
-            { "name": "eof-clear", "type": "http", "url": "https://mcp.invalid/eof-clear", "headers": [] },
-        ]}),
-    );
-    let (new_response, _) = client.wait_response(new, TIMEOUT);
-    assert!(
-        new_response["result"]["sessionId"].is_string(),
-        "admission succeeds: {new_response}"
-    );
-    let active_session_id = wait_live_session(&socket)["activeSessionId"]
-        .as_str()
-        .expect("the daemon session id")
-        .to_string();
-    let owned = probe_acp_mcp_servers(&socket, &active_session_id);
-    assert_eq!(
-        owned["success"], false,
-        "the open session owns its admitted servers: {owned}"
-    );
     client.close_stdin();
     assert!(client.child.wait().expect("the ACP child exits").success());
     let released = probe_acp_mcp_servers(&socket, &active_session_id);
     assert_eq!(
         released["success"], true,
         "the EOF teardown released the connection's servers: {released}"
+    );
+}
+
+/// A saved session never prompted leaves nothing behind: close stops it
+/// and deletes its storage right after (the stop does not leave it
+/// "currently active" to the delete).
+#[test]
+fn acp_close_removes_a_never_prompted_session() {
+    let script = json!({ "engine": "faux", "responses": ["unused"] });
+    let mut client = AcpChild::spawn(&["--mode", "acp"], &script);
+    let session_id = initialize_and_new_session(&mut client);
+    let session = wait_live_session(&client.socket);
+    let session_dir = session["sessionFile"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a saved session: {session}"))
+        .to_string();
+    let close = client.request("session/close", &json!({ "sessionId": session_id }));
+    let (close_response, _) = client.wait_response(close, TIMEOUT);
+    assert_eq!(close_response["result"], json!({}));
+    assert!(
+        live_sessions(&client.socket).is_empty(),
+        "the never-prompted session stopped"
+    );
+    assert!(
+        !std::path::Path::new(&session_dir).exists(),
+        "its storage is deleted: {session_dir}"
+    );
+    assert!(
+        !listed_ids(&mut client).contains(&session_id),
+        "it is no longer listed"
+    );
+}
+
+/// `session/delete` of the hosted, prompted session stops it and deletes
+/// its storage; a resume of the id is then not found.
+#[test]
+fn acp_delete_removes_the_hosted_session_right_after_its_stop() {
+    let script = json!({ "engine": "faux", "responses": ["first"] });
+    let mut client = AcpChild::spawn(&["--mode", "acp"], &script);
+    let session_id = initialize_and_new_session(&mut client);
+    assert_prompt_ends_turn(&mut client, &session_id, "one");
+    let session = wait_live_session(&client.socket);
+    let session_dir = session["sessionFile"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a saved session: {session}"))
+        .to_string();
+    let delete = client.request("session/delete", &json!({ "sessionId": session_id }));
+    let (delete_response, _) = client.wait_response(delete, TIMEOUT);
+    assert_eq!(delete_response["result"], json!({}), "{delete_response}");
+    assert!(
+        live_sessions(&client.socket).is_empty(),
+        "the deleted session stopped"
+    );
+    assert!(
+        !std::path::Path::new(&session_dir).exists(),
+        "its storage is deleted: {session_dir}"
+    );
+    assert!(!listed_ids(&mut client).contains(&session_id));
+    let resume = client.request(
+        "session/resume",
+        &json!({ "sessionId": session_id, "cwd": client.socket.parent().unwrap(), "mcpServers": [] }),
+    );
+    let (resume_response, _) = client.wait_response(resume, TIMEOUT);
+    assert_eq!(
+        resume_response["error"],
+        json!({ "code": -32002, "message": "Resource not found", "data": { "sessionId": session_id } }),
+        "{resume_response}"
     );
 }
 
@@ -231,11 +301,14 @@ fn acp_daemon_attached_close_stop_failure_fences_the_session() {
     drop(client);
 }
 
+/// Close ends the attachment and its stop's input pause: another client's
+/// turn runs on the detached session, and `session/resume` of the same id
+/// on the same connection attaches it again with that turn in it.
 #[test]
-fn acp_daemon_attached_close_holds_the_input_pause_until_the_next_session_new() {
+fn acp_daemon_attached_close_frees_the_session_for_other_clients_and_resume() {
     let mut client = AcpChild::spawn(
-        &["--mode", "acp", "--no-session"],
-        &json!({ "engine": "faux", "responses": ["first", { "text": "FOREIGN", "delayMs": 150_000 }] }),
+        &["--mode", "acp"],
+        &json!({ "engine": "faux", "responses": ["first", "FOREIGN", "again"] }),
     );
     let socket = client.socket.clone();
     let session_id = initialize_and_new_session(&mut client);
@@ -245,27 +318,49 @@ fn acp_daemon_attached_close_holds_the_input_pause_until_the_next_session_new() 
     let (close_response, _) = client.wait_response(close, TIMEOUT);
     assert_eq!(close_response["result"], json!({}));
 
-    let active_session_id = live_sessions(&socket)[0]["activeSessionId"]
+    let session = wait_live_session(&socket);
+    let active_session_id = session["activeSessionId"]
         .as_str()
         .expect("the resident session")
         .to_string();
-    let _ = daemon_request(
+    let session_dir = session["sessionFile"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a saved session: {session}"))
+        .to_string();
+    let follow_up = daemon_request(
         &socket,
         "foreign-follow-up",
         &json!({ "type": "follow_up", "activeSessionId": active_session_id, "message": "foreign" }),
     );
+    assert_eq!(follow_up["success"], true, "{follow_up}");
     let idle = daemon_request(
         &socket,
         "foreign-idle",
         &json!({ "type": "wait_for_idle", "activeSessionId": active_session_id }),
     );
+    assert_eq!(idle["success"], true, "{idle}");
+    let saved = durable_store::read_transcript(std::path::Path::new(&session_dir)).message_texts();
     assert!(
-        idle["success"] == json!(true),
-        "no foreign turn runs on the resident session while the close holds the input pause: {idle}"
+        saved.iter().any(|text| text == "FOREIGN"),
+        "the other client's turn ran on the closed session: {saved:?}"
     );
 
-    let _second = new_session(&mut client);
-    drop(client);
+    let resume = client.request(
+        "session/resume",
+        &json!({ "sessionId": session_id, "cwd": socket.parent().unwrap(), "mcpServers": [] }),
+    );
+    let (resume_response, _) = client.wait_response(resume, TIMEOUT);
+    assert!(
+        resume_response["result"].is_object(),
+        "the closed session resumes: {resume_response}"
+    );
+    let updates = assert_prompt_ends_turn(&mut client, &session_id, "two");
+    assert_eq!(turn_run_report(&updates, &session_id)["answer"], "again");
+    assert_eq!(
+        live_sessions(&socket)[0]["activeSessionId"],
+        active_session_id.as_str(),
+        "the resume binds the live worker"
+    );
 }
 
 #[test]

@@ -9,7 +9,9 @@
 //! The tool obeys the S2 limits. Its output streams through one
 //! [`BoundedOutput`] under the call's [`Truncation`](eukhe_durable::harness::Truncation):
 //! kept within the cap, every dropped byte counted in the `output_bounded`
-//! diagnostic, all of it kept under the opt-out. The call blocks at most
+//! diagnostic, all of it kept under the opt-out. While the call blocks,
+//! the output also reaches the call's live observers as its progress. The
+//! call blocks at most
 //! the blocking budget ([`HostDeps::blocking_budget`]): past it the call
 //! settles `detached` with the output so far and the script runs on as a
 //! [`Job`] of the session's [`JobTable`](super::jobs::JobTable). Its end
@@ -44,7 +46,7 @@ use eukhe_durable::harness::define::{define_extension, define_tool};
 use eukhe_durable::harness::effects::EffectKind;
 use eukhe_durable::harness::types::{
     Extension, ToolDiagnostic, ToolDiagnosticSeverity, ToolExecutionApi, ToolExecutionMode,
-    ToolExecutionResult, ToolRegistration, ToolReplay,
+    ToolExecutionResult, ToolOutputChunk, ToolRegistration, ToolReplay,
 };
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::ConversationId;
@@ -185,22 +187,27 @@ struct Shown {
 
 /// The script's model-facing output as it runs: `$ command` when a step
 /// begins, its stdout and stderr as they arrive, `[step N exited S]`
-/// when it ends with a status other than 0. Once the call detached, the
-/// bytes also count on the job, which starts with the bytes written
-/// before ([`JobSpec::written`]).
+/// when it ends with a status other than 0. Until the call detaches, each
+/// part is also the call's progress (its live observers see the script
+/// run); once it detached, the bytes count on the job instead, which
+/// starts with the bytes written before ([`JobSpec::written`]).
 struct Transcript {
     shown: Mutex<Shown>,
     job: OnceLock<Job>,
+    /// The call whose progress the output is; `None` for a transcript
+    /// only read whole.
+    call: Option<Arc<dyn ToolExecutionApi>>,
 }
 
 impl Transcript {
-    fn new(bounded: BoundedOutput) -> Self {
+    fn new(bounded: BoundedOutput, call: Option<Arc<dyn ToolExecutionApi>>) -> Self {
         Self {
             shown: Mutex::new(Shown {
                 bounded,
                 decoders: HashMap::new(),
             }),
             job: OnceLock::new(),
+            call,
         }
     }
 
@@ -225,8 +232,15 @@ impl Transcript {
         // once, in the job's start or here.
         let job = self.job.get().cloned();
         drop(shown);
-        if let Some(job) = job {
-            job.record(JobEvent::Output(written));
+        match (job, &self.call) {
+            (Some(job), _) => job.record(JobEvent::Output(written)),
+            // Progress only: the result carries the whole transcript. A
+            // call that settled in between (its detach) refuses the chunk,
+            // which the job's start already counted.
+            (None, Some(call)) => {
+                let _ = call.output(ToolOutputChunk::Text(text), None);
+            }
+            (None, None) => {}
         }
     }
 
@@ -327,11 +341,14 @@ async fn execute(
         .cwd
         .clone()
         .map_or_else(|| deps.cwd.clone(), PathBuf::from);
-    let transcript = Arc::new(Transcript::new(BoundedOutput::in_session(
-        deps.storage_dir.as_deref(),
-        &api.task_id().to_string(),
-        api.truncation(),
-    )));
+    let transcript = Arc::new(Transcript::new(
+        BoundedOutput::in_session(
+            deps.storage_dir.as_deref(),
+            &api.task_id().to_string(),
+            api.truncation(),
+        ),
+        Some(Arc::clone(&api)),
+    ));
     // An isolated child's copy becomes a repository when a script first
     // names git.
     if names_git(script) {
