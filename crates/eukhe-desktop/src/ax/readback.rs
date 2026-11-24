@@ -5,7 +5,6 @@ use crate::error::{FieldReads, Readback};
 
 /// Whether a field hides its value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct both variants")]
 pub(crate) enum FieldKind {
     Plain,
     Secure,
