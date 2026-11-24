@@ -8,11 +8,11 @@ import ../../bend/run/step.bend as RnStep
 import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
-def rk.run_first_deferred_reply_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At, +fails: Nat, +gap: Nat) -> {Run.rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(fails, RnDecision.At.p(l, t), R.NoJob{}, R.Later{gap})) : R.Act}:
+def rk.run_first_deferred_reply_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At, +fails: Nat, +gap: Nat) -> {Run.rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{}, False{})) == R.Step.act(R.step(fails, RnDecision.At.p(l, t), R.NoJob{}, R.Later{gap})) : R.Act}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           +cfg = {RnState.Cfg{rounds, wait, retries, most} : RnState.Cfg}
           +c = RnDecision.c.of(compacted)
           +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))

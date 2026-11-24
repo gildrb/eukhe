@@ -16,12 +16,12 @@ import ../../../laws/run/entry.bend as Run
 
 def sp.lim(l: RnDecision.Lim, +r: String) -> {FRn.put_lim(l, r) == Run.run_spell_lim(l, r) : String}:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, notes}:
+    case RnDecision.Lim{rounds, wait, retries, notes, streams}:
       {==}
 
 def sp.at(t: RnDecision.At, +r: String) -> {FRn.put_at(t, r) == Run.run_spell_at(t, r) : String}:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
       {==}
 
 def sp.reply(x: RnState.Reply, +r: String) -> {FRn.put_reply(x, r) == Run.run_spell_reply(x, r) : String}:
@@ -92,10 +92,10 @@ def sp.rk(x: RnRecovery.Rk, +r: String) -> {FRn.put_rk(x, r) == Run.run_spell_rk
 # the entry's encoder writes the grammar's spelling of every request
 def sp.ask(a: FRn.Ask, +rest: String) -> {FRn.put_ask(a, rest) == Run.run_spell_ask(a, rest) : String}:
   match a:
-    case FRn.AskReply{+l, +t, +reply}:
-      %sp.reply(reply, rest) : {FRn.put_ask(FRn.AskReply{l, t, reply}, rest) == Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, _))) : String}
-      %sp.at(t, FRn.put_reply(reply, rest)) : {FRn.put_ask(FRn.AskReply{l, t, reply}, rest) == Wr.put_nat(0n, Run.run_spell_lim(l, _)) : String}
-      %sp.lim(l, FRn.put_at(t, FRn.put_reply(reply, rest))) : {FRn.put_ask(FRn.AskReply{l, t, reply}, rest) == Wr.put_nat(0n, _) : String}
+    case FRn.AskReply{+l, +t, +reply, +stream}:
+      %sp.reply(reply, Wr.put_bool(stream, rest)) : {FRn.put_ask(FRn.AskReply{l, t, reply, stream}, rest) == Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, _))) : String}
+      %sp.at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest))) : {FRn.put_ask(FRn.AskReply{l, t, reply, stream}, rest) == Wr.put_nat(0n, Run.run_spell_lim(l, _)) : String}
+      %sp.lim(l, FRn.put_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest)))) : {FRn.put_ask(FRn.AskReply{l, t, reply, stream}, rest) == Wr.put_nat(0n, _) : String}
       {==}
     case FRn.AskEnded{+m}:
       %sp.ended(m, rest) : {FRn.put_ask(FRn.AskEnded{m}, rest) == Wr.put_nat(1n, _) : String}
@@ -173,8 +173,8 @@ def sp.help(x: RnDecision.Help, +r: String) -> {FRn.put_help(x, r) == Run.run_sp
 # the entry's answer to a request is the spelled value of its decision
 def sp.answer(a: FRn.Ask) -> {FRn.answer(a) == Run.run_spell_answer(a) : String}:
   match a:
-    case FRn.AskReply{l, t, reply}:
-      sp.then(RnDecision.decide.reply(l, t, reply), "")
+    case FRn.AskReply{l, t, reply, stream}:
+      sp.then(RnDecision.decide.reply(l, t, reply, stream), "")
     case FRn.AskEnded{m}:
       sp.reply(RnState.Ended.reply(m), "")
     case FRn.AskPrepare{compacted, th}:

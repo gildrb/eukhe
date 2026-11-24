@@ -175,6 +175,31 @@ pub fn stalled_idle_ms(message: &AssistantMessage) -> Option<u64> {
         .flatten()
 }
 
+/// Whether a failed message is a transient cut of its provider stream,
+/// the class `model.streamRetries` budgets (the harness): its newest
+/// stream failure recorded no HTTP status and either the stream ended
+/// without its terminal marker ([`StreamFailureKind::StreamDrop`]) or its
+/// kind is unknown and its text names a transient transport failure
+/// ("terminated", a reset). A status-classified failure (408, 409, 429,
+/// 5xx) keeps the `Retry-After` path of `retry.maxRetries`, an auth,
+/// permission or limit failure never retries, and a stall or a repetition
+/// cut keeps their noted-retry path: none spends the stream budget.
+#[must_use]
+pub fn is_stream_cut(message: &AssistantMessage) -> bool {
+    let Some(facts) = FailureFacts::of(message) else {
+        return false;
+    };
+    if facts.status.is_some() {
+        return false;
+    }
+    let cut_kind = matches!(
+        facts.kind,
+        None | Some(StreamFailureKind::StreamDrop | StreamFailureKind::Unknown)
+    );
+    let drop = matches!(facts.kind, Some(StreamFailureKind::StreamDrop));
+    cut_kind && (drop || facts.transient_text)
+}
+
 /// A recorded failure kind as the compiled core reads it.
 const fn cause(kind: StreamFailureKind) -> Cause {
     match kind {

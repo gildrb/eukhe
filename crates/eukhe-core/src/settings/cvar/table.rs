@@ -683,6 +683,21 @@ pub const RETRY_WAIT_MAX_PARKS: Decl = Decl {
     init: Init::Nat(8),
 };
 
+/// The same-model stream retries one turn may spend on a transient cut of
+/// its provider stream (the stream ended without its terminal marker, a
+/// transport reset; `eukhe-durable` `Settings::stream_retries`), with the
+/// retry policy's backoff. A cut past the budget goes on as without it
+/// (the `retry.maxRetries` path, then the turn's failure); `0` is that
+/// path from the first cut.
+pub const MODEL_STREAM_RETRIES: Decl = Decl {
+    id: "model.streamRetries",
+    ty: CvarType::Nat,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: false,
+    init: Init::Nat(5),
+};
+
 pub const PROVIDER_BACKUP_MODEL: Decl = Decl {
     id: "providerBackupModel",
     ty: CvarType::Text,
@@ -1524,6 +1539,7 @@ pub const DECLS: &[Decl] = &[
     RETRY_WAIT_PAUSE_UNTIL_RESET,
     RETRY_WAIT_MAX_PAUSE_MS,
     RETRY_WAIT_MAX_PARKS,
+    MODEL_STREAM_RETRIES,
     PROVIDER_BACKUP_MODEL,
     IMAGE_MODEL,
     DIRECTORS_STACK_CAP,

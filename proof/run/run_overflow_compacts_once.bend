@@ -8,15 +8,15 @@ import ../../bend/run/state.bend as RnState
 import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
-def over.no_cut(+lim: RnDecision.Lim, +t: RnDecision.At) -> {RnDecision.decide.reply(lim, t, RnState.Overflow{False{}}) == RnDecision.DoFail{} : RnDecision.Then}:
+def over.no_cut(+lim: RnDecision.Lim, +t: RnDecision.At) -> {RnDecision.decide.reply(lim, t, RnState.Overflow{False{}}, False{}) == RnDecision.DoFail{} : RnDecision.Then}:
   match lim:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
-          LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Overflow{False{}})
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
+          LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Overflow{False{}})
 
-def Run.run_overflow_compacts_once(l, a, j, w, t):
+def Run.run_overflow_compacts_once(l, a, j, k, w, t):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
-      +lim = {RnDecision.Lim{rounds, wait, retries, most} : RnDecision.Lim}
-      (LA.rk.reply_rule(lim, RnDecision.At{a, j, w, False{}}, RnState.Overflow{True{}}), LA.rk.reply_rule(lim, RnDecision.At{a, j, w, True{}}, RnState.Overflow{True{}}), over.no_cut(lim, t))
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
+      +lim = {RnDecision.Lim{rounds, wait, retries, most, streams} : RnDecision.Lim}
+      (LA.rk.reply_rule(lim, RnDecision.At{a, j, k, w, False{}}, RnState.Overflow{True{}}), LA.rk.reply_rule(lim, RnDecision.At{a, j, k, w, True{}}, RnState.Overflow{True{}}), over.no_cut(lim, t))

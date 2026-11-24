@@ -19,7 +19,7 @@ def rk.lt_le(+m: Nat, +x: Nat, +e: {Nat.is_lt(x, m) == True{} : Bool}) -> {Nat.i
 
 def rk.run_rounds_lossless(+l: RnDecision.Lim, +count: Nat, +w: {Nat.is_lt(count, RnDecision.Lim.rounds(l)) == True{} : Bool}) -> {Nat.sub(Nat.sub(RnDecision.Lim.rounds(l), 1n), RnDecision.Lim.r(l, count)) == count : Nat}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       Equal.sym(Nat, count, Nat.sub(Nat.sub(rounds, 1n), Nat.sub(Nat.sub(rounds, 1n), count)), LA.rk.subsub(Nat.sub(rounds, 1n), count, rk.lt_le(rounds, count, w)))
 
 def Run.run_rounds_lossless(l, count, w):

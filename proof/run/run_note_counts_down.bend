@@ -18,9 +18,9 @@ def rk.npred(+cfg: RnState.Cfg, +r: Nat, +c: Nat, +a: Nat, +p: Nat, +m: Nat, +x:
 
 def rk.run_note_counts_down(+l: RnDecision.Lim, +t: RnDecision.At, +r: Nat, +c: Nat, +p: Nat) -> {RnState.St.n(RnStep.note(RnDecision.Lim.cfg(l), r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.n(l, Run.rust.noted_next(t)) : Nat}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           rk.npred(RnState.Cfg{rounds, wait, retries, most}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), p, most, notes)
 
 def Run.run_note_counts_down(l, t, r, c, p):

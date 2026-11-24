@@ -874,6 +874,9 @@ import ./proof/run/rec_repeat_redirects_then_fails.bend as PRecRepeatRedirectsTh
 import ./proof/run/rec_row_zero_is_no_note.bend as PRecRowZeroIsNoNote
 import ./proof/run/rec_redo_retries_with_a_note.bend as PRecRedoRetriesWithANote
 import ./proof/run/rec_user_message_lets_calls_run.bend as PRecUserMessageLetsCallsRun
+import ./proof/run/run_retry_budget.bend as PRunRetryBudget
+import ./proof/run/run_stream_budget.bend as PRunStreamBudget
+import ./proof/run/run_stream_flag_ignored.bend as PRunStreamFlagIgnored
 import ./proof/run/run_ffi_ask_round_trip.bend as PRunFfiAskRoundTrip
 import ./proof/run/run_ffi_ask_fits_witness.bend as PRunFfiAskFitsWitness
 import ./proof/run/run_ffi_answers.bend as PRunFfiAnswers

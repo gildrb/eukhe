@@ -556,13 +556,15 @@ law run_every_call_is_logged:
 # The decisions of bend/run/decision.bend that decide.rs and deferred.rs
 # call through the compiled core (bend/ffi_run.bend; laws/run/entry.bend
 # pins the codec). Each takes Rust's counters as they grow: the limits
-# (Lim: maxToolRounds, the job's ms, retry.maxRetries, MAX_NOTES) and the
-# counts of a request (At: its attempt, 1 for a generation's first
-# request and one more per retry; the noted retries so far; the ms it
-# waited; whether the generation compacted). A generation's request after
-# i transient retries and j noted retries is at attempt 1 + i + j with j
-# notes (decide.rs `retry_note`: every retry adds an attempt, a noted one
-# a note too).
+# (Lim: maxToolRounds, the job's ms, retry.maxRetries, MAX_NOTES,
+# model.streamRetries) and the counts of a request (At: its attempt, 1
+# for a generation's first request and one more per retry; the noted
+# retries so far; the stream retries spent so far; the ms it waited;
+# whether the generation compacted). A generation's request after i
+# transient retries, j noted retries and k stream retries is at attempt
+# 1 + i + j + k with j notes and k streams (decide.rs `retry_note`: every
+# retry adds an attempt, a noted one a note too, a stream retry a
+# stream).
 
 # x when b, else y
 def then_if(b: Bool, x: RnDecision.Then, y: RnDecision.Then) -> RnDecision.Then:
@@ -579,24 +581,64 @@ def then_if(b: Bool, x: RnDecision.Then, y: RnDecision.Then) -> RnDecision.Then:
 law run_reply_answers_or_runs_tools:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, t, RnState.Plain{}) == RnDecision.DoAnswer{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, t, RnState.Calls{}) == RnDecision.DoTools{} : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Plain{}, False{}) == RnDecision.DoAnswer{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Calls{}, False{}) == RnDecision.DoTools{} : RnDecision.Then}
 
 # LAW run_retry_budget (H4.7): under any limits, a transient error the
-# retry policy can cure, to the request after i transient retries and j
-# noted retries of its generation (attempt 1 + i + j, j notes; any ms
-# waited, compacted or not), is retried exactly while i is below
-# retry.maxRetries, else the run fails: the noted retries spend none of
-# the retries
+# retry policy can cure that is no stream cut, to the request after i
+# retries that spent retry.maxRetries and j noted retries of its
+# generation (attempt 1 + i + j, j notes; any ms waited, compacted or
+# not), is retried exactly while i is below retry.maxRetries, else the run
+# fails: the noted retries spend none of the retries
 # EXCLUDES: a retry past retry.maxRetries, one retry too few, notes
-#   counted against the retries, a retry read as a noted retry
+#   counted against the retries, a retry read as a noted retry, a stream
+#   cut (run_stream_budget)
 law run_retry_budget:
   for +l: RnDecision.Lim
   for +i: Nat
   for +j: Nat
+  for +k: Nat
   for +w: Nat
   for +c: Bool
-  {RnDecision.decide.reply(l, RnDecision.At{1n+Nat.add(j, i), j, w, c}, RnState.Error{True{}, False{}}) == then_if(Nat.is_lt(i, RnDecision.Lim.retries(l)), RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}
+  {RnDecision.decide.reply(l, RnDecision.At{1n+Nat.add(j, i), j, k, w, c}, RnState.Error{True{}, False{}}, False{}) == then_if(Nat.is_lt(i, RnDecision.Lim.retries(l)), RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}
+
+# LAW run_stream_budget (H4.7): under any limits, a transient stream cut
+# (`stream`), to the request after i retries that spent
+# `retry.maxRetries`, j noted retries and k stream retries of its
+# generation (attempt 1 + i + j + k, j notes, k streams), is retried on
+# the stream budget exactly while k is below `model.streamRetries`, and a
+# cut past that budget decides as without the flag: the stream retries
+# spend none of retry.maxRetries
+# EXCLUDES: a stream retry past the budget read as a retry of
+#   retry.maxRetries, a cut below the budget failed, a non-cut error
+#   retried on the stream budget
+law run_stream_budget:
+  for +l: RnDecision.Lim
+  for +i: Nat
+  for +j: Nat
+  for +k: Nat
+  for +w: Nat
+  for +c: Bool
+  {RnDecision.decide.reply(l, RnDecision.At{1n+Nat.add(Nat.add(j, i), k), j, k, w, c}, RnState.Error{True{}, False{}}, True{}) == then_if(Nat.is_lt(k, RnDecision.Lim.streams(l)), RnDecision.DoRetry{}, RnDecision.decide.reply(l, RnDecision.At{1n+Nat.add(Nat.add(j, i), k), j, k, w, c}, RnState.Error{True{}, False{}}, False{})) : RnDecision.Then}
+
+# LAW run_stream_flag_ignored (H4.7): under any limits, from any counts,
+# the stream flag changes no decision but a stream cut's: a reply with
+# text or calls, a deferred reply, a noted reply, an error the policy
+# cannot cure, and an overflow decide the same with the flag and without
+# it
+# EXCLUDES: a noted reply retried on the stream budget, a deferred reply
+#   polled on it, an overflow compacted by it
+law run_stream_flag_ignored:
+  for +l: RnDecision.Lim
+  for +t: RnDecision.At
+  for +retryable: Bool
+  for +noted: Bool
+  for +cut: Bool
+  {RnDecision.decide.reply(l, t, RnState.Plain{}, True{}) == RnDecision.decide.reply(l, t, RnState.Plain{}, False{}) : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Calls{}, True{}) == RnDecision.decide.reply(l, t, RnState.Calls{}, False{}) : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Deferred{}, True{}) == RnDecision.decide.reply(l, t, RnState.Deferred{}, False{}) : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Error{retryable, noted}, Bool.not(RnDecision.Reply.cut(RnState.Error{retryable, noted}))) == RnDecision.decide.reply(l, t, RnState.Error{retryable, noted}, False{}) : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Overflow{cut}, True{}) == RnDecision.decide.reply(l, t, RnState.Overflow{cut}, False{}) : RnDecision.Then}
 
 # LAW run_unretryable_error_fails (H4.7): under any limits, from any
 # counts, an error that is not noted and that the retry policy cannot
@@ -605,7 +647,7 @@ law run_retry_budget:
 law run_unretryable_error_fails:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, t, RnState.Error{False{}, False{}}) == RnDecision.DoFail{} : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Error{False{}, False{}}, False{}) == RnDecision.DoFail{} : RnDecision.Then}
 
 # LAW run_note_budget (H4.7): under any limits, from any counts, a noted
 # reply (retryable or not) is retried with a note exactly while the
@@ -618,7 +660,7 @@ law run_note_budget:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +retryable: Bool
-  {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}, False{}) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
 
 # LAW run_deferred_polls_until_deadline (H4.4): under any limits, from any
 # counts, a deferred reply polls the same job while the ms its request
@@ -629,7 +671,7 @@ law run_note_budget:
 law run_deferred_polls_until_deadline:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, t, RnState.Deferred{}) == then_if(Nat.is_lt(RnDecision.At.waited(t), RnDecision.Lim.wait(l)), RnDecision.DoPoll{}, RnDecision.DoLate{}) : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Deferred{}, False{}) == then_if(Nat.is_lt(RnDecision.At.waited(t), RnDecision.Lim.wait(l)), RnDecision.DoPoll{}, RnDecision.DoLate{}) : RnDecision.Then}
 
 # LAW run_overflow_compacts_once (H4.9): under any limits, at any attempt,
 # notes and ms waited, an overflow with a cut compacts when the generation
@@ -641,11 +683,12 @@ law run_overflow_compacts_once:
   for +l: RnDecision.Lim
   for +a: Nat
   for +j: Nat
+  for +k: Nat
   for +w: Nat
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, RnDecision.At{a, j, w, False{}}, RnState.Overflow{True{}}) == RnDecision.DoCompact{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, RnDecision.At{a, j, w, True{}}, RnState.Overflow{True{}}) == RnDecision.DoFail{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, t, RnState.Overflow{False{}}) == RnDecision.DoFail{} : RnDecision.Then}
+  {RnDecision.decide.reply(l, RnDecision.At{a, j, k, w, False{}}, RnState.Overflow{True{}}, False{}) == RnDecision.DoCompact{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, RnDecision.At{a, j, k, w, True{}}, RnState.Overflow{True{}}, False{}) == RnDecision.DoFail{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Overflow{False{}}, False{}) == RnDecision.DoFail{} : RnDecision.Then}
 
 # LAW run_message_reply (H4.1, H4.7): what follows a message that ends the
 # model's turn, read by Ended.reply and then decided by decide.reply (the
@@ -659,9 +702,9 @@ law run_message_reply:
   for text: Bool
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{text, True{}})) == RnDecision.DoTools{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{True{}, False{}})) == RnDecision.DoAnswer{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{False{}, False{}})) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{text, True{}}), False{}) == RnDecision.DoTools{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{True{}, False{}}), False{}) == RnDecision.DoAnswer{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, t, RnState.Ended.reply(RnState.Ended{False{}, False{}}), False{}) == then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
 
 # LAW run_prepare_follows_the_thresholds (H4.9, spec section 8.3): a
 # context under every threshold sends its request with no compaction,
@@ -753,17 +796,18 @@ law run_round_counts_down:
   {RnState.St.r(RnStep.tools(RnDecision.Lim.cfg(l), RnDecision.fin.of(False{}, reset), RnDecision.Lim.r(l, count), c, a, n, p)) == RnDecision.Lim.r(l, 1n+count) : Nat}
 
 # the counts of the request a noted retry sends: one more attempt and
-# one more note (`retry_note`, then the retry phase)
+# one more note, the stream retries kept (`retry_note`, then the retry
+# phase)
 def rust.noted_next(t: RnDecision.At) -> RnDecision.At:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
-      RnDecision.At{1n+attempt, 1n+notes, 0n, compacted}
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
+      RnDecision.At{1n+attempt, 1n+notes, streams, 0n, compacted}
 
 # the counts of the request a transient retry sends: one more attempt
 def rust.retried_next(t: RnDecision.At) -> RnDecision.At:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
-      RnDecision.At{1n+attempt, notes, 0n, compacted}
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
+      RnDecision.At{1n+attempt, notes, streams, 0n, compacted}
 
 # LAW run_note_counts_down: a noted reply leaves the notes left of the request its retry
 # sends
@@ -814,27 +858,33 @@ law run_retry_keeps_the_notes:
 
 # the counts of a request within its limits: notes at most MAX_NOTES,
 # an attempt per note and one more, retries spent at most
-# retry.maxRetries, the ms waited at most the job's
+# retry.maxRetries, the ms waited at most the job's, the stream retries
+# at most model.streamRetries. A generation that spent stream retries
+# pushes its attempts past 1 + notes + retry.maxRetries, so it is without
+# (the losslessness of its counts reads from its checkpoints, not from
+# the counts left)
 def rust.within(l: RnDecision.Lim, t: RnDecision.At) -> Bool:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
+    case RnDecision.Lim{rounds, wait, retries, most, streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, waited, compacted}:
-          Bool.and(Nat.is_le(notes, most), Bool.and(Nat.is_le(1n+notes, attempt), Bool.and(Nat.is_le(Nat.sub(Nat.sub(attempt, 1n), notes), retries), Nat.is_le(waited, wait))))
+        case RnDecision.At{+attempt, +notes, +spent, waited, compacted}:
+          Bool.and(Nat.is_le(notes, most), Bool.and(Nat.is_le(1n+notes, attempt), Bool.and(Nat.is_le(Nat.sub(Nat.sub(attempt, 1n), notes), retries), Bool.and(Nat.is_le(waited, wait), Nat.is_le(spent, streams)))))
 
-# the counts Rust keeps, read back from the counts left
-def rust.back(l: RnDecision.Lim, a: Nat, +n: Nat, p: Nat, c: Nat) -> RnDecision.At:
+# the counts Rust keeps, read back from the counts left and the stream
+# retries the retry's checkpoint keeps (the model's counts cover no
+# stream budget: decide.reply spends it before it calls the machine)
+def rust.back(l: RnDecision.Lim, a: Nat, +n: Nat, p: Nat, c: Nat, +k: Nat) -> RnDecision.At:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, +most}:
-      RnDecision.At{1n+Nat.add(Nat.sub(retries, a), Nat.sub(most, n)), Nat.sub(most, n), Nat.sub(wait, p), Nat.is_eq(c, 0n)}
+    case RnDecision.Lim{rounds, wait, retries, +most, +streams}:
+      RnDecision.At{1n+Nat.add(Nat.sub(retries, a), Nat.sub(most, n)), Nat.sub(most, n), k, Nat.sub(wait, p), Nat.is_eq(c, 0n)}
 
 # LAW run_counts_lossless: the counts left lose nothing: within its limits, a request's
-# counts come back from the counts left the model reads
+# counts come back from the counts left and the stream retries spent
 law run_counts_lossless:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +w: {rust.within(l, t) == True{} : Bool}
-  {rust.back(l, RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t), RnDecision.At.c(t)) == t : RnDecision.At}
+  {rust.back(l, RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t), RnDecision.At.c(t), RnDecision.At.streams(t)) == t : RnDecision.At}
 
 # LAW run_counts_within_witness: witness: counts within their limits exist
 law run_counts_within_witness:
@@ -843,10 +893,11 @@ law run_counts_within_witness:
   {rust.within(l, t) == True{} : Bool}
 
 # LAW run_limits_terms_exact (H4.4, H4.7, H4.9): the limits' accessors the decision laws
-# read (run_retry_budget, run_note_budget, run_message_reply,
-# run_deferred_polls_until_deadline, the round laws, the recoveries) are
-# its fields: maxToolRounds, the job's ms, retry.maxRetries and MAX_NOTES,
-# each the one Rust sends
+# read (run_retry_budget, run_stream_budget, run_note_budget,
+# run_message_reply, run_deferred_polls_until_deadline, the round laws,
+# the recoveries) are its fields: maxToolRounds, the job's ms,
+# retry.maxRetries, MAX_NOTES and model.streamRetries, each the one Rust
+# sends
 # EXCLUDES: MAX_NOTES read as retry.maxRetries (or any limit read as
 #   another), which every decision law stated through the accessors lets
 #   through
@@ -855,20 +906,23 @@ law run_limits_terms_exact:
   for +w: Nat
   for +a: Nat
   for +n: Nat
-  {RnDecision.Lim.rounds(RnDecision.Lim{r, w, a, n}) == r : Nat} & {RnDecision.Lim.wait(RnDecision.Lim{r, w, a, n}) == w : Nat} & {RnDecision.Lim.retries(RnDecision.Lim{r, w, a, n}) == a : Nat} & {RnDecision.Lim.notes(RnDecision.Lim{r, w, a, n}) == n : Nat}
+  for +s: Nat
+  {RnDecision.Lim.rounds(RnDecision.Lim{r, w, a, n, s}) == r : Nat} & {RnDecision.Lim.wait(RnDecision.Lim{r, w, a, n, s}) == w : Nat} & {RnDecision.Lim.retries(RnDecision.Lim{r, w, a, n, s}) == a : Nat} & {RnDecision.Lim.notes(RnDecision.Lim{r, w, a, n, s}) == n : Nat} & {RnDecision.Lim.streams(RnDecision.Lim{r, w, a, n, s}) == s : Nat}
 
 # LAW run_counts_terms_exact (H4.4, H4.7, H4.9): the counters' accessors the decision laws
-# read are its fields: the attempt, the noted retries, the ms waited and
-# whether the generation compacted, each the one Rust sends
+# read are its fields: the attempt, the noted retries, the stream
+# retries, the ms waited and whether the generation compacted, each the
+# one Rust sends
 # EXCLUDES: the noted retries read as the attempt (or any counter read as
 #   another), which every decision law stated through the accessors lets
 #   through
 law run_counts_terms_exact:
   for +a: Nat
   for +n: Nat
+  for +k: Nat
   for +w: Nat
   for +c: Bool
-  {RnDecision.At.attempt(RnDecision.At{a, n, w, c}) == a : Nat} & {RnDecision.At.notes(RnDecision.At{a, n, w, c}) == n : Nat} & {RnDecision.At.waited(RnDecision.At{a, n, w, c}) == w : Nat} & {RnDecision.At.compacted(RnDecision.At{a, n, w, c}) == c : Bool}
+  {RnDecision.At.attempt(RnDecision.At{a, n, k, w, c}) == a : Nat} & {RnDecision.At.notes(RnDecision.At{a, n, k, w, c}) == n : Nat} & {RnDecision.At.streams(RnDecision.At{a, n, k, w, c}) == k : Nat} & {RnDecision.At.waited(RnDecision.At{a, n, k, w, c}) == w : Nat} & {RnDecision.At.compacted(RnDecision.At{a, n, k, w, c}) == c : Bool}
 
 # LAW run_rounds_lossless: the rounds left lose nothing: below the cap, the rounds made come
 # back from the rounds left
@@ -941,7 +995,7 @@ law run_failed_poll_is_the_job_model:
   for +failed: Nat
   for +budget: Nat
   for +gap: Nat
-  {rust.job(RnDecision.decide.poll(retryable, failed, RnDecision.Lim.retries(l)), RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(RnDecision.Lim.retries(l), budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}
+  {rust.job(RnDecision.decide.poll(retryable, failed, RnDecision.Lim.retries(l)), RnDecision.decide.reply(l, t, RnState.Deferred{}, False{})) == R.Step.act(R.step(RnDecision.Lim.retries(l), budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}
 
 # LAW run_deferred_reply_is_the_job_model: a deferred reply to a poll of a live job, from any counts, does
 # what the job of bend/retry.bend section 4 does with the ms left: it
@@ -954,7 +1008,7 @@ law run_deferred_reply_is_the_job_model:
   for +budget: Nat
   for +failed: Nat
   for +gap: Nat
-  {rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(fails, budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Later{gap})) : R.Act}
+  {rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{}, False{})) == R.Step.act(R.step(fails, budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Later{gap})) : R.Act}
 
 # LAW run_first_deferred_reply_is_the_job_model: the first deferred reply of a request does what the job of
 # bend/retry.bend section 4 does with a new job of the ms left
@@ -963,19 +1017,19 @@ law run_first_deferred_reply_is_the_job_model:
   for +t: RnDecision.At
   for +fails: Nat
   for +gap: Nat
-  {rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(fails, RnDecision.At.p(l, t), R.NoJob{}, R.Later{gap})) : R.Act}
+  {rust.later(RnDecision.decide.reply(l, t, RnState.Deferred{}, False{})) == R.Step.act(R.step(fails, RnDecision.At.p(l, t), R.NoJob{}, R.Later{gap})) : R.Act}
 
 # the limits with the job's ms saturated at cap
 def rust.sat_wait(l: RnDecision.Lim, +cap: Nat) -> RnDecision.Lim:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
-      RnDecision.Lim{rounds, Nat.min(wait, cap), retries, most}
+    case RnDecision.Lim{rounds, wait, retries, most, streams}:
+      RnDecision.Lim{rounds, Nat.min(wait, cap), retries, most, streams}
 
 # the counts with the attempt saturated at cap
 def rust.sat_attempt(t: RnDecision.At, +cap: Nat) -> RnDecision.At:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
-      RnDecision.At{Nat.min(attempt, cap), notes, waited, compacted}
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
+      RnDecision.At{Nat.min(attempt, cap), notes, streams, waited, compacted}
 
 # LAW run_reply_saturates_the_wait: Rust saturates the job's ms and the ms waited (u64s) at the wire's
 # largest Nat (10^14 - 1) before it encodes them: for a request that
@@ -985,9 +1039,10 @@ law run_reply_saturates_the_wait:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +reply: RnState.Reply
+  for +stream: Bool
   for +cap: Nat
   for +e: {Nat.is_lt(RnDecision.At.waited(t), cap) == True{} : Bool}
-  {RnDecision.decide.reply(rust.sat_wait(l, cap), t, reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}
+  {RnDecision.decide.reply(rust.sat_wait(l, cap), t, reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}
 
 # LAW run_reply_saturates_the_attempt: Rust saturates the attempt (a u64) at the wire's largest Nat: any
 # cap above notes + retry.maxRetries (two u32s) leaves the step after any
@@ -997,9 +1052,10 @@ law run_reply_saturates_the_attempt:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +reply: RnState.Reply
+  for +stream: Bool
   for +cap: Nat
   for +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}
-  {RnDecision.decide.reply(l, rust.sat_attempt(t, cap), reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}
+  {RnDecision.decide.reply(l, rust.sat_attempt(t, cap), reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}
 
 # LAW run_entry_example (H4.10): anchor (no coverage): the wire strings Rust writes and
 # the answers it reads, one of each request: the third empty note in a

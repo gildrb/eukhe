@@ -5,4 +5,4 @@ import ../../bend/run/decision.bend as RnDecision
 import ../../laws/run/model.bend as Run
 
 def Run.run_retry_premise_witness():
-  (RnDecision.At{1n, 0n, 0n, False{}}, {==})
+  (RnDecision.At{1n, 0n, 0n, 0n, False{}}, {==})

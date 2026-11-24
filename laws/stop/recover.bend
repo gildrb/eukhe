@@ -404,9 +404,10 @@ law stop_shrink_once_a_generation:
   for +at: Nat
   for +notes: Nat
   for +waited: Nat
+  for +k: Nat
   for -pass: RnState.Reply
-  {RnDecision.decide.reply(l, RnDecision.At{at, notes, waited, False{}}, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass)) == RnDecision.DoCompact{} : RnDecision.Then} &
-  {RnDecision.decide.reply(l, RnDecision.At{at, notes, waited, True{}}, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass)) == RnDecision.DoFail{} : RnDecision.Then}
+  {RnDecision.decide.reply(l, RnDecision.At{at, notes, k, waited, False{}}, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass), False{}) == RnDecision.DoCompact{} : RnDecision.Then} &
+  {RnDecision.decide.reply(l, RnDecision.At{at, notes, k, waited, True{}}, RnRecovery.Act.reply(RnRecovery.Shrink{}, pass), False{}) == RnDecision.DoFail{} : RnDecision.Then}
 
 # Laws: the recoveries' helpers other laws read (R9)
 # -------------------------------------------------
@@ -443,7 +444,7 @@ law stop_act_never_answers:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for helps: {RnRecovery.Act.helps(a) == True{} : Bool}
-  {is_answer(RnDecision.decide.reply(l, t, RnRecovery.Act.reply(a, q))) == False{} : Bool}
+  {is_answer(RnDecision.decide.reply(l, t, RnRecovery.Act.reply(a, q), False{})) == False{} : Bool}
 
 # LAW stop_capped_past_the_cap (R9): under any caps, a row past its cap is
 # not capped (Rk.capped, the test rec_notes_capped reads): past long + 1

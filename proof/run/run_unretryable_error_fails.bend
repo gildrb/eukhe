@@ -1,6 +1,6 @@
 # eukhe: the proof of LAW run_unretryable_error_fails
 #
-# PROOF: the reply's step is the rule over the grown counts (LA.rk.reply_rule); an error the policy cannot cure is no retry.
+# PROOF: the reply's step is the rule over the grown counts (LA.rk.reply_rule).
 
 import Base
 import ../../bend/run/decision.bend as RnDecision
@@ -10,7 +10,7 @@ import ./base.bend as LA
 
 def Run.run_unretryable_error_fails(l, t):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
-          LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{False{}, False{}})
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
+          LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Error{False{}, False{}})

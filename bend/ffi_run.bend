@@ -17,7 +17,7 @@ import ./run/decision.bend as MDecision
 # A request: the decision Rust asks for and its inputs (the tag is the
 # index of the constructor)
 type Ask is Data:
-  AskReply{l: MDecision.Lim, t: MDecision.At, reply: MState.Reply}
+  AskReply{l: MDecision.Lim, t: MDecision.At, reply: MState.Reply, stream: Bool}
   AskEnded{m: MState.Ended}
   AskPrepare{compacted: Bool, th: MDecision.Th}
   AskCompact{over: Bool, got: MState.Got}
@@ -30,13 +30,20 @@ type Ask is Data:
 
 def put_lim(x: MDecision.Lim, rest: String) -> String:
   match x:
-    case MDecision.Lim{rounds, wait, retries, notes}:
-      W.put_nat(rounds, W.put_nat(wait, W.put_nat(retries, W.put_nat(notes, rest))))
+    case MDecision.Lim{rounds, wait, retries, notes, streams}:
+      W.put_nat(rounds, W.put_nat(wait, W.put_nat(retries, W.put_nat(notes, W.put_nat(streams, rest)))))
+
+def get_lim.f4(rounds: Nat, wait: Nat, retries: Nat, notes: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Lim>:
+  match d:
+    case W.Got{streams, r}:
+      W.Got{MDecision.Lim{rounds, wait, retries, notes, streams}, r}
+    case W.Bad{}:
+      W.Bad{}
 
 def get_lim.f3(rounds: Nat, wait: Nat, retries: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.Lim>:
   match d:
     case W.Got{notes, r}:
-      W.Got{MDecision.Lim{rounds, wait, retries, notes}, r}
+      get_lim.f4(rounds, wait, retries, notes, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -66,20 +73,27 @@ def get_lim(s: String) -> W.Dec<MDecision.Lim>:
 
 def put_at(x: MDecision.At, rest: String) -> String:
   match x:
-    case MDecision.At{attempt, notes, waited, compacted}:
-      W.put_nat(attempt, W.put_nat(notes, W.put_nat(waited, W.put_bool(compacted, rest))))
+    case MDecision.At{attempt, notes, streams, waited, compacted}:
+      W.put_nat(attempt, W.put_nat(notes, W.put_nat(streams, W.put_nat(waited, W.put_bool(compacted, rest)))))
 
-def get_at.f3(attempt: Nat, notes: Nat, waited: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.At>:
+def get_at.f4(attempt: Nat, notes: Nat, streams: Nat, waited: Nat, d: W.Dec<Bool>) -> W.Dec<MDecision.At>:
   match d:
     case W.Got{compacted, r}:
-      W.Got{MDecision.At{attempt, notes, waited, compacted}, r}
+      W.Got{MDecision.At{attempt, notes, streams, waited, compacted}, r}
+    case W.Bad{}:
+      W.Bad{}
+
+def get_at.f3(attempt: Nat, notes: Nat, streams: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.At>:
+  match d:
+    case W.Got{waited, r}:
+      get_at.f4(attempt, notes, streams, waited, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
 def get_at.f2(attempt: Nat, notes: Nat, d: W.Dec<Nat>) -> W.Dec<MDecision.At>:
   match d:
-    case W.Got{waited, r}:
-      get_at.f3(attempt, notes, waited, W.get_bool(r))
+    case W.Got{streams, r}:
+      get_at.f3(attempt, notes, streams, W.get_nat(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -415,8 +429,8 @@ def get_rk(s: String) -> W.Dec<MRecovery.Rk>:
 
 def put_ask(x: Ask, rest: String) -> String:
   match x:
-    case AskReply{l, t, reply}:
-      W.put_nat(0n, put_lim(l, put_at(t, put_reply(reply, rest))))
+    case AskReply{l, t, reply, stream}:
+      W.put_nat(0n, put_lim(l, put_at(t, put_reply(reply, W.put_bool(stream, rest)))))
     case AskEnded{m}:
       W.put_nat(1n, put_ended(m, rest))
     case AskPrepare{compacted, th}:
@@ -430,10 +444,17 @@ def put_ask(x: Ask, rest: String) -> String:
     case AskPoll{retryable, failures, retries}:
       W.put_nat(6n, W.put_bool(retryable, W.put_nat(failures, W.put_nat(retries, rest))))
 
+def get_ask.c0.f3(l: MDecision.Lim, t: MDecision.At, reply: MState.Reply, d: W.Dec<Bool>) -> W.Dec<Ask>:
+  match d:
+    case W.Got{stream, r}:
+      W.Got{AskReply{l, t, reply, stream}, r}
+    case W.Bad{}:
+      W.Bad{}
+
 def get_ask.c0.f2(l: MDecision.Lim, t: MDecision.At, d: W.Dec<MState.Reply>) -> W.Dec<Ask>:
   match d:
     case W.Got{reply, r}:
-      W.Got{AskReply{l, t, reply}, r}
+      get_ask.c0.f3(l, t, reply, W.get_bool(r))
     case W.Bad{}:
       W.Bad{}
 
@@ -798,8 +819,8 @@ def get_help(s: String) -> W.Dec<MDecision.Help>:
 # The answer to a request: the value of its decision
 def answer(a: Ask) -> String:
   match a:
-    case AskReply{l, t, reply}:
-      put_then(MDecision.decide.reply(l, t, reply), "")
+    case AskReply{l, t, reply, stream}:
+      put_then(MDecision.decide.reply(l, t, reply, stream), "")
     case AskEnded{m}:
       put_reply(MState.Ended.reply(m), "")
     case AskPrepare{compacted, th}:

@@ -290,6 +290,10 @@ pub struct HarnessSettings {
     pub extensions: Option<Vec<Arc<Extension>>>,
     pub stream: Option<ConversationStreamOptions>,
     pub retry: Option<PartialRetryPolicy>,
+    /// `model.streamRetries`: the same-model stream retries one turn may
+    /// spend on a transient cut of its provider stream
+    /// ([`Settings::stream_retries`]).
+    pub stream_retries: Option<u32>,
     pub compaction: Option<PartialCompactionPolicy>,
     pub progress: Option<PartialProgressPolicy>,
     pub tool_execution: Option<ToolExecutionMode>,
@@ -326,6 +330,11 @@ pub struct Settings {
     pub extensions: Option<Vec<Arc<Extension>>>,
     pub stream: ConversationStreamOptions,
     pub retry: ConversationRetryPolicy,
+    /// The same-model stream retries one turn may spend on a transient cut
+    /// of its provider stream (`model.streamRetries`, default
+    /// [`crate::harness::agent::DEFAULT_STREAM_RETRIES`]); a cut past the
+    /// budget goes on as without it.
+    pub stream_retries: u32,
     pub compaction: CompactionPolicy,
     pub progress: ProgressPolicy,
     pub tool_execution: ToolExecutionMode,

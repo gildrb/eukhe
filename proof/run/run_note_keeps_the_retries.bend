@@ -26,9 +26,9 @@ def rk.s1(+x: Nat, +y: Nat) -> {Nat.sub(Nat.sub(x, 1n), y) == Nat.sub(Nat.sub(1n
 
 def rk.run_note_keeps_the_retries(+l: RnDecision.Lim, +t: RnDecision.At, +r: Nat, +c: Nat, +p: Nat) -> {RnState.St.a(RnStep.note(RnDecision.Lim.cfg(l), r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.a(l, Run.rust.noted_next(t)) : Nat}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           +cfg = {RnState.Cfg{rounds, wait, retries, most} : RnState.Cfg}
           +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))
           %rk.na(cfg, r, c, a, p, Nat.sub(most, notes)) : {_ == Nat.sub(retries, Nat.sub(Nat.sub(1n+attempt, 1n), 1n+notes)) : Nat}

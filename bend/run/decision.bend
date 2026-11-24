@@ -22,61 +22,73 @@ import ./recovery.bend as RnRecovery
 
 # rounds: maxToolRounds (at least 1); wait: the ms the request's
 # deferred job may run (`Limits::max_wait`); retries: retry.maxRetries;
-# notes: MAX_NOTES
+# notes: MAX_NOTES; streams: model.streamRetries
 type Lim is Data:
-  Lim{rounds: Nat, wait: Nat, retries: Nat, notes: Nat}
+  Lim{rounds: Nat, wait: Nat, retries: Nat, notes: Nat, streams: Nat}
 
 def Lim.rounds(l: Lim) -> Nat:
   match l:
-    case Lim{rounds, wait, retries, notes}:
+    case Lim{rounds, wait, retries, notes, streams}:
       rounds
 
 def Lim.wait(l: Lim) -> Nat:
   match l:
-    case Lim{rounds, wait, retries, notes}:
+    case Lim{rounds, wait, retries, notes, streams}:
       wait
 
 def Lim.retries(l: Lim) -> Nat:
   match l:
-    case Lim{rounds, wait, retries, notes}:
+    case Lim{rounds, wait, retries, notes, streams}:
       retries
 
 def Lim.notes(l: Lim) -> Nat:
   match l:
-    case Lim{rounds, wait, retries, notes}:
+    case Lim{rounds, wait, retries, notes, streams}:
       notes
+
+def Lim.streams(l: Lim) -> Nat:
+  match l:
+    case Lim{rounds, wait, retries, notes, streams}:
+      streams
 
 # the counters of one request (`Counts`): attempt, 1 for a generation's
 # first request and one more per retry; notes, the noted retries so far;
-# waited, the ms since the request was sent; compacted, the generation
-# compacted (it compacts at most once)
+# streams, the stream retries the generation spent so far; waited, the ms
+# since the request was sent; compacted, the generation compacted (it
+# compacts at most once)
 type At is Data:
-  At{attempt: Nat, notes: Nat, waited: Nat, compacted: Bool}
+  At{attempt: Nat, notes: Nat, streams: Nat, waited: Nat, compacted: Bool}
 
 def At.attempt(t: At) -> Nat:
   match t:
-    case At{attempt, notes, waited, compacted}:
+    case At{attempt, notes, streams, waited, compacted}:
       attempt
 
 def At.notes(t: At) -> Nat:
   match t:
-    case At{attempt, notes, waited, compacted}:
+    case At{attempt, notes, streams, waited, compacted}:
       notes
+
+def At.streams(t: At) -> Nat:
+  match t:
+    case At{attempt, notes, streams, waited, compacted}:
+      streams
 
 def At.waited(t: At) -> Nat:
   match t:
-    case At{attempt, notes, waited, compacted}:
+    case At{attempt, notes, streams, waited, compacted}:
       waited
 
 def At.compacted(t: At) -> Bool:
   match t:
-    case At{attempt, notes, waited, compacted}:
+    case At{attempt, notes, streams, waited, compacted}:
       compacted
 
-# the limits as the model's Cfg
+# the limits as the model's Cfg (the stream budget is no Cfg count: the
+# machine below knows it not; decide.reply spends it before it calls)
 def Lim.cfg(l: Lim) -> RnState.Cfg:
   match l:
-    case Lim{rounds, wait, retries, notes}:
+    case Lim{rounds, wait, retries, notes, streams}:
       RnState.Cfg{rounds, wait, retries, notes}
 
 # the compactions left: one until the generation compacted
@@ -170,10 +182,48 @@ def Reply.noted(r: RnState.Reply) -> Bool:
     case RnState.Overflow{cut}:
       False{}
 
+# whether a reply is a transient cut the stream budget may retry: a
+# transient error that is not noted (a noted reply spends a note, never a
+# stream retry)
+def Reply.cut(r: RnState.Reply) -> Bool:
+  match r:
+    case RnState.Plain{}:
+      False{}
+    case RnState.Calls{}:
+      False{}
+    case RnState.Deferred{}:
+      False{}
+    case RnState.Error{retryable, noted}:
+      Bool.and(retryable, Bool.not(noted))
+    case RnState.Overflow{cut}:
+      False{}
+
+# `retry` while the budget left is at least one, else `spent_out`
+def Then.on_left(spent_out: Then, left: Nat) -> Then:
+  match left:
+    case 1n+gone:
+      DoRetry{}
+    case 0n:
+      spent_out
+
+# `retry` when a stream cut has stream retries left (the generation spent
+# `spent` of `streams`), else `spent_out`: the budget spent goes on as
+# without it
+def Then.on_stream(spent_out: Then, cut: Bool, streams: Nat, spent: Nat) -> Then:
+  match cut:
+    case True{}:
+      Then.on_left(spent_out, Nat.sub(streams, spent))
+    case False{}:
+      spent_out
+
 # the step after a reply to the request or poll that `t` counts
-# (`after_reply`)
-def decide.reply(+l: Lim, +t: At, +reply: RnState.Reply) -> Then:
-  Then.ph(Reply.noted(reply), RnState.St.ph(RnStep.call(Lim.cfg(l), reply, 0n, At.c(t), At.a(l, t), At.n(l, t), At.p(l, t))))
+# (`after_reply`); `stream`: the reply is a transient cut of its provider
+# stream, which retries on the stream budget (`Lim.streams`, spent in
+# `At.streams`) while that budget lasts, a cut past it and every other
+# reply decided as without the flag
+def decide.reply(+l: Lim, +t: At, +reply: RnState.Reply, stream: Bool) -> Then:
+  +base = Then.ph(Reply.noted(reply), RnState.St.ph(RnStep.call(Lim.cfg(l), reply, 0n, At.c(t), At.a(l, t), At.n(l, t), At.p(l, t))))
+  Then.on_stream(base, Bool.and(stream, Reply.cut(reply)), Lim.streams(l), At.streams(t))
 
 # which threshold compaction the context is over, given a cut exists
 # (`threshold_for`, then a cut): none, the background one, the blocking

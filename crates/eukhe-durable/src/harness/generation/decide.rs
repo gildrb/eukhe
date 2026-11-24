@@ -193,6 +193,8 @@ pub(crate) struct Limits {
     pub(crate) max_wait: u64,
     /// `retry.maxRetries`.
     pub(crate) max_retries: u32,
+    /// `model.streamRetries`.
+    pub(crate) max_stream_retries: u32,
     /// [`MAX_NOTES`].
     pub(crate) max_notes: u32,
 }
@@ -205,6 +207,10 @@ pub(crate) struct Counts {
     /// The noted retries of the generation so far (each spends a note,
     /// not a retry).
     pub(crate) notes: u32,
+    /// The stream retries the generation spent so far (each spent on a
+    /// transient cut of its provider stream, [`Limits::max_stream_retries`]
+    /// bounds them).
+    pub(crate) streams: u32,
     /// The ms since the request was sent, at this reply.
     pub(crate) waited: u64,
     /// The generation compacted; it compacts at most once.
@@ -271,12 +277,14 @@ impl Ended {
     }
 }
 
-/// The limits as the run's entry reads them (`Lim`).
+/// The limits as the run's entry reads them (`Lim`): the order of
+/// `put_lim` of `bend/ffi_run.bend`.
 fn write_limits(w: &mut Writer, limits: &Limits) {
     w.nat(u64::from(limits.max_rounds.get()))
         .nat(entry::saturated(limits.max_wait))
         .nat(u64::from(limits.max_retries))
-        .nat(u64::from(limits.max_notes));
+        .nat(u64::from(limits.max_notes))
+        .nat(u64::from(limits.max_stream_retries));
 }
 
 /// What follows a reply.
@@ -307,12 +315,22 @@ pub(crate) enum Failure {
 
 /// The step after a reply to the request or poll counted by `at`. A noted
 /// reply spends a note and a transient error a retry: neither shrinks
-/// the other's budget. The decision is `decide.reply` of `bend/run/decision.bend`
-/// (laws `run_retry_budget`, `run_note_budget`,
-/// `run_deferred_polls_until_deadline`, `run_overflow_compacts_once`,
-/// `run_reply_answers_or_runs_tools`); a poll goes on with the deferred
-/// reply's handle.
-pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> Step<D> {
+/// the other's budget. `stream`: the reply is a transient cut of its
+/// provider stream ([`is_stream_cut`]); while the generation spent fewer
+/// stream retries than `limits.max_stream_retries` it retries on the
+/// stream budget (spending none of `retry.maxRetries`), a cut past the
+/// budget and every other reply decided as without the flag. The decision
+/// is `decide.reply` of `bend/run/decision.bend`
+/// (laws `run_retry_budget`, `run_stream_budget`, `run_stream_flag_ignored`,
+/// `run_note_budget`, `run_deferred_polls_until_deadline`,
+/// `run_overflow_compacts_once`, `run_reply_answers_or_runs_tools`); a poll
+/// goes on with the deferred reply's handle.
+pub(crate) fn after_reply<D>(
+    at: Counts,
+    reply: Reply<D>,
+    stream: bool,
+    limits: &Limits,
+) -> Step<D> {
     let (shape, handle) = match reply {
         Reply::Deferred(handle) => (Reply::Deferred(()), Some(handle)),
         Reply::Text => (Reply::Text, None),
@@ -326,6 +344,7 @@ pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> St
             write_limits(w, limits);
             w.nat(entry::saturated(at.attempt))
                 .nat(u64::from(at.notes))
+                .nat(u64::from(at.streams))
                 .nat(entry::saturated(at.waited))
                 .bool(at.compacted);
             match shape {
@@ -335,6 +354,7 @@ pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> St
                 Reply::Error { retryable, noted } => w.tag(3).bool(retryable).bool(noted),
                 Reply::Overflow { cut } => w.tag(4).bool(cut),
             };
+            w.bool(stream);
         },
         |r| match r.tag_of(8, "a step")? {
             0 => Ok(Step::Answer),
@@ -350,6 +370,28 @@ pub(crate) fn after_reply<D>(at: Counts, reply: Reply<D>, limits: &Limits) -> St
             8..=u32::MAX => Err(entry::mismatch("a step")),
         },
     )
+}
+
+/// Whether the decision [`after_reply`] just made spent a stream retry:
+/// the reply is a transient cut the stream budget covers
+/// ([`is_stream_cut`], a reply that is neither noted nor past it) and the
+/// generation spent fewer stream retries than the budget. The counter of
+/// the budget the decision reads (`decide.reply`, law `run_stream_budget`);
+/// the retry's checkpoint records it.
+pub(crate) fn spends_stream<D>(
+    reply: &Reply<D>,
+    stream: bool,
+    at: Counts,
+    limits: &Limits,
+) -> bool {
+    let cuts = matches!(
+        reply,
+        Reply::Error {
+            retryable: true,
+            noted: false
+        }
+    );
+    stream && cuts && at.streams < limits.max_stream_retries
 }
 
 /// The note the retry of the request counted by `at` ends with (H4.7): after
