@@ -5,9 +5,7 @@
 use eukhe_ai::utils::retry::{is_retryable_assistant_error, is_stream_cut};
 use eukhe_types::pi_ai::{AssistantMessage, StopReason};
 
-use super::super::{decide, GenerationCheckpoint};
-
-use super::*;
+use super::super::decide;
 
 /// A failed message whose newest stream failure recorded `details`.
 fn failure(error: &str, details: &serde_json::Value) -> AssistantMessage {
@@ -200,37 +198,37 @@ fn the_stream_cut_classification() {
 
     let reset = failure(
         "Connection error.",
-        serde_json::json!({ "kind": "unknown", "providerErrorType": "ECONNRESET" }),
+        &serde_json::json!({ "kind": "unknown", "providerErrorType": "ECONNRESET" }),
     );
     assert!(is_stream_cut(&reset));
 
     let rate_limited = failure(
         "429 Too many concurrent requests",
-        serde_json::json!({ "kind": "rate_limit", "status": 429, "retryAfterMs": 1000 }),
+        &serde_json::json!({ "kind": "rate_limit", "status": 429, "retryAfterMs": 1000 }),
     );
     assert!(!is_stream_cut(&rate_limited));
 
     let server_error = failure(
         "500 Internal Server Error",
-        serde_json::json!({ "kind": "server_error", "status": 500 }),
+        &serde_json::json!({ "kind": "server_error", "status": 500 }),
     );
     assert!(!is_stream_cut(&server_error));
 
     let auth = failure(
         "invalid api key",
-        serde_json::json!({ "kind": "auth", "status": 401 }),
+        &serde_json::json!({ "kind": "auth", "status": 401 }),
     );
     assert!(!is_stream_cut(&auth));
 
     let stalled = failure(
         "The provider stream sent no event for 10000 ms",
-        serde_json::json!({ "kind": "stream_stalled", "idleTimeoutMs": 10000 }),
+        &serde_json::json!({ "kind": "stream_stalled", "idleTimeoutMs": 10000 }),
     );
     assert!(!is_stream_cut(&stalled));
 
     let repeated = failure(
         "The model repeated 1 line 64 times",
-        serde_json::json!({ "kind": "stream_repeating", "repeated": { "period": 1, "line": "x" } }),
+        &serde_json::json!({ "kind": "stream_repeating", "repeated": { "period": 1, "line": "x" } }),
     );
     assert!(!is_stream_cut(&repeated));
 

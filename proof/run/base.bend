@@ -363,7 +363,7 @@ def rk.reply_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) 
 
 # the step of a reply under the stream flag: the base step through
 # on_stream over the reply's cut and the stream budget left
-def rk.r_stream(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply, stream: Bool) -> RnDecision.Then:
+def rk.r_stream(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +stream: Bool) -> RnDecision.Then:
   RnDecision.Then.on_stream(rk.r_reply(l, t, reply), Bool.and(stream, RnDecision.Reply.cut(reply)), RnDecision.Lim.streams(l), RnDecision.At.streams(t))
 
 def rk.stream_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +stream: Bool) -> {RnDecision.decide.reply(l, t, reply, stream) == rk.r_stream(l, t, reply, stream) : RnDecision.Then}:

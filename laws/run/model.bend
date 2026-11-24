@@ -1034,28 +1034,30 @@ def rust.sat_attempt(t: RnDecision.At, +cap: Nat) -> RnDecision.At:
 # LAW run_reply_saturates_the_wait: Rust saturates the job's ms and the ms waited (u64s) at the wire's
 # largest Nat (10^14 - 1) before it encodes them: for a request that
 # waited less than any cap (10^14 ms is 3000 years), the step after any
-# reply is the same. A wait at the cap never ends a job that waited less
+# reply decided without the stream flag is the same. A wait at the cap
+# never ends a job that waited less. A stream cut decides without the
+# wait (run_stream_budget: with budget left it retries whatever the ms
+# waited), so the flag path needs no own law
 law run_reply_saturates_the_wait:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +reply: RnState.Reply
-  for +stream: Bool
   for +cap: Nat
   for +e: {Nat.is_lt(RnDecision.At.waited(t), cap) == True{} : Bool}
-  {RnDecision.decide.reply(rust.sat_wait(l, cap), t, reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}
+  {RnDecision.decide.reply(rust.sat_wait(l, cap), t, reply, False{}) == RnDecision.decide.reply(l, t, reply, False{}) : RnDecision.Then}
 
 # LAW run_reply_saturates_the_attempt: Rust saturates the attempt (a u64) at the wire's largest Nat: any
 # cap above notes + retry.maxRetries (two u32s) leaves the step after any
-# reply the same (an attempt at the cap has spent every retry, as a
-# larger one)
+# reply decided without the stream flag the same (an attempt at the cap
+# has spent every retry, as a larger one). A stream cut decides without
+# the attempt (run_stream_budget), so the flag path needs no own law
 law run_reply_saturates_the_attempt:
   for +l: RnDecision.Lim
   for +t: RnDecision.At
   for +reply: RnState.Reply
-  for +stream: Bool
   for +cap: Nat
   for +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}
-  {RnDecision.decide.reply(l, rust.sat_attempt(t, cap), reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}
+  {RnDecision.decide.reply(l, rust.sat_attempt(t, cap), reply, False{}) == RnDecision.decide.reply(l, t, reply, False{}) : RnDecision.Then}
 
 # LAW run_entry_example (H4.10): anchor (no coverage): the wire strings Rust writes and
 # the answers it reads, one of each request: the third empty note in a
@@ -1206,10 +1208,11 @@ law run_round_terms_exact:
   for +wait: Nat
   for +retries: Nat
   for +notes: Nat
+  for +streams: Nat
   {RnDecision.fin.of(True{}, reset) == RnState.Stops{} : RnState.Fin} &
   {RnDecision.fin.of(False{}, True{}) == RnState.Resets{} : RnState.Fin} &
   {RnDecision.fin.of(False{}, False{}) == RnState.Goes{} : RnState.Fin} &
-  {RnDecision.Lim.cfg(RnDecision.Lim{rounds, wait, retries, notes}) == RnState.Cfg{rounds, wait, retries, notes} : RnState.Cfg}
+  {RnDecision.Lim.cfg(RnDecision.Lim{rounds, wait, retries, notes, streams}) == RnState.Cfg{rounds, wait, retries, notes} : RnState.Cfg}
 
 # LAW run_reqs_terms_exact (H4.7): the requests of a run and a request
 # read back the fields they were built with
