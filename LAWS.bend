@@ -42,7 +42,6 @@ import ./laws/effort/ladder.bend as EffortLadder
 import ./laws/effort/entry.bend as EffortEntry
 import ./laws/run/model.bend as Run
 import ./laws/run/entry.bend as RunEntry
-import ./laws/run/tags_ffi.bend as TagsFfi
 import ./laws/run/machine.bend as RunMachine
 import ./laws/run/recover.bend as RunRecover
 import ./laws/semver.bend as Semver
