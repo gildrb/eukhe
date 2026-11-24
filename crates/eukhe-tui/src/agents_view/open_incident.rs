@@ -27,13 +27,14 @@ impl AgentsViewMode {
         }
     }
 
-    /// The selected row's program target summary line (TS
-    /// `cycleProgramForSelected`'s target + `targetHasSpawnCode`,
-    /// :1701-1735): the agent row itself for a top-level selection, its
-    /// parent for a summary line or a nested child, resolved to the
-    /// target's summary row -- the one place that says whether the
-    /// program exists (the cycle and the hint slot both read it).
-    pub(super) fn program_target(&self) -> Option<&AgentsViewRow> {
+    /// The selected row's program target (TS `cycleProgramForSelected`'s
+    /// target + `targetHasSpawnCode`, :1701-1735): the agent row itself
+    /// for a top-level selection, its parent for a summary line or a
+    /// nested child -- present only when the target's children carry a
+    /// program (its summary line, or in a live tree its own row, says so).
+    /// The one place that says whether the program exists: the cycle and
+    /// the hint slot both read it.
+    pub(super) fn program_target(&self) -> Option<&str> {
         let row = self.rows.get(self.selected)?;
         let target = match row.kind {
             RowKind::Agent => row.identity.as_str(),
@@ -42,9 +43,10 @@ impl AgentsViewMode {
             // the match rule.
             RowKind::Code => return None,
         };
-        self.rows.iter().find(|row| {
-            row.kind == RowKind::SubagentSummary && row.parent_identity.as_deref() == Some(target)
-        })
+        self.rows
+            .iter()
+            .filter(|row| row.has_spawn_code)
+            .find_map(|row| row.program_owner().filter(|owner| *owner == target))
     }
 
     /// TS `cycleProgramForSelected` (:1696-1719): show or hide the spawn
@@ -52,13 +54,9 @@ impl AgentsViewMode {
     /// (the code sits directly above the subagents it launched), and a
     /// target with no recorded program reports instead of toggling.
     pub(super) fn cycle_program_for_selected(&mut self) {
-        // TS :1701-1708: no target summary line, or a line whose children
-        // carry no code, is the same report.
-        let target = match self.program_target() {
-            Some(summary) if summary.has_spawn_code => summary.parent_identity.clone(),
-            _ => None,
-        };
-        let Some(target) = target else {
+        // TS :1701-1708: no target, or a target whose children carry no
+        // code, is the same report.
+        let Some(target) = self.program_target().map(str::to_string) else {
             self.set_status("No program recorded for these subagents");
             return;
         };

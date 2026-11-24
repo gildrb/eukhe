@@ -17,6 +17,7 @@ mod entry_anchor;
 mod heartbeat_badge;
 mod hints_render;
 mod key_bindings;
+mod live_tree;
 mod notices;
 mod render_pulse;
 mod reply;
@@ -60,6 +61,7 @@ fn mode_with_row(title: &str, model: &str) -> (AgentsViewMode, usize) {
         cost: 0.0,
         age: "1s".to_string(),
         depth: 0,
+        guide: None,
         descendant_count: 0,
         running_subagent_count: 0,
         expanded: false,
@@ -216,9 +218,10 @@ fn scoped_mode(anchor: Option<&str>, roster: Vec<serde_json::Value>) -> AgentsVi
     mode
 }
 
-/// A mode over the same live parent/child roster whose user bindings
-/// replace keys (TS `keybindings.json` parity, the #184 binding-test
-/// pattern: an override fires, the default goes inert).
+/// A mode over a settled parent/child roster (the child behind the
+/// parent's ONE summary line) whose user bindings replace keys (TS
+/// `keybindings.json` parity, the #184 binding-test pattern: an
+/// override fires, the default goes inert).
 fn mode_with_user_bindings(bindings: &[(&str, &str)]) -> AgentsViewMode {
     let mut cfg = crate::keybindings::KeybindingsConfig::new();
     for (id, key) in bindings {
@@ -246,7 +249,7 @@ fn mode_with_user_bindings(bindings: &[(&str, &str)]) -> AgentsViewMode {
     });
     mode.roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("c", "running", &child_summary("c", "p", "worker one")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
     ];
     mode.rebuild_rows();
     mode

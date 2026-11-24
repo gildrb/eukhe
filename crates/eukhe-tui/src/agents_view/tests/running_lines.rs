@@ -95,9 +95,8 @@ fn a_childless_scope_is_an_empty_view_that_keeps_its_keys() {
 #[test]
 fn header_counts_exclude_nested_rows() {
     let mut mode = mode_with_parent_and_child();
-    mode.handle_key("alt+right");
-    assert_eq!(mode.rows.len(), 3);
-    assert_eq!(mode.rows[2].kind, RowKind::Subagent);
+    assert_eq!(mode.rows.len(), 2);
+    assert_eq!(mode.rows[1].kind, RowKind::Subagent);
     let (lines, _) = mode.render_frame(120, 36);
     let header = lines
         .iter()
@@ -114,7 +113,10 @@ fn header_counts_exclude_nested_rows() {
 
 #[test]
 fn alt_right_toggles_the_subagent_list() {
+    // A settled tree: its child sits behind the ONE summary line.
     let mut mode = mode_with_parent_and_child();
+    mode.roster[1]["status"] = serde_json::json!("idle");
+    mode.rebuild_rows();
     // Collapsed: the parent, its summary row, nothing else.
     assert_eq!(mode.rows.len(), 2);
     assert_eq!(mode.rows[1].kind, RowKind::SubagentSummary);
@@ -132,7 +134,7 @@ fn alt_right_toggles_the_subagent_list() {
 }
 
 /// A mode over one parent with two running and two idle children (the
-/// operator's mixed roster).
+/// operator's mixed roster): a live tree.
 fn mode_with_mixed_children() -> AgentsViewMode {
     let mut mode = AgentsViewMode::new(AgentsViewOptions {
         socket_path: PathBuf::from("/tmp/agents-view-test.sock"),
@@ -165,107 +167,98 @@ fn mode_with_mixed_children() -> AgentsViewMode {
     mode
 }
 
-/// The operator's 2026-09-28 one-dropdown directive: Enter on the
-/// ONE line expands to the FULL roster in one group -- the two runners
-/// first (with their running state), the two historical workers after
-/// -- and the historical agents stay discoverable in the SAME group
-/// (the two separate expansions are gone).
+/// A live tree lists its runners as branches and folds the settled
+/// children into ONE `N not running` line: Enter on it opens them in
+/// spawn order, Enter again closes it, and alt+right on the parent row
+/// toggles the same fold.
 #[test]
-fn enter_expands_the_one_line_to_the_full_roster_running_first() {
+fn enter_opens_the_fold_behind_the_runners() {
     let mut mode = mode_with_mixed_children();
-    // Collapsed: the parent and its ONE line.
-    assert_eq!(mode.rows.len(), 2);
-    assert_eq!(mode.rows[1].title, "4 subagents (2 running)");
-    assert_eq!(mode.rows[1].identity, "subagents:file:/x/p.jsonl");
-    // Enter on the line: the whole roster renders in one group.
-    mode.handle_key("down");
-    mode.handle_key("enter");
-    assert_eq!(mode.rows.len(), 6);
-    assert!(mode.rows[1].expanded);
-    assert!(
-        mode.rows[2..4]
+    // Closed: the parent, the two runners, the fold.
+    let titles = |mode: &AgentsViewMode| {
+        mode.rows
             .iter()
-            .all(|row| row.title.starts_with("runner")),
-        "the runners render FIRST: {rows:?}",
-        rows = mode.rows
+            .map(|row| row.title.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        titles(&mode),
+        ["p name", "runner one", "runner two", "2 not running"]
     );
-    assert!(
-        mode.rows[4..6]
-            .iter()
-            .all(|row| row.title.starts_with("old worker")),
-        "the historical workers follow in the SAME group: {rows:?}",
-        rows = mode.rows
-    );
-    // Enter again collapses it.
+    assert_eq!(mode.rows[3].identity, "subagents:file:/x/p.jsonl");
+    // Enter on the fold: the settled children render under it.
+    for _ in 0..3 {
+        mode.handle_key("down");
+    }
     mode.handle_key("enter");
-    assert_eq!(mode.rows.len(), 2);
-    assert!(!mode.rows[1].expanded);
-    // alt+right on the parent row opens its ONE line.
+    assert_eq!(
+        titles(&mode),
+        [
+            "p name",
+            "runner one",
+            "runner two",
+            "2 not running",
+            "old worker one",
+            "old worker two",
+        ]
+    );
+    assert!(mode.rows[3].expanded);
+    // Enter again closes it.
+    mode.handle_key("enter");
+    assert_eq!(mode.rows.len(), 4);
+    assert!(!mode.rows[3].expanded);
+    // alt+right on the parent row opens the same fold.
     let mut mode = mode_with_mixed_children();
     mode.handle_key("alt+right");
     assert_eq!(mode.rows.len(), 6);
-    assert!(mode.rows[1].expanded, "alt+right opens the ONE line");
+    assert!(mode.rows[3].expanded, "alt+right opens the fold");
 }
 
-/// Live transitions (roster pushes): a child flipping running to
-/// idle STAYS in the merged group (the one group carries every
-/// child), the ONE line's counts update in the same rebuild, and the
-/// selection never resets to the top of the list.
+/// Live transitions (roster pushes): a selected runner that finishes
+/// moves behind its parent's fold, the fold opens so the selection
+/// keeps following its session, and the counts update in the same
+/// rebuild; restarted, it returns to the running branches.
 #[test]
-fn live_transitions_update_the_one_line_and_keep_the_selection() {
+fn live_transitions_move_the_branch_and_keep_the_selection() {
     let mut mode = mode_with_mixed_children();
-    // Expand the ONE line and select the first runner.
-    mode.handle_key("down");
-    mode.handle_key("enter");
     mode.handle_key("down");
     assert_eq!(mode.rows[mode.selected].title, "runner one");
     let selected_identity = mode.rows[mode.selected].identity.clone();
     // The runner finishes: its roster row flips to idle.
     let idle_flip = roster_entry("r1", "idle", &child_summary("r1", "p", "runner one"));
     mode.apply_roster_update(vec![idle_flip], Vec::new(), false);
-    // The counts updated in the same rebuild: one runner left, and
-    // the finished child stays a row in the group.
-    let line = mode
+    let fold = mode
         .rows
         .iter()
         .find(|row| row.kind == RowKind::SubagentSummary)
-        .expect("the ONE line");
-    assert_eq!(line.title, "4 subagents (1 running)");
-    assert!(line.expanded, "the line stays open through the flip");
-    // The finished runner keeps its row in the merged group (it now
-    // reads idle) and the selection stays on its session.
-    let settled = mode
-        .rows
-        .iter()
-        .find(|row| row.identity == selected_identity)
-        .expect("the settled runner keeps its row in the group");
-    assert_ne!(settled.section, Section::Running, "the section flipped");
+        .expect("the fold");
+    assert_eq!(fold.title, "3 not running");
+    assert!(fold.expanded, "the fold opened behind the selection");
+    let settled = &mode.rows[mode.selected];
     assert_eq!(
-        mode.rows[mode.selected].identity, selected_identity,
+        settled.identity, selected_identity,
         "the selection stays on the session it followed"
     );
-    // The runner restarts: the counts flip back.
+    assert_ne!(settled.section, Section::Running, "the section flipped");
+    // The runner restarts: it returns to the branches.
     let running_flip = roster_entry("r1", "running", &child_summary("r1", "p", "runner one"));
     mode.apply_roster_update(vec![running_flip], Vec::new(), false);
-    let line = mode
-        .rows
-        .iter()
-        .find(|row| row.kind == RowKind::SubagentSummary)
-        .expect("the ONE line");
-    assert_eq!(line.title, "4 subagents (2 running)");
-    assert!(mode
-        .rows
-        .iter()
-        .any(|row| row.identity == selected_identity && row.section == Section::Running));
-    // The selection still rides the same session.
+    assert_eq!(
+        mode.rows
+            .iter()
+            .find(|row| row.kind == RowKind::SubagentSummary)
+            .map(|row| row.title.as_str()),
+        Some("2 not running")
+    );
     assert_eq!(mode.rows[mode.selected].identity, selected_identity);
+    assert_eq!(mode.rows[mode.selected].section, Section::Running);
 }
 
-/// The rendered frame carries the ONE summary line: the full-roster
-/// count with the running parenthetical -- no per-status pair, no
-/// second line.
+/// The rendered frame draws the live tree: each running branch under
+/// its parent with its guide, the settled child behind the closing
+/// fold line, and no `N subagents` summary line.
 #[test]
-fn frame_renders_the_one_line() {
+fn frame_renders_the_live_tree() {
     let mut grandchild = child_summary("gc", "c", "grandkid");
     grandchild["rlmChildId"] = serde_json::json!("child-gc");
     let mut mode = mode_with_parent_and_child();
@@ -276,20 +269,10 @@ fn frame_renders_the_one_line() {
         &child_summary("i1", "p", "old worker"),
     ));
     mode.rebuild_rows();
-    assert_eq!(mode.rows.len(), 2, "the parent and its ONE line");
-    assert_eq!(mode.rows[1].title, "3 subagents (2 running)");
     let (lines, _) = mode.render_frame(120, 36);
     let frame = lines.iter().map(flat).collect::<Vec<_>>().join("\n");
-    assert!(
-        frame.contains("+ 3 subagents (2 running)"),
-        "frame: {frame}"
-    );
-    assert!(
-        !frame.contains("inactive subagent"),
-        "no second per-status line: {frame}"
-    );
-    assert!(
-        !frame.contains(", 2 running"),
-        "no `direct, nested` pair: {frame}"
-    );
+    for row in ["|- . worker one", "|  `- . grandkid", "`- + 1 not running"] {
+        assert!(frame.contains(row), "{row:?} renders: {frame}");
+    }
+    assert!(!frame.contains("subagents ("), "no summary line: {frame}");
 }

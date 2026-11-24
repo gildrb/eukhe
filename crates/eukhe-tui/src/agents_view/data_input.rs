@@ -25,6 +25,13 @@ impl AgentsViewMode {
     /// drop so the flow discards the scope.
     pub(super) fn rebuild_rows(&mut self) {
         let identity = self.rows.get(self.selected).map(|row| row.identity.clone());
+        // The selected branch's parent: a branch that settles moves behind
+        // that parent's fold (below).
+        let followed_parent = self
+            .rows
+            .get(self.selected)
+            .filter(|row| row.kind == RowKind::Subagent)
+            .and_then(|row| row.parent_identity.clone());
         let records = self.records();
         // Scope resolution (TS `resolveAgentsViewScopeFrames`): a frame
         // whose root is gone drops, with the nearest fallback surfaced as a
@@ -131,6 +138,32 @@ impl AgentsViewMode {
                         &rollups,
                         self.options.anchor_session_id.as_deref(),
                     );
+                }
+            }
+        }
+        // A selected branch that settles moves behind its parent's
+        // collapsed `N not running` (or `N subagents`) line: open it so
+        // the selection keeps following its session.
+        if let (Some(identity), Some(parent)) = (identity.as_deref(), followed_parent) {
+            let folded = !rows.iter().any(|row| row.identity == identity)
+                && rows.iter().any(|row| {
+                    row.kind == RowKind::SubagentSummary
+                        && !row.expanded
+                        && row.parent_identity.as_deref() == Some(parent.as_str())
+                });
+            if folded && self.expanded_parents.insert(parent.clone()) {
+                let opened = build_rows(
+                    &filtered,
+                    self.options.scope.as_ref(),
+                    &self.expanded_parents,
+                    &self.program_shown_parents,
+                    &rollups,
+                    self.options.anchor_session_id.as_deref(),
+                );
+                if opened.iter().any(|row| row.identity == identity) {
+                    rows = opened;
+                } else {
+                    self.expanded_parents.remove(&parent);
                 }
             }
         }

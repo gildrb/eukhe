@@ -117,6 +117,8 @@ fn new_key_in_a_scoped_view_creates_under_the_scope_root() {
 #[test]
 fn program_key_shows_and_hides_the_spawn_program() {
     let mut mode = mode_with_parent_and_child();
+    // A settled tree: the program renders inside the ONE line's list.
+    mode.roster[1]["status"] = serde_json::json!("idle");
     // The child spawned from a 12-line cell: the program block caps at
     // 10 lines and counts the remainder (the trailing newline strips).
     mode.roster[1]["summary"]["spawnCode"] = serde_json::json!(

@@ -5,7 +5,13 @@ use super::*;
 
 #[test]
 fn enter_toggles_the_summary_row_and_drills_into_a_child() {
+    // A settled tree: its children sit behind the ONE summary line.
     let mut mode = mode_with_parent_and_child();
+    mode.roster = vec![
+        roster_entry("p", "idle", &parent_summary("p")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
+    ];
+    mode.rebuild_rows();
     // The selection starts on the parent; down lands on the summary
     // row, and Enter toggles it (TS `openSelected` on a summary row).
     mode.handle_key("down");
@@ -64,7 +70,7 @@ fn pending_ancestors_expand_and_selection_restores_after_reentry() {
     });
     mode.roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("c", "running", &child_summary("c", "p", "worker one")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
     ];
     mode.rebuild_rows();
     // The ancestor expansion opened the parent's list and the child

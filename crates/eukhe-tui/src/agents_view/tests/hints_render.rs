@@ -53,9 +53,14 @@ fn hints_delete_slot_rides_the_selected_row() {
         flat(&mode.render_hints(120, None)).contains("Ctrl+X delete"),
         "the saved-only row deletes"
     );
-    // A summary row has no target: no slot, and the confirm never
-    // arms there either.
+    // A summary row (a settled tree's ONE line) has no target: no
+    // slot, and the confirm never arms there either.
     let mut mode = mode_with_parent_and_child();
+    mode.roster = vec![
+        roster_entry("p", "idle", &parent_summary("p")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
+    ];
+    mode.rebuild_rows();
     let parent_row = mode
         .rows
         .iter()

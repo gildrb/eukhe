@@ -10,6 +10,7 @@ use super::{
 use crate::agents_view_state::{
     now_ms, relative_age, section_rank, summary_for_record, Section, UnifiedRecord,
 };
+use crate::glyphs::{TREE_LAST, TREE_MID, TREE_PIPE, TREE_SPACE};
 use crate::subagents::{is_subagent_summary, summary_identity_keys, summary_parent_keys};
 
 struct BaseRow {
@@ -35,12 +36,14 @@ struct BaseRow {
 /// operator's one-line subagent summary): top-level agents, each with
 /// its ONE subagents line (`N subagents (M running)` -- N = the full
 /// roster, M = the running subset -- expanding to the whole roster in
-/// one group, running rows first). `expanded` holds the parent row
-/// identities whose lines are open; `program_shown` holds the parent
-/// identities whose spawn programs render inside the open list (TS
-/// `programShownParents`); `rollups` carries the unfiltered hierarchy
-/// totals; a scope excludes its root and lifts its direct children to
-/// top-level rows.
+/// one group, running rows first). A live tree (its top-level agent or
+/// any descendant runs) renders whole instead: every descendant under
+/// its parent with tree guides, siblings in spawn order. `expanded`
+/// holds the parent row identities whose lines are open; `program_shown`
+/// holds the parent identities whose spawn programs render inside the
+/// open list (TS `programShownParents`); `rollups` carries the unfiltered
+/// hierarchy totals; a scope excludes its root and lifts its direct
+/// children to top-level rows.
 pub(crate) fn build_rows<S: std::hash::BuildHasher + Default>(
     records: &[UnifiedRecord],
     scope: Option<&AgentsViewScope>,
@@ -247,9 +250,19 @@ pub(crate) fn build_rows<S: std::hash::BuildHasher + Default>(
     };
     let mut rows: Vec<AgentsViewRow> = Vec::new();
     for root in visible_roots {
-        forest.emit(root, 0, None, &mut rows);
+        if is_live(&base[root]) {
+            forest.emit_tree(root, 0, None, None, "", &mut rows);
+        } else {
+            forest.emit(root, 0, None, &mut rows);
+        }
     }
     rows
+}
+
+/// Whether a top-level row heads a live tree: it runs, or a descendant
+/// does (`running_subagent_count` folds the whole subtree).
+fn is_live(row: &BaseRow) -> bool {
+    row.section == Section::Running || row.running_subagent_count > 0
 }
 
 /// The assembled forest one emit pass walks.
@@ -305,31 +318,201 @@ impl<S: std::hash::BuildHasher + Default> RowForest<'_, S> {
             .copied()
             .partition(|child| self.base[*child].section == Section::Running);
         let ordered: Vec<usize> = running_kids.into_iter().chain(other_kids).collect();
-        // TS `groupChildrenBySpawnCode`: while the program shows, each spawn cell's
-        // code renders once above the children it launched. Hidden keeps the flat
-        // running-first order.
-        let groups: Vec<(Option<&str>, Vec<usize>)> = if self.program_shown.contains(&row.identity)
+        for (group_index, (code, kids)) in self
+            .spawn_groups(&row.identity, ordered)
+            .into_iter()
+            .enumerate()
         {
-            let mut groups: Vec<(Option<&str>, Vec<usize>)> = Vec::new();
-            for child in ordered {
-                let code = spawn_code(&self.base[child].summary);
-                match groups.iter_mut().find(|(group, _)| *group == code) {
-                    Some((_, kids)) => kids.push(child),
-                    None => groups.push((code, vec![child])),
-                }
-            }
-            groups
-        } else {
-            vec![(None, ordered)]
-        };
-        for (group_index, (code, kids)) in groups.into_iter().enumerate() {
             if let Some(code) = code {
-                rows.extend(spawn_code_rows(row, code, depth + 1, group_index));
+                rows.extend(spawn_code_rows(row, code, depth + 1, group_index, None));
             }
             for child in kids {
                 self.emit(child, depth + 1, Some(&row.identity), rows);
             }
         }
+    }
+
+    /// Emit one live-tree row, then its branches: the children that run
+    /// (or have running descendants) in spawn order, each with its tree
+    /// guide, then ONE `N not running` line folding the settled children
+    /// (open, it lists them in spawn order). `guide` is the row's own
+    /// guide (`None` for the tree's top row); `trunk` holds the cells
+    /// every guide below this row starts with.
+    fn emit_tree(
+        &self,
+        index: usize,
+        depth: usize,
+        parent_identity: Option<&str>,
+        guide: Option<String>,
+        trunk: &str,
+        rows: &mut Vec<AgentsViewRow>,
+    ) {
+        let row = &self.base[index];
+        let mut tree_row = agents_row(row, depth, parent_identity);
+        tree_row.guide = guide;
+        let Some(children) = self
+            .children_by_parent
+            .get(&index)
+            .filter(|children| !children.is_empty())
+        else {
+            rows.push(tree_row);
+            return;
+        };
+        tree_row.has_spawn_code = children
+            .iter()
+            .any(|child| spawn_code(&self.base[*child].summary).is_some());
+        rows.push(tree_row);
+        let mut ordered = children.clone();
+        ordered.sort_by(|a, b| compare_spawn(&self.base[*a], &self.base[*b]));
+        let (live, settled): (Vec<usize>, Vec<usize>) = ordered
+            .into_iter()
+            .partition(|child| is_live(&self.base[*child]));
+        let end = if settled.is_empty() {
+            BranchEnd::Closes
+        } else {
+            BranchEnd::FoldFollows
+        };
+        let groups = self.emit_branches(row, live, depth + 1, trunk, end, 0, rows);
+        if settled.is_empty() {
+            return;
+        }
+        let expanded = self.expanded.contains(&row.identity);
+        rows.push(settled_line(
+            row,
+            &settled
+                .iter()
+                .map(|child| &self.base[*child])
+                .collect::<Vec<_>>(),
+            depth + 1,
+            expanded,
+            format!("{trunk}{TREE_LAST}"),
+        ));
+        if expanded {
+            self.emit_branches(
+                row,
+                settled,
+                depth + 2,
+                &format!("{trunk}{TREE_SPACE}"),
+                BranchEnd::Closes,
+                groups,
+                rows,
+            );
+        }
+    }
+
+    /// Emit `kids` of `parent` as live-tree branches under `trunk`, each
+    /// program group's code above its children; `end` says whether the
+    /// last kid closes the parent's branches. Code groups number from
+    /// `first_group` (unique code-row identities across one parent's
+    /// branch lists); returns the next free group number.
+    #[allow(clippy::too_many_arguments)] // one recursive pass's whole state
+    fn emit_branches(
+        &self,
+        parent: &BaseRow,
+        kids: Vec<usize>,
+        depth: usize,
+        trunk: &str,
+        end: BranchEnd,
+        first_group: usize,
+        rows: &mut Vec<AgentsViewRow>,
+    ) -> usize {
+        let total = kids.len();
+        let program_guide = format!("{trunk}{TREE_PIPE}");
+        let mut emitted = 0;
+        let mut next_group = first_group;
+        for (code, group) in self.spawn_groups(&parent.identity, kids) {
+            if let Some(code) = code {
+                rows.extend(spawn_code_rows(
+                    parent,
+                    code,
+                    depth,
+                    next_group,
+                    Some(&program_guide),
+                ));
+            }
+            next_group += 1;
+            for child in group {
+                emitted += 1;
+                let (own, below) = match (emitted == total, end) {
+                    (true, BranchEnd::Closes) => (TREE_LAST, TREE_SPACE),
+                    (true, BranchEnd::FoldFollows)
+                    | (false, BranchEnd::Closes | BranchEnd::FoldFollows) => (TREE_MID, TREE_PIPE),
+                };
+                self.emit_tree(
+                    child,
+                    depth,
+                    Some(&parent.identity),
+                    Some(format!("{trunk}{own}")),
+                    &format!("{trunk}{below}"),
+                    rows,
+                );
+            }
+        }
+        next_group
+    }
+
+    /// TS `groupChildrenBySpawnCode`: while the parent's program shows,
+    /// each spawn cell's code renders once above the children it launched
+    /// (groups in first-child order). Hidden keeps `ordered` as one group.
+    fn spawn_groups<'b>(
+        &'b self,
+        parent_identity: &str,
+        ordered: Vec<usize>,
+    ) -> Vec<(Option<&'b str>, Vec<usize>)> {
+        if !self.program_shown.contains(parent_identity) {
+            return vec![(None, ordered)];
+        }
+        let mut groups: Vec<(Option<&str>, Vec<usize>)> = Vec::new();
+        for child in ordered {
+            let code = spawn_code(&self.base[child].summary);
+            match groups.iter_mut().find(|(group, _)| *group == code) {
+                Some((_, kids)) => kids.push(child),
+                None => groups.push((code, vec![child])),
+            }
+        }
+        groups
+    }
+}
+
+/// How a live-tree branch list ends: its last branch closes the parent's
+/// branches, or the parent's `N not running` line follows it.
+#[derive(Debug, Clone, Copy)]
+enum BranchEnd {
+    Closes,
+    FoldFollows,
+}
+
+/// The `N not running` line closing a live-tree parent's branches: it
+/// folds the settled children (and their subtrees), so a long-lived
+/// parent's finished fleet never floods the running tree. It keys like
+/// the summary line (`subagents:` + the parent identity), so the open and
+/// expand keys toggle it through the same expansion set, and bills the
+/// settled subtrees' spend.
+fn settled_line(
+    parent: &BaseRow,
+    settled: &[&BaseRow],
+    depth: usize,
+    expanded: bool,
+    guide: String,
+) -> AgentsViewRow {
+    AgentsViewRow {
+        kind: RowKind::SubagentSummary,
+        section: parent.section,
+        identity: format!("{SUMMARY_ROW_PREFIX}{}", parent.identity),
+        parent_identity: Some(parent.identity.clone()),
+        summary: parent.summary.clone(),
+        title: format!("{} not running", settled.len()),
+        model: String::new(),
+        cost: settled.iter().map(|child| child.recursive_cost).sum(),
+        age: String::new(),
+        depth,
+        guide: Some(guide),
+        descendant_count: 0,
+        running_subagent_count: 0,
+        expanded,
+        has_spawn_code: settled
+            .iter()
+            .any(|child| spawn_code(&child.summary).is_some()),
     }
 }
 
@@ -347,6 +530,7 @@ fn agents_row(row: &BaseRow, depth: usize, parent_identity: Option<&str>) -> Age
         cost: row.recursive_cost,
         age: row.age.clone(),
         depth,
+        guide: None,
         descendant_count: row.descendant_count,
         running_subagent_count: row.running_subagent_count,
         expanded: false,
@@ -385,6 +569,7 @@ fn merged_summary_row(parent: &BaseRow, depth: usize, expanded: bool) -> AgentsV
         cost: parent.descendant_cost,
         age: String::new(),
         depth,
+        guide: None,
         descendant_count: 0,
         running_subagent_count: running,
         expanded,
@@ -409,12 +594,14 @@ const MAX_SPAWN_CODE_LINES: usize = 10;
 /// whitespace stripped, capped, the remainder counted), wrapped in
 /// blank pad rows. Each row reuses the parent's section and summary and
 /// carries the code line in `title` (code rows are never selected,
-/// searched, or deleted, so no separate code field exists).
+/// searched, or deleted, so no separate code field exists). `guide` is
+/// the tree guide inside a live tree.
 fn spawn_code_rows(
     parent: &BaseRow,
     code: &str,
     depth: usize,
     group_index: usize,
+    guide: Option<&str>,
 ) -> Vec<AgentsViewRow> {
     let make_row = |title: &str, line_index: &str| AgentsViewRow {
         kind: RowKind::Code,
@@ -427,6 +614,7 @@ fn spawn_code_rows(
         cost: 0.0,
         age: String::new(),
         depth,
+        guide: guide.map(str::to_string),
         descendant_count: 0,
         running_subagent_count: 0,
         expanded: false,
@@ -457,6 +645,24 @@ fn spawn_code_rows(
     }
     rows.push(make_row("", "pad-bottom"));
     rows
+}
+
+/// Siblings in spawn order: the earliest-created first (a row without a
+/// creation time after every dated one), then title, then session id.
+fn compare_spawn(a: &BaseRow, b: &BaseRow) -> std::cmp::Ordering {
+    let created = |row: &BaseRow| {
+        row.summary
+            .get("created")
+            .and_then(Value::as_str)
+            .and_then(crate::agents_view_state::iso_to_unix_ms)
+    };
+    match (created(a), created(b)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+    .then_with(|| finalize_base(a, b))
 }
 
 /// TS `compareAgentsViewRows`: section rank, then empty sessions sink,

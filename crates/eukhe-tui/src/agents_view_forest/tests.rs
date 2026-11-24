@@ -165,15 +165,15 @@ fn session_model_reads_every_wire_shape() {
     );
 }
 
-/// The ONE line under a parent (the operator's 2026-09-28 merge):
-/// `1 subagents (1 running)` -- the full roster count first, the
-/// running subset in the parenthetical -- with the TS-parity
+/// The ONE line under a settled parent (the operator's 2026-09-28
+/// merge): `1 subagents (0 running)` -- the full roster count first,
+/// the running subset in the parenthetical -- with the TS-parity
 /// `subagents:` identity, expanding to the child at depth 1.
 #[test]
 fn parent_with_child_renders_the_summary_row_and_nested_child() {
     let roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("c", "running", &child_summary("c", "p", "worker one")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
     ];
     // Collapsed: the parent, its ONE summary row, nothing else.
     let rows = rows_for(&roster, None, &[]);
@@ -182,14 +182,14 @@ fn parent_with_child_renders_the_summary_row_and_nested_child() {
     assert_eq!(rows[1].kind, RowKind::SubagentSummary);
     assert_eq!(rows[1].identity, "subagents:file:/x/p.jsonl");
     assert_eq!(rows[1].parent_identity.as_deref(), Some("file:/x/p.jsonl"));
-    assert_eq!(rows[1].title, "1 subagents (1 running)");
+    assert_eq!(rows[1].title, "1 subagents (0 running)");
     assert!(!rows[1].expanded);
     assert_eq!(rows[0].descendant_count, 1);
-    assert_eq!(rows[0].running_subagent_count, 1);
+    assert_eq!(rows[0].running_subagent_count, 0);
     // Expanded: the child nests under the ONE line at depth 1.
     let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
     assert_eq!(rows.len(), 3);
-    assert_eq!(rows[1].title, "1 subagents (1 running)");
+    assert_eq!(rows[1].title, "1 subagents (0 running)");
     assert!(rows[1].expanded);
     assert_eq!(rows[2].kind, RowKind::Subagent);
     assert_eq!(rows[2].depth, 1);
@@ -207,20 +207,19 @@ fn deeper_descendants_roll_up_and_nest_recursively() {
     let roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
         roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
-        roster_entry("gc", "running", &grandchild),
+        roster_entry("gc", "idle", &grandchild),
     ];
     // Collapsed: the parent's ONE line carries the whole subtree --
-    // total 2 (the child and the grandchild), running 1 (the
-    // grandchild).
+    // total 2 (the child and the grandchild).
     let rows = rows_for(&roster, None, &[]);
     assert_eq!(rows[0].descendant_count, 2);
-    assert_eq!(rows[0].running_subagent_count, 1);
+    assert_eq!(rows[0].running_subagent_count, 0);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[1].kind, RowKind::SubagentSummary);
-    assert_eq!(rows[1].title, "2 subagents (1 running)");
+    assert_eq!(rows[1].title, "2 subagents (0 running)");
     // Expanding the parent's line renders the child in place (never
     // flattened through), and the child's own line counts its
-    // subtree: `1 subagents (1 running)`.
+    // subtree: `1 subagents (0 running)`.
     let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
     assert_eq!(
         rows.iter()
@@ -233,7 +232,7 @@ fn deeper_descendants_roll_up_and_nest_recursively() {
             (RowKind::SubagentSummary, 2),
         ]
     );
-    assert_eq!(rows[3].title, "1 subagents (1 running)");
+    assert_eq!(rows[3].title, "1 subagents (0 running)");
     // The nested line's parent identity is the child's own
     // parent-qualified identity (the same key the expansion set
     // carries).
@@ -347,31 +346,12 @@ fn idle_descendants_aggregate_into_the_summary_row() {
     assert_eq!(child_summary_row.title, "1 subagents (0 running)");
 }
 
-/// A busy subtree runs at any depth: the ONE line's total and its
-/// running parenthetical both count the whole tree (`2 subagents
-/// (2 running)`), and the line renders alone -- one group, never a
-/// second per-status line.
+/// A live tree with a fleet behind it: a parent with six running and
+/// forty inactive children lists the six runners as branches, in spawn
+/// order, and folds the forty into ONE `40 not running` line that opens
+/// to every one of them.
 #[test]
-fn running_descendants_aggregate_into_the_summary_row() {
-    let mut grandchild = child_summary("gc", "c", "grandchild");
-    grandchild["rlmChildId"] = json!("child-gc");
-    let roster = vec![
-        roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("c", "running", &child_summary("c", "p", "worker one")),
-        roster_entry("gc", "running", &grandchild),
-    ];
-    let rows = rows_for(&roster, None, &[]);
-    assert_eq!(rows.len(), 2, "ONE line, never a second per-status line");
-    assert_eq!(rows[1].title, "2 subagents (2 running)");
-}
-
-/// The operator's 2026-09-28 one-dropdown contract: the ONE line
-/// expands to the FULL roster in one group -- a parent with six
-/// running and forty inactive children reads `46 subagents (6
-/// running)` and expands to all forty-six rows, the six runners
-/// FIRST (with their running state), the historical workers after.
-#[test]
-fn the_merged_line_expands_to_the_full_roster_running_first() {
+fn a_live_tree_folds_the_historical_fleet_behind_the_runners() {
     let mut roster = vec![roster_entry("p", "idle", &parent_summary("p"))];
     for n in 1..=6 {
         roster.push(roster_entry(
@@ -387,35 +367,29 @@ fn the_merged_line_expands_to_the_full_roster_running_first() {
             &child_summary(&format!("i{n}"), "p", &format!("old worker {n}")),
         ));
     }
-    // Collapsed: the parent and its ONE line, both statuses inside.
+    // Collapsed: the parent, the six runners, the fold.
     let rows = rows_for(&roster, None, &[]);
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[1].kind, RowKind::SubagentSummary);
-    assert_eq!(rows[1].title, "46 subagents (6 running)");
-    assert!(!rows[1].expanded);
-    // Enter: the whole roster renders in one group.
-    let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
-    // The parent, the open line, and all forty-six children.
-    assert_eq!(rows.len(), 48);
-    assert!(rows[1].expanded);
-    let children = &rows[2..48];
+    assert_eq!(rows.len(), 8);
     assert!(
-        children
+        rows[1..7]
             .iter()
-            .take(6)
             .all(|row| row.kind == RowKind::Subagent && row.section == Section::Running),
-        "the six runners render first, in their running state: {rows:?}"
+        "the six runners render as branches: {rows:?}"
+    );
+    assert_eq!(rows[7].kind, RowKind::SubagentSummary);
+    assert_eq!(rows[7].title, "40 not running");
+    assert!(!rows[7].expanded);
+    // Open: all forty render under the fold.
+    let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
+    assert_eq!(rows.len(), 48);
+    assert!(rows[7].expanded);
+    assert!(
+        rows[8..].iter().all(|row| row.section != Section::Running),
+        "the historical workers sit under the fold: {rows:?}"
     );
     assert!(
-        children
-            .iter()
-            .skip(6)
-            .all(|row| row.section != Section::Running),
-        "the historical workers follow the runners: {rows:?}"
-    );
-    assert!(
-        children.iter().any(|row| row.title == "old worker 40"),
-        "the historical agents stay discoverable in the one group: {rows:?}"
+        rows.iter().any(|row| row.title == "old worker 40"),
+        "the historical agents stay discoverable: {rows:?}"
     );
 }
 
@@ -479,7 +453,7 @@ fn selection_pins_the_one_summary_line_identity() {
     };
     let index = resolve_selection(&collapsed, 0, Some("subagents:file:/x/p.jsonl"), Some(&key));
     assert_eq!(collapsed[index].kind, RowKind::SubagentSummary);
-    assert_eq!(collapsed[index].title, "2 subagents (1 running)");
+    assert_eq!(collapsed[index].title, "1 not running");
     // The legacy inactive-line identity no longer names a row: the
     // fallback pins the selection onto the parent's own row.
     let index = resolve_selection(
@@ -695,7 +669,7 @@ fn ancestor_ids_walk_the_row_chain_root_most_first() {
 fn selection_resolves_identity_then_keys_and_pins_summary_rows() {
     let roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("c", "running", &child_summary("c", "p", "worker one")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
     ];
     // Identity wins (the parent's identity is its file alias).
     let collapsed = rows_for(&roster, None, &[]);
@@ -1007,10 +981,10 @@ fn equal_scores_break_ties_by_recency_not_section() {
 
 /// The operator's 2026-09-26 ask, carried by the ONE line: the
 /// summary row's Cost cell aggregates EVERY descendant subagent's
-/// spend -- running, idle, and inactive rows all bill -- and the
-/// parent row keeps the recursive total (own + descendants). The
-/// merged line always renders while any descendant exists, so the
-/// aggregate never loses its row.
+/// spend -- idle and inactive rows alike bill -- and the parent row
+/// keeps the recursive total (own + descendants). The merged line
+/// always renders while any descendant exists, so the aggregate never
+/// loses its row.
 #[test]
 fn the_summary_line_bills_every_descendant_status() {
     let mut parent = parent_summary("p");
@@ -1026,8 +1000,8 @@ fn the_summary_line_bills_every_descendant_status() {
     inactive_child["usage"] = json!({ "cost": 0.75 });
     let roster = vec![
         roster_entry("p", "idle", &parent),
-        roster_entry("r1", "running", &runner),
-        roster_entry("gc", "running", &grandchild),
+        roster_entry("r1", "idle", &runner),
+        roster_entry("gc", "idle", &grandchild),
         roster_entry("i1", "idle", &idle_child),
         roster_entry("x1", "inactive", &inactive_child),
     ];
@@ -1040,7 +1014,7 @@ fn the_summary_line_bills_every_descendant_status() {
         .iter()
         .find(|row| row.identity == "subagents:file:/x/p.jsonl")
         .expect("the ONE line");
-    assert_eq!(summary.title, "4 subagents (2 running)");
+    assert_eq!(summary.title, "4 subagents (0 running)");
     assert!(
         (summary.cost - 4.75).abs() < f64::EPSILON,
         "runner subtree 1.50 + idle 2.50 + inactive 0.75 -- every status bills"
@@ -1066,7 +1040,7 @@ fn the_summary_line_bills_the_deleted_descendant_bucket() {
     runner["usage"] = json!({ "cost": 0.25 });
     let roster = vec![
         roster_entry("p", "idle", &parent),
-        roster_entry("r1", "running", &runner),
+        roster_entry("r1", "idle", &runner),
     ];
     let records = reconcile_unified_sessions(&roster, std::slice::from_ref(&saved_parent));
     let rollups = compute_rollups(&records);
@@ -1108,15 +1082,15 @@ fn the_summary_line_cost_is_zero_when_nothing_bills() {
     grandchild["rlmChildId"] = json!("child-gc");
     let roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("r1", "running", &child_summary("r1", "p", "runner")),
-        roster_entry("gc", "running", &grandchild),
+        roster_entry("r1", "idle", &child_summary("r1", "p", "runner")),
+        roster_entry("gc", "idle", &grandchild),
     ];
     let rows = rows_for(&roster, None, &[]);
     let summary = rows
         .iter()
         .find(|row| row.identity == "subagents:file:/x/p.jsonl")
         .expect("the ONE line");
-    assert_eq!(summary.title, "2 subagents (2 running)");
+    assert_eq!(summary.title, "2 subagents (0 running)");
     assert!((summary.cost - 0.0).abs() < f64::EPSILON);
     // No subagents: no summary row renders -- there is no collapsed
     // row to bill.
@@ -1143,8 +1117,8 @@ fn a_nested_line_bills_its_own_subtree() {
     idle_child["usage"] = json!({ "cost": 2.5 });
     let roster = vec![
         roster_entry("p", "idle", &parent_summary("p")),
-        roster_entry("r1", "running", &runner),
-        roster_entry("gc", "running", &grandchild),
+        roster_entry("r1", "idle", &runner),
+        roster_entry("gc", "idle", &grandchild),
         roster_entry("i1", "idle", &idle_child),
     ];
     let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
@@ -1161,7 +1135,7 @@ fn a_nested_line_bills_its_own_subtree() {
         .iter()
         .find(|row| row.identity == format!("{SUMMARY_ROW_PREFIX}{child_identity}"))
         .expect("the child's own line");
-    assert_eq!(nested.title, "1 subagents (1 running)");
+    assert_eq!(nested.title, "1 subagents (0 running)");
     assert!(
         (nested.cost - 0.25).abs() < f64::EPSILON,
         "only the grandchild's spend"
@@ -1170,20 +1144,19 @@ fn a_nested_line_bills_its_own_subtree() {
         .iter()
         .find(|row| row.identity == "subagents:file:/x/p.jsonl")
         .expect("the root's line");
-    assert_eq!(root.title, "3 subagents (2 running)");
+    assert_eq!(root.title, "3 subagents (0 running)");
     assert!(
         (root.cost - 4.0).abs() < f64::EPSILON,
         "runner subtree 1.50 + idle 2.50"
     );
 }
 
-/// The operator's acceptance line: a fleet-scale roster -- 331
-/// inactive children plus 2 running (333 descendants) -- renders ONE
-/// summary row reading `333 subagents (2 running)`, and expanding
-/// it renders ALL 333 in one group, the two runners first with
-/// their running state, the 331 historical workers after.
+/// The operator's acceptance line at fleet scale: 331 inactive children
+/// plus 2 running -- the two runners render as branches and ONE
+/// `331 not running` line folds the rest; opening it renders ALL 331
+/// once each.
 #[test]
-fn one_dropdown_renders_the_full_fleet_roster() {
+fn a_live_tree_folds_a_fleet_scale_roster() {
     let mut roster = vec![roster_entry("p", "idle", &parent_summary("p"))];
     roster.push(roster_entry(
         "r1",
@@ -1202,41 +1175,31 @@ fn one_dropdown_renders_the_full_fleet_roster() {
             &child_summary(&format!("i{n}"), "p", &format!("old worker {n}")),
         ));
     }
-    // Collapsed: the parent and its ONE line -- one number pair, no
-    // second per-status line.
+    // Collapsed: the parent, the two runners, the ONE fold line.
     let rows = rows_for(&roster, None, &[]);
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[1].kind, RowKind::SubagentSummary);
-    assert_eq!(rows[1].title, "333 subagents (2 running)");
-    assert_eq!(rows[1].identity, "subagents:file:/x/p.jsonl");
-    assert!(!rows[1].expanded);
-    // Expanded: all 333 render in one group.
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows[1..3]
+            .iter()
+            .all(|row| row.kind == RowKind::Subagent && row.section == Section::Running),
+        "the runners render as branches: {rows:?}"
+    );
+    assert_eq!(rows[3].kind, RowKind::SubagentSummary);
+    assert_eq!(rows[3].title, "331 not running");
+    assert_eq!(rows[3].identity, "subagents:file:/x/p.jsonl");
+    assert!(!rows[3].expanded);
+    // Open: all 331 render under the fold.
     let rows = rows_for(&roster, None, &["file:/x/p.jsonl"]);
-    assert_eq!(rows.len(), 335, "the parent, the line, all 333 children");
-    assert!(rows[1].expanded);
-    let children = &rows[2..];
-    assert_eq!(children.len(), 333);
     assert_eq!(
-        children
-            .iter()
-            .filter(|row| row.section == Section::Running)
-            .count(),
-        2,
-        "the two runners render with their running state"
+        rows.len(),
+        335,
+        "the parent, two runners, the fold, 331 children"
     );
+    assert!(rows[3].expanded);
+    let children = &rows[1..];
     assert!(
-        children
-            .iter()
-            .take(2)
-            .all(|row| row.section == Section::Running),
-        "the runners render FIRST: {children:?}"
-    );
-    assert!(
-        children
-            .iter()
-            .skip(2)
-            .all(|row| row.section != Section::Running),
-        "the 331 historical workers follow: {children:?}"
+        rows[4..].iter().all(|row| row.section != Section::Running),
+        "the 331 historical workers sit under the fold"
     );
     // Every descendant renders exactly once.
     let mut seen: HashSet<String> = HashSet::new();
@@ -1246,4 +1209,162 @@ fn one_dropdown_renders_the_full_fleet_roster() {
             "the row {row:?} renders more than once"
         );
     }
+}
+
+/// One child summary spawned at `created`.
+fn spawned(id: &str, parent: &str, name: &str, created: &str) -> serde_json::Value {
+    let mut summary = child_summary(id, parent, name);
+    summary["created"] = json!(created);
+    summary
+}
+
+/// One row's tree shape: kind, title, depth, guide, parent identity.
+type TreeShape<'a> = (RowKind, &'a str, usize, Option<&'a str>, Option<&'a str>);
+
+/// The rows' tree shapes.
+fn tree_shape(rows: &[AgentsViewRow]) -> Vec<TreeShape<'_>> {
+    rows.iter()
+        .map(|row| {
+            (
+                row.kind,
+                row.title.as_str(),
+                row.depth,
+                row.guide.as_deref(),
+                row.parent_identity.as_deref(),
+            )
+        })
+        .collect()
+}
+
+/// A running tree renders whole: the root, its two children in spawn
+/// order (the roster lists the later one first), the grandchild under
+/// the first child, each row with its tree guide and no summary line --
+/// an idle child keeps its place while its own child runs.
+#[test]
+fn a_live_tree_nests_every_level_in_spawn_order() {
+    let mut root = parent_summary("r");
+    root["created"] = json!("2026-11-24T08:00:00.000Z");
+    let roster = vec![
+        roster_entry("r", "running", &root),
+        roster_entry(
+            "b",
+            "running",
+            &spawned("b", "r", "batch two", "2026-11-24T08:02:00.000Z"),
+        ),
+        roster_entry(
+            "a",
+            "idle",
+            &spawned("a", "r", "batch one", "2026-11-24T08:01:00.000Z"),
+        ),
+        roster_entry(
+            "g",
+            "running",
+            &spawned("g", "a", "batch one helper", "2026-11-24T08:03:00.000Z"),
+        ),
+    ];
+    let rows = rows_for(&roster, None, &[]);
+    let root_id = "file:/x/r.jsonl";
+    let batch_one = rows
+        .iter()
+        .find(|row| row.title == "batch one")
+        .expect("the first child row")
+        .identity
+        .clone();
+    assert_eq!(
+        tree_shape(&rows),
+        vec![
+            (RowKind::Agent, "r name", 0, None, None),
+            (
+                RowKind::Subagent,
+                "batch one",
+                1,
+                Some("|- "),
+                Some(root_id)
+            ),
+            (
+                RowKind::Subagent,
+                "batch one helper",
+                2,
+                Some("|  `- "),
+                Some(batch_one.as_str()),
+            ),
+            (
+                RowKind::Subagent,
+                "batch two",
+                1,
+                Some("`- "),
+                Some(root_id)
+            ),
+        ]
+    );
+}
+
+/// A live tree folds its settled children into ONE `N not running` line
+/// after the running branches, so a finished fleet never floods the
+/// tree; the expansion set opens it, listing them in spawn order.
+#[test]
+fn a_live_tree_folds_its_settled_children() {
+    let mut roster = vec![roster_entry("p", "idle", &parent_summary("p"))];
+    roster.push(roster_entry(
+        "r1",
+        "running",
+        &spawned("r1", "p", "runner", "2026-11-24T08:03:00.000Z"),
+    ));
+    for (n, created) in [(1, "08:01"), (2, "08:02")] {
+        roster.push(roster_entry(
+            &format!("i{n}"),
+            "inactive",
+            &spawned(
+                &format!("i{n}"),
+                "p",
+                &format!("old worker {n}"),
+                &format!("2026-11-24T{created}:00.000Z"),
+            ),
+        ));
+    }
+    let parent = "file:/x/p.jsonl";
+    let rows = rows_for(&roster, None, &[]);
+    assert_eq!(
+        tree_shape(&rows),
+        vec![
+            (RowKind::Agent, "p name", 0, None, None),
+            (RowKind::Subagent, "runner", 1, Some("|- "), Some(parent)),
+            (
+                RowKind::SubagentSummary,
+                "2 not running",
+                1,
+                Some("`- "),
+                Some(parent)
+            ),
+        ]
+    );
+    assert_eq!(rows[2].identity, "subagents:file:/x/p.jsonl");
+    let rows = rows_for(&roster, None, &[parent]);
+    assert_eq!(
+        tree_shape(&rows)[2..],
+        [
+            (
+                RowKind::SubagentSummary,
+                "2 not running",
+                1,
+                Some("`- "),
+                Some(parent)
+            ),
+            (
+                RowKind::Subagent,
+                "old worker 1",
+                2,
+                Some("   |- "),
+                Some(parent)
+            ),
+            (
+                RowKind::Subagent,
+                "old worker 2",
+                2,
+                Some("   `- "),
+                Some(parent)
+            ),
+        ]
+    );
+    assert!(rows[2].expanded);
 }

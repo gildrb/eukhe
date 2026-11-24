@@ -15,6 +15,11 @@
 //! `"{n} subagents"` line that expands to every child -- the same
 //! one-line shape, with the operator's both-counts label as a
 //! sanctioned divergence.
+//!
+//! A live tree (its top-level agent or any descendant runs) renders whole
+//! instead: every descendant nests under its parent with tree guides,
+//! siblings in spawn order, no summary lines -- the agents nested the way
+//! they run. A tree with nothing running keeps the one collapsed line.
 
 use serde_json::Value;
 
@@ -61,6 +66,11 @@ pub struct AgentsViewRow {
     pub age: String,
     /// Nesting depth: 0 for top-level agent rows.
     pub depth: usize,
+    /// The tree guide drawn before a row inside a live tree (a tree with
+    /// a running node renders whole): the ancestors' `|  ` or blank
+    /// cells, then the row's own `|- ` or `` `- ``. `None` outside live
+    /// trees, where `depth` indents the row.
+    pub guide: Option<String>,
     /// Every descendant session under this row (TS `descendantCount`).
     pub descendant_count: usize,
     /// Live running descendants (TS `runningSubagentCount`).
@@ -68,8 +78,8 @@ pub struct AgentsViewRow {
     /// The summary row's list is expanded (TS `expanded`).
     pub expanded: bool,
     /// The row's children carry a spawn program (TS `hasSpawnCode`):
-    /// true only on the summary row whose children carry code, computed
-    /// where the children are known.
+    /// true on the summary row (or, in a live tree, the parent row)
+    /// whose children carry code, computed where the children are known.
     pub has_spawn_code: bool,
 }
 
@@ -106,6 +116,18 @@ impl AgentsViewRow {
         match self.kind {
             RowKind::Code => false,
             RowKind::Agent | RowKind::SubagentSummary | RowKind::Subagent => true,
+        }
+    }
+
+    /// The parent whose children's spawn program this row shows or hides:
+    /// a summary line speaks for its parent, a live tree's parent row for
+    /// itself.
+    #[must_use]
+    pub(crate) fn program_owner(&self) -> Option<&str> {
+        match self.kind {
+            RowKind::SubagentSummary => self.parent_identity.as_deref(),
+            RowKind::Agent | RowKind::Subagent => Some(self.identity.as_str()),
+            RowKind::Code => None,
         }
     }
 }

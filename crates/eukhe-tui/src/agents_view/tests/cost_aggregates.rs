@@ -1,20 +1,18 @@
 //! The summary-line cost aggregate: the descendant-tree cost cell on
-//! the ONE merged line, across the running, all-done, and notice
-//! render paths.
+//! the ONE merged line and on a live tree's fold line, across the
+//! running, all-done, and notice render paths.
 
 use super::*;
 
-/// The operator's 2026-09-26 ask carried by the ONE merged line
-/// (2026-09-28): the collapsed summary row renders the
-/// descendant-tree aggregate in the SAME Cost column the agent rows
-/// bill -- the right-aligned `${:.2}` cell, the Age column blank
-/// behind it -- and the merged line never unmounts (an all-done tree
-/// keeps its row), so the aggregate always has a surface. TS renders
-/// no cost on the summary row (`createSubagentSummaryRow` pins
-/// `recursiveCost: 0`): the aggregate is a deliberate Rust
-/// divergence.
+/// The operator's 2026-09-26 ask carried into a live tree: the fold
+/// line closing a running parent's branches renders its settled
+/// children's spend in the SAME Cost column the agent rows bill -- the
+/// right-aligned `${:.2}` cell, the Age column blank behind it -- while
+/// each running branch bills its own subtree on its row. TS renders no
+/// cost on the summary row (`createSubagentSummaryRow` pins
+/// `recursiveCost: 0`): the aggregate is a deliberate Rust divergence.
 #[test]
-fn the_summary_line_renders_the_aggregate_in_the_cost_column() {
+fn the_fold_line_renders_the_settled_spend_in_the_cost_column() {
     let mut parent = parent_summary("p");
     parent["usage"] = serde_json::json!({ "cost": 0.25 });
     let mut runner = child_summary("r1", "p", "runner");
@@ -35,36 +33,44 @@ fn the_summary_line_renders_the_aggregate_in_the_cost_column() {
         roster_entry("x1", "inactive", &inactive_child),
     ];
     mode.rebuild_rows();
-    assert_eq!(mode.rows[1].title, "4 subagents (2 running)");
+    assert_eq!(mode.rows[3].title, "2 not running");
     let (lines, _) = mode.render_frame(120, 36);
     let flat_lines: Vec<String> = lines.iter().map(flat).collect();
-    let summary = flat_lines
+    let fold = flat_lines
         .iter()
-        .find(|line| line.contains("4 subagents (2 running)"))
-        .expect("the ONE line renders");
+        .find(|line| line.contains("2 not running"))
+        .expect("the fold line renders");
     let parent_line = flat_lines
         .iter()
         .find(|line| line.contains("p name"))
         .expect("parent row renders");
-    let cost_at = summary.find("$4.75").expect("the aggregate prints");
+    let runner_line = flat_lines
+        .iter()
+        .find(|line| line.contains("runner"))
+        .expect("the running branch renders");
+    let cost_at = fold.find("$3.25").expect("the settled spend prints");
     let parent_cost_at = parent_line.find("$5.00").expect("the parent total prints");
     assert_eq!(
         cost_at, parent_cost_at,
-        "the aggregate shares the agent rows' Cost column"
+        "the fold line shares the agent rows' Cost column"
     );
     assert!(
-        summary.trim_end().ends_with("$4.75"),
-        "the Age column stays blank behind the aggregate: {summary:?}"
+        fold.trim_end().ends_with("$3.25"),
+        "the Age column stays blank behind the aggregate: {fold:?}"
     );
-    // ONE line carries both statuses: no second per-status summary
-    // row renders.
+    assert_eq!(
+        runner_line.find("$1.50"),
+        Some(parent_cost_at),
+        "the running branch bills its own subtree: {runner_line:?}"
+    );
+    // The fold is the tree's only summary row.
     assert_eq!(
         mode.rows
             .iter()
             .filter(|row| row.kind == RowKind::SubagentSummary)
             .count(),
         1,
-        "the ONE merged line is the only summary row: {:?}",
+        "the fold is the only summary row: {:?}",
         mode.rows
     );
 }
@@ -115,12 +121,17 @@ fn a_search_keeps_the_rows_totals() {
 #[test]
 fn the_summary_line_renders_zero_when_nothing_bills() {
     let mut mode = mode_with_parent_and_child();
-    assert_eq!(mode.rows[1].title, "1 subagents (1 running)");
+    mode.roster = vec![
+        roster_entry("p", "idle", &parent_summary("p")),
+        roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
+    ];
+    mode.rebuild_rows();
+    assert_eq!(mode.rows[1].title, "1 subagents (0 running)");
     let (lines, _) = mode.render_frame(120, 36);
     let summary = lines
         .iter()
         .map(flat)
-        .find(|line| line.contains("1 subagents (1 running)"))
+        .find(|line| line.contains("1 subagents (0 running)"))
         .expect("the ONE line renders");
     assert!(
         summary.contains("$0.00"),

@@ -19,6 +19,7 @@ fn row(title: &str, section: Section, kind: RowKind, depth: usize) -> AgentsView
         cost: 0.5,
         age: "1s".to_string(),
         depth,
+        guide: None,
         descendant_count: 0,
         running_subagent_count: 0,
         expanded: false,

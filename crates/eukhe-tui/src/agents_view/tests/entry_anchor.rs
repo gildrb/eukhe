@@ -250,7 +250,7 @@ fn nested_anchor_expands_its_ancestors() {
         Some("c"),
         vec![
             roster_entry("p", "idle", &parent_summary("p")),
-            roster_entry("c", "running", &child_summary("c", "p", "worker one")),
+            roster_entry("c", "idle", &child_summary("c", "p", "worker one")),
         ],
     );
     assert_eq!(mode.rows.len(), 3, "the parent's list opened");

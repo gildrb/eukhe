@@ -440,9 +440,13 @@ impl AgentsViewMode {
     pub(super) fn render_row(&self, row: &AgentsViewRow, layout: &RowLayout, width: usize) -> Line {
         let theme = &self.theme;
         // TS `renderCodeRow`: a muted, truncated program line on the tool-panel
-        // background; never selection-painted.
+        // background; never selection-painted. Inside a live tree the
+        // guide carries the parent's trunk through the program block.
         if row.kind == RowKind::Code {
-            let text = format!("{}  {}", "  ".repeat(row.depth), row.title);
+            let text = match &row.guide {
+                Some(guide) => format!("{guide}{}", row.title),
+                None => format!("{}  {}", "  ".repeat(row.depth), row.title),
+            };
             let line = pad_line(
                 vec![theme.fg(ThemeColor::Muted, truncate_text(&text, width))],
                 width,
@@ -452,8 +456,9 @@ impl AgentsViewMode {
         let selected = Some(row.identity.as_str())
             == self.rows.get(self.selected).map(|r| r.identity.as_str());
         if row.kind == RowKind::SubagentSummary {
-            // TS: `formatTableCell(`${indent}${marker} ${title}`, width)`.
-            let indent = "  ".repeat(row.depth);
+            // TS: `formatTableCell(`${indent}${marker} ${title}`, width)`;
+            // a live tree's `N not running` line draws its guide instead.
+            let indent = row.guide.clone().unwrap_or_else(|| "  ".repeat(row.depth));
             let marker = if row.expanded {
                 glyphs::EXPANDED
             } else {
@@ -519,12 +524,17 @@ impl AgentsViewMode {
             .add_modifier(crate::style::Modifier::BOLD);
         // TS `renderRow`: `${"  ".repeat(depth)}${icon} ${title}` padded to
         // the name column, then the model cell, then the dim
-        // cost/age details.
-        let indent = "  ".repeat(row.depth);
+        // cost/age details. A live tree's row draws its tree guide in
+        // place of the indent.
+        let indent = row.guide.clone().unwrap_or_else(|| "  ".repeat(row.depth));
         let indent_width = str_width(&indent);
         let mut line: Line = Vec::new();
         if indent_width > 0 {
-            line.push(crate::Span::raw(indent));
+            let guide_style = match row.guide {
+                Some(_) => theme.fg_style(ThemeColor::Dim),
+                None => crate::style::Style::default(),
+            };
+            line.push(crate::Span::styled(indent, guide_style));
         }
         line.push(crate::Span::styled(icon, icon_style));
         line.push(crate::Span::styled(
@@ -773,10 +783,7 @@ impl AgentsViewMode {
                     segments.push(format!("{keys} {word}"));
                 }
             }
-            if self
-                .program_target()
-                .is_some_and(|summary| summary.has_spawn_code)
-            {
+            if self.program_target().is_some() {
                 if let Some(keys) = all("app.agents.program") {
                     segments.push(format!("{keys} program"));
                 }
