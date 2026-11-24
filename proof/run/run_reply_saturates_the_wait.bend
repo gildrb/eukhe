@@ -50,9 +50,9 @@ def rk.sat_wait(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +c
             case RnState.Overflow{cut}:
               {==}
 
-def rk.run_reply_saturates_the_wait(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +stream: Bool, +cap: Nat, +e: {Nat.is_lt(RnDecision.At.waited(t), cap) == True{} : Bool}) -> {RnDecision.decide.reply(Run.rust.sat_wait(l, cap), t, reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}:
+def rk.run_reply_saturates_the_wait(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(RnDecision.At.waited(t), cap) == True{} : Bool}) -> {RnDecision.decide.reply(Run.rust.sat_wait(l, cap), t, reply, False{}) == RnDecision.decide.reply(l, t, reply, False{}) : RnDecision.Then}:
   +l2 = Run.rust.sat_wait(l, cap)
-  rk.on_stream_cong(RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l2), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l2, t), RnDecision.At.n(l2, t), RnDecision.At.p(l2, t)))), RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t)))), Bool.and(stream, RnDecision.Reply.cut(reply)), RnDecision.Lim.streams(l2), RnDecision.At.streams(t), Equal.trans(RnDecision.Then, RnDecision.decide.reply(l2, t, reply, False{}), LA.rk.r_reply(l2, t, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply, False{}), LA.rk.reply_rule(l2, t, reply), Equal.trans(RnDecision.Then, LA.rk.r_reply(l2, t, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply, False{}), rk.sat_wait(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply, False{}), LA.rk.r_reply(l, t, reply), LA.rk.reply_rule(l, t, reply)))))
+  Equal.trans(RnDecision.Then, RnDecision.decide.reply(l2, t, reply, False{}), LA.rk.r_reply(l2, t, reply), RnDecision.decide.reply(l, t, reply, False{}), LA.rk.reply_rule(l2, t, reply), Equal.trans(RnDecision.Then, LA.rk.r_reply(l2, t, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply, False{}), rk.sat_wait(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply, False{}), LA.rk.r_reply(l, t, reply), LA.rk.reply_rule(l, t, reply))))
 
-def Run.run_reply_saturates_the_wait(l, t, reply, stream, cap, e):
-  rk.run_reply_saturates_the_wait(l, t, reply, stream, cap, e)
+def Run.run_reply_saturates_the_wait(l, t, reply, cap, e):
+  rk.run_reply_saturates_the_wait(l, t, reply, cap, e)
