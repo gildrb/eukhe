@@ -192,6 +192,15 @@ pub struct RetryFailoverSettings {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModelSettings {
+    /// `model.streamRetries`: the same-model stream retries one turn may
+    /// spend on a transient cut of its provider stream (the harness); a
+    /// cut past the budget goes on as without it.
+    pub stream_retries: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RetrySettings {
     pub enabled: Option<bool>,
     pub max_retries: Option<u64>,
@@ -555,6 +564,7 @@ pub struct Settings {
     pub auto_refine: Option<AutoRefineSettings>,
     pub factory: Option<FactorySettings>,
     pub branch_summary: Option<BranchSummarySettings>,
+    pub model: Option<ModelSettings>,
     pub retry: Option<RetrySettings>,
     pub provider_backup_model: Option<String>,
     /// Model ("provider/model-id" or a bare model id) that serves turns
