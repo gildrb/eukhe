@@ -219,6 +219,16 @@ pub struct FallbackChainsSettings {
     pub dictation: Option<Vec<String>>,
 }
 
+/// `model.<field>`: the session model's own settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSettings {
+    /// `model.backups`: the backup models ("provider/model-id", in the
+    /// order a dead end tries them) the session's automatic failover may
+    /// move to. Empty: no failover.
+    pub backups: Option<Vec<String>>,
+}
+
 /// `modelRoles.<role>`: the primary model selector of each role
 /// (`local/<catalog id>` or `provider/model`; S9).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -557,6 +567,8 @@ pub struct Settings {
     pub branch_summary: Option<BranchSummarySettings>,
     pub retry: Option<RetrySettings>,
     pub provider_backup_model: Option<String>,
+    /// `model.<field>`: the session model's own settings (`model.backups`).
+    pub model: Option<ModelSettings>,
     /// Model ("provider/model-id" or a bare model id) that serves turns
     /// attaching images when the session model does not accept image
     /// input. Default: none - image turns on a text-only model fail with

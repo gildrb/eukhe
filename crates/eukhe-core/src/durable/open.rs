@@ -36,8 +36,8 @@ use super::import::{import_legacy_session, ImportError};
 use super::main_conversation::{main_conversation, set_main_conversation};
 use super::models::provider::ProviderRuntime;
 use super::models::{
-    create_models, resolve_open_model, ModelsError, ThinkingRequest,
-    DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+    create_models, resolve_model_backup_references, resolve_open_model, ModelsError,
+    ThinkingRequest, DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
 };
 use super::observe;
 use super::observe::semantic_edges::{wrap_stream_fn, wrap_stream_simple_fn, SemanticEdgeRecorder};
@@ -47,8 +47,10 @@ use super::settings::{default_thinking_level, EukheSettings};
 use super::state_tree::LiveStateTree;
 use crate::admission::local_admission;
 use crate::kernel::python_skills::kernel_python_skills;
+use crate::models::roles::role_model;
 use crate::resources::{load_resources, LoadedResources, ResourceLoaderOptions};
 use crate::settings::{SettingsError, SettingsManager, SettingsScope};
+use eukhe_types::model_roles::ModelRole;
 
 /// Why a session could not open.
 #[derive(Debug, thiserror::Error)]
@@ -258,6 +260,27 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         // Each `mcpServers` entry that does not parse goes on the session's
         // settings error row.
         settings.report(mcp_errors);
+        // Each `model.backups` entry that names no catalog model, that is
+        // the session model itself, or that repeats an earlier entry, goes
+        // on the settings error row too (the failover walk would drop it
+        // in silence).
+        let chat = role_model(manager.cvars(), ModelRole::Chat);
+        let primary = chat
+            .provider_model()
+            .map(|(provider, id)| (provider.to_owned(), id.to_owned()));
+        let (_, diagnostics) = resolve_model_backup_references(
+            &manager,
+            &models.get_models(None),
+            primary
+                .as_ref()
+                .map(|(provider, id)| (provider.as_str(), id.as_str())),
+        );
+        if !diagnostics.is_empty() {
+            settings.report(diagnostics.into_iter().map(|message| SettingsError {
+                scope: SettingsScope::Global,
+                message,
+            }));
+        }
         // The session's semantic-edge recorder (the ACP request-id ledger)
         // at the TS locations (`semanticEdgeLedgerPath`): a spawned child's
         // in its RLM session dir (the dir its storage

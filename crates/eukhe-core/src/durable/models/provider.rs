@@ -45,6 +45,7 @@ use eukhe_ai::auth::{
     OAuthCredential, ProviderAuthInteraction, CREDENTIAL_STORE_FAILED,
 };
 use eukhe_ai::models::Models;
+use eukhe_ai::quota::QuotaBoard;
 use eukhe_ai::types::{
     ProviderRequestOptions, ProviderStreamOptions, SimpleStreamOptions, StreamOptions,
 };
@@ -81,6 +82,7 @@ use eukhe_bend::rules::fallback::Why;
 use eukhe_bend::rules::retry::{Switch, Tried};
 
 use super::accounts::{AccountBook, AccountFailure, AccountStep};
+use super::backups;
 use super::failover::{failover_candidates, model_reference, next_switch, ProviderFailoverPolicy};
 use super::fallback::{self, Step};
 use super::image_route::{self, ImageRoute};
@@ -92,9 +94,11 @@ use super::park::{
     PROVIDER_QUOTA_RESUME_ENTRY, QUOTA_RESUME_CRON_LABEL, QUOTA_RESUME_MARKER_TEXT,
 };
 use super::timing::{self, RequestTiming};
+use super::MODEL_BACKUP_SWITCH_CUSTOM_TYPE;
 use crate::cron::rlm_heartbeat::{RlmHeartbeatMutation, SessionBinding};
 use crate::cron::store::{AgentCronJobStore, CreateAgentCronJobInput};
 use crate::cron::JobStatus;
+use crate::durable::compaction::auxiliary_model::show_notice_row;
 use crate::durable::entries::{CustomStateData, CUSTOM_STATE_ENTRY};
 use crate::durable::rlm::now_millis;
 use crate::durable::HostDeps;
@@ -212,6 +216,13 @@ struct Inner {
     accounts: Arc<AccountBook>,
     /// The session's account switches, oldest first.
     switches: Mutex<Vec<AccountSwitch>>,
+    /// The `model.backups` serving map: the model a dead end moved the
+    /// session to, keyed by the reference its requests still carry
+    /// (sticky until `/model` resets it).
+    backup_serving: Mutex<HashMap<String, Model>>,
+    /// The models a dead end took out for the session, by reference, with
+    /// the switch line's reason: the failover walk skips them.
+    parked_models: Mutex<HashMap<String, String>>,
 }
 
 /// An account's login: its provider id and the account's identity (the
@@ -342,6 +353,8 @@ impl ProviderRuntime {
                 moves: Mutex::new(Vec::new()),
                 accounts,
                 switches: Mutex::new(Vec::new()),
+                backup_serving: Mutex::new(HashMap::new()),
+                parked_models: Mutex::new(HashMap::new()),
             }),
         });
         for provider in models.get_providers() {
@@ -461,6 +474,23 @@ impl ProviderRuntime {
     #[must_use]
     pub fn account_switches(&self) -> Vec<AccountSwitch> {
         self.inner.switches.lock().unwrap_or_else(poisoned).clone()
+    }
+
+    /// The `model.backups` failover state reset (`/model`'s manual
+    /// override): the sticky serving choice and every parked model go, so
+    /// the session runs on the model the user chose and every model gets
+    /// a fresh chance.
+    pub fn reset_model_failover(&self) {
+        self.inner
+            .backup_serving
+            .lock()
+            .unwrap_or_else(poisoned)
+            .clear();
+        self.inner
+            .parked_models
+            .lock()
+            .unwrap_or_else(poisoned)
+            .clear();
     }
 
     /// The identity of the account each provider's requests use, for the
@@ -669,6 +699,11 @@ async fn run_request(
     out: AssistantMessageEventStream,
 ) {
     let settings = inner.deps.settings.manager();
+    // Sticky `model.backups` serving: a session a dead end moved to a
+    // backup keeps asking for the model it failed on; the backup answers
+    // for it until `/model` resets the choice.
+    let session_model = model.clone();
+    let model = sticky_backup(&inner, model);
     // Image-model routing: images on a text-only session model route to
     // the image role's model (`imageModel`, else `modelRoles.all`) or fail
     // with the actionable refusal.
@@ -920,13 +955,19 @@ async fn run_request(
                     };
                     let request = MoveRequest {
                         primary: &primary,
+                        session: &session_model,
                         moved: &moved,
                         images: context_has_images(&context),
                         accounts_out,
                     };
                     match model_move(&inner, &settings, &carried, &request, failing, failure).await
                     {
-                        Move::To { model, reason, why } => {
+                        Move::To {
+                            model,
+                            reason,
+                            why,
+                            sticky,
+                        } => {
                             // A login found unusable stays so for the run.
                             if why == Why::Login {
                                 mark_dead_login(
@@ -937,6 +978,13 @@ async fn run_request(
                                         moved_to: (*model).clone(),
                                     },
                                 );
+                            }
+                            if sticky {
+                                inner
+                                    .backup_serving
+                                    .lock()
+                                    .unwrap_or_else(poisoned)
+                                    .insert(model_reference(&session_model), (*model).clone());
                             }
                             switches += 1;
                             let _ = inner.events.send(ProviderWireEvent::AutoRetryStart {
@@ -1480,6 +1528,9 @@ async fn waited_out(carried: &CarriedOptions, delay_ms: u64) -> bool {
 struct MoveRequest<'a> {
     /// The model the request asked for.
     primary: &'a Model,
+    /// The model the session asked for (its requests still carry it; a
+    /// sticky `model.backups` move keys on its reference).
+    session: &'a Model,
     /// The configured models it already moved to, in order.
     moved: &'a [Model],
     /// It attaches images: only a model that takes images can serve it.
@@ -1492,11 +1543,14 @@ struct MoveRequest<'a> {
 /// What a failed request does next ([`model_move`]).
 enum Move {
     /// It goes on with `model`, for `reason` (recorded for the run's
-    /// report), because its model failed for `why`.
+    /// report), because its model failed for `why`. A sticky move is a
+    /// `model.backups` switch: the session's later requests for its own
+    /// model go to `model` too, until `/model` resets the choice.
     To {
         model: Box<Model>,
         reason: String,
         why: Why,
+        sticky: bool,
     },
     /// Its failure stands: the run's own retries go on, a usage limit
     /// waits (`finish_failure` parks it), no other model cures the
@@ -1507,11 +1561,138 @@ enum Move {
     Ends(String),
 }
 
+/// The model the sticky `model.backups` choice serves for `requested`,
+/// else `requested`.
+fn sticky_backup(inner: &Inner, requested: Model) -> Model {
+    let serving = inner.backup_serving.lock().unwrap_or_else(poisoned);
+    serving
+        .get(&model_reference(&requested))
+        .cloned()
+        .unwrap_or(requested)
+}
+
+/// The transcript row of a `model.backups` switch (display-only: the
+/// user sees it, the model does not). A row that cannot be written is
+/// logged: the wire event and the run's report still carry the switch.
+async fn show_switch_notice(inner: &Inner, text: &str) {
+    let Some(root) = inner.deps.harness.root() else {
+        return;
+    };
+    show_notice_row(
+        &root,
+        MODEL_BACKUP_SWITCH_CUSTOM_TYPE,
+        text.to_owned(),
+        &BACKGROUND_CONTEXT,
+    )
+    .await;
+}
+
+/// The generic fallback's `Why` a `backups::Trigger` reports with (the
+/// end report and the login death marking read it): an auth rejection is
+/// a dead login; a spent limit and a gone model are plain failures (the
+/// switch line carries the specific reason).
+fn trigger_why(trigger: backups::Trigger) -> Why {
+    match trigger {
+        backups::Trigger::AuthRejected => Why::Login,
+        backups::Trigger::UsageLimit | backups::Trigger::ModelGone => Why::Failed {
+            failures: 1,
+            retries: 0,
+        },
+    }
+}
+
+/// The `model.backups` chain's verdict on `failure` of `failing`
+/// ([`backups::trigger`], [`backups::pick`]). A dead end with entries
+/// configured: the chain's verdict is final — a pick moves the session
+/// for the rest of it (sticky), `failing`'s model+credential parks for
+/// the session, the switch shows as one transcript row; every entry out:
+/// the failure stands (the existing error, no loop). No dead end or no
+/// entries: `None`, the generic walk decides.
+async fn backup_move(
+    inner: &Inner,
+    settings: &SettingsManager,
+    carried: &CarriedOptions,
+    request: &MoveRequest<'_>,
+    failing: &Model,
+    failure: &AssistantMessage,
+) -> Option<Move> {
+    let all = inner.models.get_models(None);
+    let (references, diagnostics) = super::resolve_model_backup_references(
+        settings,
+        &all,
+        Some((failing.provider.as_str(), failing.id.as_str())),
+    );
+    for diagnostic in diagnostics {
+        // The session open reported each on the settings-error row; a
+        // later drop (a /model switch changed the primary) is a warn.
+        tracing::warn!("{diagnostic}");
+    }
+    let trigger = backups::trigger(failure, request.accounts_out.as_ref())?;
+    if references.is_empty() {
+        return None;
+    }
+    let available = credentialed_models(inner, carried, failing).await;
+    let credentialed = |model: &Model| {
+        available
+            .iter()
+            .any(|known| known.provider == model.provider)
+    };
+    let now = now_millis();
+    // The chain's facts, read under one lock: the guard ends with the
+    // block, so no await point sees it.
+    let entries: Vec<backups::Entry> = {
+        let parked = inner.parked_models.lock().unwrap_or_else(poisoned);
+        std::iter::once(failing)
+            .chain(references.iter().filter_map(|reference| {
+                all.iter()
+                    .find(|model| model_reference(model) == reference.as_str())
+            }))
+            .map(|model| backups::Entry {
+                tried: model_reference(model) == model_reference(request.primary)
+                    || request
+                        .moved
+                        .iter()
+                        .any(|moved| model_reference(moved) == model_reference(model)),
+                dead: parked.contains_key(&model_reference(model)),
+                credentialed: credentialed(model),
+                allowed: allowlist_allows(settings, model),
+                images: !request.images || model.input.contains(&Modality::Image),
+                exhausted: backups::quota_exhausted(
+                    QuotaBoard::latest(&model.provider).as_ref(),
+                    now,
+                ),
+                model,
+            })
+            .collect()
+    };
+    let Some(model) = backups::pick(&entries) else {
+        // Every entry is out: the existing error stands, no loop.
+        return Some(Move::Stays);
+    };
+    let reason = backups::switch_notice(model, trigger);
+    inner
+        .parked_models
+        .lock()
+        .unwrap_or_else(poisoned)
+        .insert(model_reference(failing), reason.clone());
+    // The run report's move line names the cause only; the transcript
+    // notice carries the full switch line.
+    record_move(inner, request.session, model, &trigger.text());
+    show_switch_notice(inner, &reason).await;
+    Some(Move::To {
+        model: Box::new(model.clone()),
+        reason,
+        why: trigger_why(trigger),
+        sticky: true,
+    })
+}
+
 /// What a request does after `failing` failed with `failure`
-/// ([`fallback::step`], `laws/fallback.bend`): it moves to the first
-/// untried model the user configured, then to the first untried default
-/// model of another signed-in provider, or it stays, or it ends with a
-/// report.
+/// ([`fallback::step`], `laws/fallback.bend`): the `model.backups` chain
+/// decides first ([`backup_move`], its own triggers); past it, the
+/// request moves to the first untried model the user configured, then to
+/// the first untried default model of another signed-in provider, or it
+/// stays, or it ends with a report.
 async fn model_move(
     inner: &Inner,
     settings: &SettingsManager,
@@ -1520,6 +1701,11 @@ async fn model_move(
     failing: &Model,
     failure: &AssistantMessage,
 ) -> Move {
+    if let Some(backups_move) =
+        backup_move(inner, settings, carried, request, failing, failure).await
+    {
+        return backups_move;
+    }
     let Some(why) = request
         .accounts_out
         .or_else(|| failure_why(inner, settings, request, failure))
@@ -1560,6 +1746,7 @@ async fn model_move(
                 model: Box::new(model),
                 reason,
                 why,
+                sticky: false,
             }
         }
         Step::End(cause) => {
@@ -1570,7 +1757,7 @@ async fn model_move(
 }
 
 /// How a provider's request without a key fails (every API's wording).
-const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
+pub(super) const MISSING_KEY_PREFIX: &str = "No API key for provider: ";
 
 /// Why `failure` keeps its model from going on, `None` for a failure no
 /// other model cures: a provider without a usable login (its login

@@ -323,7 +323,12 @@ pub(crate) async fn apply_model(
     // The tier re-clamp and the roster push read the mirror.
     hosted.events_delivered().await;
     // The switch itself landed; a model that is not saved, or that the
-    // project sets over, is a row of the session.
+    // project sets over, is a row of the session. The manual override
+    // also resets the `model.backups` failover state: the sticky serving
+    // choice and every parked model go.
+    if let Some(runtime) = hosted.deps().provider_runtime.get() {
+        runtime.reset_model_failover();
+    }
     let mut settings = SettingsManager::create(&deps.cwd, &deps.agent_dir);
     match save {
         ModelSave::Chat => report_saved(

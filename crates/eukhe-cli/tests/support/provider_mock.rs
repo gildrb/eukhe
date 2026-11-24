@@ -9,6 +9,7 @@
 
 #![allow(dead_code)] // each including test binary uses its own subset
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -17,7 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::{json, Value};
 
 /// The wire API of one request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Dialect {
     AnthropicMessages,
     OpenAiResponses,
@@ -31,6 +32,9 @@ pub struct Logged {
 
 pub struct ProviderMock {
     log: Arc<Mutex<Vec<Logged>>>,
+    /// The HTTP failures each dialect's logged requests get (a dead
+    /// provider a session is pointed at).
+    failures: Arc<Mutex<HashMap<Dialect, (u16, String)>>>,
     port: u16,
 }
 
@@ -54,15 +58,31 @@ impl ProviderMock {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the mock provider");
         let port = listener.local_addr().expect("mock address").port();
         let log = Arc::new(Mutex::new(Vec::new()));
+        let failures = Arc::new(Mutex::new(HashMap::new()));
         let accept = Arc::clone(&log);
+        let accepted_failures = Arc::clone(&failures);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
                 let log = Arc::clone(&accept);
-                std::thread::spawn(move || serve(&log, stream));
+                let failures = Arc::clone(&accepted_failures);
+                std::thread::spawn(move || serve(&log, &failures, stream));
             }
         });
-        ProviderMock { log, port }
+        ProviderMock {
+            log,
+            failures,
+            port,
+        }
+    }
+
+    /// Fail every logged request of `dialect` with `status` and `body`
+    /// (the provider's error JSON) for the rest of the mock's life.
+    pub fn fail_dialect(&self, dialect: Dialect, status: u16, body: &str) {
+        self.failures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(dialect, (status, body.to_owned()));
     }
 
     /// A copy of the request log.
@@ -139,7 +159,11 @@ fn read_request(stream: &TcpStream) -> Option<(String, Value)> {
     Some((path, serde_json::from_slice(&body).ok()?))
 }
 
-fn serve(log: &Mutex<Vec<Logged>>, mut stream: TcpStream) {
+fn serve(
+    log: &Mutex<Vec<Logged>>,
+    failures: &Mutex<HashMap<Dialect, (u16, String)>>,
+    mut stream: TcpStream,
+) {
     let Some((path, body)) = read_request(&stream) else {
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         return;
@@ -177,6 +201,28 @@ fn serve(log: &Mutex<Vec<Logged>>, mut stream: TcpStream) {
                 .and_then(|input| input.last())
                 .is_some_and(|last| last["type"] == "function_call_output"),
         };
+    // A scripted failure ends every logged request of the dialect (a side
+    // request like the title still gets its text answer).
+    if let Some((status, body)) = (!side)
+        .then(|| {
+            failures
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&dialect)
+                .cloned()
+        })
+        .flatten()
+    {
+        let head = format!(
+            "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            reason_phrase(status),
+            body.len(),
+        );
+        let _ = stream
+            .write_all(format!("{head}{body}").as_bytes())
+            .and_then(|()| stream.flush());
+        return;
+    }
     let events = match dialect {
         Dialect::AnthropicMessages => anthropic_events(index, after_tool),
         Dialect::OpenAiResponses => responses_events(index, after_tool),
@@ -198,6 +244,18 @@ fn sse(events: &[Value]) -> String {
         );
         out
     })
+}
+
+/// The HTTP reason phrase of the statuses the mock answers with.
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        // The dead-end statuses the suites script: 429 and the rest.
+        429 => "Too Many Requests",
+        _ => "Internal Server Error",
+    }
 }
 
 fn anthropic_events(index: usize, after_tool: bool) -> String {

@@ -96,6 +96,11 @@ async fn apply_model_selection(
             cx,
         )
         .await?;
+    // The manual override resets the `model.backups` failover state (the
+    // sticky serving choice and every parked model go).
+    if let Some(runtime) = session.deps().provider_runtime.get() {
+        runtime.reset_model_failover();
+    }
     settings_for(session)
         .set_default_model_and_provider(&model.provider, &model.id)
         .and_then(eukhe_core::settings::Persisted::applied)

@@ -5,12 +5,12 @@ use super::*;
 use crate::settings::types::{
     AutoRefineSettings, BranchSummarySettings, BudgetSettings, CompactionSettings,
     DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings, ImageSettings,
-    MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings, PrivacySettings,
-    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
-    RetryFailoverSettings, RetrySettings, RlmSettings, Settings, SignalGatewaySettings,
-    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
-    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, UndoSettings,
-    UpdateSettings, WarningSettings,
+    MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings, ModelSettings,
+    PrivacySettings, ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings,
+    QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings, Settings,
+    SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings, TerminalSettings,
+    ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings,
+    UndoSettings, UpdateSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -111,6 +111,9 @@ fn populated() -> Settings {
             }),
         }),
         provider_backup_model: Some("m".into()),
+        model: Some(ModelSettings {
+            backups: Some(vec!["m".into()]),
+        }),
         image_model: Some("m".into()),
         directors: Some(DirectorSettings {
             stack_cap: Some(1),
