@@ -17,6 +17,19 @@ png = "0.18.1"
 # the graph. MIT OR Apache-2.0.
 libc = "0.2.189"
 
+# The macOS backend's platform APIs (AX, Quartz events and window list,
+# ScreenCaptureKit, NSWorkspace), all called from `macos::ffi` only. The
+# objc2 family: MIT for objc2/block2, Zlib OR Apache-2.0 OR MIT for the rest.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFBase", "CFCGTypes", "CFDictionary", "CFNumber", "CFRunLoop", "CFMachPort", "CFString", "CFURL", "CFDate"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "libc", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGWindow", "CGDirectDisplay", "CGDisplayConfiguration", "CGGeometry", "CGImage", "CGContext", "CGBitmapContext", "CGColorSpace", "CGSession"] }
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "AXUIElement", "AXError", "AXValue", "AXValueConstants", "AXAttributeConstants", "AXActionConstants", "HIServices"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSError", "NSString", "NSURL", "NSDictionary", "NSValue", "NSBundle", "NSObject", "NSProcessInfo"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "block2"] }
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "SCShareableContent", "SCScreenshotManager", "SCStream", "block2", "objc2-core-graphics", "objc2-core-foundation"] }
+
 [dev-dependencies]
 # Step and selector decoding tests read the JSON the tools send. Already in
 # the graph.
