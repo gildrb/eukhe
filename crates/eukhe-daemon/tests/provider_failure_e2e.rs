@@ -72,6 +72,10 @@ enum MockRejection {
     /// attempt and settled SILENTLY (no retry episode, so no outcome
     /// row) before the failure-scoped disclosure.
     PaymentRequired,
+    /// A stream the provider ends mid-turn: response headers and one
+    /// content chunk, then the connection closes with no terminal
+    /// marker — the terminated-stream shape the stream budget retries.
+    MidStreamCut,
 }
 
 impl FailingMock {
@@ -190,7 +194,25 @@ fn serve(
         *requests
     };
     if index <= failures {
+        if let MockRejection::MidStreamCut = rejection {
+            // Headers and one content chunk, then the connection closes:
+            // no terminal marker, no error frame — the silent drop.
+            let payload = format!(
+                "data: {}\n\n",
+                json!({"role": "assistant", "content": "partial"})
+            );
+            return stream.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{payload}"
+                )
+                .as_bytes(),
+            );
+        }
         let (status_line, headers, body) = match rejection {
+            MockRejection::MidStreamCut => {
+                // Taken by the early return above; the match stays total.
+                ("HTTP/1.1 200 OK", String::new(), String::new())
+            }
             MockRejection::ServerError => (
                 "HTTP/1.1 500 Internal Server Error",
                 String::new(),
@@ -413,7 +435,29 @@ fn setup_with_rejection(
     answer: &'static str,
     rejection: MockRejection,
 ) -> (tempfile::TempDir, FailingMock, Daemon, Client, String) {
-    setup_world(name, failures, answer, rejection, ChatMemory::Off)
+    setup_world(name, failures, answer, rejection, ChatMemory::Off, None)
+}
+
+/// The shared harness with the stream budget set (`model.streamRetries`)
+/// and the retry budget capped (`retry.maxRetries`), for the turn-level
+/// stream-cut tests.
+#[allow(clippy::type_complexity)]
+fn setup_with_rejection_budget(
+    name: &str,
+    failures: usize,
+    answer: &'static str,
+    rejection: MockRejection,
+    stream_retries: u32,
+    max_retries: u32,
+) -> (tempfile::TempDir, FailingMock, Daemon, Client, String) {
+    setup_world(
+        name,
+        failures,
+        answer,
+        rejection,
+        ChatMemory::Off,
+        Some((stream_retries, max_retries)),
+    )
 }
 
 /// What a mock's `/memory` route answers: the chat-memory compactor's
@@ -442,6 +486,7 @@ fn setup_world(
     answer: &'static str,
     rejection: MockRejection,
     memory: ChatMemory,
+    budget: Option<(u32, u32)>,
 ) -> (tempfile::TempDir, FailingMock, Daemon, Client, String) {
     let dir = tempfile::TempDir::new().expect("temp dir");
     let agent_dir = dir.path().join("agent");
@@ -471,6 +516,10 @@ fn setup_world(
         "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 50 },
         "titles": { "generate": false }
     });
+    if let Some((stream_retries, max_retries)) = budget {
+        settings["model"] = json!({ "streamRetries": stream_retries });
+        settings["retry"]["maxRetries"] = json!(max_retries);
+    }
     match memory {
         ChatMemory::Off => settings["memory"] = json!({ "chat": false }),
         ChatMemory::OnItsOwnModel => {
@@ -712,6 +761,7 @@ fn a_failed_run_never_goes_on_with_the_memory_model() {
         "never reached",
         MockRejection::ServerError,
         ChatMemory::OnItsOwnModel,
+        None,
     );
     client.send_command(
         "p1",
@@ -1380,5 +1430,47 @@ fn provider_failure_recovered_by_retry_settles_the_turn() {
         types.iter().filter(|t| *t == "turn_start").count(),
         1,
         "one turn_start: the retries stay in the turn: {types:?}"
+    );
+}
+
+/// THE TERMINATED STREAM: a provider that ends its response mid-turn
+/// (headers and one chunk, no terminal marker) spends the stream budget
+/// (`model.streamRetries`): the cuts retry the same model with the retry
+/// policy's backoff, and a cut past the budget fails the turn on
+/// today's path with the cuts and their cause named - the model, the
+/// cut count, the last failure, and `model.backups` - instead of the
+/// bare transport word.
+#[test]
+fn a_terminated_stream_spends_the_stream_budget_and_names_the_cuts() {
+    let (_dir, mock, _supervisor, mut client, session_id) =
+        setup_with_rejection_budget("cut", 3, "never reached", MockRejection::MidStreamCut, 2, 0);
+    client.send_command(
+        "t1",
+        &json!({ "type": "prompt_and_wait", "activeSessionId": session_id, "message": "hi" }),
+    );
+    let done = client.request("t1");
+    assert_eq!(done["success"], true, "prompt failed: {done}");
+    // Every cut of the turn: two stream retries and the failing one. No
+    // retry.maxRetries retry happened (it is 0): the stream budget spent.
+    assert_eq!(mock.count(), 3, "request count");
+    client.send_command(
+        "g1",
+        &json!({ "type": "get_messages", "activeSessionId": session_id }),
+    );
+    let messages = client.request("g1");
+    let list = messages["data"]["messages"].as_array().expect("messages");
+    let last_error = list
+        .iter()
+        .rev()
+        .find(|message| message["role"] == "assistant" && message["stopReason"] == "error")
+        .and_then(|message| message["errorMessage"].as_str())
+        .expect("the failed turn's error");
+    assert!(
+        last_error.contains("mock-1's stream was cut 3 times"),
+        "the cuts named: {last_error}"
+    );
+    assert!(
+        last_error.contains("Set model.backups to let another model take the turn."),
+        "the backups pointer: {last_error}"
     );
 }
