@@ -1,6 +1,7 @@
 //! A writing batch of a workflow on the agent tree: the writing `agent()`
-//! calls a script starts together become one crown, a balanced binary
-//! tree over the agents in call order. Its leaves are the agents; its
+//! calls a script starts together form a group, checked whole, that
+//! starts in waves ([`wave`]); each wave is one crown, a balanced binary
+//! tree over its agents in call order. Its leaves are the agents; its
 //! internal nodes are integrators the harness runs (no model): each
 //! finishes once both its children settled, its patch the overlay of
 //! theirs. One agent alone is the crown's root. The record keeps the
@@ -121,6 +122,8 @@ pub(crate) enum BatchRefusal {
     Busy { path: String, ordinals: String },
     #[error("the writing agents started together must name disjoint files")]
     Overlap,
+    #[error("the agent tree has no node free for a writing agent")]
+    NoRoom,
     #[error("{}", .0.text())]
     Core(Refusal),
 }
@@ -135,6 +138,20 @@ fn bounds(room: &Room) -> Bounds {
             None => 0,
         },
     }
+}
+
+/// The leaves a balanced tree holds within `levels` below its root.
+fn leaves_within(levels: u64) -> u64 {
+    1_u64
+        .checked_shl(u32::try_from(levels).unwrap_or(u32::MAX))
+        .unwrap_or(u64::MAX)
+}
+
+/// The most writing agents one batch holds when its root sits at `depth`
+/// with `allowance` nodes: the leaves the depth bound allows, with every
+/// node (`2n - 1`) within the allowance.
+pub(crate) fn width(depth: u64, allowance: u64) -> u64 {
+    leaves_within(MAX_DEPTH.saturating_sub(depth)).min(allowance.saturating_add(1) / 2)
 }
 
 fn lim(value: Option<u64>) -> Lim {
@@ -267,21 +284,29 @@ fn held(batch: &Batch) -> impl Iterator<Item = (&str, u32)> {
         })
 }
 
-/// Plan the batch of the writing agents `agents` (ordinal and scope, in
-/// call order) in `room`, inside the session's write scope `session`
-/// (`""`: everything), beside the batches of the run (`running`).
-///
-/// # Errors
-///
-/// An agent without files, a path outside the workspace or the session's
-/// scope, a path a running batch holds, more agents than the remaining
-/// depth allows, or a split the core refuses.
-pub(crate) fn plan(
-    room: Room,
+/// Whether no path of one scope is, contains or lies inside a path of
+/// another: the masks of the scopes over their units do not meet.
+fn disjoint(scopes: &[Vec<String>]) -> bool {
+    scopes.iter().enumerate().all(|(at, scope)| {
+        scopes[at + 1..].iter().all(|other| {
+            scope.iter().all(|path| {
+                other
+                    .iter()
+                    .all(|outer| !within(path, outer) && !within(outer, path))
+            })
+        })
+    })
+}
+
+/// The scopes of the writing group `agents` (ordinal and scope, in call
+/// order), normalized, checked together before any of them starts:
+/// inside the session's write scope `session` (`""`: everything), clear
+/// of the running batches (`running`), and disjoint from each other.
+fn checked(
     session: &[String],
     running: &[&Batch],
     agents: &[(u32, Vec<String>)],
-) -> Result<Batch, BatchRefusal> {
+) -> Result<Vec<Vec<String>>, BatchRefusal> {
     let mut scopes = Vec::with_capacity(agents.len());
     for (_, scope) in agents {
         if scope.is_empty() {
@@ -317,10 +342,19 @@ pub(crate) fn plan(
             });
         }
     }
+    if !disjoint(&scopes) {
+        return Err(BatchRefusal::Overlap);
+    }
+    Ok(scopes)
+}
+
+/// The batch of `agents` with their checked `scopes`, in `room`: the
+/// balanced tree's leaves in call order.
+fn laid_out(room: Room, agents: &[(u32, Vec<String>)], scopes: &[Vec<String>]) -> Batch {
     let mut units: Vec<String> = scopes.iter().flatten().cloned().collect();
     units.sort();
     units.dedup();
-    let batch = Batch {
+    Batch {
         leaves: agents
             .iter()
             .zip(scopes)
@@ -328,16 +362,95 @@ pub(crate) fn plan(
             .map(|(((ordinal, _), scope), path)| Leaf {
                 ordinal: *ordinal,
                 path: path_text(&path),
-                scope,
+                scope: scope.clone(),
             })
             .collect(),
         units,
         room,
         ends: Vec::new(),
         cancelled: false,
-    };
-    crown(&batch)?;
+    }
+}
+
+/// Plan the batch of the writing agents `agents` (ordinal and scope, in
+/// call order) in `room`, all or none, inside the session's write scope
+/// `session` (`""`: everything), beside the running batches (`running`).
+///
+/// # Errors
+///
+/// An agent without files, a path outside the workspace or the session's
+/// scope, a path a running batch holds, shared files, more agents than
+/// the remaining depth allows, or a split the core refuses.
+pub(crate) fn plan(
+    room: Room,
+    session: &[String],
+    running: &[&Batch],
+    agents: &[(u32, Vec<String>)],
+) -> Result<Batch, BatchRefusal> {
+    let scopes = checked(session, running, agents)?;
+    let batch = laid_out(room, agents, &scopes);
+    admitted(&batch)?;
     Ok(batch)
+}
+
+/// The next wave of a writing group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Wave {
+    /// The group's first agents, as one batch; the rest start later.
+    Batch(Batch),
+    /// The room holds no writing agent until a running batch settles.
+    Full,
+}
+
+/// The next wave of the writing group `agents` (ordinal and scope, in
+/// call order) in `room`: the longest first run of agents one batch holds
+/// (the depth bound, the nodes, the budget's splits). The whole group is
+/// checked first, so a later wave meets no refusal this one could have
+/// named.
+///
+/// # Errors
+///
+/// An agent without files, a path outside the workspace or the session's
+/// scope, a path a running batch holds, shared files, or a split the core
+/// refuses for another reason than room.
+pub(crate) fn wave(
+    room: &Room,
+    session: &[String],
+    running: &[&Batch],
+    agents: &[(u32, Vec<String>)],
+) -> Result<Wave, BatchRefusal> {
+    let scopes = checked(session, running, agents)?;
+    let most = usize::try_from(width(room.depth, room.allowance))
+        .unwrap_or(usize::MAX)
+        .min(agents.len());
+    for count in (1..=most).rev() {
+        let batch = laid_out(room.clone(), &agents[..count], &scopes[..count]);
+        match admitted(&batch) {
+            Ok(_) => return Ok(Wave::Batch(batch)),
+            Err(
+                BatchRefusal::TooDeep { .. }
+                | BatchRefusal::Core(Refusal::TooMany | Refusal::NoBudget),
+            ) => {}
+            Err(
+                refusal @ (BatchRefusal::NoScope
+                | BatchRefusal::BadPath { .. }
+                | BatchRefusal::OutsideSession { .. }
+                | BatchRefusal::Busy { .. }
+                | BatchRefusal::Overlap
+                | BatchRefusal::NoRoom
+                | BatchRefusal::Core(
+                    Refusal::NoNode
+                    | Refusal::NotRunning
+                    | Refusal::NotLeaf
+                    | Refusal::TooDeep
+                    | Refusal::BadScopes
+                    | Refusal::Unsettled
+                    | Refusal::NotRedoable,
+                )),
+            ) => return Err(refusal),
+        }
+    }
+    Ok(Wave::Full)
 }
 
 /// The crown the batch's plan admits: the root over every unit, split
@@ -366,9 +479,7 @@ fn admitted(batch: &Batch) -> Result<Crown, BatchRefusal> {
                     agents: batch.leaves.len(),
                     needed: levels(batch.leaves.len()),
                     left,
-                    most: 1_u64
-                        .checked_shl(u32::try_from(left).unwrap_or(u32::MAX))
-                        .unwrap_or(u64::MAX),
+                    most: leaves_within(left),
                 }
             }
             Refusal::NoNode

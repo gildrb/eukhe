@@ -9,7 +9,8 @@
 //! report that starts a parent turn; the parent gets no child reports, and
 //! the `workflow_activity` lane shows the finished run. A second run of
 //! size small hits the agent budget: the calls past `max_agents` give
-//! `null`.
+//! `null`, and the report names why. Ten writing agents in one
+//! `parallel()` start in waves of at most `budget.writers`.
 
 #![allow(clippy::too_many_lines)]
 
@@ -398,6 +399,17 @@ fn a_workflow_fans_out_pipes_and_respects_the_budget() {
         (5, Some(7)),
         "{ran}"
     );
+    // The report names why the two calls gave null.
+    assert_eq!(
+        reports[1]
+            .lines()
+            .filter(|line| line.starts_with("- parallel slot ")
+                && line.ends_with(": WorkflowBudgetExhausted: this run may spawn at most 5 agents"))
+            .count(),
+        2,
+        "{}",
+        reports[1]
+    );
 }
 
 const HELD_SCRIPT: &str = r#"export const meta = { name: "held", description: "two held agents", phases: [] };
@@ -501,6 +513,59 @@ fn a_run_survives_a_parent_worker_crash_and_reports_once() {
     assert_eq!(
         (runs[0]["state"].clone(), runs[0]["spawned"].clone()),
         (json!({ "state": "done" }), json!(2)),
+        "{runs}"
+    );
+}
+
+const WAVES_SCRIPT: &str = r#"export const meta = { name: "waves", description: "more writing agents than one batch holds", phases: [] };
+const parts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const done = await parallel(parts.map((n) => () => agent(`write part ${n}`, { label: `part ${n}`, scope: [`part${n}`] })));
+return { writers: budget.writers, results: done.map((answer) => (answer === null ? null : answer.result)) };"#;
+
+/// Ten writing agents in one `parallel()` at the tree's root, where one
+/// batch holds four: the group starts in waves (two batches at once,
+/// then the last two agents once a batch returns its nodes), every agent
+/// answers, and the report names no problem.
+#[test]
+fn writing_agents_past_the_batch_width_run_in_waves() {
+    let lane = Lane::new();
+    let child_script = lane.script("child", &json!([{ "text": CHILD_ANSWER }]));
+    let parent_script = lane.script(
+        "parent",
+        &json!([
+            workflow_call(WAVES_SCRIPT, "medium"),
+            { "text": "workflow started" },
+            { "text": "workflow done" },
+        ]),
+    );
+    let _daemon = spawn_supervisor(&lane.socket(), &lane.agent_dir());
+    let mut client = connect(&lane.socket());
+    let parent = lane.create_parent(&mut client, &parent_script, &child_script);
+    client.run_turn(&parent, "run the writing workflow");
+    wait_quiescent(&mut client, "idle", &parent);
+    let messages = client.messages(&parent);
+    let reports = workflow_reports(&messages);
+    assert_eq!(reports.len(), 1, "{messages:?}");
+    assert!(reports[0].contains("(waves): done"), "{}", reports[0]);
+    assert!(!reports[0].contains("Problems"), "{}", reports[0]);
+    assert_eq!(
+        returned(&reports[0]),
+        json!({ "writers": 4, "results": vec![CHILD_ANSWER; 10] }),
+        "{}",
+        reports[0]
+    );
+    let runs = client.request(
+        "activity",
+        &json!({ "type": "workflow_activity", "activeSessionId": parent }),
+    )["runs"]
+        .clone();
+    assert_eq!(
+        (
+            runs[0]["spawned"].clone(),
+            runs[0]["done"].clone(),
+            runs[0]["failed"].clone()
+        ),
+        (json!(10), json!(10), json!(0)),
         "{runs}"
     );
 }

@@ -3,17 +3,19 @@
 //! integration, conflicts, and read-only agents.
 
 use eukhe_bend::rules::agent_tree::{Info, Lim, Node, Status};
-use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowLimits, WorkflowSize};
+use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowLimits, WorkflowRunState, WorkflowSize};
 use serde_json::json;
 
-use super::batch::{crown, place, plan, Batch, BatchRefusal, LeafPlace, Outcome, Room};
+use super::batch::{crown, place, plan, wave, Batch, BatchRefusal, LeafPlace, Outcome, Room, Wave};
+use super::batch_doc::Batches;
 use super::globals::{
-    admit, agent_options, resume_key, spawn_kwargs, Access, Admission, AgentOptions, Resumed,
-    Spawn, WorkflowOptionError,
+    admit, agent_options, resume_key, spawn_kwargs, start_group, Access, Admission, AgentOptions,
+    GroupSite, GroupStart, Resumed, Spawn, WorkflowOptionError, Writing,
 };
 use super::meta::WorkflowMeta;
 use super::run_doc::{AgentRow, RunRecord};
-use super::tree::{self, Written};
+use super::run_task::RunReport;
+use super::tree::{self, Facts, Written};
 
 fn run(max_agents: u32, resume_from: Option<&str>) -> RunRecord {
     RunRecord::start(
@@ -360,30 +362,27 @@ fn a_writing_leaf_spawns_with_its_place_in_the_batch() {
     );
 }
 
-/// The refusals of a batch: more agents than the remaining depth holds,
-/// shared files, a path outside the session's scope or one a running
-/// batch holds, a path that leaves the workspace.
+/// The refusals of a writing group: shared files, a path outside the
+/// session's scope or one a running batch holds, a path that leaves the
+/// workspace.
 #[test]
 fn a_batch_is_refused_with_the_rules_text() {
-    let deep = Room { depth: 2, ..room() };
     let running = plan(room(), &[String::new()], &[], &writers(&["src/lib.rs"])).expect("plan");
     let refused = [
-        plan(deep, &[String::new()], &[], &writers(&["a", "b", "c"])),
-        plan(
-            room(),
+        wave(
+            &room(),
             &[String::new()],
             &[],
             &writers(&["src", "src/lib.rs"]),
         ),
-        plan(room(), &["crates".to_owned()], &[], &writers(&["docs"])),
-        plan(room(), &[String::new()], &[&running], &writers(&["src"])),
-        plan(room(), &[String::new()], &[], &writers(&["../etc"])),
+        wave(&room(), &["crates".to_owned()], &[], &writers(&["docs"])),
+        wave(&room(), &[String::new()], &[&running], &writers(&["src"])),
+        wave(&room(), &[String::new()], &[], &writers(&["../etc"])),
     ]
     .map(|refused| refused.map_err(|refusal| refusal.to_string()));
     assert_eq!(
         refused,
         [
-            Err("3 writing agents started together need 2 levels below their root; 1 remain here (at most 2 writing agents at once)".to_owned()),
             Err("the writing agents started together must name disjoint files".to_owned()),
             Err("docs lies outside this session's scope (crates)".to_owned()),
             Err("src belongs to a running writing batch of this workflow (agents 1)".to_owned()),
@@ -393,6 +392,259 @@ fn a_batch_is_refused_with_the_rules_text() {
     assert_eq!(
         BatchRefusal::NoScope.to_string(),
         "a writing agent needs its files"
+    );
+}
+
+/// A writing group wider than the remaining depth holds starts its
+/// first wave (the first agents one batch holds) instead of a refusal; a
+/// kernel caller's batch, all or none, is still refused.
+#[test]
+fn a_group_deeper_than_the_room_starts_its_first_wave() {
+    let deep = Room { depth: 2, ..room() };
+    let first = match wave(&deep, &[String::new()], &[], &writers(&["a", "b", "c"])) {
+        Ok(Wave::Batch(batch)) => batch.leaves.iter().map(|leaf| leaf.ordinal).collect(),
+        other => panic!("no first wave: {other:?}"),
+    };
+    assert_eq!(
+        (
+            first,
+            plan(deep, &[String::new()], &[], &writers(&["a", "b", "c"]))
+                .map_err(|refusal| refusal.to_string()),
+        ),
+        (
+            vec![1, 2],
+            Err("3 writing agents started together need 2 levels below their root; 1 remain here (at most 2 writing agents at once)".to_owned()),
+        )
+    );
+}
+
+/// The run `run_id` "1" of a session at the tree's root with `nodes`
+/// nodes free.
+fn root_facts(nodes: u64) -> Facts {
+    Facts {
+        write_scope: vec![String::new()],
+        room: Room {
+            allowance: nodes,
+            ..room()
+        },
+    }
+}
+
+/// Writing agents `ordinals` of prompt `w<ordinal>`, each writing the
+/// directory `d<ordinal>`.
+fn group(ordinals: std::ops::RangeInclusive<u32>) -> Vec<(AgentRow, Vec<String>)> {
+    ordinals
+        .map(|ordinal| {
+            (
+                row(ordinal, &format!("w{ordinal}")),
+                vec![format!("d{ordinal}")],
+            )
+        })
+        .collect()
+}
+
+fn site<'a>(key: u32, facts: &'a Facts, batches: &'a Batches) -> GroupSite<'a> {
+    GroupSite {
+        key,
+        cache: Resumed::Fresh,
+        facts,
+        batches,
+        writing: Writing::Running,
+    }
+}
+
+/// The ordinals of `start`'s batch, and its deferred ordinals.
+fn started(start: &GroupStart) -> (Vec<u32>, Vec<u32>) {
+    match start {
+        GroupStart::Wave { batch, deferred } => (
+            batch
+                .iter()
+                .flat_map(|batch| batch.leaves.iter().map(|leaf| leaf.ordinal))
+                .collect(),
+            deferred.clone(),
+        ),
+        GroupStart::Refused(reason) => panic!("refused: {reason}"),
+    }
+}
+
+/// Eight writing agents at the tree's root (four per batch) start in two
+/// waves, both at once while the tree has nodes for both; with no node
+/// free the rest wait while a writing agent of the run runs, and with
+/// none running they are refused and their reserved rows released.
+#[test]
+fn a_writing_group_past_the_batch_width_starts_in_waves() {
+    let record = run(10, None);
+    let none = Batches::default();
+    let facts = root_facts(14);
+    let (record, first) = start_group(&record, &site(1, &facts, &none), group(1..=8));
+    assert_eq!(started(&first), (vec![1, 2, 3, 4], vec![5, 6, 7, 8]));
+    assert_eq!(
+        (
+            record.spawned(),
+            record
+                .agents
+                .values()
+                .map(|row| (row.ordinal, row.status, row.batch))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            8,
+            (1..=8)
+                .map(|ordinal| (
+                    ordinal,
+                    WorkflowAgentStatus::Queued,
+                    (ordinal < 5).then_some(1)
+                ))
+                .collect(),
+        )
+    );
+    let GroupStart::Wave {
+        batch: Some(wave_one),
+        ..
+    } = first
+    else {
+        panic!("no first batch");
+    };
+    let mut holding = Batches::default();
+    holding.batches.insert(tree::lend_key("1", 1), wave_one);
+    let left = root_facts(14 - tree::nodes(4));
+    let (second_record, second) = start_group(&record, &site(5, &left, &holding), group(5..=8));
+    assert_eq!(started(&second), (vec![5, 6, 7, 8], Vec::new()));
+    assert_eq!(second_record.spawned(), 8);
+
+    let full = root_facts(0);
+    let (waiting, wait) = start_group(&record, &site(5, &full, &holding), group(5..=8));
+    assert_eq!(
+        (started(&wait), waiting.spawned()),
+        ((Vec::new(), vec![5, 6, 7, 8]), 8)
+    );
+    let idle = GroupSite {
+        writing: Writing::Idle,
+        ..site(5, &full, &holding)
+    };
+    let (released, refused) = start_group(&record, &idle, group(5..=8));
+    assert_eq!(
+        (refused, released.spawned()),
+        (
+            GroupStart::Refused("the agent tree has no node free for a writing agent".to_owned()),
+            4,
+        )
+    );
+}
+
+/// The whole group is checked before its first wave starts: a shared
+/// file, a path outside the session or a group past `max_agents` in a
+/// later wave refuses the group at once, and no agent of it gets a row.
+#[test]
+fn a_group_is_refused_whole_before_its_first_wave() {
+    let none = Batches::default();
+    let facts = root_facts(14);
+    let overlapping = {
+        let mut agents = group(1..=6);
+        agents[5].1 = vec!["d1/inner".to_owned()];
+        agents
+    };
+    let outside = Facts {
+        write_scope: (1..=4).map(|ordinal| format!("d{ordinal}")).collect(),
+        ..root_facts(14)
+    };
+    let refusals = [
+        start_group(&run(10, None), &site(1, &facts, &none), overlapping),
+        start_group(&run(10, None), &site(1, &outside, &none), group(1..=6)),
+        start_group(&run(5, None), &site(1, &facts, &none), group(1..=6)),
+    ]
+    .map(|(record, start)| (record.agents.len(), start));
+    assert_eq!(
+        refusals,
+        [
+            (
+                0,
+                GroupStart::Refused(
+                    "the writing agents started together must name disjoint files".to_owned()
+                ),
+            ),
+            (
+                0,
+                GroupStart::Refused(
+                    "d5 lies outside this session's scope (d1, d2, d3, d4)".to_owned()
+                ),
+            ),
+            (
+                0,
+                GroupStart::Refused(
+                    "WorkflowBudgetExhausted: this run may spawn at most 5 agents".to_owned()
+                ),
+            ),
+        ]
+    );
+}
+
+/// A rerun with `resume` reuses the writing agents of the earlier run
+/// that finished, without counting them; its batch holds only the agents
+/// the failed run lost.
+#[test]
+fn a_resumed_group_reuses_the_writers_that_finished() {
+    let mut earlier = run(10, None);
+    for (ordinal, status) in [
+        (1, WorkflowAgentStatus::Done),
+        (2, WorkflowAgentStatus::Done),
+        (3, WorkflowAgentStatus::Cancelled),
+        (4, WorkflowAgentStatus::Cancelled),
+    ] {
+        let mut finished = row(ordinal, &format!("w{ordinal}"));
+        finished.status = status;
+        finished.batch = Some(1);
+        finished.result = (status == WorkflowAgentStatus::Done)
+            .then(|| json!({ "result": "ok", "conflicts": [] }));
+        earlier.agents.insert(ordinal, finished);
+    }
+    let none = Batches::default();
+    let facts = root_facts(14);
+    let resumed = GroupSite {
+        cache: Resumed::From(&earlier),
+        ..site(1, &facts, &none)
+    };
+    let (record, start) = start_group(&run(10, Some("0")), &resumed, group(1..=4));
+    assert_eq!(
+        (
+            started(&start),
+            record.spawned(),
+            record
+                .agents
+                .values()
+                .map(|row| (row.ordinal, row.status))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            (vec![3, 4], Vec::new()),
+            2,
+            vec![
+                (1, WorkflowAgentStatus::Cached),
+                (2, WorkflowAgentStatus::Cached),
+                (3, WorkflowAgentStatus::Queued),
+                (4, WorkflowAgentStatus::Queued),
+            ],
+        )
+    );
+}
+
+/// A run's report names why each `null` came back and how to resume the
+/// agents that finished, before the script's output.
+#[test]
+fn the_report_lists_the_problems_and_the_resume() {
+    let mut record = run(10, None);
+    record.state = WorkflowRunState::Done;
+    let mut finished = row(1, "a");
+    finished.status = WorkflowAgentStatus::Done;
+    record.agents.insert(1, finished);
+    record.push_problem("agent 2 (b) failed: the agent ended failed".to_owned());
+    record.push_problem(
+        "parallel slot 2: WorkflowBudgetExhausted: this run may spawn at most 2 agents".to_owned(),
+    );
+    record.push_problem("agent 2 (b) failed: the agent ended failed".to_owned());
+    assert_eq!(
+        RunReport::ended("7", &record, "Output:\n[\"x\",null,null]").body,
+        "workflow run 7 (t): done\nProblems (why results are null):\n- agent 2 (b) failed: the agent ended failed\n- parallel slot 2: WorkflowBudgetExhausted: this run may spawn at most 2 agents\nA rerun with resume: \"7\" reuses the 1 agents that finished.\nOutput:\n[\"x\",null,null]"
     );
 }
 

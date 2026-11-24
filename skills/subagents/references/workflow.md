@@ -15,17 +15,19 @@ API (globals):
 - `agent(prompt, opts?) -> Promise<string | object | null>`: run one subagent with `prompt` and return its final message. `opts`: `label` (short roster name), `phase` (phase title; default: the current `phase()`), `schema` (a JSON Schema object: the agent must end with a matching JSON block, the call returns the parsed object), `model` (model id), `effort` (thinking level), `scope` (the files and directories the agent writes). Returns `null` when the agent fails, is cancelled, or misses the schema after one retry. Throws `WorkflowBudgetExhausted` when the run already spawned `budget.maxAgents` agents.
   - Without `scope`: a read-only agent (reads, runs read-only commands, reports); its writes are refused.
   - With `scope`: a writing agent. It returns `{ result, conflicts }`: `result` as above, `conflicts` the paths it changed outside its scope (or that changed under it); those changes are kept apart, never applied. A `scope` that names no file is refused: `a writing agent needs its files`.
-- `parallel(thunks) -> Promise<array>`: run `() => agent(...)` thunks at once (a barrier). A thunk that throws gives `null` in its slot.
-- `pipeline(items, ...stages) -> Promise<array>`: pass each item through the stages in order, with no barrier between stages: item 1 can be in stage 3 while item 2 is in stage 1. A stage gets `(value, item, index)`; a `null` value or a throw stops that item with `null`.
+- `parallel(thunks) -> Promise<array>`: run `() => agent(...)` thunks at once (a barrier). A thunk that throws gives `null` in its slot; its error is listed under `Problems` in the result message.
+- `pipeline(items, ...stages) -> Promise<array>`: pass each item through the stages in order, with no barrier between stages: item 1 can be in stage 3 while item 2 is in stage 1. A stage gets `(value, item, index)`; a `null` value or a throw stops that item with `null` (a throw is listed under `Problems`).
 - `phase(title)`: enter a phase of `meta.phases` (the view marks earlier phases done).
 - `log(message)`: add a line to the run's log in `/workflows`.
-- `args`: the request string. `budget`: `{ size, concurrency, maxAgents, spawned() }`.
+- `args`: the request string. `budget`: `{ size, concurrency, maxAgents, writers, spawned() }`.
 - `return value`: the JSON value the result message carries back to you.
 
 Rules:
 
-- At most `budget.concurrency` read-only agents run at once; more calls wait for a slot. Plan at most `budget.maxAgents` agents.
-- Writing agents called in the same turn of the script (one `parallel()`, the first stage of one `pipeline()`) start together as one batch, all or none; they take no `budget.concurrency` slot. The batch is a balanced binary tree over its agents: the harness merges each pair's changes, and each agent's changes land in its scope. One writing agent alone is a batch of one node. A batch is refused when two of its agents share a file (`the writing agents started together must name disjoint files`), when a path lies outside this session's scope or in a running batch, or when it holds more agents than the remaining tree depth allows (2, 4 or 8, by depth).
+- At most `budget.concurrency` read-only agents run at once; more calls wait for a slot. At most `budget.maxAgents` agents per run; the calls past it throw `WorkflowBudgetExhausted`.
+- Writing agents called in the same turn of the script (one `parallel()`, the first stage of one `pipeline()`) start together as one group; they take no `budget.concurrency` slot. Before any of them starts, the whole group is checked and refused together when one check fails: two agents share a file (`the writing agents started together must name disjoint files`), a path lies outside this session's scope or in a running batch, or the group would pass `budget.maxAgents`.
+- A batch is a balanced binary tree over at most `budget.writers` writing agents: the harness merges each pair's changes, and each agent's changes land in its scope. A larger group starts in waves: each next batch starts as soon as the agent tree has room. `budget.writers` is `0` where this session writes no files.
+- The result message lists under `Problems` each failed agent and each error that `parallel()` or `pipeline()` turned into `null`, with its reason.
 - Keep shared files (lockfiles, `mod.rs`, index files, generated code) out of every agent's scope; edit them after the batch.
 - Deterministic: `Date` is virtual and `Math.random` is seeded; there is no I/O except `agent()`. Do not branch on time.
 - Agents do not see each other or this conversation: put every fact an agent needs in its prompt (paths, the request, earlier results).
@@ -69,4 +71,4 @@ return { parts: parts.map((p) => (p === null ? "failed" : { done: true, conflict
 
 ## Resume
 
-After a failed or changed run, call again with `resume: "<run id>"` (the id is in the start answer and the result message): agents whose prompt and options did not change return their earlier answer without a new spawn.
+After a failed or changed run, call again with `resume: "<run id>"` (the id is in the start answer and the result message; a result message with failures says how many agents a resume reuses): agents whose prompt and options did not change return their earlier answer without a new spawn.

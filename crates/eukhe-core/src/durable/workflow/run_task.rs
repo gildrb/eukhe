@@ -83,28 +83,35 @@ pub(crate) struct OwedReport {
 pub(crate) struct RunReport {
     /// How the run ended, as the report header says it.
     pub(crate) status: CellStatus,
-    /// The report body: the run's header line, then the script's output.
+    /// The report body: the run's header line, its problems, how to
+    /// resume it, then the script's output.
     pub(crate) body: String,
 }
 
 impl RunReport {
     /// The report of run `run_id`, whose record is `record`, with the
     /// script's `output`.
-    fn ended(run_id: &str, record: &RunRecord, output: &str) -> Self {
+    pub(super) fn ended(run_id: &str, record: &RunRecord, output: &str) -> Self {
         // A run reports only once it ended; a running state cannot reach
         // here and reports as an error.
-        let (status, word) = match &record.state {
-            WorkflowRunState::Done => (CellStatus::Ok, "done"),
-            WorkflowRunState::Failed { .. } => (CellStatus::Error, "failed"),
-            WorkflowRunState::Cancelled => (CellStatus::Aborted, "cancelled"),
-            WorkflowRunState::Running => (CellStatus::Error, "running"),
+        let (status, word, retried) = match &record.state {
+            WorkflowRunState::Done => (CellStatus::Ok, "done", !record.problems.is_empty()),
+            WorkflowRunState::Failed { .. } => (CellStatus::Error, "failed", true),
+            WorkflowRunState::Cancelled => (CellStatus::Aborted, "cancelled", true),
+            WorkflowRunState::Running => (CellStatus::Error, "running", true),
+        };
+        let reusable = record.reusable();
+        let resume = if retried && reusable > 0 {
+            format!("A rerun with resume: \"{run_id}\" reuses the {reusable} agents that finished.")
+        } else {
+            String::new()
         };
         let header = format!("workflow run {run_id} ({}): {word}", record.meta.name);
-        let body = if output.is_empty() {
-            header
-        } else {
-            format!("{header}\n{output}")
-        };
+        let body = [header, record.problem_report(), resume, output.to_owned()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         Self { status, body }
     }
 }
