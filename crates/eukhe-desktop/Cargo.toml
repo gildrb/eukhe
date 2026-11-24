@@ -30,6 +30,17 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace", "block2"] }
 objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "SCShareableContent", "SCScreenshotManager", "SCStream", "block2", "objc2-core-graphics", "objc2-core-foundation"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# X11 in pure Rust (no libxcb, no unsafe here): window list, Composite and
+# screen capture, XTEST input, XInput 2 MPX pair and raw events, the
+# screensaver idle time. MIT OR Apache-2.0.
+x11rb = { version = "0.13.2", features = ["composite", "screensaver", "xinput", "xtest"] }
+# AT-SPI proxies over D-Bus. MIT OR Apache-2.0.
+atspi = { version = "0.30.0", default-features = false, features = ["proxies", "zbus"] }
+# The D-Bus connection the proxies use; `blocking-api` gives the session
+# worker thread blocking calls. MIT.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+
 [dev-dependencies]
 # Step and selector decoding tests read the JSON the tools send. Already in
 # the graph.
