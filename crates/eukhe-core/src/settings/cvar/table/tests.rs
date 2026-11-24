@@ -113,6 +113,7 @@ fn populated() -> Settings {
         provider_backup_model: Some("m".into()),
         model: Some(ModelSettings {
             backups: Some(vec!["m".into()]),
+            stream_retries: Some(1),
         }),
         image_model: Some("m".into()),
         directors: Some(DirectorSettings {

@@ -227,6 +227,10 @@ pub struct ModelSettings {
     /// order a dead end tries them) the session's automatic failover may
     /// move to. Empty: no failover.
     pub backups: Option<Vec<String>>,
+    /// `model.streamRetries`: the same-model stream retries one turn may
+    /// spend on a transient cut of its provider stream (the harness); a
+    /// cut past the budget goes on as without it.
+    pub stream_retries: Option<u32>,
 }
 
 /// `modelRoles.<role>`: the primary model selector of each role

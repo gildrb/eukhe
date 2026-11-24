@@ -1039,6 +1039,10 @@ mod queue {
                 base_delay_ms: Some(1.0),
                 ..PartialRetryPolicy::default()
             });
+            // The faux 503 carries no recorded status, so it classifies as
+            // a stream cut; pin the stream budget off to test the
+            // retry.maxRetries path this test is about.
+            settings.stream_retries = Some(0);
         });
         let input_submission = submit(&root, input("say hi")).await;
         first.reached().await;

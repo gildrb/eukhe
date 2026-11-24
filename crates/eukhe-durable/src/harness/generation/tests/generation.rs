@@ -612,9 +612,13 @@ async fn fails_with_model_error_once_retries_are_exhausted() {
         error_503().into(),
         text_message("never").into(),
     ]);
-    setup
-        .settings
-        .update(|settings| settings.retry = Some(retry(true, Some(1))));
+    setup.settings.update(|settings| {
+        settings.retry = Some(retry(true, Some(1)));
+        // The faux 503 carries no recorded status, so it classifies as
+        // a stream cut; pin the stream budget off to test the
+        // retry.maxRetries path this test is about.
+        settings.stream_retries = Some(0);
+    });
     let OpenChat { harness, root } = open_chat(storage(), &setup, None).await.unwrap();
     harness.resume().unwrap();
     let settled = root
@@ -626,7 +630,7 @@ async fn fails_with_model_error_once_retries_are_exhausted() {
         .unwrap();
     assert_matches(
         settled.record(),
-        r#"{"status":"unanswered","reason":"model_error","detail":"503 Service Unavailable"}"#,
+        r#"{"status":"unanswered","reason":"model_error","detail":"faux-1's stream was cut 1 times; last failure: 503 Service Unavailable. Set model.backups to let another model take the turn."}"#,
     );
     assert_eq!(
         kinds(&all_entries(&root, context()).await.unwrap()),
